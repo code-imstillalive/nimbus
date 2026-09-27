@@ -27,8 +27,10 @@ from golden import harness, scenarios
 
 SNAPSHOTS = Path(__file__).parent / "golden" / "snapshots"
 
-# Measured, not asserted: each is a wall-clock duration of the solve.
-VOLATILE_KEYS = frozenset({"solve_seconds", "solve_time_s", "elapsed_s"})
+# Measured, not asserted: the solve's wall-clock duration, published as
+# ``solve_seconds``. The only such key in custom_components/nimbus_load; a
+# new timing field must be added here by name.
+VOLATILE_KEYS = frozenset({"solve_seconds"})
 
 
 def canonical(value: Any) -> Any:
@@ -78,7 +80,8 @@ def _first_difference(a: Any, b: Any, path: str = "$") -> str | None:
 
 @pytest.mark.parametrize("name", scenarios.names())
 def test_golden_master(name: str) -> None:
-    got = comparable(harness.run_isolated(name))
+    record = harness.run_isolated(name)
+    got = comparable(record)
     path = SNAPSHOTS / f"{name}.json.gz"
     if os.environ.get("GOLDEN_UPDATE") == "1":
         SNAPSHOTS.mkdir(parents=True, exist_ok=True)
@@ -87,4 +90,21 @@ def test_golden_master(name: str) -> None:
     assert path.exists(), f"no snapshot for {name}; run with GOLDEN_UPDATE=1"
     want = json.loads(gzip.decompress(path.read_bytes()))
     diff = _first_difference(want, got)
-    assert diff is None, f"golden master {name} changed at {diff}"
+    assert diff is None, (
+        _version_note(record) + f"golden master {name} changed at {diff}"
+    )
+
+
+def _version_note(record: dict) -> str:
+    """Name a Python mismatch first, so a float difference from another
+    interpreter is not read as a behaviour change. Not a hard check: that
+    would fail or skip the gate on every other version."""
+    ran = tuple(record.get("python", ())[:2])
+    if ran == harness.RECORDED_PYTHON:
+        return ""
+    want = ".".join(map(str, harness.RECORDED_PYTHON))
+    got = ".".join(map(str, ran))
+    return (
+        f"snapshots were recorded on Python {want} and this ran on {got}; "
+        "a float difference may be the interpreter, not your change. "
+    )

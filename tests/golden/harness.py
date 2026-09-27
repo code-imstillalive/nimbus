@@ -47,7 +47,8 @@ NUMERIC_ENV = {
 
 # The CPython minor version snapshots are recorded on: CI's Unit Tests job
 # (.github/workflows/ci.yml, python-version "3.14") and pyproject's
-# requires-python floor.
+# requires-python floor. test_golden_master names a mismatch first in its
+# failure message; it is not a hard check.
 RECORDED_PYTHON = (3, 14)
 
 

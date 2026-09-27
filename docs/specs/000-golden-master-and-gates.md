@@ -80,14 +80,17 @@ directory.
 For each cycle: every state posted (entity id, state, all attributes), every
 service call, every request path, every WARNING or higher log record. After
 the last cycle: every file in the state directory, parsed if JSON. The Python
-version is recorded and not compared.
+version is recorded and not compared. When a comparison fails on a Python
+other than the one the snapshots were recorded on (3.14, CI's), the failure
+says so first. A state file that is not UTF-8 is recorded as its size and
+SHA-256, so it is still compared.
 
 ### Canonical form
 
 Keys sorted, floats round-tripped through `repr`, JSON gzipped with `mtime=0`.
-Excluded keys: `solve_seconds`, `solve_time_s`, `elapsed_s` (wall-clock
-durations). Nothing else is excluded; `generated_at` and every timestamp are
-stable under the frozen clock (three consecutive runs gave identical records).
+Excluded key: `solve_seconds`, the solve's wall-clock duration and the only
+such field in the package. Nothing else is excluded; `generated_at` and
+every timestamp are stable under the frozen clock (three consecutive runs gave identical records).
 
 ### Scenarios (synthetic tier)
 

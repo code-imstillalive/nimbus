@@ -9,6 +9,7 @@ to be run by hand except when debugging a scenario. Imports numpy (through
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,6 +21,20 @@ from unittest.mock import patch
 # pytest's pythonpath setting, applied the way pytest applies it: after
 # the interpreter and the stdlib modules above are loaded (harness.py).
 sys.path.insert(0, os.environ["GOLDEN_PKG"])
+
+
+def _file_record(raw: bytes) -> object:
+    """A state file as the record holds it: parsed JSON, else text, else
+    (for a file that is not UTF-8) its size and SHA-256, so a binary
+    artifact is still compared rather than crashing the scenario."""
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return {"binary_bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
 
 
 def main(argv: list[str]) -> int:
@@ -71,11 +86,7 @@ def main(argv: list[str]) -> int:
     for path in sorted(workdir.iterdir()):
         if path.name == out_path.name or not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8")
-        try:
-            files[path.name] = json.loads(text)
-        except ValueError:
-            files[path.name] = text
+        files[path.name] = _file_record(path.read_bytes())
 
     record = {
         "scenario": name,
