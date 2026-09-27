@@ -28,6 +28,7 @@ import unittest
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 NAMEPLATE = 122.2
@@ -98,13 +99,28 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
     """number.py clamps the entity to [1, 100], so these are reachable
     only from hand-edited config or the cron copy's own YAML. A nonsense
     value must not silently shrink a real pack, nor inflate one past its
-    nameplate."""
+    nameplate.
+
+    nimbus issue #1301 (spec 001): `resolve_effective_capacity_kwh()` now
+    lives in `solver_shared.py`, so its own `_LOGGER.warning(...)` call
+    resolves `_LOGGER` from `solver_shared`'s module globals, not
+    `solver_writer`'s -- even though `solver_writer._LOGGER is
+    solver_shared._LOGGER` (a genuine alias, same object, see
+    solver_shared.py's own module docstring), `unittest.mock.patch.object`
+    replaces a NAMESPACE BINDING on whichever module you name, not the
+    underlying object everywhere it's referenced. Patching
+    `solver_writer._LOGGER` therefore does not intercept this call any
+    more (nimbus issue #861's exact failure mode); patching
+    `solver_shared._LOGGER` does. `solver_writer.resolve_effective_
+    capacity_kwh` is still the identical function object (re-exported),
+    so the calls below are otherwise unchanged.
+    """
 
     def setUp(self):
         solver_writer._SOH_RANGE_WARNED.clear()
 
     def test_zero_does_not_annihilate_the_battery(self):
-        with patch.object(solver_writer, "_LOGGER"):
+        with patch.object(solver_shared, "_LOGGER"):
             self.assertEqual(
                 solver_writer.resolve_effective_capacity_kwh(
                     _cfg(solver_battery_soh_percent=0.0)
@@ -113,7 +129,7 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
             )
 
     def test_a_negative_value_does_not_produce_a_negative_pack(self):
-        with patch.object(solver_writer, "_LOGGER"):
+        with patch.object(solver_shared, "_LOGGER"):
             self.assertEqual(
                 solver_writer.resolve_effective_capacity_kwh(
                     _cfg(solver_battery_soh_percent=-5.0)
@@ -125,7 +141,7 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
         """A pack can read slightly over 100% when new. Believing it
         would plan against energy the hardware does not have -- the same
         direction of error this issue exists to remove."""
-        with patch.object(solver_writer, "_LOGGER"):
+        with patch.object(solver_shared, "_LOGGER"):
             self.assertEqual(
                 solver_writer.resolve_effective_capacity_kwh(
                     _cfg(solver_battery_soh_percent=105.0)
@@ -138,7 +154,7 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
         a new place. Refusing loudly every solve cycle would reproduce
         nimbus #945's, which buried its own signal at 99 lines an hour.
         """
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             for _ in range(5):
                 solver_writer.resolve_effective_capacity_kwh(
                     _cfg(solver_battery_soh_percent=0.0)
@@ -152,7 +168,7 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
         """Dedup keyed on the value, not a one-shot latch -- a household
         that fixes 0 to -5 has made a second mistake and should hear
         about it."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             solver_writer.resolve_effective_capacity_kwh(
                 _cfg(solver_battery_soh_percent=0.0)
             )
