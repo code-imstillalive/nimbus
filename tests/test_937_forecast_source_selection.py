@@ -66,7 +66,9 @@ def _load_module():
     dependencies and this loader is what PROVES it -- if an HA import is ever
     added, this file fails first.
     """
-    spec = importlib.util.spec_from_file_location("forecast_source_selection", _MODULE_PATH)
+    spec = importlib.util.spec_from_file_location(
+        "forecast_source_selection", _MODULE_PATH
+    )
     module = importlib.util.module_from_spec(spec)
     # Registered before exec: `dataclasses` resolves annotations through
     # `sys.modules[cls.__module__]` and raises AttributeError without it.
@@ -236,9 +238,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
 
     def test_a_winning_forecaster_is_left_alone(self):
         d = select_forecast_source(
-            value_add_by_day={
-                f"2026-09-{day:02d}": +0.5 for day in range(5, 13)
-            },
+            value_add_by_day={f"2026-09-{day:02d}": +0.5 for day in range(5, 13)},
             today=TODAY,
             policy=fss.POLICY_PERSISTENCE,
         )
@@ -252,9 +252,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
         inside +-10c -- not a reason to change what a live battery dispatches
         on."""
         d = select_forecast_source(
-            value_add_by_day={
-                f"2026-09-{day:02d}": -0.03 for day in range(5, 13)
-            },
+            value_add_by_day={f"2026-09-{day:02d}": -0.03 for day in range(5, 13)},
             today=TODAY,
             policy=fss.POLICY_PERSISTENCE,
         )
@@ -266,9 +264,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
         # A boundary that has to be decided somewhere; pinned so it is decided
         # once rather than re-derived from the comparison operator.
         d = select_forecast_source(
-            value_add_by_day={
-                f"2026-09-{day:02d}": -0.10 for day in range(5, 13)
-            },
+            value_add_by_day={f"2026-09-{day:02d}": -0.10 for day in range(5, 13)},
             today=TODAY,
             policy=fss.POLICY_PERSISTENCE,
             loss_threshold_dollars=0.10,
@@ -282,9 +278,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
         d = _issue_decision(fss.POLICY_PERSISTENCE, loss_threshold_dollars=-0.10)
         self.assertEqual(d.persistence_weight, 1.0)
         winners = select_forecast_source(
-            value_add_by_day={
-                f"2026-09-{day:02d}": +0.5 for day in range(5, 13)
-            },
+            value_add_by_day={f"2026-09-{day:02d}": +0.5 for day in range(5, 13)},
             today=TODAY,
             policy=fss.POLICY_PERSISTENCE,
             loss_threshold_dollars=-0.10,
@@ -316,9 +310,7 @@ class TestActingOnTheIssuesOwnNumbers(unittest.TestCase):
 
     def test_a_blend_only_reaches_one_if_persistence_won_every_day(self):
         d = select_forecast_source(
-            value_add_by_day={
-                f"2026-09-{day:02d}": -1.0 for day in range(5, 13)
-            },
+            value_add_by_day={f"2026-09-{day:02d}": -1.0 for day in range(5, 13)},
             today=TODAY,
             policy=fss.POLICY_BLEND,
         )
@@ -497,7 +489,7 @@ class TestTheModuleStaysPure(unittest.TestCase):
                 imported.append(node.module)
         for name in imported:
             self.assertFalse(
-                name.startswith("homeassistant") or name.startswith("numpy"),
+                name.startswith(("homeassistant", "numpy")),
                 f"{name} would end this module's portability",
             )
 

@@ -63,7 +63,7 @@ _WRITER = _NIMBUS / "solver_writer.py"
 _LOAD = _NIMBUS / "solver_inputs" / "load.py"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
@@ -482,9 +482,7 @@ class TestMeasureReadsTheRecordButChangesNothing(unittest.TestCase):
         self.assertEqual(self.writer.reads, 1)
         self.assertIs(out, load)
         self.assertIsNone(persistence)
-        self.assertEqual(
-            decision.reason, fss.REASON_PERSISTENCE_FAVOURED_MEASURE_ONLY
-        )
+        self.assertEqual(decision.reason, fss.REASON_PERSISTENCE_FAVOURED_MEASURE_ONLY)
 
     def test_it_never_touches_the_recorder(self):
         """No baseline is needed to recommend one, and a recorder read on every
@@ -524,7 +522,7 @@ class TestActingNeedsARealBaseline(unittest.TestCase):
         self.assertEqual(decision.reason, "persistence_baseline_unavailable")
 
     def test_the_refusal_keeps_the_evidence_so_it_is_diagnosable(self):
-        """"I set the policy and nothing changed" has to be answerable from the
+        """ "I set the policy and nothing changed" has to be answerable from the
         published attributes alone."""
         mod = self._mod()
         _out, decision, _p = mod._resolve_load_forecast_source(
@@ -641,7 +639,7 @@ class TestThePersistenceBaselineLooksBackTwentyFourHours(unittest.TestCase):
         """A 1-minute solve cadence must not become sixty 24-hour recorder reads
         an hour."""
         cfg = {"solver_whole_house_cross_check_sensor": "sensor.house"}
-        for minute in range(0, 10):
+        for minute in range(10):
             self.mod._seasonal_naive_load_kw(
                 cfg, _grid(), 0.25, NOW + timedelta(minutes=minute)
             )
@@ -777,7 +775,7 @@ class TestTheDecisionIsPublished(unittest.TestCase):
     def test_a_real_decision_publishes_scalars(self):
         decision = fss.select_forecast_source(
             value_add_by_day=LOSING_RECORD,
-            today=datetime(2026, 9, 13).date(),
+            today=datetime(2026, 9, 13, tzinfo=BNE).date(),
             policy=fss.POLICY_BLEND,
         )
         out = self.fn(decision)
@@ -805,7 +803,9 @@ class TestTheDecisionIsPublished(unittest.TestCase):
         """`round(None, 4)` raises, and the mean is legitimately absent whenever
         the window held no scored day."""
         decision = fss.select_forecast_source(
-            value_add_by_day={}, today=datetime(2026, 9, 13).date(), policy="measure"
+            value_add_by_day={},
+            today=datetime(2026, 9, 13, tzinfo=BNE).date(),
+            policy="measure",
         )
         out = self.fn(decision)
         self.assertIsNone(out["load_forecast_source_mean_value_add_dollars"])
