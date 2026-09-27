@@ -31,6 +31,7 @@ one that was never there.
 
 from __future__ import annotations
 
+import ast
 import os
 import unittest
 from unittest.mock import patch
@@ -114,18 +115,89 @@ class TestBothCallSitesUseIt(unittest.TestCase):
             "wrote will still be there",
         )
 
-    def test_both_sites_call_the_note(self):
+    def _lp_tree(self) -> ast.Module:
         src = lp.__file__.replace(".pyc", ".py")
         with open(src, encoding="utf-8") as f:
-            text = f.read()
+            return ast.parse(f.read())
+
+    def test_both_sites_call_the_note(self):
+        """Every dump-announcing log line in lp.py passes the note.
+
+        Counted as CALLS, in the AST, not as occurrences of the string
+        `_dump_location_note()` in the file.
+
+        nimbus issue #1179 is why. This assertion used to require exactly 3
+        occurrences of that substring -- one definition and two call sites --
+        and it broke the moment another function's *docstring* mentioned the
+        name, which is +1 with no behaviour change at all. That is precisely
+        the failure the sibling test above already records in its own
+        docstring: "A guard that cannot tell prose from code cries wolf, and
+        this repo has already switched off tests that did." The same guard
+        was two assertions away from doing it.
+
+        Counting calls instead pins the property the issue is about -- a dump
+        is never announced without saying whether it will survive -- and
+        cannot be moved by a comment, a docstring or a reference in prose.
+        """
+        tree = self._lp_tree()
+        logging_calls_passing_the_note = 0
+        total_note_calls = 0
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "_dump_location_note"
+            ):
+                total_note_calls += 1
+            is_log = (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "_LOGGER"
+            )
+            if is_log and any(
+                isinstance(a, ast.Call)
+                and isinstance(a.func, ast.Name)
+                and a.func.id == "_dump_location_note"
+                for a in node.args
+            ):
+                logging_calls_passing_the_note += 1
+
         self.assertEqual(
-            text.count("_dump_location_note()"),
-            3,
-            "expected one definition and exactly two call sites (the slow "
-            "path and the failing path) -- a dump that announces itself "
-            "without saying whether it will still be there is the whole "
-            "defect this fixes",
+            logging_calls_passing_the_note,
+            2,
+            "expected exactly two log lines to pass the note (the slow path "
+            "and the failing path) -- a dump that announces itself without "
+            "saying whether it will still be there is the whole defect this "
+            "fixes",
         )
+        # Non-vacuity: the two above are calls, so the total can never be
+        # lower, and this catches a third caller appearing unnoticed.
+        self.assertEqual(
+            total_note_calls,
+            3,
+            "expected three calls to _dump_location_note(): the two log "
+            "lines above, plus the one delegation inside the public "
+            "dump_location_note() alias that solver_writer.py uses for the "
+            "same purpose (nimbus issue #1179)",
+        )
+
+    def test_the_public_alias_exists_and_only_delegates(self):
+        """nimbus issue #1179: `solver_writer.py` announces its own #1179
+        capture and needs this sentence there. It goes through a public
+        alias rather than reaching across modules for the private name, so a
+        rename in `lp.py` cannot silently break the other module -- and the
+        alias must stay a pure delegation, not a second copy of the wording.
+        """
+        self.assertTrue(
+            callable(getattr(lp, "dump_location_note", None)),
+            "lp.dump_location_note() is the public entry point "
+            "solver_writer.py calls; removing it breaks that log line",
+        )
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(lp.dump_location_note(), lp._dump_location_note())
+        with patch.dict(os.environ, {lp._LP_DUMP_DIR_ENV: "/somewhere"}, clear=True):
+            self.assertEqual(lp.dump_location_note(), lp._dump_location_note())
 
 
 if __name__ == "__main__":
