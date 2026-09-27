@@ -397,6 +397,42 @@ class _FakeShared:
         return out
 
 
+# The keys _load_module() writes into sys.modules. Snapshotted before this
+# file's first test and restored after its last, because leaving them in place
+# is a real, measured defect rather than untidiness: after any test here ran,
+# sys.modules["solver_writer"] WAS _FakeSolverWriter for the rest of the
+# pytest process, so every later test doing `import solver_writer` silently
+# got the fake. That surfaced in CI as 32 failures in files this one never
+# touches -- test_solver_writer_smoothness_and_proximal_weight_wiring.py read
+# its weights as None instead of 0.005/0.02 -- while passing in isolation.
+#
+# tests/_solver_path.py already documents this exact hazard for #1329: "when
+# that file installs anything global at module level ... the last import
+# wins". Same mechanism, different global.
+_HIJACKED_MODULES = (
+    "solver",
+    "solver.forecast_source_selection",
+    "solver_shared",
+    "solver_writer",
+    "_load_inputs_937",
+)
+_MODULE_SNAPSHOT: dict[str, object] = {}
+
+
+def setUpModule():
+    for name in _HIJACKED_MODULES:
+        if name in sys.modules:
+            _MODULE_SNAPSHOT[name] = sys.modules[name]
+
+
+def tearDownModule():
+    for name in _HIJACKED_MODULES:
+        if name in _MODULE_SNAPSHOT:
+            sys.modules[name] = _MODULE_SNAPSHOT[name]
+        else:
+            sys.modules.pop(name, None)
+
+
 def _load_module(shared, writer):
     """Load `solver_inputs/load.py` by path with both seams faked.
 
