@@ -632,6 +632,15 @@ _NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
         "sensor.nimbus_flex_signals",
         "sensor.nimbus_flex_report",
         "sensor.nimbus_offer_curve",
+        # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+        # record. Added in the same change that registers its handler, for
+        # the reason #1192 exists -- and it matters more here than for most
+        # of this set: this entity's state is a timestamp STRING and its one
+        # large attribute is `_unrecorded_attributes`-excluded on the entity
+        # class, so the raw states.async_set() fallback would write a state
+        # HA's numeric contracts reject and record a payload the entity path
+        # deliberately does not.
+        "sensor.nimbus_flex_telemetry",
     }
 )
 

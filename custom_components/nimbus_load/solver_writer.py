@@ -234,6 +234,15 @@ try:
 except ImportError:
     import household_modes  # type: ignore[no-redef]
 
+# nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+# schema-v2.0 record shape. Pure stdlib, no HA and no other Nimbus
+# module -- see that module's own docstring for the three measurement
+# decisions it owns. Same dual-mode import as household_modes above.
+try:
+    from . import flex_telemetry
+except ImportError:
+    import flex_telemetry  # type: ignore[no-redef]
+
 # nimbus issue #735 stage 3, pulled forward: the load-input block stage 2
 # wants to extract has an ha_post_state() call sitting INSIDE it, so that
 # block could not move without putting a publish into an inputs module.
@@ -244,6 +253,12 @@ try:
     from . import solver_publish
 except ImportError:
     import solver_publish  # type: ignore[no-redef]
+# nimbus issue #495: the flex-telemetry publish lives in solver_publish.py
+# -- see the comment at its definition for why it was placed there rather
+# than added to this file. Re-exported so existing call sites and the three
+# tests that call solver_writer.publish_flex_telemetry_record() resolve the
+# identical object.
+publish_flex_telemetry_record = solver_publish.publish_flex_telemetry_record
 # aemo_crosscheck is noqa'd, not deleted: since #735 stage 4 moved the
 # price/P2P branch out, its only consumer reaches it as an ATTRIBUTE of
 # this module (sw.aemo_crosscheck) from solver_inputs/prices.py, which
@@ -2695,6 +2710,184 @@ def publish_flex_signals(plan) -> None:
             "load_signals": load_signals,
             "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
         },
+    )
+
+
+FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
+
+# Why a record can be absent, in the two expected cases. Held as module
+# constants so the reasons are one grep away from the entity that goes
+# `unknown` because of them, and so build_flex_telemetry_record() stays
+# inside the #1301 size gate (tests/gates/size_ratchet.py).
+_FLEX_TELEMETRY_RANGING_OFF = (
+    "no ranging signals this cycle -- switch.nimbus_solver_flex_signals_enabled "
+    "is off, which is the default, and it costs ~9x solve time when on (measured "
+    "on a real install: median 1.16 s -> 10.3 s). The schema's own flex_available_"
+    "up_kw/_down_kw are required, non-nullable numbers and come from ranging, so "
+    "there is no valid partial record to emit instead."
+)
+_FLEX_TELEMETRY_NO_HISTORY = (
+    "no real recorder history for [{start}, {end}) on the solar/battery/"
+    "whole-house sensors, or one of them is unconfigured under Solver settings "
+    "-- the same three compute_daily_quality_report() already requires"
+)
+
+
+def _flex_telemetry_measured(
+    cfg: dict, interval_start: datetime, interval_end: datetime
+) -> dict | None:
+    """The four measured kW figures for ONE complete NEM 5-minute
+    interval, as genuine period means -- `None` when the three sensors
+    `compute_daily_quality_report()` already requires are unconfigured, or
+    when the recorder holds no sample for any of them in the window.
+
+    Deliberately the same three sensors, the same `_kw_scale_factor()`
+    scaling, the same `solver_battery_power_positive_is_charge` sign
+    resolution and the same energy-balance identity as
+    `_compute_flex_report_for_window()` -- a second, independently-derived
+    net-import formula is exactly how two Nimbus surfaces end up
+    disagreeing about the same interval (#116's class).
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    battery_sensor = cfg.get("solver_battery_power_sensor")
+    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
+    if not solar_sensor or not battery_sensor or not load_sensor:
+        return None
+    solar_hist = fetch_entity_history_range(solar_sensor, interval_start, interval_end)
+    load_hist = fetch_entity_history_range(load_sensor, interval_start, interval_end)
+    battery_hist = fetch_entity_history_range(
+        battery_sensor, interval_start, interval_end
+    )
+    if not solar_hist or not load_hist or not battery_hist:
+        return None
+    grid_times = [interval_start]
+    period_hours = flex_telemetry.INTERVAL_SECONDS / 3600.0
+
+    def _mean(hist, entity_id: str) -> float:
+        return resample_history_mean(hist, grid_times, period_hours)[
+            0
+        ] * _kw_scale_factor(entity_id)
+
+    battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
+    solar_kw = max(0.0, _mean(solar_hist, solar_sensor))
+    load_kw = max(0.0, _mean(load_hist, load_sensor))
+    net_battery_kw = _mean(battery_hist, battery_sensor) * battery_sign
+    charge_kw = max(0.0, -net_battery_kw)
+    discharge_kw = max(0.0, net_battery_kw)
+    return {
+        "solar_kw": solar_kw,
+        "house_load_kw": load_kw,
+        "net_import_kw": load_kw - solar_kw - discharge_kw + charge_kw,
+        # `subtraction`: the same identity with the battery terms removed.
+        # See flex_telemetry.py's own decision 2.
+        "naive_baseline_kw": load_kw - solar_kw,
+    }
+
+
+def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[dict]:
+    """One `assets[]` entry per battery the LP actually planned for.
+
+    Three sources joined by `name`, which is the key `BatteryPlan`/
+    `BatterySignals` already use for exactly this: the plan for SoC and
+    the period-0 setpoint, `plan.battery_signals` for the PHYSICAL
+    available up/down (never the ranging pair -- the schema's own
+    `available_up_kw` is the hardware figure, and `BatterySignals`'
+    docstring says so), and the `BatteryConfig` list for capacity and the
+    discharge ceiling `bidirectional_capable` is derived from.
+
+    `shadow_power_balance_price` is the household λ for every asset, per
+    #495's own field table ("per-battery once #467 lands, else the
+    household λ") -- the LP has one `power_balance_t` row, so there is no
+    per-battery dual to read yet.
+    """
+    signals_by_name = {b.name: b for b in plan.battery_signals}
+    configs_by_name = {b.name: b for b in batteries}
+    assets: list[dict] = []
+    for bp in plan.batteries:
+        cfg_entry = configs_by_name.get(bp.name)
+        signal = signals_by_name.get(bp.name)
+        assets.append(
+            flex_telemetry.build_asset(
+                name=bp.name,
+                capacity_kwh=float(getattr(cfg_entry, "capacity_kwh", 0.0) or 0.0),
+                soc_kwh=float(bp.soc_kwh[0]),
+                charge_kw=float(bp.charge_kw[0]),
+                discharge_kw=float(bp.discharge_kw[0]),
+                max_discharge_kw=float(
+                    getattr(cfg_entry, "max_discharge_kw", 0.0) or 0.0
+                ),
+                available_up_kw=(
+                    float(signal.available_up_kw[0]) if signal is not None else 0.0
+                ),
+                available_down_kw=(
+                    float(signal.available_down_kw[0]) if signal is not None else 0.0
+                ),
+                shadow_power_balance_price=household_lambda,
+                clamped=clamped,
+            )
+        )
+    return assets
+
+
+def build_flex_telemetry_record(
+    cfg: dict,
+    plan,
+    now: datetime,
+    *,
+    batteries,
+    import_price: float,
+    export_price: float,
+    import_limit_kw: float,
+    export_limit_kw: float,
+    period_hours: float,
+):
+    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute
+    interval (#495) -- `.record` None with a `.reason` when no VALID
+    record is possible. Never raises. Every measurement and contract
+    decision lives in `flex_telemetry.py`'s own docstring."""
+    if plan.grid_signals is None:
+        return flex_telemetry.RecordBuild(reason=_FLEX_TELEMETRY_RANGING_OFF)
+    interval_start = flex_telemetry.last_complete_interval_start(now)
+    interval_end = interval_start + timedelta(seconds=flex_telemetry.INTERVAL_SECONDS)
+    measured = _flex_telemetry_measured(cfg, interval_start, interval_end)
+    if measured is None:
+        return flex_telemetry.RecordBuild(
+            reason=_FLEX_TELEMETRY_NO_HISTORY.format(
+                start=interval_start.isoformat(), end=interval_end.isoformat()
+            )
+        )
+    gs = plan.grid_signals
+    hours = period_hours if period_hours > 0 else 1.0
+    household_lambda = plan.duals.get("power_balance_t0", 0.0) / hours
+    # `solar_used_0`'s own upper bound IS period 0's solar forecast, so its
+    # reduced cost is #495's "solar-used bound". None, never a plausible 0.
+    reduced = plan.reduced_costs
+    solar_shadow = reduced.get("solar_used_0", 0.0) / hours if reduced else None
+    clamped: list[str] = []
+    return flex_telemetry.build_record(
+        interval_start=interval_start,
+        region=cfg.get("region"),
+        postcode_prefix=cfg.get("postcode_prefix"),
+        net_import_kw=measured["net_import_kw"],
+        solar_kw=measured["solar_kw"],
+        house_load_kw=measured["house_load_kw"],
+        deferrable_load_kw=0.0,  # #476 gates a real figure; slot reserved
+        naive_baseline_kw=measured["naive_baseline_kw"],
+        # "seen by the optimiser": the price the LP was BUILT with, not a
+        # fresh read that could have moved since.
+        price_signal_seen=import_price,
+        price_export_seen=export_price,
+        envelope_import_limit_kw=import_limit_kw,
+        envelope_export_limit_kw=export_limit_kw,
+        flex_available_up_kw=float(gs.flex_available_up_kw[0]),
+        flex_available_down_kw=float(gs.flex_available_down_kw[0]),
+        shadow_energy_price=household_lambda,
+        shadow_solar_forecast_price=solar_shadow,
+        # GridSignals' own docstring: these two ARE #493's envelope shadows.
+        shadow_envelope_import_price=float(gs.forced_import_cost[0]),
+        shadow_envelope_export_price=float(gs.forced_export_cost[0]),
+        assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
+        clamped_in=clamped,
     )
 
 
@@ -16623,6 +16816,24 @@ def main() -> None:
     # enabled was true above (plan.grid_signals stays None otherwise) --
     # see publish_flex_signals()'s own docstring.
     publish_flex_signals(plan)
+    # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+    # schema-v2.0 record. Gated on the SAME switch as the flex signals
+    # above, and not by choice -- the schema's own `flex_available_up_kw`/
+    # `_down_kw` are required, non-nullable numbers, and they come from
+    # `Plan.grid_signals`, which is None unless ranging ran. So "default
+    # off" and "costs ~9x solve time when on" are inherited facts here,
+    # not a second decision.
+    solver_publish.publish_flex_telemetry_record(
+        cfg,
+        plan,
+        now,
+        batteries=all_batteries,
+        import_price=float(import_price[0]),
+        export_price=float(export_price[0]),
+        import_limit_kw=float(np.asarray(import_limit_kw).ravel()[0]),
+        export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
+        period_hours=float(period_hours_arr[0]),
+    )
 
 
 if __name__ == "__main__":

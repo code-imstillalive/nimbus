@@ -35,3 +35,5 @@ rescore_history:
       example: "2026-09-24"
       selector:
         text:
+
+flex_telemetry_record:

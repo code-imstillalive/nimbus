@@ -992,6 +992,25 @@ DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
 # household opting in should do so deliberately, watching solve times
 # after flipping it, exactly the re-measure-at-your-own-scale posture
 # compute_signals' own docstring already asks of any caller.
+#
+# THE REAL FIGURE, measured on a live install rather than a synthetic
+# scenario (2026-09-26/27, recorded on #496 and asked for there by
+# @purcell-lab: "that's real information a household turning the switch on
+# should be told"): the reference household's hourly median solve time
+# stepped 1.16 s -> 10.30 s at the hour this switch went on, an 8.9x rise,
+# and held there for the five hours it stayed on. Nothing failed -- a 10 s
+# solve still fits the 1-minute tick, with no skipped cycles, no overlaps
+# and no solve failures -- so the honest summary is "~9x slower, still
+# working", not "dangerous". That is also the number to compare your own
+# install against after flipping it: a 9x rise is expected; a rise that
+# puts a cycle past the tick interval is not, and #773 is why the
+# difference matters on a big enough problem.
+#
+# The same cost is inherited by anything that NEEDS ranging, which as of
+# nimbus issue #495 includes the nem-flex-telemetry record: the schema's
+# required, non-nullable flex_available_up_kw/_down_kw come from
+# GridSignals, so sensor.nimbus_flex_telemetry is silent while this switch
+# is off and there is no cheaper partial record to emit instead.
 CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
 # nimbus issue #1213 (Mark Purcell): an additive price-event test sensor,
 # for simulating a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh --
