@@ -762,6 +762,15 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resample_history_nearest",
         "resolve_load_forecast_source_label",
         "update_solar_delivery_ratio",
+        # nimbus issue #1259: the index-0-vs-index-1 solar disagreement
+        # measurement. Listed beside update_solar_delivery_ratio above
+        # deliberately -- it shares that function's state file, its
+        # history reader and its rolling-window shape, none of which the
+        # docs/cron copy carries, so porting this one alone would leave
+        # a broken reference. The two want porting together, as one piece
+        # of work on the standalone copy's solar diagnostics, and both
+        # are gated on config a bare cron install may not even have.
+        "update_solar_nowcast_disagreement",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

@@ -196,6 +196,12 @@ try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
+# nimbus issue #1259: the nowcast-disagreement measurement lives in
+# solver_inputs/solar.py (see the comment at its definition for why it was
+# placed there rather than added here). Re-exported so this file's own call
+# site and the tests that reach solver_writer.update_solar_nowcast_
+# disagreement() resolve the identical object.
+update_solar_nowcast_disagreement = solar_inputs_solar.update_solar_nowcast_disagreement
 try:
     from .solver_inputs import load as load_inputs
 except ImportError:
@@ -10779,16 +10785,50 @@ SOLAR_DELIVERY_ROLLING_WINDOW_HOURS = 6.0
 # (e.g.) 0.80 during high-PV hours, that's implicit AC-side clipping."
 SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD = 0.80
 
+# nimbus issue #1259. How far apart solar_kw[0] (the live-measured
+# anchor) and solar_kw[1] (the first genuine forecast period) have to sit
+# before this cycle counts as a real DISAGREEMENT worth grading against
+# reality. 3.0 kW is derived from the one event on record, not picked: it
+# stepped 1.78 -> 15.89 kW, so any threshold below ~14 kW captures it,
+# and the reason to sit well below that is to capture the ORDINARY cases
+# too -- the open question is how often a sharp disagreement happens at
+# all, which a threshold tuned to the single known event could never
+# answer. Above the measurement noise of a real PV sensor, below any
+# step a household would notice on a chart.
+SOLAR_NOWCAST_DISAGREEMENT_KW = 3.0
+# Rolling window the published counts cover. Wider than the delivery
+# ratio's own 6 h because these events are RARE by construction (only
+# disagreements above the threshold are recorded), so a 6 h window would
+# usually publish zero and answer nothing. A full day also spans both a
+# morning and an afternoon cloud regime.
+SOLAR_NOWCAST_ROLLING_WINDOW_HOURS = 24.0
+
 
 def _load_solar_delivery_state() -> dict:
+    # nimbus issue #1259: two independent measurements now share this one
+    # state file (the #128 delivery ratio and the index-0-vs-index-1
+    # nowcast disagreement check). The nowcast keys are defaulted rather
+    # than required, so a state file written by any earlier version loads
+    # cleanly and simply starts with an empty nowcast buffer -- and both
+    # writers preserve keys they do not own (see each function's own save
+    # call), so neither can silently wipe the other's buffer.
+    state: dict = {
+        "pending": [],
+        "ratios": [],
+        "nowcast_pending": [],
+        "nowcast_events": [],
+        "nowcast_considered": [],
+        "nowcast_disagreements": [],
+    }
     try:
         with open(SOLAR_DELIVERY_RATIO_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and "pending" in data and "ratios" in data:
-            return data
+            state.update(data)
+            return state
     except (OSError, ValueError):
         pass
-    return {"pending": [], "ratios": []}
+    return state
 
 
 def _save_solar_delivery_state(state: dict) -> None:
@@ -10888,7 +10928,13 @@ def update_solar_delivery_ratio(
             }
         )
 
-    _save_solar_delivery_state({"pending": still_pending, "ratios": ratios})
+    # nimbus issue #1259: write back the state dict this function LOADED,
+    # with only the two keys it owns replaced -- not a freshly-built
+    # two-key dict, which would silently drop the nowcast buffer the
+    # sibling measurement keeps in this same file.
+    state["pending"] = still_pending
+    state["ratios"] = ratios
+    _save_solar_delivery_state(state)
 
     if not ratios:
         return {
@@ -12326,6 +12372,21 @@ def publish_plan(
             ),
             "solar_delivery_underperforming": (solar_delivery or {}).get(
                 "solar_delivery_underperforming", False
+            ),
+            # nimbus issue #1259: the index-0-vs-index-1 solar
+            # disagreement measurement, as ONE nested dict and only when
+            # it actually ran. Absent rather than None when the switch is
+            # off (the default), deliberately: an always-present null
+            # would widen the attribute surface of this entity, and every
+            # golden-master snapshot with it, for a measurement no
+            # install has asked for yet. See update_solar_nowcast_
+            # disagreement()'s own docstring for what each field means
+            # and why the mechanism #1259 originally proposed was
+            # rejected instead of built.
+            **(
+                {"solar_nowcast_check": (solar_delivery or {})["solar_nowcast_check"]}
+                if (solar_delivery or {}).get("solar_nowcast_check") is not None
+                else {}
             ),
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
@@ -15843,6 +15904,23 @@ def _publish_side_reports(
         # publishes above -- now logged instead of silently swallowed.
         _LOGGER.warning("Nimbus: solar delivery ratio update failed: %s", e)
         solar_delivery = None
+
+    # nimbus issue #1259: the index-0-vs-index-1 solar disagreement
+    # measurement, off unless
+    # switch.nimbus_solver_nowcast_measurement_enabled is on. Same "never break the real solve" wrapping as every publish
+    # above, and carried back on the same dict so the caller's own
+    # published-attributes block has one thing to read rather than two.
+    # Wrapped SEPARATELY from update_solar_delivery_ratio() on purpose:
+    # an opt-in measurement failing must not cost the household the #128
+    # ratio, which is on by default and has a real diagnostic use.
+    try:
+        nowcast = update_solar_nowcast_disagreement(cfg, now, grid_times, solar_kw)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        _LOGGER.warning("Nimbus: solar nowcast disagreement update failed: %s", e)
+        nowcast = None
+    if nowcast is not None:
+        solar_delivery = dict(solar_delivery or {})
+        solar_delivery["solar_nowcast_check"] = nowcast
     return solar_delivery
 
 
