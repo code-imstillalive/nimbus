@@ -51,6 +51,23 @@ ever patched and all bind stably: the standard library (`datetime`,
 (`elements`, `lp`, `network`). Everything else that today resolves in
 `solver_writer`'s namespace is reached via `sw.`.
 
+**`compute_quality_report` is NOT one of them, and getting that wrong is
+worth recording.** It comes from the pure `solver/` package, so it looks
+like it belongs in the list above -- and it was put there.
+`test_battery_power_sign_convention.py` patches it as
+`patch.object(solver_writer, "compute_quality_report", side_effect=spy)`, to
+intercept the real per-battery arrays the scorer built; that is the cleanest
+interception point available for what the code decided the household's
+battery actually did. A direct import made the spy invisible -- it never
+fired, `captured` stayed empty, and four tests died on `KeyError: 'charge'`.
+
+So the test is not "does it come from a pure package" but **"does anything
+patch it on the `solver_writer` module object"**. Re-measured across the
+whole suite for every name in the direct set, rather than assumed a second
+time: `compute_quality_report` is patched in 1 file, while `elements`, `lp`,
+`network`, `np`, `json`, `urllib`, `datetime` and `timedelta` are patched in
+none.
+
 A constant whose ONLY references are inside a function that moves here
 travels with that function and keeps a re-export alias in `solver_writer`,
 the same way PR #1350 handled `solver_shared.py`'s constants. That was

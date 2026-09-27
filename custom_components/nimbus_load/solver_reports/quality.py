@@ -63,10 +63,6 @@ try:
     from ..solver import elements
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
-try:
-    from ..solver.quality_report import compute_quality_report
-except ImportError:  # pragma: no cover - standalone/cron path
-    from solver.quality_report import compute_quality_report  # type: ignore[no-redef]
 
 
 # nimbus issue #1248: how the currently-published quality report read back.
@@ -955,7 +951,7 @@ def _compute_report_for_window(
     periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
 
     try:
-        report = compute_quality_report(
+        report = sw.compute_quality_report(
             periods=periods,
             grid_residual=grid_residual,
             grid_oracle=grid_oracle,
@@ -993,7 +989,7 @@ def _compute_report_for_window(
     # nimbus issue #1081 (Mark Purcell's decision, 2026-09-18): regret is
     # measured against `j_star_evaluator`, not the raw LP objective. The
     # LP is unchanged and `j_star` is still published beside this -- see
-    # compute_quality_report()'s own comment at the compute_epr() call
+    # sw.compute_quality_report()'s own comment at the compute_epr() call
     # for the full reasoning. Both numbers were already on the report;
     # only which one the headline derives from has changed.
     regret_dollars = report.j_ach - report.j_star_evaluator
@@ -1124,7 +1120,7 @@ def _compute_report_for_window(
         **nowcast_skill_attrs,
         **forecast_regret_attrs,
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
-        # hero chart, the compute_quality_report service payload, and the
+        # hero chart, the sw.compute_quality_report service payload, and the
         # LinkedIn article all treat this attribute as a 0..1 ratio. Do
         # not scale here.
         "epr": round(report.epr.epr, 4),
@@ -1243,7 +1239,7 @@ def _compute_report_for_window(
         "real_p2p_volume_kwh": round(real_p2p_volume_kwh, 3),
         # Hourly regret breakdown (2026-08-31, sibling addition to the
         # reconstruction dicts below): the per-hour actual-minus-oracle
-        # cost dict compute_quality_report already built via hourly_
+        # cost dict sw.compute_quality_report already built via hourly_
         # regret_breakdown() but never published. Fanned out to
         # sensor.nimbus_quality_regret_dollars via FLATTENED_ATTRS_QUALITY's
         # attrs_source_key = "hourly_regret". Same {str(hour): float, ...}
@@ -1315,7 +1311,7 @@ def _compute_report_for_window(
         # nimbus issue #858 (2026-09-14): these two are deliberately
         # HOME-BATTERY-ONLY -- they read the bare actual_charge_kw/
         # actual_discharge_kw, which is element 0 of the actual_*_kw_list
-        # handed to compute_quality_report(), not the whole fleet. That
+        # handed to sw.compute_quality_report(), not the whole fleet. That
         # is correct for the diagnostic described above (it compares the
         # configured solver_battery_power_sensor against solver_battery_
         # capacity_kwh, an inherently home-battery question), but it was
@@ -2534,7 +2530,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # renders correctly against unit_of_measurement="%" below.
         # The canonical 0..1 fraction stays available as the "epr"
         # attribute via the **day_entry expansion for consumers that
-        # want the raw ratio (compute_quality_report service payload,
+        # want the raw ratio (sw.compute_quality_report service payload,
         # OpEd hero chart, LinkedIn article calcs).
         day_entry["epr_pct"],
         {
