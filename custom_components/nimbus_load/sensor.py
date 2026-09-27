@@ -3160,9 +3160,18 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     defect: **if `recorder.db_schema` logs "State attributes for
     <one of these> exceed maximum size", the writer is not this entity.**
     Check `solve_diagnostics`' key count on the state -- current code
-    emits seven; fewer means stale or external code wrote it, which is a
-    deployment problem, not this class's. That check has caught three
+    emits **fourteen**; fewer means stale or external code wrote it, which
+    is a deployment problem, not this class's. That check has caught three
     wrong conclusions about live behaviour in a single session.
+
+    nimbus issue #1179: this number is a fingerprint of the shipped code, so
+    it moves whenever a key is added -- and it read "seven" while the code
+    emitted ten. Three keys behind, silently, which would have read a
+    CURRENT install as stale: the exact inversion of what the check is for.
+    Measured against the live reference household 2026-09-27 (ten keys,
+    v0.94.426) before being corrected here, and
+    `tests/test_1179_solve_failure_is_self_diagnosing.py` now pins this
+    sentence to the source so the two cannot drift apart again in silence.
     """
 
     _attr_has_entity_name = True

@@ -230,6 +230,30 @@ _EXPECTED_ATTRS = {
         "battery_soh_percent": 100.0,
         "battery_nameplate_capacity_kwh": 40.0,
         "battery_effective_capacity_kwh": 40.0,
+        # nimbus issue #1179: the blend-calibration outcome and the simplex
+        # iteration count of the cycle that produced this plan -- i.e. of a
+        # HEALTHY cycle, which is the base rate #1229/#1291 both argue makes
+        # "the failures took the fallback" falsifiable at all.
+        #
+        # Every value here is a deterministic property of this fixture, not a
+        # sample:
+        #   - the calibrator accepts its FIRST probe at `_CAL_LOG_HI` (-1.0)
+        #     and steps back by `_CAL_MARGIN` (1.0), so the weight is exactly
+        #     10**-2. Not HiGHS-version sensitive: no bisection runs.
+        #   - `False`/`None` because that acceptance means no fallback.
+        #   - **`simplex_iterations: 0` on an OPTIMAL solve**, which is the
+        #     single most useful thing this fixture now pins. #1179's
+        #     hypothesis is that its 0.1s failures were rejected before the
+        #     simplex loop, and the tempting read of a 0 there is "never
+        #     iterated, therefore rejected". This fixture is a counter-example
+        #     in the healthy direction: presolve finished it, so 0 iterations
+        #     is a *successful* solve here. The count only discriminates
+        #     against the same install's own baseline -- which is exactly why
+        #     it is published rather than only logged on failure.
+        "calibration_min_weight_fallback": False,
+        "calibration_fallback_reason": None,
+        "calibration_weight_used": 0.01,
+        "simplex_iterations": 0,
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body
