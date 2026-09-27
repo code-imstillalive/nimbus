@@ -123,13 +123,25 @@ and Phases 3 and 6 not at all. Each of those phases' specs adds the scenarios
 that reach its functions (see the native gap below) and quotes the coverage
 before it starts.
 
-### The native gap
+### The native gap — closed by #1335
 
 `build_controllable_loads`, `apply_commanded_state_guard` and `_update_all`
-return early when `_NATIVE_HASS is None` (solver_writer.py:13528, 13680,
-13871, 13964), which is the standalone path this harness drives. The golden
-master cannot see Phases 3 and 6 until a native-mode driver exists. That
-driver is a prerequisite of #1302 and #1305, not part of this spec.
+return early when `_NATIVE_HASS is None`, which is the standalone path this
+harness drives, so no scenario written for this spec could reach them.
+
+`tests/golden/fake_native.py` (nimbus issue #1335) is the driver: the
+in-process counterpart of `fake_ha.FakeHA`, fake enough for
+`set_native_hass()` to be given a real-shaped `hass` inside a scenario's own
+child process. `tests/golden/scenarios_native.py` adds the two scenarios that
+use it. Re-measured the same way as the table above:
+
+| Function | Covered, this spec | Covered, with the native scenarios |
+|---|---:|---:|
+| `build_controllable_loads` | 2.4% | 46.5% |
+| `apply_commanded_state_guard` | 1.1% | 56.2% |
+
+`kind=thermal` is still uncovered, deliberately — see #1335 and the
+`scenarios_native` docstring.
 
 ### Update rule
 

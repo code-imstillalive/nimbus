@@ -47,6 +47,86 @@ def test_two_cycles_reads_back_the_plan() -> None:
     assert first["forecast"][1]["shadow_price"] != second["forecast"][1]["shadow_price"]
 
 
+# ---------------------------------------------------------------------------
+# nimbus issue #1335: the native-mode scenarios reach build_controllable_loads
+# and apply_commanded_state_guard, both of which return on their first line
+# when _NATIVE_HASS is None. Each assertion below is 0/absent on the
+# standalone path every other scenario takes, so none of them can be met by a
+# scenario that merely enters those functions and hits the early return.
+# ---------------------------------------------------------------------------
+
+NATIVE_RUN_STATE = "store.nimbus_load_golden_hub_entry_load_run_state.json"
+
+
+def _diagnostics(cycle: dict) -> dict:
+    return _battery(cycle)["solve_diagnostics"]
+
+
+def test_native_scenario_actually_took_the_native_seam() -> None:
+    # Every read in native mode is hass.states.get / the recorder, never
+    # urllib. A single REST request here would mean the scenario ran the
+    # standalone path with controllable-load subentries nothing could see.
+    for name in ("native_controllable_loads", "native_controllable_loads_two_cycles"):
+        for cycle in _snapshot(name)["cycles"]:
+            methods = {r["method"] for r in cycle["requests"]}
+            assert methods, f"{name}: no reads recorded at all"
+            assert methods <= {"NATIVE_GET", "NATIVE_HISTORY"}, (
+                f"{name}: {sorted(methods - {'NATIVE_GET', 'NATIVE_HISTORY'})}"
+            )
+
+
+def test_native_scenario_builds_both_controllable_load_kinds() -> None:
+    # build_controllable_loads() returned ([], [], []) for the whole life of
+    # the golden master before #1335; these three counts are that return
+    # value, as main() publishes it.
+    diag = _diagnostics(_snapshot("native_controllable_loads")["cycles"][0])
+    assert diag["n_controllable_loads"] == 2
+    assert diag["n_sheddable_loads"] == 1
+    assert diag["n_adequacy_loads"] == 1
+
+
+def test_native_scenario_dispatches_both_loads_through_the_guard() -> None:
+    # apply_commanded_state_guard()'s own output stage: one service call per
+    # load, each the right service for its device entity's domain.
+    cycle = _snapshot("native_controllable_loads")["cycles"][0]
+    calls = {(c["domain"], c["service"]): c["data"] for c in cycle["service_calls"]}
+    assert calls[("switch", "turn_on")] == {"entity_id": "switch.golden_pool_pump"}
+    assert calls[("water_heater", "set_operation_mode")] == {
+        "entity_id": "water_heater.golden_hws",
+        "operation_mode": "performance",
+    }
+
+
+def test_native_scenario_persists_a_real_run_state_for_each_load() -> None:
+    snap = _snapshot("native_controllable_loads")
+    store = snap["files"][NATIVE_RUN_STATE]
+    assert set(store) == {"golden_sheddable", "golden_deferrable"}
+    for key, state in store.items():
+        assert state["commanded_state"] is True, key
+        assert state["activations_today"] == 1, key
+        # The full day-ahead per-load plan (#581), not just period 0.
+        assert len(state["plan_forecast"]) == 202, key
+    # The deferrable load's power sensor is not configured on its subentry:
+    # #768's device-registry discovery resolved it, and the W-reporting
+    # sensor was scaled to kW (2950 W -> 2.95 kW, well over the 0.05 kW
+    # on-threshold), so this is a real reading and not a default.
+    assert store["golden_deferrable"]["currently_on"] is True
+    assert store["golden_deferrable"]["plan_target_kwh"] == 3.25
+
+
+def test_native_two_cycles_does_not_re_dispatch_an_unchanged_command() -> None:
+    first, second = _snapshot("native_controllable_loads_two_cycles")["cycles"]
+    assert len(first["service_calls"]) == 2
+    # Dispatch is change-gated. Cycle 2 wants the same thing, so nothing goes
+    # out -- and the debounce/hold path is what decided that, which is only
+    # reachable because cycle 1 persisted a state for it to read back.
+    assert second["service_calls"] == []
+    store = _snapshot("native_controllable_loads_two_cycles")["files"][NATIVE_RUN_STATE]
+    for key, state in store.items():
+        assert state["delivered_today_kwh"] > 0.0, key
+        assert state["activations_today"] == 1, key
+
+
 @pytest.mark.parametrize("folder", NEMWEB_FOLDERS)
 def test_nemweb_inputs_match_their_provenance(folder: str) -> None:
     base = GOLDEN / "nemweb" / folder
