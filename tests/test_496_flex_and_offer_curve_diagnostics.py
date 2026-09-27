@@ -51,11 +51,13 @@ has a flattened child -- the exclusion derived from
 (3). See `tests/test_1141_flex_signals_parent_payload_reaches_diagnostics.py`,
 which pins that behaviour and quotes the original docstring in full.
 
-Not covered, deliberately: this issue's other diagnostics criterion, "the
-last emitted record ... validates against schema v2.0". The vendored
-`schema/telemetry.schema.json` exists but its only Python reference
-anywhere in the repo is its own drift test -- #495's emitter was never
-built, so there is no record to dump. That half stays on #495.
+Not covered here, but no longer uncovered anywhere: this issue's other
+diagnostics criterion, "the last emitted record ... validates against
+schema v2.0". This docstring used to end by recording that the vendored
+`schema/telemetry.schema.json` had exactly one Python reference in the
+repo -- its own drift test -- because #495's emitter did not exist. It
+exists now, and that criterion is pinned in
+`tests/test_496_last_record_reaches_diagnostics.py`.
 """
 
 import sys

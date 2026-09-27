@@ -111,6 +111,22 @@ dev = [
     # release underneath it.
     "import-linter>=2.0",
     "highspy>=1.15.1",
+    # The real JSON Schema validator, for nimbus issue #495's own acceptance
+    # criterion: "a record built from a synthetic solve validates against
+    # telemetry.schema.json v2.0". That file is @purcell-lab's, vendored here
+    # under schema/ and pinned by sha256 -- it is draft 2020-12 with a
+    # top-level `additionalProperties: false`, nullable unions, per-field
+    # numeric ranges and nested `items.required`, none of which voluptuous
+    # (already a dependency) can consume.
+    #
+    # Added rather than hand-rolling a checker, deliberately: this issue's own
+    # thread spent days refusing to validate against a RECONSTRUCTION of the
+    # schema, on the grounds that such a test "would pass by construction and
+    # prove nothing". A hand-written validator is the same failure one layer
+    # down -- it would assert the record matches whatever subset of the schema
+    # the validator's author happened to implement. Test-only; the shipped
+    # integration imports nothing from it.
+    "jsonschema>=4.23",
     # Pure-Python CSS parser (~50KB, no C deps, no browser). Added
     # 2026-09-07 for tests/frontend/test_dispatch_card_compact_layout.py
     # (issue #459, Mark Purcell): the compact phone-width layout on
