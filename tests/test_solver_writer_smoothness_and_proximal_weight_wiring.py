@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _isolated_state import isolated_state_paths
 from solver.elements import PeriodGrid
 from solver.network import _infeasible_plan
 
@@ -109,6 +110,8 @@ def _run_main_and_capture_build_plan_kwargs(config_attrs: dict) -> dict:
             "build_plan",
             side_effect=_capture_and_return_infeasible,
         ),
+        # nimbus issue #1330: main() writes real /opt state paths by default.
+        isolated_state_paths(solver_writer),
     ):
         try:
             solver_writer.main()
