@@ -69,7 +69,16 @@ def _solver_number_fields() -> set[str]:
 class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
     def setUp(self):
         self.fields = _solver_number_fields()
-        self.writer = (_ROOT / "solver_writer.py").read_text(encoding="utf-8")
+        # nimbus issue #1301 (Phase 2, spec 001, #1347): several of these
+        # fields are read inside functions that moved to solver_shared.py
+        # (import_fee_rate's NETWORK_FEE_BLOCK_KEYS, fetch_p2p_fixed_
+        # export_kw's P2P_BLOCK_KEYS/solver_p2p_block_lead_time_minutes) --
+        # `self.writer` is the union of both files' text now, same
+        # substring-membership check as before, so a field genuinely read
+        # by either half of the split integration still counts as read.
+        self.writer = (_ROOT / "solver_writer.py").read_text(
+            encoding="utf-8"
+        ) + (_ROOT / "solver_shared.py").read_text(encoding="utf-8")
 
     def test_the_sweep_finds_a_real_set_of_fields(self):
         """Guards the guard: a regex that silently matched nothing would

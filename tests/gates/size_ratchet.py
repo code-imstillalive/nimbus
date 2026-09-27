@@ -13,31 +13,35 @@ this repo (`_module_level_names`'s `tree.body` walk, `_size()`'s line-count
 formula) rather than inventing a second one, and the module-level choice is
 confirmed correct against real numbers below, not assumed.
 
-## The 67, and why this tool's default target is not "the whole package"
+## The 67 -> 61, and why this tool's default target is not "the whole package"
 
 Reproduced exactly against the tech-debt plan's own table (measured at
 `d5b044b`, this repo's real commit): `custom_components/nimbus_load/
-solver_writer.py` alone has 67 module-level functions over 60 lines,
-together 12,638 lines -- both numbers match the plan's table verbatim when
-this tool is pointed at that one file. That is the number this gate's own
-spec names, and it is still accurate today (verified against current `main`
-while building this tool).
+solver_writer.py` alone had 67 module-level functions over 60 lines,
+together 12,638 lines -- both numbers matched the plan's table verbatim when
+this tool was pointed at that one file, and that citation is a historical
+fact about that commit, kept as-is.
 
-Scanning the WHOLE package instead -- literally every `.py` file under
-`custom_components/nimbus_load/`, which is where a bare invocation with no
-path arguments looks -- currently finds **151** module-level functions over
-60 lines (solver_writer.py's 67 plus 84 more spread across 40 other files
-this decomposition does not touch, e.g. `solver/network.py`, `flows/
-hub_options.py`, `ml/model.py`). Both numbers are real; they answer
-different questions. `--baseline-count`'s default (67) matches the plan's
-own solver_writer.py-scoped number, so the natural single-tree invocation
-for this gate's actual purpose is:
+nimbus issue #1301 (Phase 2, spec 001, #1347) is the first phase to actually
+move code out of the file that this ratchet's own module docstring already
+anticipated: six of solver_writer.py's own over-60-line functions
+(`resolve_effective_capacity_kwh`, `ha_post_state`, `fetch_p2p_fixed_export_
+kw`, `fetch_entity_history_range`, `fetch_entity_attribute_history_range`,
+`resample_history_mean`) relocated verbatim to the new `solver_shared.py`,
+dropping solver_writer.py's own scoped count to **61**, confirmed by running
+this tool against current `main` while making this change (not assumed).
+The WHOLE-PACKAGE total is unchanged at **151** -- the six moved within the
+same package, so nothing left the count that mode already includes.
+
+`--baseline-count`'s default (61) matches the plan's own solver_writer.py-
+scoped number as of this phase, so the natural single-tree invocation for
+this gate's actual purpose is:
 
     python tests/gates/size_ratchet.py custom_components/nimbus_load/solver_writer.py
 
 A bare invocation with no path (whole-package default) will legitimately
-report 151 against a baseline of 67 and fail -- that is not this tool being
-wrong, it is 67 being the wrong ceiling for that broader scope. Pass
+report 151 against a baseline of 61 and fail -- that is not this tool being
+wrong, it is 61 being the wrong ceiling for that broader scope. Pass
 `--baseline-count 151` (or, better, use ratchet mode below, which does not
 need either number typed in by hand) if the whole package is really what is
 being measured.
@@ -52,7 +56,7 @@ it was not over at `base`. This is self-consistent: it never needs 67 (or
 151) re-typed by hand, so it stays correct as the tech-debt plan lowers the
 real number over time. This is the mode a refactor PR's CI job should run.
 
-**Single-tree mode** (`--baseline-count N`, default 67, no `--base`/`--head`):
+**Single-tree mode** (`--baseline-count N`, default 61, no `--base`/`--head`):
 measures the given paths as they sit on disk right now, no git involved, and
 fails if the count exceeds N. Useful for a quick local check or for pinning
 one specific file's count against a documented number.
@@ -92,7 +96,9 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    67  # solver_writer.py alone at d5b044b -- see module docstring.
+    61  # solver_writer.py alone as of nimbus #1301/spec 001 -- see module
+    # docstring (67 at d5b044b, before six functions moved to
+    # solver_shared.py).
 )
 
 
@@ -310,7 +316,7 @@ def run_single_tree(paths: list[Path], threshold: int, baseline_count: int) -> i
         print(
             f"\nFAIL: {len(over_records)} > baseline {baseline_count}. "
             "See this module's own docstring if the target was the whole "
-            "package rather than solver_writer.py -- 67 is not that scope's "
+            "package rather than solver_writer.py -- 61 is not that scope's "
             "own baseline."
         )
         return 1

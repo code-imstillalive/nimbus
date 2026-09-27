@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 resolve_envelope_limit_kw = solver_writer.resolve_envelope_limit_kw
@@ -95,8 +96,15 @@ def test_live_scalar_watts_state_is_unit_corrected():
     # Dynamic Export's own opModExpLimW is explicitly a Watts field) --
     # must not silently apply a 1000x-too-large bound.
     grid_times = _grid_times()
-    with patch.object(
-        solver_writer, "ha_get", _mock_ha_get("5000", {"unit_of_measurement": "W"})
+    # nimbus issue #1301 (spec 001): resolve_envelope_limit_kw() (staying
+    # in solver_writer.py) calls ha_get() directly AND calls
+    # _kw_scale_factor(), which moved to solver_shared.py and now makes
+    # its OWN internal ha_get(...) call from solver_shared's module
+    # globals (nimbus issue #861) -- both bindings need the same mock.
+    _mock = _mock_ha_get("5000", {"unit_of_measurement": "W"})
+    with (
+        patch.object(solver_writer, "ha_get", _mock),
+        patch.object(solver_shared, "ha_get", _mock),
     ):
         result = resolve_envelope_limit_kw(
             "sensor.open_dynamic_export_export_limit", 20.0, grid_times
@@ -129,10 +137,12 @@ def test_forecast_shaped_entity_is_resampled_onto_the_grid():
 def test_forecast_shaped_entity_is_unit_corrected_too():
     grid_times = _grid_times(2)
     forecast = [{"time": grid_times[0].isoformat(), "value": 5000.0}]
-    with patch.object(
-        solver_writer,
-        "ha_get",
-        _mock_ha_get("5000", {"unit_of_measurement": "W", "forecast": forecast}),
+    # nimbus issue #1301 (spec 001): same dual-mock reasoning as
+    # test_live_scalar_watts_state_is_unit_corrected above.
+    _mock = _mock_ha_get("5000", {"unit_of_measurement": "W", "forecast": forecast})
+    with (
+        patch.object(solver_writer, "ha_get", _mock),
+        patch.object(solver_shared, "ha_get", _mock),
     ):
         result = resolve_envelope_limit_kw(
             "sensor.dnsp_export_schedule", 20.0, grid_times

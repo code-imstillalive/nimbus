@@ -15,14 +15,27 @@ so a layering regression fails the normal
 instead of needing a separate manual step anyone could forget to run.
 
 What "pass" means today: the contract is configured to KEEP with exactly
-the plan's own seven documented `_solver_writer()` late-import violations
-recorded as `ignore_imports` exceptions (see pyproject.toml's own comment
-block above `[tool.importlinter]` for the full reasoning, including why
+eight documented late-import violations recorded as `ignore_imports`
+exceptions (see pyproject.toml's own comment block above
+`[tool.importlinter]` for the full reasoning, including why
 `solver/ha_bridge.py` -- the plan's item 4 -- is deliberately NOT one of
-the declared layers). Fixing those seven is each future extraction phase's
-own job, not this test's; this test only pins that the count of recorded
-exceptions doesn't silently grow, and that lint-imports still runs clean
-against everything else.
+the declared layers). Seven are the plan's own original `_solver_writer()`
+late-import sites; the eighth (`solver_shared -> solver_writer`) is new,
+added by nimbus issue #1301 (Phase 2, spec 001, #1347) for the identical
+reason -- `_NATIVE_HASS`/`HA_BASE`/`_load_token()` deliberately stay
+behind in `solver_writer.py` and `solver_shared.py` reads them via the
+same deferred seam. Spec 001 also repointed six of the seven original
+sites' own `_LOGGER` access onto `solver_shared` directly, which is a
+real reduction in what those six modules depend on `solver_writer` for --
+but re-running `lint-imports` with zero `ignore_imports`, rather than
+assuming the repoint retired those six exceptions, showed all six edges
+still present (each has other, unrelated reasons to import
+`solver_writer` that spec 001 never touched), so none of the original
+seven could honestly be removed. Fixing those seven (and auditing whether
+the eighth can ever be closed) is each future phase's own job, not this
+test's; this test only pins that the count of recorded exceptions doesn't
+silently grow, and that lint-imports still runs clean against everything
+else.
 
 tests/test_gates_import_linter.py proves the underlying mechanism (a
 `layers` contract genuinely catches a new violation and genuinely passes a
@@ -47,10 +60,13 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # removed) is itself visible in a diff of this file, not just of
 # pyproject.toml -- the same "don't let the exceptions list rot silently"
 # reasoning the pyproject.toml comment gives for leaving
-# `unmatched_ignore_imports_alerting` at its default. When a phase fixes
-# one of the seven late imports the plan's section 1 documents, this
-# number goes down along with the pyproject.toml entry it's counting.
-_EXPECTED_IGNORED_IMPORT_COUNT = 7
+# `unmatched_ignore_imports_alerting` at its default. Seven were the
+# plan's own original late imports; nimbus issue #1301 (spec 001) added
+# the eighth (`solver_shared -> solver_writer`) for `_NATIVE_HASS`/
+# `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`. When a
+# future phase fixes one of these for real, this number goes down along
+# with the pyproject.toml entry it's counting.
+_EXPECTED_IGNORED_IMPORT_COUNT = 8
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:
