@@ -333,6 +333,12 @@ class _FakeSolverWriter:
     def __init__(self, record: dict | None = None):
         self.record = record or {}
         self.reads = 0
+        # The real module exposes `_NATIVE_HASS`, and the code under test reads
+        # it to tell native mode from standalone/REST. `None` is the
+        # standalone value, which is the mode these tests exercise -- without
+        # this the fake raises AttributeError rather than taking either path,
+        # which is how CI caught it (#937).
+        self._NATIVE_HASS = None
 
     def read_day_ahead_value_add_history(self) -> dict:
         self.reads += 1
