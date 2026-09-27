@@ -83,6 +83,22 @@ dev = [
     # pass (@purcell-lab).
     "pytest-freezer>=0.4.8",
     "ruff>=0.6",
+    # docs/specs/000-golden-master-and-gates.md Part C: the mypy ratchet
+    # (tests/gates/mypy_ratchet.py) shells out to `mypy` itself, and its own
+    # tests (tests/test_gates_mypy_ratchet.py) need it importable to exercise
+    # both the synthetic fixtures and the real repo. Pinned exactly, not
+    # floored, unlike ruff/import-linter above -- .github/workflows/ci.yml's
+    # own "Type Check (mypy) [advisory]" job installs mypy UNPINNED
+    # (`pip install mypy numpy`), so it can drift to a newer release at any
+    # time independent of any code change here; pinning the dev-extra copy
+    # is what makes tests/gates/mypy_baseline.txt's own count reproducible
+    # locally and in the "Unit Tests (pytest)" CI job, which is a genuinely
+    # different job from the advisory typecheck one. See that baseline
+    # file's own neighbour, tests/gates/mypy_ratchet.py's module docstring,
+    # for the exact version/measurement this pin exists to reproduce, and
+    # for why the two jobs comparing two different mypy installs is a real,
+    # open limitation rather than one this PR can close by itself.
+    "mypy==2.3.1",
     # docs/architecture/tech-debt-plan.md section 2 / docs/specs/000-golden-
     # master-and-gates.md Part C: enforces the plan's layer map (solver/ ->
     # solver_inputs+solver_reports -> solver_plan+solver_publish+
