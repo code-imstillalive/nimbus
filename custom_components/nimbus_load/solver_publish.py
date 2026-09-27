@@ -241,6 +241,10 @@ try:
     from . import flex_telemetry
 except ImportError:  # pragma: no cover - standalone/cron path
     import flex_telemetry  # type: ignore[no-redef]
+try:
+    from . import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
 
 
 def publish_flex_telemetry_record(
@@ -280,15 +284,17 @@ def publish_flex_telemetry_record(
             period_hours=period_hours,
         )
     except Exception as e:  # noqa: BLE001 - never take the solve down
-        sw._LOGGER.warning("Nimbus flex telemetry: record build failed: %s", e)
+        solver_shared._LOGGER.warning(
+            "Nimbus flex telemetry: record build failed: %s", e
+        )
         return
     if build.record is None:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus flex telemetry: no record this cycle -- %s", build.reason
         )
         return
     if build.clamped_fields:
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus flex telemetry: field(s) clamped into the schema's own "
             "[%s, %s] $/kWh range: %s",
             flex_telemetry.PRICE_MIN,

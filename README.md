@@ -414,6 +414,15 @@ Edit inline on the dashboard without touching the wizard:
 - `nimbus_load.solve_now`. Triggers an immediate Solver cycle on demand,
   reusing the exact same solve path the periodic timer and price-triggered
   solve both call — not a separate implementation.
+- `nimbus_load.flex_telemetry_record`. Builds and publishes one
+  `nem-flex-telemetry` schema-v2.0 record to `sensor.nimbus_flex_telemetry`
+  from Nimbus's own numbers — boundary-aligned, period-averaged, with a
+  counterfactual baseline — on demand rather than waiting for the next
+  cycle. The record is nested under a single `record` attribute, so the
+  thing to POST is `attributes.record` whole: the schema declares
+  `additionalProperties: false`, and a spread record plus the housekeeping
+  attributes Home Assistant adds would not validate as read. Takes no
+  fields.
 - `nimbus_load.set_controllable_load` (`controllable_load_name`,
   `controllable_load_kind`, optional `subentry_id`, plus every field the
   Controllable Load wizard itself accepts). Creates or updates one
