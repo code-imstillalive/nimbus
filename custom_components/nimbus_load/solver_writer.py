@@ -226,6 +226,37 @@ except ImportError:
     from solver_inputs import (  # type: ignore[no-redef]
         battery_participants as battery_participants_inputs,
     )
+# nimbus issue #1301, Phase 2b of #1298's decomposition: the three
+# independent reporting subsystems (efficiency backtest, Nimbus-only SoC
+# counterfactual, flex report) moved verbatim into solver_reports/. Same
+# dual-mode, imported-as-a-MODULE pattern as every sibling above -- see
+# solver_reports/__init__.py for why the import direction is what it is.
+#
+# The aliases below are what keep this a pure relocation: every existing
+# call site in this file, and every `patch.object(solver_writer, "<name>",
+# ...)` in the suite, keeps resolving the identical object it always did.
+try:
+    from .solver_reports import backtest as backtest_reports
+except ImportError:
+    from solver_reports import backtest as backtest_reports  # type: ignore[no-redef]
+try:
+    from .solver_reports import counterfactual as counterfactual_reports
+except ImportError:
+    from solver_reports import (  # type: ignore[no-redef]
+        counterfactual as counterfactual_reports,
+    )
+try:
+    from .solver_reports import flex as flex_reports
+except ImportError:
+    from solver_reports import flex as flex_reports  # type: ignore[no-redef]
+
+compute_efficiency_backtest_report = backtest_reports.compute_efficiency_backtest_report
+compute_nimbus_only_soc_counterfactual = (
+    counterfactual_reports.compute_nimbus_only_soc_counterfactual
+)
+_compute_flex_report_for_window = flex_reports._compute_flex_report_for_window
+FLEX_SIGNALS_ENTITY_ID = flex_reports.FLEX_SIGNALS_ENTITY_ID
+_PRICE_BAND_WIDTH = flex_reports._PRICE_BAND_WIDTH
 # nimbus issue #485: household-mode presets. Pure, HA-free table +
 # two apply functions; same dual-mode import as every other
 # project-internal module here.
@@ -334,7 +365,7 @@ except ImportError:
         _nimbus_version,
         _version_stamp,
         _warn_if_attrs_exceed_recorder_cap,  # noqa: F401 -- re-export, see comment below
-        fetch_entity_attribute_history_range,
+        fetch_entity_attribute_history_range,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,
         ha_get,
@@ -497,9 +528,9 @@ except ImportError:
     from ml.blend import blend_forecast_array, cross_source_spread  # noqa: F401
     from solver import elements, lp, network, nowcast_skill
     from solver.backtest import (
-        EFFICIENCY_CANDIDATES_PERCENT,
-        efficiency_label,
-        run_efficiency_sensitivity_sweep,
+        EFFICIENCY_CANDIDATES_PERCENT,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
+        efficiency_label,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
+        run_efficiency_sensitivity_sweep,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
     )
     from solver.quality_report import compute_quality_report
     from solver.regret import evaluate_realized_cost
@@ -5933,9 +5964,6 @@ def _note_envelope_limit_recovered(entity_id: str) -> None:
     )
 
 
-FLEX_SIGNALS_ENTITY_ID = "sensor.nimbus_flex_signals"
-
-
 def compute_daily_flex_report(cfg: dict, now: datetime) -> dict | None:
     """nimbus issue #496 (Signals 7/7 of #489), the second half Mark
     Purcell authorized 2026-09-09 ("compute_daily_flex_report()'s own
@@ -6006,165 +6034,6 @@ def compute_daily_flex_report(cfg: dict, now: datetime) -> dict | None:
     )
     day_end = day_start + timedelta(days=1)
     return _compute_flex_report_for_window(cfg, day_start, day_end)
-
-
-_PRICE_BAND_WIDTH = (
-    0.05  # $/kWh -- matches this file's own price-rounding convention elsewhere
-)
-
-
-def _compute_flex_report_for_window(
-    cfg: dict, day_start: datetime, day_end: datetime
-) -> dict | None:
-    """Real body behind compute_daily_flex_report() -- see that
-    function's own docstring for the full reasoning behind each
-    component. Split out the same way _compute_report_for_window() is
-    split from compute_daily_quality_report(), for the same reason
-    (keeps the door open for a future arbitrary-window service call,
-    same shape as nimbus_load.compute_quality_report, without
-    duplicating this body -- not added in this pass since #496's own
-    text never asked for one, only flagging the seam exists)."""
-    if day_end <= day_start:
-        return None
-    solar_sensor = cfg.get("solver_solar_power_sensor")
-    battery_sensor = cfg.get("solver_battery_power_sensor")
-    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
-    if not solar_sensor or not battery_sensor or not load_sensor:
-        _LOGGER.debug(
-            "Nimbus flex report: skip. Missing sensor config (solar=%s "
-            "battery=%s load=%s) -- same three sensors compute_daily_"
-            "quality_report() requires, under Solver settings",
-            solar_sensor,
-            battery_sensor,
-            load_sensor,
-        )
-        return None
-    window_hours = (day_end - day_start).total_seconds() / 3600.0
-    if window_hours < 24.0:
-        _LOGGER.debug(
-            "Nimbus flex report: skip. Window is %.2f h, shorter than the "
-            "24 h a full-day report requires",
-            window_hours,
-        )
-        return None
-    period_hours = TIER2_PERIOD_HOURS
-    n_periods = round(window_hours / period_hours)
-    if n_periods < 1:
-        return None
-    grid_times = [
-        day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
-    ]
-
-    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
-    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
-    battery_hist = fetch_entity_history_range(battery_sensor, day_start, day_end)
-    if not solar_hist or not load_hist or not battery_hist:
-        _LOGGER.info(
-            "Nimbus flex report: skip. Real history missing for window "
-            "[%s, %s] (solar=%d, load=%d, battery=%d rows)",
-            day_start.isoformat(),
-            day_end.isoformat(),
-            len(solar_hist),
-            len(load_hist),
-            len(battery_hist),
-        )
-        return None
-    import_price_hist = fetch_entity_history_range(
-        cfg["solver_import_price_sensor"], day_start, day_end
-    )
-
-    solar_scale = _kw_scale_factor(solar_sensor)
-    load_scale = _kw_scale_factor(load_sensor)
-    battery_scale = _kw_scale_factor(battery_sensor)
-    battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
-
-    solar_kw = np.array(
-        [
-            max(0.0, v * solar_scale)
-            for v in resample_history_mean(solar_hist, grid_times, period_hours)
-        ]
-    )
-    load_kw = np.array(
-        [
-            max(0.0, v * load_scale)
-            for v in resample_history_mean(load_hist, grid_times, period_hours)
-        ]
-    )
-    actual_net_kw = np.array(
-        [
-            v * battery_scale * battery_sign
-            for v in resample_history_mean(battery_hist, grid_times, period_hours)
-        ]
-    )
-    actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
-    actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
-    import_price = np.array(
-        resample_history_nearest(
-            import_price_hist, grid_times, default=0.20, backfill_first=True
-        )
-    )
-
-    # Component 1: offered vs realised flex -- offered needs real
-    # sensor.nimbus_flex_signals history, genuinely absent on a day the
-    # opt-in switch was off. Never fabricated: None, not 0.0, when it's
-    # simply not there.
-    offered_up_hist = fetch_entity_history_range(
-        FLEX_SIGNALS_ENTITY_ID, day_start, day_end
-    )
-    offered_down_hist = fetch_entity_attribute_history_range(
-        FLEX_SIGNALS_ENTITY_ID, "flex_available_down_kw", day_start, day_end
-    )
-    offered_up_kwh = None
-    offered_down_kwh = None
-    if offered_up_hist:
-        offered_up_kw = resample_history_mean(offered_up_hist, grid_times, period_hours)
-        offered_up_kwh = round(float(sum(offered_up_kw) * period_hours), 3)
-    if offered_down_hist:
-        offered_down_kw = resample_history_mean(
-            offered_down_hist, grid_times, period_hours
-        )
-        offered_down_kwh = round(float(sum(offered_down_kw) * period_hours), 3)
-    realised_up_kwh = round(float(np.sum(actual_charge_kw) * period_hours), 3)
-    realised_down_kwh = round(float(np.sum(actual_discharge_kw) * period_hours), 3)
-
-    # Component 2: price-response curve -- real net import derived from
-    # the same energy-balance identity the rest of this file already
-    # relies on, binned by real import price seen.
-    net_import_kw = load_kw - solar_kw - actual_discharge_kw + actual_charge_kw
-    price_bands: dict[int, list[float]] = {}
-    for price, kw in zip(import_price.tolist(), net_import_kw.tolist(), strict=True):
-        band_index = int(price // _PRICE_BAND_WIDTH)
-        price_bands.setdefault(band_index, []).append(kw)
-    price_response_curve = [
-        {
-            "price_band_low": round(band_index * _PRICE_BAND_WIDTH, 2),
-            "price_band_high": round((band_index + 1) * _PRICE_BAND_WIDTH, 2),
-            "mean_net_import_kw": round(float(np.mean(kws)), 3),
-            "n_samples": len(kws),
-        }
-        for band_index, kws in sorted(price_bands.items())
-    ]
-
-    # Component 3: envelope curtailment -- see this function's own
-    # caller docstring for why the static configured limit, not the
-    # live #493 envelope entity, is the honest choice for a past day.
-    static_export_limit_kw = _cfg_num(cfg, "solver_grid_max_export_kw", 0.0)
-    envelope_curtailment_kw = np.maximum(
-        0.0, solar_kw - load_kw - static_export_limit_kw
-    )
-    envelope_curtailment_kwh = round(
-        float(np.sum(envelope_curtailment_kw) * period_hours), 3
-    )
-
-    return {
-        "latest_date": day_start.date().isoformat(),
-        "offered_up_kwh": offered_up_kwh,
-        "offered_down_kwh": offered_down_kwh,
-        "realised_up_kwh": realised_up_kwh,
-        "realised_down_kwh": realised_down_kwh,
-        "envelope_curtailment_kwh": envelope_curtailment_kwh,
-        "price_response_curve": price_response_curve,
-    }
 
 
 FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
@@ -9990,250 +9859,6 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
 BACKTEST_ENTITY_ID = "sensor.nimbus_efficiency_backtest"
 
 
-def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
-    """The retrospective backtesting engine's first real check (2026-08-25,
-    direct household ask for a genuine "outstanding, unique" idea -- an
-    offline engine that proves Nimbus's own decisions against reality
-    rather than a bigger LP or a fancier model): "if your real round-trip
-    efficiency were actually different, would yesterday's real day have
-    scored meaningfully differently?"
-
-    See solver/backtest.py's own module docstring for the full, honest
-    "what this can and cannot test" reasoning -- efficiency is the FIRST
-    candidate because it directly changes the LP's own economic tradeoff
-    even under perfect knowledge of what actually happened; risk_aversion
-    is deliberately NOT here (it would silently produce identical scores
-    for every candidate -- see that module's own docstring for why).
-
-    Reconstructs the SAME real "yesterday" (solar/load/battery/price
-    history, BatteryConfig/GridConfig) compute_daily_quality_report()
-    already builds -- deliberately a separate, self-contained
-    reconstruction rather than a shared refactor, so this new, more
-    speculative feature can never risk regressing the already-shipped,
-    already-relied-on EPR/regret report by sharing code paths with it.
-
-    Returns None (skip this cycle, retry later) under the exact same
-    conditions compute_daily_quality_report() does: required sensors not
-    configured, or real history for yesterday not yet available.
-    """
-    solar_sensor = cfg.get("solver_solar_power_sensor")
-    battery_sensor = cfg.get("solver_battery_power_sensor")
-    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
-    if not solar_sensor or not battery_sensor or not load_sensor:
-        return None
-
-    yesterday = (now - timedelta(days=1)).date()
-    day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, tzinfo=LOCAL_TZ
-    )
-    day_end = day_start + timedelta(days=1)
-
-    # nimbus issue #441 (Mark Purcell), same fix/reasoning as #438,
-    # updated for #451 -- see _compute_report_for_window()'s own
-    # matching comment for the full explanation. This function always
-    # scores a fixed 24h "yesterday" window, always far longer than
-    # MAX_TIER1_HOURS (60 real minutes post-#451), so this resolves to
-    # TIER2_PERIOD_HOURS (30 min) -- matching the live dispatch's own
-    # real dominant resolution for a window this long, computed
-    # explicitly rather than hardcoding 0.5 directly so this stays
-    # correct if either constant, or the window this function scores,
-    # ever changes later.
-    window_hours = (day_end - day_start).total_seconds() / 3600.0
-    period_hours = (
-        TIER1_PERIOD_HOURS if window_hours <= MAX_TIER1_HOURS else TIER2_PERIOD_HOURS
-    )
-    n_periods = round(window_hours / period_hours)
-    grid_times = [
-        day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
-    ]
-    period_hours_arr = np.full(n_periods, period_hours)
-
-    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
-    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
-    if not solar_hist or not load_hist:
-        return None
-
-    import_price_hist = fetch_entity_history_range(
-        cfg["solver_import_price_sensor"], day_start, day_end
-    )
-    export_price_hist = fetch_entity_history_range(
-        cfg["solver_export_price_sensor"], day_start, day_end
-    )
-
-    # Same fix as compute_daily_quality_report() -- see _kw_scale_
-    # factor()'s own docstring for the real, confirmed-live bug this
-    # corrects (a configured *_power_sensor reporting native Watts,
-    # silently treated as kW).
-    solar_scale = _kw_scale_factor(solar_sensor)
-    load_scale = _kw_scale_factor(load_sensor)
-
-    solar_kw = np.array(
-        [
-            max(0.0, v * solar_scale)
-            for v in resample_history_nearest(solar_hist, grid_times)
-        ]
-    )
-    load_kw = np.array(
-        [
-            max(0.0, v * load_scale)
-            for v in resample_history_nearest(load_hist, grid_times)
-        ]
-    )
-    import_price = np.array(
-        [
-            v + import_fee_rate(cfg, _local(grid_times[i]).hour)
-            for i, v in enumerate(
-                resample_history_nearest(
-                    import_price_hist, grid_times, default=0.20, backfill_first=True
-                )
-            )
-        ]
-    )
-    export_price = np.array(
-        resample_history_nearest(
-            export_price_hist, grid_times, default=0.05, backfill_first=True
-        )
-    )
-
-    # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
-    # construction -- see resolve_effective_capacity_kwh()'s docstring.
-    capacity_kwh = resolve_effective_capacity_kwh(cfg)
-    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
-    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
-    # Initial/final SoC don't need real history here the way the EPR
-    # report's own tracking comparison does -- the oracle re-solve is
-    # free to choose its own trajectory from a reasonable starting point
-    # regardless, and this feature's whole question is "how did the
-    # SHAPE of the optimal plan change with efficiency," not a tracking
-    # comparison against one specific real starting SoC.
-    #
-    # Clamped into the configured envelope anyway (2026-09-02, nimbus
-    # issue #325's own "audit every BatteryConfig construction" ask --
-    # this is the third path that issue predicted, found by that audit
-    # rather than by a live crash). A bare 50% is NOT unconditionally
-    # valid: it sits outside [min, max] for any household running a
-    # backup-reserve floor above 50% (solver_battery_min_soc_percent =
-    # 60 is a perfectly ordinary setting) or a max below it, and would
-    # raise the identical ValueError out of __post_init__ -- taking the
-    # whole efficiency-backtest report down the same way #325 took the
-    # daily quality report down. No live report of this yet; the point
-    # is that there doesn't need to be one.
-    # nimbus issue #328 (Mark Purcell): no clamp needed any more, same
-    # fix as the two sites above -- elements.BatteryConfig only requires
-    # a value inside the physical range [0, capacity_kwh] now, and a
-    # bare capacity_kwh*0.5 is trivially always inside that range
-    # regardless of where min_soc/max_soc happen to sit. If 50% genuinely
-    # falls outside this household's configured [min, max] envelope, the
-    # LP's own soft-constraint machinery schedules honest recovery for
-    # this synthetic starting assumption exactly the same way it would
-    # for a real live/historical below-floor reading -- no separate
-    # clamp-and-pretend needed here either.
-    _min_soc_kwh = capacity_kwh * min_pct / 100.0
-    _max_soc_kwh = capacity_kwh * max_pct / 100.0
-    initial_soc_kwh = capacity_kwh * 0.5
-
-    base_battery = elements.BatteryConfig(
-        name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
-        capacity_kwh=capacity_kwh,
-        initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=_min_soc_kwh,
-        max_soc_kwh=_max_soc_kwh,
-        max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
-        max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
-        # Overwritten per-candidate by run_efficiency_sensitivity_sweep()
-        # -- these two values are never actually read, kept only because
-        # BatteryConfig requires something valid at construction time.
-        charge_efficiency=0.90,
-        discharge_efficiency=0.90,
-        charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
-        discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
-        salvage_value=_cfg_num(cfg, "solver_salvage_value", 0.15),
-    )
-    grid_cfg = elements.GridConfig(
-        import_price=import_price,
-        export_price=export_price,
-        import_limit_kw=_cfg_num(cfg, "solver_grid_max_import_kw", 20.0),
-        export_limit_kw=_cfg_num(cfg, "solver_grid_max_export_kw", 20.0),
-    )
-    solar_cfg = elements.SolarConfig(forecast_kw=solar_kw)
-    load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)
-    periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
-
-    # nimbus issue #1232: include THIS install's own configured value in the
-    # swept set. Before this, the candidates were a fixed (85, 90, 95, 99)
-    # and the reference household's configured 85.8 was not among them --
-    # so even a correctly-scored sweep could not answer the only question a
-    # household actually has ("is my setting the best of these?"). Sorted
-    # and de-duplicated so an install configured at exactly 90.0 does not
-    # get a doubled candidate.
-    configured_pct = _cfg_num(cfg, "solver_efficiency_percent", 90.0)
-    swept = tuple(sorted({*EFFICIENCY_CANDIDATES_PERCENT, round(configured_pct, 2)}))
-    results = run_efficiency_sensitivity_sweep(
-        periods=periods,
-        grid=grid_cfg,
-        base_battery=base_battery,
-        solar=solar_cfg,
-        load=load_cfg,
-        candidates_percent=swept,
-    )
-    if not results:
-        # Every candidate was genuinely infeasible for this real day --
-        # a real, if unusual, outcome (see run_efficiency_sensitivity_
-        # sweep()'s own per-candidate defensive skip) -- report nothing
-        # rather than a misleadingly empty-but-successful entry.
-        return None
-
-    best = min(results, key=lambda r: r.total_cost)
-    worst = max(results, key=lambda r: r.total_cost)
-    configured_label = efficiency_label(configured_pct)
-    configured_result = next((r for r in results if r.label == configured_label), None)
-    return {
-        "candidates": [
-            {
-                "efficiency_percent": r.label,
-                "total_cost": round(r.total_cost, 4),
-                # nimbus issue #1232: how much of this candidate's own plan
-                # the configured pack could not physically have delivered.
-                # Non-zero means the candidate only looks as good as it does
-                # by promising energy below the real floor -- read its cost
-                # with that attached.
-                "undeliverable_kwh": round(r.undeliverable_kwh, 3),
-                "is_configured": r.label == configured_label,
-            }
-            for r in results
-        ],
-        "configured_efficiency_percent": round(configured_pct, 1),
-        "best_candidate": best.label,
-        "best_candidate_cost": round(best.total_cost, 4),
-        "worst_candidate": worst.label,
-        "worst_candidate_cost": round(worst.total_cost, 4),
-        # nimbus issue #1232: the actionable number. Positive means some
-        # tested setting would genuinely have served THIS pack better than
-        # the configured one on this day; 0.0 means the configured value was
-        # the best of those tested. None only if the configured value
-        # somehow failed to solve while others did.
-        "configured_is_best": (
-            None if configured_result is None else best.label == configured_label
-        ),
-        "best_vs_configured_dollars": (
-            None
-            if configured_result is None
-            else round(configured_result.total_cost - best.total_cost, 4)
-        ),
-        # nimbus issue #1232: names the physics every candidate was judged
-        # by, so this figure is self-describing. Every candidate is scored
-        # under the CONFIGURED battery -- varying only what the LP planned
-        # with. Scoring each candidate under itself is what made this sweep
-        # strictly monotonic and informationless.
-        "scored_under": "configured",
-        # How much cheaper the BEST tested efficiency would have scored
-        # vs the WORST, on this one real day -- a direct, human-readable
-        # "does efficiency actually matter here" answer. Always >= 0 by
-        # construction (best <= worst).
-        "spread_dollars": round(worst.total_cost - best.total_cost, 4),
-    }
-
-
 def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_efficiency_backtest. Same cheap
     idempotency-first pattern as publish_daily_quality_report() -- see
@@ -10283,349 +9908,6 @@ def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
 
 
 COUNTERFACTUAL_ENTITY_ID = "sensor.nimbus_counterfactual_soc"
-
-
-def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | None:
-    """Generic, wizard-config-driven port of the reference household's own
-    NUC1 script (docs/real-world-integration/files/nimbus_counterfactual_
-    writer.py, "Stage 1 of the household's own staged path toward
-    eventually letting Nimbus drive real dispatch") -- direct ask
-    (2026-08-25): "nuc one nimbus solver view has counterfactual
-    table.... i want u to build that into devbox package."
-
-    Answers a different question than compute_daily_quality_report()'s
-    EPR/regret score: not "was the plan economically right," but "if
-    Nimbus's OWN reasoning had been driving the battery all day --
-    starting from the SAME real midnight SoC, but from that instant
-    onward using ONLY its own simulated trajectory as the next tick's
-    starting point, never the real (possibly HAEO- or other-automation-
-    influenced) SoC -- would the battery have stayed in a sane state?"
-    Mechanism: a real receding-horizon replay, re-solving the REST of
-    the real calendar day from scratch every 15 minutes (same
-    network.build_plan() the live writer uses), committing only each
-    tick's own first-period dispatch and feeding the resulting simulated
-    SoC into the next tick -- exactly rolling.py's own real production
-    pattern, just walked across an already-elapsed day's real recorder
-    history instead of a live forecast.
-
-    Explicit correction applied here, direct household instruction
-    (2026-08-25): "nimbus is written for localvolts and people without
-    localvolts... so p2p is a feature but also something people can
-    ignore.. needs to be wrapped that way." Unlike the reference script
-    (which hardcodes this ONE household's own P2P target/window/viability
-    threshold as module constants), every P2P-related input here is the
-    SAME optional, wizard-configured field the live writer already reads
-    (solver_p2p_block_*/solver_p2p_bonus_price/solver_p2p_bonus_volume_
-    kwh) -- a household with none of them set gets a complete no-op
-    (export left fully LP-optimized against real spot prices, no
-    checkpoint/viability verdict computed, exactly as if this concept
-    didn't exist), never a crash or a household-specific default leaking
-    through. Also, deliberately, ALWAYS uses the flat/generic economics
-    (solver_discharge_cost, solver_salvage_value) rather than the
-    LocalVolts-specific day/night schedule main() applies for a
-    has_price_forecast_array install -- see that branch's own comment for why that
-    schedule has no portable equivalent yet.
-
-    Returns None if the required generic sensors aren't configured
-    (solar/whole-house-load/battery-SoC power sensors) or real recorder
-    history for the day is empty -- callers must treat None as "skip,
-    retry later," never an error.
-    """
-    solar_sensor = cfg.get("solver_solar_power_sensor")
-    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
-    soc_sensor = cfg.get("solver_battery_soc_sensor")
-    if not solar_sensor or not load_sensor or not soc_sensor:
-        return None
-
-    # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
-    # construction -- see resolve_effective_capacity_kwh()'s docstring.
-    capacity_kwh = resolve_effective_capacity_kwh(cfg)
-    if capacity_kwh <= 0:
-        return None
-
-    day_start = datetime(day.year, day.month, day.day, tzinfo=LOCAL_TZ)
-    day_end = day_start + timedelta(days=1)
-    step = timedelta(minutes=15)
-
-    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
-    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
-    soc_hist = fetch_entity_history_range(
-        soc_sensor, day_start - timedelta(hours=6), day_end
-    )
-    if not solar_hist or not load_hist or not soc_hist:
-        return None
-
-    import_price_hist = fetch_entity_history_range(
-        cfg["solver_import_price_sensor"], day_start, day_end
-    )
-    export_price_hist = fetch_entity_history_range(
-        cfg["solver_export_price_sensor"], day_start, day_end
-    )
-
-    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
-    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
-    max_soc_kwh = capacity_kwh * max_pct / 100.0
-    min_soc_kwh = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh)
-    max_charge_kw = _cfg_num(cfg, "solver_max_charge_kw", 5.0)
-    max_discharge_kw = resolve_max_discharge_kw(cfg)
-    # solver_efficiency_percent is a single ROUND-TRIP figure, split
-    # geometrically via sqrt() into the per-direction value the LP (and
-    # this replay's own post-solve SoC bookkeeping) actually needs --
-    # same convention as main()'s own real BatteryConfig and issue #168's
-    # own fix in compute_daily_quality_report(). Using the round-trip
-    # value directly here would model a battery physically different
-    # from the one the real live plan solves against.
-    efficiency = (_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0) ** 0.5
-    charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)
-    discharge_cost_flat = _cfg_num(cfg, "solver_discharge_cost", 0.01)
-    salvage_value_flat = _cfg_num(cfg, "solver_salvage_value", 0.15)
-    import_limit_kw = _cfg_num(cfg, "solver_grid_max_import_kw", 20.0)
-    export_limit_kw = _cfg_num(cfg, "solver_grid_max_export_kw", 20.0)
-    flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
-
-    # Fully optional -- see this function's own docstring. A household
-    # with no P2P/community-trading scheme configured gets
-    # p2p_bonus_volume_cap=0.0 (bonus price is then a genuine no-op) and
-    # checkpoint_hour=-1 (no window-open moment to check), while export
-    # still gets fully LP-optimized against real spot prices exactly as
-    # the live writer's own generic fallback path already does.
-    p2p_bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
-    p2p_bonus_volume_cap = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
-    p2p_block_1_rate = _cfg_num(cfg, "solver_p2p_block_1_rate_kw", 0.0)
-    checkpoint_hour = (
-        _cfg_int(cfg, "solver_p2p_block_1_start_hour", -1)
-        if p2p_block_1_rate > 0
-        else -1
-    )
-    viable_threshold_pct = (
-        min(100.0, (p2p_bonus_volume_cap / capacity_kwh * 100.0) * 1.1)
-        if p2p_bonus_volume_cap > 0
-        else None
-    )
-
-    initial_pct = resample_history_nearest(
-        soc_hist, [day_start], default=50.0, backfill_first=True
-    )[0]
-    real_soc_close_pct = resample_history_nearest(
-        soc_hist,
-        [day_end - timedelta(seconds=1)],
-        default=initial_pct,
-        backfill_first=True,
-    )[0]
-    real_soc_checkpoint_pct = (
-        resample_history_nearest(
-            soc_hist,
-            [day_start.replace(hour=checkpoint_hour)],
-            default=initial_pct,
-            backfill_first=True,
-        )[0]
-        if checkpoint_hour >= 0
-        else None
-    )
-
-    # nimbus issue #328 (Mark Purcell): no clamp into [min_soc, max_soc]
-    # here either -- this counterfactual tracker exists specifically to
-    # honestly answer "what would Nimbus-only SoC actually have been,"
-    # so silently pretending the real starting reading was inside the
-    # envelope would corrupt the exact number this whole mechanism is
-    # built to report. Only clamped to the genuine PHYSICAL range further
-    # below, where sim_soc_kwh is updated after each simulated step.
-    sim_soc_kwh = capacity_kwh * initial_pct / 100.0
-    bonus_used_kwh_today = 0.0
-    sim_soc_checkpoint_pct: float | None = None
-
-    t = day_start
-    while t < day_end:
-        grid_times = []
-        tt = t
-        while tt < day_end:
-            grid_times.append(tt)
-            tt += step
-        n = len(grid_times)
-        hours_arr = np.full(n, step.total_seconds() / 3600.0)
-
-        solar_kw = np.array(
-            [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
-        )
-        load_kw = np.array(
-            [max(0.1, v) for v in resample_history_nearest(load_hist, grid_times)]
-        )
-        import_price = np.array(
-            [
-                v + import_fee_rate(cfg, _local(gt).hour) + flat_fee_rate
-                for v, gt in zip(
-                    resample_history_nearest(
-                        import_price_hist,
-                        grid_times,
-                        default=0.20,
-                        backfill_first=True,
-                    ),
-                    grid_times,
-                )
-            ]
-        )
-        export_price = np.array(
-            resample_history_nearest(
-                export_price_hist, grid_times, default=0.05, backfill_first=True
-            )
-        )
-
-        fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
-        remaining_bonus_kwh = max(0.0, p2p_bonus_volume_cap - bonus_used_kwh_today)
-
-        # Same universal concave terminal-value mechanism main() always
-        # applies (Solver PR #35, portable) -- zeroed once a tick starts
-        # inside the configured P2P window, same reasoning as the
-        # reference script's own fix (a real automation blindly
-        # following a fixed export rate has zero regard for what happens
-        # after it closes; a nonzero terminal reward there just biases
-        # the LP to import/charge purely to bank it). A no-op for any
-        # household with no P2P window configured -- t.hour is never
-        # "inside" a window that doesn't exist.
-        in_p2p_window = checkpoint_hour >= 0 and _local(t).hour >= checkpoint_hour
-        salvage_value = 0.0 if in_p2p_window else salvage_value_flat
-
-        periods = elements.PeriodGrid(hours=hours_arr, start=t)
-        grid = elements.GridConfig(
-            import_price=import_price,
-            export_price=export_price,
-            import_limit_kw=import_limit_kw,
-            export_limit_kw=export_limit_kw,
-            # nimbus #1079: gated to the committed blocks. This replay is
-            # the "what would Nimbus alone have done" counterfactual, so
-            # an ungated premium here makes the counterfactual look good
-            # for trades a real household could not have been paid for.
-            export_bonus_price=p2p_bonus_price_by_period(
-                p2p_bonus_price_flat, fixed_export_kw, n
-            ),
-            export_bonus_volume_kwh=remaining_bonus_kwh,
-            fixed_export_kw=np.array(fixed_export_kw)
-            if fixed_export_kw is not None
-            else None,
-        )
-        battery = elements.BatteryConfig(
-            name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
-            capacity_kwh=capacity_kwh,
-            initial_soc_kwh=sim_soc_kwh,  # nimbus issue #328: honest, no envelope clamp -- see this loop's own seed comment above
-            min_soc_kwh=min_soc_kwh,
-            max_soc_kwh=max_soc_kwh,
-            max_charge_kw=max_charge_kw,
-            max_discharge_kw=max_discharge_kw,
-            charge_efficiency=efficiency,
-            discharge_efficiency=efficiency,
-            charge_cost=charge_cost,
-            discharge_cost=np.full(n, discharge_cost_flat),
-            salvage_value=salvage_value,
-            terminal_value_breakpoints=terminal_value_breakpoints_for(
-                salvage_value, min_soc_kwh, max_soc_kwh
-            )
-            if salvage_value > 0
-            else None,
-        )
-        solar = elements.SolarConfig(forecast_kw=solar_kw)
-        loads = [elements.LoadConfig(name="whole_house", forecast_kw=load_kw)]
-
-        try:
-            # 2026-09-08: reads the SAME live-tunable smoothness_weight as
-            # the real dispatch solve (see build_plan()'s own call site
-            # further below in this file) rather than a second, silently-
-            # divergent hardcoded copy -- this counterfactual tracker
-            # exists to honestly answer "what would Nimbus-only SoC have
-            # been," which stops being true if it used a different
-            # degeneracy-smoothing behaviour than the real solve did.
-            plan = network.build_plan(
-                periods=periods,
-                grid=grid,
-                batteries=[battery],
-                solar=solar,
-                loads=loads,
-                smoothness_weight=_cfg_num(
-                    cfg,
-                    "solver_intraplan_smoothness_weight_kw",
-                    network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
-                ),
-                # nimbus issue #692: same reasoning as smoothness_weight
-                # just above -- reads the SAME live-tunable value the real
-                # dispatch solve uses, not a second, silently-divergent
-                # hardcoded copy.
-                battery_charge_earliness_budget_kw=_cfg_num(
-                    cfg,
-                    "solver_battery_charge_earliness_budget_kw",
-                    network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
-                ),
-                # nimbus issue #696: same reasoning again -- reads the
-                # SAME live switch.nimbus_solver_calibrated_objective_
-                # enabled state the real dispatch solve uses below, not
-                # a second, silently-divergent hardcoded choice.
-                solve_options=(
-                    lp.CalibratedOptions()
-                    if bool(cfg.get("solver_calibrated_objective_enabled", True))
-                    else None
-                ),
-            )
-        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-            # nimbus issue #363 (Mark Purcell, codebase review): the
-            # freeze-and-continue behaviour stays, breadcrumb added.
-            _LOGGER.debug(
-                "Nimbus Solver: compute_nimbus_only_soc_counterfactual "
-                "tick solve failed",
-                exc_info=True,
-            )
-            plan = None
-
-        if plan is not None and plan.status == "optimal":
-            net0 = float(plan.battery_discharge_kw[0] - plan.battery_charge_kw[0])
-            if net0 >= 0:
-                sim_soc_kwh -= net0 * (step.total_seconds() / 3600.0) / efficiency
-            else:
-                sim_soc_kwh += (-net0) * efficiency * (step.total_seconds() / 3600.0)
-            # nimbus issue #328: clamp to the PHYSICAL range only, not
-            # [min_soc, max_soc] -- unlike the envelope clamps removed
-            # elsewhere in this fix, this one is load-bearing and stays:
-            # sim_soc_kwh really cannot go below 0 or above capacity_kwh,
-            # that's a genuine physical law, not a scheduling preference.
-            # Sitting outside [min_soc, max_soc] is exactly the real
-            # state this tracker needs to be free to report honestly.
-            sim_soc_kwh = min(max(sim_soc_kwh, 0.0), capacity_kwh)
-            if plan.export_bonus_kw is not None:
-                bonus_used_kwh_today += float(plan.export_bonus_kw[0]) * (
-                    step.total_seconds() / 3600.0
-                )
-
-        if (
-            checkpoint_hour >= 0
-            and _local(t).hour == checkpoint_hour
-            and _local(t).minute < step.total_seconds() / 60.0
-            and sim_soc_checkpoint_pct is None
-        ):
-            sim_soc_checkpoint_pct = sim_soc_kwh / capacity_kwh * 100.0
-        t += step
-
-    sim_soc_close_pct = sim_soc_kwh / capacity_kwh * 100.0
-    viable = (
-        sim_soc_checkpoint_pct is not None
-        and viable_threshold_pct is not None
-        and sim_soc_checkpoint_pct >= viable_threshold_pct
-    )
-
-    return {
-        "date": day_start.date().isoformat(),
-        "real_soc_anchor_pct": round(initial_pct, 1),
-        "nimbus_only_soc_checkpoint_pct": round(sim_soc_checkpoint_pct, 1)
-        if sim_soc_checkpoint_pct is not None
-        else None,
-        "real_soc_checkpoint_pct": round(real_soc_checkpoint_pct, 1)
-        if real_soc_checkpoint_pct is not None
-        else None,
-        "checkpoint_hour": checkpoint_hour if checkpoint_hour >= 0 else None,
-        "nimbus_only_soc_close_pct": round(sim_soc_close_pct, 1),
-        "real_soc_close_pct": round(real_soc_close_pct, 1),
-        "viable": viable,
-        "viable_threshold_pct": round(viable_threshold_pct, 1)
-        if viable_threshold_pct is not None
-        else None,
-        "p2p_configured": checkpoint_hour >= 0,
-    }
 
 
 def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:

@@ -151,6 +151,12 @@ _DOCS_PATH = os.path.join(
 # spot for the NEXT extraction.
 _EXTRACTED_PACKAGE_GLOBS = (
     os.path.join(_NIMBUS_DIR, "solver_inputs", "*.py"),
+    # nimbus issue #1301, Phase 2 of #1298: the reporting subsystems. Same
+    # reasoning as solver_inputs above -- these functions did not vanish
+    # from the integration, they moved, so the integration side of this
+    # comparison has to keep counting them or a pure relocation reads as
+    # drift and forces a factually false annotation into this file.
+    os.path.join(_NIMBUS_DIR, "solver_reports", "*.py"),
     os.path.join(_NIMBUS_DIR, "solver_publish.py"),
     os.path.join(_NIMBUS_DIR, "solver_shared.py"),
 )
