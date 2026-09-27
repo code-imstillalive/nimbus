@@ -63,24 +63,26 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # `unmatched_ignore_imports_alerting` at its default. Seven were the
 # plan's own original late imports; nimbus issue #1301 (spec 001) added
 # the eighth (`solver_shared -> solver_writer`) for `_NATIVE_HASS`/
-# `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`. Phase
-# 2b/2c then added four more -- one per `solver_reports` module
-# (`backtest`, `counterfactual`, `flex`, `quality`) -- reaching back into
-# `solver_writer` through the same deliberate, documented seam every
-# `solver_inputs` module already uses: a DEFERRED, by-module import,
-# because the suite patches those helpers as attributes on the
-# `solver_writer` module object and a module-scope `from` import would
-# bind them at import time and silently defeat every one of those patches
-# (12 test files patch `fetch_entity_history_range` alone). See
+# `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`.
+#
+# nimbus issue #768 added the ninth: `solver_inputs.controllable_load_history`
+# reaches back through the same deferred, by-module seam as its five
+# `solver_inputs` siblings.
+#
+# nimbus issue #1301 Phase 2b/2c added four more -- one per `solver_reports`
+# module (`backtest`, `counterfactual`, `flex`, `quality`) -- through that same
+# seam: a DEFERRED, by-module import, because the suite patches those helpers
+# as attributes on the `solver_writer` module object and a module-scope `from`
+# import would bind them at import time and silently defeat every one of those
+# patches (12 test files patch `fetch_entity_history_range` alone). See
 # `solver_reports/__init__.py`.
 #
-# So this rising to 12 is the refactor working as designed, not a new
-# violation being waved through: the imports are the SAME seam, now
-# declared for four more modules. It goes down when
-# `(solver_dispatch)`/`ha_bridge` land and the shared helpers stop living
-# in the top layer. When a future phase fixes one for real, lower this
-# number along with the pyproject.toml entry it counts.
-_EXPECTED_IGNORED_IMPORT_COUNT = 12
+# So 13 is the refactor working as designed, not new violations being waved
+# through: every one of them is the SAME seam, declared for one more module.
+# The number goes down when `(solver_dispatch)`/`ha_bridge` land and the shared
+# helpers stop living in the top layer -- and when a future phase fixes one for
+# real, lower this along with the pyproject.toml entry it counts.
+_EXPECTED_IGNORED_IMPORT_COUNT = 13
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:

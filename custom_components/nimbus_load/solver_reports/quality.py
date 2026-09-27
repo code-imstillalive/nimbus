@@ -680,6 +680,43 @@ def _compute_report_for_window(
             n_periods=n_periods,
         )
     )
+    # nimbus issue #768, the OTHER half of the same ask: what each
+    # Controllable Load really delivered over this window, per period, from
+    # its own power sensor's recorder history. This is the capability that
+    # issue named as its own prerequisite on 2026-09-13 and that nothing
+    # provided until now.
+    #
+    # It is a MEASUREMENT here and nothing more. The oracle's own
+    # `build_plan()` call below is deliberately NOT given `adequacy_loads=`
+    # / `sheddable_loads=`, so every EPR, j_star and regret figure this
+    # function returns is identical to before -- Mark Purcell's own
+    # sequencing, 2026-09-27: "Build that first, land it as its own change,
+    # then wire the LP plumbing ... as a second, smaller step." Publishing
+    # the reconstruction first is what lets it be checked against a real
+    # install BEFORE anything is scored against it, which is the order
+    # #1242 used for soc_discrepancy_power_coverage.
+    #
+    # Zero controllable loads (the reference household, devhub, and any
+    # standalone/cron deployment) returns [] and publishes an empty list.
+    try:
+        controllable_load_delivery = (
+            sw.controllable_load_history.resolve_controllable_load_delivery_history(
+                day_start=day_start,
+                day_end=day_end,
+                grid_times=grid_times,
+                period_hours=period_hours,
+                n_periods=n_periods,
+            )
+        )
+    except Exception:  # a diagnostic must never take the whole day's report down; same posture as every other optional reconstruction here
+        sw._LOGGER.debug(
+            "Nimbus quality: controllable-load delivery reconstruction failed "
+            "for [%s, %s] -- the rest of the report is unaffected",
+            day_start.isoformat(),
+            day_end.isoformat(),
+            exc_info=True,
+        )
+        controllable_load_delivery = []
     batteries = [battery_cfg, *(p[0] for p in participant_batteries)]
     actual_charge_kw_list = [actual_charge_kw, *(p[1] for p in participant_batteries)]
     actual_discharge_kw_list = [
@@ -1118,6 +1155,23 @@ def _compute_report_for_window(
         # participant scored via a shared sensor is scored using that
         # reading as-is.
         "scored_participants": [b.name for b in batteries],
+        # nimbus issue #768, the controllable-load half. One entry per
+        # CONFIGURED Controllable Load, scorable or not -- a household must
+        # be able to see the loads this day's reconstruction could not read,
+        # which is the same distinction `scored_participants` above makes on
+        # the battery side.
+        #
+        # `delivered_kwh` is the REAL delivered energy (Mark's own decided
+        # convention, 2026-09-27), never the configured target. `null` with a
+        # `reason` means not reconstructable for this day -- honest absence,
+        # not 0.0, the same posture `offered_up_kwh` already takes.
+        #
+        # Nothing consumes this for scoring yet, by design: the oracle call
+        # above is unchanged, so this cannot move EPR or regret. The wiring
+        # is its own follow-up (#1357).
+        "controllable_load_delivery": [
+            d.as_attribute() for d in controllable_load_delivery
+        ],
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),
