@@ -150,10 +150,8 @@ Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_lo
 from __future__ import annotations
 
 import functools
-import io
 import itertools
 import json
-import logging
 import math
 import os
 import re
@@ -282,6 +280,12 @@ except ImportError:
 # those suites passing, not what breaks them.
 try:
     from .solver_shared import (
+        _ENTITY_UPDATE_HANDLERS,
+        _LOGGER,
+        _MAX_STATE_ATTRS_BYTES,
+        _NATIVE_MANAGED_ENTITY_IDS,
+        _OVERSIZE_ATTRS_WARNED,
+        _SOH_RANGE_WARNED,
         LOCAL_TZ,
         MAX_TIER1_HOURS,
         NETWORK_FEE_BLOCK_KEYS,
@@ -290,16 +294,10 @@ try:
         TIER2_PERIOD_HOURS,
         _cfg_int,
         _cfg_num,
-        _ENTITY_UPDATE_HANDLERS,
         _kw_scale_factor,
         _local,
-        _LOGGER,
-        _MAX_STATE_ATTRS_BYTES,
         _native_http_error,
-        _NATIVE_MANAGED_ENTITY_IDS,
         _nimbus_version,
-        _OVERSIZE_ATTRS_WARNED,
-        _SOH_RANGE_WARNED,
         _version_stamp,
         _warn_if_attrs_exceed_recorder_cap,
         fetch_entity_attribute_history_range,
@@ -316,26 +314,26 @@ try:
     )
 except ImportError:
     from solver_shared import (  # type: ignore[no-redef]
+        _ENTITY_UPDATE_HANDLERS,
+        _LOGGER,
+        _MAX_STATE_ATTRS_BYTES,  # noqa: F401 -- re-export, see comment below
+        _NATIVE_MANAGED_ENTITY_IDS,  # noqa: F401 -- re-export, see comment below
+        _OVERSIZE_ATTRS_WARNED,  # noqa: F401 -- re-export, see comment below
+        _SOH_RANGE_WARNED,  # noqa: F401 -- re-export, see comment below
         LOCAL_TZ,
         MAX_TIER1_HOURS,
-        NETWORK_FEE_BLOCK_KEYS,
-        P2P_BLOCK_KEYS,
+        NETWORK_FEE_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
+        P2P_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
         TIER1_PERIOD_HOURS,
         TIER2_PERIOD_HOURS,
         _cfg_int,
         _cfg_num,
-        _ENTITY_UPDATE_HANDLERS,
         _kw_scale_factor,
         _local,
-        _LOGGER,
-        _MAX_STATE_ATTRS_BYTES,
-        _native_http_error,
-        _NATIVE_MANAGED_ENTITY_IDS,
+        _native_http_error,  # noqa: F401 -- re-export, see comment below
         _nimbus_version,
-        _OVERSIZE_ATTRS_WARNED,
-        _SOH_RANGE_WARNED,
         _version_stamp,
-        _warn_if_attrs_exceed_recorder_cap,
+        _warn_if_attrs_exceed_recorder_cap,  # noqa: F401 -- re-export, see comment below
         fetch_entity_attribute_history_range,
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,
@@ -348,6 +346,27 @@ except ImportError:
         resample_history_nearest,
         resolve_effective_capacity_kwh,
     )
+
+# The F401 exceptions marked above (NETWORK_FEE_BLOCK_KEYS, P2P_BLOCK_KEYS,
+# _MAX_STATE_ATTRS_BYTES, _native_http_error, _NATIVE_MANAGED_ENTITY_IDS,
+# _OVERSIZE_ATTRS_WARNED, _SOH_RANGE_WARNED, _warn_if_attrs_exceed_
+# recorder_cap): these 8 names have zero remaining bare-name callers in
+# THIS file after the move -- every real use now lives in solver_shared.py
+# alongside the function that reads them. They stay re-exported here
+# anyway, same as every other name above, because the façade decision
+# (this file's own docstring reference above) is "every name keeps a
+# re-export," not "every name a caller still uses" -- an external
+# consumer (this repo's own tests, e.g. `solver_writer._SOH_RANGE_WARNED`
+# in test_effective_capacity_soh_derating.py) reaching for the OLD
+# location must keep working. Ruff's F401 cannot see a caller in a
+# DIFFERENT file, so it reads these as dead imports; `# X as X` (the
+# usual explicit-re-export idiom) was tried and rejected, since ruff's
+# own PLC0414 (useless-import-alias) flags that same pattern outside
+# `__init__.py` -- the two rules disagree here, and marking `__all__` for
+# a file this size, used this many other ways, was judged a bigger and
+# riskier change than this migration's own "pure relocation" scope. A
+# per-line noqa, this repo's own established convention for exactly this
+# kind of individually-justified exception (see this file's own BLE001
 
 
 # Real, confirmed-live bug (2026-08-17): this script's own docstrings
@@ -408,8 +427,6 @@ except ImportError:
 # solver time-grid construction, deliberately left for a dedicated pass
 # rather than rushed alongside this narrower, lower-risk timezone-
 # resolution fix.
-
-
 
 
 import numpy as np
@@ -835,10 +852,6 @@ P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 # own docstring for the full "no hardcoded tariff" story).
 
 
-
-
-
-
 def resolve_max_discharge_kw(cfg: dict) -> float:
     """PREFER this household's own real, live hardware setpoint entity's
     own `max` attribute if one is CONFIGURED (2026-08-16 real finding
@@ -884,10 +897,6 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
                 live_entity,
             )
     return float(cfg["solver_max_discharge_kw"])
-
-
-
-
 
 
 _MIN_SOC_FLOOR_FRACTION = 0.0005  # 0.05% of capacity -- see docstring below.
@@ -1593,7 +1602,7 @@ def compute_cost_band(
             grid_import_limit_kw=import_limit_kw,
             grid_export_limit_kw=export_limit_kw,
         ).total_cost
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): swallow stays
         # (this is a read-only, best-effort diagnostic re-costing, never
         # worth breaking the real solve over), but now with a breadcrumb.
@@ -1604,8 +1613,6 @@ def compute_cost_band(
         "upper": round(upper_cost, 4),
         "width": round(upper_cost - lower_cost, 4),
     }
-
-
 
 
 # Real, git-tracked battery cost schedule (config/automations.yaml, "HAEO
@@ -2029,7 +2036,7 @@ def set_native_hass(hass) -> None:
         raw_time_zone = getattr(getattr(hass, "config", None), "time_zone", None)
         try:
             LOCAL_TZ = ZoneInfo(raw_time_zone)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.exception(
                 "Nimbus: could not resolve hass.config.time_zone (%r) -- "
                 "keeping the existing LOCAL_TZ (%s)",
@@ -2112,10 +2119,6 @@ def resolve_real_entity_id(entity_id: str) -> str:
     unavailable stretches observed.
     """
     return _ENTITY_REAL_IDS.get(entity_id, entity_id)
-
-
-
-
 
 
 def entity_exists(entity_id: str) -> bool:
@@ -2208,10 +2211,6 @@ def fetch_solver_config() -> dict:
 # to clean up for #757.
 
 
-
-
-
-
 def ha_call_service(domain: str, service: str, data: dict) -> None:
     """Fire-and-forget HA service call -- same native/REST dual-mode
     split as ha_get()/ha_post_state() above. Currently used only for
@@ -2280,7 +2279,7 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
 
             future = asyncio.run_coroutine_threadsafe(_call(), _NATIVE_HASS.loop)
             return future.result(timeout=15)
-        except Exception:
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             # nimbus issue #363 (Mark Purcell, codebase review): the swallow
             # itself is the correct, deliberate contract (see docstring) --
             # what was missing is any breadcrumb AT ALL when it fires.
@@ -2703,8 +2702,6 @@ def _offer_curve_band_range_contains(
     ):
         return False
     return inner_lower >= outer_lower and inner_upper <= outer_upper
-
-
 
 
 def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | None]:
@@ -3938,7 +3935,7 @@ def _notify_load_forecast_error_once(
         )
         with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
             f.write(key)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): the swallow
         # stays (a failed notification must never break the real solve),
         # but this used to have zero breadcrumb at all -- if this fires
@@ -3976,7 +3973,7 @@ def _clear_load_forecast_error_notification_if_needed() -> None:
             {"notification_id": "nimbus_solver_load_forecast_error"},
         )
         os.remove(LOAD_FORECAST_ERROR_NOTIFIED_PATH)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         _LOGGER.debug(
             "Nimbus Solver: _clear_load_forecast_error_notification_if_needed failed",
             exc_info=True,
@@ -4054,7 +4051,7 @@ def resample_real_p2p_rate(
         return [0.0 for _ in grid_times]
     try:
         raw = ha_get(sensor_id)["attributes"]["forecast"]
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): the degrade-
         # to-flat-0.0 behaviour stays, but this used to have zero
         # breadcrumb -- a genuinely misconfigured/renamed P2P sensor would
@@ -4159,10 +4156,6 @@ def resample_real_p2p_rate(
 # here only as the literal default for an install that hasn't set the
 # field, matching const.py's own DEFAULT_SOLVER_POST_WINDOW_SELF_
 # CONSUME_HOURS -- byte-identical behaviour for every existing install.
-
-
-
-
 
 
 def resolve_price_spike_override(
@@ -4495,7 +4488,7 @@ def resample_generic_price_forecast_with_coverage(
     """
     try:
         state = ha_get(entity_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): fallback
         # stays, breadcrumb added.
         _LOGGER.debug(
@@ -5672,8 +5665,6 @@ def _history_coverage_by_series(
     return out
 
 
-
-
 def fetch_entity_power_history_kw(
     entity_id: str, start: datetime, end: datetime
 ) -> list[tuple[datetime, float]]:
@@ -5746,7 +5737,7 @@ def fetch_entity_power_history_kw(
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
-        except Exception:
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.debug(
                 "Nimbus Solver: fetch_entity_power_history_kw(%s) recorder read failed",
                 entity_id,
@@ -5842,7 +5833,7 @@ def fetch_entity_state_history_range(
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
-        except Exception:
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.debug(
                 "Nimbus Solver: fetch_entity_state_history_range(%s) recorder read failed",
                 entity_id,
@@ -5877,14 +5868,6 @@ def fetch_entity_state_history_range(
             continue
         out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), state))
     return sorted(out, key=lambda x: x[0])
-
-
-
-
-
-
-
-
 
 
 # nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own
@@ -6535,7 +6518,7 @@ def _day_ahead_forecast_regret_attributes(
             solar_persistence_kw=np.array(solar_persistence_kw),
             load_persistence_kw=np.array(load_persistence_kw),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # Four extra LP solves. A diagnostic must never take the EPR path
         # down with it -- #366/#373's "degrade, never wedge", the same
         # posture the nowcast helper above takes.
@@ -8921,10 +8904,6 @@ def _settlement_is_provisional(day_entry: dict) -> bool | None:
     return status in _PROVISIONAL_SETTLEMENT_STATUSES
 
 
-
-
-
-
 def _carry_forward_quality_history(
     prior_attrs: dict,
     day_key: str,
@@ -10567,7 +10546,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                     else None
                 ),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             # nimbus issue #363 (Mark Purcell, codebase review): the
             # freeze-and-continue behaviour stays, breadcrumb added.
             _LOGGER.debug(
@@ -12631,7 +12610,7 @@ def _sample_load_run_state(
 
         future = _asyncio.run_coroutine_threadsafe(_update(), _NATIVE_HASS.loop)
         return future.result(timeout=10)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         _LOGGER.debug(
             "Nimbus: controllable load run-state sample failed for %s (%s)",
             subentry_id,
@@ -14576,7 +14555,7 @@ def apply_commanded_state_guard(
                     power_sensor,
                     True,  # no_attributes -- plain numeric state is enough
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                 _LOGGER.debug(
                     "Nimbus: #592 thermal history fetch failed for %s/%s",
                     done_entity,
@@ -14647,7 +14626,7 @@ def apply_commanded_state_guard(
                     entity_id,
                     False,  # no_attributes=False -- temperature lives there
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                 _LOGGER.debug(
                     "Nimbus: #481 ambient history fetch failed for %s",
                     entity_id,
@@ -15381,7 +15360,7 @@ def apply_commanded_state_guard(
                                         new, day_key=day_key
                                     )
                                     new = replace(new, last_dispatch_failed=False)
-                                except Exception:
+                                except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                                     _LOGGER.warning(
                                         "Nimbus: dispatch ON failed for "
                                         "controllable load '%s' (%s) -- will retry "
@@ -15412,7 +15391,7 @@ def apply_commanded_state_guard(
                                     _NATIVE_HASS, device_entity, False
                                 )
                                 new = replace(new, last_dispatch_failed=False)
-                            except Exception:
+                            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                                 _LOGGER.warning(
                                     "Nimbus: dispatch OFF failed for "
                                     "controllable load '%s' (%s) -- will retry "
@@ -15465,7 +15444,7 @@ def apply_commanded_state_guard(
                                 new.reaffirms_today,
                                 load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
                             )
-                        except Exception:
+                        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                             _LOGGER.warning(
                                 "Nimbus: re-send failed for controllable load '%s' (%s)",
                                 subentry_id,
@@ -15523,7 +15502,7 @@ def apply_commanded_state_guard(
                             )
                     if new is not prev:
                         await store.async_write(subentry_id, new)
-                except Exception:
+                except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                     # Per-load, so the loop continues. Deliberately WARNING and
                     # deliberately naming the load: this is the level at which
                     # a household can act on it, and the outer handler cannot
@@ -15543,7 +15522,7 @@ def apply_commanded_state_guard(
 
         future = _asyncio.run_coroutine_threadsafe(_update_all(), _NATIVE_HASS.loop)
         future.result(timeout=10)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #1019. This handler must stay -- it is the last
         # thing between a controllable-load failure and the solve cycle
         # it runs inside, and dispatch must never take the solve down.

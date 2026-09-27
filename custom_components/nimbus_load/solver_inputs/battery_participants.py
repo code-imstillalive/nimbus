@@ -514,7 +514,9 @@ def _resolve_battery_participant_history(
                 )
                 if _sign_check.is_actionable:
                     _warn_sign_convention_once(str(name), _sign_check)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's
+                # logger-objects tracing can't follow `solver_shared` through
+                # this file's own dual-mode try/except import (nimbus #1301)
                 solver_shared._LOGGER.debug(
                     "Nimbus: sign-convention check skipped for participant %s",
                     name,

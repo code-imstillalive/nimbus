@@ -76,9 +76,9 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
         # `self.writer` is the union of both files' text now, same
         # substring-membership check as before, so a field genuinely read
         # by either half of the split integration still counts as read.
-        self.writer = (_ROOT / "solver_writer.py").read_text(
-            encoding="utf-8"
-        ) + (_ROOT / "solver_shared.py").read_text(encoding="utf-8")
+        self.writer = (_ROOT / "solver_writer.py").read_text(encoding="utf-8") + (
+            _ROOT / "solver_shared.py"
+        ).read_text(encoding="utf-8")
 
     def test_the_sweep_finds_a_real_set_of_fields(self):
         """Guards the guard: a regex that silently matched nothing would

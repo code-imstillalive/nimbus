@@ -435,6 +435,27 @@ ignore = [
     # SAME small list can silently un-fix each other's own bookkeeping.
 ]
 
+# nimbus issue #1301 (Phase 2a, spec 001, #1347): `_LOGGER` moved from a
+# direct `_LOGGER = logging.getLogger(__name__)` assignment in
+# solver_writer.py to a genuine identity alias re-exported from the new
+# solver_shared.py (`from .solver_shared import (..., _LOGGER, ...)`).
+# Ruff's BLE001 (blind-except) rule exempts an `except Exception:` block
+# whose body logs via a real `logging.Logger` with `exc_info` set -- but it
+# can only recognise that FOR FREE when the logger is a direct `logging.
+# getLogger(...)` call it can see in the same file. Once `_LOGGER` is an
+# imported name, ruff's static check loses that trail and 19 real,
+# unrelated, pre-existing `except Exception:` blocks in solver_writer.py
+# (each already correct -- `_LOGGER.debug(..., exc_info=True)` or `.
+# warning(...)`, same as before this move, zero behaviour change) started
+# reading as newly-blind, purely because of where `_LOGGER` is now bound,
+# confirmed by a real base-vs-head `ruff check --select BLE001` run (0
+# findings on solver_writer.py at 7a3187e, 19 at this branch's tip, for
+# byte-identical try/except bodies). `logger-objects` is ruff's own
+# documented mechanism for exactly this shape ("projects that re-export a
+# `logging.Logger` object from a common module") -- not a suppression, a
+# correction of ruff's own logger-identity tracking to match reality.
+logger-objects = ["custom_components.nimbus_load.solver_shared._LOGGER"]
+
 # nimbus issue #360 (Mark Purcell, codebase review): the BLE001
 # per-file-ignore that used to sit here existed ONLY for the identical
 # `if __name__ == "__main__":` bare-function collector every test_*.py
