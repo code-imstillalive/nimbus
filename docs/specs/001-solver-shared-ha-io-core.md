@@ -204,9 +204,17 @@ Concretely: `solver_writer.py` gets one block,
 fetch_entity_attribute_history_range, resample_history_nearest,
 resample_history_mean, _cfg_num, _cfg_int, resolve_effective_capacity_kwh,
 import_fee_rate, fetch_p2p_fixed_export_kw, p2p_bonus_price_by_period,
-_kw_scale_factor, _version_stamp, _local, LOCAL_TZ, TIER1_PERIOD_HOURS,
-TIER2_PERIOD_HOURS, MAX_TIER1_HOURS)` (`_LOGGER` handled separately, see
-Migration step 3). Every existing call site inside `solver_writer.py` and
+_kw_scale_factor, _version_stamp, _local, _LOGGER, LOCAL_TZ, TIER1_PERIOD_HOURS,
+TIER2_PERIOD_HOURS, MAX_TIER1_HOURS)`. **`_LOGGER` is a genuine identity alias,
+not a name that happens to resolve the same way** — see Migration step 2 for
+why: four existing test suites call `assertLogs(solver_writer._LOGGER, ...)`
+to capture log lines emitted by the six `solver_inputs/*.py` modules this spec
+repoints onto `solver_shared`'s logger (step 3), and `assertLogs` on a Logger
+*object* only captures records logged through that exact object (Python's
+logging hierarchy is name-based, and `nimbus_load.solver_writer` and
+`nimbus_load.solver_shared` are siblings, not parent/child) — so those four
+suites only keep passing if `solver_writer._LOGGER is solver_shared._LOGGER`.
+Every existing call site inside `solver_writer.py` and
 every existing `patch.object(solver_writer, "ha_get", ...)`-style test
 continues to resolve identically — this is a pure relocation, zero patch
 paths retargeted, by construction.
@@ -224,14 +232,23 @@ its own spec — not this one's.
 - `solver_writer.<name>` resolves to the identical object (`is`, not just
   `==`) for every name in scope, before and after this spec — a test checking
   `solver_writer.ha_get is solver_shared.ha_get` after the move must pass.
+  This includes `_LOGGER`: `solver_writer._LOGGER is solver_shared._LOGGER`,
+  not two independently-created loggers (see Migration step 2 — four existing
+  test suites assert via `assertLogs(solver_writer._LOGGER, ...)` on log
+  lines emitted by modules that log through `solver_shared`'s logger after
+  step 3, and only object identity keeps that capturing correctly).
 - No call site inside `solver_writer.py` changes its own source text (the
   functions it calls are still named `ha_get`, `_cfg_num`, etc. — only where
   they're *defined* changes).
 - `import-linter`'s `nimbus-layers` contract (pyproject.toml) is updated to
   declare the new layer and passes with **zero** new `ignore_imports`
-  entries for anything this spec touches (the seven existing exceptions from
-  #1338 are untouched — they're `solver_inputs/* -> solver_writer`, a
-  different, still-open problem this spec doesn't claim to fix).
+  entries for anything this spec touches. Of the seven existing exceptions
+  from #1338 (`solver_inputs/* -> solver_writer`), **six are retired by this
+  spec** (Migration steps 3 and 5) — `battery_participants.py`,
+  `battery_soc.py`, `extra_batteries.py`, `load.py`, `prices.py`, `solar.py`
+  each stop reaching into `solver_writer` once they import `_LOGGER` from
+  `solver_shared` instead. One remains, orthogonal to this spec (see
+  Non-goals).
 - `tests/test_diagnostic_log_levels.py`'s `_scanned_paths()` glob is extended
   to include `solver_shared.py` so a `_LOGGER.warning(...)` call moved there
   keeps being checked for the diagnostic-log-level conventions #357/#1298
@@ -253,24 +270,42 @@ its own spec — not this one's.
    `test_docs_writer_function_set_drift.py` with that one-line reason.
 2. In `solver_writer.py`, delete each moved body, replace with the
    `from .solver_shared import (...)` re-export block from the Façade
-   Decision section above. `_LOGGER` is not re-exported by name the same
-   way — `solver_writer.py` keeps its own `_LOGGER = logging.getLogger(__name__)`
-   (a genuinely different logger identity, `nimbus_load.solver_writer` vs
-   `nimbus_load.solver_shared`, and every existing test asserting on a log
-   line's own logger name would break otherwise); `solver_shared.py` gets
-   its own `_LOGGER = logging.getLogger(__name__)`. This is a deliberate,
-   named exception to "everything is re-exported" — call it out in review.
+   Decision section above, **`_LOGGER` included as a genuine alias** —
+   `solver_shared.py` creates the one real `_LOGGER = logging.getLogger(__name__)`
+   (name `nimbus_load.solver_shared`), and `solver_writer.py` imports it
+   rather than creating its own. An earlier draft of this spec had this
+   backwards — proposed keeping `solver_writer.py`'s own independently-created
+   `_LOGGER`, reasoning that "every existing test asserting on a log line's
+   own logger name would break otherwise." Peer review (PR #1347 comment,
+   2026-09-27) actually ran the check that reasoning assumed rather than
+   stated: zero tests assert a logger by name string; four suites
+   (`test_solver_inputs_solar.py`, `test_solver_writer_battery_participants.py`,
+   `test_solar_source_shape_and_dedup.py`,
+   `test_quality_report_achieved_energy_and_reliability.py`) assert via
+   `assertLogs(solver_writer._LOGGER, ...)` on the object itself, to capture
+   log lines emitted by the very `solver_inputs/*.py` modules step 3 below
+   repoints onto `solver_shared`'s logger. Since `assertLogs` on a Logger
+   object only captures records logged through that exact object (Python's
+   logging hierarchy propagates by dotted name, and `nimbus_load.solver_writer`/
+   `nimbus_load.solver_shared` are siblings, not ancestor/descendant), keeping
+   them as two separate logger objects would have broken those four suites the
+   moment step 3 repoints the six modules — the opposite of what the original
+   reasoning predicted. Aliasing is what keeps them passing, confirmed by
+   inspection of `test_solver_inputs_solar.py:144`'s own `assertLogs` call
+   against the warning `solver_inputs/solar.py:366` emits via `sw._LOGGER`.
 3. Update the six `solver_inputs/*.py` files that currently reach up into
    `solver_writer` for `_LOGGER` (`battery_participants.py`, `battery_soc.py`,
    `extra_batteries.py`, `load.py`, `prices.py`, `solar.py`) to import it from
-   `solver_shared` instead. This changes each affected log line's own logger
-   name from `nimbus_load.solver_writer` to `nimbus_load.solver_shared` — a
-   real, visible change, not a no-op — so grep the suite for any test
-   asserting a logger name or `caplog` fixture scoped to `"solver_writer"` on
-   these six files' own log lines before assuming it's silent, and update any
-   found. This is what retires 6 of the 7 `ignore_imports` exceptions in step
-   4 below; skipping this step leaves the layer violations in place and the
-   new Acceptance item unmet.
+   `solver_shared` instead. Because of step 2's alias, this changes no test's
+   observable behaviour and no log line's effective identity — `solver_writer.
+   _LOGGER` and `solver_shared._LOGGER` are the same object before and after,
+   so every `assertLogs(solver_writer._LOGGER, ...)` site keeps capturing the
+   same records. (The logger's name was already `nimbus_load.solver_shared`
+   for these six modules' own perspective once step 1 creates it there; step 2
+   just makes sure `solver_writer.py`'s reference to `_LOGGER` is the identical
+   object, not a second one under a different name.) This is what retires 6 of
+   the 7 `ignore_imports` exceptions in step 5 below; skipping this step
+   leaves the layer violations in place and the new Acceptance item unmet.
 4. Run the golden master (`GOLDEN_UPDATE` must NOT be needed — a snapshot
    diff here means a real behaviour change slipped in). Run the full suite.
    Run `tests/test_docs_writer_function_set_drift.py` (confirms the
