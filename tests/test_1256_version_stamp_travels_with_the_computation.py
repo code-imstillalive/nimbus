@@ -139,8 +139,14 @@ class _PublisherCase(unittest.TestCase):
         stack = [
             mock.patch.object(solver_writer, "ha_post_state", side_effect=post),
             mock.patch.object(solver_writer, "ha_get", side_effect=unreachable),
+            # nimbus issue #1301 (spec 001, #1347): _version_stamp()'s own
+            # internal call to _nimbus_version() resolves inside
+            # solver_shared.py, where both now live -- patching
+            # solver_writer._nimbus_version no longer reaches it (same
+            # class of gap noop_patches.py caught for _kw_scale_factor's
+            # internal ha_get call; this one slipped through).
             mock.patch.object(
-                solver_writer, "_nimbus_version", return_value="0.94.417"
+                solver_shared, "_nimbus_version", return_value="0.94.417"
             ),
         ]
         for target, kwargs in patches.items():
