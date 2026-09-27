@@ -17,6 +17,10 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
+# pytest's pythonpath setting, applied the way pytest applies it: after
+# the interpreter and the stdlib modules above are loaded (harness.py).
+sys.path.insert(0, os.environ["GOLDEN_PKG"])
+
 
 def main(argv: list[str]) -> int:
     name, out_path = argv[0], Path(argv[1])

@@ -60,7 +60,13 @@ def child_env(workdir: Path) -> dict[str, str]:
     env.update(NUMERIC_ENV)
     env.update(
         {
-            "PYTHONPATH": os.pathsep.join([str(PKG), str(TESTS)]),
+            # Only tests/ here. custom_components/nimbus_load has a
+            # select.py, and on PYTHONPATH it would shadow the stdlib
+            # select module wherever that is not built in (it is on
+            # some local builds, not on CI's). child.py adds the
+            # package after the stdlib has loaded, as pytest does.
+            "PYTHONPATH": str(TESTS),
+            "GOLDEN_PKG": str(PKG),
             "TZ": "UTC",
             "HA_BASE": "http://golden.invalid:8123",
             "HA_TOKEN": "golden-master",
