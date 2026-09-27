@@ -45,19 +45,35 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401 -- sys.path setup side effect
 import solver_writer
-from solver_reports import backtest, counterfactual, flex
+from solver_reports import backtest, counterfactual, flex, quality
 
 _PACKAGE_DIR = pathlib.Path(solver_writer.__file__).parent / "solver_reports"
 
-# (facade attribute, module it moved to) for every name Phase 2b relocated.
+# (facade attribute, module it moved to) for every name #1301 relocated --
+# Phase 2b (backtest/counterfactual/flex) and Phase 2c (the quality cluster).
 MOVED = (
     ("compute_efficiency_backtest_report", backtest),
     ("compute_nimbus_only_soc_counterfactual", counterfactual),
     ("_compute_flex_report_for_window", flex),
     ("FLEX_SIGNALS_ENTITY_ID", flex),
     ("_PRICE_BAND_WIDTH", flex),
+    ("_compute_report_for_window", quality),
+    ("_soc_discrepancy_stats", quality),
+    ("_carry_forward_quality_history", quality),
+    ("rescore_quality_history", quality),
+    ("publish_daily_quality_report", quality),
+    ("PRIOR_READ_OK", quality),
+    ("PRIOR_READ_ABSENT", quality),
+    ("PRIOR_READ_UNAVAILABLE", quality),
+    ("PRIOR_READ_UNREACHABLE", quality),
+    ("_PRIOR_READ_DEGRADED", quality),
 )
-_MODULES = (("backtest", backtest), ("counterfactual", counterfactual), ("flex", flex))
+_MODULES = (
+    ("backtest", backtest),
+    ("counterfactual", counterfactual),
+    ("flex", flex),
+    ("quality", quality),
+)
 
 
 class TestTheFacadeStillAnswersForEveryMovedName(unittest.TestCase):
@@ -162,6 +178,11 @@ class TestMovedFunctionsBindTheAccessor(unittest.TestCase):
             (backtest, "compute_efficiency_backtest_report"),
             (counterfactual, "compute_nimbus_only_soc_counterfactual"),
             (flex, "_compute_flex_report_for_window"),
+            (quality, "_compute_report_for_window"),
+            (quality, "_soc_discrepancy_stats"),
+            (quality, "_carry_forward_quality_history"),
+            (quality, "rescore_quality_history"),
+            (quality, "publish_daily_quality_report"),
         )
         for module, fname in cases:
             with self.subTest(function=fname):
@@ -183,6 +204,57 @@ class TestMovedFunctionsBindTheAccessor(unittest.TestCase):
                     and n.value.func.id == "_solver_writer"
                 ]
                 self.assertTrue(binds, f"{fname}() never binds sw = _solver_writer()")
+
+
+class TestNoDefaultArgumentReachesThroughTheAccessor(unittest.TestCase):
+    """A default argument must never be `sw.SOMETHING`.
+
+    Real bug, hit while extracting Phase 2c.
+    `_carry_forward_quality_history()` carried
+    `prior_read: str = PRIOR_READ_OK` in `solver_writer`, and qualifying
+    that to `sw.PRIOR_READ_OK` produced `F821 Undefined name 'sw'` --
+    because **default arguments are evaluated at function-DEFINITION time**,
+    when the deferred accessor has not run and `sw` does not exist.
+
+    The fix was to move those five constants here with their only callers,
+    which is also semantically exact: the original evaluated
+    `solver_writer`'s module-level constant once at import, so a direct
+    module-level name reproduces it precisely, and patching
+    `solver_writer.PRIOR_READ_OK` never affected this default either way.
+
+    Ruff catches the specific `sw` case, but the rule generalises to any
+    deferred accessor, so it is stated here.
+    """
+
+    def test_no_moved_function_uses_sw_in_a_default_argument(self):
+        for path in sorted(_PACKAGE_DIR.glob("*.py")):
+            with self.subTest(module=path.name):
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                offenders = []
+                for fn in tree.body:
+                    if not isinstance(fn, ast.FunctionDef):
+                        continue
+                    defaults = list(fn.args.defaults) + [
+                        d for d in fn.args.kw_defaults if d is not None
+                    ]
+                    for d in defaults:
+                        for sub in ast.walk(d):
+                            if (
+                                isinstance(sub, ast.Attribute)
+                                and isinstance(sub.value, ast.Name)
+                                and sub.value.id == "sw"
+                            ):
+                                offenders.append(
+                                    f"{fn.name}() line {sub.lineno}: sw.{sub.attr}"
+                                )
+                self.assertEqual(
+                    offenders,
+                    [],
+                    f"{path.name} evaluates the deferred accessor in a default "
+                    f"argument: " + "; ".join(offenders) + ". Defaults are "
+                    "evaluated at definition time, before `sw` is bound -- move "
+                    "the constant into this module instead.",
+                )
 
 
 if __name__ == "__main__":
