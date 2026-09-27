@@ -66,7 +66,11 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # `HA_BASE`/`_load_token()` staying behind in `solver_writer.py`. When a
 # future phase fixes one of these for real, this number goes down along
 # with the pyproject.toml entry it's counting.
-_EXPECTED_IGNORED_IMPORT_COUNT = 8
+# nimbus issue #768 adds the ninth: solver_inputs.controllable_load_history
+# reaches back through the same deferred, by-module seam as its five
+# solver_inputs siblings. Same seam, one more module declaring it -- not a
+# new violation waved through.
+_EXPECTED_IGNORED_IMPORT_COUNT = 9
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:
