@@ -59,9 +59,26 @@ def main(argv: list[str]) -> int:
 
     logging.getLogger().addHandler(_Capture())
 
+    workdir = Path(os.environ["GOLDEN_WORKDIR"])
+
     cycle_records = []
+    native = None
     with patch.object(urllib.request, "urlopen", fake.urlopen):
         import solver_writer
+
+        # nimbus issue #1335: native mode. The fake homeassistant.* modules
+        # have to be in sys.modules before main() reaches the lazy imports
+        # inside its native branches, and set_native_hass() before the first
+        # cycle. Both are confined to this child process -- see
+        # fake_native's own docstring for why neither may happen in the
+        # pytest process.
+        if scenario.native is not None:
+            from golden import fake_native
+
+            native = scenario.native(fake)
+            fake_native.install_native_modules(native, workdir)
+            solver_writer.set_native_hass(native)
+            fake_native.register_managed_entity_handlers(solver_writer, native)
 
         for i in range(cycles):
             instant = scenario.instant_for_cycle(i)
@@ -81,7 +98,12 @@ def main(argv: list[str]) -> int:
                 }
             )
 
-    workdir = Path(os.environ["GOLDEN_WORKDIR"])
+    if native is not None:
+        # Before the state files are read back: the guard's own writes go
+        # through this loop, and an event loop left running holds real OS
+        # sockets open.
+        native.close()
+
     files = {}
     for path in sorted(workdir.iterdir()):
         if path.name == out_path.name or not path.is_file():
