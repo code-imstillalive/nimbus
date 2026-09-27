@@ -35,6 +35,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import pytest
 import solver_writer
+from _isolated_state import isolated_state_paths
 
 _LOAD_SENSOR = "sensor.nimbus_sigen_plant_total_load_power_forecast"
 
@@ -95,6 +96,8 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
             patch.object(solver_writer, "ha_post_state") as mock_post_state,
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
+            # nimbus issue #1330: main() writes real /opt state paths by default.
+            isolated_state_paths(solver_writer),
         ):
             with pytest.raises(RuntimeError, match="not ready"):
                 solver_writer.main()
@@ -128,6 +131,8 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
             patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
+            # nimbus issue #1330: main() writes real /opt state paths by default.
+            isolated_state_paths(solver_writer),
         ):
             try:
                 solver_writer.main()
@@ -162,6 +167,8 @@ class TestNeverTrainedLoadForecastNeverPublishesAZeroLoadPlan:
             patch.object(solver_writer, "ha_post_state") as mock_post_state,
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
+            # nimbus issue #1330: main() writes real /opt state paths by default.
+            isolated_state_paths(solver_writer),
         ):
             with pytest.raises(RuntimeError, match="not ready"):
                 solver_writer.main()
@@ -194,6 +201,8 @@ class TestNeverTrainedLoadForecastNeverPublishesAZeroLoadPlan:
             patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
+            # nimbus issue #1330: main() writes real /opt state paths by default.
+            isolated_state_paths(solver_writer),
         ):
             try:
                 solver_writer.main()
