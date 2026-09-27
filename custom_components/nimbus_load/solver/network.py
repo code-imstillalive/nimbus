@@ -555,6 +555,38 @@ class GridSignals:
     grid_import_headroom_kwh: NDArray[np.float64]
     grid_export_headroom_kw: NDArray[np.float64]
     grid_export_headroom_kwh: NDArray[np.float64]
+    # nimbus issue #496: whether the headroom figure beside this is an ANSWER
+    # or a NON-ANSWER. True means `LPResult.bound_headroom()` had no entry for
+    # that variable, in which case `_headroom_up()` returns 0.0 and the
+    # published figure means nothing -- read it as "unknown", not as "no room".
+    #
+    # Why this is not `Headroom.degenerate`, which already exists and which
+    # `LoadSignals.degenerate[t]` already publishes: that flag is set when
+    # EITHER side of the ranging interval is zero-width. That is right for
+    # `LoadSignals`, which builds its band from `h.down` AND `h.up`. These
+    # fields publish only the UP side, and a grid variable resting at its own
+    # lower bound has `down_raw == 0` as a matter of course -- so `degenerate`
+    # would read True on nearly every period, including ones where `up` is a
+    # perfectly real band, and would distinguish nothing.
+    #
+    # The clamped-up-side case needs no flag at all: `_headroom_from()` maps
+    # anything < 1e-9 to exactly 0.0, so a published `up` of 0.0 already says
+    # "zero ranging width". Only the missing-entry case is invisible, because it
+    # publishes the same 0.0 while meaning something entirely different. A zero
+    # that means two things is not a measurement -- the same lesson as #937's
+    # missing-vs-zero forecast and #1176/#1188's conflated reasons.
+    #
+    # What it settles on the reference household, measured 2026-09-27: export
+    # headroom reached 19.069 kW while import headroom never left 0.0, with
+    # `forced_import_cost` 0.5393 against `forced_export_cost` -0.0087. With
+    # `grid_import_headroom_unranged` False, that 0.0 is a real answer -- import
+    # pinned at a bound, which a nonzero reduced cost is exactly what looks like
+    # -- so the asymmetry is correct rather than merely plausible. `forced_
+    # import_cost` alone could not have told anyone that: reduced costs exist
+    # without ranging and are gated on `ranging_valid` only for a uniform
+    # contract across this dataclass.
+    grid_import_headroom_unranged: NDArray[np.bool_]
+    grid_export_headroom_unranged: NDArray[np.bool_]
     forced_import_cost: NDArray[np.float64]
     forced_export_cost: NDArray[np.float64]
     flex_available_up_kw: NDArray[np.float64]
@@ -3997,6 +4029,17 @@ def _build_plan_once(
         h = result.bound_headroom(var)
         return h.up if h is not None else 0.0
 
+    def _headroom_is_unranged(var: str) -> bool:
+        """nimbus issue #496: did ranging actually answer for this variable?
+
+        `_headroom_up()` returns 0.0 both when ranging says "zero width" and
+        when there is no entry at all. Only the second case is invisible in the
+        published number -- see the `grid_import_headroom_unranged` field's own
+        comment for why `Headroom.degenerate` is the wrong flag here, and why
+        the clamped case needs no flag.
+        """
+        return result.bound_headroom(var) is None
+
     def _rhs_headroom(row: str) -> tuple[float, float]:
         h = result.rhs_headroom(row)
         return (h.up, h.down) if h is not None else (0.0, 0.0)
@@ -4007,6 +4050,17 @@ def _build_plan_once(
         )
         grid_export_headroom_kw = np.array(
             [_headroom_up(f"grid_export_{t}") for t in range(n)]
+        )
+        # nimbus issue #496: keyed off the same variable names the headroom
+        # figures themselves come from, so a flag and the figure it qualifies
+        # cannot drift apart.
+        grid_import_headroom_unranged = np.array(
+            [_headroom_is_unranged(f"grid_import_{t}") for t in range(n)],
+            dtype=bool,
+        )
+        grid_export_headroom_unranged = np.array(
+            [_headroom_is_unranged(f"grid_export_{t}") for t in range(n)],
+            dtype=bool,
         )
         forced_import_cost = np.array(
             [
@@ -4038,6 +4092,8 @@ def _build_plan_once(
             grid_export_headroom_kwh=(grid_export_headroom_kw * hours).astype(
                 np.float64
             ),
+            grid_import_headroom_unranged=grid_import_headroom_unranged,
+            grid_export_headroom_unranged=grid_export_headroom_unranged,
             forced_import_cost=forced_import_cost,
             forced_export_cost=forced_export_cost,
             # nimbus issue #493 (not yet built): "min'd with the

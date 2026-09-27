@@ -2668,6 +2668,23 @@ def publish_flex_signals(plan) -> None:
             "grid_import_headroom_kwh": round(float(gs.grid_import_headroom_kwh[0]), 3),
             "grid_export_headroom_kw": round(float(gs.grid_export_headroom_kw[0]), 3),
             "grid_export_headroom_kwh": round(float(gs.grid_export_headroom_kwh[0]), 3),
+            # nimbus issue #496: whether each headroom figure above is a real
+            # band or a zero-width tie. Without these a published 0.0 conflates
+            # "genuinely no headroom" with "the ranging could not say", and the
+            # two mean opposite things to anyone acting on the number.
+            #
+            # Measured on the reference household 2026-09-27: export headroom
+            # reached 19.069 kW while import never left 0.0. That asymmetry is
+            # consistent with import being pinned at a bound -- i.e. a CORRECT
+            # 0.0 -- but nothing published could distinguish that from a
+            # non-answer, which is what these two settle.
+            #
+            # `flex_available_up_kw`/`_down_kw` below are aliases of the two
+            # headroom arrays (#493 unbuilt), so their degeneracy is these same
+            # flags rather than separate ones -- deliberately not duplicated
+            # under a second name that could drift.
+            "grid_import_headroom_unranged": bool(gs.grid_import_headroom_unranged[0]),
+            "grid_export_headroom_unranged": bool(gs.grid_export_headroom_unranged[0]),
             "forced_import_cost": round(float(gs.forced_import_cost[0]), 4),
             "forced_export_cost": round(float(gs.forced_export_cost[0]), 4),
             "flex_available_up_kw": round(float(gs.flex_available_up_kw[0]), 3),
