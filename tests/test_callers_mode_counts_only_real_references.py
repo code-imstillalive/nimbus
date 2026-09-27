@@ -228,9 +228,23 @@ class TestPublishedFiguresAreUnchanged(unittest.TestCase):
         # reinvented: an earlier version of this test counted distinct files,
         # got 1, and "failed" for a reason that had nothing to do with the fix.
         # Both Phase 2 pairs are `services.py` resolving two different names.
+        # Skip solver_reports/ as well as solver_writer.py. nimbus issue
+        # #1301 Phase 2b/2c actually PERFORMED this extraction, so those
+        # functions now LIVE there, and the cluster's own internal sibling
+        # references (`sw._soc_discrepancy_stats(...)` inside
+        # `_compute_report_for_window()`, and so on) are not external
+        # callers. Counting them took this from 2 to 5 and would have read
+        # as "the extraction grew the caller surface", which is the opposite
+        # of what happened -- the number #1316 published is about how many
+        # OTHER production files reach in, and that is still two.
+        _relocated = {
+            p.relative_to(package).as_posix()
+            for p in (package / "solver_reports").glob("*.py")
+        }
         pairs = [
             (target, p.relative_to(package).as_posix())
             for p in _amd._py_files(package, skip={"solver_writer.py"})
+            if p.relative_to(package).as_posix() not in _relocated
             for target in targets
             if target in _amd._referenced_names(p)
         ]

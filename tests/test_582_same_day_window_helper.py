@@ -53,6 +53,7 @@ from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _writer_source import writer_source
 
 
 def _at(hour, minute=0):
@@ -172,9 +173,7 @@ class TestTheCopiesAreGone(unittest.TestCase):
     class is duplication itself, which no behavioural test can see."""
 
     def test_the_helper_has_exactly_four_callers(self):
-        source = solver_writer.__file__.replace(".pyc", ".py")
-        with open(source, encoding="utf-8") as f:
-            text = f.read()
+        text = writer_source()
         self.assertEqual(
             text.count("_earliest_period_for_same_day_window"),
             5,
@@ -229,9 +228,7 @@ class TestTheFifthSiteIsNotACopy(unittest.TestCase):
 
     def test_it_handles_cases_the_helper_does_not(self):
 
-        source = solver_writer.__file__.replace(".pyc", ".py")
-        with open(source, encoding="utf-8") as f:
-            text = f.read()
+        text = writer_source()
         start = text.index("def _build_daily_adequacy_windows(")
         end = text.index("def ", start + 10)
         body = text[start:end]

@@ -96,9 +96,14 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    61  # solver_writer.py alone as of nimbus #1301/spec 001 -- see module
-    # docstring (67 at d5b044b, before six functions moved to
-    # solver_shared.py).
+    53  # solver_writer.py alone as of nimbus #1301 Phase 2b+2c. The ratchet
+    # only ever tightens, and this is the third time it has: 67 at d5b044b,
+    # 61 after spec 001 moved six functions to solver_shared.py, 53 now that
+    # Phase 2b/2c moved eight reporting functions to solver_reports/ (three
+    # of them -- _compute_report_for_window, publish_daily_quality_report,
+    # _soc_discrepancy_stats -- were themselves over the limit, along with
+    # rescore_quality_history and _carry_forward_quality_history). Expect it
+    # to drop again as Phases 3-7 land; lowering it is the point.
 )
 
 

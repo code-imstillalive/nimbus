@@ -53,10 +53,10 @@ from __future__ import annotations
 
 import ast
 import unittest
-from pathlib import Path
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _writer_source import writer_source
 
 _SOC_STATES = (True, False, None)
 _REGRET_STATES = (True, False)
@@ -207,9 +207,7 @@ class TestItIsActuallyWiredIn(unittest.TestCase):
     it needs a real scored day whose SoC comparison genuinely fails."""
 
     def test_the_publish_path_calls_the_helper(self):
-        source = Path(solver_writer.__file__.replace(".pyc", ".py")).read_text(
-            encoding="utf-8"
-        )
+        source = writer_source()
         tree = ast.parse(source)
         fn = next(
             n
@@ -235,9 +233,7 @@ class TestItIsActuallyWiredIn(unittest.TestCase):
 
     def test_the_fallback_does_not_clobber_an_existing_reason(self):
         """The guard around the call, not just the call."""
-        source = Path(solver_writer.__file__.replace(".pyc", ".py")).read_text(
-            encoding="utf-8"
-        )
+        source = writer_source()
         idx = source.index("_epr_soc_reason(\n            soc_discrepancy")
         preceding = source[:idx]
         self.assertIn(

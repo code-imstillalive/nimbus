@@ -49,6 +49,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import numpy as np
 import solver_writer
+from _writer_source import writer_source
 from solver import nowcast_skill
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -165,9 +166,7 @@ class TestTheConflatedGateIsSplit(unittest.TestCase):
         """Retyping 0.5 here is how the call site and the function that
         enforces it would drift apart."""
         self.assertEqual(nowcast_skill.DEFAULT_MIN_COVERAGE, 0.5)
-        src = solver_writer.__file__.replace(".pyc", ".py")
-        with open(src, encoding="utf-8") as fh:
-            text = fh.read()
+        text = writer_source()
         self.assertIn("nowcast_skill.DEFAULT_MIN_COVERAGE", text)
 
 

@@ -52,6 +52,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _writer_source import writer_source
 
 _share = solver_writer._regret_path_delta_share
 
@@ -123,11 +124,8 @@ class TestItReachesThePublishedReport(unittest.TestCase):
 
     def test_the_report_publishes_the_field(self):
         import ast
-        from pathlib import Path
 
-        src = Path(solver_writer.__file__.replace(".pyc", ".py")).read_text(
-            encoding="utf-8"
-        )
+        src = writer_source()
         self.assertIn('"regret_path_delta_share"', src)
         tree = ast.parse(src)
         fn = next(

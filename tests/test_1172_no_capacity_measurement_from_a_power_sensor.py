@@ -83,6 +83,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import solver_writer as sw
+from _writer_source import writer_source
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 CARD_JS = (
@@ -95,7 +96,10 @@ CARD_JS = (
 
 
 def _writer_source() -> str:
-    return pathlib.Path(sw.__file__.replace(".pyc", ".py")).read_text(encoding="utf-8")
+    # The UNION across solver_writer.py and every module #1298 has extracted
+    # out of it -- see tests/_writer_source.py for why reading one file is no
+    # longer the same thing as reading "the writer".
+    return writer_source()
 
 
 class TestTheFunctionIsGone(unittest.TestCase):

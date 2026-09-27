@@ -44,8 +44,9 @@ avoid importing/executing end-to-end.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
+
+from _writer_source import function_source
 
 _SOLVER_WRITER_PY = (
     Path(__file__).resolve().parent.parent
@@ -56,15 +57,25 @@ _SOLVER_WRITER_PY = (
 
 
 def _extract_function(src: str, def_marker: str) -> str:
-    """Return the full body of one top-level `def ...():` function,
-    ending at the next top-level `def `/`class ` at column 0. Same
-    technique as tests/test_solver_writer_family_a_freshness_repush.py's
-    own helper of the same name."""
-    start = src.index(def_marker)
-    rest = src[start + len(def_marker) :]
-    m = re.search(r"\n(?:def |class )", rest)
-    end = start + len(def_marker) + (m.start() if m else len(rest))
-    return src[start:end]
+    """One top-level function's full source, from whichever of the writer's
+    modules now holds it.
+
+    Was a substring slice on solver_writer.py alone, ending at the next
+    column-0 `def `/`class `. nimbus issue #1301 relocated several of these
+    functions into solver_reports/, so `src.index(def_marker)` raised
+    `ValueError: substring not found` -- the function is still there, still
+    called, still re-exported from the facade, just in a different file.
+
+    `function_source()` resolves the function and ITS OWN module's text
+    together (see tests/_writer_source.py), which is also stricter than the
+    old slice: an AST end_lineno is exact, where the column-0 heuristic
+    relied on these functions happening to have no nested defs.
+
+    `src` is ignored and kept only so the call sites do not all have to
+    change.
+    """
+    name = def_marker.removeprefix("def ").removesuffix("(")
+    return function_source(name)
 
 
 def test_quality_report_publish_no_longer_sends_a_null_unit():

@@ -45,6 +45,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from _writer_source import function_source
+
 _SOLVER_WRITER_PY = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
@@ -61,15 +63,25 @@ _TARGETS = [
 
 
 def _extract_function(src: str, def_marker: str) -> str:
-    """Return the full body of one top-level `def ...():` function,
-    ending at the next top-level `def `/`class ` at column 0 -- these
-    three functions have no nested defs of their own, so this is a
-    reliable enough boundary."""
-    start = src.index(def_marker)
-    rest = src[start + len(def_marker) :]
-    m = re.search(r"\n(?:def |class )", rest)
-    end = start + len(def_marker) + (m.start() if m else len(rest))
-    return src[start:end]
+    """One top-level function's full source, from whichever of the writer's
+    modules now holds it.
+
+    Was a substring slice on solver_writer.py alone, ending at the next
+    column-0 `def `/`class `. nimbus issue #1301 relocated several of these
+    functions into solver_reports/, so `src.index(def_marker)` raised
+    `ValueError: substring not found` -- the function is still there, still
+    called, still re-exported from the facade, just in a different file.
+
+    `function_source()` resolves the function and ITS OWN module's text
+    together (see tests/_writer_source.py), which is also stricter than the
+    old slice: an AST end_lineno is exact, where the column-0 heuristic
+    relied on these functions happening to have no nested defs.
+
+    `src` is ignored and kept only so the call sites do not all have to
+    change.
+    """
+    name = def_marker.removeprefix("def ").removesuffix("(")
+    return function_source(name)
 
 
 def _normalize_ws(s: str) -> str:
@@ -80,8 +92,18 @@ def _normalize_ws(s: str) -> str:
     single-space-collapsed comparison can still land on the wrong side
     of a real newline. This still requires the same tokens in the same
     order, it just doesn't care where -- or whether -- any whitespace
-    separates them."""
-    return re.sub(r"\s+", "", s)
+    separates them.
+
+    Also strips the deferred-accessor prefix. nimbus issue #1301 relocated
+    these publishers into solver_reports/, where every solver_writer name is
+    reached as `sw.<name>` -- so the real call is now
+    `sw.ha_post_state(sw.QUALITY_ENTITY_ID, ...)` and a needle written as
+    `ha_post_state(QUALITY_ENTITY_ID, ...)` no longer matches. The property
+    each assertion below checks is which CALL is made with which ARGUMENTS;
+    how the names are reached is not part of it, and a pure relocation is
+    allowed to change it. Normalising it away here fixes every needle in this
+    file at once rather than rewriting each."""
+    return re.sub(r"sw\.", "", re.sub(r"\s+", "", s))
 
 
 def test_each_family_a_publisher_re_pushes_on_the_already_scored_fast_path():
@@ -148,8 +170,14 @@ def test_the_real_compute_path_is_untouched_and_still_gated_on_none():
     src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
     for def_marker, _entity_const in _TARGETS:
         block = _extract_function(src, def_marker)
+        # `(?:sw\.)?` tolerates the deferred accessor: nimbus issue #1301
+        # relocated these publishers into solver_reports/, where the call is
+        # `sw.compute_daily_quality_report(...)`. The invariant is "still
+        # gated on None, still eventually returns", not how the compute
+        # function is reached.
         assert re.search(
-            r"(day_entry|report) = compute_\w+\([^)]*\)\n\s*if \1 is None:\n(?:.*\n)*?\s*return",
+            r"(day_entry|report) = (?:sw\.)?compute_\w+\([^)]*\)\n\s*if \1 is None:"
+            r"\n(?:.*\n)*?\s*return",
             block,
         ), (
             f"{def_marker}'s real recompute-and-publish path looks "

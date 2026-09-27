@@ -50,7 +50,6 @@ at module scope, so the row-writing assertions parse it -- the same choice
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import sys
 import unittest
@@ -67,8 +66,17 @@ from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-_WRITER_SRC = _WRITER.read_text(encoding="utf-8")
-_WRITER_TREE = ast.parse(_WRITER_SRC)
+from _writer_source import (
+    find_constant,
+    find_function,
+    function_source,
+    writer_source,
+)
+
+# The UNION across solver_writer.py and every module #1298 has extracted out
+# of it: #937's own history-row code now lives in solver_reports/quality.py.
+# See tests/_writer_source.py.
+_WRITER_SRC = writer_source()
 
 BNE = timezone(timedelta(hours=10))
 
@@ -88,22 +96,17 @@ fss = _load_selection_module()
 
 
 def _fn(name: str):
-    for node in ast.walk(_WRITER_TREE):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f"{name} not found in solver_writer.py")
+    return find_function(name)
 
 
 def _src(name: str) -> str:
-    return ast.get_source_segment(_WRITER_SRC, _fn(name))
+    # Resolves node and text together -- pairing a node from quality.py with
+    # solver_writer.py's text would return the wrong lines silently.
+    return function_source(name)
 
 
 def _const(name: str):
-    for node in ast.walk(_WRITER_TREE):
-        if isinstance(node, ast.Assign) and any(
-            getattr(t, "id", None) == name for t in node.targets
-        ):
-            return ast.literal_eval(node.value)
+    return find_constant(name)
     raise AssertionError(f"{name} not found in solver_writer.py")
 
 
@@ -232,10 +235,18 @@ class TestARowNeverLosesAVerdictItAlreadyHad(unittest.TestCase):
     `"r"` behaves and unlike `"v"`, which must NOT advance there (#1219)."""
 
     def test_the_writer_falls_back_to_the_prior_row(self):
+        # The optional `sw.` tolerates the deferred accessor. nimbus issue
+        # #1301 moved _carry_forward_quality_history() into
+        # solver_reports/quality.py, where every solver_writer name is
+        # reached through `sw.` -- so the literal is now
+        # `elif sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD in prior_row:`.
+        # The property is that the fallback EXISTS and reads the prior row;
+        # the access path is not part of it, and a pure relocation is allowed
+        # to change it.
         src = _WRITER_SRC
         field = "_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD"
-        self.assertIn(f"elif {field} in prior_row:", src)
-        self.assertIn(f"history[day_key][{field}] = prior_row[", src)
+        self.assertRegex(src, rf"elif (?:sw\.)?{field} in prior_row:")
+        self.assertRegex(src, rf"history\[day_key\]\[(?:sw\.)?{field}\] = prior_row\[")
 
 
 class TestTheTrailingRecordIsReadSafely(unittest.TestCase):

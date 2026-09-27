@@ -65,6 +65,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
+from _writer_source import writer_source
 from solver.epr import compute_epr
 from test_jstar_path_delta import N, _report
 
@@ -225,18 +226,27 @@ class TestBothWritersAgree(unittest.TestCase):
         import os
 
         here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for relative in (
-            os.path.join("custom_components", "nimbus_load", "solver_writer.py"),
+        # The integration side is the UNION across solver_writer.py and every
+        # module #1298 has extracted out of it -- nimbus issue #1301 moved the
+        # scorer into solver_reports/quality.py, taking this repricing with
+        # it. The docs/cron writer is still one real file. See
+        # tests/_writer_source.py.
+        writers = {
+            "custom_components/nimbus_load/ (+ extracted modules)": None,
             os.path.join(
                 "docs",
                 "real-world-integration",
                 "files",
                 "nimbus_solver_quality_writer.py",
-            ),
-        ):
+            ): "file",
+        }
+        for relative, kind in writers.items():
             with self.subTest(writer=relative):
-                with open(os.path.join(here, relative), encoding="utf-8") as f:
-                    text = " ".join(f.read().split())
+                if kind is None:
+                    text = " ".join(writer_source().split())
+                else:
+                    with open(os.path.join(here, relative), encoding="utf-8") as f:
+                        text = " ".join(f.read().split())
                 self.assertNotIn(
                     "regret_dollars = report.j_ach - report.j_star )",
                     text.replace("( ", "("),
