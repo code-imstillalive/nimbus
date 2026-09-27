@@ -278,18 +278,27 @@ def test_async_register_services_is_idempotent_on_reload():
     hass.services.async_register.assert_not_called()
 
 
-def test_async_unregister_services_removes_all_three():
+def test_async_unregister_services_removes_every_registered_service():
     """nimbus issue #365 (Mark Purcell, codebase review), item 1: removing
     the (only, single_config_entry) hub used to leave all three services
-    registered and callable forever -- now five, since #809's own
-    set_controllable_load and #495's own flex_telemetry_record.
+    registered and callable forever -- now six, since #809's own
+    set_controllable_load, #495's own flex_telemetry_record and #1120's own
+    rescore_history.
 
-    The set asserted here is deliberately narrower than the one the
-    REGISTER test asserts: `rescore_history` is registered and not
-    unregistered, and this test has pinned that asymmetry since #1120
-    landed. It reads like an oversight rather than a decision; #495's own
-    PR filed it as its own issue rather than fixing it as an undisclosed
-    extra. Leave the difference visible here until that is resolved.
+    **The asymmetry this test used to pin is resolved (nimbus issue #1376).**
+    It previously asserted a set deliberately NARROWER than the register
+    test's, because `rescore_history` was registered and never unregistered,
+    and its own docstring said to "leave the difference visible here until
+    that is resolved". That was the right call -- the difference was tracked
+    rather than hidden -- but the follow-up it was waiting on went unfiled
+    for four releases, so the #365 defect stayed live for one service the
+    whole time: a hub removal left `nimbus_load.rescore_history` callable
+    forever.
+
+    Both sides now assert the same six, and
+    tests/test_services_register_unregister_symmetry.py derives the two sets
+    from `services.py`'s own source so the next addition cannot reopen the
+    gap by being forgotten on one side.
     """
     hass = MagicMock()
     hass.services.has_service.return_value = True
@@ -303,6 +312,7 @@ def test_async_unregister_services_removes_all_three():
         services.SERVICE_COMPUTE_QUALITY_REPORT,
         services.SERVICE_SET_CONTROLLABLE_LOAD,
         services.SERVICE_FLEX_TELEMETRY_RECORD,
+        services.SERVICE_RESCORE_HISTORY,
     }
     for call in hass.services.async_remove.call_args_list:
         assert call.args[0] == services.DOMAIN
