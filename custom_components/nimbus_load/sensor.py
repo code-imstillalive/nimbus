@@ -128,6 +128,7 @@ from .const import (
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
@@ -451,6 +452,14 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # (#837) when a new switch was added to switch.py but not to these
     # tables. Resolved live via _SOLVER_SELECT_ENTITY_KEYS below.
     CONF_HOUSEHOLD_MODE,
+    # nimbus issue #937 item 4: the load-forecast-source policy, same exact
+    # requirement -- a select entity that is not exposed here is one
+    # fetch_solver_config() can never see, so build_load_arrays() would read
+    # None and the whole feature would be inert however the household set the
+    # entity. That is the #837 silent-no-op verbatim, and it is the reason this
+    # tuple's own comments keep warning about it. Resolved live via
+    # _SOLVER_SELECT_ENTITY_KEYS below.
+    CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -586,7 +595,11 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
 # tuples above, a third entity domain (select.nimbus_{key}, plain string
 # state). See select.py's own module docstring for why the household
 # mode is an entity rather than a wizard field.
-_SOLVER_SELECT_ENTITY_KEYS = (CONF_HOUSEHOLD_MODE,)
+_SOLVER_SELECT_ENTITY_KEYS = (
+    CONF_HOUSEHOLD_MODE,
+    # nimbus issue #937 item 4 -- see const.py's own comment on this key.
+    CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
+)
 
 
 def _slug_for_entity_id(title: str) -> str:

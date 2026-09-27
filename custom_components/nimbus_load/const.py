@@ -1673,3 +1673,43 @@ CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = (
 CONF_HOUSEHOLD_MODE: Final = "household_mode"
 DEFAULT_HOUSEHOLD_MODE: Final = "home"
 HOUSEHOLD_MODES: Final = ("home", "away", "guests", "economy")
+
+# nimbus issue #937 item 4: whether the measured verdict is allowed to change
+# which load forecast the LP actually consumes.
+#
+# That issue measured naive persistence beating the ML load forecaster on 11 of
+# 14 scored days on the reference household, mean -$0.71/day, worst day -$3.42
+# -- and then the forecaster kept being used, because nothing connected the
+# measurement to the decision. Its own item 4 is the ask:
+#
+#     Consider whether persistence deserves to be a real fallback. If a
+#     household's own data shows persistence winning consistently, the honest
+#     product answer might be to use it, or to blend.
+#
+# **Default `off`, and `off` reads no evidence at all** -- see
+# solver/forecast_source_selection.py's own docstring for why that is stated as
+# an invariant rather than a default. This sits directly on the live dispatch
+# path of a household running real battery dispatch and real P2P money, and the
+# evidence for acting is 14 days from one install, which #937 itself flags as
+# "a small sample... One household. The forecaster trains per-install, so this
+# may not generalise at all." An install that never touches this entity
+# dispatches byte-identically to before it existed.
+#
+# A SELECT rather than a switch, because the issue names two different product
+# answers ("use it, or to blend") and because `measure` -- publish the
+# recommendation, change nothing -- is the honest position between measuring and
+# acting, and is the state this issue has effectively been in for two weeks
+# without it being deliberate or visible.
+#
+# Fixed option set for the same reason HOUSEHOLD_MODES above is: the strings key
+# real branches in select_forecast_source(), so an arbitrary value must not
+# silently mean something. It means `off`, reported as `policy_unrecognised`
+# rather than normalised away.
+CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY: Final = "solver_load_forecast_source_policy"
+DEFAULT_SOLVER_LOAD_FORECAST_SOURCE_POLICY: Final = "off"
+SOLVER_LOAD_FORECAST_SOURCE_POLICIES: Final = (
+    "off",
+    "measure",
+    "blend",
+    "persistence",
+)

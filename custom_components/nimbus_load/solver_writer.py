@@ -9120,6 +9120,121 @@ _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 # do": a wrongly-absent key costs a missed repair, never a wrong one.
 _QUALITY_HISTORY_PROVISIONAL_FIELD = "p"
 
+# nimbus issue #937: this day's DAY-AHEAD `nimbus_value_add_dollars` --
+# `j_persistence - j_forecast`, so NEGATIVE means naive persistence produced a
+# cheaper real outcome than the ML load forecaster did.
+#
+# **Why a row needs this, and why stage 3 was not enough.** #1307 made the
+# native path publish the day-ahead decomposition, which removed the reason
+# there were no days. It did not make them accumulate. The decomposition is a
+# headline attribute describing `latest_date` alone, so tomorrow's 06:00 scoring
+# overwrites today's number and nothing keeps it -- which is the same
+# retention-not-publication defect `"r"` above exists to fix, one field over.
+#
+# That matters more here than anywhere else in this row, because #937's own
+# top-priority action is literally "More days":
+#
+#     days scored 14 / naive persistence beat Nimbus's forecast 11 /
+#     mean nimbus_value_add_dollars -$0.71/day / worst -$3.42
+#
+# Those fourteen days were readable only because the standalone cron writer of
+# the time put a `forecast_regret` sub-dict into `day_entry`, and the series
+# stopped the day the reference household moved to the native path. A window
+# like it cannot be rebuilt from headline attributes at all: they hold one day.
+#
+# **One character and one number, not the sub-dict.** The cron-era sub-dict is
+# what the five-key allow-list above was written to exclude, and correctly --
+# rows are kept small enough that a year of them fits in one attribute payload.
+# Measured on the reference household 2026-09-27: the quality report's whole
+# attribute payload is **22,750 bytes** and `history` is **1,548** of it across
+# 11 rows, ~140 bytes/row. `"f":-0.7123` costs ~13, so at the 60-day cap this
+# adds ~780 bytes to a 8.4 KB table -- against the eight separate figures a
+# full `forecast_regret` sub-dict would have cost per row.
+#
+# The attribution terms (level/shape/solar) deliberately stay headline-only.
+# They answer "why was this day bad", which is a question about one day; the
+# value-add answers "is the forecaster worth using", which is only answerable
+# over a window, and is the one the selection policy consumes.
+#
+# **Written ONLY when the decomposition actually computed**, the same
+# convention as `"p"` and for the same byte reason: a day with no forecast
+# snapshot, or with unusable previous-day history, has no verdict, and a
+# fabricated 0.0 there would read as "the forecaster exactly matched
+# persistence" -- the confident-wrong-number failure
+# `_day_ahead_forecast_regret_attributes()`'s own six reason codes exist to
+# prevent. Absence means "not computed, or written before this existed".
+_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD = "f"
+
+
+def _day_ahead_value_add_for_history(day_entry: dict) -> float | None:
+    """This day's day-ahead `nimbus_value_add_dollars`, or None when there is
+    no verdict to record (nimbus issue #937).
+
+    Gated on `forecast_regret_reason` being None rather than on the value being
+    present, because those are different statements.
+    `_day_ahead_forecast_regret_attributes()` returns the full stable key set on
+    every path (#589: a consumer must never see a key appear and vanish), so the
+    value key exists and holds None on all six failure paths. Reading the value
+    alone would work today and break silently the moment any of those paths
+    learns to report a partial figure.
+    """
+    if day_entry.get("forecast_regret_reason") is not None:
+        return None
+    value = day_entry.get("forecast_regret_nimbus_value_add_dollars")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    value = float(value)
+    if not math.isfinite(value):
+        return None
+    return round(value, 4)
+
+
+def read_day_ahead_value_add_history() -> dict[str, float]:
+    """The trailing day-ahead value-add record, read off this install's own
+    quality report (nimbus issue #937 item 4).
+
+    `{ISO local date: nimbus_value_add_dollars}`, negative meaning naive
+    persistence was cheaper. Empty on any read failure, on an install that has
+    not scored a day with a snapshot yet, and on every install running a
+    release older than the one that started writing `"f"` -- all of which are
+    the same thing to the caller: no evidence, so
+    `select_forecast_source()`'s own `no_trailing_record` gate keeps using the
+    ML forecast.
+
+    **Read through `resolve_real_entity_id()`, never the literal string.** This
+    is a read-back of this install's own prior output, which is exactly the case
+    that function's docstring reserves it for: on an instance where a
+    `remote_homeassistant` mirror of ANOTHER Nimbus install has claimed the
+    plain `sensor.nimbus_solver_quality_report`, the literal read returns the
+    other household's record. Deciding which load forecast to dispatch on from a
+    different house's forecast scores is a materially worse version of the
+    flicker defect that function was written for.
+    """
+    try:
+        attrs = (
+            ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes") or {}
+        )
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+    ):
+        return {}
+    history = attrs.get("history")
+    if not isinstance(history, dict):
+        return {}
+    out: dict[str, float] = {}
+    for key, row in history.items():
+        if not isinstance(key, str) or not isinstance(row, dict):
+            continue
+        value = row.get(_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        out[key] = float(value)
+    return out
+
 
 def _epr_reliability_code(day_entry: dict) -> str | None:
     """One character naming this day's EPR verdict, for the history row.
@@ -9372,6 +9487,26 @@ def _carry_forward_quality_history(
     # that convention is the opposite of `"r"` above.
     if _settlement_is_provisional(day_entry) is True:
         history[day_key][_QUALITY_HISTORY_PROVISIONAL_FIELD] = 1
+    # nimbus issue #937: and what the DAY-AHEAD forecast was worth on this day,
+    # so the issue's own "more days" is a series rather than one overwritten
+    # headline. See the field's own note above for the byte measurement and for
+    # why only the value-add is retained, not the whole decomposition.
+    #
+    # On a seed/re-push (`freshly_computed` False) `day_entry` is the previously
+    # published attribute set, which carries `forecast_regret_reason` and the
+    # value verbatim -- so this re-derives the same number rather than dropping
+    # the key, matching how `"r"` behaves on that path and unlike `"v"`, which
+    # must NOT advance there (#1219).
+    value_add = _day_ahead_value_add_for_history(day_entry)
+    if value_add is not None:
+        history[day_key][_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD] = value_add
+    elif _QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD in prior_row:
+        # A day scored once WITH a snapshot and re-pushed later on a cycle that
+        # could not recompute it must not silently lose its verdict -- the row
+        # is the only place it survives at all.
+        history[day_key][_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD] = prior_row[
+            _QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD
+        ]
     if len(history) > _QUALITY_HISTORY_MAX_DAYS:
         # ISO dates sort lexicographically, so this is a real
         # most-recent-N without parsing anything.
@@ -11644,6 +11779,48 @@ def build_per_battery_forecast(
     ]
 
 
+#: nimbus issue #937 item 4. Stable key set, same reason `_FORECAST_REGRET_KEYS`
+#: and `_NOWCAST_SKILL_KEYS` are stable: a consumer must never see a key appear
+#: and vanish between cycles (#589).
+_LOAD_FORECAST_SOURCE_KEYS = (
+    "load_forecast_source_policy",
+    "load_forecast_source_selected",
+    "load_forecast_persistence_weight",
+    "load_forecast_source_reason",
+    "load_forecast_source_days_scored",
+    "load_forecast_source_days_persistence_won",
+    "load_forecast_source_mean_value_add_dollars",
+)
+
+
+def _load_forecast_source_attributes(decision) -> dict:
+    """Flatten a `ForecastSourceDecision` into published scalars.
+
+    `None` in, all seven keys present and `None` -- which is the standalone/cron
+    path and any caller predating this parameter, not an error. The alternative
+    (omit the keys) is the appear-and-vanish shape #589 exists about, and it
+    would also make "this install cannot tell me" indistinguishable from "this
+    install chose ml".
+    """
+    if decision is None:
+        return dict.fromkeys(_LOAD_FORECAST_SOURCE_KEYS)
+    mean = decision.mean_value_add_dollars
+    return {
+        "load_forecast_source_policy": decision.policy,
+        "load_forecast_source_selected": decision.source,
+        # Rounded to 4 dp for the same reason every dollar figure on the quality
+        # report is: a blend weight of 0.7857142857142857 is noise in a payload
+        # measured against the recorder's 16 KB cap.
+        "load_forecast_persistence_weight": round(decision.persistence_weight, 4),
+        "load_forecast_source_reason": decision.reason,
+        "load_forecast_source_days_scored": decision.days_scored,
+        "load_forecast_source_days_persistence_won": decision.days_persistence_won,
+        "load_forecast_source_mean_value_add_dollars": (
+            None if mean is None else round(mean, 4)
+        ),
+    }
+
+
 def publish_plan(
     *,
     cfg,
@@ -11718,6 +11895,12 @@ def publish_plan(
     solar_delivery,
     p2p_recent_volume_kwh,
     price_spike_active,
+    # nimbus issue #937 item 4: the ForecastSourceDecision this cycle acted on.
+    # Last, with a default, so every existing caller (and the standalone/cron
+    # copy, and this function's own tests) keeps working unchanged. A None
+    # decision still publishes all six keys as None rather than omitting them --
+    # a consumer must never see a key appear and vanish between cycles (#589).
+    load_forecast_source_decision=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -12618,6 +12801,20 @@ def publish_plan(
             # above. See this field's own construction site (near
             # solver_load_forecast_entities, above) for the full reasoning.
             "load_forecast_source_used": load_forecast_source_used,
+            # nimbus issue #937 item 4: WHICH forecast the LP consumed, as
+            # distinct from which sensors it was read from just above.
+            #
+            # Six keys rather than one nested dict, because these are scalars a
+            # dashboard template and an apexcharts series can read directly, and
+            # because `sensor_flattened.py`'s own rule (see its comment on
+            # `load_forecast_source_used`) is that a flattened child needs a
+            # scalar. Always present, always all six -- #589.
+            #
+            # `load_forecast_persistence_weight` is the one that says whether
+            # anything actually changed: 0.0 means the LP consumed the ML
+            # forecast unaltered, which is every install that has not moved
+            # `select.nimbus_solver_load_forecast_source_policy` off `off`.
+            **_load_forecast_source_attributes(load_forecast_source_decision),
             # NEW (2026-08-25, issue #112) -- present here AND on sensor.
             # nimbus_household_load_total_forecast above (see that
             # field's own comment for the full reasoning). Directly
@@ -16204,6 +16401,12 @@ def main() -> None:
     load_forecast_source_used = _load.load_forecast_source_used
     load_forecast_coverage_hours = _load.load_forecast_coverage_hours
     failed_load_entities = _load.failed_load_entities
+    # nimbus issue #937 item 4: which load forecast this cycle's LP actually
+    # consumed, and the trailing evidence behind that. Published on the plan
+    # sensor beside `load_forecast_source_used` (which says which SENSORS the
+    # forecast was read from -- a different question, and the two together are
+    # the whole provenance of the load array).
+    load_forecast_source_decision = _load.load_forecast_source_decision
 
     # Real, standalone Nimbus entity for the summed 18-load total
     # (2026-08-17, direct ask: "like haeo concept nimbus should sum up
@@ -16950,6 +17153,7 @@ def main() -> None:
         solar_delivery=solar_delivery,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
         price_spike_active=price_spike_active,
+        load_forecast_source_decision=load_forecast_source_decision,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
