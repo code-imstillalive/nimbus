@@ -797,7 +797,8 @@ def async_register_services(hass: HomeAssistant) -> None:
 
 
 def async_unregister_services(hass: HomeAssistant) -> None:
-    """Removes all four Nimbus services -- the counterpart to
+    """Removes every service `async_register_services()` registers -- the
+    counterpart to
     `async_register_services()` above, called from `__init__.py`'s own
     `async_unload_entry()` on a successful unload.
 
@@ -820,11 +821,19 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SOLVE_NOW,
         SERVICE_COMPUTE_QUALITY_REPORT,
         SERVICE_SET_CONTROLLABLE_LOAD,
-        # nimbus issue #495. Not adding SERVICE_RESCORE_HISTORY in the same
-        # breath, even though it is missing here too for what looks like
-        # the same oversight -- a second, unrelated behaviour change inside
-        # this PR would be undisclosed scope. Filed separately.
         SERVICE_FLEX_TELEMETRY_RECORD,
+        # nimbus issue #1376. Was missing here while registered above, so a
+        # hub removal left nimbus_load.rescore_history callable forever --
+        # exactly the #365 item-1 defect this function exists to prevent,
+        # reintroduced for one service. #1368 spotted it and deferred the fix
+        # to avoid undisclosed scope, which was right, but the follow-up it
+        # promised was never filed.
+        #
+        # The count is deliberately no longer written down anywhere: this
+        # tuple drifting from the registered set is the whole failure mode,
+        # so test_services_register_and_unregister_are_symmetric derives both
+        # sets from this module's own source instead.
+        SERVICE_RESCORE_HISTORY,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

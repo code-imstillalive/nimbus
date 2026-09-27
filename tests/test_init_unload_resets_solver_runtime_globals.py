@@ -86,13 +86,20 @@ class TestUnloadResetsSolverRuntimeGlobals:
         # successful unload -- see test_services.py's own dedicated
         # coverage of async_unregister_services() itself for the detail;
         # this just confirms async_unload_entry() actually calls it.
-        # 5, not 4, since nimbus issue #495's own flex_telemetry_record
-        # (4, not 3, was nimbus issue #809's set_controllable_load before
-        # it). The count is deliberately explicit: a service that is
-        # registered but never torn down leaves a dead handler behind on
-        # unload, and asserting "some services were removed" would not
-        # catch that. Every new service raises this by exactly one.
-        assert hass.services.async_remove.call_count == 5
+        # 6 as of nimbus issue #1376, and the history of this number is the
+        # reason it is no longer the only thing guarding the teardown:
+        # 3 (#365) -> 4 (#809's set_controllable_load) -> 5 (#495's
+        # flex_telemetry_record) -> 6 (#1376's rescore_history, which was
+        # registered but never removed).
+        #
+        # This assertion could not catch #1376 and did not: it pins how many
+        # services are torn down, never whether that equals how many exist.
+        # At 5 it was correct about the removals and silent about the sixth
+        # registration. tests/test_services_register_unregister_symmetry.py
+        # derives both sets from services.py's own source and is what actually
+        # guards the property; this line stays because it is the only check
+        # that async_unload_entry() calls the teardown at all.
+        assert hass.services.async_remove.call_count == 6
 
     def test_failed_platform_unload_does_not_reset_globals(self):
         # A failed unload_platforms() means entities/timers may still be
