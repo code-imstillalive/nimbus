@@ -26,6 +26,31 @@ time (observed directly: two runs a few minutes apart produced 360 vs.
 flaky test, freezing is a real, load-bearing requirement for
 reproducibility, not a cosmetic nicety.
 
+Every persisted state path main() touches is redirected into a per-test
+temporary directory (nimbus issue #1330). This is the same kind of
+load-bearing requirement as freezing the clock above, and for the same
+reason -- an unpinned state path is an INPUT to a golden comparison.
+Before this, `PLAN_STATE_PATH` pointed at a fixed
+`/tmp/nonexistent_plan_state_golden_test.json` whose name asserted the
+invariant it broke: main() WRITES that file, so run two on the same
+machine read run one's plan back through the proximal term and
+`forecast[1]['shadow_price']` became 0.2999 against the pinned 0.3
+(found by Mark Purcell while building the golden-master harness, #1328).
+CI never saw it because a CI runner always starts clean -- so the only
+place it bit was a developer running the suite twice, which is precisely
+when someone is iterating on this code.
+
+Worse, `SOLAR_DELIVERY_RATIO_PATH` was not redirected at all, and
+solver_writer both reads and writes it. Its default is
+`/opt/nimbus_solver_solar_delivery_ratio.json` -- absent on CI and on a
+dev box, so the failure was caught and invisible, but real on either NUC,
+where this test would have read the live solar-delivery ratio into the
+golden comparison and then overwritten it. A test that mutates production
+state, silent in exactly the environments where it is harmless.
+
+Redirecting the whole set, rather than the one path that was noticed,
+is what makes a third such path safe by construction.
+
 Deliberately excludes from comparison: every `forecast[i]['time']` ISO
 string and the top-level `generated_at` field, both of which are still
 literally the frozen instant re-formatted per period offset -- keeping
@@ -42,6 +67,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import pytest
 import solver_writer
+from _isolated_state import isolated_state_paths
 
 _LOAD_SENSOR = "sensor.nimbus_sigen_plant_total_load_power_forecast"
 
@@ -378,11 +404,11 @@ class TestMainGoldenOutput:
             ),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
-            patch.object(
-                solver_writer,
-                "PLAN_STATE_PATH",
-                "/tmp/nonexistent_plan_state_golden_test.json",
-            ),
+            # nimbus issue #1330: every persisted path into a throwaway
+            # directory, so the golden comparison cannot inherit state from a
+            # previous run or from the machine. See the module docstring, and
+            # tests/_isolated_state.py for the full account.
+            isolated_state_paths(solver_writer),
         ):
             solver_writer.main()
 

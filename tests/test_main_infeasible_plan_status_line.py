@@ -29,6 +29,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _isolated_state import isolated_state_paths
 from solver.elements import PeriodGrid
 from solver.network import _infeasible_plan
 
@@ -104,6 +105,8 @@ class TestInfeasiblePlanStatusLineDoesNotCrash:
                 "build_plan",
                 side_effect=_fake_infeasible_build_plan,
             ),
+            # nimbus issue #1330: main() writes real /opt state paths by default.
+            isolated_state_paths(solver_writer),
         ):
             # The real #389 regression: this used to raise TypeError from
             # inside the status-summary print, not from anything solver-
