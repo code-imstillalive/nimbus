@@ -49,6 +49,58 @@ narrative instead of checking.
   If no rule forbids it and it is within scope, do it.
 - Stale text is to be **fixed**, not obeyed — including text you wrote yourself.
 
+## ⚠️ STANDING DIRECTIVE — NEVER CHEAT. EVERY CHECK, EVERY TIME.
+
+> **Household instruction, 2026-09-27, verbatim:**
+>
+> > *"NEVER EVER CHEAT!!! - STANDING DIRECTIVE - ALWAYS COMPLETE ALL CHECKS...
+> > ALL EVERY SINGLE ONE - and test on devhub."*
+>
+> **Nothing merges, releases or ships until every check has COMPLETED and
+> PASSED.** `pending` is not a pass. `in_progress` is not a pass. "No failures
+> shown yet" is not a pass.
+>
+> **What produced this rule, 2026-09-27.** Told to hurry, I merged #1339 and
+> #1344 seconds after pushing a rebase, without looking at their checks.
+> Verified afterwards from the head SHAs:
+>
+> | PR | state at the moment I merged |
+> |---|---|
+> | #1339 | `Unit Tests (pytest)` still **`in_progress`** |
+> | #1344 | one `validate` job **already `failure`**, Unit Tests **`in_progress`** |
+>
+> So a PR was merged with a **failing** check. That failure turned out to be
+> external — HACS's own backend returning *"Repository code-imstillalive/nimbus
+> not loaded properly in HACS / Not Found"* while the sibling hassfest
+> `validate` passed — and `main` came back green afterwards. **That is luck, not
+> process.** None of it was known at merge time, because nothing was read.
+>
+> ### In practice
+>
+> - **Enumerate the checks and read every row** before merging — `gh pr checks
+>   <n>`, or the head SHA's `check-runs`. Confirm each is `completed` AND
+>   `success`. A count of failures is not enough; a check that has not finished
+>   cannot have failed yet.
+> - **A rebase or force-push restarts CI.** Green before the push says nothing
+>   about the new head. Re-verify against the new SHA, every time.
+> - **Merging deletes the branch, which abandons its in-flight runs** — they stay
+>   `in_progress` forever and can never be verified after the fact. There is no
+>   second chance to look; look first.
+> - **An external/flaky failure is diagnosed, not assumed.** Read the log, name
+>   the cause, then decide. "Probably flaky" without reading it is the same
+>   error as not looking at all.
+> - **Test on devhub** before treating a change as shipped: install via HACS,
+>   restart, confirm the integration loads and the changed path behaves. Read
+>   the version from a **histogram** of `nimbus_version` across entities — never
+>   a single sensor, because NUC1's mirrored entity answers for production.
+> - **Being asked to hurry is not a reason to skip a check.** The honest answer
+>   under time pressure is "that check is still running", never a merge and a
+>   hope.
+>
+> This directive is the condition on the merge authority granted immediately
+> below. The authority to merge is what makes completing the checks *my*
+> responsibility rather than the household's.
+
 ## ⚠️ STANDING DIRECTIVE — MERGE AUTHORITY IN THIS REPO IS CLAUDE'S
 
 > **In `nimbus`, Claude merges its own PRs. Standing, long-established, no asking.**
