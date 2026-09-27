@@ -1,0 +1,12 @@
+[importlinter]
+root_packages =
+    layer_ignored
+
+[importlinter:contract:demo]
+name = Layer demo (one recorded exception)
+type = layers
+layers =
+    layer_ignored.high
+    layer_ignored.low
+ignore_imports =
+    layer_ignored.low -> layer_ignored.high
