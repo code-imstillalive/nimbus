@@ -130,3 +130,39 @@ def find_function(name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
         "this helper already follows it, so check the module list in "
         "tests/_writer_source.py."
     )
+
+
+def function_source(name: str) -> str:
+    """The exact source text of `def <name>`, from whichever module holds it.
+
+    `ast.get_source_segment(text, node)` needs the node and the text to come
+    from the SAME parse -- pairing a node found in `solver_reports/quality.py`
+    with `solver_writer.py`'s text silently returns the wrong lines rather
+    than failing. So this resolves both together.
+    """
+    for path, tree in writer_trees():
+        text = path.read_text(encoding="utf-8")
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == name
+            ):
+                seg = ast.get_source_segment(text, node)
+                if seg is not None:
+                    return seg
+    raise AssertionError(f"{name} not found in any of the writer's modules")
+
+
+def find_constant(name: str):
+    """The literal value of a module-level `<name> = ...` across the modules.
+
+    Only plain literals; raises for anything `ast.literal_eval` cannot take,
+    which is the same limit the hand-rolled versions of this had.
+    """
+    for _path, tree in writer_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", None) == name for t in node.targets
+            ):
+                return ast.literal_eval(node.value)
+    raise AssertionError(f"{name} not found in any of the writer's modules")

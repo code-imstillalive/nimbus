@@ -1781,25 +1781,23 @@ def _carry_forward_quality_history(
     # declaration to precede the first READ of the name, and the degraded-read
     # check below reads it.
     # nimbus issue #1301 Phase 2c -- the ONE genuinely semantic edit in this
-    # module, called out because it is not a mechanical move.
+    # module, re-applied after regenerating this function from origin/main to
+    # pick up #937's own changes (that regeneration reinstated main's
+    # `global` statement, which is why this appears twice in the branch's
+    # history rather than once).
     #
-    # This function carried `global _LAST_KNOWN_QUALITY_HISTORY` in
-    # solver_writer. A `global` statement binds in the namespace of the
-    # module the function is DEFINED in, so moving the function moved the
-    # variable it writes -- the cache would live here while every reader
+    # A `global` statement binds in the namespace of the module the function
+    # is DEFINED in, so relocating the function relocates the variable it
+    # writes -- the cache would live here while every reader
     # (solver_writer.set_native_hass(), tests/golden/harness.py,
     # test_1248_history_never_shrinks.py) still looks at solver_writer's.
-    # Measured: 5 failures in test_1248 alone, all of the shape `0 != 2`.
     #
-    # An alias in the facade cannot fix this. An alias captures the current
-    # OBJECT, and this name gets REBOUND (`= {}` in set_native_hass,
-    # `= dict(history)` below), so the facade's alias would keep pointing at
-    # the previous dict forever.
-    #
-    # So the variable stays in solver_writer -- it has a real rebinding
-    # caller there -- and this function reaches it as an attribute on the
-    # module object. `sw.X = ...` rebinds solver_writer's own global, which
-    # is exactly what `global X; X = ...` did before the move.
+    # A facade alias cannot repair it: an alias captures the current OBJECT
+    # and this name is REBOUND, so the alias would keep pointing at the
+    # previous dict forever. The variable therefore stays in solver_writer --
+    # it has a real rebinding caller there -- and this function reaches it as
+    # a module attribute. `sw.X = ...` rebinds solver_writer's own global,
+    # which is exactly what `global X; X = ...` did before the move.
 
     prior = prior_attrs.get("history")
     # nimbus issue #1248: a read that came back with no `history` is
@@ -1936,6 +1934,26 @@ def _carry_forward_quality_history(
     # that convention is the opposite of `"r"` above.
     if sw._settlement_is_provisional(day_entry) is True:
         history[day_key][sw._QUALITY_HISTORY_PROVISIONAL_FIELD] = 1
+    # nimbus issue #937: and what the DAY-AHEAD forecast was worth on this day,
+    # so the issue's own "more days" is a series rather than one overwritten
+    # headline. See the field's own note above for the byte measurement and for
+    # why only the value-add is retained, not the whole decomposition.
+    #
+    # On a seed/re-push (`freshly_computed` False) `day_entry` is the previously
+    # published attribute set, which carries `forecast_regret_reason` and the
+    # value verbatim -- so this re-derives the same number rather than dropping
+    # the key, matching how `"r"` behaves on that path and unlike `"v"`, which
+    # must NOT advance there (#1219).
+    value_add = sw._day_ahead_value_add_for_history(day_entry)
+    if value_add is not None:
+        history[day_key][sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD] = value_add
+    elif sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD in prior_row:
+        # A day scored once WITH a snapshot and re-pushed later on a cycle that
+        # could not recompute it must not silently lose its verdict -- the row
+        # is the only place it survives at all.
+        history[day_key][sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD] = prior_row[
+            sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD
+        ]
     if len(history) > sw._QUALITY_HISTORY_MAX_DAYS:
         # ISO dates sort lexicographically, so this is a real
         # most-recent-N without parsing anything.

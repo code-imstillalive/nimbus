@@ -166,6 +166,22 @@ _EXPECTED_ATTRS = {
     # `grid_import_excess_penalty` line item -- 0.0 here since this
     # fixture's own fixed inputs never need the excess-import release
     # valve (#390); total_cost/terminal_value_credit are unchanged.
+    # nimbus issue #937 item 4: regenerated after adding the forecast-source
+    # decision attributes. Purely ADDITIVE -- a probe of the delta reported 7
+    # new keys, ZERO missing and ZERO changed, which is the evidence that the
+    # change does not move any number that already existed.
+    #
+    # The values are themselves the proof the feature ships gated OFF:
+    # policy "off", selected "ml" (not persistence), weight 0.0, and a null
+    # mean because no day has been scored yet on a fresh fixture. An install
+    # that does nothing sees exactly today's behaviour.
+    "load_forecast_persistence_weight": 0.0,
+    "load_forecast_source_days_persistence_won": 0,
+    "load_forecast_source_days_scored": 0,
+    "load_forecast_source_mean_value_add_dollars": None,
+    "load_forecast_source_policy": "off",
+    "load_forecast_source_reason": "policy_off",
+    "load_forecast_source_selected": "ml",
     "cost_breakdown": {
         "grid_net": 33.5015,
         "degradation": 0.0,

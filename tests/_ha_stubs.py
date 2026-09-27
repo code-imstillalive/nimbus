@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 import types
+from enum import StrEnum
 from typing import ClassVar
 from unittest.mock import MagicMock
 
@@ -585,6 +586,22 @@ def install_ha_stubs() -> None:
         # its own fake ServiceCall-shaped object with .data), just needs to
         # exist as an importable name.
         ServiceCall=_generic_stub_class("ServiceCall"),
+        # A real StrEnum with real members, not a generic stub class.
+        # `services.py` passes `SupportsResponse.OPTIONAL` as a VALUE to
+        # `hass.services.async_register()`, so attribute access has to
+        # work -- and real HA compares it by IDENTITY (`is
+        # SupportsResponse.NONE`, `is SupportsResponse.ONLY`), which only
+        # distinct singleton members can satisfy. Three members, matching
+        # HA core's own `homeassistant.core.SupportsResponse`.
+        #
+        # Added when services.py stopped passing a bare `True` here: that
+        # worked at runtime only by accident (`True is not
+        # SupportsResponse.NONE` happens to be the answer HA wants) and
+        # mypy flagged every one of the four call sites.
+        SupportsResponse=StrEnum(
+            "SupportsResponse",
+            {"NONE": "none", "OPTIONAL": "optional", "ONLY": "only"},
+        ),
         # Real, load-bearing behaviour, NOT just "marks a function and
         # returns it unchanged" (that was this comment's own claim before
         # issue #82, 2026-08-23 -- a real, live-breaking bug in this

@@ -303,6 +303,15 @@ try:
 except ImportError:
     import household_modes  # type: ignore[no-redef]
 
+# nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+# schema-v2.0 record shape. Pure stdlib, no HA and no other Nimbus
+# module -- see that module's own docstring for the three measurement
+# decisions it owns. Same dual-mode import as household_modes above.
+try:
+    from . import flex_telemetry
+except ImportError:
+    import flex_telemetry  # type: ignore[no-redef]
+
 # nimbus issue #735 stage 3, pulled forward: the load-input block stage 2
 # wants to extract has an ha_post_state() call sitting INSIDE it, so that
 # block could not move without putting a publish into an inputs module.
@@ -313,6 +322,12 @@ try:
     from . import solver_publish
 except ImportError:
     import solver_publish  # type: ignore[no-redef]
+# nimbus issue #495: the flex-telemetry publish lives in solver_publish.py
+# -- see the comment at its definition for why it was placed there rather
+# than added to this file. Re-exported so existing call sites and the three
+# tests that call solver_writer.publish_flex_telemetry_record() resolve the
+# identical object.
+publish_flex_telemetry_record = solver_publish.publish_flex_telemetry_record
 # aemo_crosscheck is noqa'd, not deleted: since #735 stage 4 moved the
 # price/P2P branch out, its only consumer reaches it as an ATTRIBUTE of
 # this module (sw.aemo_crosscheck) from solver_inputs/prices.py, which
@@ -2766,6 +2781,184 @@ def publish_flex_signals(plan) -> None:
             "load_signals": load_signals,
             "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
         },
+    )
+
+
+FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
+
+# Why a record can be absent, in the two expected cases. Held as module
+# constants so the reasons are one grep away from the entity that goes
+# `unknown` because of them, and so build_flex_telemetry_record() stays
+# inside the #1301 size gate (tests/gates/size_ratchet.py).
+_FLEX_TELEMETRY_RANGING_OFF = (
+    "no ranging signals this cycle -- switch.nimbus_solver_flex_signals_enabled "
+    "is off, which is the default, and it costs ~9x solve time when on (measured "
+    "on a real install: median 1.16 s -> 10.3 s). The schema's own flex_available_"
+    "up_kw/_down_kw are required, non-nullable numbers and come from ranging, so "
+    "there is no valid partial record to emit instead."
+)
+_FLEX_TELEMETRY_NO_HISTORY = (
+    "no real recorder history for [{start}, {end}) on the solar/battery/"
+    "whole-house sensors, or one of them is unconfigured under Solver settings "
+    "-- the same three compute_daily_quality_report() already requires"
+)
+
+
+def _flex_telemetry_measured(
+    cfg: dict, interval_start: datetime, interval_end: datetime
+) -> dict | None:
+    """The four measured kW figures for ONE complete NEM 5-minute
+    interval, as genuine period means -- `None` when the three sensors
+    `compute_daily_quality_report()` already requires are unconfigured, or
+    when the recorder holds no sample for any of them in the window.
+
+    Deliberately the same three sensors, the same `_kw_scale_factor()`
+    scaling, the same `solver_battery_power_positive_is_charge` sign
+    resolution and the same energy-balance identity as
+    `_compute_flex_report_for_window()` -- a second, independently-derived
+    net-import formula is exactly how two Nimbus surfaces end up
+    disagreeing about the same interval (#116's class).
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    battery_sensor = cfg.get("solver_battery_power_sensor")
+    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
+    if not solar_sensor or not battery_sensor or not load_sensor:
+        return None
+    solar_hist = fetch_entity_history_range(solar_sensor, interval_start, interval_end)
+    load_hist = fetch_entity_history_range(load_sensor, interval_start, interval_end)
+    battery_hist = fetch_entity_history_range(
+        battery_sensor, interval_start, interval_end
+    )
+    if not solar_hist or not load_hist or not battery_hist:
+        return None
+    grid_times = [interval_start]
+    period_hours = flex_telemetry.INTERVAL_SECONDS / 3600.0
+
+    def _mean(hist, entity_id: str) -> float:
+        return resample_history_mean(hist, grid_times, period_hours)[
+            0
+        ] * _kw_scale_factor(entity_id)
+
+    battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
+    solar_kw = max(0.0, _mean(solar_hist, solar_sensor))
+    load_kw = max(0.0, _mean(load_hist, load_sensor))
+    net_battery_kw = _mean(battery_hist, battery_sensor) * battery_sign
+    charge_kw = max(0.0, -net_battery_kw)
+    discharge_kw = max(0.0, net_battery_kw)
+    return {
+        "solar_kw": solar_kw,
+        "house_load_kw": load_kw,
+        "net_import_kw": load_kw - solar_kw - discharge_kw + charge_kw,
+        # `subtraction`: the same identity with the battery terms removed.
+        # See flex_telemetry.py's own decision 2.
+        "naive_baseline_kw": load_kw - solar_kw,
+    }
+
+
+def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[dict]:
+    """One `assets[]` entry per battery the LP actually planned for.
+
+    Three sources joined by `name`, which is the key `BatteryPlan`/
+    `BatterySignals` already use for exactly this: the plan for SoC and
+    the period-0 setpoint, `plan.battery_signals` for the PHYSICAL
+    available up/down (never the ranging pair -- the schema's own
+    `available_up_kw` is the hardware figure, and `BatterySignals`'
+    docstring says so), and the `BatteryConfig` list for capacity and the
+    discharge ceiling `bidirectional_capable` is derived from.
+
+    `shadow_power_balance_price` is the household λ for every asset, per
+    #495's own field table ("per-battery once #467 lands, else the
+    household λ") -- the LP has one `power_balance_t` row, so there is no
+    per-battery dual to read yet.
+    """
+    signals_by_name = {b.name: b for b in plan.battery_signals}
+    configs_by_name = {b.name: b for b in batteries}
+    assets: list[dict] = []
+    for bp in plan.batteries:
+        cfg_entry = configs_by_name.get(bp.name)
+        signal = signals_by_name.get(bp.name)
+        assets.append(
+            flex_telemetry.build_asset(
+                name=bp.name,
+                capacity_kwh=float(getattr(cfg_entry, "capacity_kwh", 0.0) or 0.0),
+                soc_kwh=float(bp.soc_kwh[0]),
+                charge_kw=float(bp.charge_kw[0]),
+                discharge_kw=float(bp.discharge_kw[0]),
+                max_discharge_kw=float(
+                    getattr(cfg_entry, "max_discharge_kw", 0.0) or 0.0
+                ),
+                available_up_kw=(
+                    float(signal.available_up_kw[0]) if signal is not None else 0.0
+                ),
+                available_down_kw=(
+                    float(signal.available_down_kw[0]) if signal is not None else 0.0
+                ),
+                shadow_power_balance_price=household_lambda,
+                clamped=clamped,
+            )
+        )
+    return assets
+
+
+def build_flex_telemetry_record(
+    cfg: dict,
+    plan,
+    now: datetime,
+    *,
+    batteries,
+    import_price: float,
+    export_price: float,
+    import_limit_kw: float,
+    export_limit_kw: float,
+    period_hours: float,
+):
+    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute
+    interval (#495) -- `.record` None with a `.reason` when no VALID
+    record is possible. Never raises. Every measurement and contract
+    decision lives in `flex_telemetry.py`'s own docstring."""
+    if plan.grid_signals is None:
+        return flex_telemetry.RecordBuild(reason=_FLEX_TELEMETRY_RANGING_OFF)
+    interval_start = flex_telemetry.last_complete_interval_start(now)
+    interval_end = interval_start + timedelta(seconds=flex_telemetry.INTERVAL_SECONDS)
+    measured = _flex_telemetry_measured(cfg, interval_start, interval_end)
+    if measured is None:
+        return flex_telemetry.RecordBuild(
+            reason=_FLEX_TELEMETRY_NO_HISTORY.format(
+                start=interval_start.isoformat(), end=interval_end.isoformat()
+            )
+        )
+    gs = plan.grid_signals
+    hours = period_hours if period_hours > 0 else 1.0
+    household_lambda = plan.duals.get("power_balance_t0", 0.0) / hours
+    # `solar_used_0`'s own upper bound IS period 0's solar forecast, so its
+    # reduced cost is #495's "solar-used bound". None, never a plausible 0.
+    reduced = plan.reduced_costs
+    solar_shadow = reduced.get("solar_used_0", 0.0) / hours if reduced else None
+    clamped: list[str] = []
+    return flex_telemetry.build_record(
+        interval_start=interval_start,
+        region=cfg.get("region"),
+        postcode_prefix=cfg.get("postcode_prefix"),
+        net_import_kw=measured["net_import_kw"],
+        solar_kw=measured["solar_kw"],
+        house_load_kw=measured["house_load_kw"],
+        deferrable_load_kw=0.0,  # #476 gates a real figure; slot reserved
+        naive_baseline_kw=measured["naive_baseline_kw"],
+        # "seen by the optimiser": the price the LP was BUILT with, not a
+        # fresh read that could have moved since.
+        price_signal_seen=import_price,
+        price_export_seen=export_price,
+        envelope_import_limit_kw=import_limit_kw,
+        envelope_export_limit_kw=export_limit_kw,
+        flex_available_up_kw=float(gs.flex_available_up_kw[0]),
+        flex_available_down_kw=float(gs.flex_available_down_kw[0]),
+        shadow_energy_price=household_lambda,
+        shadow_solar_forecast_price=solar_shadow,
+        # GridSignals' own docstring: these two ARE #493's envelope shadows.
+        shadow_envelope_import_price=float(gs.forced_import_cost[0]),
+        shadow_envelope_export_price=float(gs.forced_export_cost[0]),
+        assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
+        clamped_in=clamped,
     )
 
 
@@ -7195,6 +7388,121 @@ _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 # do": a wrongly-absent key costs a missed repair, never a wrong one.
 _QUALITY_HISTORY_PROVISIONAL_FIELD = "p"
 
+# nimbus issue #937: this day's DAY-AHEAD `nimbus_value_add_dollars` --
+# `j_persistence - j_forecast`, so NEGATIVE means naive persistence produced a
+# cheaper real outcome than the ML load forecaster did.
+#
+# **Why a row needs this, and why stage 3 was not enough.** #1307 made the
+# native path publish the day-ahead decomposition, which removed the reason
+# there were no days. It did not make them accumulate. The decomposition is a
+# headline attribute describing `latest_date` alone, so tomorrow's 06:00 scoring
+# overwrites today's number and nothing keeps it -- which is the same
+# retention-not-publication defect `"r"` above exists to fix, one field over.
+#
+# That matters more here than anywhere else in this row, because #937's own
+# top-priority action is literally "More days":
+#
+#     days scored 14 / naive persistence beat Nimbus's forecast 11 /
+#     mean nimbus_value_add_dollars -$0.71/day / worst -$3.42
+#
+# Those fourteen days were readable only because the standalone cron writer of
+# the time put a `forecast_regret` sub-dict into `day_entry`, and the series
+# stopped the day the reference household moved to the native path. A window
+# like it cannot be rebuilt from headline attributes at all: they hold one day.
+#
+# **One character and one number, not the sub-dict.** The cron-era sub-dict is
+# what the five-key allow-list above was written to exclude, and correctly --
+# rows are kept small enough that a year of them fits in one attribute payload.
+# Measured on the reference household 2026-09-27: the quality report's whole
+# attribute payload is **22,750 bytes** and `history` is **1,548** of it across
+# 11 rows, ~140 bytes/row. `"f":-0.7123` costs ~13, so at the 60-day cap this
+# adds ~780 bytes to a 8.4 KB table -- against the eight separate figures a
+# full `forecast_regret` sub-dict would have cost per row.
+#
+# The attribution terms (level/shape/solar) deliberately stay headline-only.
+# They answer "why was this day bad", which is a question about one day; the
+# value-add answers "is the forecaster worth using", which is only answerable
+# over a window, and is the one the selection policy consumes.
+#
+# **Written ONLY when the decomposition actually computed**, the same
+# convention as `"p"` and for the same byte reason: a day with no forecast
+# snapshot, or with unusable previous-day history, has no verdict, and a
+# fabricated 0.0 there would read as "the forecaster exactly matched
+# persistence" -- the confident-wrong-number failure
+# `_day_ahead_forecast_regret_attributes()`'s own six reason codes exist to
+# prevent. Absence means "not computed, or written before this existed".
+_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD = "f"
+
+
+def _day_ahead_value_add_for_history(day_entry: dict) -> float | None:
+    """This day's day-ahead `nimbus_value_add_dollars`, or None when there is
+    no verdict to record (nimbus issue #937).
+
+    Gated on `forecast_regret_reason` being None rather than on the value being
+    present, because those are different statements.
+    `_day_ahead_forecast_regret_attributes()` returns the full stable key set on
+    every path (#589: a consumer must never see a key appear and vanish), so the
+    value key exists and holds None on all six failure paths. Reading the value
+    alone would work today and break silently the moment any of those paths
+    learns to report a partial figure.
+    """
+    if day_entry.get("forecast_regret_reason") is not None:
+        return None
+    value = day_entry.get("forecast_regret_nimbus_value_add_dollars")
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return None
+    value = float(value)
+    if not math.isfinite(value):
+        return None
+    return round(value, 4)
+
+
+def read_day_ahead_value_add_history() -> dict[str, float]:
+    """The trailing day-ahead value-add record, read off this install's own
+    quality report (nimbus issue #937 item 4).
+
+    `{ISO local date: nimbus_value_add_dollars}`, negative meaning naive
+    persistence was cheaper. Empty on any read failure, on an install that has
+    not scored a day with a snapshot yet, and on every install running a
+    release older than the one that started writing `"f"` -- all of which are
+    the same thing to the caller: no evidence, so
+    `select_forecast_source()`'s own `no_trailing_record` gate keeps using the
+    ML forecast.
+
+    **Read through `resolve_real_entity_id()`, never the literal string.** This
+    is a read-back of this install's own prior output, which is exactly the case
+    that function's docstring reserves it for: on an instance where a
+    `remote_homeassistant` mirror of ANOTHER Nimbus install has claimed the
+    plain `sensor.nimbus_solver_quality_report`, the literal read returns the
+    other household's record. Deciding which load forecast to dispatch on from a
+    different house's forecast scores is a materially worse version of the
+    flicker defect that function was written for.
+    """
+    try:
+        attrs = (
+            ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes") or {}
+        )
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+    ):
+        return {}
+    history = attrs.get("history")
+    if not isinstance(history, dict):
+        return {}
+    out: dict[str, float] = {}
+    for key, row in history.items():
+        if not isinstance(key, str) or not isinstance(row, dict):
+            continue
+        value = row.get(_QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD)
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        out[key] = float(value)
+    return out
+
 
 def _epr_reliability_code(day_entry: dict) -> str | None:
     """One character naming this day's EPR verdict, for the history row.
@@ -8300,6 +8608,48 @@ def build_per_battery_forecast(
     ]
 
 
+#: nimbus issue #937 item 4. Stable key set, same reason `_FORECAST_REGRET_KEYS`
+#: and `_NOWCAST_SKILL_KEYS` are stable: a consumer must never see a key appear
+#: and vanish between cycles (#589).
+_LOAD_FORECAST_SOURCE_KEYS = (
+    "load_forecast_source_policy",
+    "load_forecast_source_selected",
+    "load_forecast_persistence_weight",
+    "load_forecast_source_reason",
+    "load_forecast_source_days_scored",
+    "load_forecast_source_days_persistence_won",
+    "load_forecast_source_mean_value_add_dollars",
+)
+
+
+def _load_forecast_source_attributes(decision) -> dict:
+    """Flatten a `ForecastSourceDecision` into published scalars.
+
+    `None` in, all seven keys present and `None` -- which is the standalone/cron
+    path and any caller predating this parameter, not an error. The alternative
+    (omit the keys) is the appear-and-vanish shape #589 exists about, and it
+    would also make "this install cannot tell me" indistinguishable from "this
+    install chose ml".
+    """
+    if decision is None:
+        return dict.fromkeys(_LOAD_FORECAST_SOURCE_KEYS)
+    mean = decision.mean_value_add_dollars
+    return {
+        "load_forecast_source_policy": decision.policy,
+        "load_forecast_source_selected": decision.source,
+        # Rounded to 4 dp for the same reason every dollar figure on the quality
+        # report is: a blend weight of 0.7857142857142857 is noise in a payload
+        # measured against the recorder's 16 KB cap.
+        "load_forecast_persistence_weight": round(decision.persistence_weight, 4),
+        "load_forecast_source_reason": decision.reason,
+        "load_forecast_source_days_scored": decision.days_scored,
+        "load_forecast_source_days_persistence_won": decision.days_persistence_won,
+        "load_forecast_source_mean_value_add_dollars": (
+            None if mean is None else round(mean, 4)
+        ),
+    }
+
+
 def publish_plan(
     *,
     cfg,
@@ -8374,6 +8724,12 @@ def publish_plan(
     solar_delivery,
     p2p_recent_volume_kwh,
     price_spike_active,
+    # nimbus issue #937 item 4: the ForecastSourceDecision this cycle acted on.
+    # Last, with a default, so every existing caller (and the standalone/cron
+    # copy, and this function's own tests) keeps working unchanged. A None
+    # decision still publishes all six keys as None rather than omitting them --
+    # a consumer must never see a key appear and vanish between cycles (#589).
+    load_forecast_source_decision=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -9274,6 +9630,20 @@ def publish_plan(
             # above. See this field's own construction site (near
             # solver_load_forecast_entities, above) for the full reasoning.
             "load_forecast_source_used": load_forecast_source_used,
+            # nimbus issue #937 item 4: WHICH forecast the LP consumed, as
+            # distinct from which sensors it was read from just above.
+            #
+            # Six keys rather than one nested dict, because these are scalars a
+            # dashboard template and an apexcharts series can read directly, and
+            # because `sensor_flattened.py`'s own rule (see its comment on
+            # `load_forecast_source_used`) is that a flattened child needs a
+            # scalar. Always present, always all six -- #589.
+            #
+            # `load_forecast_persistence_weight` is the one that says whether
+            # anything actually changed: 0.0 means the LP consumed the ML
+            # forecast unaltered, which is every install that has not moved
+            # `select.nimbus_solver_load_forecast_source_policy` off `off`.
+            **_load_forecast_source_attributes(load_forecast_source_decision),
             # NEW (2026-08-25, issue #112) -- present here AND on sensor.
             # nimbus_household_load_total_forecast above (see that
             # field's own comment for the full reasoning). Directly
@@ -12860,6 +13230,12 @@ def main() -> None:
     load_forecast_source_used = _load.load_forecast_source_used
     load_forecast_coverage_hours = _load.load_forecast_coverage_hours
     failed_load_entities = _load.failed_load_entities
+    # nimbus issue #937 item 4: which load forecast this cycle's LP actually
+    # consumed, and the trailing evidence behind that. Published on the plan
+    # sensor beside `load_forecast_source_used` (which says which SENSORS the
+    # forecast was read from -- a different question, and the two together are
+    # the whole provenance of the load array).
+    load_forecast_source_decision = _load.load_forecast_source_decision
 
     # Real, standalone Nimbus entity for the summed 18-load total
     # (2026-08-17, direct ask: "like haeo concept nimbus should sum up
@@ -13606,6 +13982,7 @@ def main() -> None:
         solar_delivery=solar_delivery,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
         price_spike_active=price_spike_active,
+        load_forecast_source_decision=load_forecast_source_decision,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
@@ -13615,6 +13992,24 @@ def main() -> None:
     # enabled was true above (plan.grid_signals stays None otherwise) --
     # see publish_flex_signals()'s own docstring.
     publish_flex_signals(plan)
+    # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+    # schema-v2.0 record. Gated on the SAME switch as the flex signals
+    # above, and not by choice -- the schema's own `flex_available_up_kw`/
+    # `_down_kw` are required, non-nullable numbers, and they come from
+    # `Plan.grid_signals`, which is None unless ranging ran. So "default
+    # off" and "costs ~9x solve time when on" are inherited facts here,
+    # not a second decision.
+    solver_publish.publish_flex_telemetry_record(
+        cfg,
+        plan,
+        now,
+        batteries=all_batteries,
+        import_price=float(import_price[0]),
+        export_price=float(export_price[0]),
+        import_limit_kw=float(np.asarray(import_limit_kw).ravel()[0]),
+        export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
+        period_hours=float(period_hours_arr[0]),
+    )
 
 
 if __name__ == "__main__":

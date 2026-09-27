@@ -33,6 +33,13 @@ is deferred and by-module; the reasoning is identical and load-bearing.
 
 from __future__ import annotations
 
+# nimbus issue #495: needed by publish_flex_telemetry_record() below, which
+# moved here from solver_writer.py. Stdlib only, never patched, so a direct
+# import is correct here -- unlike the solver_writer helpers, which go
+# through the deferred `sw` accessor for the reason this module's own
+# docstring and solver_inputs/__init__.py both set out.
+from datetime import UTC, datetime
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -210,5 +217,102 @@ def publish_household_load_total_forecast(
             "load_forecast_plus_6h_kw": lead_6h,
             "load_forecast_plus_24h_kw": lead_24h,
             "generated_at": now.isoformat(),
+        },
+    )
+
+
+# nimbus issue #495 (Signals 6/7 of #489), moved here rather than added to
+# solver_writer.py. The size ratchet correctly objected: this is a 64-line
+# function and landing it in the god-module would have pushed the over-60
+# count 61 -> 62, which is exactly what that gate exists to stop. Splitting
+# it to get under the line would have been gaming the metric -- the body is
+# ~40 lines and the count is inflated by a nine-parameter keyword-only
+# signature and an eleven-line docstring, both of which earn their space.
+#
+# This module is where a publish belongs (#735 stage 3, #1304), so the fix
+# is placement, not surgery. Moved verbatim: every name that resolved in
+# solver_writer's namespace is reached as `sw.<name>`, and stripping those
+# prefixes back off reproduces the original bytes exactly.
+#
+# It stays re-exported from solver_writer, so existing call sites and any
+# `patch.object(solver_writer, "publish_flex_telemetry_record", ...)` keep
+# resolving the identical object.
+try:
+    from . import flex_telemetry
+except ImportError:  # pragma: no cover - standalone/cron path
+    import flex_telemetry  # type: ignore[no-redef]
+try:
+    from . import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
+
+def publish_flex_telemetry_record(
+    cfg: dict,
+    plan,
+    now: datetime,
+    *,
+    batteries,
+    import_price: float,
+    export_price: float,
+    import_limit_kw: float,
+    export_limit_kw: float,
+    period_hours: float,
+) -> None:
+    """Pushes `sensor.nimbus_flex_telemetry` (#495) -- a no-op, reason
+    logged at DEBUG, when no valid record can be built.
+
+    The record is nested under ONE `record` attribute rather than spread.
+    The schema declares `additionalProperties: false`, so a spread record
+    plus the housekeeping attributes HA and this repo both add
+    (`friendly_name`, `nimbus_version`, `generated_at`) would not validate
+    as read -- a consumer would have to know which keys to strip, and get
+    it right again whenever either side adds one. Nested, the thing to POST
+    is `attributes.record`, whole. A deliberate, stated departure from
+    #495's own "attributes = the full record" wording."""
+    sw = _solver_writer()
+    try:
+        build = sw.build_flex_telemetry_record(
+            cfg,
+            plan,
+            now,
+            batteries=batteries,
+            import_price=import_price,
+            export_price=export_price,
+            import_limit_kw=import_limit_kw,
+            export_limit_kw=export_limit_kw,
+            period_hours=period_hours,
+        )
+    except Exception as e:  # noqa: BLE001 - never take the solve down
+        solver_shared._LOGGER.warning(
+            "Nimbus flex telemetry: record build failed: %s", e
+        )
+        return
+    if build.record is None:
+        solver_shared._LOGGER.debug(
+            "Nimbus flex telemetry: no record this cycle -- %s", build.reason
+        )
+        return
+    if build.clamped_fields:
+        solver_shared._LOGGER.warning(
+            "Nimbus flex telemetry: field(s) clamped into the schema's own "
+            "[%s, %s] $/kWh range: %s",
+            flex_telemetry.PRICE_MIN,
+            flex_telemetry.PRICE_MAX,
+            ", ".join(build.clamped_fields),
+        )
+    sw.ha_post_state(
+        sw.FLEX_TELEMETRY_ENTITY_ID,
+        build.record["interval_start_utc"],
+        {
+            "friendly_name": "Nimbus Flex Telemetry",
+            "record": build.record,
+            # No attribute here shares a NAME with a record field, on
+            # purpose: a duplicate would have two places to disagree, and
+            # the whole reason the record is nested is that the attribute
+            # dict and the record are different objects with different
+            # contracts. `schema_version` lives in the record alone.
+            "clamped_fields": list(build.clamped_fields),
+            "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
         },
     )

@@ -368,6 +368,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # this stage closes. The copy compared against here is the
         # FORECAST writer, which carries no quality machinery whatsoever.
         "_day_ahead_forecast_regret_attributes",
+        # nimbus issue #937 item 4: derives the one figure from that
+        # decomposition that is RETAINED in a quality-report history row, so
+        # the issue's own "more days" is a series rather than one overwritten
+        # headline. Called only from `publish_daily_quality_report()`, which is
+        # itself listed further down for the same reason -- the FORECAST writer
+        # compared against here has no quality-report publisher at all, so a
+        # helper serving one cannot be a drift gap in it.
+        "_day_ahead_value_add_for_history",
         # nimbus issue #1290 (Mark Purcell, IV&V #1289):
         # fetch_calendar_trips()'s own all-day-vs-naive-timed test,
         # called from nowhere else. Inherits that function's
@@ -700,6 +708,39 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "prune_snapshots",
         "resample_snapshot_to_grid",
         "_parse",
+        # nimbus issue #937 item 4: the load-forecast-source policy -- read the
+        # trailing day-ahead value-add record, build a seasonal-naive
+        # persistence baseline, and decide whether the LP consumes the ML
+        # forecast, persistence, or a blend.
+        #
+        # Deliberately NOT native-only, because that would be untrue: every
+        # mechanism involved is portable. The policy arrives on
+        # `sensor.nimbus_solver_config`, which the cron copy already reads over
+        # REST; the record is read with `ha_get`; the baseline is built with
+        # `fetch_entity_history_range` + `resample_history_mean`, both of which
+        # have working REST paths. Nothing here needs a `Store` or an event loop.
+        #
+        # What makes it open drift rather than an urgent port is the gate. The
+        # policy defaults to `off`, and `off` is a complete no-op -- an install
+        # on the cron path that never gains this code reads no policy, builds no
+        # baseline, and dispatches on exactly the array it dispatches on today.
+        # So this drift is INERT, which is a materially different situation from
+        # the #370 zero-load-fallback case this list was created for, where the
+        # unported side was actively producing confidently-wrong plans.
+        #
+        # The honest reason not to port it in the same change: the cron copy
+        # holds the load block inline in `main()`, so porting means
+        # re-implementing new logic on a deployment path this change cannot
+        # exercise, to enable a feature whose whole design premise is that it
+        # should not be switched on until a household has looked at its own
+        # numbers. `select_forecast_source()` and `blend_load_forecast()` are
+        # PURE (zero HA imports, loaded by path in their own tests so that is
+        # proven rather than asserted) precisely so that port is a small change
+        # when it is wanted.
+        "_resolve_load_forecast_source",
+        "_seasonal_naive_load_kw",
+        "read_day_ahead_value_add_history",
+        "_load_forecast_source_attributes",
         # nimbus #467 item 4: reads an HA calendar entity via
         # calendar.get_events. Same open-drift reasoning as the four above, and
         # for the same reason it is NOT native-only: it goes through
@@ -785,6 +826,35 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # this entry is next picked up, not just a mechanical rename).
         "scheduled_discharge_cost_rate",
         "scheduled_salvage_value_rate",
+        # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+        # schema-v2.0 emitter.
+        #
+        # Open drift rather than INTENTIONAL_NATIVE_ONLY, and the reason is
+        # checkable rather than a judgement: the record needs real period
+        # MEANS over one 5-minute interval, which needs
+        # `fetch_entity_history_range` + `resample_history_mean` +
+        # `_kw_scale_factor`, and `fetch_entity_history_range` is already
+        # three entries above this one in this same list -- i.e. the
+        # standalone/cron FORECAST writer has no recorder-history reader at
+        # all (grepped, not assumed: zero occurrences of any of the three).
+        # So this is not an execution-context difference; it sits on top of
+        # a history layer that has not been ported either, and porting the
+        # emitter alone would put a function there that cannot run.
+        #
+        # The record SHAPE itself is deliberately not in this list, and that
+        # is the part worth porting when the history layer follows: it lives
+        # in `custom_components/nimbus_load/flex_telemetry.py`, pure stdlib
+        # with no HA and no Nimbus imports, and the docs copy already puts
+        # that directory on `sys.path` (`NIMBUS_SOLVER_PATH`) to reach
+        # `solver/` and `ml/`. So a future port is four functions of
+        # plumbing, not a second copy of the contract -- the same "keep the
+        # portable half portable" posture `detect_power_sign_convention`
+        # above is listed under. Tracked as its own issue rather than left
+        # as a bare allowlist entry.
+        "_flex_telemetry_measured",
+        "_flex_telemetry_assets",
+        "build_flex_telemetry_record",
+        "publish_flex_telemetry_record",
     }
 )
 KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(

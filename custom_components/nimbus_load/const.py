@@ -992,6 +992,25 @@ DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
 # household opting in should do so deliberately, watching solve times
 # after flipping it, exactly the re-measure-at-your-own-scale posture
 # compute_signals' own docstring already asks of any caller.
+#
+# THE REAL FIGURE, measured on a live install rather than a synthetic
+# scenario (2026-09-26/27, recorded on #496 and asked for there by
+# @purcell-lab: "that's real information a household turning the switch on
+# should be told"): the reference household's hourly median solve time
+# stepped 1.16 s -> 10.30 s at the hour this switch went on, an 8.9x rise,
+# and held there for the five hours it stayed on. Nothing failed -- a 10 s
+# solve still fits the 1-minute tick, with no skipped cycles, no overlaps
+# and no solve failures -- so the honest summary is "~9x slower, still
+# working", not "dangerous". That is also the number to compare your own
+# install against after flipping it: a 9x rise is expected; a rise that
+# puts a cycle past the tick interval is not, and #773 is why the
+# difference matters on a big enough problem.
+#
+# The same cost is inherited by anything that NEEDS ranging, which as of
+# nimbus issue #495 includes the nem-flex-telemetry record: the schema's
+# required, non-nullable flex_available_up_kw/_down_kw come from
+# GridSignals, so sensor.nimbus_flex_telemetry is silent while this switch
+# is off and there is no cheaper partial record to emit instead.
 CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
 # nimbus issue #1213 (Mark Purcell): an additive price-event test sensor,
 # for simulating a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh --
@@ -1654,3 +1673,43 @@ CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = (
 CONF_HOUSEHOLD_MODE: Final = "household_mode"
 DEFAULT_HOUSEHOLD_MODE: Final = "home"
 HOUSEHOLD_MODES: Final = ("home", "away", "guests", "economy")
+
+# nimbus issue #937 item 4: whether the measured verdict is allowed to change
+# which load forecast the LP actually consumes.
+#
+# That issue measured naive persistence beating the ML load forecaster on 11 of
+# 14 scored days on the reference household, mean -$0.71/day, worst day -$3.42
+# -- and then the forecaster kept being used, because nothing connected the
+# measurement to the decision. Its own item 4 is the ask:
+#
+#     Consider whether persistence deserves to be a real fallback. If a
+#     household's own data shows persistence winning consistently, the honest
+#     product answer might be to use it, or to blend.
+#
+# **Default `off`, and `off` reads no evidence at all** -- see
+# solver/forecast_source_selection.py's own docstring for why that is stated as
+# an invariant rather than a default. This sits directly on the live dispatch
+# path of a household running real battery dispatch and real P2P money, and the
+# evidence for acting is 14 days from one install, which #937 itself flags as
+# "a small sample... One household. The forecaster trains per-install, so this
+# may not generalise at all." An install that never touches this entity
+# dispatches byte-identically to before it existed.
+#
+# A SELECT rather than a switch, because the issue names two different product
+# answers ("use it, or to blend") and because `measure` -- publish the
+# recommendation, change nothing -- is the honest position between measuring and
+# acting, and is the state this issue has effectively been in for two weeks
+# without it being deliberate or visible.
+#
+# Fixed option set for the same reason HOUSEHOLD_MODES above is: the strings key
+# real branches in select_forecast_source(), so an arbitrary value must not
+# silently mean something. It means `off`, reported as `policy_unrecognised`
+# rather than normalised away.
+CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY: Final = "solver_load_forecast_source_policy"
+DEFAULT_SOLVER_LOAD_FORECAST_SOURCE_POLICY: Final = "off"
+SOLVER_LOAD_FORECAST_SOURCE_POLICIES: Final = (
+    "off",
+    "measure",
+    "blend",
+    "persistence",
+)

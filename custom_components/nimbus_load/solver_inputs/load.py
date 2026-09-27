@@ -40,14 +40,50 @@ deferred and by-module; the reasoning is identical and load-bearing.
 from __future__ import annotations
 
 import json
+import math
 import re
 import urllib.error
 from dataclasses import dataclass
+from datetime import timedelta
 
 try:
     from .. import solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
+
+try:
+    from ..solver.forecast_source_selection import (
+        POLICY_OFF,
+        ForecastSourceDecision,
+        blend_load_forecast,
+        select_forecast_source,
+    )
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver.forecast_source_selection import (  # type: ignore[no-redef]
+        POLICY_OFF,
+        ForecastSourceDecision,
+        blend_load_forecast,
+        select_forecast_source,
+    )
+
+#: One local day's worth of seconds, as the persistence lag. Seasonal-naive at
+#: a 24 h period is what `forecast_regret.py`'s J_persistence scenario is built
+#: from and what #937's own figures compare against -- "tomorrow looks like
+#: today". Using anything else here would make the policy act on a baseline
+#: different from the one the evidence was measured against.
+_PERSISTENCE_LAG = timedelta(hours=24)
+
+#: Raw recorder reads for the persistence baseline, keyed by
+#: `(entity_id, hour bucket)`, so a 1-minute solve cadence does ONE 24-hour
+#: recorder read per hour rather than sixty.
+#:
+#: A process-lifetime cache, so the cron path (one invocation, then exit) never
+#: benefits and never needs to -- it runs once per cycle anyway. Bounded to a
+#: handful of entries because the key's hour bucket rolls forward; stale buckets
+#: are evicted rather than accumulating, since this module is imported for the
+#: life of the HA process.
+_PERSISTENCE_HISTORY_CACHE: dict[tuple[str, str], list[tuple[object, float]]] = {}
+_PERSISTENCE_CACHE_MAX_ENTRIES = 4
 
 
 def _solver_writer():
@@ -89,6 +125,156 @@ class LoadArrays:
     load_forecast_source_used: object
     load_forecast_coverage_hours: object
     failed_load_entities: object
+    # nimbus issue #937 item 4. Carried rather than recomputed at the publish
+    # site for the same reason `summed_18_now_kw` is: the decision is made
+    # exactly once, inside the construction that acted on it, and a second
+    # derivation is how two halves of one report come to disagree.
+    #
+    # Never None -- a decision is always made, including the `off` decision, so
+    # the published attributes say which gate closed rather than going quiet.
+    load_forecast_source_decision: object = None
+
+
+def _seasonal_naive_load_kw(cfg, grid_times, period_hours, now):
+    """A naive persistence load forecast over `grid_times`, or None.
+
+    "Tomorrow looks like today" -- each grid period takes the REAL measured
+    household load from the smallest whole number of 24 h periods back that
+    lands inside the last day of recorder history. That is exactly the baseline
+    `forecast_regret.py`'s `J_persistence` scenario is built from and exactly
+    what #937's own -$0.71/day compares against, so the policy acts on the same
+    baseline the evidence was measured against rather than a near-relative of
+    it.
+
+    **One 24-hour read serves any horizon.** A single shifted LOOKUP grid is
+    built (`gt - k*24h`, `k = max(1, ceil((gt - now)/24h))`) and resampled once,
+    rather than resampling per lag. Two resamples of a couple of thousand
+    recorder rows against ~200 periods is real work to add to a 1-minute solve
+    cycle, and the whole point of the `off` default is that no install pays it
+    unless it asked to.
+
+    The real load sensor is `solver_whole_house_cross_check_sensor`, which is
+    this repo's own settled answer to "which entity counts as the real
+    household load" -- `_compute_report_for_window()` resolves it the same way
+    for the day-ahead scorer, and `build_load_arrays()` already reads it live
+    for the period-0 anchor. Returns None when it is unconfigured: an install
+    with no whole-house meter has no measured history to persist, and inventing
+    one from the summed circuit forecasts would make the "persistence" baseline
+    a function of the forecaster it is supposed to be an alternative to.
+    """
+    sensor = cfg.get("solver_whole_house_cross_check_sensor") or None
+    if not sensor:
+        return None
+    bucket = now.replace(minute=0, second=0, microsecond=0).isoformat()
+    cache_key = (sensor, bucket)
+    hist = _PERSISTENCE_HISTORY_CACHE.get(cache_key)
+    if hist is None:
+        scale = solver_shared._kw_scale_factor(sensor)
+        raw = solver_shared.fetch_entity_history_range(
+            sensor, now - _PERSISTENCE_LAG, now
+        )
+        if not raw:
+            return None
+        hist = [(t, v * scale) for t, v in raw]
+        if len(_PERSISTENCE_HISTORY_CACHE) >= _PERSISTENCE_CACHE_MAX_ENTRIES:
+            # The key's hour bucket rolls forward, so old entries are dead
+            # weight in a process that lives for months. Drop the oldest
+            # bucket rather than letting the dict grow without bound.
+            oldest = min(_PERSISTENCE_HISTORY_CACHE, key=lambda k: k[1])
+            _PERSISTENCE_HISTORY_CACHE.pop(oldest, None)
+        _PERSISTENCE_HISTORY_CACHE[cache_key] = hist
+    lookup_times = []
+    for gt in grid_times:
+        ahead_days = (gt - now).total_seconds() / _PERSISTENCE_LAG.total_seconds()
+        lag_periods = max(1, math.ceil(ahead_days))
+        lookup_times.append(gt - lag_periods * _PERSISTENCE_LAG)
+    values = solver_shared.resample_history_mean(hist, lookup_times, period_hours)
+    if not any(v > 0.0 for v in values):
+        # An all-zero (or negative-only) persistence baseline is not a baseline.
+        # `_day_ahead_forecast_regret_attributes()` refuses one for exactly this
+        # reason -- it would make the ML forecast look arbitrarily good by
+        # comparison -- and here the direction of harm is worse: the LP would
+        # plan a real battery against a household that draws nothing.
+        return None
+    # Never negative: the LP's load leg is a demand, and a momentary negative
+    # meter read (the noisy-sensor class this project already fixed once for the
+    # live P2P automation) must not become a negative demand in a plan.
+    return [max(0.0, float(v)) for v in values]
+
+
+def _resolve_load_forecast_source(cfg, grid_times, period_hours, now, load_kw):
+    """Decide whether this cycle's LP consumes the ML load forecast,
+    persistence, or a blend -- and build the persistence array only if the
+    decision could possibly need it (nimbus issue #937 item 4).
+
+    Returns `(load_kw_or_blended, decision, persistence_kw_or_None)`. `load_kw`
+    comes back UNCHANGED, same object, whenever the decision is "ml" -- which is
+    every install that has not set
+    `select.nimbus_solver_load_forecast_source_policy` away from `off`, and
+    which is what makes this additive to a live dispatch path rather than a
+    change to it.
+
+    The persistence array is returned rather than rebuilt by the caller for the
+    uncertainty band: two resamples of the same recorder rows against the same
+    grid is real work on a 1-minute cadence, and two derivations of one array is
+    the drift shape this module's own docstring warns about for
+    `summed_18_now_kw`.
+
+    **The evidence is fetched only after the policy has been read**, and
+    `POLICY_OFF` short-circuits before either the quality-report read or the
+    recorder read. So the default costs one `cfg.get()` per cycle and nothing
+    else -- no extra HTTP call, no extra recorder query, no arithmetic on the
+    load array.
+    """
+    policy = cfg.get("solver_load_forecast_source_policy") or POLICY_OFF
+    if policy == POLICY_OFF:
+        return (
+            load_kw,
+            select_forecast_source(
+                value_add_by_day={}, today=now.date(), policy=POLICY_OFF
+            ),
+            None,
+        )
+    sw = _solver_writer()
+    decision = select_forecast_source(
+        value_add_by_day=sw.read_day_ahead_value_add_history(),
+        today=now.date(),
+        policy=policy,
+    )
+    if decision.persistence_weight <= 0.0:
+        return load_kw, decision, None
+    persistence_kw = _seasonal_naive_load_kw(cfg, grid_times, period_hours, now)
+    if persistence_kw is None or len(persistence_kw) != len(load_kw):
+        # A policy that asked for persistence and cannot have it must say so and
+        # keep the ML forecast, never silently half-apply. Reported as its own
+        # reason so "I set the policy and nothing changed" is answerable from
+        # the published attributes alone.
+        solver_shared._LOGGER.warning(
+            "Nimbus #937: load forecast source policy %r wanted persistence "
+            "weight %.3f but no usable persistence baseline was available "
+            "(configure solver_whole_house_cross_check_sensor, or check its "
+            "recorder history) -- keeping the ML forecast this cycle",
+            policy,
+            decision.persistence_weight,
+        )
+        return (
+            load_kw,
+            ForecastSourceDecision(
+                source="ml",
+                persistence_weight=0.0,
+                policy=policy,
+                reason="persistence_baseline_unavailable",
+                days_scored=decision.days_scored,
+                days_persistence_won=decision.days_persistence_won,
+                mean_value_add_dollars=decision.mean_value_add_dollars,
+            ),
+            None,
+        )
+    return (
+        blend_load_forecast(load_kw, persistence_kw, decision.persistence_weight),
+        decision,
+        persistence_kw,
+    )
 
 
 def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
@@ -253,6 +439,53 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             whole_house_now_kw = None
     summed_18_now_kw = load_kw[0]
 
+    # nimbus issue #937 item 4: the measured day-ahead verdict is allowed to
+    # change what the LP consumes for load -- if the household has said so.
+    # Default `off` returns `load_kw` unchanged, same object.
+    #
+    # **Placed here on purpose, and the position is load-bearing in both
+    # directions.** AFTER `summed_18_now_kw` is snapshotted, so the
+    # forecast-vs-forecast cross-check diagnostic keeps comparing the two
+    # genuine forecasts it was built to compare (#100/#429) rather than
+    # silently becoming a blend-vs-forecast comparison. BEFORE the live
+    # period-0 anchor below, so a real MEASURED reading still wins period 0
+    # whatever the policy says -- persistence has nothing useful to add about
+    # the instant a meter is currently reporting.
+    #
+    # The band moves with the central array and by the same weight, treating
+    # persistence as a point value: a naive baseline carries no uncertainty
+    # quantification, so at weight 1.0 the band correctly collapses onto it.
+    # Blending the centre alone would leave `lower <= central <= upper` intact
+    # only by luck, and the stochastic LP reads all three.
+    period_hours = (
+        (grid_times[1] - grid_times[0]).total_seconds() / 3600.0
+        if len(grid_times) > 1
+        else 0.25
+    )
+    (
+        load_kw,
+        load_forecast_source_decision,
+        _persistence_kw,
+    ) = _resolve_load_forecast_source(cfg, grid_times, period_hours, now, load_kw)
+    if _persistence_kw is not None:
+        weight = load_forecast_source_decision.persistence_weight
+        if len(_persistence_kw) == len(load_lower_kw):
+            load_lower_kw = blend_load_forecast(load_lower_kw, _persistence_kw, weight)
+        if len(_persistence_kw) == len(load_upper_kw):
+            load_upper_kw = blend_load_forecast(load_upper_kw, _persistence_kw, weight)
+        solver_shared._LOGGER.info(
+            "Nimbus #937: load forecast source %s (policy=%s, weight=%.3f, "
+            "reason=%s, %d/%d trailing days favoured persistence, mean "
+            "value-add %s)",
+            load_forecast_source_decision.source,
+            load_forecast_source_decision.policy,
+            load_forecast_source_decision.persistence_weight,
+            load_forecast_source_decision.reason,
+            load_forecast_source_decision.days_persistence_won,
+            load_forecast_source_decision.days_scored,
+            load_forecast_source_decision.mean_value_add_dollars,
+        )
+
     # Real, live anchor for the CURRENT period ONLY -- same mechanism
     # and reasoning as solar's own live anchor above (2026-08-22, direct
     # continuation of Mark Purcell's own request: "If you can fix
@@ -307,4 +540,5 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
         load_forecast_source_used=load_forecast_source_used,
         load_forecast_coverage_hours=load_forecast_coverage_hours,
         failed_load_entities=failed_load_entities,
+        load_forecast_source_decision=load_forecast_source_decision,
     )

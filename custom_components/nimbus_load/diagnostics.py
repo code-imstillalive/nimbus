@@ -68,6 +68,9 @@ _SOLVER_CONFIG_ENTITY_ID = "sensor.nimbus_solver_config"
 _FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
 _FLEX_SIGNALS_ENTITY_ID = "sensor.nimbus_flex_signals"
 _OFFER_CURVE_ENTITY_ID = "sensor.nimbus_offer_curve"
+# nimbus issue #496's third diagnostics criterion, "the last record
+# (sub-issue 6)" -- unblocked by #495's own emitter.
+_FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
 
 
 async def _controllable_load_diagnostics(
@@ -338,6 +341,36 @@ def _offer_curve_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
     }
 
 
+def _flex_telemetry_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
+    """The last emitted `nem-flex-telemetry` record -- nimbus issue #496's
+    third diagnostics criterion, *"Diagnostics contain the last emitted
+    record and it validates against schema v2.0"*.
+
+    The record is dumped VERBATIM, as the single nested `record` object the
+    sensor carries. Not spread, not filtered, not re-ordered: the criterion
+    is that what lands in a dump validates, and the only way to be sure of
+    that is for the dump to hold the same closed object the schema test
+    validates (`additionalProperties: false` means any reshaping here could
+    invalidate a record that was perfectly valid on the entity).
+
+    `enabled: False` when the entity does not exist -- the switch is off by
+    default (#496), so an absent record is the normal state and not a
+    fault, same posture as `_offer_curve_diagnostics()` above.
+    """
+    state = hass.states.get(_FLEX_TELEMETRY_ENTITY_ID)
+    if state is None:
+        return {"enabled": False}
+    record = state.attributes.get("record")
+    return {
+        "enabled": True,
+        "interval_start_utc": state.state,
+        "record": record if isinstance(record, dict) else None,
+        "clamped_fields": list(state.attributes.get("clamped_fields") or []),
+        "generated_at": state.attributes.get("generated_at"),
+        "nimbus_version": state.attributes.get("nimbus_version"),
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> dict[str, Any]:
@@ -405,11 +438,11 @@ async def async_get_config_entry_diagnostics(
         "subentries": subentries,
         "solver": _solver_diagnostics(hass),
         "solver_config": _solver_config_diagnostics(hass),
-        # nimbus issue #496's diagnostics criterion, the half that is not
-        # blocked. The other half ("the last emitted telemetry record")
-        # waits on #495's emitter, which does not exist yet -- the
-        # vendored schema/telemetry.schema.json is referenced only by its
-        # own drift test, so there is no record to dump.
+        # nimbus issue #496's diagnostics criterion, now in all three of
+        # its parts: the flex family's own payload and ranging/degeneracy
+        # flags, the offer curve's sweep timings, and -- since #495's
+        # emitter landed -- the last emitted telemetry record itself.
         "flex": _flex_diagnostics(hass, entry),
         "offer_curve": _offer_curve_diagnostics(hass),
+        "flex_telemetry": _flex_telemetry_diagnostics(hass),
     }
