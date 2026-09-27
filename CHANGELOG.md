@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **A per-cycle log line claimed Nimbus does not dispatch, on an install where it dispatches daily** ([#1333](https://github.com/code-imstillalive/nimbus/issues/1333)). `_log_dispatch_dry_run()` logged *"no command sent, live dispatch is not implemented yet"* every cycle, beside a real kW figure. True of that function; **false as a statement about the install**, and nothing in the line said which it meant. On the reference household Nimbus has driven real Modbus dispatch for weeks through an HA automation reading the published plan — the write happens outside this integration, which is why this code can be honestly observe-only while the system it belongs to is not.
+  - A second instance, stated harder, in the same function's docstring: *"Nimbus has never written to an inverter."*
+  - The line now names the path it means (*"this integration-internal dispatch path sends no command; whether anything acts on this plan depends on the install's own dispatch automation, which this code cannot see"*), which is true on every install and cannot go stale. **"not implemented yet" was accurate when written** — what changed was an automation elsewhere, so nothing ever prompted a revisit of this file.
+  - Guarded rather than just reworded, because this misreading already produced a production false alarm. The guard checks the *claim*, not the wording, and deliberately still permits "dry-run" and "observe-only" as names for the code path and its switch — banning those would force renaming a real entity to satisfy a test.
+  - Consumer check: log text only. No behaviour, entity or state change, and the function stays gated on `switch.nimbus_solver_dispatch_dry_run` exactly as before.
+
 ## [0.94.426] - 2026-09-27
 
 **Backup-critical.** If you run the native integration with Home Assistant's
