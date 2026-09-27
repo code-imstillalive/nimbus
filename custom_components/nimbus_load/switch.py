@@ -47,6 +47,7 @@ from .const import (
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+    CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_EVENT_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
+    DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
     DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
@@ -257,6 +259,22 @@ async def async_setup_entry(
                 CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
                 "Calibrated Objective Enabled",
                 DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #1259: the index-0-vs-index-1 solar
+            # disagreement measurement -- see const.py's own comment on
+            # CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED for why the
+            # mechanism the issue originally proposed was rejected and
+            # this measurement is what replaced it. Same plain-toggle
+            # pattern as CONF_SOLVER_OFFER_CURVE_ENABLED: solver_writer
+            # reads it fresh off cfg every cycle, so no
+            # _reconfigure_dependents() side effect is needed.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
+                "Nowcast Measurement",
+                DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
                 sw_version,
                 shared_store,
             ),

@@ -1037,6 +1037,38 @@ DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False
 # architecture ever needs rolling back on their own live install.
 CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED: Final = "solver_calibrated_objective_enabled"
 DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED: Final = True
+# nimbus issue #1259: the PV forecast step between solar_kw[0] (the live-
+# measured anchor) and solar_kw[1] (the first genuine forecast period).
+# The issue proposed blending the anchor forward over the first few
+# periods; that proposal was tested against the one real event on record
+# and REJECTED -- every decay shape considered would have made that event
+# 2.8x to 6.9x WORSE, because the anchor was the stale number and the
+# forecast was correctly anticipating a real cloud-clearing ramp. Mark
+# Purcell's own decision on the issue, verbatim: "don't build mechanism
+# 1... Leaving open as a measurement task rather than an implementation
+# one, unless a second real event shows a different shape."
+#
+# This switch enables THAT measurement, and nothing else. When on, each
+# solve records the index-0-vs-index-1 pair whenever they disagree
+# materially, then grades both against what the real solar sensor
+# actually did at index 1's own timestamp -- so the open question ("how
+# often do they disagree, and when they do, which one is closer?") gets
+# answered from many events rather than from the one screenshot that
+# opened the issue.
+#
+# Default False, for two separate reasons, both real:
+#   1. It can never change a plan -- it only reads history and publishes
+#      a diagnostic -- but it DOES add a recorder-history fetch per
+#      resolved event, and this project has a documented, measured
+#      solve-time incident from exactly that class of ambient cost
+#      (flex signals: median solve 1.16s -> 10.3s, and a 145s cycle
+#      against a 60s tick). An opt-in measurement must not levy that on
+#      an install that never asked for it.
+#   2. A measurement whose whole purpose is to settle an open design
+#      question should be turned on deliberately, on the installs whose
+#      data is wanted, and turned off again once it is answered.
+CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED: Final = "solver_nowcast_measurement_enabled"
+DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of
