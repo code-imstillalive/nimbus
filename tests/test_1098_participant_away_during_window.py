@@ -66,6 +66,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _writer_source import writer_source
 
 # Mark's own 17 Sep figures for ev_my, as filed.
 REAL_AWAY_SECONDS = (
@@ -259,9 +260,7 @@ class TestTheCallSiteReadsTheMaskItAlreadyHas(unittest.TestCase):
     """
 
     def test_the_call_site_passes_the_configs_own_mask(self):
-        source = solver_writer.__file__.replace(".pyc", ".py")
-        with open(source, encoding="utf-8") as f:
-            text = " ".join(f.read().split())
+        text = " ".join(writer_source().split())
         self.assertIn("away_period_count=len(b.unavailable_period_indices or ())", text)
         self.assertIn("n_periods=len(period_hours_arr)", text)
 

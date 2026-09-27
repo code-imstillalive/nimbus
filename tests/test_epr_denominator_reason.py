@@ -64,6 +64,7 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
+from _writer_source import writer_source
 from solver.epr import compute_epr, denominator_reason
 
 # The three real published figures, 2026-09-17, reference install
@@ -239,11 +240,8 @@ class TestTheWarningHasItsOwnDedupSet(unittest.TestCase):
         `test_solver_writer_family_a_freshness_repush.py` uses one: the
         condition cannot be produced on demand, and the wiring is what
         regresses."""
-        import solver_writer
 
-        src = solver_writer.__file__.replace(".pyc", ".py")
-        with open(src, encoding="utf-8") as f:
-            text = " ".join(f.read().split())
+        text = " ".join(writer_source().split())
         self.assertIn(
             'day_entry.get("epr_denominator_reason") is not None',
             text,
