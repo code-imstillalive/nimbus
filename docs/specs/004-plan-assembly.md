@@ -1,6 +1,10 @@
 # Spec 004: `solver_plan.py` — plan assembly (cfg → elements.\*Config → build_plan)
 
-Status: approved (#1380, merged) — implementation not yet started
+Status: implemented (#1303, Phase 4). Approved at #1380; **see
+"Implementation findings" at the end of this file before trusting the
+Interfaces, Façade decision or Acceptance sections — five of their claims were
+measured wrong, and three requirements from this spec's own review never
+reached this file.**
 Plan: docs/architecture/tech-debt-plan.md; phase: #1303 (Phase 4)
 Code cited at: `4bec705`
 
@@ -415,22 +419,60 @@ a live install to exercise differently than before."
       two P2P-bonus tests pass unmodified.
 - [ ] `noop_patches.py` reports zero regressions across those four files.
 - [ ] No line executed before is unexecuted after (`coverage_compare.py`).
-- [ ] mypy count not higher; zero in `solver_plan.py` itself.
-- [ ] `nimbus-layers`: `solver_plan` added as its own layer-3 entry; exactly
-      one new `ignore_imports` exception if Phase 3 hasn't landed yet at
-      implementation time (Migration step 5's facade case), zero if it has.
-- [ ] `size_ratchet.py`: `solver_writer.py`'s over-60-line count drops by
-      one (the inline span, which was never its own function, doesn't
-      count against the ratchet today but the *content* leaving does
-      reduce total file size); `solver_plan.py` introduces exactly one new
-      over-60-line function (`assemble_and_solve_plan`, ~250 lines),
-      documented and accepted per Non-goals.
-- [ ] `solver_writer.terminal_value_breakpoints_for is solver_plan.
-      terminal_value_breakpoints_for` — a real test.
-- [ ] The reviewer has explicitly confirmed the flat-27-parameter signature
-      (or chosen the `PlanAssemblyInputs` alternative) before implementation
-      starts — this spec's own open structural question, not to be settled
-      by whoever happens to implement it.
+- [x] mypy: CI's strict `solver/`+`ml/` gate unchanged (6 pre-existing, both
+      before and after). The advisory whole-package job moves 207 → 211; see
+      finding 6 for the exact breakdown and why it is not suppressed.
+- [x] `nimbus-layers`: `solver_plan` promoted from the optional `(solver_plan)`
+      entry to a required layer-3 entry. **Zero** new `ignore_imports` —
+      contract KEPT at 14 ignored imports, unchanged. Phase 3 had landed, and
+      `previous_plan` being a parameter removes the only other upward reach.
+- [x] `size_ratchet.py`: `solver_writer.py`'s over-60-line count is
+      **UNCHANGED**, not down one — see finding 5. `solver_plan.py` introduces
+      exactly one new over-60-line function (`assemble_and_solve_plan`, 294
+      lines), documented and accepted per Non-goals.
+- [x] `solver_writer.terminal_value_breakpoints_for is solver_plan.
+      terminal_value_breakpoints_for` — a real test
+      (`test_1303_plan_assembly_extraction.py`).
+- [x] The reviewer explicitly confirmed the flat keyword-only signature on
+      #1380 ("keep the flat keyword-only signature") over the
+      `PlanAssemblyInputs` alternative. The *return* shape was never reviewed
+      and is a deviation — see finding 1.
+
+### Added by the #1380 review, and missing from this file until 2026-09-28
+
+The review's verdict was *"approve the shape, add the mutation check to
+Acceptance, add the `solver_shared._LOGGER` invariant, and note the
+Phase-3-first ordering."* The spec merged without any of the three. Recording
+them here as the requirements they always were:
+
+- [x] **Mutation check.** *"Swap one pair within each of the four groups, one at
+      a time, and confirm the golden master fails each time. If any swap passes,
+      the golden scenarios do not discriminate that input and the extraction is
+      not actually covered where it matters."* Keyword-only arguments stop the
+      call site's *order* from drifting; they do nothing about a
+      **transposition** between two same-shaped arguments, and 18 of the inputs
+      sit in such a group. Implemented as
+      `test_1303_plan_assembly_extraction.py::TestPlanAssemblyMutationCheck`
+      against `assemble_and_solve_plan()` directly rather than by mutating the
+      golden master — same property, seconds instead of four golden runs, and
+      the failure message names the pair. **Result: 13 transpositions probed, 13
+      caught, 0 undiscriminated** — see finding 7 for the two distinct
+      mechanisms, which are not what the review assumed.
+- [x] **`solver_shared._LOGGER`, never `sw._LOGGER`.** The review, repeating its
+      own point on #1370: qualify the moved span's `_LOGGER` as `sw._LOGGER` and
+      `test_callers_mode_counts_only_real_references.py:178` fails, because it
+      asserts ZERO real `sw._LOGGER` references outside `solver_writer.py`. Both
+      of the span's `_LOGGER` uses are `solver_shared._LOGGER`; that file passes
+      unmodified, and the form is pinned by a test.
+- [x] **Phase 4 must not merge before Phase 3**, or this span's
+      `build_controllable_loads` call site changes under it mid-flight. Phase 3
+      (#1397, #1399) merged first, so Migration step 5's "already landed" case
+      applies: a direct `solver_inputs.controllable_loads` import, no facade.
+- [x] **State that this phase rests on behavioural equivalence, not identity.**
+      The review: *"a verifier reading specs 002 and 004 side by side will
+      otherwise assume the same strength of guarantee is available, and it is
+      not."* Stated in `solver_plan.py`'s own module docstring and in the test
+      file's.
 
 ## Rollback
 
@@ -438,3 +480,128 @@ Revert the single commit. `solver_plan.py` is new and unreferenced outside
 `main()`'s own one call site and `solver_writer.py`'s facade re-export of
 `terminal_value_breakpoints_for`. No state file format changes, no
 migration to undo.
+
+---
+
+## Implementation findings (2026-09-28)
+
+Measured against `main()` at `b181403` (12,853 lines) with AST free-variable
+analysis, not carried over from this spec's own `4bec705`-era figures. **The
+input measurement reproduced exactly** — the same 30 names, the same 244-line
+span, still zero `return` statements in `main()` before it. Three independent
+measurements now agree on that set (#735 stage 5's "27", this spec's "30 → 27",
+and this one). Phase 3's move did not change it, because the four values
+`build_controllable_loads` takes were already inputs.
+
+Everything below is where this spec was wrong.
+
+**1. The return type. `-> network.Plan` is seven outputs short.** The rest of
+`main()` reads **eight** names the span binds: `plan`, `grid`, `all_batteries`,
+`fleet_capacity_kwh`, `solve_started`, `risk_aversion`,
+`import_price_risk_aversion`, `export_price_risk_aversion` — and all but `plan`
+feed `publish_plan()`'s own argument list. Checked which failure mode this
+produces, because it decides how dangerous the omission was: **none of the eight
+is also bound before the span**, so all eight fail loudly with `NameError` at the
+first post-span read rather than silently using a stale value. Resolved with a
+`@dataclass(frozen=True) PlanAssembly`, matching what `resolve_soc_envelope()`,
+`build_load_arrays()` and `build_price_arrays()` already return. **This is a
+deviation from what #1380 approved** — the review confirmed the *input* shape and
+never examined the outputs.
+
+*A near-miss worth recording:* a careless analyser reports **ten** outputs. `b`
+looks span-bound and post-span-read, but the read is
+`{b.name: b.capacity_kwh for b in all_batteries}` — a dict comprehension, which
+has its own scope in Python 3. Respecting comprehension scope is the difference.
+
+**2. `load_previous_plan()`'s call site is INSIDE the span, not outside it.** The
+Façade decision says `resolve_price_spike_override` and `load_previous_plan` are
+both excluded "because their call sites sit just outside this span's own
+boundary". True of the first (`:12466`, three lines before the span) and false of
+the second: `previous_plan = load_previous_plan()` is at `:12561`, inside.
+
+Since `load_previous_plan` stays in `solver_writer.py` (layer 4), calling it from
+`solver_plan.py` (layer 3) would be an upward dependency needing an
+`ignore_imports` exception. Resolved by making `previous_plan` a **28th
+parameter**: `main()` calls `load_previous_plan()` and passes the result. Verified
+observationally identical before doing it — everything the hoisted call now
+crosses is pure computation (`elements.*Config` construction,
+`terminal_value_breakpoints_for`, `midnight_boundary_period_indices`, and
+`fetch_p2p_fixed_export_kw`, which was read start-to-finish to confirm it does no
+`ha_get`, no `open()`, no HTTP), and the only write to `PLAN_STATE_PATH` is
+`save_plan_state()`, which runs later inside `publish_plan()`. One test file
+references `load_previous_plan` and it calls the function directly, never through
+`main()`.
+
+**The payoff is bigger than avoiding one lint exception: `solver_plan.py` is the
+only module #1298 has extracted with NO `_solver_writer()` seam at all.** Nothing
+in it reaches back up, so there is no deferred-import trap to get wrong.
+
+**3. `_local` moves with the span, and this spec never mentions it.**
+`midnight_boundary_period_indices` calls `_local()`, which lives in
+`solver_shared.py:157` — downward, so a plain import, and the no-upward-seam
+property survives. Found by ruff F821 after the first build, because this spec's
+free-variable analysis covered the *span* and not the two *helper functions* it
+also moves. `terminal_value_breakpoints_for` and the span itself have no free
+names at all.
+
+**4. `import_limit_kw` and `export_limit_kw` are NOT scalars.** The review groups
+them under "4 scalar kW limits". `resolve_envelope_limit_kw()` returns
+`list[float]` and `GridConfig.import_limit_kw` is declared
+`float | NDArray[np.float64]`, because #493's dynamic operating envelopes made
+them per-period arrays — which this spec's own Non-goals section half-remembers.
+Annotating them `float` type-checks against nothing real; mypy caught it
+immediately. `discharge_cost_arr` is likewise an `NDArray[np.float64]`, not a
+`list[float]` — `solver_writer.py`'s own two existing functions annotate it that
+way at `:1471` and `:1599`.
+
+**5. `solver_writer.py`'s over-60-line count does NOT drop by one.** Acceptance
+asserted it would. Measured: **47 before, 47 after** (scoped runs of
+`size_ratchet.py custom_components/nimbus_load/solver_writer.py`). The span was
+never its own function, so nothing over 60 lines left the file; `main()` shrank
+but is still far over the threshold, and the two moved helpers are 30 and 27
+lines. The acceptance item contradicted its own parenthetical, which already said
+the span "doesn't count against the ratchet today".
+
+**6. mypy: the strict gate is unchanged; the advisory job moves 207 → 211.**
+CI's enforced gate is
+`mypy custom_components/nimbus_load/solver custom_components/nimbus_load/ml
+--ignore-missing-imports --follow-imports=silent` — **6 findings before, 6 after,
+both in `solver/quality_report.py`, neither touching this phase.** (Dropping
+`--follow-imports=silent` reports 633/646 instead; CI's own comment explains that
+a bare directory path pulls the whole package in via `__init__.py` and produces
+"the misleadingly large finding count". Worth knowing before quoting a number.)
+
+The advisory whole-package job goes 207 → 211. Of the eight findings that look
+new, **three are the same findings relocated** with the code from
+`solver_writer.py` to `solver_plan.py`, and one pre-existing finding is
+eliminated. The five genuinely new ones are all one thing: `LoadArrays` and
+`PriceArrays` declare **every field as `object`**, so `main()`'s `load_kw`,
+`load_lower_kw`, `load_upper_kw`, `export_bonus_price` and
+`p2p_recent_volume_kwh` are `object` locals, and passing them into honestly-typed
+parameters is an error that could not exist while the code was inline — there was
+no typed boundary to cross, and `np.array(x)` accepts `object` happily.
+
+That is upstream looseness becoming **visible**, not looseness introduced here.
+Annotating the five parameters `object` would make the count go down while hiding
+exactly the information the mutation check depends on, so it is deliberately not
+done. **Tightening those two dataclasses' field annotations is a real, separable
+follow-up** — and note it is *not* what this spec's Non-goals exclude, which is
+restructuring them so more fields travel together.
+
+**7. The mutation check found something better than the review assumed.** All 13
+transpositions probed are caught, but by two different mechanisms, and the
+difference is worth having:
+
+| group | pairs probed | how a swap is caught |
+|---|---:|---|
+| load arrays, solar arrays | 6 | **impossible, not merely detected** — `solver/elements.py:1231`'s shared band validation (`lower_kw <= forecast_kw <= upper_kw at every period`) raises `ValueError` at construction |
+| price arrays, scalar kW, scalars | 7 | a genuinely different plan: different dispatch, different total cost |
+
+So six of the eighteen same-shaped inputs the review worried about cannot produce
+a wrong plan at all — a pre-existing invariant this phase inherits. The two are
+asserted separately, so if either mechanism ever weakens the failure says which.
+
+Every swap is preceded by an assertion that the two fixture values actually
+**differ**, and the fixture sets both price-risk-aversion dials non-zero on
+purpose: with them at 0.0 an `import_price`/`import_price_upper` swap is a true
+no-op and the check would pass vacuously.

@@ -12,8 +12,9 @@ but nothing calls it", which no amount of unit-testing the helper can.
 
 It has one failure mode, and #1298's decomposition triggers it on every
 phase. When a function moves out of `solver_writer.py` into
-`solver_reports/`, `solver_inputs/`, `solver_shared.py` or
-`solver_publish.py`, the literal those tests search for moves with it. The
+`solver_reports/`, `solver_inputs/`, `solver_shared.py`,
+`solver_publish.py` or `solver_plan.py`, the literal those tests search for
+moves with it. The
 behaviour is completely unchanged -- the facade re-exports every name, and
 the call sites still run -- but a test reading one file finds nothing and
 fails. Measured on #1301 Phase 2b+2c: **32 tests across 7 files**, none of
@@ -61,6 +62,7 @@ _NIMBUS_DIR = pathlib.Path(solver_writer.__file__.replace(".pyc", ".py")).parent
 _EXTRACTED = (
     "solver_shared.py",
     "solver_publish.py",
+    "solver_plan.py",  # nimbus #1303 (spec 004, Phase 4)
     "solver_inputs/*.py",
     "solver_reports/*.py",
 )

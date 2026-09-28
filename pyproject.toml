@@ -588,7 +588,12 @@ type = "layers"
 containers = ["custom_components.nimbus_load"]
 layers = [
     "solver_writer | (standalone_writer)",
-    "(solver_plan) | solver_publish | (solver_dispatch)",
+    # nimbus issue #1303 (spec 004, Phase 4): solver_plan is no longer
+    # optional -- solver_plan.py now exists. It needs NO ignore_imports entry:
+    # unlike every solver_inputs/solver_reports module below, it has no deferred
+    # seam back into solver_writer, because `previous_plan` is a parameter
+    # rather than a load_previous_plan() call. See its own module docstring.
+    "solver_plan | solver_publish | (solver_dispatch)",
     "solver_inputs | (solver_reports)",
     "solver_shared",
     "solver",
