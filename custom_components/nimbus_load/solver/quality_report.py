@@ -82,7 +82,15 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
+from .elements import (
+    AdequacyLoadConfig,
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SheddableLoadConfig,
+    SolarConfig,
+)
 from .epr import EPRResult, compute_epr
 from .network import build_plan
 from .p2p_export import realized_export_bonus_credit
@@ -255,6 +263,125 @@ class QualityReport:
     Defaulted empty so every construction site and test predating this
     field is unaffected; a consumer that finds it empty falls back to the
     mean and says so, rather than silently keeping the old behaviour."""
+    oracle_controllable_loads_scored: tuple[str, ...] = ()
+    """nimbus #1357: names of the Controllable Loads the oracle was
+    allowed to re-time for this window.
+
+    Empty means the oracle served the day's load exactly as it fell, which
+    is the only behaviour that existed before #1357 -- so an empty tuple on
+    an install WITH configured loads is the signal that the wiring is off,
+    not that there are none."""
+    oracle_controllable_loads_skipped: tuple[tuple[str, str], ...] = ()
+    """nimbus #1357: `(name, reason)` for each configured load deliberately
+    left out of the oracle -- no power sensor, a day before that sensor
+    existed, or `kind=thermal`.
+
+    Published rather than logged because a partially-scored day should not
+    be readable as a wholly-scored one. Same posture as
+    `scored_participants` on the battery side."""
+    oracle_controllable_loads_unsubtracted_kwh: float = 0.0
+    """nimbus #1357: kWh the reconstruction claimed these loads drew that
+    could NOT be removed from the oracle's base load, because doing so
+    would have driven it negative.
+
+    Nonzero means the reconstruction exceeded the measured house total in
+    at least one period -- they come from different meters, and #1231
+    records a 5-8% measurement-plane offset on the reference install. It
+    matters because the adequacy/sheddable configs re-introduce that energy
+    regardless, so the oracle is asked to serve MORE than the real house
+    did and scores worse than the day it is grading. That deflates EPR
+    through a measurement artifact rather than through dispatch quality.
+
+    Published so the distortion is measurable instead of absorbed. A large
+    value is a reason to distrust the day's EPR, not a reason to adjust it
+    here -- the same posture `soc_discrepancy_power_coverage` takes."""
+
+
+@dataclass(frozen=True)
+class OracleControllableLoads:
+    """What the oracle needs to re-time a day's Controllable Loads
+    (nimbus issue #1357, the second half of #768).
+
+    The oracle's `build_plan()` call has accepted `adequacy_loads=` and
+    `sheddable_loads=` since #791 and has never been given them, so a day
+    with a Controllable Load was scored against an oracle that could not
+    move it. This carries what it needs to.
+
+    ## Why one bundle rather than three parameters
+
+    The three pieces are only correct together. `delivered_kwh_by_period`
+    is subtracted from the oracle's base load precisely because
+    `adequacy`/`sheddable` re-introduce that same energy as *re-timeable*;
+    passing the loads without the subtraction double-counts them, and
+    #768's thread flagged exactly that ("Modelling them properly means
+    subtracting that consumption from the base load first"). A single
+    frozen bundle makes the inconsistent combination unconstructible
+    rather than merely discouraged -- see `__post_init__`.
+
+    ## Why the configs arrive already built
+
+    `solver/` is the pure package and knows nothing about
+    `controllable_load` subentries, `kind=`, auto-discovered power
+    sensors, or which loads are scorable for a given window. All of that
+    lives on the integration side, which also owns #768's decision that
+    the oracle's `target_kwh` is the load's **real delivered** energy and
+    never its configured target. So the caller builds the
+    `AdequacyLoadConfig`/`SheddableLoadConfig` objects and this module
+    only places them in the LP -- the same split every other input to
+    this function already follows.
+
+    ## What `None` means, and why that is the default
+
+    `compute_quality_report(controllable_loads=None)` is today's exact
+    behaviour, byte for byte: no `adequacy_loads=`, no `sheddable_loads=`,
+    the base load untouched. That is deliberate and is what makes this
+    change inert until a caller opts in -- the golden master's own
+    `native_controllable_loads` snapshots do not move, which is the
+    evidence that nothing was changed by accident rather than an
+    assertion that nothing was.
+    """
+
+    adequacy: tuple[AdequacyLoadConfig, ...] = ()
+    """One per `kind=deferrable` load that is scorable for this window."""
+    sheddable: tuple[SheddableLoadConfig, ...] = ()
+    """One per `kind=sheddable` load that is scorable for this window."""
+    delivered_kwh_by_period: NDArray[np.float64] | None = None
+    """Total real kWh these loads drew, per period, to be REMOVED from the
+    oracle's base load before the LP re-places it.
+
+    Must be `None` exactly when both tuples are empty. The real house load
+    series already contains this energy, so the oracle would otherwise be
+    asked to serve it twice."""
+    skipped: tuple[tuple[str, str], ...] = ()
+    """`(load name, reason)` for every configured load deliberately NOT
+    given to the oracle -- no power sensor, a day before that sensor
+    existed, `kind=thermal` (excluded per #768: a different LP shape, a
+    hard state-variable constraint, and a sample size of one to validate
+    against). Carried so the report can say which loads it did not score,
+    the same honest-skip posture `scored_participants` takes on the
+    battery side, rather than silently scoring a partial day as a whole
+    one."""
+
+    def __post_init__(self) -> None:
+        has_loads = bool(self.adequacy) or bool(self.sheddable)
+        if has_loads and self.delivered_kwh_by_period is None:
+            msg = (
+                "OracleControllableLoads was given loads but no "
+                "delivered_kwh_by_period. The real house load series already "
+                "contains what these loads drew, so re-introducing them as "
+                "re-timeable without subtracting that energy double-counts "
+                "it and makes the oracle strictly worse than the day it is "
+                "scoring (nimbus #1357)."
+            )
+            raise ValueError(msg)
+        if not has_loads and self.delivered_kwh_by_period is not None:
+            msg = (
+                "OracleControllableLoads was given delivered_kwh_by_period "
+                "but no loads. That would remove energy from the oracle's "
+                "base load and never give it back, making the oracle "
+                "unreachably cheap and EPR meaningless (nimbus #1357)."
+            )
+            raise ValueError(msg)
 
 
 def _energy_totals(
@@ -721,6 +848,10 @@ def compute_quality_report(
     actual_charge_kw: list[NDArray[np.float64]],
     actual_discharge_kw: list[NDArray[np.float64]],
     final_soc_kwh_actual: list[float],
+    # nimbus #1357: the day's Controllable Loads, made re-timeable for the
+    # oracle only. `None` is today's exact behaviour and is the default on
+    # purpose -- see OracleControllableLoads' own docstring.
+    controllable_loads: OracleControllableLoads | None = None,
 ) -> QualityReport:
     hours = periods.hours
     n = len(hours)
@@ -900,12 +1031,63 @@ def compute_quality_report(
             actual_discharge_kw=actual_discharge_kw,
         ),
     )
+    # nimbus #1357: give the oracle the day's Controllable Loads as
+    # re-timeable, and remove the energy they really drew from the base
+    # load it has to serve -- otherwise the LP is asked to serve that
+    # energy twice.
+    #
+    # Deliberately applied to the ORACLE'S OWN `loads=` argument only.
+    # Everything above this point that reads `load.forecast_kw`
+    # (`_widen_export_pin_to_achieved`, `_p2p_commitment_shortfall_kwh`
+    # via `_achieved_grid_export_kw`) is describing what the ACHIEVED day
+    # actually did, and the real house really drew that energy at the time
+    # it drew it. Subtracting there would rewrite history rather than
+    # model an alternative to it.
+    oracle_loads = [load]
+    oracle_adequacy: tuple[AdequacyLoadConfig, ...] = ()
+    oracle_sheddable: tuple[SheddableLoadConfig, ...] = ()
+    oracle_unsubtracted_kwh = 0.0
+    if controllable_loads is not None and (
+        controllable_loads.adequacy or controllable_loads.sheddable
+    ):
+        oracle_adequacy = controllable_loads.adequacy
+        oracle_sheddable = controllable_loads.sheddable
+        # __post_init__ guarantees this is not None whenever either tuple
+        # is non-empty, so the LP can never be handed one without the
+        # other.
+        assert controllable_loads.delivered_kwh_by_period is not None
+        delivered_kw = np.asarray(
+            controllable_loads.delivered_kwh_by_period, dtype=float
+        ) / np.where(hours > 0.0, hours, 1.0)
+        # Clipped at zero rather than allowed negative: a reconstruction
+        # can exceed the measured house total in a period (they come from
+        # different meters, and #1231 records a 5-8% measurement-plane
+        # offset on this install), and a negative base load would hand the
+        # oracle free energy it never had.
+        #
+        # But clipping is not free, and it must not be silent. Whatever the
+        # clip refuses to remove is energy the adequacy/sheddable configs
+        # re-introduce anyway, so the oracle is then asked to serve MORE
+        # than the real house did and comes out looking worse than the day
+        # it is scoring -- which would deflate EPR through a measurement
+        # artifact. Measured and published rather than absorbed.
+        reduced_kw = np.clip(load.forecast_kw - delivered_kw, 0.0, None)
+        # reduced_kw - (load - delivered) is the energy the clip ADDED BACK,
+        # i.e. what it refused to remove. Zero wherever the subtraction was
+        # fully honoured, positive only where delivered_kw exceeded the
+        # house load.
+        oracle_unsubtracted_kwh = float(
+            np.sum((reduced_kw - (load.forecast_kw - delivered_kw)) * hours)
+        )
+        oracle_loads = [replace(load, forecast_kw=reduced_kw)]
     oracle_plan = build_plan(
         periods=periods,
         grid=grid_oracle_scored,
         batteries=battery_oracle,
         solar=solar,
-        loads=[load],
+        loads=oracle_loads,
+        adequacy_loads=list(oracle_adequacy) or None,
+        sheddable_loads=list(oracle_sheddable) or None,
         soft_soc_penalty_per_kwh=oracle_soft_soc_penalty_per_kwh,
     )
     if not oracle_plan.is_optimal:
@@ -1271,4 +1453,11 @@ def compute_quality_report(
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
         j_star_evaluator=round(j_star_evaluator, 4),
         j_star_path_delta=round(j_star_path_delta, 4),
+        oracle_controllable_loads_scored=tuple(
+            c.name for c in (*oracle_adequacy, *oracle_sheddable)
+        ),
+        oracle_controllable_loads_skipped=(
+            () if controllable_loads is None else controllable_loads.skipped
+        ),
+        oracle_controllable_loads_unsubtracted_kwh=round(oracle_unsubtracted_kwh, 4),
     )
