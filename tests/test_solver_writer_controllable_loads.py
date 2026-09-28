@@ -26,6 +26,7 @@ import _solver_path  # noqa: F401
 import load_run_state
 import solver_writer
 import thermal_forecast
+from solver_inputs import controllable_loads
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
 
@@ -40,7 +41,7 @@ class TestResolveHourToPeriodIndex(unittest.TestCase):
         grid_times = _grid(now, 48)  # 24h of 30-min periods from 03:00
         # 6.0 (6am) is still ahead of 03:00 today -- period index 6 is
         # 03:00 + 6*30min = 06:00.
-        idx = solver_writer._resolve_hour_to_period_index(
+        idx = controllable_loads._resolve_hour_to_period_index(
             grid_times, now, 6.0, is_deadline=False
         )
         self.assertEqual(grid_times[idx], datetime(2026, 9, 7, 6, 0, tzinfo=_TZ))
@@ -50,7 +51,7 @@ class TestResolveHourToPeriodIndex(unittest.TestCase):
         grid_times = _grid(now, 96)  # 48h of 30-min periods from 10:00
         # 6.0 (6am) already passed today at 10:00 -- must resolve to
         # 6am TOMORROW, not a nonsensical negative/past offset.
-        idx = solver_writer._resolve_hour_to_period_index(
+        idx = controllable_loads._resolve_hour_to_period_index(
             grid_times, now, 6.0, is_deadline=False
         )
         self.assertEqual(grid_times[idx], datetime(2026, 9, 8, 6, 0, tzinfo=_TZ))
@@ -60,7 +61,7 @@ class TestResolveHourToPeriodIndex(unittest.TestCase):
         grid_times = _grid(now, 48, minutes=30)
         # Deadline 6.0 (6am) -- period 12 is exactly 06:00 (0 + 12*30min).
         # "Inclusive" deadline means period 12 itself, not 11 or 13.
-        idx = solver_writer._resolve_hour_to_period_index(
+        idx = controllable_loads._resolve_hour_to_period_index(
             grid_times, now, 6.0, is_deadline=True
         )
         self.assertEqual(grid_times[idx], datetime(2026, 9, 7, 6, 0, tzinfo=_TZ))
@@ -72,7 +73,7 @@ class TestResolveHourToPeriodIndex(unittest.TestCase):
         # (06:30) -- the deadline constraint needs cumulative energy
         # through a real period whose start is <= the target, so period
         # 12 is correct (period 13 hasn't even started at 6:15).
-        idx = solver_writer._resolve_hour_to_period_index(
+        idx = controllable_loads._resolve_hour_to_period_index(
             grid_times, now, 6.25, is_deadline=True
         )
         self.assertEqual(grid_times[idx], datetime(2026, 9, 7, 6, 0, tzinfo=_TZ))
@@ -80,7 +81,7 @@ class TestResolveHourToPeriodIndex(unittest.TestCase):
     def test_target_beyond_the_grids_own_horizon_clamps_to_the_last_period(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=30)  # only 2h of real grid
-        idx = solver_writer._resolve_hour_to_period_index(
+        idx = controllable_loads._resolve_hour_to_period_index(
             grid_times, now, 12.0, is_deadline=False
         )
         self.assertEqual(idx, len(grid_times) - 1)
@@ -667,14 +668,14 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_no_native_hass_returns_none(self):
         solver_writer._NATIVE_HASS = None
-        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
         self.assertIsNone(result)
 
     def test_missing_entity_returns_none(self):
         solver_writer._NATIVE_HASS = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: None)
         )
-        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
         self.assertIsNone(result)
 
     def test_unavailable_entity_returns_none(self):
@@ -682,7 +683,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         solver_writer._NATIVE_HASS = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
-        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
         self.assertIsNone(result)
 
     def test_binary_sensor_on_with_no_done_when_is_done(self):
@@ -690,7 +691,9 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         solver_writer._NATIVE_HASS = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
-        self.assertTrue(solver_writer._evaluate_done_condition("binary_sensor.x", None))
+        self.assertTrue(
+            controllable_loads._evaluate_done_condition("binary_sensor.x", None)
+        )
 
     def test_binary_sensor_off_with_no_done_when_is_not_done(self):
         states = {"binary_sensor.x": _fake_state("off")}
@@ -698,7 +701,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertFalse(
-            solver_writer._evaluate_done_condition("binary_sensor.x", None)
+            controllable_loads._evaluate_done_condition("binary_sensor.x", None)
         )
 
     def test_numeric_sensor_with_done_when_met_is_done(self):
@@ -707,7 +710,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertTrue(
-            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+            controllable_loads._evaluate_done_condition("sensor.tank_temp", ">= 60")
         )
 
     def test_numeric_sensor_with_done_when_not_met_is_not_done(self):
@@ -716,7 +719,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertFalse(
-            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+            controllable_loads._evaluate_done_condition("sensor.tank_temp", ">= 60")
         )
 
     def test_malformed_done_when_returns_none_not_raise(self):
@@ -724,7 +727,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         solver_writer._NATIVE_HASS = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
-        result = solver_writer._evaluate_done_condition("sensor.tank_temp", "hot")
+        result = controllable_loads._evaluate_done_condition("sensor.tank_temp", "hot")
         self.assertIsNone(result)
 
     def test_non_numeric_state_with_done_when_returns_none_not_raise(self):
@@ -732,7 +735,9 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         solver_writer._NATIVE_HASS = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
-        result = solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        result = controllable_loads._evaluate_done_condition(
+            "sensor.tank_temp", ">= 60"
+        )
         self.assertIsNone(result)
 
     def test_the_same_bad_condition_only_warns_once(self):
@@ -745,7 +750,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
-            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+            controllable_loads._evaluate_done_condition("sensor.tank_temp", ">= 60")
         self.assertEqual(len(captured.records), 1)
         # Second call, same exact (entity, done_when, state) triple --
         # must NOT log again. assertNoLogs would raise AssertionError on
@@ -754,7 +759,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             self.assertRaises(AssertionError),
             self.assertLogs(solver_writer._LOGGER, level="WARNING"),
         ):
-            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+            controllable_loads._evaluate_done_condition("sensor.tank_temp", ">= 60")
 
     def test_a_genuinely_different_bad_state_warns_again(self):
         # A DIFFERENT bad reading on the same entity/done_when is a real,
@@ -768,7 +773,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
             ("sensor.tank_temp", ">= 60", "not_a_number")
         )
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
-            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+            controllable_loads._evaluate_done_condition("sensor.tank_temp", ">= 60")
         self.assertEqual(len(captured.records), 1)
 
 
@@ -803,7 +808,7 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             _fake_water_heater_state(current_temperature=61.0, temperature=45.0),
         )
         self.assertTrue(
-            solver_writer._evaluate_done_condition("water_heater.hws", None)
+            controllable_loads._evaluate_done_condition("water_heater.hws", None)
         )
 
     def test_no_done_when_below_temperature_attr_is_not_done(self):
@@ -812,7 +817,7 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             _fake_water_heater_state(current_temperature=48.0, temperature=65.0),
         )
         self.assertFalse(
-            solver_writer._evaluate_done_condition("water_heater.hws", None)
+            controllable_loads._evaluate_done_condition("water_heater.hws", None)
         )
 
     def test_explicit_done_when_reads_current_temperature_not_the_mode_state(self):
@@ -823,7 +828,7 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             _fake_water_heater_state(mode="eco", current_temperature=62.5),
         )
         self.assertTrue(
-            solver_writer._evaluate_done_condition("water_heater.hws", ">= 60")
+            controllable_loads._evaluate_done_condition("water_heater.hws", ">= 60")
         )
 
     def test_climate_domain_gets_the_same_attribute_based_evaluation(self):
@@ -832,12 +837,12 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             _fake_water_heater_state(mode="heat", current_temperature=22.0),
         )
         self.assertTrue(
-            solver_writer._evaluate_done_condition("climate.zone1", ">= 21")
+            controllable_loads._evaluate_done_condition("climate.zone1", ">= 21")
         )
 
     def test_missing_current_temperature_attribute_returns_none(self):
         self._hass("water_heater.hws", _fake_water_heater_state(mode="eco"))
-        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        result = controllable_loads._evaluate_done_condition("water_heater.hws", None)
         self.assertIsNone(result)
 
     def test_no_done_when_and_missing_temperature_attr_returns_none(self):
@@ -845,7 +850,7 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             "water_heater.hws",
             _fake_water_heater_state(current_temperature=55.0),
         )
-        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        result = controllable_loads._evaluate_done_condition("water_heater.hws", None)
         self.assertIsNone(result)
 
     def test_unavailable_water_heater_fails_open_returns_none(self):
@@ -854,7 +859,7 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
         # entity through unavailable/unknown; must never be read as
         # "not done, restart the schedule".
         self._hass("water_heater.hws", _fake_state("unavailable"))
-        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        result = controllable_loads._evaluate_done_condition("water_heater.hws", None)
         self.assertIsNone(result)
 
     def test_malformed_done_when_on_a_water_heater_warns_once_not_every_cycle(self):
@@ -863,13 +868,13 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             _fake_water_heater_state(current_temperature=62.5),
         )
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
-            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+            controllable_loads._evaluate_done_condition("water_heater.hws", "hot")
         self.assertEqual(len(captured.records), 1)
         with (
             self.assertRaises(AssertionError),
             self.assertLogs(solver_writer._LOGGER, level="WARNING"),
         ):
-            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+            controllable_loads._evaluate_done_condition("water_heater.hws", "hot")
 
 
 class TestBuildDailyAdequacyWindows(unittest.TestCase):
@@ -880,7 +885,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
     def test_a_96h_horizon_produces_one_window_per_day(self):
         now = datetime(2026, 9, 9, 3, 0, tzinfo=_TZ)  # before today's window opens
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times,
             now,
             6.0,
@@ -901,7 +906,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
         # now=06:01 -- today's own window must start at period 0.
         now = datetime(2026, 9, 9, 6, 1, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
         )
         self.assertEqual(windows[0].earliest_period, 0)
@@ -911,7 +916,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
             2026, 9, 9, 20, 0, tzinfo=_TZ
         )  # well past today's 16:00 deadline
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
         )
         # First real window is TOMORROW's, not today's (which is gone).
@@ -923,7 +928,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
     def test_todays_delivered_energy_reduces_only_todays_window(self):
         now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=1.48, today_done=False
         )
         self.assertAlmostEqual(windows[0].target_kwh, 0.52, places=6)
@@ -934,7 +939,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
     def test_todays_target_fully_met_drops_only_todays_window(self):
         now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=2.5, today_done=False
         )
         # No window starts on today's own date -- every one is a real
@@ -949,7 +954,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
     def test_today_done_drops_only_todays_window(self):
         now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=True
         )
         self.assertGreaterEqual(len(windows), 3)
@@ -962,7 +967,7 @@ class TestBuildDailyAdequacyWindows(unittest.TestCase):
         # 16:00 deadline runs well past the grid's own last period --
         # must clamp to the last real period, not drop the window.
         grid_times = _grid(now, 8, minutes=60)
-        windows = solver_writer._build_daily_adequacy_windows(
+        windows = controllable_loads._build_daily_adequacy_windows(
             grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
         )
         # Only today's window fits at all (a second day's own 06:00
@@ -1307,7 +1312,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_1", "s1", "sensor.pool_pump_power", now, "2026-09-07"
         )
 
@@ -1330,7 +1335,7 @@ class TestSampleLoadRunState(unittest.TestCase):
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         # Must not raise -- best-effort bookkeeping, per this function's
         # own docstring.
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_1", "s_missing", "sensor.pool_pump_power", now, "2026-09-07"
         )
 
@@ -1359,7 +1364,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_w", "s_hws", "sensor.hws_power", now, "2026-09-07"
         )
         result = self._read_state("entry_w", "s_hws")
@@ -1375,11 +1380,11 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         t0 = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_w2", "s_hws2", "sensor.hws_power", t0, "2026-09-07"
         )
         t1 = datetime(2026, 9, 7, 8, 30, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_w2", "s_hws2", "sensor.hws_power", t1, "2026-09-07"
         )
         result = self._read_state("entry_w2", "s_hws2")
@@ -1394,7 +1399,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_kw", "s_kw", "sensor.pool_pump_power", now, "2026-09-07"
         )
         result = self._read_state("entry_kw", "s_kw")
@@ -1411,7 +1416,7 @@ class TestSampleLoadRunState(unittest.TestCase):
         try:
             now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
             with self.assertLogs(solver_writer._LOGGER, level="INFO") as first:
-                solver_writer._sample_load_run_state(
+                controllable_loads._sample_load_run_state(
                     "entry_log", "s_log", "sensor.hws_power", now, "2026-09-07"
                 )
             self.assertTrue(any("reports Watts" in r.message for r in first.records))
@@ -1419,7 +1424,7 @@ class TestSampleLoadRunState(unittest.TestCase):
                 self.assertRaises(AssertionError),
                 self.assertLogs(solver_writer._LOGGER, level="INFO"),
             ):
-                solver_writer._sample_load_run_state(
+                controllable_loads._sample_load_run_state(
                     "entry_log",
                     "s_log",
                     "sensor.hws_power",
@@ -1436,7 +1441,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
-        solver_writer._sample_load_run_state(
+        controllable_loads._sample_load_run_state(
             "entry_1", "s_missing", "sensor.does_not_exist", now, "2026-09-07"
         )
 
