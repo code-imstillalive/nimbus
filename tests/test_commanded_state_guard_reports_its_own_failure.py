@@ -61,6 +61,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 import tests.test_solver_writer_controllable_loads as _controllable
@@ -295,7 +296,16 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         """An isolated failure that does not say WHICH load failed is
         only half useful -- the outer handler could never say, because
         by the time it runs the frame is gone."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+        # nimbus #1305 (spec 006, Phase 6): patched on solver_shared, which is
+        # where _LOGGER has actually lived since Phase 2a moved it there.
+        # solver_writer._LOGGER is an alias of it, and the guard this test
+        # drives now lives in solver_dispatch/guard.py reading
+        # solver_shared._LOGGER directly -- the form the package-wide gate in
+        # test_callers_mode_counts_only_real_references.py requires (zero
+        # sw._LOGGER references outside solver_writer.py) and that
+        # solver_inputs/controllable_loads.py's own docstring warns future
+        # phases to keep. Patching the alias stopped reaching the code.
+        with patch.object(solver_shared, "_LOGGER") as log:
             self._run(poison_bad=True)
         messages = [c.args[0] for c in log.warning.call_args_list if c.args]
         self.assertTrue(

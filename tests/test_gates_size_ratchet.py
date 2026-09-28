@@ -253,8 +253,15 @@ def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
 
     Phase 7a (#1306, spec 007) then moved the solve-cycle overlap guard to
     `solver/cycle_lock.py` -- `acquire_lock` (75 lines) and `release_lock`
-    (15) -- dropping it 39 -> **38**. A two-function move for a delta of
+    (15) -- dropping it 39 -> 38. A two-function move for a delta of
     one, because only `acquire_lock` was ever over the limit.
+
+    Phase 6 (#1305, spec 006) then moved the controllable-load dispatch guard
+    to `solver_dispatch/guard.py` -- five names, 1,450 lines -- dropping it
+    38 -> **36**. Two of the five were over the limit
+    (`apply_commanded_state_guard` at 1,300, `dispatch_commanded_state` at 92);
+    `_resolve_reaffirm_after_seconds` (42) and the two log-once sets were not.
+    That phase removed the single largest function in the file.
 
     Reproduced here against this checkout so a future session can see at a
     glance whether the number is still accurate, per the tool's own
@@ -264,19 +271,19 @@ def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
     ratchet only ever tightens, so a count BELOW the baseline is progress
     that should be banked here, not a failure to work around."""
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
-    proc = _run(["--baseline-count", "38", str(target)])
+    proc = _run(["--baseline-count", "36", str(target)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "38 function(s) over 60 lines" in proc.stdout, proc.stdout
+    assert "36 function(s) over 60 lines" in proc.stdout, proc.stdout
 
 
 def test_real_whole_package_is_a_materially_different_larger_number() -> None:
     """Documents the discrepancy this tool's own docstring calls out: the
-    whole-package default scope is not 38. Asserts only that it is larger
+    whole-package default scope is not 36. Asserts only that it is larger
     (not an exact count, which 40 unrelated files make too brittle to pin
     here) so this test does not need updating every time an unrelated file
     in the package changes shape."""
     proc = _run(
-        ["--baseline-count", "38", str(REPO / "custom_components" / "nimbus_load")]
+        ["--baseline-count", "36", str(REPO / "custom_components" / "nimbus_load")]
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "> baseline 38" in proc.stdout, proc.stdout
+    assert "> baseline 36" in proc.stdout, proc.stdout

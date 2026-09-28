@@ -60,25 +60,30 @@ to change from a test.
 from __future__ import annotations
 
 import ast
-import pathlib
 import unittest
 
-_SOLVER_WRITER = (
-    pathlib.Path(__file__).resolve().parent.parent
-    / "custom_components"
-    / "nimbus_load"
-    / "solver_writer.py"
-)
+from _writer_source import writer_trees
+
 _FUNC = "apply_commanded_state_guard"
 
 
 def _function_node() -> ast.AST:
-    tree = ast.parse(_SOLVER_WRITER.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
-            node.name == _FUNC
-        ):
-            return node
+    """Search every module #1298 has extracted out of `solver_writer.py`, not
+    just that file.
+
+    This used to build a path straight to `solver_writer.py`. nimbus #1305
+    (spec 006, Phase 6) moved this function to `solver_dispatch/guard.py`, and a
+    hardcoded path would have made these five assertions vanish -- the function
+    simply would not be found, which this helper turns into a loud
+    AssertionError rather than a silent pass. `writer_trees()` is the shared,
+    drift-proof way to ask "wherever the writer's code lives now".
+    """
+    for _path, tree in writer_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+                node.name == _FUNC
+            ):
+                return node
     raise AssertionError(f"{_FUNC}() not found -- rename it and update this file")
 
 

@@ -182,8 +182,10 @@ class TestTheCopiesAreGone(unittest.TestCase):
         one: a module that explains in prose why it does NOT use this helper
         pushed the count to 6 and failed the gate, and equally, someone adding a
         real fifth call site while deleting one prose mention in the same change
-        would have kept the count at 5 and passed it. Counting `ast.Name` loads
-        distinguishes the two.
+        would have kept the count at 5 and passed it. Counting name LOADS --
+        whether bare (`ast.Name`) or reached through the `sw.` seam
+        (`ast.Attribute`) -- distinguishes the two, while a definition is
+        neither.
         """
         import ast
 
@@ -203,6 +205,21 @@ class TestTheCopiesAreGone(unittest.TestCase):
                     and node.id == "_earliest_period_for_same_day_window"
                     and isinstance(node.ctx, ast.Load)
                 ):
+                    called += 1
+                elif (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "_earliest_period_for_same_day_window"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    # nimbus #1305 (spec 006, Phase 6): the two call sites inside
+                    # apply_commanded_state_guard moved to solver_dispatch/guard.py
+                    # and now reach this helper through the deferred seam, as
+                    # `sw._earliest_period_for_same_day_window(...)` -- an
+                    # ast.Attribute, not an ast.Name. Counting only Names would
+                    # have silently dropped them and reported 2 of 4, i.e. this
+                    # guard would have started under-counting rather than failing.
+                    # `sw` itself is an ast.Name with a different id, so there is
+                    # no double count.
                     called += 1
         self.assertEqual(defined, 1, "expected exactly one definition")
         self.assertEqual(

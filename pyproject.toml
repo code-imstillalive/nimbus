@@ -593,7 +593,13 @@ layers = [
     # unlike every solver_inputs/solver_reports module below, it has no deferred
     # seam back into solver_writer, because `previous_plan` is a parameter
     # rather than a load_previous_plan() call. See its own module docstring.
-    "solver_plan | solver_publish | (solver_dispatch)",
+    # nimbus issue #1305 (spec 006, Phase 6): solver_dispatch is no longer
+    # optional either -- solver_dispatch/guard.py now exists. It DOES need an
+    # ignore_imports entry, unlike solver_plan: the guard reads names the suite
+    # patches on the solver_writer module object (_LOGGER, _NATIVE_HASS,
+    # _resolve_controllable_load_tuning), so it must resolve them at call time
+    # through the deferred seam. See solver_dispatch/__init__.py.
+    "solver_plan | solver_publish | solver_dispatch",
     "solver_inputs | (solver_reports)",
     "solver_shared",
     "solver",
@@ -619,12 +625,16 @@ ignore_imports = [
     # object and a module-scope `from` import would bind them at import time and
     # silently defeat every one of those patches. See
     # solver_reports/__init__.py, and solver_inputs/__init__.py for the original
-    # write-up. Dissolves when (solver_dispatch)/ha_bridge land and the shared
-    # helpers stop living in the top layer.
+    # write-up. This list dissolves when the shared helpers stop living in the
+    # top layer -- which is Phase 7b's job, not solver_dispatch's. Phase 6
+    # landing ADDED an entry rather than removing any, because the guard reaches
+    # the same top-layer helpers every module above does.
     "custom_components.nimbus_load.solver_reports.backtest -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.counterfactual -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.flex -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_shared -> custom_components.nimbus_load.solver_writer",
+    # nimbus issue #1305 (spec 006, Phase 6): the dispatch guard, same seam.
+    "custom_components.nimbus_load.solver_dispatch.guard -> custom_components.nimbus_load.solver_writer",
 ]

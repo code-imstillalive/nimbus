@@ -1,10 +1,11 @@
 # Spec 006: `solver_dispatch/guard.py` — `apply_commanded_state_guard`
 
-Status: **approved — re-measured against the post-Phase-3/Phase-4 tree, no longer
-provisional.** Phase 3 (#1302) merged `58832e2`/`2241923`; Phase 4 (#1303) merged
-`22bd990`. Both re-measurements below were run independently — once by
-`code-imstillalive` on the PR review thread (#1305, two comments), once by this
-revision against current `main` — and agree exactly.
+Status: **implemented 2026-09-29 (#1430).** Phase 3 (#1302) merged
+`58832e2`/`2241923`; Phase 4 (#1303) merged `22bd990`. Both re-measurements below
+were run independently before implementation — once by `code-imstillalive` on the
+PR review thread (#1305, two comments), once by the finalization revision against
+current `main` — and agreed exactly. See "Implementation findings (Phase 6)" below
+for three corrections to the Façade/Migration sections found during implementation.
 Plan: docs/architecture/tech-debt-plan.md; phase: #1305 (Phase 6)
 Code cited at: `7ad927b`
 
@@ -375,6 +376,152 @@ non-erroring `solve_now` are necessary and nowhere near sufficient here.
       exercise against a real load's config subentry + log sweep for new WARNING/ERROR
       — required before production deploy, per #1305's own step 5.
 - [ ] No line executed before is unexecuted after.
+
+## Implementation findings (Phase 6, 2026-09-29)
+
+Implemented in #1430, against this spec as finalized by @purcell-lab in #1424.
+Three corrections to the sections above, one structural fact none of them
+recorded, and one thing this spec got right that the implementation initially got
+wrong. The sections are left as written so the changes are visible.
+
+### The relative-import step earned its place on the first run
+
+#1424 added tests/test_relative_import_depth_resolves.py as a non-optional
+Migration step and Acceptance item, on the grounds that Phase 6 repeats the
+package-root-into-a-subpackage shape that made v0.94.428 unable to solve.
+
+**It failed immediately on the real move**, naming 5 names across 3 statements:
+`guard.py:220` (`from .const import ...`), `:360` (`from . import done_condition,
+load_run_state, thermal_forecast`) and `:361` (`from .const import` 14 names). All
+three were correct at the package root and one level too shallow inside
+`solver_dispatch/`, and the full stub suite was green at that moment. The step is
+not belt-and-braces; it was the only thing that caught it.
+
+### Invariant 2 was RIGHT, and the first draft of guard.py violated it
+
+This is the one worth reading, because the wrong answer was the plausible one.
+
+The Invariants require every `_LOGGER` use in the moved code to reach
+`solver_shared._LOGGER` directly, never the `sw.` seam. guard.py's first draft
+used the seam, reasoning that
+tests/test_commanded_state_guard_reports_its_own_failure.py:298 does
+`patch.object(solver_writer, "_LOGGER")` and that `solver_writer._LOGGER` is an
+alias, so a Mock on it is invisible to code reading `solver_shared`. That made
+the test pass.
+
+It also broke a package-wide gate that neither this spec nor the PR had
+consulted: tests/test_callers_mode_counts_only_real_references.py's
+`test_the_real_tree_now_finds_zero_logger_callers` asserts **zero** real
+seam-shaped `_LOGGER` references anywhere outside `solver_writer.py` -- Phase 2a's
+own success condition, since `_LOGGER` has lived in `solver_shared.py` since then.
+And `solver_inputs/controllable_loads.py`'s own module docstring already warns
+future phases, having hit this in Phase 3.
+
+The correct fix was to patch the logger where it actually lives. That one test now
+patches `solver_shared._LOGGER`; both it and the package gate pass.
+
+**Mechanical consequence worth knowing:** reading `_LOGGER` through
+`solver_shared` means ruff cannot trace it as a logger, so the seven
+`# noqa: BLE001` directives on the blind-`except` handlers are required again --
+and are therefore the originals, unedited. Using the seam made them redundant and
+tripped RUF100. The two facts point the same way, which is a small piece of
+corroboration that `solver_shared` is the intended form.
+
+### The Facade decision is right for three of five names, not all five
+
+It states no facade for all five, with any touching test file retargeted.
+Measured:
+
+| name | references outside the moved code |
+|---|---|
+| `apply_commanded_state_guard` | `main()` calls it as a bare name; 3 test files reach it as `solver_writer.apply_commanded_state_guard`, one via `inspect.getsource` |
+| `_REAFFIRM_CAP_WARNED` | tests/test_reaffirm_cap_exhaustion_is_silent.py:187 -- `solver_writer._REAFFIRM_CAP_WARNED.clear()` |
+| `_FLOOR_CROSSING_WARNED` | none |
+| `dispatch_commanded_state` | none |
+| `_resolve_reaffirm_after_seconds` | none |
+
+The first two are re-exported rather than retargeted, leaving every existing call
+site and patch site untouched. An alias is correct for `_REAFFIRM_CAP_WARNED`
+specifically because the set is mutated in place via `.add()` and never rebound,
+so identity holds.
+
+### One `solver_inputs` name cannot be imported directly
+
+`_resolve_controllable_load_tuning` is **assigned** on the `solver_writer` module
+object at tests/test_commanded_state_guard_reports_its_own_failure.py:254 and
+restored at :203. A plain assignment, the shape tests/gates/noop_patches.py cannot
+observe (#1400/#1401). It therefore arrives through the seam. `LOCAL_TZ` is
+likewise rebound by direct assignment, at 4 sites in
+tests/test_solver_writer_local_tz_resolution.py.
+
+### `apply_commanded_state_guard` is not a flat 1,300-line body
+
+| nested definition | kind | lines |
+|---|---|---:|
+| `_plan_cost_forecast` | def | 19 |
+| `_raw_shadow_price_series` | def | 45 |
+| `_plan_shadow_price_forecast` | def | 14 |
+| `_async_fetch_thermal_history` | async def | 81 |
+| `_async_fetch_ambient_history` | async def | 53 |
+| `_update_all` | async def | **872** |
+
+The outer function is **sync** -- a 428-line scope that builds `_update_all` as a
+closure over its own locals and runs it with
+`run_coroutine_threadsafe(_update_all(), sw._NATIVE_HASS.loop)` plus
+`future.result(timeout=10)`, inside the broad `except Exception` that logs
+#1019's WARNING.
+
+So `_NATIVE_HASS` is needed for `.loop`, not only for state reads. And the
+closure capture is very likely why the function is this size: splitting the nested
+bodies out is a real refactor, not a relocation, and Phase 6 does not attempt it.
+
+### Verification actually performed
+
+All five moved nodes are AST-identical to pre-move `main`, modulo exactly two
+intended differences: the 27 `sw.` / 14 `solver_shared.` qualifications
+(reversible to a byte-identical original slice) and the 3 import depths. The two
+log-once sets compare identical outright, and their 7-line explanatory comment
+blocks travelled with them -- an `AnnAssign` node's own line span would have left
+both behind.
+
+`solver_writer.py` 10,205 -> 8,785 lines; size ratchet 38 -> 36. Import contracts
+pass with `ignore_imports` 14 -> 15, and
+tests/test_import_linter_contract.py's note corrected: it predicted the count
+would fall when `solver_dispatch` landed. It does not -- the guard reaches the
+same top-layer helpers every `solver_inputs` module does. It falls in 7b.
+
+**Phase 6 needed nothing from 7b.** `_NATIVE_HASS` arrives through the seam spec
+003 already provides, so the two remaining phases were independent.
+
+## Allowed assertion changes (Phase 6)
+
+tests/gates/assertions_unchanged.py correctly flags two changed assertions, both
+the size ratchet's own reported count that this phase legitimately lowered. This
+section IS the allow-list the gate reads.
+
+tests/test_gates_size_ratchet.py::test_real_solver_writer_matches_the_tech_debt_plans_own_count
+pins the gate's reported figure as a literal string, "38 function(s) over 60
+lines". Phase 6 removed `apply_commanded_state_guard` (1,300 lines) and
+`dispatch_commanded_state` (92), so the correct figure is 36. That test's own
+docstring instructs exactly this: *"a count BELOW the baseline is progress that
+should be banked here, not a failure to work around."*
+
+tests/test_gates_size_ratchet.py::test_real_whole_package_is_a_materially_different_larger_number
+asserts "> baseline 38" for the whole-package scope, and moves to 36 with the
+baseline so the file is self-consistent at one number. The property it checks --
+that the whole-package count materially exceeds the solver_writer.py-only count --
+is unchanged and holds against either baseline.
+
+Nothing else is allow-listed. In particular the four test files whose *detectors*
+were widened are NOT here, because none of their assertion values changed:
+tests/test_dispatch_failure_does_not_consume_an_activation.py and
+tests/test_thermal_loads_learn_their_own_rates.py stopped reading
+`solver_writer.py` by a hardcoded path and now use `writer_source()`/
+`writer_trees()`; tests/test_582_same_day_window_helper.py counts a name load
+whether bare or seam-qualified; and
+tests/test_callers_mode_counts_only_real_references.py's `_NATIVE_HASS` inventory
+rose 5 -> 6, which that assertion's own message describes as the expected
+direction.
 
 ## Rollback
 

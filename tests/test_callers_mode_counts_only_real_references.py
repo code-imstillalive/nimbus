@@ -199,16 +199,19 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
         ]
         self.assertEqual(
             len(hits),
-            5,
-            f"expected exactly five real sw._NATIVE_HASS references "
+            6,
+            f"expected exactly six real sw._NATIVE_HASS references "
             f"(battery_participants.py, extra_batteries.py, "
-            f"controllable_load_history.py, controllable_loads.py, and "
-            f"solver_shared.py itself), "
+            f"controllable_load_history.py, controllable_loads.py, "
+            f"solver_dispatch/guard.py, and solver_shared.py itself), "
             f"got {hits}. This is an explicit inventory, deliberately: it "
             f"rises when a module legitimately starts reaching for the "
             f"native seam -- controllable_load_history.py (nimbus issue "
-            f"#768) is the fourth -- and it must never drop to 0, which is "
-            f"the non-vacuity property this test exists to hold.",
+            f"#768) is the fourth, and solver_dispatch/guard.py (nimbus "
+            f"issue #1305, spec 006, Phase 6) is the fifth, which needs it "
+            f"for _NATIVE_HASS.loop rather than for a state read -- and it "
+            f"must never drop to 0, which is the non-vacuity property this "
+            f"test exists to hold.",
         )
 
 

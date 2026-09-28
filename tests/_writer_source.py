@@ -63,6 +63,7 @@ _EXTRACTED = (
     "solver_shared.py",
     "solver_publish.py",
     "solver_plan.py",  # nimbus #1303 (spec 004, Phase 4)
+    "solver_dispatch/*.py",  # nimbus #1305 (spec 006, Phase 6)
     "solver/cycle_lock.py",  # nimbus #1306 (spec 007, Phase 7a)
     "solver_inputs/*.py",
     "solver_reports/*.py",
