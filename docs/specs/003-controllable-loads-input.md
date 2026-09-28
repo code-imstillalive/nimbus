@@ -1,6 +1,6 @@
 # Spec 003: `solver_inputs/controllable_loads.py` — controllable-load construction
 
-Status: proposed
+Status: approved (#1370, merged) — implementation not yet started
 Plan: docs/architecture/tech-debt-plan.md; phase: #1302 (Phase 3)
 Code cited at: `91415a8`
 
@@ -12,6 +12,18 @@ the two-step split this plan's own sequence names — see that PR's own review c
 real production caller (`solver_inputs/controllable_load_history.py`, #1363) attached
 itself to one of this spec's own "no facade" names while this was in review. Every
 citation below is fresh, not inherited.
+
+**Amended post-merge (2026-09-28), before Phase 3 implementation starts.** #1370's own
+final review approved with one explicit condition — *"Merge it once `solver_shared.
+_LOGGER` is in Invariants and the two absent traps are recorded as checked. I am not
+going to start `build_controllable_loads` until you have."* — and #1370 merged 23
+minutes later without that condition met: `solver_shared._LOGGER` appears zero times
+in the merged text, and the default-argument trap the same review checked and cleared
+was never recorded, only the `global` one was. Since #1370 is merged, this isn't a
+comment on it (a closed PR isn't read); it's an amendment landing before the one
+concrete piece of unfinished work — Phase 3 hasn't started, by the same review's own
+stated commitment. See Invariants and Migration step 1 for the actual content; both
+gaps are closed below, not just flagged.
 
 ## Responsibility
 
@@ -162,6 +174,20 @@ of bug) and otherwise take/return plain values. This is stated as a checked fact
 inferred from "no other spec found one," because the applicable answer is not the same
 for every extraction target and PR #1370's own comment asked for it to be checked here.
 
+**Checked, not assumed: no default argument on any of the 9 targets evaluates a
+`solver_writer` module-level name.** The companion gotcha to the `global` one above,
+from the same review thread — spec 002's own `prior_read: str = PRIOR_READ_OK` trap
+(a default is evaluated once at function-definition time, before `sw = _solver_writer()`
+runs, so `sw.PRIOR_READ_OK` there is a plain `NameError`, and a module-level constant
+used this way has to move with the function rather than being reached through the
+seam). AST-inspected each of the 9 targets' own `args.defaults`/`kw_defaults`: three
+carry a default (`safe_num`'s `fallback=0.0`, `_sample_load_run_state`'s
+`import_price_now=None`, `build_controllable_loads`'s own `import_price_arr=None`),
+and all three are plain `ast.Constant` literals (`0.0`, `None`) — none is a `Name`
+node resolving to anything defined in `solver_writer.py` at module scope, so none is
+subject to this trap. Recorded as checked rather than left to be inferred, for the
+same reason as the `global` check above.
+
 ## Interfaces
 
 Plain functions, bodies copied verbatim — no redesign.
@@ -261,6 +287,26 @@ production callers and zero monkeypatch sites.
   time; its one read of `_NATIVE_HASS` goes through `_solver_writer()`, called inside
   the function body, matching the four existing precedents exactly (making it the
   fifth).
+- **Every `_LOGGER` call in the moved code reaches `solver_shared._LOGGER` directly,
+  never `sw._LOGGER`.** Flagged in #1370's own final review: qualifying the moved
+  code's own `_LOGGER` references (`build_controllable_loads` 11,
+  `_sample_load_run_state` 2, `_evaluate_done_condition` 2,
+  `_resolve_controllable_load_tuning` 1, `safe_num` 1 — 17 total, per that review's own
+  count) as `sw._LOGGER` fails
+  `test_callers_mode_counts_only_real_references.py::test_the_real_tree_now_finds_
+  zero_logger_callers`, which asserts zero real `sw._LOGGER`-shaped references outside
+  `solver_writer.py` (Phase 2a's own success condition). `solver_writer._LOGGER` is an
+  identity alias of `solver_shared._LOGGER` (spec 001), so the five test files that
+  `patch.object(solver_writer, "_LOGGER", ...)` are unaffected by using the
+  `solver_shared` form directly — verified empirically on #1370's own review, not
+  merely argued. **Regeneration is not idempotent with this fix**: if `main()`'s own
+  layout shifts under Phase 3 (or a later phase) and any of these 9 functions gets
+  regenerated from the then-current `solver_writer.py` source rather than hand-edited,
+  the regenerated body will carry bare `_LOGGER` again, and a `_LOGGER` → `sw._LOGGER`
+  qualifier pass (the naive fix, which looks patch-preserving but is not — see above)
+  will turn it back into the wrong form. Check for `sw._LOGGER` in
+  `solver_inputs/controllable_loads.py`/`solver_shared.py` specifically, not just for
+  the presence of a `_LOGGER` reference, after any regeneration.
 - The 6 non-facade names (`_build_daily_adequacy_windows`,
   `_earliest_period_for_same_day_window`, `_evaluate_done_condition`,
   `_resolve_controllable_load_tuning`, `_resolve_hour_to_period_index`,
@@ -299,6 +345,11 @@ production callers and zero monkeypatch sites.
    deferred-import seam for `_NATIVE_HASS`, mirroring
    `solver_inputs/controllable_load_history.py:95`'s own call-site shape exactly (the
    most recently added of the four precedents, since it's also a #768-thread module).
+   **Qualify every moved `_LOGGER` call as `solver_shared._LOGGER`, not `sw._LOGGER`**
+   (see Invariants) — if any of these 9 bodies is regenerated from a shifted
+   `solver_writer.py` rather than hand-edited during this step, re-check for `sw.
+   _LOGGER` specifically afterward, since regeneration reintroduces the bare form this
+   qualifier already fixed once.
 2. Move `safe_num` into `solver_shared.py` (extending spec 001's module, not creating a
    new one), bodies copied verbatim from `solver_writer.py`'s current line range. In
    `solver_writer.py`, delete the body, add `from .solver_shared import safe_num` to
