@@ -231,6 +231,14 @@ _EXPECTED_ATTRS = {
         "n_sheddable_loads": 0,
         "n_adequacy_loads": 0,
         "n_thermal_loads": 0,
+        # nimbus issue #1386: empty, and empty is the meaningful value --
+        # this fixture configures no thermal load at all, so there is no
+        # hard temperature guarantee to relax. An EMPTY LIST rather than an
+        # absent key is the point: it distinguishes "nothing relaxed this
+        # cycle" from "a release that does not report relaxation", which a
+        # reader of recorder history months later cannot otherwise tell
+        # apart.
+        "thermal_guarantee_relaxed": [],
         # nimbus issue #485: None here is correct and meaningful -- this
         # fixture has no live select entity, and the honest answer is
         # "no mode was in force" rather than defaulting to "home" and

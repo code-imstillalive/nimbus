@@ -12649,7 +12649,8 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 0
+       "simplex_iterations": 0,
+       "thermal_guarantee_relaxed": []
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",
@@ -25617,7 +25618,8 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 0
+       "simplex_iterations": 0,
+       "thermal_guarantee_relaxed": []
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",
