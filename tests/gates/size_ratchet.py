@@ -96,7 +96,7 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    39  # solver_writer.py alone as of nimbus #1304 Phase 5. The ratchet only
+    38  # solver_writer.py alone as of nimbus #1306 Phase 7a. The ratchet only
     # ever tightens, and this is the fifth time it has: 67 at d5b044b, 61
     # after spec 001 moved six functions to solver_shared.py, 53 after Phase
     # 2b/2c moved eight reporting functions to solver_reports/ (three of them
@@ -127,6 +127,11 @@ DEFAULT_BASELINE_COUNT = (
     # Expect it to drop again as Phases 4, 6 and 7 land; lowering it is the
     # point. The two that dominate what remains are apply_commanded_state_guard
     # (1300, Phase 6's target) and main (867, Phase 4's).
+    #
+    # 38 now that Phase 7a (spec 007, #1306) moved the overlap guard to
+    # solver/cycle_lock.py. A drop of exactly ONE from a two-function move:
+    # acquire_lock was 75 lines, release_lock 15, so only the former ever
+    # counted here.
 )
 
 

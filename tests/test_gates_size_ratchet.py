@@ -248,8 +248,13 @@ def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
     `_compute_flow_economics`, `_flow_decomposition`,
     `compute_cost_breakdown`, `compute_cost_band`,
     `_dispatch_source_breakdown`, `resolve_fixed_export_charge_clamp`),
-    dropping it 47 -> **39**. Again the delta (-8) is smaller than the move
+    dropping it 47 -> 39. Again the delta (-8) is smaller than the move
     (16), for the same reason.
+
+    Phase 7a (#1306, spec 007) then moved the solve-cycle overlap guard to
+    `solver/cycle_lock.py` -- `acquire_lock` (75 lines) and `release_lock`
+    (15) -- dropping it 39 -> **38**. A two-function move for a delta of
+    one, because only `acquire_lock` was ever over the limit.
 
     Reproduced here against this checkout so a future session can see at a
     glance whether the number is still accurate, per the tool's own
@@ -259,19 +264,19 @@ def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
     ratchet only ever tightens, so a count BELOW the baseline is progress
     that should be banked here, not a failure to work around."""
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
-    proc = _run(["--baseline-count", "39", str(target)])
+    proc = _run(["--baseline-count", "38", str(target)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "39 function(s) over 60 lines" in proc.stdout, proc.stdout
+    assert "38 function(s) over 60 lines" in proc.stdout, proc.stdout
 
 
 def test_real_whole_package_is_a_materially_different_larger_number() -> None:
     """Documents the discrepancy this tool's own docstring calls out: the
-    whole-package default scope is not 39. Asserts only that it is larger
+    whole-package default scope is not 38. Asserts only that it is larger
     (not an exact count, which 40 unrelated files make too brittle to pin
     here) so this test does not need updating every time an unrelated file
     in the package changes shape."""
     proc = _run(
-        ["--baseline-count", "39", str(REPO / "custom_components" / "nimbus_load")]
+        ["--baseline-count", "38", str(REPO / "custom_components" / "nimbus_load")]
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "> baseline 39" in proc.stdout, proc.stdout
+    assert "> baseline 38" in proc.stdout, proc.stdout
