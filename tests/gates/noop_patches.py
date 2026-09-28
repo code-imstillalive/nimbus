@@ -415,11 +415,43 @@ def _list_candidate_test_files(root: Path) -> list[Path]:
     `tests/hass_integration/test_flap_regression_state_stability.py`) is
     out of scope for the same reason the stub-based CI job leaves the whole
     directory out. `--tests` can still target it explicitly.
+
+    `tests/test_gates_*.py` is excluded too, and that one is a RUNTIME
+    decision rather than a scope one. Those files test the gate tools, and
+    several do it by running the suite again in a child process -- which
+    under this tool's own instrumentation means the suite runs inside the
+    suite. Measured on the default 127-file selection, one tracked side:
+
+        whole selection                          18m47s
+        tests/test_gates_coverage_compare.py      16m23s   <- 87% of it
+        everything else                          ~2m24s
+
+    That one file runs the whole suite TWICE under coverage, per test, and it
+    holds 7 tests. Excluding the `test_gates_*` group takes a tracked side
+    from ~19 min to ~2.5 min and a full base..head comparison from ~37 min to
+    ~5 min, against the 45-minute bound `.github/workflows/ci.yml` gives the
+    FULL mode.
+
+    Nothing the gate exists to catch is lost. The #1316 failure mode is a
+    patch that stops being read because a refactor moved its target's reader,
+    and the readers in these files are the gate tools themselves -- a change
+    under `custom_components/` cannot detach them. `--tests` still targets
+    them explicitly when the gate tooling is what changed.
+
+    Worth knowing how this was found, because the first measurement was
+    wrong in the flattering direction: the same selection timed 109s earlier
+    in the same container, with `6 failed`. Those six were
+    `test_gates_coverage_compare.py` erroring out in seconds because
+    `coverage` was not installed. Once it was, the file did its real work and
+    the honest figure was 10x worse. A missing dependency made a benchmark
+    look good by quietly skipping the expensive part.
     """
     tests_dir = root / "tests"
     out = []
     for path in sorted(tests_dir.rglob("test_*.py")):
         if "hass_integration" in path.relative_to(tests_dir).parts:
+            continue
+        if path.name.startswith("test_gates_"):
             continue
         try:
             source = path.read_text(encoding="utf-8")
