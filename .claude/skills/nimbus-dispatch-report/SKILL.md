@@ -65,6 +65,28 @@ Prints reference / achieved / oracle by hour with the hourly regret, the regret'
 throughput of each trajectory, the recorder-vs-scored SoC discrepancy, and a degradation
 re-pricing estimate (see the checklist for why that matters). Writes `yesterday.json`.
 
+**Read `real_p2p_settlement_status` in the output before writing a scorecard.** The
+previous day is scored PROVISIONALLY until its P2P settlement lands, and this report
+normally runs inside the window where that is still true: settlement arrives between
+**02:47 and 06:00 AEST** and `repair_provisional_quality_history()` rescores on the
+**06:00** cycle.
+
+- `applied` → the scorecard is final. Proceed.
+- anything else (e.g. `no_settlement_entry_for_this_date`) → **do not publish a
+  scorecard.** `score_day.py` prints a `WARNING (nimbus #1422)` and sets
+  `scorecard_is_final: false`. Publish the day-ahead section only and say the scorecard
+  is withheld pending settlement. The report structure already supports this — sections
+  whose data is absent are simply not rendered.
+
+This is not a hypothetical. On **2026-09-28** a report generated at 06:09 published
+**EPR 25.32%**; the same day read **73.0%** by 06:20, with `j_ach` changing sign
+(+$1.09 → −$3.87). The regret figure, its hourly concentration and the degradation
+re-pricing were all derived from the superseded `j_ach`.
+
+**`cross-check: matches_sensor` does not cover this.** `cqr.json` and the sensor are
+computed from the same pre-settlement inputs, so they agree with each other while both
+are provisional. That check detects a stale sensor *read*, never a stale *settlement*.
+
 ### 4. Write the narrative
 
 Edit `$OUT/narrative.json`. It is the only hand-written input: title, subtitle, KPI overrides,

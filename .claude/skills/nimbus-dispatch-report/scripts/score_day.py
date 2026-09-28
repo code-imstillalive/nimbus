@@ -8,6 +8,7 @@ Prints the hourly table with regret, the regret's top hours, per-trajectory thro
 recorder-vs-scored SoC discrepancy and a degradation re-pricing estimate. Writes DIR/yesterday.json.
 Sign note: the quality report's battery_kw is negative = discharge (SoC falls); grid_kw negative = export.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -27,18 +28,27 @@ def _attrs(qr):
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--quality", required=True)
     ap.add_argument("--recorder", required=True)
     ap.add_argument("--cqr")
     ap.add_argument("--diag")
-    ap.add_argument("--degradation", type=float, help="$/kWh; default from diagnostics, else 0.03")
+    ap.add_argument(
+        "--degradation", type=float, help="$/kWh; default from diagnostics, else 0.03"
+    )
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
 
     a, state = _attrs(json.load(open(args.quality)))
-    ref, ach, star, reg = a["j_ref_hourly"], a["j_ach_hourly"], a["j_star_hourly"], a["hourly_regret"]
+    ref, ach, star, reg = (
+        a["j_ref_hourly"],
+        a["j_ach_hourly"],
+        a["j_star_hourly"],
+        a["hourly_regret"],
+    )
     rec = json.load(open(args.recorder))
     tz = zoneinfo.ZoneInfo(rec.get("tz", "Australia/Brisbane"))
     sensors = rec.get("sensors", {})
@@ -50,7 +60,13 @@ def main() -> int:
         for r in e.get("statistics") or []:
             t = r["start"]
             t = t / 1000 if isinstance(t, (int, float)) and t > 1e12 else t
-            h = (dt.datetime.fromtimestamp(t, tz) if isinstance(t, (int, float)) else dt.datetime.fromisoformat(str(t).replace("Z", "+00:00")).astimezone(tz)).strftime("%H")
+            h = (
+                dt.datetime.fromtimestamp(t, tz)
+                if isinstance(t, (int, float))
+                else dt.datetime.fromisoformat(
+                    str(t).replace("Z", "+00:00")
+                ).astimezone(tz)
+            ).strftime("%H")
             by_hour.setdefault(h, {})[e["entity_id"]] = r.get("mean")
             by_hour_last.setdefault(h, {})[e["entity_id"]] = r.get("last")
 
@@ -105,7 +121,9 @@ def main() -> int:
 
     deg = args.degradation
     if deg is None and args.diag:
-        sol = json.load(open(args.diag)).get("data", {}).get("data", {}).get("solver", {})
+        sol = (
+            json.load(open(args.diag)).get("data", {}).get("data", {}).get("solver", {})
+        )
         deg = float(sol.get("degradation_cost_per_kwh") or 0.0)
     if deg is None:
         deg = 0.03
@@ -127,11 +145,25 @@ def main() -> int:
         h_local = dt.datetime.fromisoformat(k).astimezone(tz).strftime("%H")
         r = by_hour.get(h_local, {})
         real = real_soc_at_boundary(h_local)
-        rows.append([f"{h_local}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
-                     round(real, 1) if isinstance(real, (int, float)) else None, round(ach[k]["soc_pct"], 1), round(star[k]["soc_pct"], 1),
-                     round(reg[str(int(h_utc))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
-                     round(ref[k]["load_kw"], 1), round(ref[k]["solar_kw"], 1), round(ach[k]["grid_kw"], 2), round(star[k]["grid_kw"], 2),
-                     r.get(sensors.get("grid")), r.get(sensors.get("battery"))])
+        rows.append(
+            [
+                f"{h_local}:00",
+                round(ref[k]["import_price_aud_per_kwh"] * 100, 1),
+                round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
+                round(real, 1) if isinstance(real, (int, float)) else None,
+                round(ach[k]["soc_pct"], 1),
+                round(star[k]["soc_pct"], 1),
+                round(reg[str(int(h_utc))], 3),
+                round(ach[k]["battery_kw"], 2),
+                round(star[k]["battery_kw"], 2),
+                round(ref[k]["load_kw"], 1),
+                round(ref[k]["solar_kw"], 1),
+                round(ach[k]["grid_kw"], 2),
+                round(star[k]["grid_kw"], 2),
+                r.get(sensors.get("grid")),
+                r.get(sensors.get("battery")),
+            ]
+        )
 
     def thr(rows_):
         return sum(abs(rows_[k]["battery_kw"]) for k in keys)
@@ -148,27 +180,59 @@ def main() -> int:
     # any further derived math (the repricing upper bound) on the evaluator figure.
     j_star_eval = a.get("j_star_evaluator", a.get("j_star"))
     kpis = {
-        "epr_pct": a.get("epr_pct"), "j_ref": a.get("j_ref"), "j_ach": a.get("j_ach"),
-        "j_star_raw_lp_objective": a.get("j_star"), "j_star_evaluator": j_star_eval,
+        "epr_pct": a.get("epr_pct"),
+        "j_ref": a.get("j_ref"),
+        "j_ach": a.get("j_ach"),
+        "j_star_raw_lp_objective": a.get("j_star"),
+        "j_star_evaluator": j_star_eval,
         "j_star_path_delta": a.get("j_star_path_delta"),
-        "regret": a.get("regret_dollars"), "theoretical_maximum_yield": a.get("theoretical_maximum_yield"),
-        "value_captured": a.get("value_captured"), "tracking_fidelity": a.get("tracking_fidelity"), "tracking_cost": a.get("tracking_cost"),
-        "latest_date": a.get("latest_date"), "generated_at": a.get("generated_at"),
-        "throughput_ach_kwh": round(thr_ach, 1), "throughput_star_kwh": round(thr_star, 1), "degradation_rate": deg,
-        "degradation_ach": round(deg * thr_ach, 2), "degradation_star": round(deg * thr_star, 2),
-        "j_ach_repriced": round(a["j_ach"] + deg * thr_ach, 2), "j_star_repriced_upper_bound": round(j_star_eval + deg * thr_star, 2),
-        "soc_discrepancy_max": round(max(disc), 1) if disc else None, "soc_discrepancy_mean": round(sum(disc) / len(disc), 1) if disc else None,
+        "regret": a.get("regret_dollars"),
+        "theoretical_maximum_yield": a.get("theoretical_maximum_yield"),
+        "value_captured": a.get("value_captured"),
+        "tracking_fidelity": a.get("tracking_fidelity"),
+        "tracking_cost": a.get("tracking_cost"),
+        "latest_date": a.get("latest_date"),
+        "generated_at": a.get("generated_at"),
+        "throughput_ach_kwh": round(thr_ach, 1),
+        "throughput_star_kwh": round(thr_star, 1),
+        "degradation_rate": deg,
+        "degradation_ach": round(deg * thr_ach, 2),
+        "degradation_star": round(deg * thr_star, 2),
+        "j_ach_repriced": round(a["j_ach"] + deg * thr_ach, 2),
+        "j_star_repriced_upper_bound": round(j_star_eval + deg * thr_star, 2),
+        "soc_discrepancy_max": round(max(disc), 1) if disc else None,
+        "soc_discrepancy_mean": round(sum(disc) / len(disc), 1) if disc else None,
+        # nimbus #1428-adjacent, and the reason #1422's own scorecard was wrong:
+        # the previous day is scored PROVISIONALLY until its P2P settlement lands.
+        # Measured on the reference household 2026-09-25 by 10-minute polling,
+        # settlement arrives between 02:47 and 06:00 AEST and
+        # repair_provisional_quality_history() rescores on the 06:00 cycle -- so a
+        # report generated at ~06:05 races that rescore and can publish a figure
+        # that is about to change by a lot. On 2026-09-28 the same day read
+        # EPR 25.32% before and 73.0% after, with j_ach changing SIGN
+        # (+$1.09 -> -$3.87).
+        #
+        # `matches_sensor` above structurally cannot catch it: cqr.json and the
+        # sensor are computed from the same pre-settlement inputs, so they agree
+        # with each other while both are provisional. It detects a stale SENSOR
+        # READ, never a stale SETTLEMENT.
+        "real_p2p_settlement_status": a.get("real_p2p_settlement_status"),
+        "scorecard_is_final": a.get("real_p2p_settlement_status") == "applied",
         # nimbus #1423: says which of the two this script actually computed.
         # "instant" means the `last` statistic was present and the #681 fix ran;
         # "hourly_mean_estimate" means it did not, the figures above are
         # smoothed, and the sensor's own soc_discrepancy_*_pct is authoritative.
-        "soc_discrepancy_basis": "instant" if soc_boundary_is_instant else "hourly_mean_estimate",
+        "soc_discrepancy_basis": "instant"
+        if soc_boundary_is_instant
+        else "hourly_mean_estimate",
         "soc_discrepancy_authoritative": {
             "max_pct": a.get("soc_discrepancy_max_pct"),
             "mean_pct": a.get("soc_discrepancy_mean_pct"),
             "source": "sensor.nimbus_solver_quality_report",
         },
-        "real_close": rows[-1][3], "scored_close": rows[-1][4], "oracle_close": rows[-1][5],
+        "real_close": rows[-1][3],
+        "scored_close": rows[-1][4],
+        "oracle_close": rows[-1][5],
     }
     # Found 2026-09-25, same area as the #1081-adjacent UTC/local fix above (2026-09-24):
     # `reg` (hourly_regret) is UTC-keyed (see this file's own docstring, "Key labels"), so
@@ -187,16 +251,51 @@ def main() -> int:
     if args.cqr and os.path.exists(args.cqr):
         c = json.load(open(args.cqr))
         c = c.get("service_response") or c
-        cross = {k: c.get(k) for k in ("epr_pct", "j_ref", "j_ach", "j_star", "j_star_evaluator", "regret_dollars", "window_start", "window_end")}
+        cross = {
+            k: c.get(k)
+            for k in (
+                "epr_pct",
+                "j_ref",
+                "j_ach",
+                "j_star",
+                "j_star_evaluator",
+                "regret_dollars",
+                "window_start",
+                "window_end",
+            )
+        }
         cross["matches_sensor"] = all(
-            abs(float(c.get(k, 0)) - float(a.get(k, 0))) < 1e-3 for k in ("j_ref", "j_ach", "j_star", "j_star_evaluator")
+            abs(float(c.get(k, 0)) - float(a.get(k, 0))) < 1e-3
+            for k in ("j_ref", "j_ach", "j_star", "j_star_evaluator")
         )
-    json.dump({"rows": rows, "kpis": kpis, "cross_check": cross, "sensors": sensors}, open(os.path.join(args.out, "yesterday.json"), "w"), separators=(",", ":"))
+    json.dump(
+        {"rows": rows, "kpis": kpis, "cross_check": cross, "sensors": sensors},
+        open(os.path.join(args.out, "yesterday.json"), "w"),
+        separators=(",", ":"),
+    )
 
-    print(f'{"hr":>5s} {"imp¢":>5s} {"exp¢":>5s} {"load":>5s} {"pv":>5s} | {"real":>5s} {"ach":>5s} {"orc":>5s} | {"achBat":>7s} {"orcBat":>7s} | {"achGrd":>7s} {"mtrGrd":>7s} | {"regret":>7s}')
+    print(
+        f"{'hr':>5s} {'imp¢':>5s} {'exp¢':>5s} {'load':>5s} {'pv':>5s} | {'real':>5s} {'ach':>5s} {'orc':>5s} | {'achBat':>7s} {'orcBat':>7s} | {'achGrd':>7s} {'mtrGrd':>7s} | {'regret':>7s}"
+    )
     for r in rows:
         mg = r[13] if isinstance(r[13], (int, float)) else float("nan")
-        print(f'{r[0]:>5s} {r[1]:5.1f} {r[2]:5.1f} {r[9]:5.1f} {r[10]:5.1f} | {(r[3] if r[3] is not None else float("nan")):5.1f} {r[4]:5.1f} {r[5]:5.1f} | {r[7]:7.2f} {r[8]:7.2f} | {r[11]:7.2f} {mg:7.2f} | {r[6]:7.3f}')
+        print(
+            f"{r[0]:>5s} {r[1]:5.1f} {r[2]:5.1f} {r[9]:5.1f} {r[10]:5.1f} | {(r[3] if r[3] is not None else float('nan')):5.1f} {r[4]:5.1f} {r[5]:5.1f} | {r[7]:7.2f} {r[8]:7.2f} | {r[11]:7.2f} {mg:7.2f} | {r[6]:7.3f}"
+        )
+    _settle = a.get("real_p2p_settlement_status")
+    if _settle != "applied":
+        print(
+            "WARNING (nimbus #1422): this day's P2P settlement is "
+            f"{_settle!r}, not 'applied' -- every figure below derived from "
+            "j_ach (EPR, regret and its hourly concentration, the degradation "
+            "re-pricing) is PROVISIONAL and can move by a lot, including "
+            "changing sign. Settlement lands between 02:47 and 06:00 AEST and "
+            "repair_provisional_quality_history() rescores on the 06:00 cycle. "
+            "Do not publish a scorecard from this run: publish the day-ahead "
+            "section only and say the scorecard is withheld pending "
+            "settlement. `cross-check: matches_sensor` does NOT cover this -- "
+            "both sides are computed from the same provisional inputs."
+        )
     if not soc_boundary_is_instant:
         print(
             "NOTE (nimbus #1423): no `last` statistic in the fetched recorder data, so "
