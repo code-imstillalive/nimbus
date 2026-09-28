@@ -51,6 +51,7 @@ from .const import (
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_EVENT_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+    CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
@@ -60,6 +61,7 @@ from .const import (
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
     DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+    DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     DOMAIN,
 )
 
@@ -275,6 +277,20 @@ async def async_setup_entry(
                 CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
                 "Nowcast Measurement",
                 DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #1357: same live-switch resolve path -- the daily
+            # quality report reads this key off fetch_solver_config()'s own
+            # return value each time it scores a window. Off by default
+            # because it MOVES published EPR on an install with Controllable
+            # Loads; see const.py's own comment on the key for why the
+            # default matters rather than being caution.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+                "Score Controllable Loads",
+                DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
                 sw_version,
                 shared_store,
             ),

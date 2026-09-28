@@ -950,6 +950,46 @@ def _compute_report_for_window(
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)
     periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
 
+    # nimbus issue #1357, step 2: hand the reconstruction above to the oracle
+    # as re-timeable load, behind a switch that is OFF by default.
+    #
+    # `None` keeps compute_quality_report() on its pre-#1357 path exactly, so
+    # an install that has not turned the switch on -- and every install with no
+    # Controllable Loads, where this is structurally inert -- scores byte-for-
+    # byte as before. That is the property `test_768_delivery_is_published_
+    # without_moving_the_score.py` pins, and it stays true with the switch off.
+    #
+    # Off by default is the design rather than caution: this MOVES published
+    # EPR, and #768's own thread records that the direction is not determinable
+    # from the code (an AdequacyLoadConfig adds the freedom to re-time AND the
+    # obligation to deliver, which push opposite ways). A household has to be
+    # able to run the same days both ways and compare, which a release that
+    # simply changed the number would make impossible.
+    oracle_controllable_loads = None
+    if controllable_load_delivery and bool(
+        cfg.get("solver_score_controllable_loads_enabled", False)
+    ):
+        try:
+            oracle_controllable_loads = (
+                sw.controllable_load_history.build_oracle_controllable_loads(
+                    deliveries=controllable_load_delivery,
+                    grid_times=grid_times,
+                    period_hours=period_hours,
+                    n_periods=n_periods,
+                    window_start=day_start,
+                )
+            )
+        except Exception:  # noqa: BLE001 -- exc_info is logged; same posture as the reconstruction above, and a scoring EXTRA must never take the day's whole report down
+            solver_shared._LOGGER.warning(
+                "Nimbus quality: building the oracle's controllable-load inputs "
+                "failed for [%s, %s] -- scoring this window WITHOUT them, which "
+                "is the pre-#1357 behaviour rather than a wrong number",
+                day_start.isoformat(),
+                day_end.isoformat(),
+                exc_info=True,
+            )
+            oracle_controllable_loads = None
+
     try:
         report = sw.compute_quality_report(
             periods=periods,
@@ -965,6 +1005,7 @@ def _compute_report_for_window(
             actual_charge_kw=actual_charge_kw_list,
             actual_discharge_kw=actual_discharge_kw_list,
             final_soc_kwh_actual=final_soc_kwh_actual_list,
+            controllable_loads=oracle_controllable_loads,
         )
     except RuntimeError as e:
         # Oracle solve genuinely infeasible for this day's real data --
@@ -1168,12 +1209,40 @@ def _compute_report_for_window(
         # `reason` means not reconstructable for this day -- honest absence,
         # not 0.0, the same posture `offered_up_kwh` already takes.
         #
-        # Nothing consumes this for scoring yet, by design: the oracle call
-        # above is unchanged, so this cannot move EPR or regret. The wiring
-        # is its own follow-up (#1357).
+        # Whether this is CONSUMED for scoring now depends on the #1357
+        # switch, which is off by default: with it off the oracle call above
+        # is unchanged and this cannot move EPR or regret, exactly as when it
+        # was measurement-only. The three fields below say which it was.
         "controllable_load_delivery": [
             d.as_attribute() for d in controllable_load_delivery
         ],
+        # nimbus issue #1357. Read these three together -- they are what
+        # makes a partially-scored day unable to read as a wholly-scored one.
+        #
+        # `scored` empty on an install WITH configured Controllable Loads
+        # means the switch is off (or every load was skipped), not that there
+        # are none: `controllable_load_delivery` above is the list of what
+        # exists, and this is the subset the oracle was allowed to re-time.
+        "oracle_controllable_loads_scored": list(
+            report.oracle_controllable_loads_scored
+        ),
+        # (name, reason) per configured load left out -- no power sensor, a
+        # day before that sensor existed, or kind=thermal per #768.
+        "oracle_controllable_loads_skipped": [
+            {"name": n, "reason": r}
+            for n, r in report.oracle_controllable_loads_skipped
+        ],
+        # kWh the reconstruction claimed that could NOT be removed from the
+        # oracle's base load without driving it negative. Nonzero means the
+        # two meters disagree (#1231 records a 5-8% offset on the reference
+        # install), and the oracle was therefore asked to serve MORE than the
+        # real house did -- which DEFLATES this day's EPR through a
+        # measurement artifact rather than through dispatch quality. A reason
+        # to distrust the number, not to adjust it; same posture as
+        # `soc_discrepancy_power_coverage`.
+        "oracle_controllable_loads_unsubtracted_kwh": (
+            report.oracle_controllable_loads_unsubtracted_kwh
+        ),
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),

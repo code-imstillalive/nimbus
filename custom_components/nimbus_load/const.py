@@ -1088,6 +1088,27 @@ DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED: Final = True
 #      data is wanted, and turned off again once it is answered.
 CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED: Final = "solver_nowcast_measurement_enabled"
 DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED: Final = False
+
+# nimbus issue #1357: does the EPR/regret scorer's perfect-foresight oracle get
+# to RE-TIME the day's Controllable Loads, or must it serve them exactly when
+# they actually ran?
+#
+# Off by default, and the default is the whole point rather than caution. This
+# moves published EPR and regret on any install with a configured Controllable
+# Load, and #768's own thread records that the DIRECTION is not determinable
+# from the code: an AdequacyLoadConfig adds both the freedom to re-time and the
+# obligation to deliver, and those push opposite ways. A household needs to be
+# able to run the same days with it on and off and compare the two EPR series,
+# which is impossible if the first release it appears in simply changes the
+# number.
+#
+# Structurally inert where there are no Controllable Loads (the reference
+# household reads n_controllable_loads=0), so turning it on there changes
+# nothing at all -- which is also why it cannot be validated there.
+CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = (
+    "solver_score_controllable_loads_enabled"
+)
+DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of
