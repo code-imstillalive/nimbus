@@ -322,6 +322,141 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  # ---------------------------------------------------------------------------
+  # STRICT: the #1316 no-op-patch gate, run against THIS PR's real base..head.
+  #
+  # Why this job exists at all: `tests/gates/noop_patches.py` was built to
+  # catch a patch site that silently stops being read when a refactor moves
+  # its target -- and nothing ever ran it on a real change. Its only
+  # real-tree test compared the repository against itself, so it was
+  # structurally incapable of reporting a regression, and no CI job invoked
+  # the tool. So when PR #1397 (Phase 3 of #1298) produced exactly the shape
+  # it was written for -- a `_sample_load_run_state` patch that became a
+  # silent no-op once both functions moved -- the gate had no opportunity to
+  # fire. It surfaced by luck instead: the test happened to assert a LEARNED
+  # rate the module default does not produce. A test asserting something the
+  # default also satisfies would have gone green with zero coverage of the
+  # path it exists to check.
+  #
+  # `pull_request` only, and that is deliberate rather than an oversight:
+  # this gate is a COMPARISON, so it needs two commits. A push to main has
+  # no second side to be compared against.
+  #
+  # fetch-depth: 0 because the tool does `git worktree add --detach <ref>`
+  # for each side -- a shallow clone cannot check out the base commit.
+  #
+  # Cost, measured rather than estimated: one tracked run over the default
+  # selection (every tests/test_*.py containing a static patch site -- 127
+  # files) is ~1m50s, so a base+head comparison is under 4 minutes. That is
+  # well inside the existing Unit Tests job's own ~15m, and this job runs
+  # alongside it rather than after it.
+  #
+  # Phases 4-7 of #1298 (#1303-#1306) each move more code out of
+  # solver_writer.py, which is precisely the operation that creates this
+  # failure mode. The gate is worth the four minutes for exactly as long as
+  # that work continues.
+  #
+  # The two SHAs reach the script through `env`, not through `${{ }}` inside
+  # the `run:` block. nimbus #1401's own YAML inlined them; this file's
+  # established practice (see the PR Body Hygiene job's own commit-message
+  # step, and the comment above it) is to pass anything derived from a
+  # pull_request payload via the environment. A base/head SHA is far less
+  # dangerous than a PR body, but keeping one rule for the whole file beats
+  # having to judge each field's trustworthiness at each new call site.
+  # ---------------------------------------------------------------------------
+  noop-patch-gate:
+    name: No-op Patch Gate (#1316)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    # The first timeout-minutes in this file, deliberately, and only on this
+    # job. Every other job here runs one bounded command; this one shells out
+    # to a tool that runs pytest in a CHILD process against two git worktrees,
+    # and it has never run in CI before, so its real runtime here is an
+    # estimate rather than a measurement. Measured on the household's Windows
+    # machine the default selection did not finish: killed at 25 minutes having
+    # reached ~46% of the BASE side alone. That is not evidence about
+    # ubuntu-latest -- different OS, different worktree I/O, and nimbus #1401
+    # measured ~1m50s per side in a Linux container -- but "we do not know"
+    # plus "no bound" would mean a hang burns GitHub's 6-hour default. 20
+    # minutes is ~5x the expected 4 and still bounded. If this job ever TIMES
+    # OUT rather than failing, read it as the scope question #1401's own
+    # acceptance criteria raise, not as a flaky gate.
+    timeout-minutes: 45
+    steps:
+      - name: Check out code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      # The same single source of truth the Unit Tests job uses. It matters
+      # more here than it looks: the gate runs pytest in a CHILD process
+      # against each worktree, and a missing test dependency there shows up
+      # as a collection error, which used to be reported as a clean pass
+      # (see this gate's own vacuous-measurement guard, nimbus #1400).
+      - name: Install dev dependencies
+        run: pip install -e '.[dev]'
+      # Two modes, and the log always says which one ran. MEASURED, because
+      # the first cut of this job timed out at 20 minutes having not finished
+      # the BASE side: the default selection is 127 of 433 test files / 1,336
+      # tests, and the tracking instrumentation costs roughly 7x untracked
+      # pytest -- ~54 min per side on the household's Windows machine, so
+      # ~100 min for one comparison. nimbus #1401's '~1m50s per side' was not
+      # measured on the default selection.
+      #
+      # FULL mode, when the PR touches custom_components/: the only diff that
+      # can detach a patch from its reader is one that moves shipped code, so
+      # that is where a full comparison earns its runtime.
+      #
+      # CANARY mode otherwise: one file, ~20 live patch sites, ~3 minutes. It
+      # does NOT check this PR for regressions, and its own log says so in
+      # those words. What it checks is that the gate still MEASURES -- the
+      # exact property that was broken twice (#1400: reported OK having
+      # measured nothing; #1401: nothing ran it at all). A gate going quiet
+      # is the failure mode here, so every PR exercises the machinery even
+      # when it has no shipped code to compare.
+      - name: Which mode applies to this PR
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+               | grep -q '^custom_components/'; then
+            echo "mode=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=canary" >> "$GITHUB_OUTPUT"
+          fi
+      - name: FULL -- compare base..head for patch sites that stopped being read
+        if: steps.scope.outputs.mode == 'full'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "This PR touches custom_components/ -- running the FULL comparison."
+          python tests/gates/noop_patches.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --report-untracked
+      - name: CANARY -- the gate still measures (this PR touches no shipped code)
+        if: steps.scope.outputs.mode == 'canary'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "This PR touches no custom_components/ file, so it CANNOT detach"
+          echo "a patch from its reader. This step does NOT check this PR for"
+          echo "patch regressions. It checks that the gate still measures a"
+          echo "non-zero number of live patch sites -- a gate going quiet is the"
+          echo "failure this job exists to prevent (nimbus #1400, #1401)."
+          python tests/gates/noop_patches.py \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --tests tests/test_compute_report_for_window.py \
+            --report-untracked
+
   # HACS validation and Add-on build are deferred until #48 (Dockerfile
   # context) and #49 (HACS repo-shape gaps) land. Re-added in a follow-up
   # PR once those are addressed.
