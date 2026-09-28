@@ -105,21 +105,21 @@ def _report(*, controllable=..., cheap_overnight: bool = True, house_kw=HOUSE_KW
     battery = _battery()
     solar = np.zeros(N)
     solar[9:15] = 6.0
-    kwargs = dict(
-        periods=PeriodGrid(hours=HOURS, start=START),
-        grid_residual=_grid(cheap_overnight=cheap_overnight),
-        grid_oracle=_grid(cheap_overnight=cheap_overnight),
-        batteries=[battery],
-        solar=SolarConfig(forecast_kw=solar),
-        load=LoadConfig(name="house", forecast_kw=np.full(N, house_kw)),
-        timestamps=STARTS,
-        real_p2p_dollars_earned=0.0,
-        commanded_charge_kw=[zero],
-        commanded_discharge_kw=[zero],
-        actual_charge_kw=[zero],
-        actual_discharge_kw=[zero],
-        final_soc_kwh_actual=[battery.initial_soc_kwh],
-    )
+    kwargs = {
+        "periods": PeriodGrid(hours=HOURS, start=START),
+        "grid_residual": _grid(cheap_overnight=cheap_overnight),
+        "grid_oracle": _grid(cheap_overnight=cheap_overnight),
+        "batteries": [battery],
+        "solar": SolarConfig(forecast_kw=solar),
+        "load": LoadConfig(name="house", forecast_kw=np.full(N, house_kw)),
+        "timestamps": STARTS,
+        "real_p2p_dollars_earned": 0.0,
+        "commanded_charge_kw": [zero],
+        "commanded_discharge_kw": [zero],
+        "actual_charge_kw": [zero],
+        "actual_discharge_kw": [zero],
+        "final_soc_kwh_actual": [battery.initial_soc_kwh],
+    }
     if controllable is not ...:
         kwargs["controllable_loads"] = controllable
     return compute_quality_report(**kwargs)

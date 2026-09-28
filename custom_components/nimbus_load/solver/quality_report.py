@@ -1453,8 +1453,11 @@ def compute_quality_report(
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
         j_star_evaluator=round(j_star_evaluator, 4),
         j_star_path_delta=round(j_star_path_delta, 4),
-        oracle_controllable_loads_scored=tuple(
-            c.name for c in (*oracle_adequacy, *oracle_sheddable)
+        # Built per tuple rather than from one unpacked `(*a, *b)`: mypy
+        # unions the two config types to `object` there and loses `.name`.
+        oracle_controllable_loads_scored=(
+            *(a.name for a in oracle_adequacy),
+            *(s.name for s in oracle_sheddable),
         ),
         oracle_controllable_loads_skipped=(
             () if controllable_loads is None else controllable_loads.skipped
