@@ -118,6 +118,60 @@ class TestStaticHelpers(unittest.TestCase):
         self.assertFalse(np._file_has_patch_sites("def test_nothing(): assert True"))
 
 
+class TestTheGatesOwnTestsAreNotInTheDefaultSelection(unittest.TestCase):
+    """A runtime exclusion, measured rather than assumed.
+
+    `tests/test_gates_*.py` test the gate tools, and several do it by running
+    the suite again in a child process. Under this tool's instrumentation that
+    is the suite inside the suite. Measured on the real 127-file selection,
+    one tracked side: 18m47s whole, of which
+    `test_gates_coverage_compare.py` alone was **16m23s** -- 87%, from 7 tests
+    that each run the suite twice under coverage.
+
+    Excluding the group takes a tracked side to ~2.5 min and a full
+    comparison to ~5 min, against the 45-minute bound ci.yml gives FULL mode.
+    Asserted here so the exclusion cannot be dropped as cosmetic.
+    """
+
+    def test_gate_self_tests_are_excluded(self):
+        selected = {p.name for p in np._list_candidate_test_files(REPO_ROOT)}
+        offenders = {n for n in selected if n.startswith("test_gates_")}
+        self.assertEqual(
+            offenders,
+            set(),
+            "a test_gates_* file is back in the default selection -- one of them "
+            "(coverage_compare) runs the whole suite twice under coverage per "
+            "test, and was 87% of a tracked side's runtime",
+        )
+
+    def test_the_selection_is_still_substantial(self):
+        """The other half: an exclusion that quietly emptied the selection
+        would make this gate measure nothing, which is the #1400 failure it
+        was just fixed for. A floor, not an exact count, so an ordinary new
+        test file does not fail this.
+        """
+        selected = np._list_candidate_test_files(REPO_ROOT)
+        self.assertGreater(
+            len(selected),
+            50,
+            "the default selection collapsed -- a gate that measures almost "
+            "nothing has not passed, it has stopped checking",
+        )
+
+    def test_an_excluded_file_can_still_be_targeted_explicitly(self):
+        """The escape hatch is real: `--tests` bypasses the selection, which
+        is how the gate tooling's own patch sites get checked when the
+        tooling is what changed.
+        """
+        gate_test = REPO_ROOT / "tests" / "test_gates_coverage_compare.py"
+        self.assertTrue(gate_test.exists(), "fixture file for this test moved")
+        self.assertTrue(
+            np._file_has_patch_sites(gate_test.read_text(encoding="utf-8")),
+            "this file does hold patch sites -- it is excluded for RUNTIME, "
+            "not because it has nothing to track",
+        )
+
+
 class TestNoopPatchesOnSyntheticFixture(unittest.TestCase):
     """The two required cases: caught on the bad commit, clean on the good one."""
 
