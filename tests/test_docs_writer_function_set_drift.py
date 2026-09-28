@@ -159,6 +159,16 @@ _EXTRACTED_PACKAGE_GLOBS = (
     os.path.join(_NIMBUS_DIR, "solver_reports", "*.py"),
     os.path.join(_NIMBUS_DIR, "solver_publish.py"),
     os.path.join(_NIMBUS_DIR, "solver_shared.py"),
+    # nimbus issue #1303 (Phase 4, spec 004): solver_plan.py. Registered for
+    # exactly the reason #952 established -- it is a new top-level module the
+    # integration extracted real solve-surface logic into (the 244-line span of
+    # main() that builds every elements.*Config and calls network.build_plan),
+    # so leaving it out would narrow #357's guarantee silently. Two of its
+    # names, terminal_value_breakpoints_for and midnight_boundary_period_
+    # indices, moved here from solver_writer.py and are genuinely shared with
+    # the docs copy regardless of which integration file defines them -- which
+    # is the same "new FILE, not a new NAME" case solver_shared.py was.
+    os.path.join(_NIMBUS_DIR, "solver_plan.py"),
 )
 
 
@@ -987,6 +997,22 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # and named this region as the largest remaining candidate, which
         # is what took it off the deferred list.
         "build_price_arrays",
+        # nimbus issue #1303 (Phase 4, spec 004) -- assemble_and_solve_plan(),
+        # the 244-line span of main() that constructs every elements.*Config
+        # object and calls network.build_plan(). Verified still inline in the
+        # docs copy's own main(): `elements.BatteryConfig(` at :5050 and
+        # `network.build_plan(` at :5199, both inside the main() that starts
+        # at :4085 -- so nothing is missing from either side, which is the
+        # whole point of this list rather than INTENTIONAL_NATIVE_ONLY.
+        #
+        # Unlike every entry above it, this one is NOT a relocation of an
+        # existing named function -- there was no assemble_and_solve_plan() to
+        # move. The parameterisation is the change (27 main() locals became
+        # keyword-only arguments), which is why Phase 4 leans on the golden
+        # master and a deliberate mutation check rather than the
+        # byte/AST-identity proof Phases 1-3 could give. See
+        # tests/test_1303_plan_assembly_extraction.py.
+        "assemble_and_solve_plan",
     }
 )
 

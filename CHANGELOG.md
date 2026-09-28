@@ -8,6 +8,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Internal
+- **Plan assembly moved out of `main()`** -- Phase 4 of the `solver_writer.py`
+  decomposition ([#1303](https://github.com/code-imstillalive/nimbus/issues/1303), spec
+  004). The 244-line span that built every `elements.*Config` object and called
+  `network.build_plan()` is now `solver_plan.py`'s `assemble_and_solve_plan()`.
+  - **This phase could not be proved the way Phases 1-3 were, and says so.** Those
+    relocated existing named functions, so the bytes could be diffed and the ASTs
+    compared. Here the parameterisation *is* the change -- 27 names that were `main()`
+    locals became keyword-only arguments -- so safety rests on the golden master
+    (**17/17, zero snapshot movement**) plus a deliberate mutation check.
+  - **The mutation check, which #1380's review asked for and the merged spec never
+    recorded.** Keyword-only arguments stop the call site's *order* drifting but do
+    nothing about a **transposition** between two same-shaped arguments, and 18 of the
+    inputs sit in such a group. 13 transpositions probed, **13 caught, 0
+    undiscriminated** -- and by two different mechanisms: the six load/solar swaps
+    raise `ValueError` from `solver/elements.py`'s confidence-band validation, so they
+    are *impossible* rather than merely detectable, while the price and kW swaps
+    produce a genuinely different plan.
+  - **Spec 004's declared return type was seven outputs short.** It says
+    `-> network.Plan`; the rest of `main()` reads **eight** names the span binds, all
+    but `plan` feeding `publish_plan()`. None is also bound before the span, so the
+    omission would have been a loud `NameError`, never a silent stale value. Resolved
+    with a frozen `PlanAssembly` dataclass, matching what `resolve_soc_envelope()`,
+    `build_load_arrays()` and `build_price_arrays()` already return.
+  - **`solver_plan.py` is the first extracted module with no `_solver_writer()` seam.**
+    Every other module #1298 has produced reaches back up into `solver_writer.py`
+    through a deferred by-module import. This one does not, because `previous_plan` is
+    a parameter instead of a `load_previous_plan()` call -- so `import-linter`'s
+    `nimbus-layers` contract gains **zero** new `ignore_imports` entries and stays at
+    14.
+
 ## [0.94.429] - 2026-09-29
 
 ### Fixed
