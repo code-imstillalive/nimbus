@@ -8,6 +8,47 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.429] - 2026-09-29
+
+### Fixed
+- **v0.94.428 could not solve at all on a real Home Assistant install. This fixes it;
+  do not deploy v0.94.428.** `solver_inputs/controllable_loads.py` carried **seven**
+  relative imports written one level too shallow -- `from . import done_condition`,
+  `from .const import ...`, `from .solver import elements` -- where
+  `done_condition.py`, `const.py` and `solver/` all live in
+  `custom_components/nimbus_load/`, not inside `solver_inputs/`.
+  - **Introduced by Phase 3 of the decomposition**
+    ([#1302](https://github.com/code-imstillalive/nimbus/issues/1302)), which moved
+    `build_controllable_loads` and its helpers out of `solver_writer.py` at the package
+    root into `solver_inputs/` without adjusting the depth of seven deferred,
+    function-level imports. The module-level block at the top of that same file *was*
+    already correct with `..`, which is what made the inconsistency easy to miss.
+    v0.94.428 was the first release to contain Phase 3.
+  - **Symptom, measured on devhub within a minute of the v0.94.428 restart:**
+    `ImportError: cannot import name 'done_condition'`, then
+    `ModuleNotFoundError: No module named 'done_condition'` from the standalone
+    fallback, then `Nimbus Solver: solve cycle failed` -- **16 times, every native-mode
+    solve**. `build_controllable_loads()` returns early only when `_NATIVE_HASS is
+    None`, so any real HA install reaches the broken import.
+  - **Why 4,500 passing tests did not catch it, which is the durable lesson.** Each
+    import sits in a `try/except ImportError` whose fallback is a bare absolute import
+    for the standalone/cron deployment. `pyproject.toml` sets
+    `pythonpath = ["custom_components/nimbus_load", ...]`, so under pytest that
+    fallback **succeeds** -- the `except` branch quietly does the right thing and the
+    broken `try` branch is never exercised. Real HA has no such `sys.path` entry.
+  - `tests/test_relative_import_depth_resolves.py` is the guard: it resolves every
+    relative import in the integration against the real directory tree **statically**,
+    because importing the modules to test them reproduces exactly the same masking.
+    Verified by reintroducing the bug on one line and confirming the test fails naming
+    that line, then restoring the fix.
+  - **Devhub validation: claimed only once run, not here in advance.** devhub installs
+    *from* a released tag via HACS, so the tag has to exist first; the verification
+    statement is added after the install, restart and a real solve, not predicted. (The
+    thing being fixed here was itself found only because devhub was actually exercised
+    rather than assumed, so asserting a pass before running one would be a poor lesson
+    to draw from it.) **Production was never on v0.94.428** -- it runs v0.94.426, and
+    the household deploys on their own action.
+
 ## [0.94.428] - 2026-09-29
 
 ### Fixed
@@ -91,6 +132,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     and the four structural rules (deferred seam, no `sw._LOGGER`, no module-scope import
     from `solver_writer`, no deferred accessor in a default argument) across the whole
     `solver_inputs/` package, so the four modules that predate this spec are covered too.
+
+- Devhub validation: **FAILED. This release cannot solve and must not be installed.**
+  Deployed to devhub (HA 2026.9.0) and restarted per the RELEASE VALIDATION
+  directive; the first solve raised `ImportError: cannot import name
+  'done_condition'`, then `ModuleNotFoundError` from the standalone fallback, then
+  `Nimbus Solver: solve cycle failed` -- **111 consecutive failures** before the
+  instance was taken off this version. Cause: seven relative imports in
+  `solver_inputs/controllable_loads.py` written one level too shallow, introduced by
+  Phase 3 (#1302) and shipped for the first time here. Fixed in **v0.94.429**, which
+  also adds a static guard resolving every relative import against the real
+  directory tree.
+- Consumer check: **nothing works on this version -- a household installing it sees
+  every Nimbus solve-output sensor stop updating**, because `main()` dies before
+  `publish_plan()` on every cycle. The #1406 dispatch improvement described above is
+  correct and is what a household actually wants from this entry; take it via
+  v0.94.429. This entry is kept rather than rewritten because the tag is published
+  and a reader who lands on it needs to know why it must be skipped.
 
 ## [0.94.427] - 2026-09-28
 

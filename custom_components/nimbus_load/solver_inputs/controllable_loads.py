@@ -267,8 +267,8 @@ def _sample_load_run_state(
         power_kw = float(state_obj.state) * scale
 
         try:
-            from . import load_run_state
-            from .const import DOMAIN
+            from .. import load_run_state
+            from ..const import DOMAIN
         except ImportError:
             import load_run_state
             from const import DOMAIN
@@ -410,8 +410,8 @@ def _build_daily_adequacy_windows(
     """
     sw = _solver_writer()
     try:
-        from . import load_run_state
-        from .solver import elements
+        from .. import load_run_state
+        from ..solver import elements
     except ImportError:
         import load_run_state
         from solver import elements
@@ -548,7 +548,7 @@ def resolve_controllable_load_power_sensor(data: dict) -> str | None:
     # standalone/cron deployment), and these names are not bound at
     # module scope here.
     try:
-        from .const import (
+        from ..const import (
             CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
         )
@@ -624,8 +624,8 @@ def build_controllable_loads(
     # tests do, to exercise this path without the full HA test harness)
     # hits the bare-module case, so both must actually work.
     try:
-        from . import done_condition, load_run_state, thermal_forecast
-        from .const import (
+        from .. import done_condition, load_run_state, thermal_forecast
+        from ..const import (
             CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
