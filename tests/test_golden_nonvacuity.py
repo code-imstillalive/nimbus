@@ -24,9 +24,7 @@ NEMWEB_FOLDERS = sorted(p.name for p in (GOLDEN / "nemweb").iterdir() if p.is_di
 
 
 def _snapshot(name: str) -> dict:
-    return json.loads(
-        gzip.decompress((GOLDEN / "snapshots" / f"{name}.json.gz").read_bytes())
-    )
+    return json.loads((GOLDEN / "snapshots" / f"{name}.json").read_bytes())
 
 
 def _battery(cycle: dict) -> dict:

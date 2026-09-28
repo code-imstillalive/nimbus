@@ -41,7 +41,7 @@ tests/golden/
   scenarios_synthetic.py  Part A scenarios
   scenarios_nemweb.py     Part D scenarios
   nemweb/<folder>/        Part D inputs (NEMWEB files, manifest, nem_pd7day sensor)
-  snapshots/<name>.json.gz
+  snapshots/<name>.json        uncompressed since #1359, so a real change is a readable diff
 tests/test_golden_master.py      exact comparison
 tests/test_golden_nonvacuity.py  each scenario reaches its path
 scripts/golden_nemweb.py         Part D generator (not run by the suite)
@@ -148,6 +148,23 @@ use it. Re-measured the same way as the table above:
 `GOLDEN_UPDATE=1 python -m pytest tests/test_golden_master.py -p no:homeassistant`
 rewrites the snapshots. Only a PR that intends a behaviour change may do so,
 and it says why in its description. A refactor PR never does.
+
+Since #1359 the rule is also *enforceable* rather than only stated. The
+snapshots are plain `.json` and the regeneration is content-addressed, so a
+run that records no changed value leaves `git status` clean and a real change
+stands alone in the diff. `tests/test_golden_snapshot_format.py` pins the
+canonical bytes, so a hand-edited or CRLF-converted snapshot fails there
+rather than surfacing as a mystery diff in an unrelated PR.
+
+They were `.json.gz` until then, and `_dump()` pinned `mtime=0` — but nothing
+can pin zlib's own output, which differs between builds, so regenerating on a
+different interpreter than the one that recorded a snapshot rewrote every
+file's bytes with not one recorded value changed. Measured over 7 successive
+one-value revisions of all 14 snapshots, text costs a larger working tree
+(7.19 MB against 0.25 MB) and a **smaller** repository (0.25 MB of `.git`
+against 0.92 MB), because text deltas across revisions and a gzip stream does
+not. The `nemweb/` fixtures stay compressed: those are recorded inputs, never
+read as a diff.
 
 ## Part B: recorded inputs (specified, not built)
 
