@@ -8,6 +8,42 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The battery stopped being re-commanded every few seconds during a charge window**
+  (nimbus [#1406](https://github.com/code-imstillalive/nimbus/issues/1406)). The
+  proximal penalty -- the soft anchor that, in this module's own words, *"tips the LP
+  toward the one closer to the previous plan instead of an arbitrary vertex of the
+  tie"* -- was priced as an energy cost (`proximal_weight * hours[period]`). A
+  tie-break is not an energy cost, and scaling it by period duration made it weakest
+  on the shortest periods, which are `period[0]` and `[1]` -- the only periods that
+  ever become a real inverter command. It is now a **switching cost**: the same
+  dollars per kW of deviation in every period, whatever its length.
+  - **Measured on the reference household, not inferred.** Over one 3-hour charge
+    window the published plan's `period[0]` snapped to exactly `0.000` on **18 of 400
+    samples** and back to the full -40 kW clamp -- `+0.000 -> -40.000` at 11:15:21 and
+    back sixteen seconds later. **Every zero coincided to the second with a healthy
+    solve** (1.13-1.74 s), so these were successive solves of a near-identical problem
+    landing on different vertices, not failed solves or stale writes. At the live
+    weight on a 1-minute period the anchor was **$0.030** against walking away from
+    what the hardware was already doing. Downstream: **26 inverter command writes in
+    three hours**, several 15-30 s apart, while the inverter's own mode never changed
+    once -- every switch was commanded.
+  - **The intra-plan smoothness penalty keeps its `hours[t]` factor, deliberately.**
+    There the gain from a jagged shape is energy arbitrage (`spread x kW x hours`), so
+    `hours` appears on both sides and cancels, leaving a threshold uniform across
+    tiers. That scaling is correct and changing it by symmetry would break a sound
+    derivation. A test now asserts both halves so the asymmetry survives.
+  - **Effect is confined to second and later solves, by construction.** Of 17
+    golden-master scenarios only the two `_two_cycles` ones move at all, and within
+    those, `cycles[0]` is byte-identical -- a first solve has no previous plan to
+    anchor to. In `cycles[1]` the median change is **0.0005 kW** and the largest
+    **0.357 kW**: it nudges, it does not clamp.
+  - Also relevant to why the magnitude mattered: mechanism 2's **hard** cross-solve
+    period-0 cap (`max_rate_kw`) is described in this module as the thing that
+    *"actually protects the real inverter"*, and it is deliberately off -- a hard cap
+    would smear the genuine 5pm P2P transition. That left this soft anchor as the only
+    thing between the LP and flip-flopping the live command.
+
 ### Internal
 - **`solver_writer.py` went from 14,069 to 12,853 lines** -- Phase 3 of the god-module
   decomposition ([#1302](https://github.com/code-imstillalive/nimbus/issues/1302), spec
