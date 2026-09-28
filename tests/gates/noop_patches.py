@@ -488,6 +488,94 @@ def _static_patch_site_count(root: Path) -> int:
     return total
 
 
+def _integration_module_names(repo_root: Path) -> set[str]:
+    """Module basenames under `custom_components/nimbus_load/`, recursively.
+
+    Used to decide whether `X.attr = value` in a test is assigning to a MODULE
+    of the package under test rather than to some local object. Deliberately a
+    name set derived from the real directory tree, not a hardcoded list: a new
+    module added by a future extraction phase is picked up without editing this
+    tool, which is the same reasoning `tests/_writer_source.py` uses.
+    """
+    pkg = repo_root / "custom_components" / "nimbus_load"
+    if not pkg.is_dir():
+        return set()
+    return {path.stem for path in pkg.rglob("*.py") if path.stem != "__init__"}
+
+
+def _static_direct_assignment_sites(root: Path) -> dict[str, list[str]]:
+    """`<module>.<attr> = <value>` sites in tests -- the shape this tool
+    structurally CANNOT observe at runtime (nimbus issue #1434).
+
+    Reporting only, never part of the pass/fail decision, exactly like
+    `_static_patch_site_count` above. It exists because the runtime hooks are
+    `unittest.mock._patch.__enter__` and `MonkeyPatch.setattr`, and a plain
+    attribute assignment on a module object goes through neither -- so for a
+    name like `_NATIVE_HASS` this tool sees 9 of 201 sites and has no way to
+    say so. A static count turns "we do not know the scale" into a number.
+
+    Why it is worth having even though it cannot say whether the assignment
+    was READ: the failure this whole tool exists for is a patch that silently
+    stops reaching its target after a refactor moves the target. A reviewer
+    weighing "can I move this name?" needs the site count first, and the
+    absence of one has already produced two documented errors -- spec 007's
+    inventory recording `LOCK_PATH` as having 0 patch sites when it has four,
+    and #1305's own analysis clearing four names after checking one.
+
+    Scoped to assignments whose base name is a real module of the package
+    under test, so `self.foo = x` and `plan.status = y` are not reported.
+    Walks every `tests/**/*.py` rather than
+    `_list_candidate_test_files()`, because that helper filters to files that
+    already contain a patch site -- and a file can assign directly without
+    ever calling `patch`, which is precisely the blind spot being measured.
+    """
+    modules = _integration_module_names(root)
+    if not modules:
+        return {}
+    found: dict[str, list[str]] = {}
+    tests_dir = root / "tests"
+    if not tests_dir.is_dir():
+        return {}
+    for path in sorted(tests_dir.rglob("*.py")):
+        if "hass_integration" in path.parts:
+            continue  # matches this tool's own selection, see _list_candidate_test_files
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (SyntaxError, OSError):
+            continue  # fails open -- a report must never break the gate
+        # Only names this FILE actually binds to a module of the package count.
+        # Without this, `coordinator.data = ...` on a local variable is reported
+        # merely because `coordinator.py` exists -- measured: 6 such false
+        # positives, in three files that never import it as a module.
+        bound: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    if name in modules:
+                        bound.add(name)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name in modules:
+                        bound.add(alias.asname or alias.name)
+        if not bound:
+            continue
+        hits: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target = node.targets[0]
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id in bound
+            ):
+                hits.append(f"{node.lineno}  {target.value.id}.{target.attr}")
+        if hits:
+            found[path.relative_to(root).as_posix()] = hits
+    return found
+
+
 def _looks_like_monkeypatch(func: ast.Attribute) -> bool:
     value = func.value
     return isinstance(value, ast.Name) and "monkeypatch" in value.id.lower()
@@ -751,6 +839,24 @@ def _print_report(report: Report, args: argparse.Namespace) -> None:
         for test_id, sites in sorted(report.untracked_constants_head.items()):
             for site in sites:
                 print(f"    {test_id} :: {site}")
+    if args.report_untracked:
+        # nimbus #1434: the OTHER thing this tool cannot see, and the larger of
+        # the two. Static, reporting only, and computed from the head tree so it
+        # describes the change under review rather than the checkout.
+        # `--head-dir`, when given, IS that side's repo root -- see the
+        # `base_root, head_root = Path(args.base_dir), Path(args.head_dir)`
+        # line in the driver below. Checked rather than assumed.
+        direct = _static_direct_assignment_sites(
+            Path(args.head_dir).resolve() if args.head_dir else REPO_ROOT
+        )
+        n_sites = sum(len(v) for v in direct.values())
+        print(
+            f"  {n_sites} direct module-attribute assignment(s) in "
+            f"{len(direct)} file(s) -- NOT trackable at runtime by any hook this "
+            f"tool installs (#1434):"
+        )
+        for rel, hits in sorted(direct.items()):
+            print(f"    {rel}  ({len(hits)} site(s))")
     if report.vacuous_reason is not None:
         print(f"FAIL (measured nothing): {report.vacuous_reason}.")
         print(
