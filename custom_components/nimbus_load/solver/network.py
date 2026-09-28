@@ -39,9 +39,11 @@ continues to work completely unchanged.
 a real, aligned wall-clock start time with the previous solve's own plan
 (see PeriodGrid.period_starts's own docstring for why this alignment has
 to be by real time, not array index), a small L1 penalty
-(`proximal_weight` $/kWh-equivalent) is added on how far each of the 4
-real dispatch variables (battery charge/discharge, grid import/export)
-deviates from what the previous solve planned for that SAME real moment.
+(`proximal_weight`, in $ per kW of deviation -- a SWITCHING cost, NOT
+$/kWh-equivalent and deliberately NOT scaled by period duration, see
+nimbus #1406) is added on how far each of the 4 real dispatch variables
+(battery charge/discharge, grid import/export) deviates from what the
+previous solve planned for that SAME real moment.
 This is expressed as the standard LP linearization of an absolute-value
 penalty (a linear solver has no native |x| term): two nonnegative
 "deviation" variables per (family, period), `dev_pos - dev_neg = new -
@@ -1179,7 +1181,6 @@ def _add_proximal_penalty(
     family: str,
     alignment: dict[int, int],
     previous_values: NDArray[np.float64] | None,
-    hours: NDArray[np.float64],
     proximal_weight: float,
     *,
     use_secondary: bool = False,
@@ -1206,7 +1207,43 @@ def _add_proximal_penalty(
         return
     for new_idx, old_idx in alignment.items():
         prev_value = float(previous_values[old_idx])
-        penalty_cost = proximal_weight * hours[new_idx]
+        # nimbus #1406: NOT scaled by hours[new_idx], deliberately, and this
+        # is the one line the issue is about.
+        #
+        # This penalty's job -- stated in this module's own docstring -- is to
+        # "tip the LP toward the one closer to the previous plan instead of an
+        # arbitrary vertex of the tie" when two solutions are economically
+        # TIED. A tie-break is not an energy cost. Scaling it by period
+        # duration made it weakest on the shortest periods, which are
+        # period[0] and [1] -- the only periods that ever become a real
+        # inverter command.
+        #
+        # Measured on the reference household, 2026-09-28, 10:00-13:00 AEST:
+        # period[0] snapped to exactly 0.000 on 18 of 400 samples and back to
+        # the full -40 kW clamp, every zero coinciding to the second with a
+        # HEALTHY solve (1.13-1.74 s) -- so successive solves of a
+        # near-identical problem were landing on different vertices. At
+        # proximal_weight 0.045 on a 1-minute period the anchor was
+        # 0.045 * (1/60) * 40 = $0.030 against walking away from what the
+        # hardware was already doing. Downstream: 26 inverter command writes
+        # in three hours, several 15-30 s apart.
+        #
+        # Why the smoothness penalty keeps its own hours[t] factor and was
+        # NOT changed with this: there, the gain from a jagged shape is
+        # energy arbitrage (`price_spread * kW * hours`), so `hours` appears
+        # on BOTH sides and cancels, leaving a threshold uniform across
+        # tiers. Here the problem has barely changed between two solves
+        # 17 s apart, so there is no hours-scaled gain to cancel against --
+        # nothing on the other side of the ledger at all.
+        #
+        # Also relevant: mechanism 2's HARD cross-solve period-0 cap
+        # (max_rate_kw) is the thing described above as what "actually
+        # protects the real inverter", and it is deliberately off --
+        # solver_writer.py declines it because a hard cap would smear the
+        # genuine 5pm P2P transition. That leaves this soft anchor as the
+        # only thing standing between the LP and flip-flopping the live
+        # command, which is why its magnitude there matters.
+        penalty_cost = proximal_weight
         dev_pos = p.add_variable(
             f"prox_pos_{family}_{new_idx}",
             lb=0.0,
@@ -3041,7 +3078,6 @@ def _build_plan_once(
             family,
             alignment,
             prev_values,
-            hours,
             proximal_weight,
             use_secondary=_use_secondary_costs,
         )
@@ -3090,7 +3126,6 @@ def _build_plan_once(
                 family,
                 alignment,
                 prev_values,
-                hours,
                 proximal_weight,
                 use_secondary=_use_secondary_costs,
             )
@@ -3141,7 +3176,6 @@ def _build_plan_once(
             f"adequacy_{al.name}",
             alignment,
             prev_power,
-            hours,
             proximal_weight,
             use_secondary=_use_secondary_costs,
         )
