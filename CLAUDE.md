@@ -147,6 +147,62 @@ narrative instead of checking.
 > below. The authority to merge is what makes completing the checks *my*
 > responsibility rather than the household's.
 
+## ⚠️ STANDING DIRECTIVE — READ EVERY ISSUE FULLY AND EVERY PR FULLY
+
+> **Household instruction, 2026-09-28, verbatim:**
+>
+> > *"please listen - READ FULL ISSUES TEXT AND PRS TEXT - NOT JUST SKIMP OVER
+> > THE HEADER"*
+> >
+> > *"STANDING DIRECTIVE - ADD IT - READ EVERY ISSUE FULLY AND EVERY PR FULLY"*
+>
+> **A title, a label, a `--json` field and a listing row are not the issue.
+> Read the body and every comment before saying anything about it, deciding
+> anything from it, or acting on it.**
+>
+> ### What produced this rule
+>
+> The external process audit (`docs/worklog/2026-09-28-process-audit.md`) was
+> commissioned *because* of this: *"an external observation that issues and PRs
+> were being worked from summaries rather than read in full."* The rule was
+> then earned twice more the same day, after that audit had been read and
+> agreed with:
+>
+> | what happened | cost |
+> |---|---|
+> | Reported *"Mark has touched #1305"* from `gh issue list --json author`. That field is the issue's **author**, not who last acted. #1305 was *created* by @purcell-lab; the timestamp was **my own comment** minutes earlier. | A wrong report about a collaborator's activity, from a header field, with the body unread. |
+> | Ran the loop's own activity check on `.author.login` for ~30 iterations. That detects @purcell-lab **opening** something and is structurally blind to him **commenting**. | Eight issues carried his comments — #768, #1318, #1355, #1360, #1373, #1396, #489, #496 — none of which the loop would ever have surfaced. |
+> | Promised, in a PR body and a commit message, to validate the #1406 proximal fix by measuring `period[0]` on devhub. | **#1396's body says devhub cannot do that** — its solve-output entities are squatted by NUC1's mirrored rows, so devhub's own sensors read *production's* data. I had even measured that mirror myself the same morning. Reading #1396 in full is what caught it, after the claim was already written down twice. |
+>
+> ### In practice
+>
+> - **Before commenting on, merging, closing or citing an issue or PR: read its
+>   body and all of its comments.** Not the title, not the first paragraph, not
+>   a listing row.
+> - **A `--json` listing is an index, never a source.** `author` is who opened
+>   it. `title` is a label someone wrote once. `updatedAt` says something moved
+>   and nothing about what. Any claim about content requires the content.
+> - **To find a collaborator's activity, query comments, not `author`.** The
+>   loop's own check must look at comment authors across issues *and* PRs;
+>   `--json author` answers a different question than the one being asked of
+>   it.
+> - **A cross-reference in someone else's issue can invalidate your own plan.**
+>   #1396 blocked #1357 step 2, #1360's devhub substitution *and* #1406's
+>   validation — that last one recorded nowhere until the body was read. When a
+>   thread names a blocker, check whether it blocks what you are about to do.
+> - **Length is not an excuse.** #768 carries 21 comments of design argument.
+>   Read it. Skimming a long thread and acting on the gist is how a wrong
+>   correction got sent to @purcell-lab twice (see the cross-install confusion
+>   in `116KAT-HA-AI`'s own Live Open Items).
+>
+> This directive sits beside NEVER TELL THE HOUSEHOLD ANYTHING FROM MEMORY and
+> NEVER CHEAT because it is the same failure in a third place: that one is about
+> not citing your own stale sentence as current, the second about not calling a
+> pending check a pass, and this one about not treating a header as the thing it
+> heads.
+
+---
+
 ## ⚠️ STANDING DIRECTIVE — MERGE AUTHORITY IN THIS REPO IS CLAUDE'S
 
 > **In `nimbus`, Claude merges its own PRs. Standing, long-established, no asking.**
