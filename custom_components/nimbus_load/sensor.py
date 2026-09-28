@@ -170,6 +170,7 @@ from .const import (
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
     CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
@@ -404,6 +405,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # comment above records, so cfg.get("solver_nowcast_measurement_
     # enabled") can ever see a household's real toggle state.
     CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
+    # nimbus issue #1357: the daily quality report reads this off cfg each
+    # time it scores a window, so it has to appear here for the same reason
+    # the two comments above record -- without it the switch is a silent
+    # no-op and the oracle never sees a Controllable Load.
+    CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -589,6 +595,7 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # measurement at all. Without it the switch would be a silent no-op,
     # the exact bug the flex-signals entry above documents.
     CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
+    CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
 )
 # nimbus issue #485: select.py's own live string choices -- same
 # "resolve from a live entity, not entry.options" mechanism as the two

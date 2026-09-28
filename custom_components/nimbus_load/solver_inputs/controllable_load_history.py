@@ -86,6 +86,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+import numpy as np
+
 try:
     from .. import solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -337,3 +339,200 @@ def resolve_controllable_load_delivery_history(
             )
         )
     return out
+
+
+# nimbus issue #1357: the oracle side. Everything above reconstructs what the
+# loads REALLY delivered; this turns that into the LP configs the scorer's
+# perfect-foresight oracle needs in order to re-time them.
+
+ORACLE_SKIP_THERMAL = "kind=thermal is not scored (nimbus #768)"
+ORACLE_SKIP_UNKNOWN_KIND = "unrecognised kind"
+ORACLE_SKIP_NO_ENERGY = "no delivered energy reconstructed for this window"
+ORACLE_SKIP_NO_WINDOW = "deferrable window did not resolve for this window"
+ORACLE_SKIP_GONE = "subentry no longer configured"
+
+
+def build_oracle_controllable_loads(
+    *,
+    deliveries,
+    grid_times,
+    period_hours,
+    n_periods: int,
+    window_start,
+):
+    """The `OracleControllableLoads` bundle for one scored window.
+
+    Turns the reconstructions above into `AdequacyLoadConfig` /
+    `SheddableLoadConfig` objects, plus the per-period kWh the caller must
+    remove from the oracle's base load. Returns `None` when there is nothing to
+    score at all, which is the value that leaves `compute_quality_report()` on
+    its pre-#1357 path exactly.
+
+    ## Why the config-reading lives here and not in `solver/`
+
+    `solver/quality_report.py` is the pure package and knows nothing about
+    subentries, `kind=`, or which loads are scorable; it takes already-built
+    configs. This module already iterates the same subentries for the
+    reconstruction and already carries the `const` imports, so a second reader
+    would be a duplicate of the first.
+
+    ## `target_kwh` is the REAL delivered energy, never the configured target
+
+    Issue #768's own decision. A day where the tank only got half its target is
+    a day the oracle must be scored against having delivered half. Charging the
+    oracle with the configured target would grade it against work the house
+    never did, and make every such day look like a dispatch failure.
+
+    ## The same-day-in-progress correction is deliberately NOT applied
+
+    `build_controllable_loads()` calls `_earliest_period_for_same_day_window()`
+    because the forward plan's `now` can sit INSIDE the window and a load
+    cannot be scheduled into the past. A scored window has entirely elapsed and
+    `window_start` is its beginning, so there is no in-progress case to correct
+    for -- applying that correction here would move the window for a reason
+    that does not exist retrospectively.
+
+    ## Honest skips
+
+    Every configured load that does not enter the oracle is reported with a
+    reason rather than silently dropped: `kind=thermal` (excluded per #768 -- a
+    different LP shape, a hard state-variable constraint, and a sample size of
+    one to validate against), an unscorable reconstruction (no power sensor, or
+    a day before that sensor existed), a window that does not resolve, and a
+    load whose reconstruction found no energy at all. Same posture
+    `scored_participants` takes on the battery side, and the reason a
+    partially-scored day cannot read as a wholly-scored one.
+    """
+    sw = _solver_writer()
+    from solver.elements import (
+        AdequacyLoadConfig,
+        SheddableLoadConfig,
+    )
+    from solver.quality_report import (
+        OracleControllableLoads,
+    )
+
+    try:
+        from ..const import (
+            CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_SHORTFALL_PRICE,
+            CONF_SHEDDABLE_MIN_FRACTION,
+            CONF_SHEDDABLE_SHED_COST,
+            DOMAIN,
+            SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+        )
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from const import (  # type: ignore[no-redef]
+            CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_SHORTFALL_PRICE,
+            CONF_SHEDDABLE_MIN_FRACTION,
+            CONF_SHEDDABLE_SHED_COST,
+            DOMAIN,
+            SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+        )
+
+    if not deliveries or sw._NATIVE_HASS is None:
+        return None
+    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return None
+    by_id = {
+        se.subentry_id: se.data
+        for se in entries[0].subentries.values()
+        if se.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD
+    }
+
+    adequacy = []
+    sheddable = []
+    skipped = []
+    total_kwh = [0.0] * n_periods
+
+    for d in deliveries:
+        if d.kind == "thermal":
+            skipped.append((d.name, ORACLE_SKIP_THERMAL))
+            continue
+        if not d.scorable:
+            skipped.append((d.name, d.reason))
+            continue
+        if not d.delivered_kwh or d.delivered_kwh <= 0.0:
+            skipped.append((d.name, ORACLE_SKIP_NO_ENERGY))
+            continue
+        data = by_id.get(d.subentry_id)
+        if data is None:  # pragma: no cover - the subentry vanished mid-cycle
+            skipped.append((d.name, ORACLE_SKIP_GONE))
+            continue
+        by_period = list(d.delivered_kwh_by_period) or [0.0] * n_periods
+
+        if d.kind == "sheddable":
+            # forecast_kw is the load's OWN reconstructed profile -- what it
+            # really drew, period by period. The LP may shed any of it at
+            # shed_cost, which is the freedom the household actually has.
+            profile_kw = [
+                (kwh / h if h > 0 else 0.0)
+                for kwh, h in zip(by_period, period_hours, strict=False)
+            ]
+            sheddable.append(
+                SheddableLoadConfig(
+                    name=d.name,
+                    forecast_kw=np.asarray(profile_kw, dtype=float),
+                    shed_cost=float(data.get(CONF_SHEDDABLE_SHED_COST) or 0.0),
+                    min_fraction=float(data.get(CONF_SHEDDABLE_MIN_FRACTION) or 0.0),
+                    subentry_id=d.subentry_id,
+                )
+            )
+        elif d.kind == "deferrable":
+            earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
+            deadline_hour = data.get(CONF_DEFERRABLE_DEADLINE_HOUR)
+            earliest_period = (
+                sw._resolve_hour_to_period_index(
+                    grid_times, window_start, float(earliest_hour), is_deadline=False
+                )
+                if earliest_hour is not None
+                else 0
+            )
+            deadline_period = (
+                sw._resolve_hour_to_period_index(
+                    grid_times, window_start, float(deadline_hour), is_deadline=True
+                )
+                if deadline_hour is not None
+                else n_periods - 1
+            )
+            if deadline_period < earliest_period:
+                skipped.append((d.name, ORACLE_SKIP_NO_WINDOW))
+                continue
+            adequacy.append(
+                AdequacyLoadConfig(
+                    name=d.name,
+                    max_power_kw=float(data.get(CONF_DEFERRABLE_MAX_POWER_KW) or 0.0),
+                    # #768: real delivered, never the configured target.
+                    target_kwh=float(d.delivered_kwh),
+                    earliest_period=earliest_period,
+                    deadline_period=deadline_period,
+                    shortfall_price=float(
+                        data.get(CONF_DEFERRABLE_SHORTFALL_PRICE) or 0.0
+                    ),
+                    subentry_id=d.subentry_id,
+                )
+            )
+        else:
+            skipped.append((d.name, ORACLE_SKIP_UNKNOWN_KIND))
+            continue
+
+        for i, kwh in enumerate(by_period[:n_periods]):
+            total_kwh[i] += float(kwh)
+
+    if not adequacy and not sheddable:
+        # A bundle carrying skips only, so the report still says which loads it
+        # did not score. `__post_init__` requires no kWh array when there are
+        # no loads -- passing one would remove energy the LP never gets back.
+        return OracleControllableLoads(skipped=tuple(skipped))
+    return OracleControllableLoads(
+        adequacy=tuple(adequacy),
+        sheddable=tuple(sheddable),
+        delivered_kwh_by_period=np.asarray(total_kwh, dtype=float),
+        skipped=tuple(skipped),
+    )
