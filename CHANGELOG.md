@@ -133,6 +133,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     from `solver_writer`, no deferred accessor in a default argument) across the whole
     `solver_inputs/` package, so the four modules that predate this spec are covered too.
 
+- Devhub validation: **FAILED. This release cannot solve and must not be installed.**
+  Deployed to devhub (HA 2026.9.0) and restarted per the RELEASE VALIDATION
+  directive; the first solve raised `ImportError: cannot import name
+  'done_condition'`, then `ModuleNotFoundError` from the standalone fallback, then
+  `Nimbus Solver: solve cycle failed` -- **111 consecutive failures** before the
+  instance was taken off this version. Cause: seven relative imports in
+  `solver_inputs/controllable_loads.py` written one level too shallow, introduced by
+  Phase 3 (#1302) and shipped for the first time here. Fixed in **v0.94.429**, which
+  also adds a static guard resolving every relative import against the real
+  directory tree.
+- Consumer check: **nothing works on this version -- a household installing it sees
+  every Nimbus solve-output sensor stop updating**, because `main()` dies before
+  `publish_plan()` on every cycle. The #1406 dispatch improvement described above is
+  correct and is what a household actually wants from this entry; take it via
+  v0.94.429. This entry is kept rather than rewritten because the tag is published
+  and a reader who lands on it needs to know why it must be skipped.
+
 ## [0.94.427] - 2026-09-28
 
 ### Changed
