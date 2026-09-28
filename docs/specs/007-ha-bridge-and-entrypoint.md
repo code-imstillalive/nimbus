@@ -1,6 +1,7 @@
 # Spec 007: HA bridge, cycle lock, and standalone entrypoint
 
-Status: proposed
+Status: **7a implemented 2026-09-29 (#1425) with two documented deviations -- see
+"Implementation findings (Phase 7a)". 7b still proposed and blocked.**
 Plan: docs/architecture/tech-debt-plan.md; phase: #1306
 
 All line numbers and counts in this spec are measured at `main` = `f7c3800`
@@ -295,6 +296,112 @@ written. The options are exactly:
 - [ ] Spec-specific: released, installed on devhub, and the integration loads
       (`config_entries` `state: loaded`) with entities stamping the new version —
       per the household's standing rule that a change is not done at "merged".
+
+## Implementation findings (Phase 7a, 2026-09-29)
+
+Two deviations from the Migration steps above, both measured rather than
+preferred. The steps are left as written so the change is visible.
+
+### Step 2: LOCK_PATH did not move; the path is a parameter
+
+The inventory table records LOCK_PATH as having **0 patch sites**. It is rebound
+on the solver_writer module object in **four** places, and none is visible to a
+literal-name scan:
+
+| site | how |
+|---|---|
+| tests/_isolated_state.py:74 | patch.object(solver_writer, const, ...), const from a tuple of strings |
+| tests/hass_integration/conftest.py:85 | same shape, its own tuple, **behind an `if hasattr(...)` guard** |
+| tests/test_solve_overlap_guard.py:63 | plain attribute assignment |
+| tests/test_solver_writer_lock_self_pid.py:37 | plain attribute assignment |
+
+Two are the direct-assignment blindness #1400 records. Two are a **new** shape
+this spec did not anticipate: a `patch.object` whose target name is a runtime
+string, invisible to patch-counting as well. So **#1401's "14 names, 231 sites"
+is a floor, not a count**, and that matters because 7b's whole justification is
+that the gate can then see every site.
+
+The `hasattr` guard is the decisive detail: had the constant moved, that site
+would not have errored, it would have **silently skipped**, and every test in
+tests/hass_integration/ would have passed while acquire_lock wrote to the real
+/opt PID file. That is #1330's defect class, invisible wherever /opt is absent.
+
+So `solver/cycle_lock.py` takes `lock_path: str`, `solver_writer.py` keeps the
+constant and two one-line wrappers, and all four rebind sites are untouched. It
+also matches this spec's own interface sketch, which already wrote
+`acquire(path=...)` rather than a module constant, and it keeps `solver/` free of
+environment reading.
+
+**Consequent invariant change.** `solver_writer.acquire_lock is
+solver.cycle_lock.acquire` is false by construction. Replaced by three
+assertions in tests/test_1306_phase7a_cycle_lock_facade.py: a rebind of
+solver_writer.LOCK_PATH must change where the PID file lands, driven through the
+real isolated_state_paths helper; the wrapper must pass that exact value
+positionally; and cycle_lock must define no LOCK_PATH of its own. Mutation-
+verified -- capturing the path at import time fails exactly two of the six.
+
+`_IN_PROCESS_LOCK` **keeps** the `is` invariant: nothing rebinds it, it is only
+acquired and released, so an alias is safe where a path string was not.
+
+The moved functions are AST-identical to the originals modulo six code
+substitutions (two signatures gaining the parameter, four LOCK_PATH ->
+lock_path), and reversing those six reproduces the original slice byte-for-byte.
+
+### Step 3: ha_bridge.py is blocked, and moves to 7b
+
+The spec places the service calls and token trio in 7a as separable from
+_NATIVE_HASS. Measured, they are not:
+
+| function | lines | reads |
+|---|---:|---|
+| ha_call_service | 24 | _NATIVE_HASS |
+| ha_call_service_with_response | 76 | _NATIVE_HASS |
+| _load_token | 25 | TOKEN_PATH, _TOKEN_LOADED, **_TOKEN** |
+
+Both service calls read _NATIVE_HASS, whose move is 7b. And _load_token reads a
+fourth name step 3 omits -- _TOKEN, a **rebound** module global (`global _TOKEN,
+_TOKEN_LOADED` at solver_writer.py:1316), which is the cannot-be-aliased class
+spec 001 recorded and Phase 2c's _LAST_KNOWN_QUALITY_HISTORY proved at the cost
+of five test failures.
+
+### Step 5: standalone_writer.py follows separately
+
+Kept out of 7a so each stays independently revertable, per Rollback below.
+
+### Also verified
+
+`test_1324`'s detector needed widening: the unlink now reads
+os.remove(lock_path) in cycle_lock, so it resolves one wrapper hop to recover
+which constant the caller supplies. Its assertion is unchanged -- confirmed by
+assertions_unchanged.py, which flags the two ratchet strings and not this.
+
+## Allowed assertion changes (Phase 7a)
+
+`tests/gates/assertions_unchanged.py` fails on any assertion that changed in an
+existing test, and it correctly flags two in Phase 7a. Both are the size
+ratchet's own reported count, which the phase legitimately lowered, and both are
+recorded here rather than waved through -- this section IS the allow-list the
+gate reads, scraped from the entry shapes below.
+
+tests/test_gates_size_ratchet.py::test_real_solver_writer_matches_the_tech_debt_plans_own_count
+pins the gate's reported figure as a literal string, "39 function(s) over 60
+lines". Phase 7a moved acquire_lock (75 lines) out, so the correct figure is 38.
+That test's own docstring instructs exactly this change: *"a count BELOW the
+baseline is progress that should be banked here, not a failure to work around."*
+
+tests/test_gates_size_ratchet.py::test_real_whole_package_is_a_materially_different_larger_number
+asserts "> baseline 39" for the whole-package scope. It moves to 38 with the
+baseline so the file is self-consistent at one number rather than half-migrated;
+the property it checks -- that the whole-package count materially exceeds the
+solver_writer.py-only count -- is unchanged, and it holds against either
+baseline.
+
+**Nothing else in the suite is allow-listed for 7a, and that is the point of
+listing these two.** In particular
+tests/test_1324_deleted_runtime_files_are_not_in_config.py is NOT here: its
+detector was widened to resolve a removed path through one wrapper hop, but its
+assertion (assertIn("LOCK_PATH", removed)) is untouched -- which the gate itself
+confirms by not flagging it.
 
 ## Rollback
 
