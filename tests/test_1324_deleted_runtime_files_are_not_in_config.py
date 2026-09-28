@@ -60,6 +60,14 @@ _PKG = Path(solver_runtime.__file__).parent
 _RUNTIME_SRC = Path(solver_runtime.__file__).read_text(encoding="utf-8")
 _WRITER_SRC = (_PKG / "solver_writer.py").read_text(encoding="utf-8")
 
+#: solver_writer.py plus every module #1298 has extracted out of it that can
+#: hold an `os.remove()` of a persisted path. Deliberately explicit rather than
+#: a glob: the HA platform modules are not the writer.
+_WRITER_SRCS = [
+    _WRITER_SRC,
+    (_PKG / "solver" / "cycle_lock.py").read_text(encoding="utf-8"),
+]
+
 #: The env vars the native runtime resolves, and what each one holds.
 _TRANSIENT = {
     "NIMBUS_SOLVER_LOCK_PATH",
@@ -111,14 +119,19 @@ def _uses_hass_config_path(expr: ast.AST) -> bool:
     return False
 
 
-def _removed_path_names() -> set[str]:
-    """Module-level constants passed to `os.remove()` in solver_writer.py.
+def _os_remove_arg_names(tree: ast.Module) -> set[tuple[str, str | None]]:
+    """`(name, enclosing function)` for every `os.remove(<Name>)` in one tree.
 
     The call graph, not a text search: this file's comments discuss removal
     constantly, and a prose match would flag files nothing unlinks.
     """
-    tree = ast.parse(_WRITER_SRC)
-    removed: set[str] = set()
+    enclosing: dict[ast.AST, str] = {}
+    for fn in ast.walk(tree):
+        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(fn):
+                enclosing.setdefault(child, fn.name)
+
+    found: set[tuple[str, str | None]] = set()
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
@@ -128,7 +141,59 @@ def _removed_path_names() -> set[str]:
             and node.args
             and isinstance(node.args[0], ast.Name)
         ):
-            removed.add(node.args[0].id)
+            found.add((node.args[0].id, enclosing.get(node)))
+    return found
+
+
+def _params_of(tree: ast.Module, func_name: str) -> list[str]:
+    for fn in ast.walk(tree):
+        if (
+            isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and fn.name == func_name
+        ):
+            return [a.arg for a in fn.args.args]
+    return []
+
+
+def _args_passed_to(trees: list[ast.Module], func_name: str, index: int) -> set[str]:
+    """Every `ast.Name` passed positionally at `index` to `func_name(...)`.
+
+    Matches both `release_lock(X)` and `cycle_lock.release_lock(X)`, since the
+    wrapper reaches the extracted module by attribute.
+    """
+    names: set[str] = set()
+    for tree in trees:
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or len(node.args) <= index:
+                continue
+            f = node.func
+            called = f.id if isinstance(f, ast.Name) else getattr(f, "attr", None)
+            if called == func_name and isinstance(node.args[index], ast.Name):
+                names.add(node.args[index].id)
+    return names
+
+
+def _removed_path_names() -> set[str]:
+    """Module-level constants whose file `os.remove()` unlinks at runtime.
+
+    Resolved **through one wrapper**, because nimbus #1306 (spec 007, Phase 7a)
+    moved the overlap guard into `solver/cycle_lock.py` with the path as a
+    parameter: the unlink now reads `os.remove(lock_path)` there, and it is
+    `solver_writer.release_lock` that supplies `LOCK_PATH`. Without following
+    that hop this guard would have silently stopped tracking `LOCK_PATH` --
+    still passing, checking one file instead of two.
+    """
+    trees = [ast.parse(src) for src in _WRITER_SRCS]
+    removed: set[str] = set()
+    for tree in trees:
+        for name, func in _os_remove_arg_names(tree):
+            params = _params_of(tree, func) if func else []
+            if name in params:
+                # A parameter, not a constant: resolve it to whatever the
+                # caller passes at that position.
+                removed |= _args_passed_to(trees, func, params.index(name))
+            else:
+                removed.add(name)
     return removed
 
 

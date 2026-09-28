@@ -157,7 +157,6 @@ import os
 import re
 import statistics
 import sys
-import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
@@ -548,7 +547,7 @@ from numpy.typing import NDArray
 # not unconditionally on every import.
 try:
     from .ml.blend import blend_forecast_array, cross_source_spread
-    from .solver import elements, lp, network, nowcast_skill
+    from .solver import cycle_lock, elements, lp, network, nowcast_skill
     from .solver.backtest import (
         EFFICIENCY_CANDIDATES_PERCENT,
         efficiency_label,
@@ -589,6 +588,7 @@ except ImportError:
         # lp.CalibratedOptions() call moved to solver_plan.py (#1303), but
         # test_solver_writer_smoothness_and_proximal_weight_wiring.py asserts
         # against solver_writer.lp.CalibratedOptions at :215 and :225.
+        cycle_lock,
         elements,
         lp,
         network,
@@ -4964,129 +4964,32 @@ def p2p_recent_avg_volume_kwh(
     return sum(volumes) / len(volumes)
 
 
-# nimbus issue #757: the process-local half of the overlap guard.
+# nimbus #1306 (spec 007, Phase 7a): both overlap-guard mechanisms, and every
+# comment justifying them, moved verbatim to solver/cycle_lock.py.
 #
-# LOCK_PATH below is a PID file, which is exactly right for the
-# standalone/cron script -- two runs there genuinely are two
-# processes. In native mode every solve runs in the SAME hass
-# process, on different executor worker threads, so the PID in that
-# file is always our own -- and acquire_lock()'s own #346 branch
-# (`if old_pid == os.getpid()`) therefore reads a genuine concurrent
-# solve as a stale file and hands out the lock. Measured directly
-# against the real function before this existed:
+# LOCK_PATH itself deliberately stayed above, with the other three persisted
+# paths. Four test sites rebind it on THIS module and none is visible to a
+# literal-name scan (two `patch.object` calls driven by a tuple of strings, two
+# plain attribute assignments) -- so moving it would have left any site missed
+# in the sweep writing to the real /opt PID file. That module's docstring has
+# the table and the full reasoning.
 #
-#     thread A acquires: True
-#     thread B acquires WHILE A HOLDS IT: True
-#
-# So in native mode the overlap guard had never refused anything,
-# and solver_runtime.py's own #315 'previous cycle still in
-# progress' WARNING was unreachable code. That is the concurrency
-# half of #757: concurrent solves, each publishing over the last,
-# which is why ten investigations of that issue disagreed with each
-# other about whether a battery participant was being excluded.
-#
-# Both mechanisms are kept because they answer genuinely different
-# questions and neither substitutes for the other. A PID file cannot
-# see a sibling thread; a process-local lock cannot see a sibling
-# process. #346's branch stays exactly as it was -- it is still the
-# only thing that reclaims a lock file left behind by a worker
-# thread killed mid-solve, which in a container frequently holds a
-# PID identical to ours after a restart.
-_IN_PROCESS_LOCK = threading.Lock()
+# The alias below is the same Lock object, not a copy: nothing anywhere rebinds
+# _IN_PROCESS_LOCK, it is only acquired and released, so identity holds and
+# `solver_writer._IN_PROCESS_LOCK is cycle_lock._IN_PROCESS_LOCK`.
+_IN_PROCESS_LOCK = cycle_lock._IN_PROCESS_LOCK
 
 
 def acquire_lock() -> bool:
-    """Two-mechanism overlap guard. Returns True (caller should
-    proceed) if no other run is genuinely still active; False (caller
-    should exit cleanly, no error) if one is.
-
-    A process-local threading.Lock covers a concurrent solve on
-    another worker thread of THIS process (native mode -- see
-    _IN_PROCESS_LOCK's own comment above for the #757 defect that
-    exists to fix, and why a PID file structurally cannot see it).
-    The PID file below covers a genuinely separate process (the
-    standalone/cron script) -- 2026-08-17, see LOCK_PATH's own
-    comment; makes a genuine 1-minute cron cadence safe against the
-    real, measured 45-52s solve time without needing a slower, more
-    conservative interval "just in case".
-
-    Stale-lock safe: if LOCK_PATH exists but the PID inside it is no
-    longer a real running process (a previous run crashed hard enough to
-    skip its own cleanup, e.g. a killed container), os.kill(pid, 0)
-    raises -- on real POSIX deploy targets specifically ProcessLookupError
-    ("No such process"), confirmed via Python's own os.kill() docs; a
-    real, live discrepancy found testing this same check on Windows
-    (where a nonexistent PID instead raises a plain OSError, not that
-    specific subclass) is exactly why this catches OSError broadly, not
-    just the one POSIX-specific subclass -- ProcessLookupError/
-    PermissionError are both already OSError subclasses, so this loses
-    no real specificity, and stays correct regardless of which platform
-    it happens to run on. ANY failure to positively confirm the old PID
-    is a real, currently-running process is treated as "not actually
-    locked" -- the stale file is overwritten with this run's own PID
-    rather than ever permanently wedging every future run.
-    """
-    if not _IN_PROCESS_LOCK.acquire(blocking=False):
-        # nimbus issue #757: a genuine concurrent solve on another
-        # worker thread of THIS process -- the one case the PID file
-        # below structurally cannot see. Non-blocking deliberately:
-        # parking an HA executor worker for the whole of another
-        # solve would be worse than the bug, and is exactly the
-        # executor starvation #773 documents. The caller's contract
-        # is unchanged -- False still means 'skip this tick
-        # cleanly', and solver_runtime.py already logs it.
-        return False
-    if os.path.exists(LOCK_PATH):
-        try:
-            with open(LOCK_PATH, "r", encoding="utf-8") as f:
-                old_pid = int(f.read().strip())
-            # nimbus issue #346 (Mark Purcell): in native mode this file
-            # holds HA's OWN pid, not a genuinely separate process's --
-            # `solver_runtime.py`'s own driver calls this in-process, on a
-            # worker thread of the same `hass` process, every cycle. A
-            # worker thread mid-LP-solve when HA is stopped/killed is not
-            # guaranteed to reach this function's own `release_lock()`
-            # (called from solver_runtime.py's `finally:`), so the file
-            # can be left behind holding this same process's own PID. In
-            # a Docker/HAOS container that PID is frequently identical
-            # across restarts (PID 1, or close to it) -- without this
-            # check, `os.kill(old_pid, 0)` genuinely succeeds (it's us),
-            # every single tick returns False forever, and nothing ever
-            # deletes the stale file on its own. A PID that IS our own
-            # can never indicate a real overlapping run (we are, by
-            # definition, not currently blocked acquiring this lock).
-            if old_pid == os.getpid():
-                pass  # stale file from an unclean stop -- safe to reclaim
-            else:
-                os.kill(old_pid, 0)  # raises if that PID isn't real; sends no signal
-                # Hand the process-local lock straight back: this run
-                # is not proceeding, and holding it would refuse every
-                # FUTURE tick on this install forever, long after the
-                # other process is gone (nimbus issue #757).
-                _IN_PROCESS_LOCK.release()
-                return False  # a genuine previous run is still alive
-        except (ValueError, OSError):
-            pass  # empty/corrupt/stale lock file, or a PID that's since exited -- safe to reclaim
-    with open(LOCK_PATH, "w", encoding="utf-8") as f:
-        f.write(str(os.getpid()))
-    return True
+    """See `solver.cycle_lock.acquire_lock`, which holds the real logic and the
+    #757/#346 reasoning. This passes this module's own LOCK_PATH, so every
+    existing caller and every test that rebinds LOCK_PATH here keeps working."""
+    return cycle_lock.acquire_lock(LOCK_PATH)
 
 
 def release_lock() -> None:
-    try:
-        os.remove(LOCK_PATH)
-    except OSError:
-        pass  # already gone, or never created -- either way, nothing left to clean up
-    finally:
-        # nimbus issue #757: in a `finally:` so a failure to remove
-        # the PID file can never strand the process-local lock and
-        # wedge every subsequent solve. RuntimeError is the
-        # already-unlocked case -- release_lock() is itself called
-        # from a `finally:` and must never be the thing that raises.
-        try:
-            _IN_PROCESS_LOCK.release()
-        except RuntimeError:
-            pass
+    """See `solver.cycle_lock.release_lock`. Passes this module's own LOCK_PATH."""
+    cycle_lock.release_lock(LOCK_PATH)
 
 
 QUALITY_ENTITY_ID = "sensor.nimbus_solver_quality_report"
