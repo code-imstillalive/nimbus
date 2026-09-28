@@ -395,6 +395,7 @@ try:
         resample_history_mean,
         resample_history_nearest,
         resolve_effective_capacity_kwh,
+        safe_num,
     )
 except ImportError:
     from solver_shared import (  # type: ignore[no-redef]
@@ -429,6 +430,7 @@ except ImportError:
         resample_history_mean,
         resample_history_nearest,
         resolve_effective_capacity_kwh,
+        safe_num,
     )
 
 # The F401 exceptions marked above (NETWORK_FEE_BLOCK_KEYS, P2P_BLOCK_KEYS,
@@ -1040,55 +1042,6 @@ def resolve_min_soc_kwh(
         )
         return floor_kwh
     return min_soc_kwh
-
-
-def safe_num(entity_id: str, fallback: float = 0.0) -> float:
-    """Read entity_id's current state as a float, degrading gracefully
-    (WARN + fallback) instead of crashing the whole solve cycle when the
-    entity's real state can't be parsed as a number.
-
-    Real, live crash this fixes (Mark Purcell, 2026-08-24, direct
-    follow-up to #58's own "it should catch errors and manage them"
-    complaint -- see resolve_min_soc_kwh() above for the other half of
-    that same conversation): a configured solver_export_price_sensor
-    entity's real state came back as '2026-08-24T13:00:00+10:00' (a
-    timestamp, not a price) -- the bare, unprotected
-    ``float(ha_get(entity_id)["state"])`` this replaces (previously a
-    small closure named ``num()``, local to main() and therefore
-    untestable in isolation -- extracted here for the same reason as
-    resolve_max_discharge_kw()/resolve_min_soc_kwh() above) had no
-    defence at all against that shape, and crashed every single solve
-    cycle it was reached on. Same class of external-read that "might
-    not be shaped as expected" already handled this way elsewhere in
-    this file (resolve_max_discharge_kw()'s own malformed-'max'-
-    attribute handling).
-
-    0.0 (the default fallback) matches this file's own established "no
-    better default exists" convention for a portable/generic install
-    with genuinely missing data (the P2P bonus fields, flat fee rate,
-    etc. all default the same way). Used for the three real, required
-    scalar-entity reads in main(): solver_import_price_sensor's and
-    solver_export_price_sensor's own scalar-fallback branch (only
-    reached when no forecast array exists at all), and
-    solver_battery_soc_sensor's live SoC read -- the latter is doubly
-    protected even on a 0.0 fallback: the existing initial_soc_kwh clamp
-    immediately below always has a strictly-positive floor to clamp
-    into now, thanks to resolve_min_soc_kwh() above.
-    """
-    try:
-        return float(ha_get(entity_id)["state"])
-    except (KeyError, TypeError, ValueError) as e:
-        _LOGGER.warning(
-            "Nimbus Solver: entity '%s' has a non-numeric state -- could "
-            "not parse it as a price/SoC value (%s). Falling back to %s "
-            "for this solve. Check that this entity is genuinely "
-            "configured correctly (a real price/SoC sensor, not "
-            "something else that happens to share the name).",
-            entity_id,
-            e,
-            fallback,
-        )
-        return fallback
 
 
 def _risk_aversion_effect_now(

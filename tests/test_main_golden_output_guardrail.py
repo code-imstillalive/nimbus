@@ -66,6 +66,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
+import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
 
@@ -447,6 +448,13 @@ class TestMainGoldenOutput:
 
         with (
             patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
+            # nimbus #1302 (spec 003 step 2): safe_num moved to
+            # solver_shared.py and resolves ha_get from THAT namespace, so
+            # patching only solver_writer.ha_get lets its call escape to a
+            # real HA. main()'s own reads still go through solver_writer's
+            # alias, so BOTH targets are needed -- not one instead of the
+            # other.
+            patch.object(solver_shared, "ha_get", side_effect=ha_get_mock),
             patch.object(
                 solver_writer, "ha_post_state", side_effect=_capture_ha_post_state
             ),

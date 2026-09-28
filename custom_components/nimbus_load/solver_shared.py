@@ -1373,3 +1373,56 @@ def _version_stamp() -> dict[str, str]:
     """
     version = _nimbus_version()
     return {"nimbus_version": version} if version is not None else {}
+
+
+# nimbus issue #1302 (spec 003 step 2): moved here verbatim from
+# solver_writer.py. Fully self-contained apart from _LOGGER, which this
+# module owns -- so no qualification was needed and the body is byte-for-
+# byte what it was.
+def safe_num(entity_id: str, fallback: float = 0.0) -> float:
+    """Read entity_id's current state as a float, degrading gracefully
+    (WARN + fallback) instead of crashing the whole solve cycle when the
+    entity's real state can't be parsed as a number.
+
+    Real, live crash this fixes (Mark Purcell, 2026-08-24, direct
+    follow-up to #58's own "it should catch errors and manage them"
+    complaint -- see resolve_min_soc_kwh() above for the other half of
+    that same conversation): a configured solver_export_price_sensor
+    entity's real state came back as '2026-08-24T13:00:00+10:00' (a
+    timestamp, not a price) -- the bare, unprotected
+    ``float(ha_get(entity_id)["state"])`` this replaces (previously a
+    small closure named ``num()``, local to main() and therefore
+    untestable in isolation -- extracted here for the same reason as
+    resolve_max_discharge_kw()/resolve_min_soc_kwh() above) had no
+    defence at all against that shape, and crashed every single solve
+    cycle it was reached on. Same class of external-read that "might
+    not be shaped as expected" already handled this way elsewhere in
+    this file (resolve_max_discharge_kw()'s own malformed-'max'-
+    attribute handling).
+
+    0.0 (the default fallback) matches this file's own established "no
+    better default exists" convention for a portable/generic install
+    with genuinely missing data (the P2P bonus fields, flat fee rate,
+    etc. all default the same way). Used for the three real, required
+    scalar-entity reads in main(): solver_import_price_sensor's and
+    solver_export_price_sensor's own scalar-fallback branch (only
+    reached when no forecast array exists at all), and
+    solver_battery_soc_sensor's live SoC read -- the latter is doubly
+    protected even on a 0.0 fallback: the existing initial_soc_kwh clamp
+    immediately below always has a strictly-positive floor to clamp
+    into now, thanks to resolve_min_soc_kwh() above.
+    """
+    try:
+        return float(ha_get(entity_id)["state"])
+    except (KeyError, TypeError, ValueError) as e:
+        _LOGGER.warning(
+            "Nimbus Solver: entity '%s' has a non-numeric state -- could "
+            "not parse it as a price/SoC value (%s). Falling back to %s "
+            "for this solve. Check that this entity is genuinely "
+            "configured correctly (a real price/SoC sensor, not "
+            "something else that happens to share the name).",
+            entity_id,
+            e,
+            fallback,
+        )
+        return fallback
