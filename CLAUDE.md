@@ -197,6 +197,28 @@ narrative instead of checking.
 
 ## Recent history
 
+> ### If you are picking up cold, run this — do not read a file for it
+>
+> ```
+> python tests/gates/release_drift.py --report
+> ```
+>
+> Newest tag, `manifest.json`'s version, how much shipped code is sitting on
+> `main` untagged, and an explicit **UNKNOWN** for what is deployed on
+> NUC1/NUC2/devhub — every line derived at the moment you run it. The
+> `SessionStart` hook (`.claude/hooks/session-start.sh`) prints it before a
+> session's first action, so it is not something to remember to do.
+>
+> **The handover files below are historical.** They were this repo's
+> read-first mechanism and it failed twice over: nothing forced them to be
+> read, and they *store* state, so they rot. The 2026-09-21 one records
+> production on v0.94.413 and the newest tag as v0.94.415 under a heading
+> reading "verified live 13:05 AEST" — by 2026-09-28 the tag was v0.94.427.
+> A session that dutifully read it for state got a confidently wrong answer
+> with an authoritative label attached. Each file now carries that warning at
+> its own top. Read them for the reasoning and the findings, which are still
+> good; never for a number.
+
 > **Travel handover, 2026-09-17:** `docs/handover/2026-09-17-epr-and-scoring.md`
 > is the authoritative account of the EPR/quality-scoring thread (#1077, #1079
 > shipped; #1081, #1082 open; four parked branches; the devhub-vs-NUC1 mirror
