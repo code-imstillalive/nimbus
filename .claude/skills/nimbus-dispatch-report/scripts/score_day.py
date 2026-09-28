@@ -77,6 +77,24 @@ def main() -> int:
     # value (the real SoC sensor's last known reading before that boundary)
     # as the instant proxy, falling back to h's own mean when there's no
     # preceding bucket (h==0, or a data gap).
+    # nimbus issue #1423 (Mark Purcell): the fix below never activated. Every
+    # hourly bucket came back with "last": null, because fetch_data.py's own
+    # ha_get_history call did not request that statistic -- so `prev` was
+    # ALWAYS None and this ALWAYS took its fallback, silently reproducing the
+    # hourly-mean behaviour #681 was written to replace. Measured the same day:
+    # this script printed soc_discrepancy max/mean 30.8/12.3pt against the
+    # sensor's own 5.56/2.03pt, a >5x disagreement in the opposite direction to
+    # #681's original report.
+    #
+    # fetch_data.py now asks for `last`. It may still not arrive, because
+    # whether the MCP tool forwards a `types` parameter is not something either
+    # script can guarantee. So the fallback stays -- but it is no longer
+    # silent, and anything derived from it is labelled.
+    soc_boundary_is_instant = any(
+        by_hour_last.get(hh, {}).get(sensors.get("soc")) is not None
+        for hh in by_hour_last
+    )
+
     def real_soc_at_boundary(h):
         soc_entity = sensors.get("soc")
         prev_h = f"{(int(h) - 1) % 24:02d}"
@@ -140,6 +158,16 @@ def main() -> int:
         "degradation_ach": round(deg * thr_ach, 2), "degradation_star": round(deg * thr_star, 2),
         "j_ach_repriced": round(a["j_ach"] + deg * thr_ach, 2), "j_star_repriced_upper_bound": round(j_star_eval + deg * thr_star, 2),
         "soc_discrepancy_max": round(max(disc), 1) if disc else None, "soc_discrepancy_mean": round(sum(disc) / len(disc), 1) if disc else None,
+        # nimbus #1423: says which of the two this script actually computed.
+        # "instant" means the `last` statistic was present and the #681 fix ran;
+        # "hourly_mean_estimate" means it did not, the figures above are
+        # smoothed, and the sensor's own soc_discrepancy_*_pct is authoritative.
+        "soc_discrepancy_basis": "instant" if soc_boundary_is_instant else "hourly_mean_estimate",
+        "soc_discrepancy_authoritative": {
+            "max_pct": a.get("soc_discrepancy_max_pct"),
+            "mean_pct": a.get("soc_discrepancy_mean_pct"),
+            "source": "sensor.nimbus_solver_quality_report",
+        },
         "real_close": rows[-1][3], "scored_close": rows[-1][4], "oracle_close": rows[-1][5],
     }
     # Found 2026-09-25, same area as the #1081-adjacent UTC/local fix above (2026-09-24):
@@ -169,6 +197,15 @@ def main() -> int:
     for r in rows:
         mg = r[13] if isinstance(r[13], (int, float)) else float("nan")
         print(f'{r[0]:>5s} {r[1]:5.1f} {r[2]:5.1f} {r[9]:5.1f} {r[10]:5.1f} | {(r[3] if r[3] is not None else float("nan")):5.1f} {r[4]:5.1f} {r[5]:5.1f} | {r[7]:7.2f} {r[8]:7.2f} | {r[11]:7.2f} {mg:7.2f} | {r[6]:7.3f}')
+    if not soc_boundary_is_instant:
+        print(
+            "NOTE (nimbus #1423): no `last` statistic in the fetched recorder data, so "
+            "soc_discrepancy_max/mean above are an HOURLY-MEAN ESTIMATE, not the "
+            "instant-sample comparison the sensor makes. The sensor's own figures are "
+            f"authoritative: max {a.get('soc_discrepancy_max_pct')}pt, "
+            f"mean {a.get('soc_discrepancy_mean_pct')}pt. Every other figure here "
+            "(j_ref/j_ach/j_star/regret/EPR) is unaffected."
+        )
     print("state:", state, "| kpis:", json.dumps(kpis))
     print("cross-check:", cross)
     return 0

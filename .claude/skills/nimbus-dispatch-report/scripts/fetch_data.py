@@ -31,6 +31,20 @@ def _dump(path: str, obj) -> None:
     print(f"wrote {path} ({os.path.getsize(path):,} bytes)")
 
 
+
+def _has_last(hist, soc_entity):
+    """Does the fetched statistics payload carry a non-null `last` for the SoC
+    sensor? nimbus #1423: every bucket read `"last": null`, so presence of the
+    key is not enough -- a value has to actually be there."""
+    if not hist or not soc_entity:
+        return False
+    resp = hist.get("data") or hist
+    for e in (resp.get("entities") or []):
+        if e.get("entity_id") != soc_entity:
+            continue
+        return any(r.get("last") is not None for r in (e.get("statistics") or []))
+    return False
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", required=True)
@@ -101,12 +115,40 @@ def main() -> int:
     }
     ids = [v for v in sensors.values() if v]
     print("recorder sensors:", sensors)
-    hist = hamcp.call_tool(
-        "ha_get_history",
-        {"entity_ids": ids, "source": "statistics", "period": "hour",
-         "start_time": start.astimezone(dt.timezone.utc).isoformat(),
-         "end_time": end.astimezone(dt.timezone.utc).isoformat()},
-    )
+    # nimbus issue #1423 (Mark Purcell): this call never asked for the `last`
+    # statistic, so every hourly bucket came back with "last": null -- and
+    # score_day.py's own #681 instant-proxy fix, which reads exactly that
+    # field, therefore took its documented fallback on every single run since
+    # it landed. The fix's code was right; the data was never requested.
+    #
+    # `types` is sent optimistically and dropped on failure rather than
+    # assumed: whether ha_get_history forwards it to HA's own
+    # recorder/statistics_during_period (which does accept mean/min/max/last/
+    # sum/state/change) is a property of the MCP tool's parameter surface, not
+    # of this script, and that surface is not something this script can verify.
+    # So the attempt upgrades the data wherever it is supported, and where it
+    # is not the behaviour is exactly what it was before -- with score_day.py
+    # now SAYING so instead of silently smoothing (#1423).
+    base = {"entity_ids": ids, "source": "statistics", "period": "hour",
+            "start_time": start.astimezone(dt.timezone.utc).isoformat(),
+            "end_time": end.astimezone(dt.timezone.utc).isoformat()}
+    hist = None
+    for types_key in ("types", "statistic_types"):
+        try:
+            hist = hamcp.call_tool("ha_get_history", dict(base, **{types_key: ["mean", "min", "max", "last"]}))
+        except Exception as exc:  # noqa: BLE001 -- any rejection means "not supported"
+            print(f"ha_get_history rejected {types_key}= ({str(exc)[:120]}); trying next form")
+            continue
+        if _has_last(hist, sensors.get("soc")):
+            print(f"recorder statistics include `last` via {types_key}=")
+            break
+        print(f"ha_get_history accepted {types_key}= but `last` is still absent")
+    if hist is None or not _has_last(hist, sensors.get("soc")):
+        print("WARNING (nimbus #1423): no `last` statistic for the SoC sensor -- "
+              "score_day.py's SoC discrepancy will be a smoothed estimate, and it "
+              "will say so. The sensor's own soc_discrepancy_*_pct is authoritative.")
+        if hist is None:
+            hist = hamcp.call_tool("ha_get_history", base)
     _dump(os.path.join(args.out, "recorder.json"), {"sensors": sensors, "tz": tzname, "day": day.isoformat(), "response": hist})
     return 0
 
