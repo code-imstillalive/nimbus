@@ -86,6 +86,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+import numpy as np
+
 try:
     from .. import solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -350,12 +352,6 @@ ORACLE_SKIP_NO_WINDOW = "deferrable window did not resolve for this window"
 ORACLE_SKIP_GONE = "subentry no longer configured"
 
 
-def _np():
-    import numpy as np
-
-    return np
-
-
 def build_oracle_controllable_loads(
     *,
     deliveries,
@@ -482,7 +478,7 @@ def build_oracle_controllable_loads(
             sheddable.append(
                 SheddableLoadConfig(
                     name=d.name,
-                    forecast_kw=_np().asarray(profile_kw, dtype=float),
+                    forecast_kw=np.asarray(profile_kw, dtype=float),
                     shed_cost=float(data.get(CONF_SHEDDABLE_SHED_COST) or 0.0),
                     min_fraction=float(data.get(CONF_SHEDDABLE_MIN_FRACTION) or 0.0),
                     subentry_id=d.subentry_id,
@@ -537,6 +533,6 @@ def build_oracle_controllable_loads(
     return OracleControllableLoads(
         adequacy=tuple(adequacy),
         sheddable=tuple(sheddable),
-        delivered_kwh_by_period=_np().asarray(total_kwh, dtype=float),
+        delivered_kwh_by_period=np.asarray(total_kwh, dtype=float),
         skipped=tuple(skipped),
     )

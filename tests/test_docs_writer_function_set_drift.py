@@ -182,6 +182,14 @@ def _integration_paths() -> list[str]:
 # publish these reports TO outside of a real running HA instance.
 INTENTIONAL_NATIVE_ONLY = frozenset(
     {
+        # nimbus issue #1357: builds the EPR oracle's re-timeable
+        # controllable-load inputs, which it can only do by reading the
+        # config entry's own `controllable_load` SUBENTRIES off
+        # `_NATIVE_HASS.config_entries`. A standalone/cron script has no
+        # config entry and no subentries -- there is nothing for it to read,
+        # which is the same genuine execution-context difference as
+        # `_compute_report_for_window` below rather than an unported fix.
+        "build_oracle_controllable_loads",
         "_compute_report_for_window",
         # nimbus issue #363 step 2 (Mark Purcell's own approved staged-
         # extraction plan): a pure code-organization move out of main()

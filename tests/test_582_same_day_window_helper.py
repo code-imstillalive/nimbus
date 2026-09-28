@@ -173,15 +173,44 @@ class TestTheCopiesAreGone(unittest.TestCase):
     class is duplication itself, which no behavioural test can see."""
 
     def test_the_helper_has_exactly_four_callers(self):
-        text = writer_source()
+        """Counted over the AST's real references, not the source text.
+
+        This was a `writer_source().count(...) == 5` check until nimbus #1357,
+        and a plain text count cannot tell a CALL from a mention in a comment or
+        a docstring. That cuts both ways and the second way is the dangerous
+        one: a module that explains in prose why it does NOT use this helper
+        pushed the count to 6 and failed the gate, and equally, someone adding a
+        real fifth call site while deleting one prose mention in the same change
+        would have kept the count at 5 and passed it. Counting `ast.Name` loads
+        distinguishes the two.
+        """
+        import ast
+
+        from _writer_source import writer_trees
+
+        defined = 0
+        called = 0
+        for _path, tree in writer_trees():
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == "_earliest_period_for_same_day_window"
+                ):
+                    defined += 1
+                elif (
+                    isinstance(node, ast.Name)
+                    and node.id == "_earliest_period_for_same_day_window"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    called += 1
+        self.assertEqual(defined, 1, "expected exactly one definition")
         self.assertEqual(
-            text.count("_earliest_period_for_same_day_window"),
-            5,
-            "expected one definition and exactly four call sites (two in "
-            "build_controllable_loads, two in apply_commanded_state_guard) "
-            "-- a fifth copy of this logic reappearing inline is the exact "
-            "drift #485 asked about, and it has already cost this project "
-            "one real inconsistency",
+            called,
+            4,
+            "expected exactly four call sites (two in build_controllable_loads, "
+            "two in apply_commanded_state_guard) -- a fifth copy of this logic "
+            "reappearing inline is the exact drift #485 asked about, and it has "
+            "already cost this project one real inconsistency",
         )
 
     def test_no_inline_copy_of_the_predicate_remains_in_those_functions(self):
