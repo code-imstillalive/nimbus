@@ -25,11 +25,6 @@ which only a call-time attribute lookup respects.
 Measured for THIS phase's own names, because the measurement is what makes the
 rule load-bearing rather than decorative:
 
-    _LOGGER                            patch.object(solver_writer, "_LOGGER") in
-                                       test_commanded_state_guard_reports_its_own_
-                                       failure.py:298, in a test whose whole
-                                       premise is that this guard logs its own
-                                       failure WARNING (#1019)
     _resolve_controllable_load_tuning  solver_writer._resolve_controllable_load_
                                        tuning = _maybe_raise (same file, :254) --
                                        a direct ASSIGNMENT, the shape
@@ -43,13 +38,37 @@ all bind stably: the standard library (`datetime`, `timedelta`,
 `dataclasses.replace`), third-party (`numpy`, `numpy.typing.NDArray`), and the
 pure `solver/` package (`network`).
 
-**One knowing departure from spec 006.** Its Invariants say every `_LOGGER` use
-in the moved code should reach `solver_shared._LOGGER` directly, never
-`sw._LOGGER`. That is wrong here: `solver_writer._LOGGER` is an identity alias of
-`solver_shared._LOGGER` (PR #1350), so a `Mock` installed on the `solver_writer`
-attribute is invisible to code reading the `solver_shared` one -- and the test
-above would then fail against a guard that logs perfectly well. Recorded on
-#1305 rather than silently diverging.
+## `_LOGGER` is the exception, and getting it wrong once is worth recording
+
+`_LOGGER` is reached as **`solver_shared._LOGGER`**, NOT through the seam -- which
+is exactly what spec 006's Invariants require, and what this module's first draft
+violated.
+
+The reasoning for violating it looked sound.
+`test_commanded_state_guard_reports_its_own_failure.py:298` did
+`patch.object(solver_writer, "_LOGGER")`, and `solver_writer._LOGGER` is an alias,
+so a `Mock` on it is invisible to code reading `solver_shared`. Using the seam
+made that test pass.
+
+It also broke a **package-wide gate**:
+`test_callers_mode_counts_only_real_references.py::test_the_real_tree_now_finds_
+zero_logger_callers` asserts **zero** real seam-shaped `_LOGGER` references
+anywhere outside `solver_writer.py` -- Phase 2a's own success condition, since
+`_LOGGER` has lived in `solver_shared.py` since then. And
+`solver_inputs/controllable_loads.py`'s own module docstring already warns future
+phases, having hit this in Phase 3, under the heading
+
+    ## `_LOGGER` is `solver_shared._LOGGER`, never the seam form
+
+So the right fix was not to bend the rule for this module. It was to patch the
+logger where it actually lives: that one test now patches
+`solver_shared._LOGGER`, and both it and the package gate pass.
+
+A second, mechanical consequence worth knowing: reading `_LOGGER` through
+`solver_shared` means ruff can no longer trace it as a logger, so the seven
+`# noqa: BLE001` directives on the blind-`except` handlers are needed again --
+and are therefore the originals, unedited, which is one fewer difference from the
+pre-move source.
 
 ## Layer position
 

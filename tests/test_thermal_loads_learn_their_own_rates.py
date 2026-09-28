@@ -45,12 +45,15 @@ import re
 import unittest
 from pathlib import Path
 
-_SRC = (
-    Path(__file__).resolve().parent.parent
-    / "custom_components"
-    / "nimbus_load"
-    / "solver_writer.py"
-).read_text(encoding="utf-8")
+# nimbus #1305 (spec 006, Phase 6): apply_commanded_state_guard() moved to
+# solver_dispatch/guard.py. This used to read solver_writer.py by a hardcoded
+# path, so every position assertion below would simply have stopped finding its
+# anchors -- `_SRC.index(...)` raising rather than passing, which is at least
+# loud, but the fix is to ask where the writer's code lives now.
+# `writer_source()` is the shared, drift-proof answer.
+from _writer_source import writer_source
+
+_SRC = writer_source()
 
 # Anchors carry their FULL statement text deliberately: the bare
 # phrase `if load_kind == "sheddable"` also appears inside an earlier

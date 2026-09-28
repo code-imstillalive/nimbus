@@ -36,11 +36,11 @@ That closure structure is very likely *why* the function is 1,300 lines: the
 nested bodies capture the outer scope, so splitting them out is a real refactor
 rather than a move. This phase does not attempt it.
 
-## The import rule, and the one place this departs from spec 006
+## The import rule
 
 See this package's `__init__.py` -- the seam, the per-name measurements that make
-it load-bearing, and why the moved `_LOGGER` reaches `sw._LOGGER` rather than
-`solver_shared._LOGGER` as spec 006's Invariants say.
+it load-bearing, and the `_LOGGER` question, where spec 006's Invariants were
+right and this module's first draft was wrong.
 
 `_fetch_weather_hourly_forecast` stays in `solver_writer.py` and is reached from
 here, exactly as spec 006's Facade decision specifies: it has a second,
@@ -57,8 +57,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 try:
+    from .. import solver_shared
     from ..solver import network
 except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
     from solver import network  # type: ignore[no-redef]
 
 
@@ -143,7 +145,6 @@ async def dispatch_commanded_state(
     failure never blocks another's, matching this file's established
     best-effort posture elsewhere.
     """
-    sw = _solver_writer()
     domain = entity_id.split(".", 1)[0]
     if domain == "switch":
         service = "turn_on" if commanded_state else "turn_off"
@@ -161,7 +162,7 @@ async def dispatch_commanded_state(
     elif domain == "climate":
         if commanded_state:
             if not climate_on_hvac_mode:
-                sw._LOGGER.warning(
+                solver_shared._LOGGER.warning(
                     "Nimbus: controllable load device entity '%s' is a "
                     "climate entity with no configured ON hvac_mode "
                     "(CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE) -- not "
@@ -180,7 +181,7 @@ async def dispatch_commanded_state(
             blocking=False,
         )
     else:
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus: controllable load device entity '%s' has an unsupported "
             "domain '%s' for dispatch -- switch, water_heater, and climate "
             "are supported today",
@@ -539,8 +540,8 @@ def apply_commanded_state_guard(
                     power_sensor,
                     True,  # no_attributes -- plain numeric state is enough
                 )
-            except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                sw._LOGGER.debug(
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                solver_shared._LOGGER.debug(
                     "Nimbus: #592 thermal history fetch failed for %s/%s",
                     done_entity,
                     power_sensor,
@@ -610,8 +611,8 @@ def apply_commanded_state_guard(
                     entity_id,
                     False,  # no_attributes=False -- temperature lives there
                 )
-            except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                sw._LOGGER.debug(
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                solver_shared._LOGGER.debug(
                     "Nimbus: #481 ambient history fetch failed for %s",
                     entity_id,
                     exc_info=True,
@@ -1219,7 +1220,7 @@ def apply_commanded_state_guard(
                                 _floor_warn_key = (subentry_id, day_key)
                                 if _floor_warn_key not in _FLOOR_CROSSING_WARNED:
                                     _FLOOR_CROSSING_WARNED.add(_floor_warn_key)
-                                    sw._LOGGER.warning(
+                                    solver_shared._LOGGER.warning(
                                         "Nimbus: controllable load '%s' is "
                                         "forecast to cross its own hardware "
                                         "floor (%.1f) at %s, before its own "
@@ -1346,8 +1347,8 @@ def apply_commanded_state_guard(
                                         new, day_key=day_key
                                     )
                                     new = replace(new, last_dispatch_failed=False)
-                                except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                                    sw._LOGGER.warning(
+                                except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                                    solver_shared._LOGGER.warning(
                                         "Nimbus: dispatch ON failed for "
                                         "controllable load '%s' (%s) -- will retry "
                                         "next cycle (nimbus issue #875)",
@@ -1364,7 +1365,7 @@ def apply_commanded_state_guard(
                                     # transient failure cost the load its window.
                                     new = replace(new, last_dispatch_failed=True)
                             else:
-                                sw._LOGGER.warning(
+                                solver_shared._LOGGER.warning(
                                     "Nimbus: controllable load '%s' wants ON but "
                                     "is capped at %s activations/day -- not "
                                     "dispatched this cycle",
@@ -1377,8 +1378,8 @@ def apply_commanded_state_guard(
                                     sw._NATIVE_HASS, device_entity, False
                                 )
                                 new = replace(new, last_dispatch_failed=False)
-                            except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                                sw._LOGGER.warning(
+                            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                                solver_shared._LOGGER.warning(
                                     "Nimbus: dispatch OFF failed for "
                                     "controllable load '%s' (%s) -- will retry "
                                     "next cycle (nimbus issue #875)",
@@ -1419,7 +1420,7 @@ def apply_commanded_state_guard(
                                 new, now_ts=now.timestamp(), day_key=day_key
                             )
                             new = replace(new, last_dispatch_failed=False)
-                            sw._LOGGER.info(
+                            solver_shared._LOGGER.info(
                                 "Nimbus: re-sent %s to controllable load '%s' (%s) "
                                 "-- %s. Re-send %d of %d today; this does NOT "
                                 "count against the activations/day cap.",
@@ -1430,8 +1431,8 @@ def apply_commanded_state_guard(
                                 new.reaffirms_today,
                                 load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
                             )
-                        except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-                            sw._LOGGER.warning(
+                        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                            solver_shared._LOGGER.warning(
                                 "Nimbus: re-send failed for controllable load '%s' (%s)",
                                 subentry_id,
                                 device_entity,
@@ -1474,7 +1475,7 @@ def apply_commanded_state_guard(
                         _cap_warn_key = (subentry_id, day_key)
                         if _cap_warn_key not in _REAFFIRM_CAP_WARNED:
                             _REAFFIRM_CAP_WARNED.add(_cap_warn_key)
-                            sw._LOGGER.warning(
+                            solver_shared._LOGGER.warning(
                                 "Nimbus: controllable load '%s' (%s) is still not "
                                 "following its commanded state (%s), but the daily "
                                 "re-send cap of %d is spent -- Nimbus will stop "
@@ -1488,12 +1489,12 @@ def apply_commanded_state_guard(
                             )
                     if new is not prev:
                         await store.async_write(subentry_id, new)
-                except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+                except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
                     # Per-load, so the loop continues. Deliberately WARNING and
                     # deliberately naming the load: this is the level at which
                     # a household can act on it, and the outer handler cannot
                     # say WHICH load failed because by then the frame is gone.
-                    sw._LOGGER.warning(
+                    solver_shared._LOGGER.warning(
                         "Nimbus: controllable load '%s' (%s) failed to be processed "
                         "this solve cycle and was NOT commanded -- every other load "
                         "is unaffected, and the next cycle retries this one from "
@@ -1508,7 +1509,7 @@ def apply_commanded_state_guard(
 
         future = _asyncio.run_coroutine_threadsafe(_update_all(), sw._NATIVE_HASS.loop)
         future.result(timeout=10)
-    except Exception:  # exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #1019. This handler must stay -- it is the last
         # thing between a controllable-load failure and the solve cycle
         # it runs inside, and dispatch must never take the solve down.
@@ -1533,7 +1534,7 @@ def apply_commanded_state_guard(
         # remainder of the cycle -- is the other half of #1019 and needs
         # a re-indent of the whole loop body, so it is deliberately not
         # bundled here.
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus: commanded-state guard failed this solve cycle -- any "
             "controllable load not yet processed was NOT commanded (see "
             "nimbus issue #1019; loads already dispatched are unaffected, "
