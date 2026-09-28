@@ -3208,7 +3208,7 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     defect: **if `recorder.db_schema` logs "State attributes for
     <one of these> exceed maximum size", the writer is not this entity.**
     Check `solve_diagnostics`' key count on the state -- current code
-    emits **fourteen**; fewer means stale or external code wrote it, which
+    emits **fifteen**; fewer means stale or external code wrote it, which
     is a deployment problem, not this class's. That check has caught three
     wrong conclusions about live behaviour in a single session.
 

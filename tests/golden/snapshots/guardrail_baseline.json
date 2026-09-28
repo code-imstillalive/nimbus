@@ -12649,7 +12649,8 @@
        "n_periods": 202,
        "n_sheddable_loads": 0,
        "n_thermal_loads": 0,
-       "simplex_iterations": 0
+       "simplex_iterations": 0,
+       "thermal_guarantee_relaxed": []
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",
@@ -12759,7 +12760,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 295070 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=268716B, batteries=23343B, solve_diagnostics=403B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 295103 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=268716B, batteries=23343B, solve_diagnostics=436B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }
