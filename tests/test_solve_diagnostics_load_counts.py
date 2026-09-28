@@ -32,7 +32,8 @@ from __future__ import annotations
 
 import unittest
 
-import _solver_path
+import _solver_path  # noqa: F401 -- sys.path setup side effect
+from _writer_source import writer_trees
 
 
 def _counts(n_sheddable: int, n_adequacy: int, n_thermal: int) -> dict:
@@ -92,12 +93,14 @@ class TestPublishPathUsesAllThreeLists(unittest.TestCase):
 
     def test_publish_plan_counts_thermal_loads(self):
         import ast
-        import pathlib
 
-        src = pathlib.Path(
-            _solver_path._SOLVER_PARENT  # type: ignore[attr-defined]
-        ).joinpath("solver_writer.py")
-        tree = ast.parse(src.read_text(encoding="utf-8"), filename=str(src))
+        # nimbus #1304 (spec 005): the solve_diagnostics literal moved to
+        # solver_publish.py with publish_plan. One synthetic Module over every
+        # writer module keeps ast.walk() and this loop exactly as written.
+        tree = ast.Module(
+            body=[n for _p, _t in writer_trees() for n in _t.body],
+            type_ignores=[],
+        )
 
         found = []
         for node in ast.walk(tree):

@@ -56,7 +56,14 @@ _SOLVER_WRITER = _NIMBUS_DIR / "solver_writer.py"
 # the other HA-I/O and config-resolution helpers now live, so a future
 # "#N diag:" call site added to one of them must keep being seen here.
 def _scanned_paths() -> list[Path]:
-    return [_SOLVER_WRITER, _NIMBUS_DIR / "solver_shared.py"] + [
+    return [
+        _SOLVER_WRITER,
+        _NIMBUS_DIR / "solver_shared.py",
+        # nimbus #1304 (spec 005 step 5): publish_plan and its thirteen helpers
+        # moved here, and six of them carry _LOGGER calls -- so a future
+        # "#N diag:" line added to one of them must keep being seen.
+        _NIMBUS_DIR / "solver_publish.py",
+    ] + [
         Path(p) for p in sorted(glob.glob(str(_NIMBUS_DIR / "solver_inputs" / "*.py")))
     ]
 

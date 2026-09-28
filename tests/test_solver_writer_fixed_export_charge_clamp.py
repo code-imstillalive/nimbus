@@ -42,13 +42,13 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+import solver_publish
 
 NAN = float("nan")
 
 
 def _clamp(fixed_export, gated, aggregate, discharge, grid_import):
-    return solver_writer.resolve_fixed_export_charge_clamp(
+    return solver_publish.resolve_fixed_export_charge_clamp(
         None if fixed_export is None else np.array(fixed_export, dtype=float),
         gated_charge_kw=np.array(gated, dtype=float),
         aggregate_charge_kw=np.array(aggregate, dtype=float),

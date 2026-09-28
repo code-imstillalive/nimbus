@@ -35,7 +35,7 @@ import unittest
 from types import SimpleNamespace
 
 import _solver_path  # noqa: F401
-import solver_writer
+import solver_publish
 
 
 def _fake_plan(
@@ -77,7 +77,7 @@ def _label(plan, period_0_hours=1.0):
     # period_0_hours`) keeps every existing assertion below unchanged --
     # dividing by 1.0 is a no-op. See TestPeriod0HoursCorrection below
     # for dedicated coverage of the real, non-1.0 case.
-    return solver_writer.compute_binding_constraint_label(
+    return solver_publish.compute_binding_constraint_label(
         plan,
         _EXPORT_LIMIT_KW,
         _IMPORT_LIMIT_KW,
@@ -234,7 +234,7 @@ class TestUnexpectedNeitherBoundDegradesHonestly(unittest.TestCase):
             reduced_costs={"grid_export_0": 0.01},
             grid_export_kw=(0.0,),
         )
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             plan, 0.0, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW, 1.0
         )
         self.assertEqual(label, "Grid export at zero (not economical right now)")
@@ -311,7 +311,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         )
 
     def test_a_p2p_pin_is_named_rather_than_called_unexpected(self):
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(),
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -330,7 +330,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         in every uncommitted period, so period 0 is routinely NaN on an
         install that has P2P configured at all. That must not swallow a
         genuinely unexplained value."""
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(),
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -345,7 +345,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         """The guard this branch sits next to exists to surface bounds
         nothing in the function models. Narrowing it to the pin keeps
         that guard live for the next one."""
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(value_kw=7.5),
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -361,7 +361,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         wording is a documented compatibility guarantee (#125/#133). A
         commitment that happens to equal the export limit must not
         quietly re-word it."""
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(value_kw=_EXPORT_LIMIT_KW),
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -396,7 +396,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         reason to export, during the exact hours export was
         deterministically forbidden.
         """
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(value_kw=0.0),
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -424,7 +424,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         """
         for fixed_export in (None, float("nan")):
             with self.subTest(fixed_export_kw_now=fixed_export):
-                label, _ = solver_writer.compute_binding_constraint_label(
+                label, _ = solver_publish.compute_binding_constraint_label(
                     self._pinned_plan(value_kw=0.0),
                     _EXPORT_LIMIT_KW,
                     _IMPORT_LIMIT_KW,
@@ -444,7 +444,7 @@ class TestP2PPinnedExport(unittest.TestCase):
             reduced_costs={"battery_discharge_0": 0.05},
             battery_discharge_kw=(self._PIN_KW,),
         )
-        label, _ = solver_writer.compute_binding_constraint_label(
+        label, _ = solver_publish.compute_binding_constraint_label(
             plan,
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -516,7 +516,7 @@ class TestThePinMatchSurvivesRealSolverResidual(unittest.TestCase):
             reduced_costs={"grid_export_0": 0.05},
             grid_export_kw=(solved_kw,),
         )
-        return solver_writer.compute_binding_constraint_label(
+        return solver_publish.compute_binding_constraint_label(
             plan,
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,
@@ -562,8 +562,8 @@ class TestThePinMatchSurvivesRealSolverResidual(unittest.TestCase):
     def test_the_tolerance_is_far_below_anything_actionable(self):
         """A guard on the constant itself: widen it to where it could mask
         a real dispatch difference and this fails."""
-        self.assertLessEqual(solver_writer._PIN_MATCH_TOLERANCE_KW, 0.05)
-        self.assertGreater(solver_writer._PIN_MATCH_TOLERANCE_KW, 0.0)
+        self.assertLessEqual(solver_publish._PIN_MATCH_TOLERANCE_KW, 0.05)
+        self.assertGreater(solver_publish._PIN_MATCH_TOLERANCE_KW, 0.0)
 
 
 class TestTheFallbackMessageCarriesTheCommitment(unittest.TestCase):
@@ -577,7 +577,7 @@ class TestTheFallbackMessageCarriesTheCommitment(unittest.TestCase):
             reduced_costs={"grid_export_0": 0.05},
             grid_export_kw=(25.0,),  # well above any pin -> falls through
         )
-        return solver_writer.compute_binding_constraint_label(
+        return solver_publish.compute_binding_constraint_label(
             plan,
             _EXPORT_LIMIT_KW,
             _IMPORT_LIMIT_KW,

@@ -26,6 +26,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
+import solver_publish
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
@@ -132,8 +133,8 @@ class TestWholeHouseLiveLoadDiagnostic:
         ):
             solver_writer.main()
 
-        assert solver_writer.ENTITY_ID in posted
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        assert solver_publish.ENTITY_ID in posted
+        _state, attrs = posted[solver_publish.ENTITY_ID]
 
         # The new field: the genuine live reading.
         assert attrs["load_whole_house_live_now_kw"] == _REAL_LIVE_METER_READING

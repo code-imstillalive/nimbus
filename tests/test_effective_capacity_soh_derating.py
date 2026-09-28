@@ -300,9 +300,13 @@ class TestEverySolvePathUsesIt(unittest.TestCase):
         from pathlib import Path
 
         root = Path(__file__).resolve().parent.parent
-        self.writer = (
-            root / "custom_components" / "nimbus_load" / "solver_writer.py"
-        ).read_text(encoding="utf-8")
+        # nimbus #1304 (spec 005): the three published capacity keys moved to
+        # solver_publish.py with publish_plan. writer_source() is the union
+        # across solver_writer.py and every module #1298 has extracted -- "the
+        # integration side", which is what this pairs against self.cron.
+        from _writer_source import writer_source
+
+        self.writer = writer_source()
         self.cron = (
             root
             / "docs"

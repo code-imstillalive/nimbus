@@ -32,6 +32,8 @@ import re
 import sys
 from pathlib import Path
 
+from _writer_source import writer_source
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
 
@@ -149,5 +151,8 @@ def test_solver_config_diagnostic_still_deliberately_uses_the_pre_anchor_snapsho
     # cross-check diagnostic -- which stays in solver_writer.py. Reusing
     # the helper here would search whichever module happens to host the
     # household-load-total push and quietly assert nothing.
-    src = (_NIMBUS_LOAD / "solver_writer.py").read_text(encoding="utf-8")
+    # nimbus #1304 (spec 005): this content moved to solver_publish.py.
+    # writer_source() is the union across solver_writer.py and every module
+    # #1298 has extracted -- the property this test actually asserts.
+    src = writer_source()
     assert '"load_summed_18_now_kw": round(summed_18_now_kw, 3),' in src

@@ -33,9 +33,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import _solver_path  # noqa: F401
-import solver_writer
+import solver_publish
 
-_flow_decomposition = solver_writer._flow_decomposition
+_flow_decomposition = solver_publish._flow_decomposition
 
 # Reconciliation tolerance for FLOW-05/06 -- the merit-order
 # reconstruction can differ from the real LP's own published grid_import/
