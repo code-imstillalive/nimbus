@@ -1,7 +1,8 @@
 # Spec 007: HA bridge, cycle lock, and standalone entrypoint
 
-Status: **7a implemented 2026-09-29 (#1425) with two documented deviations -- see
-"Implementation findings (Phase 7a)". 7b still proposed and blocked.**
+Status: **7a implemented 2026-09-29 (#1425). 7b WITHDRAWN -- see "Outcome
+(Phase 7b)" below: its own premise was refuted by a decision spec 001 had
+already made and documented, and this spec was wrong to propose it.**
 Plan: docs/architecture/tech-debt-plan.md; phase: #1306
 
 All line numbers and counts in this spec are measured at `main` = `f7c3800`
@@ -296,6 +297,112 @@ written. The options are exactly:
 - [ ] Spec-specific: released, installed on devhub, and the integration loads
       (`config_entries` `state: loaded`) with entities stamping the new version —
       per the household's standing rule that a change is not done at "merged".
+
+## Outcome (Phase 7b, 2026-09-29): NOT DONE, and should not be done as specified
+
+7a shipped (#1425). **7b is withdrawn**, and the reason is a mistake in this spec
+rather than a blocker outside it. Recorded here in full because the Migration
+section above still reads as a plan, and following it would undo a decision an
+earlier phase made deliberately.
+
+### The blocker this spec named was not the real obstacle
+
+Status above said 7b was blocked until `tests/gates/noop_patches.py` could observe
+a direct attribute assignment. That gap is real -- it is now tracked on its own as
+**#1434**, where the measured ratio is **9 of 201 sites (4.5%)** for `_NATIVE_HASS`
+-- but it was never what made 7b wrong.
+
+### Spec 001 had already decided that these names stay, with reasons
+
+`solver_shared.py`'s own module docstring, written in Phase 2a:
+
+> **`_NATIVE_HASS`/`HA_BASE`/`_load_token()` deliberately stay behind** in
+> `solver_writer.py`, reached here via the same deferred, by-MODULE
+> `_solver_writer()` seam ...
+
+Two independently-discovered reasons, both still true:
+
+1. **`_NATIVE_HASS` is spec 001's own named exception.** It is *reassigned* by
+   `set_native_hass()`, so a plain re-export freezes the importing module's copy at
+   import time.
+2. **`HA_BASE`/`_load_token()`**:
+   `tests/test_solver_writer_import_and_token_laziness.py` **source-scans
+   `solver_writer.py` itself** for the literal `open(TOKEN_PATH` call site inside a
+   function named `_load_token()`. Verified at `:130-145` rather than taken from the
+   docstring -- it builds a path to `solver_writer.py`, reads it, counts
+   `open(TOKEN_PATH`, and asserts the one real call site is inside `_load_token()`.
+   **Moving that body breaks a real, existing, unedited test.**
+
+**Step 3 of the Migration above proposes moving exactly those three names.** That
+is this spec's error, not a discovery about the tree. Spec 006 is @purcell-lab's
+and its `_LOGGER` invariant turned out to be right when Phase 6 argued with it;
+spec 007 is mine and is wrong here.
+
+### And the patch surface is far larger than the inventory says
+
+Measured on `main` after Phase 6. The Measured-cost table above reports 0-3 patch
+sites for these names; the real figures:
+
+| name | patched/assigned on `solver_writer` | read as `solver_writer.<name>` |
+|---|---:|---:|
+| `ha_call_service` | **6** | 0 |
+| `ha_call_service_with_response` | **7** | 3 |
+| `_load_token` | **4** | 3 |
+| `_TOKEN_LOADED` | **2** | 2 |
+| `_TOKEN` | **2** | 2 |
+| `TOKEN_PATH` | 0 | 0 |
+
+**21 patch/assign sites.** Every name that was supposed to move is patched where it
+lives now, so each would need a *wrapper* facade -- 7a's `acquire_lock` shape, not
+an alias -- and for `_TOKEN`/`_TOKEN_LOADED` a wrapper is impossible at all:
+`global _TOKEN, _TOKEN_LOADED` at `solver_writer.py:1345` binds in the *defining*
+module.
+
+The `ha_call_service` row is worth one correction: the two `services.py` hits that
+made it look like it had a production caller are **comments**, not calls.
+
+### What remains, and why it is not worth a phase
+
+Subtract the names that must stay and 7b reduces to `ha_call_service` +
+`ha_call_service_with_response`, about **100 lines** -- and both read
+`_NATIVE_HASS`, which stays, so they would reach layer 1 from layer 5 through the
+seam:
+
+| | |
+|---|---|
+| lines out of an 8,777-line file | ~100 |
+| `ignore_imports` | **+1** (15 -> 16) |
+| patch sites needing a new wrapper facade | 13 |
+| shared state leaving the top layer | **none** |
+
+The Invariants section above states the goal as *"after 7b, `ignore_imports` loses
+every entry whose only reason was the `_NATIVE_HASS` reach."* With `_NATIVE_HASS`,
+the token trio and `TOKEN_PATH` all staying, that cannot happen -- the list grows.
+The phase's own success condition is unreachable by the phase.
+
+### The real item, stated so it is not lost
+
+If the top layer owning `_NATIVE_HASS` and the token state is judged worth fixing,
+the fix is **not a code move**. It is replacing a *reassigned module global* with
+something aliasable -- `set_native_hass()` writing into a single-owner holder whose
+identity never changes, so every layer holds a reference instead of re-resolving a
+name through a seam. That removes the reason spec 001 made its exception, and with
+it most of this spec.
+
+It also has **201 test write-sites** attached and is a design change, not a
+relocation. It deserves its own issue and its own decision rather than arriving as
+the tail of a decomposition.
+
+### Where the decomposition finished
+
+```
+solver_writer.py   18,708 -> 8,777 lines   (-53%)
+size ratchet            67 -> 36            67 -> 61 -> 53 -> 47 -> 39 -> 38 -> 36
+```
+
+Phases 0, 2a, 2b/2c, 3, 4, 5, 6 and 7a landed. `standalone_writer.py` (step 5) is
+withdrawn with the rest of 7b: it is 18 lines of `__main__` whose only purpose was
+to leave `solver_writer.py` alongside the other moves, and on its own it is churn.
 
 ## Implementation findings (Phase 7a, 2026-09-29)
 
