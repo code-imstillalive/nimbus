@@ -187,6 +187,35 @@ exists once Phase 3/4 have merged — listing it here as fact-checked today woul
 exactly the kind of confident-but-unverified claim this project's own CLAUDE.md warns
 against making.
 
+**Checked, not assumed: none of the three genuinely Phase-6-owned functions
+(`apply_commanded_state_guard`, `dispatch_commanded_state`,
+`_resolve_reaffirm_after_seconds`) binds module-level state via `global`.**
+Same gotcha spec 002/003 already surfaced (`_carry_forward_quality_history`'s
+`global _LAST_KNOWN_QUALITY_HISTORY`, unfixable by a facade alias because a
+`global`-rebound name is reassigned, not read). AST-walked all three
+`FunctionDef`/`AsyncFunctionDef` nodes: zero `ast.Global` hits. This is also
+what makes `_FLOOR_CROSSING_WARNED`/`_REAFFIRM_CAP_WARNED` safe to move
+despite being module-level state: both are `set[tuple[str, str]]` values
+**mutated in place** via `.add()` (`:12685`-`86`, `:12940`-`41`), never
+rebound — no function anywhere in `solver_writer.py` declares either name
+`global`. A rebound name would have to stay put and be reached as `sw.X = ...`
+(the `_NATIVE_HASS` treatment); an in-place-mutated one moves cleanly either
+way, which is the property that distinguishes the two sets here from
+`_LAST_KNOWN_QUALITY_HISTORY`.
+
+**Checked, not assumed: no default argument on the Phase-6-owned functions
+evaluates a `solver_writer` module-level name.** The companion gotcha (spec
+002's own `prior_read: str = PRIOR_READ_OK` trap — a default evaluated at
+function-definition time, before `sw = _solver_writer()` runs). AST-inspected
+`args.defaults`/`kw_defaults` on all three: `apply_commanded_state_guard`
+carries four (`period_hours_arr`, `import_price_arr`,
+`tariff_attributed_cost_by_subentry`, `cfg`, each `=None`),
+`dispatch_commanded_state` carries one (`climate_on_hvac_mode=None`), and
+`_resolve_reaffirm_after_seconds` carries none — every one of the five is a
+plain `ast.Constant` `None`, none is a `Name` node resolving to anything
+defined in `solver_writer.py` at module scope, so none is subject to the
+trap.
+
 ## Interfaces
 
 Signature unchanged — a placement move, matching Phases 1–3 and 5's own convention, not
