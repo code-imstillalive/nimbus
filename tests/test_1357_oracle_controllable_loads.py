@@ -48,6 +48,7 @@ from datetime import UTC, datetime, timedelta
 
 import _solver_path  # noqa: F401
 import numpy as np
+import pytest
 from solver.elements import (
     AdequacyLoadConfig,
     BatteryConfig,
@@ -305,6 +306,66 @@ class TestTheOracleActuallyGetsTheLoad(unittest.TestCase):
             )
         )
         self.assertEqual(r.oracle_controllable_loads_scored, ("pool",))
+
+
+class TestTheEvaluatorHeadlineHonoursTheRetiming(unittest.TestCase):
+    """IV&V finding (bc366c2..7ad927b pass, nimbus issue #1428): step 2's own
+    wiring (`0c4b24d`) reprices `j_star` (the LP objective) correctly against
+    the reduced load, but `j_star_evaluator` -- the number `compute_epr()`
+    actually reads per #1081 -- is rebuilt in `compute_quality_report()` from
+    the ORIGINAL, un-reduced `load.forecast_kw`, never the reduced load the
+    LP solved against and never with the adequacy/sheddable load's own
+    re-timed power added back in. The re-timed energy is missing from the
+    evaluator's grid-cost recomputation at both its original AND its new
+    time.
+
+    `test_re_timeable_energy_cannot_make_the_oracle_worse` above already
+    pins the equivalent invariant for `j_star` (the LP objective, which is
+    correct). This is the same invariant applied to `theoretical_maximum_
+    yield` -- the published headline -- which currently fails it.
+    """
+
+    @pytest.mark.xfail(
+        reason=(
+            "nimbus #1428: j_star_evaluator (and everything downstream of "
+            "it -- j_star_grid_kw, j_star_hourly, the published EPR/"
+            "theoretical_maximum_yield) is derived from the ORIGINAL "
+            "un-reduced load.forecast_kw, not the reduced load oracle_plan "
+            "was actually solved against. Measured on this fixture: j_star "
+            "correctly improves (-0.8514 -> -0.8678) when a 4 kWh "
+            "dishwasher at periods 19-20 (0.30/kWh) is handed to the "
+            "oracle as re-timeable into the cheap overnight window "
+            "(periods 1-4, 0.10/kWh), but j_star_evaluator gets WORSE by "
+            "exactly $1.00 (-1.2240 -> -0.2240) and the published "
+            "theoretical_maximum_yield SHRINKS by exactly $1.00 (9.224 -> "
+            "8.224) -- the wrong direction for a pure superset of freedom."
+        ),
+        strict=True,
+    )
+    def test_theoretical_maximum_yield_does_not_shrink_when_the_oracle_gains_freedom(
+        self,
+    ):
+        delivered = _delivered(periods=(19, 20), kwh_each=2.0)
+        bundle = OracleControllableLoads(
+            adequacy=(_adequacy(target_kwh=4.0),),
+            delivered_kwh_by_period=delivered,
+        )
+        plain = _report()
+        wired = _report(controllable=bundle)
+        self.assertGreaterEqual(
+            wired.epr.theoretical_maximum_yield,
+            plain.epr.theoretical_maximum_yield - 1e-6,
+            "theoretical_maximum_yield fell from "
+            f"{plain.epr.theoretical_maximum_yield} to "
+            f"{wired.epr.theoretical_maximum_yield} when the oracle was "
+            "given a pure superset of its prior freedom (the same energy, "
+            "just re-timeable). j_star_evaluator is being priced against "
+            "a trajectory the LP never actually chose.\n"
+            f"  plain: j_star={plain.j_star} j_star_evaluator="
+            f"{plain.j_star_evaluator}\n"
+            f"  wired: j_star={wired.j_star} j_star_evaluator="
+            f"{wired.j_star_evaluator}",
+        )
 
 
 class TestTheSubtractionIsClippedAndTheShortfallIsPublished(unittest.TestCase):
