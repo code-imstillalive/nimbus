@@ -258,6 +258,7 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
         import urllib.error
         from unittest.mock import patch
 
+        import solver_shared
         import solver_writer
         from _isolated_state import isolated_state_paths
         from test_main_golden_output_guardrail import _SOLVER_CONFIG_ATTRS
@@ -287,6 +288,13 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
 
         with (
             patch.object(solver_writer, "ha_get", side_effect=_ha_get),
+            # nimbus #1302 (spec 003 step 2): safe_num moved to
+            # solver_shared.py and resolves ha_get from THAT namespace, so
+            # patching only solver_writer.ha_get lets its call escape to a
+            # real HA. main()'s own reads still go through solver_writer's
+            # alias, so BOTH targets are needed -- not one instead of the
+            # other.
+            patch.object(solver_shared, "ha_get", side_effect=_ha_get),
             patch.object(solver_writer, "ha_post_state"),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
@@ -362,14 +370,14 @@ class TestThePerLoadPresetIsObservable(unittest.TestCase):
         solve to observe a log line. Checks the three things that make
         the line useful: the level, the mode, and WHICH load — a six-load
         install needs to know which one moved."""
-        from pathlib import Path
+        # nimbus #1302 (spec 003): the call site moved to
+        # solver_inputs/controllable_loads.py with build_controllable_loads.
+        # writer_source() is the union across solver_writer.py and every
+        # module #1298 has extracted out of it, which is the property this
+        # test was always asserting -- not which file the literal lives in.
+        from _writer_source import writer_source
 
-        src = (
-            Path(__file__).resolve().parent.parent
-            / "custom_components"
-            / "nimbus_load"
-            / "solver_writer.py"
-        ).read_text(encoding="utf-8")
+        src = writer_source()
         i = src.index("household_modes.apply_to_load_config")
         # Wide enough to reach the whole log call. An earlier 900
         # truncated mid-argument and failed on `title` -- the window

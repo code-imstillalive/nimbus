@@ -132,15 +132,21 @@ class TestBlendDoesNotProtectSettledPeriodZero:
         # state is unavailable/unparseable at the moment of the read.
         from unittest.mock import patch
 
+        # nimbus #1302 (spec 003 step 2): safe_num moved to
+        # solver_shared.py, so it resolves ha_get from THAT
+        # namespace. Patching solver_writer.ha_get no longer
+        # reaches it and the call escapes to a real HA.
+        import solver_shared
+
         with patch.object(
-            solver_writer, "ha_get", return_value={"state": "unavailable"}
+            solver_shared, "ha_get", return_value={"state": "unavailable"}
         ):
             result = solver_writer.safe_num(
                 "sensor.amber_general_price", fallback=0.0503
             )
         assert result == 0.0503  # falls back to the pre-existing value
 
-        with patch.object(solver_writer, "ha_get", return_value={"state": "0.0489"}):
+        with patch.object(solver_shared, "ha_get", return_value={"state": "0.0489"}):
             result = solver_writer.safe_num(
                 "sensor.amber_general_price", fallback=0.0503
             )

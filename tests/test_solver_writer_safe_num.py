@@ -22,13 +22,25 @@ import unittest
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
+
+# nimbus issue #1302 (spec 003 step 2): `safe_num` moved to solver_shared.py, so
+# it resolves `ha_get` and `_LOGGER` from THAT module's namespace. Patching
+# `solver_writer.ha_get` no longer reaches it -- the call escaped to the real
+# `ha_get` and these tests failed with ConnectionRefusedError against a live HA.
+#
+# solver_writer.safe_num is still a working facade alias and the production call
+# sites are unchanged; it is only the PATCH TARGET that has to follow the body.
+# Spec 003 flagged safe_num as needing a facade but did not anticipate this: a
+# facade fixes name resolution for CALLERS, not for the moved function's own
+# dependency lookups.
 
 
 class TestMarksExactRealRepro(unittest.TestCase):
     def test_timestamp_state_no_longer_crashes(self):
         with patch.object(
-            solver_writer,
+            solver_shared,
             "ha_get",
             return_value={"state": "2026-08-24T13:00:00+10:00"},
         ):
@@ -41,11 +53,11 @@ class TestMarksExactRealRepro(unittest.TestCase):
         # log -- now a real _LOGGER.warning() call.
         with (
             patch.object(
-                solver_writer,
+                solver_shared,
                 "ha_get",
                 return_value={"state": "2026-08-24T13:00:00+10:00"},
             ),
-            patch.object(solver_writer, "_LOGGER") as mock_logger,
+            patch.object(solver_shared, "_LOGGER") as mock_logger,
         ):
             solver_writer.safe_num("sensor.misconfigured_export_price")
             mock_logger.warning.assert_called_once()
@@ -56,7 +68,7 @@ class TestMarksExactRealRepro(unittest.TestCase):
 
 class TestNormalNumericStatesPassThroughUnchanged(unittest.TestCase):
     def test_plain_numeric_state_string(self):
-        with patch.object(solver_writer, "ha_get", return_value={"state": "0.2847"}):
+        with patch.object(solver_shared, "ha_get", return_value={"state": "0.2847"}):
             result = solver_writer.safe_num("sensor.real_export_price")
         self.assertEqual(result, 0.2847)
 
@@ -64,14 +76,14 @@ class TestNormalNumericStatesPassThroughUnchanged(unittest.TestCase):
         # A genuinely negative export/import price is real (curtailment
         # periods, negative FiT events) -- must not be treated as an
         # error.
-        with patch.object(solver_writer, "ha_get", return_value={"state": "-0.05"}):
+        with patch.object(solver_shared, "ha_get", return_value={"state": "-0.05"}):
             result = solver_writer.safe_num("sensor.real_export_price")
         self.assertEqual(result, -0.05)
 
     def test_no_warning_for_a_normal_value(self):
         with (
-            patch.object(solver_writer, "ha_get", return_value={"state": "0.15"}),
-            patch.object(solver_writer, "_LOGGER") as mock_logger,
+            patch.object(solver_shared, "ha_get", return_value={"state": "0.15"}),
+            patch.object(solver_shared, "_LOGGER") as mock_logger,
         ):
             solver_writer.safe_num("sensor.real_export_price")
             mock_logger.warning.assert_not_called()
@@ -83,18 +95,18 @@ class TestOtherRealFailureShapes(unittest.TestCase):
 
     def test_unavailable_state_string(self):
         with patch.object(
-            solver_writer, "ha_get", return_value={"state": "unavailable"}
+            solver_shared, "ha_get", return_value={"state": "unavailable"}
         ):
             result = solver_writer.safe_num("sensor.transiently_down")
         self.assertEqual(result, 0.0)
 
     def test_unknown_state_string(self):
-        with patch.object(solver_writer, "ha_get", return_value={"state": "unknown"}):
+        with patch.object(solver_shared, "ha_get", return_value={"state": "unknown"}):
             result = solver_writer.safe_num("sensor.not_yet_populated")
         self.assertEqual(result, 0.0)
 
     def test_missing_state_key_entirely(self):
-        with patch.object(solver_writer, "ha_get", return_value={}):
+        with patch.object(solver_shared, "ha_get", return_value={}):
             result = solver_writer.safe_num("sensor.malformed_response")
         self.assertEqual(result, 0.0)
 
@@ -102,7 +114,7 @@ class TestOtherRealFailureShapes(unittest.TestCase):
         # A caller that wants a different (non-zero) fallback -- proves
         # the parameter is real, not just documented.
         with patch.object(
-            solver_writer, "ha_get", return_value={"state": "not-a-number"}
+            solver_shared, "ha_get", return_value={"state": "not-a-number"}
         ):
             result = solver_writer.safe_num("sensor.bad", fallback=0.15)
         self.assertEqual(result, 0.15)

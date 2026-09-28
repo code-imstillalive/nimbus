@@ -17,6 +17,7 @@ import load_run_state
 import solver_writer
 import thermal_forecast
 from solver.elements import ThermalLoadConfig
+from solver_inputs import controllable_loads
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
 
@@ -288,14 +289,20 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
             thermal_heating_rate_c_per_kwh=9.4,
             thermal_idle_decay_c_per_hour=0.62,
         )
-        orig = solver_writer._sample_load_run_state
-        solver_writer._sample_load_run_state = lambda *a, **k: learned_state
+        # nimbus #1302 (spec 003): patched on solver_inputs.controllable_loads,
+        # NOT on solver_writer. build_controllable_loads moved into that module
+        # and calls _sample_load_run_state as a bare intra-module name, so
+        # solver_writer's re-export is no longer the name it reads -- patching
+        # the facade here would be a silent no-op and this test would pass on
+        # the module default instead of the learned state it means to check.
+        orig = controllable_loads._sample_load_run_state
+        controllable_loads._sample_load_run_state = lambda *a, **k: learned_state
         try:
             _sheddable, _adequacy, thermal = solver_writer.build_controllable_loads(
                 now, grid_times, len(grid_times)
             )
         finally:
-            solver_writer._sample_load_run_state = orig
+            controllable_loads._sample_load_run_state = orig
 
         tl = thermal[0]
         self.assertEqual(tl.heating_rate_c_per_kwh, 9.4)

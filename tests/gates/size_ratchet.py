@@ -96,14 +96,26 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    53  # solver_writer.py alone as of nimbus #1301 Phase 2b+2c. The ratchet
-    # only ever tightens, and this is the third time it has: 67 at d5b044b,
-    # 61 after spec 001 moved six functions to solver_shared.py, 53 now that
-    # Phase 2b/2c moved eight reporting functions to solver_reports/ (three
-    # of them -- _compute_report_for_window, publish_daily_quality_report,
+    47  # solver_writer.py alone as of nimbus #1302 Phase 3. The ratchet only
+    # ever tightens, and this is the fourth time it has: 67 at d5b044b, 61
+    # after spec 001 moved six functions to solver_shared.py, 53 after Phase
+    # 2b/2c moved eight reporting functions to solver_reports/ (three of them
+    # -- _compute_report_for_window, publish_daily_quality_report,
     # _soc_discrepancy_stats -- were themselves over the limit, along with
-    # rescore_quality_history and _carry_forward_quality_history). Expect it
-    # to drop again as Phases 3-7 land; lowering it is the point.
+    # rescore_quality_history and _carry_forward_quality_history), and 47 now
+    # that Phase 3 moved eight controllable-load functions to
+    # solver_inputs/controllable_loads.py.
+    #
+    # The drop of exactly SIX is worth stating, because eight functions moved:
+    # build_controllable_loads (736), _sample_load_run_state (100),
+    # _build_daily_adequacy_windows (80), _earliest_period_for_same_day_window
+    # (75), _evaluate_done_condition (71) and _resolve_controllable_load_tuning
+    # (70) were over the 60-line threshold; _resolve_hour_to_period_index (30)
+    # and resolve_controllable_load_power_sensor (29) were already under it and
+    # so never counted here. A mismatch between "functions moved" and "baseline
+    # delta" is expected, not a miscount.
+    #
+    # Expect it to drop again as Phases 4-7 land; lowering it is the point.
 )
 
 

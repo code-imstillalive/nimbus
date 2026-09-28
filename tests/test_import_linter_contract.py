@@ -82,7 +82,7 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # The number goes down when `(solver_dispatch)`/`ha_bridge` land and the shared
 # helpers stop living in the top layer -- and when a future phase fixes one for
 # real, lower this along with the pyproject.toml entry it counts.
-_EXPECTED_IGNORED_IMPORT_COUNT = 13
+_EXPECTED_IGNORED_IMPORT_COUNT = 14
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:
