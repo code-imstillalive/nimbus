@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_inputs import controllable_loads
 
 
 def _fake_state(value: str | None) -> SimpleNamespace | None:
@@ -35,7 +36,7 @@ class TestNativeModeOnly(unittest.TestCase):
         solver_writer._NATIVE_HASS = None
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertIs(result, data)
 
 
@@ -54,7 +55,7 @@ class TestLiveOverlay(unittest.TestCase):
             "controllable_load_device_entity": "water_heater.hws",
         }
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
         self.assertEqual(result["deferrable_max_power_kw"], 0.65)
         # A non-tunable field (device_entity) is carried through untouched.
@@ -70,7 +71,7 @@ class TestLiveOverlay(unittest.TestCase):
         )
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 3.5)
 
     def test_all_seven_live_fields_can_be_overridden_independently(self):
@@ -91,7 +92,7 @@ class TestLiveOverlay(unittest.TestCase):
             }
         )
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning({}, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning({}, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 1.1)
         self.assertEqual(result["deferrable_max_power_kw"], 2.2)
         self.assertEqual(result["deferrable_earliest_hour"], 3.3)
@@ -110,7 +111,7 @@ class TestLiveOverlay(unittest.TestCase):
         )
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
 
     def test_unknown_live_entity_falls_back_to_wizard_data(self):
@@ -123,7 +124,7 @@ class TestLiveOverlay(unittest.TestCase):
         )
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
 
     def test_non_numeric_live_state_falls_back_to_wizard_data(self):
@@ -138,7 +139,7 @@ class TestLiveOverlay(unittest.TestCase):
         )
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
 
     def test_missing_wizard_value_and_missing_live_entity_stays_absent(self):
@@ -147,7 +148,7 @@ class TestLiveOverlay(unittest.TestCase):
         handling stays exactly as it was before #645."""
         solver_writer._NATIVE_HASS = _hass({})
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = solver_writer._resolve_controllable_load_tuning({}, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning({}, subentry)
         self.assertNotIn("deferrable_target_kwh", result)
 
     def test_missing_title_fails_open_to_data_unchanged(self):
@@ -163,7 +164,7 @@ class TestLiveOverlay(unittest.TestCase):
         )
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace()  # no title attribute at all
-        result = solver_writer._resolve_controllable_load_tuning(data, subentry)
+        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
 
     def test_slug_matches_the_same_technique_sensor_py_uses(self):

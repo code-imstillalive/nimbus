@@ -54,6 +54,7 @@ from datetime import UTC, datetime
 import _solver_path  # noqa: F401
 import solver_writer
 from _writer_source import writer_source
+from solver_inputs import controllable_loads
 
 
 def _at(hour, minute=0):
@@ -61,7 +62,7 @@ def _at(hour, minute=0):
 
 
 def _earliest(now, earliest_hour, deadline_hour, earliest_period, deadline_period):
-    return solver_writer._earliest_period_for_same_day_window(
+    return controllable_loads._earliest_period_for_same_day_window(
         now=now,
         earliest_hour=earliest_hour,
         deadline_hour=deadline_hour,
