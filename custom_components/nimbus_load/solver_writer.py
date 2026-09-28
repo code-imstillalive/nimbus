@@ -9700,6 +9700,44 @@ def publish_plan(
                 "n_sheddable_loads": len(plan.sheddable_loads),
                 "n_adequacy_loads": len(plan.adequacy_loads),
                 "n_thermal_loads": len(plan.thermal_loads),
+                # nimbus issue #1386: which thermal loads had their HARD
+                # "must reach target by the deadline" guarantee relaxed this
+                # cycle, because the hard-constrained solve came back
+                # infeasible and network.py retried with a soft shortfall
+                # price instead.
+                #
+                # network.py already logs a WARNING naming them, so this is
+                # not about visibility in the moment -- it is about the
+                # moment being gone. Production's own error log is truncated
+                # at every container restart (measured on #1360: read at
+                # 18:18 AEST it began at 16:09, 2 h 8 min of history), so a
+                # log line cannot answer "how often has this been
+                # happening". The recorder keeps this attribute, so it can.
+                #
+                # That matters because the natural cause of REPEATED
+                # relaxation is configuration rather than weather --
+                # thermal_max_power_kw too low for the window, a window too
+                # narrow for the tank, or a learned heating_rate_c_per_kwh
+                # that has drifted low. Each makes the constraint
+                # permanently unsatisfiable, and each is absorbed silently by
+                # the retry on every cycle: the household sees "hot water is
+                # sometimes not hot" with nothing to look at. A rate visible
+                # in history is what turns that into a diagnosable pattern.
+                #
+                # #774's argument for making the guarantee a HARD constraint
+                # was that a bound cannot be traded away by a tie-break or an
+                # objective-weight bug. That argument covers the bound and
+                # says nothing about the retry -- which is the one event that
+                # turns the guarantee soft for a cycle.
+                #
+                # A list rather than a count, because WHICH load matters on a
+                # multi-load install and a count cannot say. Empty list =
+                # nothing relaxed, which is the normal case and is
+                # distinguishable from the field being absent on an older
+                # release.
+                "thermal_guarantee_relaxed": list(
+                    getattr(plan, "thermal_guarantee_relaxed", []) or []
+                ),
                 # nimbus issue #485 acceptance criterion 3: "Diagnostics
                 # show household_mode alongside the plan" -- so a plan can
                 # be read knowing which mode produced it. Resolved live
