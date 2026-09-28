@@ -484,6 +484,25 @@ class Report:
     tests_run_base: int = 0
     tests_run_head: int = 0
     untracked_constants_head: dict[str, list[str]] = field(default_factory=dict)
+    # Set when the comparison could not have found anything, whatever the
+    # code under test did. A gate that measured nothing has not passed --
+    # see `compare_runs`.
+    vacuous_reason: str | None = None
+
+    @property
+    def failed(self) -> bool:
+        return bool(self.regressions) or self.vacuous_reason is not None
+
+
+# pytest's own documented exit codes. 0 (all passed) and 1 (some tests
+# failed) both mean the run really happened, which is all this tool needs --
+# it cares whether a patch site was READ, not whether the test passed. The
+# rest mean the run did not happen as asked: 2 interrupted (a collection
+# error -- a missing plugin or dependency in the tree being measured),
+# 3 internal error, 4 bad usage, 5 nothing collected. Every one of those
+# yields an EMPTY record, which older versions of this tool then compared
+# against another empty record and reported as OK.
+_PYTEST_RC_RAN = frozenset({0, 1})
 
 
 def _run_tracked(root: Path, tests_selector: list[str] | None) -> dict:
@@ -491,7 +510,10 @@ def _run_tracked(root: Path, tests_selector: list[str] | None) -> dict:
         str(p.relative_to(root)) for p in _list_candidate_test_files(root)
     ]
     if not files:
-        return {"records": {}, "untracked_constants": {}}
+        # No candidate files is itself a non-measurement, not a pass. Report
+        # it as a distinct rc so the caller can say which of the two trees
+        # produced nothing, rather than silently diffing {} against {}.
+        return {"records": {}, "untracked_constants": {}, "pytest_returncode": 5}
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False
     ) as out_file:
@@ -538,16 +560,57 @@ def _run_tracked(root: Path, tests_selector: list[str] | None) -> dict:
         print(result.stderr, file=sys.stderr)
     finally:
         Path(output_path).unlink(missing_ok=True)
+    data["pytest_returncode"] = result.returncode
+    if result.returncode not in _PYTEST_RC_RAN:
+        # Surface it here rather than only in the exit code: a collection
+        # error prints the real cause (an ImportError naming the missing
+        # module) and that is what the person reading a red gate needs.
+        print(
+            f"noop_patches: pytest exited {result.returncode} in {root} -- the "
+            "tracked run did not happen. Output follows:",
+            file=sys.stderr,
+        )
+        print(result.stdout[-4000:], file=sys.stderr)
+        print(result.stderr[-4000:], file=sys.stderr)
     return data
 
 
 def compare_runs(base_data: dict, head_data: dict) -> Report:
+    """Diff two tracked runs.
+
+    A comparison that measured NOTHING is a failure, not a pass. This is the
+    #1354 shape, fixed there for `coverage_compare.py` ("reports PASS when it
+    measured 0 lines") and present here until it was reproduced on real
+    commits: running this tool with `--base`/`--head` and a `--tests`
+    selector whose file could not be collected in the child (a missing pytest
+    plugin, in the real case) printed `base ran 0 test(s)` and then
+    `OK: no patch site ... went unread`. Every gate in this repo has now hit
+    some version of the same lesson: a check that cannot fail is
+    indistinguishable from a check that works.
+    """
     report = Report()
     base_records = base_data.get("records", {})
     head_records = head_data.get("records", {})
     report.tests_run_base = len(base_records)
     report.tests_run_head = len(head_records)
     report.untracked_constants_head = head_data.get("untracked_constants", {})
+
+    base_rc = base_data.get("pytest_returncode")
+    head_rc = head_data.get("pytest_returncode")
+    if base_rc is not None and base_rc not in _PYTEST_RC_RAN:
+        report.vacuous_reason = (
+            f"the base tree's tracked pytest run exited {base_rc}, so nothing "
+            "was measured there (see its output above)"
+        )
+    elif head_rc is not None and head_rc not in _PYTEST_RC_RAN:
+        report.vacuous_reason = (
+            f"the head tree's tracked pytest run exited {head_rc}, so nothing "
+            "was measured there (see its output above)"
+        )
+    elif not base_records:
+        report.vacuous_reason = (
+            "the base tree recorded no tests at all -- nothing could have been compared"
+        )
     for test_id, base_sites in base_records.items():
         head_sites = head_records.get(test_id)
         if head_sites is None:
@@ -563,6 +626,17 @@ def compare_runs(base_data: dict, head_data: dict) -> Report:
                 report.regressions.append(Regression(test_id, site))
     for test_id, head_sites in head_records.items():
         report.head_sites += len(head_sites)
+    if report.vacuous_reason is None and report.base_sites == 0:
+        # Tests ran on base, but not one of them established a patch site
+        # this tool can track. There is nothing for a head run to regress
+        # FROM, so a clean result here says nothing about the change --
+        # the selector is wrong, or every site in it is an untrackable
+        # constant (see the module docstring).
+        report.vacuous_reason = (
+            f"the base tree ran {report.tests_run_base} test(s) but recorded 0 "
+            "trackable patch site(s) -- the selection contains nothing this "
+            "gate can check"
+        )
     return report
 
 
@@ -592,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
         head_data = _run_tracked(head_root, args.tests)
         report = compare_runs(base_data, head_data)
         _print_report(report, args)
-        return 1 if report.regressions else 0
+        return 1 if report.failed else 0
 
     with tempfile.TemporaryDirectory(prefix="noop_patches_") as tmp:
         tmp_root = Path(tmp)
@@ -606,7 +680,7 @@ def main(argv: list[str] | None = None) -> int:
             _remove_worktree(head_wt)
     report = compare_runs(base_data, head_data)
     _print_report(report, args)
-    return 1 if report.regressions else 0
+    return 1 if report.failed else 0
 
 
 def _worktree(ref: str, tmp_root: Path, label: str) -> Path:
@@ -645,6 +719,13 @@ def _print_report(report: Report, args: argparse.Namespace) -> None:
         for test_id, sites in sorted(report.untracked_constants_head.items()):
             for site in sites:
                 print(f"    {test_id} :: {site}")
+    if report.vacuous_reason is not None:
+        print(f"FAIL (measured nothing): {report.vacuous_reason}.")
+        print(
+            "  A gate that measured nothing has not passed. Fix the selection "
+            "or the tracked run before reading this result as clean."
+        )
+        return
     if not report.regressions:
         print("OK: no patch site that was read on base went unread on head.")
         return

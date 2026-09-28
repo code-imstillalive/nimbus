@@ -251,6 +251,120 @@ class TestAgainstTheRealRepo(unittest.TestCase):
             [],
             "comparing a real, unchanged file set against itself must never report a regression",
         )
+        self.assertIsNone(
+            report.vacuous_reason,
+            "a real slice must be a real measurement -- if this trips, the "
+            "self-comparison above proved nothing",
+        )
+
+
+_UNIMPORTABLE_TEST = '''
+"""A test module that cannot be collected -- the shape a missing pytest
+plugin or an uninstalled dependency takes in a tree being measured. Two real
+instances were hit while running this gate against this repo's own history
+(`pytest-freezer`, `jsonschema`), and each one produced an empty record.
+"""
+
+import a_module_that_does_not_exist  # noqa: F401
+from unittest.mock import patch  # noqa: F401  (keeps the static selector honest)
+
+
+def test_never_runs():
+    assert True
+'''
+
+
+class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
+    """The #1354 shape, in this gate.
+
+    #1354 fixed exactly this for `coverage_compare.py` -- "Coverage-compare
+    gate reports PASS when it measured 0 lines (false negative)". The same
+    defect survived here and was found by running this tool on real commits
+    for the first time: `--base 406f013 --head 58832e2 --tests
+    tests/test_solver_writer_thermal_load_resolution.py` printed
+
+        noop_patches: base ran 0 test(s) with 0 live patch site(s) checked
+        OK: no patch site that was read on base went unread on head.
+
+    and exited 0. The child pytest had failed to collect (a missing plugin),
+    `_run_tracked` passes `check=False` and ignored its exit code, and
+    `compare_runs` treated "found no regressions" and "measured nothing" as
+    the same outcome.
+
+    Each test below fails against the pre-fix code: the first two because
+    `compare_runs` returned an all-clear Report, the third because the CLI
+    exited 0.
+    """
+
+    def test_an_empty_base_record_is_a_failure_not_a_pass(self):
+        report = np.compare_runs(
+            {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
+            {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
+        )
+        self.assertTrue(report.failed)
+        self.assertIsNotNone(report.vacuous_reason)
+        self.assertIn("no tests at all", report.vacuous_reason)
+
+    def test_tests_that_ran_but_established_no_trackable_site_is_a_failure(self):
+        """Distinct from the case above, and worth its own test: the base run
+        really happened, so `tests_run_base` is non-zero and the old summary
+        line looked healthy -- but every site in it was untrackable (or there
+        were none), leaving nothing for head to regress FROM.
+        """
+        report = np.compare_runs(
+            {
+                "records": {"tests/test_x.py::test_y": {}},
+                "untracked_constants": {},
+                "pytest_returncode": 0,
+            },
+            {
+                "records": {"tests/test_x.py::test_y": {}},
+                "untracked_constants": {},
+                "pytest_returncode": 0,
+            },
+        )
+        self.assertTrue(report.failed)
+        self.assertIn("0 trackable patch site", report.vacuous_reason)
+
+    def test_a_pytest_run_that_did_not_happen_is_named_as_the_reason(self):
+        """A collection error (rc 2) must be reported as the base tree's own
+        failure to run, not as a clean comparison. Asserts the rc appears in
+        the reason so a red gate says which side to look at.
+        """
+        report = np.compare_runs(
+            {"records": {}, "untracked_constants": {}, "pytest_returncode": 2},
+            {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
+        )
+        self.assertTrue(report.failed)
+        self.assertIn("base tree", report.vacuous_reason)
+        self.assertIn("exited 2", report.vacuous_reason)
+
+    def test_a_passing_comparison_is_still_not_vacuous(self):
+        """The guard must not fire on a genuine clean result -- otherwise it
+        trades a false pass for a false failure, which is worse.
+        """
+        touched = {"records": {"t::a": {"mod.name": True}}, "pytest_returncode": 0}
+        report = np.compare_runs(touched, touched)
+        self.assertFalse(report.failed)
+        self.assertIsNone(report.vacuous_reason)
+
+    def test_cli_exits_one_when_the_tracked_run_cannot_be_collected(self):
+        """End to end, through the real CLI, on the real cause: a test module
+        that raises ImportError on import. Pre-fix this exited 0.
+        """
+        with (
+            tempfile.TemporaryDirectory() as base_tmp,
+            tempfile.TemporaryDirectory() as head_tmp,
+        ):
+            base_root, head_root = Path(base_tmp), Path(head_tmp)
+            for root in (base_root, head_root):
+                (root / "tests").mkdir(parents=True, exist_ok=True)
+                (root / "tests" / "test_fake_prod.py").write_text(
+                    _UNIMPORTABLE_TEST, encoding="utf-8"
+                )
+            result = TestCliExitCodes._run_cli(self, base_root, head_root)  # type: ignore[arg-type]
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("measured nothing", result.stdout)
 
 
 if __name__ == "__main__":
