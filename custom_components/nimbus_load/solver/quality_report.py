@@ -1098,6 +1098,47 @@ def compute_quality_report(
     # real result.objective on the optimal path) -- already guaranteed
     # by the is_optimal check just above, mypy just can't see through it.
     assert oracle_plan.total_cost is not None
+
+    # nimbus issue #1428 (Mark Purcell, IV&V of bc366c2..7ad927b): everything
+    # below that re-derives a grid/cost trajectory for the oracle used to read
+    # `load.forecast_kw` -- the ORIGINAL, un-reduced house load. But when a
+    # Controllable Load is scored, the LP was handed `reduced_kw` (base load
+    # minus what that device really drew) and given the same energy back as a
+    # re-timeable adequacy/sheddable load. So the re-timed energy was missing
+    # from the recomputation at BOTH its original and its new time, and
+    # `j_star_evaluator` -- the number `compute_epr()` actually reads, per
+    # #1081 -- was priced against a trajectory the LP never chose.
+    #
+    # Measured on #1428's own fixture: a 4 kWh load moved from 0.30/kWh into a
+    # 0.10/kWh window improved `j_star` (-0.8514 -> -0.8678) while
+    # `theoretical_maximum_yield` SHRANK by exactly $1.00 (9.224 -> 8.224).
+    # Giving the oracle a strict superset of its freedom cannot legitimately
+    # lower the value it says is available to capture.
+    #
+    # So: reconstruct what the oracle's plan actually served -- the reduced base
+    # load plus wherever the LP put the re-timeable power. `power_kw` for an
+    # adequacy load and `served_kw` for a sheddable one are the LP's own
+    # outputs, not a re-derivation.
+    #
+    # On the default path this is `load.forecast_kw` unchanged, exactly:
+    # `oracle_loads[0] is load` when no bundle is scored, and both plan lists
+    # are then empty. The switch is off by default, so no published EPR moves
+    # because of this change -- which is the property that made it safe to fix
+    # on a live install.
+    oracle_load_kw = oracle_loads[0].forecast_kw
+    if oracle_plan.adequacy_loads or oracle_plan.sheddable_loads:
+        _series = [
+            np.asarray(oracle_load_kw, dtype=np.float64),
+            *(
+                np.asarray(a.power_kw, dtype=np.float64)
+                for a in oracle_plan.adequacy_loads
+            ),
+            *(
+                np.asarray(s.served_kw, dtype=np.float64)
+                for s in oracle_plan.sheddable_loads
+            ),
+        ]
+        oracle_load_kw = np.asarray(np.sum(_series, axis=0), dtype=np.float64)
     j_star = float(oracle_plan.total_cost)
 
     # oracle_plan.batteries is matched back to `battery_scoring` BY
@@ -1122,7 +1163,7 @@ def compute_quality_report(
     # caller who sums the dict and compares it to the headline EPR.
     oracle_residual = evaluate_realized_cost_multi(
         hours=hours,
-        load_real_kw=load.forecast_kw,
+        load_real_kw=oracle_load_kw,  # nimbus #1428 -- what the LP served
         solar_real_kw=solar.forecast_kw,
         import_price_real=grid_residual.import_price,
         export_price_real=grid_residual.export_price,
@@ -1163,7 +1204,7 @@ def compute_quality_report(
     # kill that.
     oracle_export_kw = _achieved_grid_export_kw(
         hours=hours,
-        load_kw=load.forecast_kw,
+        load_kw=oracle_load_kw,  # nimbus #1428 -- what the LP served
         solar_kw=solar.forecast_kw,
         actual_charge_kw=oracle_charge_kw,
         actual_discharge_kw=oracle_discharge_kw,
@@ -1275,8 +1316,9 @@ def compute_quality_report(
     j_ach_grid_kw = (
         load.forecast_kw - solar.forecast_kw + j_ach_battery_net_kw
     ).astype(np.float64)
+    # nimbus #1428: the oracle's own served load, not the un-reduced house load.
     j_star_grid_kw = (
-        load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
+        oracle_load_kw - solar.forecast_kw + j_star_battery_net_kw
     ).astype(np.float64)
     # Whole-day energy per trajectory, plus the achieved-minus-oracle
     # delta -- the "what did the controller do differently" companion to
@@ -1357,7 +1399,7 @@ def compute_quality_report(
         per_period={
             "import_price_aud_per_kwh": grid_residual.import_price,
             "export_price_aud_per_kwh": grid_residual.export_price,
-            "load_kw": load.forecast_kw,
+            "load_kw": oracle_load_kw,  # nimbus #1428 -- what the LP served
             "solar_kw": solar.forecast_kw,
             "battery_kw": j_star_battery_net_kw,
             "grid_kw": j_star_grid_kw,
