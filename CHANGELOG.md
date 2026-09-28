@@ -41,13 +41,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     because importing the modules to test them reproduces exactly the same masking.
     Verified by reintroducing the bug on one line and confirming the test fails naming
     that line, then restoring the fix.
-  - **Devhub validation: claimed only once run, not here in advance.** devhub installs
-    *from* a released tag via HACS, so the tag has to exist first; the verification
-    statement is added after the install, restart and a real solve, not predicted. (The
-    thing being fixed here was itself found only because devhub was actually exercised
-    rather than assumed, so asserting a pass before running one would be a poor lesson
-    to draw from it.) **Production was never on v0.94.428** -- it runs v0.94.426, and
-    the household deploys on their own action.
+- Devhub validation: **confirmed live on devhub (HA 2026.9.0) after the tag, not
+  predicted before it.** Installed via HACS (`installed_version == available_version ==
+  v0.94.429`), restarted, and then measured rather than assumed:
+  - a **version histogram** rather than one sensor, because a single devhub entity can
+    be NUC1's mirrored row and answer for the wrong install (#1396): **3 entities stamp
+    `0.94.429`** (devhub's own) against 110 stamping `0.94.426` (production's, arriving
+    through `remote_homeassistant`).
+  - **the v0.94.428 failure signature is gone**: `solve cycle failed` **absent**, where
+    it stood at **111 consecutive** occurrences immediately before this install, and the
+    `done_condition` `ImportError`/`ModuleNotFoundError` pair absent with it.
+  - **a real solve ran to completion**: `#773 phase breakdown` and `status=Optimal` both
+    present in devhub's own log.
+  - still present, and **pre-existing rather than caused by this release** -- captured in
+    the same log before the upgrade: `previous cycle still in progress -- skipping this
+    tick`. devhub's own config solves a 1,312-binary MIP in ~35 s, longer than its tick,
+    so cycles overlap there. The first `solve_now` after the restart was skipped for
+    exactly that reason and reported "did not produce a successful solve"; a later cycle
+    completed optimally.
+  - **Production was never on v0.94.428** -- it runs v0.94.426, and the household deploys
+    on their own action.
+- Consumer check: **a household on v0.94.428 sees every Nimbus solve-output sensor stop
+  updating; on v0.94.429 they update again.** `main()` died before `publish_plan()` on
+  every cycle, so nothing downstream of the solve refreshed -- no error surfaced in the
+  UI, the values simply froze. Beyond restoring that, what a household actually gets from
+  this release is the #1406 dispatch improvement v0.94.428 was cut to deliver: the
+  battery stops being re-commanded every few seconds through a charge window.
 
 ## [0.94.428] - 2026-09-29
 
