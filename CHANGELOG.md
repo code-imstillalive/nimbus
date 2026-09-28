@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.428] - 2026-09-29
+
 ### Fixed
 - **The battery stopped being re-commanded every few seconds during a charge window**
   (nimbus [#1406](https://github.com/code-imstillalive/nimbus/issues/1406)). The
@@ -45,6 +47,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     thing between the LP and flip-flopping the live command.
 
 ### Internal
+- **`solver_writer.py` went from 12,853 to 10,567 lines** -- Phase 5 of the god-module
+  decomposition ([#1304](https://github.com/code-imstillalive/nimbus/issues/1304), spec
+  005). `publish_plan`, its thirteen helpers and three constants -- sixteen names, 2,258
+  lines -- move to `solver_publish.py`. All 16 byte-identical to the prior tree before
+  formatting and all 13 functions AST-identical after, with the golden master 17/17 at
+  **zero snapshot movement**: 2,258 lines relocated and the published output unchanged
+  byte-for-byte.
+  - `PLAN_STATE_PATH` deliberately does **not** move, because its other reader
+    `load_previous_plan()` stays behind and one test patches it as
+    `solver_writer.PLAN_STATE_PATH` against both -- a module-scope `from ... import`
+    binds at import time and would silently defeat that patch (#861's failure mode).
+    Same reasoning puts `ha_post_state` on the deferred `sw.` seam: 30 test files patch
+    it there and none patch `solver_shared`.
+  - Spec 005 said to retarget "main()'s one call site" for `_flow_decomposition`; there
+    are **two**. And five `publish_plan(` occurrences in `solver_writer.py` are
+    docstring prose, not call sites, so a text-based edit would have corrupted five
+    docstrings -- both found by AST rather than by reading.
 - **`solver_writer.py` went from 14,069 to 12,853 lines** -- Phase 3 of the god-module
   decomposition ([#1302](https://github.com/code-imstillalive/nimbus/issues/1302), spec
   003). `safe_num` joins `solver_shared.py`, and the eight-function controllable-load
