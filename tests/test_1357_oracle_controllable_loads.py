@@ -48,7 +48,6 @@ from datetime import UTC, datetime, timedelta
 
 import _solver_path  # noqa: F401
 import numpy as np
-import pytest
 from solver.elements import (
     AdequacyLoadConfig,
     BatteryConfig,
@@ -320,28 +319,26 @@ class TestTheEvaluatorHeadlineHonoursTheRetiming(unittest.TestCase):
     time.
 
     `test_re_timeable_energy_cannot_make_the_oracle_worse` above already
-    pins the equivalent invariant for `j_star` (the LP objective, which is
-    correct). This is the same invariant applied to `theoretical_maximum_
-    yield` -- the published headline -- which currently fails it.
+    pins the equivalent invariant for `j_star` (the LP objective, which was
+    always correct). This is the same invariant applied to
+    `theoretical_maximum_yield` -- the published headline.
+
+    **FIXED, and the numbers this pinned are kept because they are the
+    evidence.** It landed as a `strict=True` xfail reproducing:
+
+        j_star            -0.8514 -> -0.8678   correct: the LP found the window
+        j_star_evaluator  -1.2240 -> -0.2240   WRONG: worse by exactly $1.00
+        theoretical_...    9.224  ->  8.224    WRONG: shrank by exactly $1.00
+
+    The four post-solve sites in `compute_quality_report()` now price against
+    `oracle_load_kw` -- the reduced base load plus wherever the LP actually put
+    the re-timeable power (`AdequacyLoadPlan.power_kw` /
+    `SheddableLoadPlan.served_kw`) -- instead of the original
+    `load.forecast_kw`. The xfail marker is removed rather than left in place:
+    `strict=True` turned the fix into a visible XPASS failure, which is exactly
+    how it should have been noticed.
     """
 
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus #1428: j_star_evaluator (and everything downstream of "
-            "it -- j_star_grid_kw, j_star_hourly, the published EPR/"
-            "theoretical_maximum_yield) is derived from the ORIGINAL "
-            "un-reduced load.forecast_kw, not the reduced load oracle_plan "
-            "was actually solved against. Measured on this fixture: j_star "
-            "correctly improves (-0.8514 -> -0.8678) when a 4 kWh "
-            "dishwasher at periods 19-20 (0.30/kWh) is handed to the "
-            "oracle as re-timeable into the cheap overnight window "
-            "(periods 1-4, 0.10/kWh), but j_star_evaluator gets WORSE by "
-            "exactly $1.00 (-1.2240 -> -0.2240) and the published "
-            "theoretical_maximum_yield SHRINKS by exactly $1.00 (9.224 -> "
-            "8.224) -- the wrong direction for a pure superset of freedom."
-        ),
-        strict=True,
-    )
     def test_theoretical_maximum_yield_does_not_shrink_when_the_oracle_gains_freedom(
         self,
     ):
