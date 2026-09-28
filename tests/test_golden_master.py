@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +56,30 @@ SNAPSHOTS = Path(__file__).parent / "golden" / "snapshots"
 VOLATILE_KEYS = frozenset({"solve_seconds"})
 
 
+def _stable_paths(text: str) -> str:
+    """Replace an absolute temp-directory path with a stable token.
+
+    A recorded WARNING can name a file the solver wrote for diagnosis --
+    ``#773``'s failing-model dump is the one that forced this, and a
+    relaxation scenario reaches it every time because the hard-constrained
+    phase really is infeasible. The path is the machine's own temp
+    directory, so recording it verbatim makes the snapshot pass on the
+    machine that wrote it and fail everywhere else: exactly the
+    once-per-machine failure #1330/#1331 found for ``/tmp`` state paths.
+
+    Only the directory is normalised, not the filename -- the filename
+    (``nimbus_773_fail_phase1_primary.mps``) says WHICH diagnostic fired
+    and is worth keeping in the diff.
+    """
+    tmp = tempfile.gettempdir()
+    for base in {tmp, os.path.realpath(tmp)}:
+        for form in {base, base.replace(os.sep, "/")}:
+            text = text.replace(form, "<TMP>")
+    # The separator AFTER the token is normalised too, or the snapshot
+    # still differs between a Windows recording and a Linux one.
+    return text.replace("<TMP>" + "\\", "<TMP>/")
+
+
 def canonical(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -64,6 +89,8 @@ def canonical(value: Any) -> Any:
         return [canonical(v) for v in value]
     if isinstance(value, float):
         return float(repr(value))
+    if isinstance(value, str):
+        return _stable_paths(value)
     return value
 
 

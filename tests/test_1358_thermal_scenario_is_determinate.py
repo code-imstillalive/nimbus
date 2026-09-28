@@ -159,5 +159,77 @@ class TestThePairStillDiscriminates(unittest.TestCase):
         )
 
 
+class TestTheRelaxationIsProvable(unittest.TestCase):
+    """The relaxation scenario must actually relax, which the first version did
+    not (nimbus #1358 follow-up).
+
+    `THERMAL_UNREACHABLE_TARGET_C` was 54.0, derived from an assumed 1-hour /
+    3.0 kWh window. The window the scenario really resolves to is periods 0..12
+    of the 202-period grid -- 1.5 h and ~4.5 kWh, because the grid coarsens --
+    and 54.0 needs ~4.75 kWh, a 6% overshoot on paper that landed on the
+    FEASIBLE side in practice. So a scenario named `native_thermal_relaxed`
+    solved optimal and never relaxed, sitting on exactly the knife edge the
+    module docstring warns against.
+
+    Verified against the real path rather than re-derived: 54.0 does not relax,
+    65.0 and 80.0 both do.
+
+    `solver/network.py` logs a WARNING naming each relaxed load, and the harness
+    records WARNING and above, so the record CAN show this -- which also
+    corrects the first version's claim that the relaxation is "not logged".
+    """
+
+    RELAXED = "hard-constrained thermal LP came back infeasible"
+
+    def _warnings(self, name: str) -> list[str]:
+        return [
+            str(w.get("message", "")) for w in _snapshot(name)["cycles"][0]["warnings"]
+        ]
+
+    def test_the_relaxed_scenario_records_the_relaxation(self):
+        hits = [
+            w for w in self._warnings("native_thermal_relaxed") if self.RELAXED in w
+        ]
+        self.assertEqual(
+            len(hits),
+            1,
+            "native_thermal_relaxed does not record the relaxation warning, so it "
+            "is not exercising the path it is named for -- which is exactly how "
+            "the 54.0 target went unnoticed. Raise the target until it does, and "
+            "check against the real path rather than the arithmetic.",
+        )
+        self.assertIn("Tank", hits[0])
+
+    def test_the_two_ordinary_scenarios_do_not_relax(self):
+        """The other half: if these ever relax, their own derivation has drifted
+        towards infeasible and their placements stop meaning anything."""
+        for name in ("native_thermal_load_defers", "native_thermal_load_heats_now"):
+            with self.subTest(scenario=name):
+                hits = [w for w in self._warnings(name) if self.RELAXED in w]
+                self.assertEqual(
+                    hits,
+                    [],
+                    f"{name} relaxed its thermal guarantee. It is supposed to sit "
+                    f"well inside feasible -- about 1.15 kWh of a 4.5 kWh window.",
+                )
+
+    def test_no_snapshot_records_a_machine_specific_path(self):
+        """A relaxation scenario reaches #773's failing-model dump every time,
+        which names a temp file. Recording it verbatim would make the snapshot
+        pass only on the machine that wrote it -- the once-per-machine failure
+        #1330/#1331 found for /tmp state paths. `canonical()` normalises the
+        temp directory to `<TMP>/`."""
+        for path in sorted(SNAPSHOTS.glob("*.json")):
+            with self.subTest(snapshot=path.name):
+                raw = path.read_text(encoding="utf-8")
+                for marker in ("AppData", "/tmp/", "C:" + chr(92) + chr(92) + "Users"):
+                    self.assertNotIn(
+                        marker,
+                        raw,
+                        f"{path.name} records {marker!r}, which is specific to the "
+                        f"machine that wrote it.",
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()

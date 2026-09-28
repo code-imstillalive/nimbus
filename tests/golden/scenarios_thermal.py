@@ -22,12 +22,19 @@ the decay term does not depend on *when* the heating happens, so the energy the
 constraint demands is fixed wherever in the window it is spent:
 
     (target - initial + decay * H) / rate
-  = (50.4  -  50.0   +  0.5  * 1.0) / 1.0   =  0.90 kWh
+  = (50.4  -  50.0   +  0.5  * 1.4997) / 1.0   =  1.15 kWh
 
-against a window capacity of `3.0 kW * 1.0 h = 3.0 kWh`. **70% of the window
-goes unused** -- which is the point. The LP has real freedom about where to
-heat, and nothing here sits near infeasible, so a float error cannot reach the
-relaxation path from either of the two ordinary scenarios.
+against a window capacity of `3.0 kW * 1.4997 h = 4.50 kWh`. **About 74% of the
+window goes unused** -- which is the point. The LP has real freedom about where
+to heat, and nothing here sits near infeasible.
+
+`H` is 1.4997 h and not 1.0 h, and that matters: the window resolves to periods
+0..12 of the 202-period grid, which the grid's own coarsening makes twelve
+5-minute periods plus one 30-minute period. An earlier version of this docstring
+assumed 1.0 h / 3.0 kWh, and the arithmetic built on that assumption put the
+RELAXATION scenario's target on the feasible side of its own threshold -- see
+`THERMAL_UNREACHABLE_TARGET_C`. The window is measured from the recorded
+snapshot, not derived from the configured hours.
 
 ## What the record can actually observe, which took a correction
 
@@ -73,16 +80,19 @@ target needing 4.5 kWh of a 3.0 kWh window. Unreachable by a wide margin rather
 than by a rounding error, which is the whole difference between it and the knife
 edge described above.
 
-**What it cannot prove, stated because the distinction matters.** It reaches the
-retry path, so it counts for coverage -- but the record cannot show that the
-guarantee was relaxed. `Plan.thermal_guarantee_relaxed` is set by
-`solver/network.py` and read by **nothing outside the test suite**: it is not
-published on a sensor, not logged, and not notified. So this snapshot's only
-observable difference from `native_thermal_load_heats_now` is the plan's own
-numbers, not a relaxation marker. Filed separately -- a hard guarantee being
-silently relaxed is a gap for the household, not only for this fixture, and
-#774's whole argument for making the guarantee hard was that it is the part you
-can rely on.
+**It is provable, and the first version of this module got that wrong twice.**
+`solver/network.py` DOES log a WARNING at the relaxation site, naming each
+relaxed load -- so the golden record can see it, because the harness records
+WARNING and above. The first version claimed the opposite ("not logged"), which
+was never checked, and its target never relaxed anyway, so the claim was never
+tested against a run that relaxed. `test_1358_thermal_scenario_is_determinate.py`
+now asserts the warning IS in this scenario's record and is NOT in the other two.
+
+What remains genuinely absent is the *published* signal:
+`Plan.thermal_guarantee_relaxed` is read by nothing outside the test suite -- not
+on a sensor, not in `solve_diagnostics`, not notified -- so a household still has
+no way to know its hot-water guarantee was relaxed unless it reads the log. That
+is #1386, narrowed to what is actually true.
 
 ## Ties, and why the prices look over-specified
 
@@ -137,9 +147,22 @@ THERMAL_TARGET_C = 50.4
 THERMAL_EARLIEST_HOUR = 20.0
 THERMAL_DEADLINE_HOUR = 21.0
 
-# Needs 4.5 kWh of a 3.0 kWh window: no placement can meet it, so the hard
-# guarantee must be relaxed. A margin, deliberately, not a near miss.
-THERMAL_UNREACHABLE_TARGET_C = 54.0
+# The unreachable target, and the value here was WRONG in the first version of
+# this module -- corrected against a measurement rather than re-reasoned.
+#
+# It was 54.0, chosen from a derivation that assumed a 1-hour window of 3.0 kWh.
+# The window the scenario actually resolves to is periods 0..12 of the 202-period
+# grid, which spans 1.5 h because the grid coarsens (twelve 5-minute periods and
+# then a 30-minute one), so capacity is ~4.5 kWh. 54.0 needs ~4.75 kWh -- a 6%
+# overshoot on paper, and empirically on the FEASIBLE side: the real run solved
+# optimal and never relaxed. The scenario claiming to exercise the relaxation
+# path sat on exactly the knife edge this module's own docstring warns against.
+#
+# 65.0 needs ~15.75 kWh of a ~4.5 kWh window -- 3.5x capacity. Verified against
+# the real path rather than derived: 54.0 does not relax, 65.0 and 80.0 both do.
+# 65.0 is also the fake tank's own max_temp, so it stays a value the device
+# would accept.
+THERMAL_UNREACHABLE_TARGET_C = 65.0
 
 # 20:00..20:55. A V with its trough at 20:25, every value distinct and none
 # equal to LIVE_IMPORT_PRICE -- so the cheapest energy is in the future and the
