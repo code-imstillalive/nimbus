@@ -4,7 +4,7 @@ Each scenario in ``tests/golden/scenarios*.py`` runs ``solver_writer.main()``
 in a fresh interpreter (``golden.harness.run_isolated``) against a fake Home
 Assistant, under a frozen clock, and everything it did (states posted,
 services called, entities read, WARNING and above logged, state files
-written) is compared exactly with ``tests/golden/snapshots/<name>.json.gz``.
+written) is compared exactly with ``tests/golden/snapshots/<name>.json``.
 
 A refactor that changes any of it fails here. A change that is meant to
 alter behaviour regenerates the snapshots, and the diff goes in the PR:
@@ -12,11 +12,33 @@ alter behaviour regenerates the snapshots, and the diff goes in the PR:
     GOLDEN_UPDATE=1 python -m pytest tests/test_golden_master.py -p no:homeassistant
 
 Only wall-clock durations are excluded (``VOLATILE_KEYS``).
+
+## Why the snapshots are stored uncompressed (nimbus issue #1359)
+
+They were ``.json.gz`` until #1359. ``_dump()`` pinned ``mtime=0``, which
+removes gzip's timestamp, but it cannot pin zlib's own compressed output:
+that differs between zlib builds, so regenerating on a different interpreter
+than the one that recorded a snapshot rewrote **every** file's bytes with not
+one recorded value changed. That made the update rule above worthless -- the
+diff a reviewer needs was buried under twelve unreadable binary files.
+
+Measured over 7 successive one-value revisions of all 14 snapshots, storing
+them as text costs a larger working tree and a *smaller* repository:
+
+    ============  working tree  .git after 7 revisions
+    .json.gz            0.25 MB                0.92 MB
+    .json               7.19 MB                0.25 MB
+
+Text deltas across revisions; a gzip stream does not, so each revision stores
+a whole new incompressible blob. The working tree is a constant, history is
+what grows forever.
+
+The ``nemweb/`` fixtures stay compressed deliberately: those are recorded
+*inputs*, never read as a diff, and 2.1 MB of them expands far further.
 """
 
 from __future__ import annotations
 
-import gzip
 import json
 import os
 from pathlib import Path
@@ -52,8 +74,13 @@ def comparable(record: dict) -> dict:
 
 
 def _dump(record: dict) -> bytes:
-    text = json.dumps(record, sort_keys=True, indent=1) + "\n"
-    return gzip.compress(text.encode("utf-8"), mtime=0)
+    """The canonical on-disk bytes for a record.
+
+    Returns bytes rather than str so the caller writes with ``write_bytes``:
+    ``write_text`` translates a newline to ``os.linesep``, which would record
+    CRLF on Windows and LF in CI for byte-identical content.
+    """
+    return (json.dumps(record, sort_keys=True, indent=1) + "\n").encode("utf-8")
 
 
 def _first_difference(a: Any, b: Any, path: str = "$") -> str | None:
@@ -82,13 +109,18 @@ def _first_difference(a: Any, b: Any, path: str = "$") -> str | None:
 def test_golden_master(name: str) -> None:
     record = harness.run_isolated(name)
     got = comparable(record)
-    path = SNAPSHOTS / f"{name}.json.gz"
+    path = SNAPSHOTS / f"{name}.json"
     if os.environ.get("GOLDEN_UPDATE") == "1":
         SNAPSHOTS.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(_dump(got))
+        fresh = _dump(got)
+        # Content-addressed: leave the file alone when nothing it records
+        # moved, so a regeneration run for one real reason does not hand the
+        # reviewer thirteen unrelated touched files (#1359).
+        if not path.exists() or path.read_bytes() != fresh:
+            path.write_bytes(fresh)
         return
     assert path.exists(), f"no snapshot for {name}; run with GOLDEN_UPDATE=1"
-    want = json.loads(gzip.decompress(path.read_bytes()))
+    want = json.loads(path.read_bytes())
     diff = _first_difference(want, got)
     assert diff is None, (
         _version_note(record) + f"golden master {name} changed at {diff}"
