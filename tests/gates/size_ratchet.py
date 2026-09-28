@@ -96,7 +96,7 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    38  # solver_writer.py alone as of nimbus #1306 Phase 7a. The ratchet only
+    36  # solver_writer.py alone as of nimbus #1305 Phase 6. The ratchet only
     # ever tightens, and this is the fifth time it has: 67 at d5b044b, 61
     # after spec 001 moved six functions to solver_shared.py, 53 after Phase
     # 2b/2c moved eight reporting functions to solver_reports/ (three of them
@@ -132,6 +132,13 @@ DEFAULT_BASELINE_COUNT = (
     # solver/cycle_lock.py. A drop of exactly ONE from a two-function move:
     # acquire_lock was 75 lines, release_lock 15, so only the former ever
     # counted here.
+    #
+    # 36 now that Phase 6 (spec 006, #1305) moved the controllable-load dispatch
+    # guard to solver_dispatch/guard.py. Five names moved, 1,450 lines, and the
+    # count fell by TWO: apply_commanded_state_guard (1,300) and
+    # dispatch_commanded_state (92) were over the limit;
+    # _resolve_reaffirm_after_seconds (42) and the two log-once sets were not.
+    # This phase removed the single largest function in the file.
 )
 
 

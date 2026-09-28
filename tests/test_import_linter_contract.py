@@ -77,12 +77,22 @@ _REPO_ROOT = os.path.dirname(_HERE)
 # patches (12 test files patch `fetch_entity_history_range` alone). See
 # `solver_reports/__init__.py`.
 #
-# So 13 is the refactor working as designed, not new violations being waved
-# through: every one of them is the SAME seam, declared for one more module.
-# The number goes down when `(solver_dispatch)`/`ha_bridge` land and the shared
-# helpers stop living in the top layer -- and when a future phase fixes one for
-# real, lower this along with the pyproject.toml entry it counts.
-_EXPECTED_IGNORED_IMPORT_COUNT = 14
+# So this count rising is the refactor working as designed, not new violations
+# being waved through: every one of them is the SAME seam, declared for one more
+# module.
+#
+# nimbus #1305 (spec 006, Phase 6) took it 14 -> 15. Worth stating because the
+# note this replaces predicted the opposite -- it said the number goes down when
+# `(solver_dispatch)` lands. It does not: solver_dispatch/guard.py reaches the
+# same top-layer helpers (`_LOGGER`, `_NATIVE_HASS`,
+# `_resolve_controllable_load_tuning`) that every module above reaches, and for
+# the same reason, so it needed its own entry.
+#
+# The number goes DOWN when the shared helpers stop living in the top layer,
+# which is Phase 7b's job (`ha_bridge`) and not any earlier phase's. When a
+# future phase fixes one for real, lower this along with the pyproject.toml
+# entry it counts.
+_EXPECTED_IGNORED_IMPORT_COUNT = 15
 
 
 def _run_lint_imports() -> subprocess.CompletedProcess[str]:
