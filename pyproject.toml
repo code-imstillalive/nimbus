@@ -603,6 +603,10 @@ ignore_imports = [
     # nimbus issue #768: the controllable-load delivery reconstruction reaches
     # back through the same deferred, by-module seam as every sibling above.
     "custom_components.nimbus_load.solver_inputs.controllable_load_history -> custom_components.nimbus_load.solver_writer",
+    # nimbus issue #1302 (spec 003, Phase 3): same deferred, by-module seam --
+    # see this list's own note below on why solver_inputs modules reach
+    # solver_writer at call time rather than at import time.
+    "custom_components.nimbus_load.solver_inputs.controllable_loads -> custom_components.nimbus_load.solver_writer",
     # nimbus issue #1301 Phase 2b/2c: the reporting modules reach back into
     # solver_writer through the same deliberate, documented seam every
     # solver_inputs module above uses -- a DEFERRED, by-module import, because

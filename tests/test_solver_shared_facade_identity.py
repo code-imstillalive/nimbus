@@ -13,7 +13,8 @@ name keeps a re-export in `solver_writer.py`, so every existing caller
 A re-export via `from .solver_shared import X` binds the SAME object into
 `solver_writer`'s namespace -- it does not copy or wrap it. This test
 proves that directly: `solver_writer.X is solver_shared.X` for every one
-of the 28 re-exported names, not just "both resolve to something with the
+of the 32 re-exported names (31 from Phase 2a, plus `safe_num` from
+Phase 3 -- #1302 spec 003 step 2), not just "both resolve to something with the
 same name" (a wrapper or a second construction of an equal-but-different
 mutable object, e.g. two dicts that compare equal, would pass a `==` check
 and fail this `is` check -- exactly the failure mode a facade must not
@@ -85,6 +86,12 @@ REEXPORTED_NAMES = (
     "resample_history_mean",
     "resample_history_nearest",
     "resolve_effective_capacity_kwh",
+    # nimbus #1302 (spec 003 step 2): the 32nd name, moved here from
+    # solver_writer.py in Phase 3 rather than Phase 2a, because its two
+    # existing production callers (solver_inputs/extra_batteries.py,
+    # solver_inputs/prices.py) and two test files all reach it through
+    # solver_writer and none of them should have to be retargeted.
+    "safe_num",
 )
 
 

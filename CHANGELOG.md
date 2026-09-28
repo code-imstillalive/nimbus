@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Internal
+- **`solver_writer.py` went from 14,069 to 12,853 lines** -- Phase 3 of the god-module
+  decomposition ([#1302](https://github.com/code-imstillalive/nimbus/issues/1302), spec
+  003). `safe_num` joins `solver_shared.py`, and the eight-function controllable-load
+  cluster (`build_controllable_loads` plus the seven helpers that exist only to serve it)
+  becomes `solver_inputs/controllable_loads.py`. Verified the way the earlier phases were:
+  **byte-identical before formatting** for seven of the eight (the eighth differs by one
+  line `ruff format` reflowed, because `sw._NATIVE_HASS` is three characters longer than
+  `_NATIVE_HASS`), and **AST-identical after**. Zero movement in any of the 17 golden
+  snapshots, including the two native controllable-load scenarios spec 003 names as this
+  phase's behavioural gate.
+  - **A facade fixes name resolution for a moved function's CALLERS and does nothing for
+    its own dependency lookups.** `safe_num` calls `ha_get`; once it lives in
+    `solver_shared.py` it resolves `ha_get` from that module, and 60 test files patch
+    `solver_writer.ha_get`. Nine test files now patch the module where the function
+    actually reads its dependency. No production call site changed.
+  - **Two monkeypatch sites the spec's own caller table records as zero were real.**
+    `_sample_load_run_state` was patched on `solver_writer` and read as a bare
+    intra-module name after the move, making the patch a silent no-op -- the
+    [#1316](https://github.com/code-imstillalive/nimbus/issues/1316) failure mode, caught
+    here only because the test checks a learned value the default does not produce. And
+    `solver_writer._parse_done_when`, an import alias used solely by the moved bodies,
+    was removed as unused and is restored: spec 001's identity invariant is that every
+    name in scope before a relocation still resolves after it.
+  - `tests/test_1302_controllable_loads_extraction.py` asserts the nine facade identities
+    and the four structural rules (deferred seam, no `sw._LOGGER`, no module-scope import
+    from `solver_writer`, no deferred accessor in a default argument) across the whole
+    `solver_inputs/` package, so the four modules that predate this spec are covered too.
+
 ## [0.94.427] - 2026-09-28
 
 ### Changed

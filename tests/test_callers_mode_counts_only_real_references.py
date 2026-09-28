@@ -199,10 +199,11 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
         ]
         self.assertEqual(
             len(hits),
-            4,
-            f"expected exactly four real sw._NATIVE_HASS references "
+            5,
+            f"expected exactly five real sw._NATIVE_HASS references "
             f"(battery_participants.py, extra_batteries.py, "
-            f"controllable_load_history.py, and solver_shared.py itself), "
+            f"controllable_load_history.py, controllable_loads.py, and "
+            f"solver_shared.py itself), "
             f"got {hits}. This is an explicit inventory, deliberately: it "
             f"rises when a module legitimately starts reaching for the "
             f"native seam -- controllable_load_history.py (nimbus issue "
