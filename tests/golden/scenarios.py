@@ -68,4 +68,5 @@ def _load_all() -> None:
         scenarios_native,
         scenarios_nemweb,
         scenarios_synthetic,
+        scenarios_thermal,
     )

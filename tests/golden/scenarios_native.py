@@ -32,7 +32,9 @@ meet its target and HiGHS placed it 25 minutes in, on a tie.
 is a HARD LP constraint with an infeasibility-relaxation retry behind it
 (``elements.ThermalLoadConfig``), so the only configuration that forces a
 unique answer sits within a rounding error of infeasible -- exactly the
-knife edge a snapshot must not be balanced on. Filed separately.
+knife edge a snapshot must not be balanced on. ``scenarios_thermal``
+covers it a different way instead -- a price gradient, so the answer is
+unique with real slack still left in the window (nimbus issue #1358).
 """
 
 from __future__ import annotations
