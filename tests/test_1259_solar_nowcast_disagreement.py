@@ -34,6 +34,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from _writer_source import writer_source
 
 BRISBANE = solver_writer.LOCAL_TZ
 
@@ -364,9 +365,9 @@ class TestPublishing(unittest.TestCase):
     snapshot with it, for a measurement no install has asked for yet."""
 
     def test_attribute_block_is_absent_when_the_measurement_did_not_run(self):
-        src = solver_writer.__file__
-        with open(src, encoding="utf-8") as f:
-            text = f.read()
+        # nimbus #1304 (spec 005): this key moved to solver_publish.py with
+        # publish_plan. writer_source() is the union across the writer's modules.
+        text = writer_source()
         # The conditional-unpack guard, not an unconditional key.
         self.assertIn('"solar_nowcast_check": (solar_delivery or {})', text)
         self.assertNotIn('"solar_nowcast_check": nowcast,', text)

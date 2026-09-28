@@ -198,9 +198,13 @@ class TestTheFailureLineExplainsWhatTheReasonMeans(unittest.TestCase):
     to know which way the causality runs."""
 
     def _window(self) -> str:
-        from custom_components.nimbus_load import solver_writer
+        # nimbus #1304 (spec 005): the #757 failure warning moved to
+        # solver_publish.py with publish_plan. writer_source() is the union
+        # across solver_writer.py and every module #1298 has extracted -- the
+        # claim is "the writer warns", not "one file contains the string".
+        from _writer_source import writer_source
 
-        src = inspect.getsource(solver_writer)
+        src = writer_source()
         i = src.find("solve did not complete after")
         assert i > -1, "the #757 failure warning moved or was renamed"
         return src[max(0, i - 3000) : i + 1400]

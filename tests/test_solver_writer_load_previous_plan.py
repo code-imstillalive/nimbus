@@ -34,6 +34,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import numpy as np
+import solver_publish
 import solver_writer
 from solver.elements import PeriodGrid
 from solver.network import BatteryPlan, Plan
@@ -84,7 +85,7 @@ class TestLoadPreviousPlanRealRoundTrip(unittest.TestCase):
     def test_save_then_load_does_not_crash_and_returns_a_real_plan(self):
         plan = _real_plan()
         with patch.object(solver_writer, "PLAN_STATE_PATH", self.path):
-            solver_writer.save_plan_state(
+            solver_publish.save_plan_state(
                 plan,
                 period_hours_arr=[1.0, 1.0, 1.0, 1.0],
                 period_start=plan.periods.start,
@@ -110,7 +111,7 @@ class TestLoadPreviousPlanRealRoundTrip(unittest.TestCase):
         plan = _real_plan()
         plan = Plan(**{**plan.__dict__, "status": "infeasible"})
         with patch.object(solver_writer, "PLAN_STATE_PATH", self.path):
-            solver_writer.save_plan_state(
+            solver_publish.save_plan_state(
                 plan,
                 period_hours_arr=[1.0, 1.0, 1.0, 1.0],
                 period_start=plan.periods.start,

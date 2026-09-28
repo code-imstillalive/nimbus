@@ -66,6 +66,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
+import solver_publish
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
@@ -468,11 +469,11 @@ class TestMainGoldenOutput:
         ):
             solver_writer.main()
 
-        assert solver_writer.ENTITY_ID in posted, (
+        assert solver_publish.ENTITY_ID in posted, (
             "main() did not push sensor.nimbus_solver_battery_forecast at all "
             "-- this fixture must reach a real optimal solve"
         )
-        state, attrs = posted[solver_writer.ENTITY_ID]
+        state, attrs = posted[solver_publish.ENTITY_ID]
 
         assert state == _EXPECTED_STATE
 

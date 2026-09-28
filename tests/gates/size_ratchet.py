@@ -96,8 +96,8 @@ REPO = Path(__file__).resolve().parents[2]
 DEFAULT_TARGET = REPO / "custom_components" / "nimbus_load"
 DEFAULT_THRESHOLD = 60
 DEFAULT_BASELINE_COUNT = (
-    47  # solver_writer.py alone as of nimbus #1302 Phase 3. The ratchet only
-    # ever tightens, and this is the fourth time it has: 67 at d5b044b, 61
+    39  # solver_writer.py alone as of nimbus #1304 Phase 5. The ratchet only
+    # ever tightens, and this is the fifth time it has: 67 at d5b044b, 61
     # after spec 001 moved six functions to solver_shared.py, 53 after Phase
     # 2b/2c moved eight reporting functions to solver_reports/ (three of them
     # -- _compute_report_for_window, publish_daily_quality_report,
@@ -115,7 +115,18 @@ DEFAULT_BASELINE_COUNT = (
     # so never counted here. A mismatch between "functions moved" and "baseline
     # delta" is expected, not a miscount.
     #
-    # Expect it to drop again as Phases 4-7 land; lowering it is the point.
+    # 39 now that Phase 5 (spec 005, #1304) moved publish_plan and its thirteen
+    # helpers plus three constants -- SIXTEEN names, 2,258 lines -- to
+    # solver_publish.py. Eight of them were over the threshold: publish_plan
+    # (1213), compute_binding_constraint_label (235), _compute_flow_economics
+    # (147), _flow_decomposition (143), compute_cost_breakdown (109),
+    # compute_cost_band (87), _dispatch_source_breakdown (74) and
+    # resolve_fixed_export_charge_clamp (68). The other eight were already
+    # under it, so again the delta (-8) is smaller than the move (16).
+    #
+    # Expect it to drop again as Phases 4, 6 and 7 land; lowering it is the
+    # point. The two that dominate what remains are apply_commanded_state_guard
+    # (1300, Phase 6's target) and main (867, Phase 4's).
 )
 
 

@@ -20,6 +20,8 @@ import re
 import sys
 from pathlib import Path
 
+from _writer_source import writer_source
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
 
@@ -42,7 +44,10 @@ def _extract_battery_forecast_push(src: str) -> str:
 
 
 def test_signal_role_and_source_sensor_are_present():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    # nimbus #1304 (spec 005): this content moved to solver_publish.py.
+    # writer_source() is the union across solver_writer.py and every module
+    # #1298 has extracted -- the property this test actually asserts.
+    src = writer_source()
     block = _extract_battery_forecast_push(src)
     assert '"signal_role": "battery"' in block, (
         "sensor.nimbus_solver_battery_forecast is missing signal_role "

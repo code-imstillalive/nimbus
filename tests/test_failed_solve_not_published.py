@@ -33,12 +33,12 @@ already uses for the same publish path:
 from __future__ import annotations
 
 import ast
-import pathlib
 import unittest
 from datetime import UTC, datetime
 
-import _solver_path
+import _solver_path  # noqa: F401 -- sys.path setup side effect
 import numpy as np
+from _writer_source import find_function
 from solver.elements import PeriodGrid
 from solver.network import _infeasible_plan
 
@@ -95,14 +95,10 @@ class TestSolverFailedPredicate(unittest.TestCase):
 
 
 def _publish_plan_node() -> ast.FunctionDef:
-    src = pathlib.Path(
-        _solver_path._SOLVER_PARENT  # type: ignore[attr-defined]
-    ).joinpath("solver_writer.py")
-    tree = ast.parse(src.read_text(encoding="utf-8"), filename=str(src))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "publish_plan":
-            return node
-    raise AssertionError("publish_plan() not found in solver_writer.py")
+    # nimbus #1304 (spec 005): this content moved to solver_publish.py.
+    # The union of solver_writer.py and every module #1298 has extracted is
+    # what this test was always asserting against -- not which file it is in.
+    return find_function("publish_plan")
 
 
 class TestPublishPlanReturnsEarly(unittest.TestCase):
@@ -155,8 +151,17 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
             node.lineno
             for node in ast.walk(self.func)
             if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "ha_post_state"
+            # nimbus #1304 (spec 005): publish_plan moved to solver_publish.py
+            # and reaches this through the deferred seam as `sw.ha_post_state`,
+            # so a bare-Name matcher finds nothing. Both shapes count -- which
+            # is the property this test means, not the syntax of the call.
+            and (
+                (isinstance(node.func, ast.Name) and node.func.id == "ha_post_state")
+                or (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "ha_post_state"
+                )
+            )
         ]
         self.assertTrue(posts, "no ha_post_state() calls found in publish_plan()")
         self.assertLess(self.guard.lineno, min(posts))

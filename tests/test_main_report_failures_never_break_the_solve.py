@@ -38,6 +38,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
+import solver_publish
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
@@ -137,12 +138,12 @@ class TestOneFailingReportNeverBreaksTheSolve:
         """Invariant 1: dispatch survives. The plan sensor is what the
         household's battery actually follows."""
         posted = _run_main([publisher])
-        assert solver_writer.ENTITY_ID in posted, (
+        assert solver_publish.ENTITY_ID in posted, (
             f"{publisher} raising stopped main() from publishing the plan at "
             "all -- the 'must never take down the real solve' guard around "
             "it is not holding"
         )
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        _state, attrs = posted[solver_publish.ENTITY_ID]
         assert attrs["status"] == "optimal"
 
     @pytest.mark.parametrize("publisher", sorted(_REPORT_PUBLISHERS))
@@ -167,8 +168,8 @@ class TestEveryReportFailingAtOnce:
 
     def test_the_solve_still_completes_and_publishes(self, freezer):
         posted = _run_main(sorted(_REPORT_PUBLISHERS))
-        assert solver_writer.ENTITY_ID in posted
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        assert solver_publish.ENTITY_ID in posted
+        _state, attrs = posted[solver_publish.ENTITY_ID]
         assert attrs["status"] == "optimal"
         assert attrs["forecast"], "the plan must still carry a real forecast"
 
@@ -191,7 +192,7 @@ class TestTheBaselineIsClean:
     def test_no_failure_warnings_when_nothing_is_broken(self, freezer, caplog):
         with caplog.at_level("WARNING"):
             posted = _run_main([])
-        assert solver_writer.ENTITY_ID in posted
+        assert solver_publish.ENTITY_ID in posted
         spurious = [
             name for name, phrase in _REPORT_PUBLISHERS.items() if phrase in caplog.text
         ]

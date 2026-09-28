@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+import solver_publish
 
-_flow_decomposition = solver_writer._flow_decomposition
-_compute_flow_economics = solver_writer._compute_flow_economics
+_flow_decomposition = solver_publish._flow_decomposition
+_compute_flow_economics = solver_publish._compute_flow_economics
 
 
 def _assert_invariants(

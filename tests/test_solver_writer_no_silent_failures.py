@@ -23,6 +23,8 @@ import ast
 import unittest
 from pathlib import Path
 
+from _writer_source import writer_trees
+
 _SOLVER_WRITER_PY = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
@@ -32,9 +34,13 @@ _SOLVER_WRITER_PY = (
 
 
 def _load_tree() -> tuple[ast.Module, list[ast.stmt]]:
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
-    tree = ast.parse(src, filename=str(_SOLVER_WRITER_PY))
-    return tree, tree.body
+    # nimbus #1304 (spec 005): the ONE deliberate print() -- the per-cycle
+    # status summary -- moved to solver_publish.py with publish_plan, so a
+    # scan of solver_writer.py alone now finds zero and reads as a
+    # regression. The claim is "no silent print() anywhere in the writer",
+    # not "in one file", so scan the union.
+    body = [n for _p, t in writer_trees() for n in t.body]
+    return ast.Module(body=body, type_ignores=[]), body
 
 
 def _is_main_guard(node: ast.stmt) -> bool:
@@ -48,11 +54,21 @@ def _is_main_guard(node: ast.stmt) -> bool:
 
 
 def _logs_something(node: ast.AST) -> bool:
-    """True if `_LOGGER.<anything>(...)` is called anywhere inside node."""
+    """True if `_LOGGER.<anything>(...)` is called anywhere inside node.
+
+    nimbus #1304 (spec 005): the extracted modules reach the same logger object
+    as `solver_shared._LOGGER` (and, in the solver_inputs modules, `sw._LOGGER`
+    is forbidden but the qualified form is required) -- so a bare-Name matcher
+    misses every handler in them and reads as "logs nothing". `solver_writer`
+    aliases `solver_shared._LOGGER`, so all three spellings are the same
+    logger; what this test means is "something logs", not how it is spelled.
+    """
     for child in ast.walk(node):
         if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
             value = child.func.value
             if isinstance(value, ast.Name) and value.id == "_LOGGER":
+                return True
+            if isinstance(value, ast.Attribute) and value.attr == "_LOGGER":
                 return True
     return False
 

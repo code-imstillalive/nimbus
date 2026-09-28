@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+import solver_publish
 
 
 def _battery_plan(name: str, charge_kw, discharge_kw, soc_kwh):
@@ -37,7 +37,7 @@ class TestBuildPerBatteryForecast(unittest.TestCase):
         plan = SimpleNamespace(
             batteries=[_battery_plan("home", [5.0, 0.0], [0.0, 1.3], [20.0, 18.7])]
         )
-        result = solver_writer.build_per_battery_forecast(
+        result = solver_publish.build_per_battery_forecast(
             plan, _grid_times(2), 2, {"home": 40.0}
         )
         self.assertEqual(len(result), 1)
@@ -59,7 +59,7 @@ class TestBuildPerBatteryForecast(unittest.TestCase):
                 _battery_plan("ev_m3p", [0.0], [0.0], [30.0]),  # 50% of 60.0
             ]
         )
-        result = solver_writer.build_per_battery_forecast(
+        result = solver_publish.build_per_battery_forecast(
             plan, _grid_times(1), 1, {"home": 40.3, "ev_m3p": 60.0}
         )
         by_name = {b["name"]: b for b in result}
@@ -74,7 +74,7 @@ class TestBuildPerBatteryForecast(unittest.TestCase):
         plan = SimpleNamespace(
             batteries=[_battery_plan("pool_ev", [0.0], [0.0], [5.0])]
         )
-        result = solver_writer.build_per_battery_forecast(
+        result = solver_publish.build_per_battery_forecast(
             plan,
             _grid_times(1),
             1,
@@ -87,14 +87,14 @@ class TestBuildPerBatteryForecast(unittest.TestCase):
         plan = SimpleNamespace(
             batteries=[_battery_plan("misconfigured", [0.0], [0.0], [0.0])]
         )
-        result = solver_writer.build_per_battery_forecast(
+        result = solver_publish.build_per_battery_forecast(
             plan, _grid_times(1), 1, {"misconfigured": 0.0}
         )
         self.assertEqual(result[0]["forecast"][0]["soc_pct"], 0.0)
 
     def test_no_batteries_returns_an_empty_list(self):
         plan = SimpleNamespace(batteries=[])
-        result = solver_writer.build_per_battery_forecast(plan, _grid_times(3), 3, {})
+        result = solver_publish.build_per_battery_forecast(plan, _grid_times(3), 3, {})
         self.assertEqual(result, [])
 
     def test_time_field_matches_grid_times_isoformat(self):
@@ -102,7 +102,7 @@ class TestBuildPerBatteryForecast(unittest.TestCase):
         plan = SimpleNamespace(
             batteries=[_battery_plan("home", [0.0, 0.0], [0.0, 0.0], [10.0, 10.0])]
         )
-        result = solver_writer.build_per_battery_forecast(
+        result = solver_publish.build_per_battery_forecast(
             plan, times, 2, {"home": 20.0}
         )
         self.assertEqual(result[0]["forecast"][0]["time"], times[0].isoformat())

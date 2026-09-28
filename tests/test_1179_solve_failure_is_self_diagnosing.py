@@ -86,6 +86,7 @@ import numpy as np
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
+from _writer_source import find_function, writer_source_paths, writer_trees
 
 install_ha_stubs()
 
@@ -342,11 +343,10 @@ class TestTheFormatter(unittest.TestCase):
 
 
 def _publish_plan_node() -> ast.FunctionDef:
-    tree = ast.parse((_SRC_DIR / "solver_writer.py").read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "publish_plan":
-            return node
-    raise AssertionError("publish_plan() not found in solver_writer.py")
+    # nimbus #1304 (spec 005): this content moved to solver_publish.py.
+    # The union of solver_writer.py and every module #1298 has extracted is
+    # what this test was always asserting against -- not which file it is in.
+    return find_function("publish_plan")
 
 
 def _failure_warning_call() -> ast.Call:
@@ -451,7 +451,12 @@ def _solve_diagnostics_dict() -> ast.Dict:
     `test_solve_diagnostics_load_counts.py` already uses for this payload,
     because reaching it at runtime means driving the whole publish path.
     """
-    tree = ast.parse((_SRC_DIR / "solver_writer.py").read_text(encoding="utf-8"))
+    # nimbus #1304 (spec 005): this content moved to solver_publish.py.
+    # The union of solver_writer.py and every module #1298 has extracted is
+    # what this test was always asserting against -- not which file it is in.
+    tree = ast.Module(
+        body=[n for _p, _t in writer_trees() for n in _t.body], type_ignores=[]
+    )
     for node in ast.walk(tree):
         if not isinstance(node, ast.Dict):
             continue
@@ -575,7 +580,15 @@ class TestNothingBranchesOnAnyOfIt(unittest.TestCase):
     def test_the_only_branch_anywhere_is_the_log_guard(self):
         """solver_writer.py legitimately tests `failing_model_path` once, to
         decide whether to print a path it does not have. Exactly once."""
-        tests = self._tests_of_every_conditional(_SRC_DIR / "solver_writer.py")
+        # nimbus #1304 (spec 005): publish_plan, which holds the one
+        # legitimate branch, moved to solver_publish.py. Scan every module the
+        # writer has been split into -- "branches nowhere in the writer" is the
+        # claim, not "branches nowhere in one file".
+        tests = [
+            t
+            for path in writer_source_paths()
+            for t in self._tests_of_every_conditional(path)
+        ]
         hits = [t for t in tests if any(f in t for f in self._FIELDS)]
         self.assertEqual(
             hits,

@@ -29,6 +29,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
+import solver_publish
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
@@ -120,8 +121,8 @@ class TestThePinReachesTheBindingLabel:
         commitment -- otherwise a correct label would be describing
         something that did not happen."""
         posted = _run_main_and_capture()
-        assert solver_writer.ENTITY_ID in posted
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        assert solver_publish.ENTITY_ID in posted
+        _state, attrs = posted[solver_publish.ENTITY_ID]
 
         assert attrs["status"] == "optimal"
         assert attrs["forecast"][0]["grid_export_kw"] == pytest.approx(
@@ -137,7 +138,7 @@ class TestThePinReachesTheBindingLabel:
         and no unit test could have caught it, because the unit tests
         never asked whether the pin arrives."""
         posted = _run_main_and_capture()
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        _state, attrs = posted[solver_publish.ENTITY_ID]
 
         assert attrs["binding_constraint_now"] == (
             f"Grid export pinned at {_PIN_KW:.2f} kW by P2P export commitment"
@@ -152,7 +153,7 @@ class TestThePinReachesTheBindingLabel:
         the wrong reason. The fixture keeps them well apart (3 kW vs
         15 kW), and this asserts that separation rather than trusting it."""
         posted = _run_main_and_capture()
-        _state, attrs = posted[solver_writer.ENTITY_ID]
+        _state, attrs = posted[solver_publish.ENTITY_ID]
 
         assert attrs["envelope_export_limit_kw"] != _PIN_KW
         assert "Grid export limit" != attrs["binding_constraint_now"]

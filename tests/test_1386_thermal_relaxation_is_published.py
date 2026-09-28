@@ -54,6 +54,7 @@ import pathlib
 import unittest
 
 import _solver_path
+from _writer_source import writer_trees
 
 WRITER = pathlib.Path(
     _solver_path._SOLVER_PARENT  # type: ignore[attr-defined]
@@ -118,7 +119,13 @@ class TestThePublishPathActuallyReadsIt(unittest.TestCase):
     publish path implements it, so the two cannot drift apart."""
 
     def _solve_diagnostics_dicts(self) -> list[ast.Dict]:
-        tree = ast.parse(WRITER.read_text(encoding="utf-8"), filename=str(WRITER))
+        # nimbus #1304 (spec 005): the solve_diagnostics literal moved to
+        # solver_publish.py with publish_plan. One synthetic Module over every
+        # writer module keeps ast.walk() and this loop exactly as written.
+        tree = ast.Module(
+            body=[n for _p, _t in writer_trees() for n in _t.body],
+            type_ignores=[],
+        )
         out = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Dict):

@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+import solver_publish
 
 
 def _fake_plan(
@@ -46,7 +46,7 @@ class TestRiskAversionEffectNow(unittest.TestCase):
             effective_import_price=(0.025,),
             effective_export_price=(0.095,),
         )
-        result = solver_writer._risk_aversion_effect_now(
+        result = solver_publish._risk_aversion_effect_now(
             plan, solar_kw=[8.1], import_price=[0.02], export_price=[0.10]
         )
         self.assertAlmostEqual(result["solar_risk_effect_now_kw"], 1.6)
@@ -64,7 +64,7 @@ class TestRiskAversionEffectNow(unittest.TestCase):
             effective_import_price=(0.02,),
             effective_export_price=(0.10,),
         )
-        result = solver_writer._risk_aversion_effect_now(
+        result = solver_publish._risk_aversion_effect_now(
             plan, solar_kw=[8.1], import_price=[0.02], export_price=[0.10]
         )
         self.assertEqual(result["solar_risk_effect_now_kw"], 0.0)
@@ -73,7 +73,7 @@ class TestRiskAversionEffectNow(unittest.TestCase):
 
     def test_non_optimal_plan_reports_none_not_zero(self):
         plan = _fake_plan(is_optimal=False)
-        result = solver_writer._risk_aversion_effect_now(
+        result = solver_publish._risk_aversion_effect_now(
             plan, solar_kw=[8.1], import_price=[0.02], export_price=[0.10]
         )
         self.assertIsNone(result["solar_risk_effect_now_kw"])
@@ -86,7 +86,7 @@ class TestRiskAversionEffectNow(unittest.TestCase):
         an empty array -- must degrade to None, not raise an
         IndexError."""
         plan = _fake_plan(effective_solar_kw=())
-        result = solver_writer._risk_aversion_effect_now(
+        result = solver_publish._risk_aversion_effect_now(
             plan, solar_kw=[8.1], import_price=[0.02], export_price=[0.10]
         )
         self.assertIsNone(result["solar_risk_effect_now_kw"])

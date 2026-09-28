@@ -10,7 +10,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+import solver_publish
 
 
 def _band(load_lower, load_upper, **overrides):
@@ -32,7 +32,7 @@ def _band(load_lower, load_upper, **overrides):
         "export_limit_kw": 20.0,
     }
     defaults.update(overrides)
-    return solver_writer.compute_cost_band(**defaults)
+    return solver_publish.compute_cost_band(**defaults)
 
 
 class TestComputeCostBand(unittest.TestCase):
@@ -69,7 +69,7 @@ class TestPeriodsWithinHours(unittest.TestCase):
         # side="right" includes the period whose cumulative sum lands
         # exactly ON the boundary, not just strictly under it.
         hours = np.full(30, 1.0)
-        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 24)
+        self.assertEqual(solver_publish.periods_within_hours(hours, 24.0), 24)
 
     def test_a_tiered_grid_mixes_fine_and_coarse_periods_correctly(self):
         # Same shape as this project's own real tiered grid: 1-hour
@@ -77,7 +77,7 @@ class TestPeriodsWithinHours(unittest.TestCase):
         # 4h (28h total) crosses the 24h mark inside the coarse tier's
         # first period (20h + 4h = 24h exactly).
         hours = np.concatenate([np.full(20, 1.0), np.full(2, 4.0)])
-        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 21)
+        self.assertEqual(solver_publish.periods_within_hours(hours, 24.0), 21)
 
     def test_a_single_period_longer_than_the_window_still_returns_one(self):
         # A pathological (or genuinely coarse-only) grid whose very
@@ -85,21 +85,21 @@ class TestPeriodsWithinHours(unittest.TestCase):
         # return 0 (an empty slice would crash compute_cost_band()'s
         # own re-costing on a zero-length array).
         hours = np.array([48.0])
-        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 1)
+        self.assertEqual(solver_publish.periods_within_hours(hours, 24.0), 1)
 
     def test_window_shorter_than_the_first_period_still_returns_one(self):
         hours = np.array([0.5, 0.5, 0.5])
-        self.assertEqual(solver_writer.periods_within_hours(hours, 0.1), 1)
+        self.assertEqual(solver_publish.periods_within_hours(hours, 0.1), 1)
 
     def test_window_longer_than_the_whole_grid_returns_every_period(self):
         hours = np.full(5, 1.0)
-        self.assertEqual(solver_writer.periods_within_hours(hours, 100.0), 5)
+        self.assertEqual(solver_publish.periods_within_hours(hours, 100.0), 5)
 
     def test_returns_none_on_internal_failure_not_a_crash(self):
         # Mismatched array lengths -- a real internal failure mode this
         # function must degrade gracefully from, since it's a read-only
         # diagnostic riding alongside a real solve that must not break.
-        result = solver_writer.compute_cost_band(
+        result = solver_publish.compute_cost_band(
             period_hours=np.full(2, 1.0),
             load_lower_kw=np.array([1.0, 1.0, 1.0]),
             load_upper_kw=np.array([2.0, 2.0]),
