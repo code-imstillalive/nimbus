@@ -379,6 +379,57 @@ def _source_lines(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
+# nimbus issue #1411: the matching key below is the line's TEXT, and every
+# extraction phase from 2a onward REWRITES the lines it moves -- a moved body
+# reaches back into `solver_writer` as `sw.<name>` and reaches the shared logger
+# as `solver_shared._LOGGER`, because that deferred seam is how a lower-layer
+# module reads those without an upward import. Raw text therefore stops matching
+# and the line reads as uncovered, which made this gate unable to verify the one
+# operation it was built for.
+#
+# Measured on Phase 3 (#1302): 33 lines reported as regressed, all 33 artifacts.
+# `if _NATIVE_HASS is None:` occurred **0** times in the head tree while
+# `if sw._NATIVE_HASS is None:` occurred **4** -- the code ran, the gate was
+# looking for a string that no longer existed.
+#
+# The normalisation is deliberately NARROW: exactly the two prefixes the
+# extraction introduces, elided at an identifier boundary. A general "strip any
+# `<name>.`" rule would also flatten ordinary attribute access (`plan.status` ->
+# `status`), inventing matches between unrelated lines and weakening the key
+# everywhere to fix it in two places.
+#
+# If a future phase introduces a third seam alias, add it here -- and note that
+# this list failing to keep up degrades toward FALSE POSITIVES (a real line
+# reported as regressed), never toward a missed regression, which is the right
+# direction for a gate to fail in.
+_QUALIFIER_PREFIXES = ("sw.", "solver_shared.")
+
+
+def _match_key(line: str) -> str:
+    """The text of `line`, with extraction-introduced qualifiers elided.
+
+    Used on BOTH sides of the comparison, so a base line and the moved,
+    requalified head line it became produce the same key.
+    """
+    text = line.strip()
+    for prefix in _QUALIFIER_PREFIXES:
+        if prefix not in text:
+            continue
+        out = []
+        i = 0
+        while i < len(text):
+            if text.startswith(prefix, i):
+                before = text[i - 1] if i else ""
+                # only at an identifier boundary -- never inside a longer name
+                if not (before.isalnum() or before == "_" or before == "."):
+                    i += len(prefix)
+                    continue
+            out.append(text[i])
+            i += 1
+        text = "".join(out)
+    return text
+
+
 def find_regressions(
     base_dir: Path,
     head_dir: Path,
@@ -394,7 +445,7 @@ def find_regressions(
 
     def text_at(lines: list[str], lineno: int) -> str | None:
         if 1 <= lineno <= len(lines):
-            return lines[lineno - 1].strip()
+            return _match_key(lines[lineno - 1])
         return None
 
     # Rule 1 first, so an exact-position match's own head line is removed
