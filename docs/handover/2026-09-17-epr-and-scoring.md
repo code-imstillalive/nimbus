@@ -1,5 +1,29 @@
 # Handover — EPR / quality-scoring, 2026-09-17
 
+> ## ⚠️ HISTORICAL. Do not read the figures below as current state.
+>
+> Every version number, SoC, EPR and machine status in this file is a snapshot of
+> **2026-09-17** and nothing else. This file asserts versions in the
+> **v0.94.375–v0.94.383** range; the newest release on 2026-09-28 was
+> **v0.94.427**. Its EPR figures and release numbers are both a snapshot; the scoring *reasoning* is what remains authoritative here.
+>
+> **For current release state**, run the command below — it derives every figure at
+> the moment you run it, so it cannot be stale:
+>
+> ```
+> python tests/gates/release_drift.py --report
+> ```
+>
+> The `SessionStart` hook (`.claude/hooks/session-start.sh`) prints it automatically,
+> so a session already has it before its first action.
+>
+> **What is deployed on NUC1 / NUC2 / devhub cannot be answered by any file in this
+> repository.** It needs a live read. A file that claims to know is the failure this
+> banner exists to stop.
+>
+> The narrative below — the findings, the reasoning, what was ruled out and why —
+> keeps its value, and is why none of it has been deleted.
+
 Written because the household is travelling overseas and this work must survive a
 context loss, a new session, a new machine, or a week of silence. It is
 deliberately long. Read the **State of play** and **If you only do three things**

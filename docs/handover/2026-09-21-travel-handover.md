@@ -1,5 +1,29 @@
 # Travel handover — 2026-09-21
 
+> ## ⚠️ HISTORICAL. Do not read the figures below as current state.
+>
+> Every version number, SoC, EPR and machine status in this file is a snapshot of
+> **2026-09-21** and nothing else. This file asserts versions in the
+> **v0.94.391–v0.94.415** range; the newest release on 2026-09-28 was
+> **v0.94.427**. This file is the reason the banner exists: its own preamble states that *every dynamic figure below was read live at the time of writing, not recalled*, explicitly because its predecessors had gone stale — and it went stale anyway inside a week. Its table reads production **v0.94.413**, newest tag **v0.94.415**, under a heading saying *verified live 13:05 AEST*. That label is what makes a rotted figure read as evidence.
+>
+> **For current release state**, run the command below — it derives every figure at
+> the moment you run it, so it cannot be stale:
+>
+> ```
+> python tests/gates/release_drift.py --report
+> ```
+>
+> The `SessionStart` hook (`.claude/hooks/session-start.sh`) prints it automatically,
+> so a session already has it before its first action.
+>
+> **What is deployed on NUC1 / NUC2 / devhub cannot be answered by any file in this
+> repository.** It needs a live read. A file that claims to know is the failure this
+> banner exists to stop.
+>
+> The narrative below — the findings, the reasoning, what was ruled out and why —
+> keeps its value, and is why none of it has been deleted.
+
 Written at **13:05 AEST (03:05 UTC)**, immediately before the household closes the laptop.
 They travel until **2026-10-05**, over a VPN, and asked for a handover detailed enough to
 survive an interruption.

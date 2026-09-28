@@ -1,5 +1,29 @@
 # Travel handover — 2026-09-18
 
+> ## ⚠️ HISTORICAL. Do not read the figures below as current state.
+>
+> Every version number, SoC, EPR and machine status in this file is a snapshot of
+> **2026-09-18** and nothing else. This file asserts versions in the
+> **v0.94.375–v0.94.395** range; the newest release on 2026-09-28 was
+> **v0.94.427**. Reading the departure-state table cold today gives a wrong answer about every machine.
+>
+> **For current release state**, run the command below — it derives every figure at
+> the moment you run it, so it cannot be stale:
+>
+> ```
+> python tests/gates/release_drift.py --report
+> ```
+>
+> The `SessionStart` hook (`.claude/hooks/session-start.sh`) prints it automatically,
+> so a session already has it before its first action.
+>
+> **What is deployed on NUC1 / NUC2 / devhub cannot be answered by any file in this
+> repository.** It needs a live read. A file that claims to know is the failure this
+> banner exists to stop.
+>
+> The narrative below — the findings, the reasoning, what was ruled out and why —
+> keeps its value, and is why none of it has been deleted.
+
 The household left on an overseas trip departing **2026-09-18, around midnight
 AEST**, away for an unspecified period with intermittent connectivity. Their
 laptop travels with them and is powered off for flights, so **no session,
