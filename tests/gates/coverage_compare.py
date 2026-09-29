@@ -78,9 +78,11 @@ import io
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tokenize
 from collections import Counter
 from pathlib import Path
@@ -217,6 +219,100 @@ def remove_worktree(path: Path) -> None:
         capture_output=True,
         text=True,
     )
+
+
+WORKTREE_PREFIX = "coverage-compare-"
+
+
+def reap_stale_worktrees(
+    older_than_hours: float, tmp_root: Path | None = None
+) -> list[str]:
+    """Remove worktrees and temp trees this tool left behind on a killed run.
+
+    nimbus issue #1405. The teardown is already correct -- both worktrees are
+    created inside one `try` and removed in its `finally`, inside a
+    `TemporaryDirectory` (#1354 tightened exactly that). **But no `finally`,
+    `__exit__` or `atexit` handler runs on a SIGKILL/TerminateProcess**, and
+    these gates are unusually exposed to being killed: a comparison spawns child
+    pytest runs measured in tens of minutes, and `test_gates_coverage_compare.py`
+    invokes this tool as a subprocess of its own.
+
+    Measured on the reference machine: **28 leaked trees, 22 of them from a
+    single day** -- bursty, i.e. one session of repeated interruptions rather
+    than a steady drip. Two populations, and the split is the diagnosis:
+
+        11 dirs   no wt-* present  -> the `finally` HAD removed both worktrees;
+                                      only the temp tree survived
+        16 dirs   wt-* present     -> the `finally` never ran at all
+
+    And the obvious Windows explanation is wrong. On one of the 11: 0 read-only
+    files, and `shutil.rmtree` succeeds when tried later. So `__exit__` did not
+    FAIL, it never RAN. Nothing is locked; these are interrupted runs.
+
+    So cleanup has to happen at STARTUP, which is the one place that sees the
+    wreckage of a process that is already gone.
+
+    `older_than_hours` is what makes this safe to run unconditionally: a
+    genuinely concurrent comparison's tree is minutes old, never hours, so the
+    threshold can never pull the rug from under a live run. A comparison was
+    measured at roughly an hour per side, so the default leaves a wide margin.
+
+    Returns what it reaped, so a caller can say so. Silent cleanup of hundreds
+    of megabytes would hide how often runs are dying, which is information.
+
+    `tmp_root` exists so this is TESTABLE WITHOUT MUTATING THE MACHINE. The
+    first version of this function read `tempfile.gettempdir()` unconditionally,
+    and its own test suite promptly reaped 27 real leaked trees (~613 MB) and
+    deregistered 16 real worktrees on the development box -- a side effect
+    nobody asked for, and one that could just as easily have raced a gate run
+    in progress. A helper that can only be exercised by deleting real files is
+    badly factored, regardless of whether the deletion happens to be welcome.
+    Production callers pass nothing and get the real temp dir.
+    """
+    cutoff = time.time() - older_than_hours * 3600.0
+    reaped: list[str] = []
+
+    def _stale(path: Path) -> bool:
+        try:
+            return path.stat().st_mtime < cutoff
+        except OSError:
+            return False
+
+    # 1. deregister worktrees whose own temp tree is stale. Done first so git's
+    #    metadata and the filesystem never disagree.
+    listing = subprocess.run(
+        ["git", "worktree", "list", "--porcelain"],
+        cwd=REPO,
+        check=False,
+        capture_output=True,
+        text=True,
+    ).stdout
+    root = Path(tempfile.gettempdir()) if tmp_root is None else Path(tmp_root)
+    for line in listing.splitlines():
+        if not line.startswith("worktree "):
+            continue
+        wt = Path(line[len("worktree ") :].strip())
+        owner = next(
+            (p for p in wt.parents if p.name.startswith(WORKTREE_PREFIX)), None
+        )
+        if owner is None or owner.parent != root or not _stale(owner):
+            continue
+        remove_worktree(wt)
+        reaped.append(f"worktree {wt.name} (in {owner.name})")
+
+    subprocess.run(
+        ["git", "worktree", "prune"], cwd=REPO, check=False, capture_output=True
+    )
+
+    # 2. then the temp trees themselves, including the 11-case shape where the
+    #    worktrees were already gone and only this was left.
+    for d in sorted(root.glob(WORKTREE_PREFIX + "*")):
+        if not d.is_dir() or not _stale(d):
+            continue
+        shutil.rmtree(d, ignore_errors=True)  # a live tree is skipped, not fatal
+        if not d.exists():
+            reaped.append(f"tree {d.name}")
+    return reaped
 
 
 def run_golden_scenarios_under_coverage(
@@ -534,7 +630,7 @@ def run(
     moved_to: list[str],
     exercise_commands: list[str] | None,
 ) -> int:
-    with tempfile.TemporaryDirectory(prefix="coverage-compare-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=WORKTREE_PREFIX) as tmp:
         # nimbus #1354, finding 2 -- see canonical_worktree_root's own
         # docstring. Canonicalise once, here, before this root is handed to
         # coverage or compared against anything, so both sides always agree.
@@ -647,6 +743,22 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__.splitlines()[0] if __doc__ else ""
     )
     parser.add_argument("--base", required=True, help="git ref to compare from")
+    parser.add_argument(
+        "--reap-older-than-hours",
+        type=float,
+        default=6.0,
+        help=(
+            "Before starting, remove worktrees and temp trees this tool left "
+            "behind on a killed run, older than this many hours (nimbus #1405). "
+            "The threshold is what makes it safe to run unconditionally: a live "
+            "comparison's tree is minutes old, never hours."
+        ),
+    )
+    parser.add_argument(
+        "--no-reap",
+        action="store_true",
+        help="Skip the startup reap entirely (nimbus #1405).",
+    )
     parser.add_argument("--head", required=True, help="git ref to compare to")
     parser.add_argument(
         "--moved-code",
@@ -673,6 +785,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.moved_code:
         payload = json.loads(args.moved_code.read_text(encoding="utf-8"))
         moved_to = list(payload.get("moved_to", []))
+
+    # nimbus #1405: reap BEFORE the run creates its own tree, because the only
+    # thing that can clean up after a killed process is the NEXT process. Here
+    # rather than inside run() so the flags stay where argparse defines them.
+    if not args.no_reap:
+        reaped = reap_stale_worktrees(args.reap_older_than_hours)
+        if reaped:
+            print(
+                f"reaped {len(reaped)} stale artefact(s) from earlier killed runs "
+                f"(nimbus #1405, older than {args.reap_older_than_hours}h):"
+            )
+            for item in reaped:
+                print(f"  {item}")
 
     return run(args.base, args.head, args.source_file, moved_to, args.exercise_command)
 

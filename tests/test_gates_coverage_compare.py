@@ -187,8 +187,14 @@ sys.exit(coverage_compare.main(args))
 
 
 def _run_gate(root: Path, *args: str) -> subprocess.CompletedProcess:
+    # `--no-reap` on every call (nimbus #1405). `main()` otherwise reaps stale
+    # worktrees and temp trees from the REAL system temp dir, and these tests
+    # are about the comparison logic, not the reaper -- a test that deletes a
+    # developer's files as a side effect is the same flaw
+    # test_1405_reap_stale_worktrees.py had to fix in itself. The reaper has its
+    # own hermetic tests; this funnel opts out.
     return subprocess.run(
-        [sys.executable, "-c", _RUNNER, str(root), *args],
+        [sys.executable, "-c", _RUNNER, str(root), "--no-reap", *args],
         capture_output=True,
         text=True,
         check=False,
