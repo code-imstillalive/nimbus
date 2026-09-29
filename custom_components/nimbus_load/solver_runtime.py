@@ -350,6 +350,12 @@ def reset_module_state() -> None:
 
     reset_snapshot_cache()
 
+    # nimbus issue #1355: the quality-history archive is per-entry module
+    # state of the same kind, cleared for the same reason.
+    from .quality_history_store import reset_quality_history_cache
+
+    reset_quality_history_cache()
+
 
 def set_default_env_vars(hass: HomeAssistant) -> None:
     """The env vars solver_writer.py's own module-level code needs
@@ -916,6 +922,14 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
         from .forecast_snapshot_store import async_capture_todays_snapshot
 
         await async_capture_todays_snapshot(hass, entry_id)
+
+        # nimbus issue #1355: archive the published quality score whenever it
+        # is new or has changed (the ~06:00 settled rescore replaces the
+        # provisional midnight figure). A dict lookup and a tuple compare on
+        # every cycle where nothing changed; swallowed by the helper itself.
+        from .quality_history_store import async_capture_quality_day
+
+        await async_capture_quality_day(hass, entry_id)
     return ok
 
 
