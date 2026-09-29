@@ -193,6 +193,32 @@ class TestCodeIdentity(unittest.TestCase):
         finally:
             gate.CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
 
+    def test_the_tags_changelog_is_judged_not_the_working_trees(self):
+        """Found by a real local pre-check of v0.94.430 run from a branch that
+        lacked the verdict: the gate read the working tree and refused a tag
+        that carried one. Both directions must follow the TAG."""
+        verdict = (
+            "# Changelog\n\n## [1.0.0] - 2026-09-29\n\n"
+            f"- Devhub validation: installed at {self.validated[:7]}, restarted.\n"
+            + _GOOD_CONSUMER
+        )
+        bare = "# Changelog\n\n## [1.0.0] - 2026-09-29\n\n- Fixed a thing.\n"
+        gate.CHANGELOG = self.repo / "CHANGELOG.md"
+        try:
+            # Tag carries the verdict; working tree does not -> must PASS.
+            (self.repo / "CHANGELOG.md").write_text(verdict)
+            _git(self.repo, "commit", "-qam", "verdict")
+            _git(self.repo, "tag", "v1.0.0")
+            (self.repo / "CHANGELOG.md").write_text(bare)
+            self.assertEqual(gate.main(["v1.0.0"]), 0)
+            # Tag lacks the verdict; working tree has it -> must FAIL.
+            _git(self.repo, "commit", "-qam", "drop verdict")
+            _git(self.repo, "tag", "-f", "v1.0.0")
+            (self.repo / "CHANGELOG.md").write_text(verdict)
+            self.assertEqual(gate.main(["v1.0.0"]), 1)
+        finally:
+            gate.CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
+
 
 class TestReleaseWorkflowRunsTheGate(unittest.TestCase):
     def test_gate_runs_before_the_release_is_published(self):
