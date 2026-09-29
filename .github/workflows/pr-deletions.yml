@@ -1,0 +1,43 @@
+name: PR Deletions
+
+# nimbus issue #1445: a PR may not delete a file its body does not name.
+# See .github/scripts/check_pr_deletions.py for the incident (PR #1384
+# deleted two merged specs among sixteen intended deletions) and for why
+# naming deletions -- not diffing against a different base -- is what
+# would have caught it.
+#
+# A separate workflow rather than a step in ci.yml so that `edited` can
+# trigger it: acknowledging a deletion is a PR-body edit, and re-running
+# the whole test suite for that would be waste.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  deletions:
+    name: Deleted files are named in the PR body
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          # The merge-base is only computable with history.
+          fetch-depth: 0
+      - name: Fail on an unacknowledged deletion
+        env:
+          # Via the environment, never interpolated into the shell: a PR
+          # body is untrusted input.
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "$BASE_SHA"
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags origin "$HEAD_SHA"
+          printf '%s' "$PR_BODY" | python .github/scripts/check_pr_deletions.py \
+            --base "$BASE_SHA" --head "$HEAD_SHA" --body-file -
