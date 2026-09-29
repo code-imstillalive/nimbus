@@ -296,6 +296,24 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-09-29](docs/worklog/2026-09-29.md) — **#1298 CLOSED at eight phases:
+  `solver_writer.py` 18,708 -> 8,777 lines (-53%), ratchet 67 -> 36, 16,352 lines now in
+  extracted modules.** Phases 4, 5, 6 and 7a landed (#1414, #1412, #1430, #1425);
+  **Phase 7b was WITHDRAWN, not deferred** (#1435) because spec 001 had already decided
+  `_NATIVE_HASS`/`HA_BASE`/`_load_token()` stay behind — do not reopen it as "the last
+  phase". Also: **v0.94.428 shipped unable to solve on a real HA install** (seven relative
+  imports one level too shallow after Phase 3; fixed in v0.94.429, #1415) and the guard
+  written for it, `tests/test_relative_import_depth_resolves.py`, **failed on the very
+  next phase's first run**. Mark's #1423, #1428 and #1422 resolved (#1426, #1431, #1432);
+  #1416, #1411's residual gap, #1405 and #1434's static half closed (#1438, #1439, #1440,
+  #1436). #1437 filed for a decision.
+- [2026-09-28](docs/worklog/2026-09-28.md): Phase 2b/2c (#1356) and Phase 3 (#1397,
+  #1399); #1406's proximal anchor becoming a switching cost while intra-plan smoothness
+  deliberately keeps its `hours[t]` factor.
+- [2026-09-28 (process audit)](docs/worklog/2026-09-28-process-audit.md): the
+  whole-directory `ruff` incidents — `--select` overriding the project rule set and
+  stripping `noqa` across 19 untouched files, and `ruff format <dir>` reformatting three
+  files that were never edited.
 - [2026-09-27](docs/worklog/2026-09-27.md): Spec 000 golden master for `main()`, with real NEMWEB spike scenarios; tech-debt plan and spec template for #1298.
 - [2026-09-26](docs/worklog/2026-09-26.md): Includes the annotation and extraction-documentation cleanup following PR #1308; characterization coverage remains tracked in #1310.
 - [2026-09-25](docs/worklog/2026-09-25.md) — **EPR root-caused after nine previous
