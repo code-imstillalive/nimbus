@@ -71,12 +71,17 @@ normally runs inside the window where that is still true: settlement arrives bet
 **02:47 and 06:00 AEST** and `repair_provisional_quality_history()` rescores on the
 **06:00** cycle.
 
-- `applied` → the scorecard is final. Proceed.
-- anything else (e.g. `no_settlement_entry_for_this_date`) → **do not publish a
-  scorecard.** `score_day.py` prints a `WARNING (nimbus #1422)` and sets
-  `scorecard_is_final: false`. Publish the day-ahead section only and say the scorecard
-  is withheld pending settlement. The report structure already supports this — sections
-  whose data is absent are simply not rendered.
+- `applied`, `no_sensor_configured`, or `window_is_not_one_local_calendar_day` → the
+  scorecard is final. Proceed. (The latter two are permanent, not provisional — an
+  install with no P2P sensor configured, or a partial/non-daily window, has nothing to
+  wait for; #1451 corrected the original binary applied/not-applied check, which would
+  have withheld a no-P2P install's scorecard forever, every day.)
+- anything else (e.g. `no_settlement_entry_for_this_date`,
+  `settlement_sensor_unreadable`) → **do not publish a scorecard.** `score_day.py`
+  prints a `WARNING (nimbus #1422)` and sets `scorecard_is_final: false`. Publish the
+  day-ahead section only and say the scorecard is withheld pending settlement. The
+  report structure already supports this — sections whose data is absent are simply
+  not rendered.
 
 This is not a hypothetical. On **2026-09-28** a report generated at 06:09 published
 **EPR 25.32%**; the same day read **73.0%** by 06:20, with `j_ach` changing sign

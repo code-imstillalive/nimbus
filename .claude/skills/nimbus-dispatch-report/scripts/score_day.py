@@ -17,6 +17,41 @@ import json
 import os
 import zoneinfo
 
+# nimbus issue #1451 (IV&V pass, following #1422): `real_p2p_settlement_status`
+# is not a binary applied/not-applied -- solver_writer.py's own
+# `_PROVISIONAL_SETTLEMENT_STATUSES` docstring distinguishes 5 real values into
+# 3 classes: "applied" (final), two genuinely time-bound statuses that will
+# resolve on their own ("no_settlement_entry_for_this_date",
+# "settlement_sensor_unreadable"), and two PERMANENT non-applicable statuses
+# that will never become "applied" because there is no settlement to wait for
+# ("no_sensor_configured", "window_is_not_one_local_calendar_day"). #1422's own
+# fix (score_day.py, a950f81) collapsed all four non-"applied" values into one
+# "withhold pending settlement" bucket, so an install with no P2P sensor
+# configured at all would have its scorecard withheld forever, every day, even
+# though those figures are already final (correctly priced at zero P2P
+# credit). Kept as a local copy rather than an import -- these scripts read a
+# live HA install over ha-mcp, not the integration's own Python package.
+_SETTLEMENT_STATUSES_NEVER_APPLY = frozenset(
+    {"no_sensor_configured", "window_is_not_one_local_calendar_day"}
+)
+
+
+def _settlement_is_final(status) -> bool:
+    return status == "applied" or status in _SETTLEMENT_STATUSES_NEVER_APPLY
+
+
+def _real_soc_at_boundary(h, *, by_hour_last, by_hour, soc_entity):
+    """The real SoC at hour `h`'s own boundary: the preceding hour's "last"
+    recorder reading (the true instant-sample value), falling back to `h`'s
+    own hourly mean when there's no preceding "last" bucket (h==0, or a data
+    gap -- nimbus #1423). Returns `(value, fell_back)`; `fell_back` is True
+    only when the mean fallback was actually used for this specific hour."""
+    prev_h = f"{(int(h) - 1) % 24:02d}"
+    prev = by_hour_last.get(prev_h, {}).get(soc_entity)
+    if prev is not None:
+        return prev, False
+    return by_hour.get(h, {}).get(soc_entity), True
+
 
 def _attrs(qr):
     d = qr.get("data", qr)
@@ -106,18 +141,27 @@ def main() -> int:
     # whether the MCP tool forwards a `types` parameter is not something either
     # script can guarantee. So the fallback stays -- but it is no longer
     # silent, and anything derived from it is labelled.
-    soc_boundary_is_instant = any(
-        by_hour_last.get(hh, {}).get(sensors.get("soc")) is not None
-        for hh in by_hour_last
-    )
+    #
+    # nimbus issue #1450 (IV&V pass): this used to be a blanket `any(...)`
+    # over every hour `by_hour_last` happens to carry -- True the moment a
+    # SINGLE hour anywhere had a "last" value, even if every hour actually
+    # used to build a row below fell back to the mean estimate. A day with
+    # exactly one instant sample and 23 fallbacks read as fully "instant".
+    # Tracked per row instead: `soc_boundary_is_instant` is true only when
+    # EVERY boundary this script actually computed used the real "last"
+    # reading, not the smoothed fallback.
+    _soc_boundary_fell_back_hours = []
 
     def real_soc_at_boundary(h):
-        soc_entity = sensors.get("soc")
-        prev_h = f"{(int(h) - 1) % 24:02d}"
-        prev = by_hour_last.get(prev_h, {}).get(soc_entity)
-        if prev is not None:
-            return prev
-        return by_hour.get(h, {}).get(soc_entity)
+        value, fell_back = _real_soc_at_boundary(
+            h,
+            by_hour_last=by_hour_last,
+            by_hour=by_hour,
+            soc_entity=sensors.get("soc"),
+        )
+        if fell_back:
+            _soc_boundary_fell_back_hours.append(h)
+        return value
 
     deg = args.degradation
     if deg is None and args.diag:
@@ -164,6 +208,10 @@ def main() -> int:
                 r.get(sensors.get("battery")),
             ]
         )
+
+    # nimbus #1450: computed after the loop above, from what actually
+    # happened for the rows this script built -- see real_soc_at_boundary().
+    soc_boundary_is_instant = not _soc_boundary_fell_back_hours
 
     def thr(rows_):
         return sum(abs(rows_[k]["battery_kw"]) for k in keys)
@@ -217,7 +265,7 @@ def main() -> int:
         # with each other while both are provisional. It detects a stale SENSOR
         # READ, never a stale SETTLEMENT.
         "real_p2p_settlement_status": a.get("real_p2p_settlement_status"),
-        "scorecard_is_final": a.get("real_p2p_settlement_status") == "applied",
+        "scorecard_is_final": _settlement_is_final(a.get("real_p2p_settlement_status")),
         # nimbus #1423: says which of the two this script actually computed.
         # "instant" means the `last` statistic was present and the #681 fix ran;
         # "hourly_mean_estimate" means it did not, the figures above are
@@ -293,7 +341,7 @@ def main() -> int:
             f"{r[0]:>5s} {r[1]:5.1f} {r[2]:5.1f} {r[9]:5.1f} {r[10]:5.1f} | {(r[3] if r[3] is not None else float('nan')):5.1f} {r[4]:5.1f} {r[5]:5.1f} | {r[7]:7.2f} {r[8]:7.2f} | {r[11]:7.2f} {mg:7.2f} | {r[6]:7.3f}"
         )
     _settle = a.get("real_p2p_settlement_status")
-    if _settle != "applied":
+    if not _settlement_is_final(_settle):
         print(
             "WARNING (nimbus #1422): this day's P2P settlement is "
             f"{_settle!r}, not 'applied' -- every figure below derived from "

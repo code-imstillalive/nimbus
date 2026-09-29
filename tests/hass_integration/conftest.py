@@ -65,31 +65,30 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
-def solver_state_in_tmp_path(tmp_path, monkeypatch):
-    """Redirect the solver's three on-disk state files into `tmp_path`.
+def solver_state_in_tmp_path():
+    """Redirect the solver's four on-disk state files into a throwaway dir.
 
     They default under `/opt/`, which is correct on a deployed add-on
     and unwritable everywhere else, so a real solve inside a test
     raises `PermissionError` from `acquire_lock()`.
 
-    Setting the environment variables is not enough: each path is read
-    from `os.environ` once at import time into a module-level constant,
-    so by the time a fixture runs the value is already baked in. The
-    constants themselves have to be patched. Doing it this way keeps
-    the real file handling under test rather than stubbing it out, and
-    gives each test its own directory so nothing leaks between them.
+    Reuses `_isolated_state.isolated_state_paths()` -- the same helper
+    `test_1330_main_driving_tests_isolate_state_paths.py` guards -- rather
+    than a second, hand-copied name list. This fixture used to carry its
+    own tuple, and one entry read `LOAD_ERROR_NOTIFIED_PATH` where the
+    real constant is `LOAD_FORECAST_ERROR_NOTIFIED_PATH`; a `hasattr`
+    guard made the mismatch silent (that one path was simply never
+    redirected for any `tests/hass_integration/` run, ever) rather than a
+    loud `AttributeError` -- found during an IV&V pass, nimbus issue
+    #1452. Importing the one real list is what makes a second drift
+    impossible rather than merely unlikely.
     """
+    from _isolated_state import isolated_state_paths
+
     from custom_components.nimbus_load import solver_writer
 
-    for name, filename in (
-        ("LOCK_PATH", "nimbus_solver.lock"),
-        ("PLAN_STATE_PATH", "nimbus_solver_last_plan.json"),
-        ("LOAD_ERROR_NOTIFIED_PATH", "nimbus_solver_load_error.txt"),
-        ("SOLAR_DELIVERY_RATIO_PATH", "nimbus_solver_solar_delivery_ratio.json"),
-    ):
-        if hasattr(solver_writer, name):
-            monkeypatch.setattr(solver_writer, name, str(tmp_path / filename))
-    yield
+    with isolated_state_paths(solver_writer):
+        yield
 
 
 @pytest.fixture(autouse=True)
