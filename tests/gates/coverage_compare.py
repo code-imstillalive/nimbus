@@ -74,12 +74,14 @@ file" -- useful on its own, per the spec).
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import shlex
 import subprocess
 import sys
 import tempfile
+import tokenize
 from collections import Counter
 from pathlib import Path
 
@@ -405,13 +407,55 @@ def _source_lines(path: Path) -> list[str]:
 _QUALIFIER_PREFIXES = ("sw.", "solver_shared.")
 
 
+def _without_trailing_comment(text: str) -> str:
+    """`text` with a trailing `# ...` comment removed.
+
+    Tokenize rather than a regex on `#`, because a `#` inside a string literal
+    is not a comment -- `url = "http://x/#frag"` and `x = "a # b"` both survive
+    this and would not survive `text.split("#")[0]`.
+
+    Fails open on anything tokenize cannot parse. `_match_key` is called on
+    individual physical lines, and a fragment of a multi-line expression (a bare
+    `elements,` or `)`) is not always a valid token stream -- returning the text
+    unchanged there is exactly the behaviour this function replaces, so a parse
+    failure can only ever be neutral, never worse.
+    """
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+            if tok.type == tokenize.COMMENT:
+                return text[: tok.start[1]].rstrip()
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return text
+    return text
+
+
 def _match_key(line: str) -> str:
-    """The text of `line`, with extraction-introduced qualifiers elided.
+    """The text of `line`, with extraction-introduced qualifiers elided and any
+    trailing comment dropped.
 
     Used on BOTH sides of the comparison, so a base line and the moved,
     requalified head line it became produce the same key.
+
+    **Dropping the comment is what closes #1411's residual gap.** That issue
+    fixed the qualifier half -- `sw.`/`solver_shared.` prefixes an extraction
+    introduces -- and left one real false positive behind: a line that GAINS a
+    trailing comment during a phase keyed differently and read as uncovered.
+    Measured on Phase 3 (#1302), after the qualifier fix took 33 reported
+    regressions to 1, that last one was exactly this shape --
+
+        base:  from .solver import elements, lp, network
+        head:  from .solver import elements, lp, network  # noqa: F401 -- re-export
+
+    -- a `# noqa` added because ruff could not see a re-export's real consumers.
+    Nothing about the line's execution changed.
+
+    The key is deliberately lossy: it already discards indentation, so two
+    identical statements at different depths already share a key. Discarding
+    comments widens that slightly and for the same reason -- a comment is not
+    part of what the line executes, so two lines differing only in their comment
+    ARE the same executable line.
     """
-    text = line.strip()
+    text = _without_trailing_comment(line.strip())
     for prefix in _QUALIFIER_PREFIXES:
         if prefix not in text:
             continue

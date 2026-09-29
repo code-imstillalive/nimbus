@@ -113,6 +113,66 @@ class TestRequalifiedLinesMatch(unittest.TestCase):
             with self.subTest(line=line.strip()):
                 self.assertEqual(_match_key(line), want)
 
+    def test_a_line_that_gains_a_trailing_comment_still_matches(self):
+        """#1411's residual gap, and the last of Phase 3's 33 false positives.
+
+        After the qualifier fix took 33 reported regressions to 1, the survivor
+        was a line that gained a `# noqa` during the phase -- added because ruff
+        cannot see a re-export's real consumers. Nothing about the line's
+        execution changed, and it read as uncovered.
+        """
+        for base, head in [
+            (
+                "    from .solver import elements, lp, network",
+                "    from .solver import elements, lp, network  # noqa: F401 -- re-export",
+            ),
+            (
+                "        _REAFFIRM_CAP_WARNED,",
+                "        _REAFFIRM_CAP_WARNED,  # noqa: F401 -- re-export (#1305)",
+            ),
+            (
+                "            except Exception:",
+                "            except Exception:  # noqa: BLE001 -- exc_info logged below",
+            ),
+        ]:
+            with self.subTest(head=head.strip()[:48]):
+                self.assertEqual(_match_key(base), _match_key(head))
+
+    def test_a_hash_inside_a_string_is_NOT_treated_as_a_comment(self):
+        """Why this uses `tokenize` and not `text.split("#")[0]`. Both of these
+        would be truncated mid-literal by a regex or a naive split, silently
+        making two different lines share a key."""
+        for line in [
+            '    url = "http://example/#frag"',
+            '    x = "a # b"',
+            "    s = '#'",
+            '    parts = text.split("#")',
+        ]:
+            with self.subTest(line=line.strip()):
+                self.assertEqual(_match_key(line), line.strip())
+
+    def test_a_hash_in_a_string_plus_a_real_comment_keeps_the_string(self):
+        """The case that distinguishes a correct implementation from one that
+        merely passes the two tests above separately."""
+        self.assertEqual(_match_key('    x = "a # b"  # real comment'), 'x = "a # b"')
+
+    def test_it_fails_open_on_a_fragment_tokenize_cannot_parse(self):
+        """`_match_key` runs on individual PHYSICAL lines, and a fragment of a
+        multi-line expression is not always a valid token stream. Returning it
+        unchanged is exactly the old behaviour, so a parse failure is neutral
+        rather than a new way to break the gate."""
+        for line in ["        elements,", "    )", "    ]", "        **kwargs,"]:
+            with self.subTest(line=line.strip()):
+                self.assertEqual(_match_key(line), line.strip())
+
+    def test_the_two_normalisations_compose(self):
+        """A requalified line that ALSO gained a comment -- the shape a real
+        extraction phase produces, since both happen in the same edit."""
+        self.assertEqual(
+            _match_key("    _LOGGER.warning("),
+            _match_key("    solver_shared._LOGGER.warning(  # noqa: G004"),
+        )
+
     def test_the_prefix_list_is_not_silently_empty(self):
         """Non-vacuity. If `_QUALIFIER_PREFIXES` were emptied, every assertion
         above about elision would fail, but a reader skimming this file could
