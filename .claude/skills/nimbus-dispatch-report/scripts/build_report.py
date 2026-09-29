@@ -37,8 +37,34 @@ def _default_yesterday_kpis(k: dict) -> list[list[str]]:
         ["Idle-battery reference", "$%.2f" % k.get("j_ref", 0.0), "j_ref"],
         ["Achieved (as scored)", "$%.2f" % k.get("j_ach", 0.0), "j_ach"],
         ["Perfect-foresight oracle", ("−$%.2f" % -j_star) if j_star < 0 else "$%.2f" % j_star, "j_star_evaluator · no degradation cost"],
-        ["Regret", "$%.2f" % k.get("regret", 0.0), "$%.2f of it in the top 4 hours" % (k.get("regret_top4_sum") or 0)],
+        ["Regret", "$%.2f" % k.get("regret", 0.0), _regret_note(k)],
     ]
+
+
+def _regret_note(k: dict) -> str:
+    """nimbus #1416: the old text read "$X of it in the top 4 hours", which
+    asserts the top-4 sum is a subset of the day regret. It need not be.
+
+    `regret` is the full `total_cost` difference and INCLUDES the one-time
+    `salvage_value` adjustment; the hourly buckets come from
+    `hourly_regret_breakdown()`, which deliberately EXCLUDES it -- said outright
+    in `solver/regret.py`'s own docstring, and acknowledged again in
+    `solver/quality_report.py`. So the arithmetic was documented at every level
+    except the one a human reads. Measured on the 2026-09-27 report: the listed
+    hours summed to $7.36 against a $7.04 day regret.
+
+    So quote the share against the sum it is genuinely part of, and say when that
+    differs from the day figure rather than letting a reader reconcile two
+    numbers that were never meant to reconcile.
+    """
+    top4 = k.get("regret_top4_sum") or 0.0
+    hourly = k.get("regret_hourly_sum")
+    if hourly is None:  # an older yesterday.json, written before #1416
+        return f"${top4:.2f} in the top 4 hours (hourly basis; see nimbus #1416)"
+    note = f"${top4:.2f} of the ${hourly:.2f} hourly-basis sum, top 4 hours"
+    if abs(hourly - (k.get("regret") or 0.0)) > 0.005:
+        note += " · that basis excludes the one-time salvage term, so it does not equal the day figure"
+    return note
 
 
 def main() -> int:

@@ -247,6 +247,16 @@ def main() -> int:
     top = sorted(((r[6], r[0]) for r in rows), reverse=True)
     kpis["regret_top_hours"] = [(h, round(v, 2)) for v, h in top[:5]]
     kpis["regret_top4_sum"] = round(sum(v for v, _ in top[:4]), 2)
+    # nimbus #1416: the DENOMINATOR `regret_top4_sum` is actually a share of.
+    # `kpis["regret"]` is the full total_cost difference and INCLUDES the
+    # one-time salvage_value adjustment; these hourly buckets come from
+    # hourly_regret_breakdown(), which deliberately excludes it -- stated
+    # outright in solver/regret.py's own docstring. So the two have different
+    # bases and the hourly sum can exceed the day regret (measured on
+    # 2026-09-27: $7.36 of hours against a $7.04 day). Emitting the hourly
+    # total lets a consumer quote a share of something the numerator is really
+    # part of, instead of "of it" being false.
+    kpis["regret_hourly_sum"] = round(sum(v for v, _ in top), 2)
     cross = None
     if args.cqr and os.path.exists(args.cqr):
         c = json.load(open(args.cqr))
