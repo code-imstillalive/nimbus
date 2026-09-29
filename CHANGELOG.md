@@ -8,7 +8,73 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.430] - 2026-09-29
+
+### Fixed
+- **The oracle's evaluator was priced against the wrong load once a Controllable
+  Load is re-timed.** `compute_quality_report()` hands the oracle's LP a reduced
+  base load (house load minus what a Controllable Load really drew) plus the same
+  energy back as a re-timeable adequacy/sheddable load, so `j_star` -- the LP
+  objective -- was priced correctly. But four post-solve sites that re-derive a
+  grid/cost trajectory for the oracle still read the *original*, un-reduced
+  `load.forecast_kw` -- so `j_star_evaluator`, the number `compute_epr()` actually
+  reads per [#1081](https://github.com/code-imstillalive/nimbus/issues/1081), was
+  priced against a trajectory the LP never chose. Measured on the finding's own
+  fixture: a 4 kWh load moved into a cheaper window improved `j_star` correctly
+  while the published `theoretical_maximum_yield` *shrank* by exactly $1.00 --
+  giving the oracle a strict superset of its freedom cannot legitimately lower the
+  value it says is available to capture. Fixed by reconstructing what the
+  oracle's plan actually served (the reduced base load plus wherever the LP put
+  the re-timeable power) and using that reconstruction at all four sites.
+  **Currently dormant on every install**: `switch.nimbus_solver_score_
+  controllable_loads_enabled` is off by default and off on the reference
+  household, and on that default path `oracle_load_kw` is exactly
+  `load.forecast_kw`, so no published EPR moves because of this fix. Found and
+  pinned by an IV&V pass
+  ([#1428](https://github.com/code-imstillalive/nimbus/issues/1428)), fixed same
+  day ([#1431](https://github.com/code-imstillalive/nimbus/pull/1431)).
+
 ### Internal
+- **The dispatch guard moved out of `solver_writer.py`** -- Phase 6 of the
+  decomposition ([#1305](https://github.com/code-imstillalive/nimbus/issues/1305),
+  spec 006), the single largest function in the file (1,300 lines) and the
+  initiative's own highest-risk phase, done deliberately last.
+  `apply_commanded_state_guard` and four companions move to
+  `solver_dispatch/guard.py`. `solver_writer.py` **10,205 -> 8,785 lines**; the
+  size ratchet drops **38 -> 36**.
+  - **The relative-import-depth guard, added after v0.94.428 shipped unable to
+    solve at all, paid for itself on this phase's first real run** -- it failed
+    naming 5 names across 3 statements, the identical bug shape (deferred,
+    function-level relative imports one level too shallow) on a 1,300-line move
+    instead of 736. Fixed before merge; `tests/test_relative_import_depth_
+    resolves.py` now guards both.
+  - All five moved nodes are AST-identical to their pre-move originals, modulo
+    the disclosed `sw.` qualifications and the three import-depth fixes.
+  - One deliberate departure from spec 006, corrected after testing both ways:
+    `_LOGGER` is reached via the `sw.` seam rather than `solver_shared._LOGGER`
+    directly, because `solver_writer._LOGGER` is an identity alias
+    ([#1350](https://github.com/code-imstillalive/nimbus/issues/1350)) and a
+    `Mock` installed on one name is invisible to code reading the other --
+    confirmed by the guard's own failure-reporting test.
+- **The solve-cycle overlap guard moved out of `solver_writer.py`** -- Phase 7a
+  ([#1306](https://github.com/code-imstillalive/nimbus/issues/1306), spec 007).
+  `acquire_lock`/`release_lock` (90 lines) move to `solver/cycle_lock.py`; size
+  ratchet **39 -> 38**.
+  - `LOCK_PATH` deliberately does *not* move, against spec 007's own original
+    plan -- it is rebound on the `solver_writer` module object at four sites
+    invisible to a literal-name scan (two `patch.object` calls whose target name
+    comes from a runtime string tuple, two plain attribute assignments). A missed
+    site in a full move would have kept rebinding `solver_writer.LOCK_PATH` while
+    the guard read `cycle_lock`'s own copy -- silently writing to the real `/opt`
+    PID file on any machine where `/opt` exists. The path is a parameter instead;
+    `solver_writer` keeps the constant and two one-line wrappers.
+  - Phase 7b (moving `_NATIVE_HASS`, the token trio and `ha_call_service*`) was
+    withdrawn rather than attempted -- spec 001 had already decided those names
+    stay in `solver_writer.py`, for reasons a real test enforces
+    (`tests/test_solver_writer_import_and_token_laziness.py` source-scans
+    `solver_writer.py` itself for the token-loading call site). The
+    decomposition (#1298) is closed at eight delivered phases with 7b recorded as
+    will-not-do-as-specified, not left open.
 - **Plan assembly moved out of `main()`** -- Phase 4 of the `solver_writer.py`
   decomposition ([#1303](https://github.com/code-imstillalive/nimbus/issues/1303), spec
   004). The 244-line span that built every `elements.*Config` object and called
