@@ -177,6 +177,34 @@ def code_differs(cited: str, tag_ref: str) -> list[str] | None:
     return [p for p in out.splitlines() if p.strip()]
 
 
+def changelog_at(ref: str) -> str:
+    """CHANGELOG.md as it exists AT `ref` -- the tag -- not in the working tree.
+
+    In `release.yml` the checkout is the tag, so the two agree. Anywhere else
+    they need not: run as a local pre-check from a branch that lacks the
+    verdict, this used to report "no 'Devhub validation:' line" for a tag that
+    has one, and a branch that HAS a verdict the tag lacks would pass a tag
+    that should fail. Found by exactly that local run for v0.94.430. Falls back
+    to the working tree only when the ref does not resolve (e.g. a tag not yet
+    created), and says so.
+    """
+    try:
+        return subprocess.run(
+            ["git", "show", f"{ref}:CHANGELOG.md"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        ).stdout
+    except (subprocess.CalledProcessError, OSError):
+        print(
+            f"note: {ref} does not resolve; reading the working tree's CHANGELOG.md",
+            file=sys.stderr,
+        )
+        return CHANGELOG.read_text(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("tag", help="the release tag, e.g. v0.94.430")
@@ -188,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     version = args.tag.removeprefix("v")
-    body = section_for(version, CHANGELOG.read_text(encoding="utf-8"))
+    body = section_for(version, changelog_at(args.tag_ref or args.tag))
     if body is None:
         print(f"::error::No '## [{version}]' section in CHANGELOG.md.", file=sys.stderr)
         return 1
