@@ -1247,11 +1247,18 @@ got this much rigor before any optimization logic was even discussed.
 
 Deployed on the household's own NUC (see the sibling `116KAT-HA-AI` repo) as a direct
 git clone at `/opt/homeassistant/config/nimbus_repo`, symlinked into
-`custom_components/nimbus_load`. Deploy:
+`custom_components/nimbus_load`. Deploy — **a validated tag, never `main`**:
 ```
-cd /opt/homeassistant/config/nimbus_repo && git fetch origin && git pull origin main
+cd /opt/homeassistant/config/nimbus_repo && git fetch --tags origin && git checkout v<X.Y.Z>
 docker restart opt_homeassistant_1
 ```
+**This block said `git pull origin main` until 2026-09-29, and that would have put
+unvalidated code on a live battery.** `main` routinely carries merged-but-unreleased
+work: measured that day, 19 commits past v0.94.429, including the 1,543-line dispatch
+guard (nimbus #1444). Production escaped only because the household checked out a tag
+instead of following the written command. `116KAT-HA-AI`'s own deploy block (the
+authoritative one) was corrected in its PR #879; this is the same fix here. Deploying
+to NUC1/NUC2 is the household's action, always — this block is reference, not a task.
 A Python custom_component change always needs a full restart — a config reload cannot
 reload changed Python modules, only YAML/config.
 
@@ -1273,10 +1280,27 @@ then found `ha_get_hacs_info` on devhub still showed `installed_version` ==
 tracks GitHub *releases* (`vX.Y.Z` tags, published by `.github/workflows/release.yml`
 on tag push), never raw commits on `main`. A merge alone is invisible to every HACS
 install, including devhub, until a release is actually cut. **After merging PR(s) to
-main, always follow up**: add a `## [X.Y.Z]` section to `CHANGELOG.md`, bump
-`manifest.json`'s `version`, commit as its own "Release vX.Y.Z" PR, merge it,
-then tag that commit `vX.Y.Z` and push the tag. Only then will HACS's update
-entity on any install see the new version and offer it.
+main, always follow up — and VALIDATE BEFORE TAGGING (nimbus #1447):**
+
+1. Add a `## [X.Y.Z]` section to `CHANGELOG.md`, bump `manifest.json`'s `version`,
+   commit as its own "Release vX.Y.Z" PR, merge it. **No tag yet.**
+2. Install that `main` on devhub **without a tag**: HACS can install the default
+   branch (`ha_manage_hacs(action="download", repository_id="code-imstillalive/nimbus",
+   version="main")`), and `ha_get_hacs_info` then reports the short commit as
+   `installed_version`. Restart and run the RELEASE VALIDATION checklist below.
+3. Write the verdict into that version's section **after** the check —
+   `Devhub validation: ... at <commit>` citing the commit HACS installed, plus a
+   `Consumer check:` line — as its own PR, and merge it.
+4. **Then** tag the merged verdict commit `vX.Y.Z` and push the tag.
+
+**Step 4 before step 3 no longer produces an installable release.** `release.yml` runs
+`.github/scripts/check_release_validated.py`, which refuses to publish the GitHub Release
+(the thing HACS offers) unless the tagged section carries both lines — and, when the
+validation line cites a commit, unless `custom_components/` is byte-identical between
+that commit and the tag. A fix pushed between validation and tag therefore fails the
+release instead of shipping unvalidated. `Devhub validation: not claimed, because X`
+remains a first-class answer and passes. Only then will HACS's update entity on any
+install see the new version and offer it.
 
 **2026-09-04, nimbus issue #357: the `nimbus_solver_app` Supervisor add-on and
 its `version-lockstep` CI job are both gone.** The add-on had silently drifted

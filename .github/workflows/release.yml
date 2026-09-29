@@ -29,6 +29,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      # nimbus issue #1447: tag-after-validate, enforced here rather than
+      # remembered. HACS offers Releases, not tags, and this workflow is
+      # the only thing that publishes one -- so refusing here means a tag
+      # pushed before its validation verdict exists is offered to no
+      # install. The tagged commit must already carry the "Devhub
+      # validation:" line, and if that line cites the validated commit,
+      # custom_components/ must be identical between it and the tag.
+      # fetch-depth: 0 above is what makes the cited commit resolvable.
+      - name: Refuse to publish an unvalidated release (#1447)
+        run: python3 .github/scripts/check_release_validated.py "$GITHUB_REF_NAME"
+
       - name: Extract this version's CHANGELOG.md section
         id: notes
         run: |
