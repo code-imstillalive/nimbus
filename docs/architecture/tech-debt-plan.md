@@ -149,3 +149,52 @@ cannot be skipped for a phase in the way #1300's pre-move test was (#1310).
 - Decompose `sensor.py`, `solver/network.py`, `lp.py`, `elements.py` or
   `const.py` (#1298's out-of-scope list, unchanged).
 - Migrate the 512 patch sites. Each phase retargets only what its spec lists.
+
+## 7. Scoped after #1298 closed — `sensor.py` and `solver_reports/quality.py` (#1446)
+
+#1298 named `sensor.py` out of scope *with a reason*. `solver_reports/quality.py`
+never got that look, because it was the *destination* of a move. Both were measured
+on 2026-09-29 at `origin/main` `9d3be28`. **Outcome for both: not now** — recorded
+here with the seam and the trigger, so the question is not re-asked from scratch.
+
+**`solver_reports/quality.py` — 2,670 lines, 6 functions.** One function,
+`_compute_report_for_window`, is **1,422 lines (53% of the file)** — the figure that
+invites comparison with the god-functions #1298 broke up. The measurement does not
+support that comparison:
+
+| | lines |
+|---|---:|
+| whole function | 1,422 |
+| comments (embedded incident rationale) | **731 (51%)** |
+| the final `return` — one flat dict literal | **359** |
+| executable logic, excluding the above | ~627 |
+
+The logic is one **linear pipeline** with no branching between modes: validate inputs
+→ fetch history → reconstruct SoC → battery config → P2P settlement → oracle solve →
+discrepancy/feasibility → forecast regret → assemble. It already delegates each
+analysis to named helpers (`_soc_discrepancy_stats`, `_achieved_feasibility_stats`,
+`_epr_reliability`, ...). Growth since it moved in (1,353 → 1,422) came from **one
+feature** (#1391, controllable-load oracle reconstruction): +33 comment lines, +28
+return keys, ~+8 logic. That is a cohesive scorer whose rationale is unusually well
+written down, not an SRP violation.
+
+- **Seam, if it is ever split:** the 359-line output assembly → a
+  `_report_attributes(report, ...)` builder. It is pure, testable against a dict, and
+  separates *what was computed* from *how it is published*.
+- **Revisit when:** executable logic (not comments) passes ~900 lines, or a second
+  scoring mode is added — that would introduce the mode-branching this function
+  does not have today.
+
+**`sensor.py` — 4,449 lines, 33 classes** (4,318 / "32 classes" when #1298 was
+scoped). "One class per entity" still describes it. The two large units are not
+entity sprawl:
+
+| unit | lines | comments | what it is |
+|---|---:|---:|---|
+| `_NimbusSolverPushSensor` | 564 | 36% | the shared base for **12** solver-pushed sensors — restore, availability and push lifecycle in one place. Splitting it would duplicate that lifecycle. |
+| `async_setup_entry` | 531 | 47% | platform wiring: 12 `register_entity_handler` calls and 9 `async_add_entities` batches. |
+
+- **Seam, if it is ever split:** `async_setup_entry`'s handler registration → a
+  `_register_entity_handlers()` helper. Mechanical; no behaviour to move.
+- **Revisit when:** a class stops being one-entity-per-class, or a second shared base
+  appears next to `_NimbusSolverPushSensor` — that is where a module split would pay.
