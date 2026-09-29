@@ -644,6 +644,64 @@ _NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
     }
 )
 
+# nimbus issue #1396: the managed-entity skip in ha_post_state() below is
+# written for a TRANSIENT window -- setup, a reload's unload -- and its own
+# comment says a missing handler is "never 'this will never exist.'" That
+# assumption can be false permanently: measured on devhub, a
+# remote_homeassistant mirror of another install squats the managed
+# entity_id, this install's own entity is bumped to a suffixed id, no
+# handler ever registers under the managed name, and the skip fires every
+# cycle forever. The only trace was a DEBUG line, which is why finding it
+# took a dedicated investigation.
+#
+# A setup/unload window lasts a cycle or two. A streak of consecutive skips
+# for the same entity_id well past that is not a window, so it is said once
+# at WARNING, and an INFO line marks recovery if a handler later appears.
+# Per entity_id, not per process: one squatted id says nothing about the
+# others.
+_MANAGED_SKIP_WARN_AFTER = 10
+_MANAGED_SKIP_STREAK: dict[str, int] = {}
+_MANAGED_SKIP_WARNED: set[str] = set()
+
+
+def _note_managed_publish_skipped(entity_id: str) -> None:
+    """Count one skipped publish; warn once when the streak stops looking
+    transient. Best-effort: a diagnostic never blocks a publish path."""
+    try:
+        streak = _MANAGED_SKIP_STREAK.get(entity_id, 0) + 1
+        _MANAGED_SKIP_STREAK[entity_id] = streak
+        if streak >= _MANAGED_SKIP_WARN_AFTER and entity_id not in _MANAGED_SKIP_WARNED:
+            _MANAGED_SKIP_WARNED.add(entity_id)
+            _LOGGER.warning(
+                "Nimbus #1396: %s has had no registered entity for %d "
+                "consecutive solve cycles, so none of them published -- "
+                "longer than any setup or reload window. It will keep being "
+                "skipped until an entity registers under this exact "
+                "entity_id. Check whether another integration occupies the "
+                "id (for example a remote_homeassistant mirror, which bumps "
+                "this install's own entity to a suffixed id) or whether the "
+                "entity has been disabled. Logged once per entity_id.",
+                entity_id,
+                streak,
+            )
+    except Exception:  # noqa: BLE001 -- a diagnostic must never break a publish
+        _LOGGER.debug("Nimbus #1396: skip-streak bookkeeping failed for %s", entity_id)
+
+
+def _note_managed_publish_delivered(entity_id: str) -> None:
+    """Reset the streak once a handler exists; mark recovery if it had
+    been warned about."""
+    try:
+        _MANAGED_SKIP_STREAK.pop(entity_id, None)
+        if entity_id in _MANAGED_SKIP_WARNED:
+            _MANAGED_SKIP_WARNED.discard(entity_id)
+            _LOGGER.info(
+                "Nimbus #1396: %s has a registered entity again and is publishing.",
+                entity_id,
+            )
+    except Exception:  # noqa: BLE001 -- a diagnostic must never break a publish
+        _LOGGER.debug("Nimbus #1396: recovery bookkeeping failed for %s", entity_id)
+
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     sw = _solver_writer()
@@ -688,6 +746,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         )
         _LOGGER.debug(_trace_msg)
         if handler is not None:
+            _note_managed_publish_delivered(entity_id)
             sw._NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
             return
         # Real root cause of issue #312's residual (2026-09-01, see
@@ -714,6 +773,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
                 "the real entity has (re-)registered",
                 entity_id,
             )
+            _note_managed_publish_skipped(entity_id)
             return
         # states.async_set() mutates HA's own state machine and fires a
         # real event -- unlike the plain dict-read in ha_get() above,
