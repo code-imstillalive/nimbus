@@ -25,6 +25,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   only on the tag being published), and the new citation is required only going
   forward. Mutation-checked: removing the workflow step, the code-identity diff, the
   citation match or the not-claimed branch each turns the suite red.
+- **A PR may no longer delete a file its body does not name**
+  ([#1445](https://github.com/code-imstillalive/nimbus/issues/1445)). PR #1384 deleted
+  two merged specs among sixteen deletions, fourteen intended. Reconstructed from git,
+  the deletion was *visible* in its diff against the actual merge-base, so no
+  different-base diff could have caught it -- what was missing was intent. New
+  workflow `pr-deletions.yml` requires every deleted path to appear on a `Deletes:`
+  line; replayed against the real #1384 commit with the acknowledgement its author
+  would have written, it fails on exactly the two specs. Measured cost: 2 of the last
+  300 merged changes deleted anything.
 
 ## [0.94.430] - 2026-09-29
 
@@ -68,12 +77,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     resolves.py` now guards both.
   - All five moved nodes are AST-identical to their pre-move originals, modulo
     the disclosed `sw.` qualifications and the three import-depth fixes.
-  - One deliberate departure from spec 006, corrected after testing both ways:
-    `_LOGGER` is reached via the `sw.` seam rather than `solver_shared._LOGGER`
-    directly, because `solver_writer._LOGGER` is an identity alias
-    ([#1350](https://github.com/code-imstillalive/nimbus/issues/1350)) and a
-    `Mock` installed on one name is invisible to code reading the other --
-    confirmed by the guard's own failure-reporting test.
+  - **`_LOGGER` is read as `solver_shared._LOGGER` at all 13 sites in
+    `solver_dispatch/guard.py`, and through the `sw.` seam at none** -- counted in
+    the shipped file during the devhub validation below. *Correction:* this bullet
+    originally said the opposite ("reached via the `sw.` seam rather than
+    `solver_shared._LOGGER` directly"), which described an intermediate state of
+    Phase 6 that did not ship. `solver_writer._LOGGER` is an identity alias
+    ([#1350](https://github.com/code-imstillalive/nimbus/issues/1350)); the real
+    fix was the one test that had been patching the alias, and a package-wide gate
+    now asserts zero seam-shaped references outside `solver_writer.py`.
 - **The solve-cycle overlap guard moved out of `solver_writer.py`** -- Phase 7a
   ([#1306](https://github.com/code-imstillalive/nimbus/issues/1306), spec 007).
   `acquire_lock`/`release_lock` (90 lines) move to `solver/cycle_lock.py`; size
@@ -122,6 +134,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     a parameter instead of a `load_previous_plan()` call -- so `import-linter`'s
     `nimbus-layers` contract gains **zero** new `ignore_imports` entries and stays at
     14.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 9d3be28**, before
+  any tag existed. HACS installed `main` untagged (`installed_version: 9d3be28`),
+  restarted 22:15 AEST 29 Sep, config entry `loaded`; `custom_components/` is
+  byte-identical between 9d3be28 and the tagged commit. **Solver (Phase 4, 7a):**
+  with the solver loggers raised to DEBUG for three minutes, devhub's *own* solve
+  reached `status='optimal'` on 6 cycles (`plan.batteries = ['home', 'Test EV']` --
+  `Test EV` exists only on devhub, so this is not production's mirrored row);
+  `#773 phase breakdown` `status=Optimal`, `n_binary=1312`; the overlap guard
+  refused overlapping ticks and self-healed exactly as in the pre-upgrade
+  baseline. **Dispatch guard (Phase 6):** all six devhub test loads'
+  `commanded_state` sensors -- devhub-only entities, the guard's own output --
+  refreshed after the restart (22:25:52, again 22:33:53) with full 204-period
+  plans and real reasons ("deferred to 08:30, saves 519.50 c/kWh");
+  `apply_commanded_state_guard` is AST-identical to v0.94.429's modulo `sw.` /
+  `solver_shared.` qualification and relative-import depth, the only added line
+  being the `sw = _solver_writer()` seam. **Log:** zero `ImportError`,
+  `ModuleNotFoundError`, `solve cycle failed` or `Traceback`; the new lines against
+  a 21:06-22:12 baseline were restart-time `remote_homeassistant` duplicate-unique-ID
+  refusals (known, 2026-09-21) and one missing-entity warning from a devhub fixture
+  pointing at a non-existent `water_heater` (same guard logic as v0.94.429).
+  **#1428 fix:** dormant with its switch off, so not exercised; the #1363
+  controllable-load delivery reconstruction it builds on was checked separately and
+  matched an independent integral of the raw power history to four decimal places
+  on all five scorable test loads. **Not validated:** HA 2026.7.4 (production's
+  version -- #1245), and anything read from a published solver entity, which
+  devhub's mirror squats (#1396).
+- Consumer check: nothing a household sees changes -- the dispatch card, per-load
+  plans and quality report read the same, since Phases 4/6/7a move code without
+  changing behaviour and the #1428 fix is dormant with the scoring switch off by
+  default.
 
 ## [0.94.429] - 2026-09-29
 
