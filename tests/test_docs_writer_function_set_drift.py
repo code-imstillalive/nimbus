@@ -219,6 +219,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "build_per_battery_forecast",
         "register_entity_handler",
         "unregister_entity_handler",
+        # nimbus issue #1396: bookkeeping for ha_post_state()'s managed-entity
+        # skip, which only exists in the native branch (_NATIVE_HASS set) and
+        # keys off the handler registry the two names directly above build.
+        # The standalone/cron copy has no handler registry and never skips,
+        # so there is no streak to count there.
+        "_note_managed_publish_skipped",
+        "_note_managed_publish_delivered",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
         # nimbus #994: builds the quality report's own `history` table.
