@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Internal
+- **A release can no longer be published before it is validated**
+  ([#1447](https://github.com/code-imstillalive/nimbus/issues/1447)). Twice in the
+  #1298 decomposition a release was tagged before its devhub check, and v0.94.428 --
+  unable to solve at all on a real install -- was offered by HACS as a result. The
+  fix was a discipline; it is now a mechanism. `release.yml` runs
+  `.github/scripts/check_release_validated.py` before publishing, and refuses unless
+  the tagged version's section carries a `Devhub validation:` line and a
+  `Consumer check:` line (the #594 guard's own patterns, asserted identical by test).
+  When the validation line cites the commit that was installed, the gate also
+  requires `custom_components/` to be byte-identical between that commit and the
+  tag, so a fix pushed between validation and tag fails the release rather than
+  shipping unvalidated. "Not claimed, because X" still passes. Measured against the
+  25 real entries from 0.94.406 on before shipping: none is re-judged (the gate runs
+  only on the tag being published), and the new citation is required only going
+  forward. Mutation-checked: removing the workflow step, the code-identity diff, the
+  citation match or the not-claimed branch each turns the suite red.
+
 ## [0.94.430] - 2026-09-29
 
 ### Fixed
