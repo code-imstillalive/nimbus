@@ -26,6 +26,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   racing Home Assistant's shutdown reached the recorder after its executor stopped. While
   HA is stopping, the forecast coordinator now keeps its current data and does not fetch.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 031154b**, installed
+  untagged via HACS (`installed_version: 031154b`) against an 18:41-20:17 v0.94.431 log
+  baseline, restarted 20:19 AEST 30 Sep. **#1475, live:** the restart's shutdown logged
+  **zero** `cannot schedule new futures` / coordinator ERRORs, where v0.94.431's restart
+  logged one. **Solver:** devhub's own solve `status='optimal'` on 10 of 10 cycles, `#773`
+  phases all Optimal; zero `ImportError`, `solve cycle failed` or `Traceback`. **#1477:**
+  `compute_quality_report` with `allow_partial=False` (the strict full-day gate) scored
+  both 29 Sep (EPR 73.15%) and 28 Sep (59.42%) -- a no-regression result only: devhub's
+  solar sensor wrote 5,644 rows between 14:00 and midnight and never holds steady, so the
+  quiet-evening shape this release fixes cannot be reproduced there; the fix is covered
+  by the #313/#314-harness tests, mutation-checked 3/3. **Log vs baseline:** restart-time
+  mirror duplicate-unique-ID refusals (known), plus one `solver_runtime` WARNING that
+  `switch.nimbus_solver_dispatch_dry_run` was missing on the very first cycle after
+  start (20:20:10.319) -- a startup race in code this release does not touch
+  (`solver_runtime.py` unchanged since v0.94.431), tracked separately. **Not validated:**
+  HA 2026.7.4 (#1245).
+- Consumer check: a day whose solar sensor simply sat at zero overnight is now scored
+  instead of leaving the quality card on the previous day; a restart no longer leaves a
+  spurious ERROR in the log; nothing else a household sees changes.
+
 ## [0.94.431] - 2026-09-30
 
 ### Fixed
