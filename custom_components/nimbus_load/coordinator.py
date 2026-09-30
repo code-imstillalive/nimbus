@@ -1605,6 +1605,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- coordinator tick (cheap: inference only) ------------------------------
 
     async def _async_update_data(self) -> dict[str, Any]:
+        # nimbus issue #1475: a refresh that lands while Home Assistant is
+        # stopping reaches the recorder after its DB executor has shut down
+        # and raises "cannot schedule new futures after shutdown" -- logged as
+        # an ERROR on an ordinary restart. Nothing useful can be computed
+        # while HA stops, so keep the current data and skip the fetch.
+        # `is True`, not truthiness: `is_stopping` is a bool on a real
+        # instance, and a test double's auto-attribute must not trip this.
+        if getattr(self.hass, "is_stopping", False) is True:
+            return self.data
         if self._trained is None:
             return {
                 "state": None,
