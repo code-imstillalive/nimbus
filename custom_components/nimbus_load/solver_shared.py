@@ -997,6 +997,87 @@ def p2p_bonus_price_by_period(
     )
 
 
+def fetch_entity_went_unavailable(
+    entity_id: str, after: datetime, end: datetime
+) -> bool | None:
+    """Did this entity pass through a NON-numeric state (`unavailable`,
+    `unknown`, ...) in `(after, end]`? True/False, or None when the recorder
+    could not be read (nimbus issue #1477).
+
+    `fetch_entity_history_range()` drops non-numeric rows, which is right for
+    its callers but leaves the coverage gate unable to tell two opposite
+    things apart once a series stops early:
+
+    * **a held value** -- HA's recorder writes a row only when a state
+      CHANGES, so a PV sensor sitting at 0.0 from dusk to midnight writes
+      nothing after its last change. Measured on a real install: last row
+      `0.0` at 17:39:23, nothing more that day, while sibling sensors kept
+      changing. The sensor was fine; it was night.
+    * **a real outage** -- the integration drops out and HA records the
+      entity as `unavailable`.
+
+    Only the raw states can separate them, so this reads them unfiltered.
+    """
+    sw = _solver_writer()
+    raw: list[str] = []
+    if sw._NATIVE_HASS is not None:
+        try:
+            import asyncio
+
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
+            from homeassistant.components.recorder import history as _recorder_history
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(
+                    sw._NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    sw._NATIVE_HASS,
+                    after,
+                    end,
+                    entity_id,
+                    True,  # no_attributes
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), sw._NATIVE_HASS.loop)
+            states = future.result(timeout=30).get(entity_id, [])
+            raw = [s.state for s in states if s.last_changed > after]
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_went_unavailable(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
+            return None
+    else:
+        url = (
+            f"{sw.HA_BASE}/api/history/period/"
+            f"{after.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+            f"?filter_entity_id={entity_id}"
+            f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        )
+        req = urllib.request.Request(
+            url, headers={"Authorization": f"Bearer {sw._load_token()}"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read())
+        except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+            return None
+        for p in data[0] if data and data[0] else []:
+            when = parse_iso(p.get("last_changed")) if p.get("last_changed") else None
+            if when is not None and when > after:
+                raw.append(p.get("state"))
+    for state in raw:
+        try:
+            float(state)
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
 def fetch_entity_history_range(
     entity_id: str, start: datetime, end: datetime
 ) -> list[tuple[datetime, float]]:
