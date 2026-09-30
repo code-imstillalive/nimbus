@@ -34,6 +34,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   reader as production's; the baseline is install-specific (median 0 on the reference
   household, [#1360](https://github.com/code-imstillalive/nimbus/issues/1360)).
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 22fa422**, installed
+  untagged via HACS (`installed_version: 22fa422`) against a 20:23-21:54 v0.94.432 log
+  baseline, restarted 22:08 AEST 30 Sep. **#1480, live on devhub's own scorer:**
+  `compute_quality_report` for 28 Sep returned delta 1.5308 / explained 1.531 /
+  unexplained **-0.0002**, and for 29 Sep 1.551 / 1.5511 / **-0.0002**, with EPR (73.15%)
+  and regret ($2.9414) unchanged from v0.94.432 -- the new fields explain devhub's own
+  delta too. The first 29 Sep call, issued seconds after the integration loaded,
+  returned no report; the two immediate retries scored identically (startup window,
+  not a scoring change). **Solver:** 7 of 7 devhub-own solves `status='optimal'`;
+  zero `ImportError`, `solve cycle failed` or `Traceback`. **#1482:** zero dry-run
+  "missing" WARNINGs through the restart (whether the race occurred this time is not
+  observable; the fake-clock tests cover it). **#1475 still holding:** zero shutdown
+  ERRORs. **Log vs baseline:** only the known restart-time mirror duplicate-unique-ID
+  refusals, stale-rename notices and overlap skips. **Not validated:** HA 2026.7.4
+  (#1245).
+- Consumer check: the quality card's attributes gain `j_star_path_delta_explained` /
+  `_unexplained`, so a large path delta beside regret now says whether it is known
+  tie-break friction (as it is on both installs measured) or a real disagreement; a
+  restart no longer leaves a spurious dry-run WARNING; the scores themselves do not
+  change.
+
 ## [0.94.432] - 2026-09-30
 
 ### Fixed
