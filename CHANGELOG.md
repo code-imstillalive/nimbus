@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.433] - 2026-09-30
+
+### Added
+- **`j_star_path_delta` is now explained, not just reported**
+  ([#1480](https://github.com/code-imstillalive/nimbus/issues/1480)). Measured on the
+  reference household's real data (a read-only local reproduction that matched its
+  published 28 Sep figures exactly), the whole $1.84/day delta that sat beside regret
+  was two LP-only tie-breakers: the #731 round-trip-loss term ($1.61) and the #692
+  battery charge-earliness term (~$0.21) -- friction the evaluator rightly excludes, so
+  regret and EPR were always correct. `Plan` now reports `battery_loss_tiebreak_cost`
+  and `battery_charge_earliness_cost`, and the quality report publishes
+  `j_star_path_delta_explained` / `j_star_path_delta_unexplained`. Unexplained on four
+  real days: -0.0004 / -0.0003 / -0.0003 / -0.027. It also identifies the "at least one
+  more term" #1081's pinned test had left open.
+
+### Fixed
+- **No "switch ... entity is missing -- unexpected" WARNING on the first cycle after a
+  restart** ([#1482](https://github.com/code-imstillalive/nimbus/issues/1482)). The
+  dispatch dry-run's two "not there yet" lines now use #1466's 10-minute time-based
+  grace, once per episode; a genuinely missing switch still warns.
+
+### Internal
+- The `simplex_iterations` baseline comment no longer hands devhub's 12k-214k to a
+  reader as production's; the baseline is install-specific (median 0 on the reference
+  household, [#1360](https://github.com/code-imstillalive/nimbus/issues/1360)).
+
 ## [0.94.432] - 2026-09-30
 
 ### Fixed
