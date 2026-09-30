@@ -164,6 +164,36 @@ _consecutive_lock_skips = 0
 #: "consecutive", never "ever".
 _consecutive_not_configured = 0
 
+#: nimbus issue #1482: the same time-based startup grace, for the dispatch
+#: dry-run's two "entity not there yet" lines. Keyed per condition; value is
+#: the monotonic time the current absence began, and `_STARTUP_ABSENCE_WARNED`
+#: holds the keys already warned about this episode.
+_STARTUP_ABSENCE_SINCE: dict[str, float] = {}
+_STARTUP_ABSENCE_WARNED: set[str] = set()
+
+
+def _startup_absence(key: str, present: bool) -> bool:
+    """True when an absence has lasted past the #1466 grace and has not been
+    warned about yet this episode (so the caller should WARN now); False
+    otherwise, including whenever `present` is True, which ends the episode.
+
+    A solve cycle can start before a platform has registered its entities --
+    measured on devhub, the very first line after a restart (#1482). That is
+    a race, not "unexpected", and cycle counts vary by install, so the
+    threshold is time. A genuinely missing entity still warns.
+    """
+    if present:
+        _STARTUP_ABSENCE_SINCE.pop(key, None)
+        _STARTUP_ABSENCE_WARNED.discard(key)
+        return False
+    now = time.monotonic()
+    since = _STARTUP_ABSENCE_SINCE.setdefault(key, now)
+    if now - since < _NOT_CONFIGURED_WARN_AFTER_S or key in _STARTUP_ABSENCE_WARNED:
+        return False
+    _STARTUP_ABSENCE_WARNED.add(key)
+    return True
+
+
 #: nimbus issue #1466: how long "not configured" must persist, CONTINUOUSLY,
 #: before it is a real WARNING -- in seconds, not cycles.
 #:
@@ -347,6 +377,9 @@ def reset_module_state() -> None:
     _consecutive_not_configured = 0
     _not_configured_since = None
     _not_configured_warned = False
+    # nimbus issue #1482: same reason -- a re-added entry starts clean.
+    _STARTUP_ABSENCE_SINCE.clear()
+    _STARTUP_ABSENCE_WARNED.clear()
     # nimbus issue #945: "since startup" in the summary WARNING means
     # since this reset, so a reload gives a clean count rather than
     # carrying a previous config entry's overlaps into a new one.
@@ -570,11 +603,14 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
         # which stays where it is. Absence-of-a-run is not observation-
         # of-a-run. The three sibling warnings below stay WARNING too --
         # each is a genuine anomaly in the dry-run mechanism itself.
-        if dry_run is None:
+        if _startup_absence("dry_run_switch", dry_run is not None):
             _LOGGER.warning(
                 "Nimbus Dispatch (dry-run): switch.nimbus_solver_dispatch_dry_run "
-                "entity is missing -- unexpected, dispatch dry-run cannot proceed"
+                "entity has been missing for over %.0f s -- longer than any "
+                "startup race, dispatch dry-run cannot proceed (nimbus issue #1482)",
+                _NOT_CONFIGURED_WARN_AFTER_S,
             )
+        if dry_run is None:
             return
         if dry_run.state != "on":
             _LOGGER.debug(
@@ -584,11 +620,14 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
             )
             return
         forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
-        if forecast_state is None:
+        if _startup_absence("battery_forecast", forecast_state is not None):
             _LOGGER.warning(
-                "Nimbus Dispatch (dry-run): skipping this cycle -- "
-                "sensor.nimbus_solver_battery_forecast has no state at all yet"
+                "Nimbus Dispatch (dry-run): skipping -- "
+                "sensor.nimbus_solver_battery_forecast has had no state for over "
+                "%.0f s (nimbus issue #1482)",
+                _NOT_CONFIGURED_WARN_AFTER_S,
             )
+        if forecast_state is None:
             return
         periods = forecast_state.attributes.get("forecast") or []
         if not periods:

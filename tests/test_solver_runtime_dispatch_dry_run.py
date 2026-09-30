@@ -127,19 +127,69 @@ def test_switch_missing_entity_still_warns(caplog):
     integrity problem, not a user preference, so it keeps WARNING. This
     is the distinction the issue explicitly asked to preserve -- a blanket
     demotion of the whole branch would have silenced it too.
+
+    nimbus #1482 changed only WHEN: the first cycles after a restart can run
+    before the switch platform registers it (a race, observed on devhub), so
+    it warns once the absence has lasted past the time-based grace -- and then
+    exactly once per episode.
     """
+    from unittest.mock import patch
+
+    from custom_components.nimbus_load import solver_runtime
+
+    solver_runtime._STARTUP_ABSENCE_SINCE.clear()
+    solver_runtime._STARTUP_ABSENCE_WARNED.clear()
+    clock = [1000.0]
     hass = _make_hass(switch_state=None, forecast=[{"battery_kw": 5.0}])
     sw = _make_sw()
-    with caplog.at_level(
-        logging.DEBUG, logger="custom_components.nimbus_load.solver_runtime"
+    with (
+        patch.object(solver_runtime.time, "monotonic", lambda: clock[0]),
+        caplog.at_level(
+            logging.DEBUG, logger="custom_components.nimbus_load.solver_runtime"
+        ),
     ):
-        _log_dispatch_dry_run(hass, sw)
+        _log_dispatch_dry_run(hass, sw)  # first cycle after start: a race
+        assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+        clock[0] += solver_runtime._NOT_CONFIGURED_WARN_AFTER_S + 1
+        _log_dispatch_dry_run(hass, sw)  # still missing, past the grace
+        clock[0] += 600
+        _log_dispatch_dry_run(hass, sw)  # and again -- must not repeat
+    solver_runtime._STARTUP_ABSENCE_SINCE.clear()
+    solver_runtime._STARTUP_ABSENCE_WARNED.clear()
 
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1, (
         f"missing entity must warn exactly once, got {len(warnings)}"
     )
-    assert "entity is missing" in warnings[0].getMessage()
+    assert "missing" in warnings[0].getMessage()
+
+
+def test_1482_the_startup_race_is_silent_and_a_reappearance_ends_it(caplog):
+    """The observed case: missing on the first cycle, present on the next."""
+    from unittest.mock import patch
+
+    from custom_components.nimbus_load import solver_runtime
+
+    solver_runtime._STARTUP_ABSENCE_SINCE.clear()
+    solver_runtime._STARTUP_ABSENCE_WARNED.clear()
+    clock = [1000.0]
+    with (
+        patch.object(solver_runtime.time, "monotonic", lambda: clock[0]),
+        caplog.at_level(
+            logging.DEBUG, logger="custom_components.nimbus_load.solver_runtime"
+        ),
+    ):
+        _log_dispatch_dry_run(_make_hass(switch_state=None), _make_sw())
+        clock[0] += 17
+        _log_dispatch_dry_run(_make_hass(switch_state="off"), _make_sw())
+        assert "dry_run_switch" not in solver_runtime._STARTUP_ABSENCE_SINCE
+        clock[0] += solver_runtime._NOT_CONFIGURED_WARN_AFTER_S + 1
+        _log_dispatch_dry_run(_make_hass(switch_state=None), _make_sw())
+    solver_runtime._STARTUP_ABSENCE_SINCE.clear()
+    solver_runtime._STARTUP_ABSENCE_WARNED.clear()
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == [], (
+        "a new absence starts a new clock; one cycle is not ten minutes"
+    )
 
 
 def test_switch_on_but_no_forecast_yet_does_not_crash():
