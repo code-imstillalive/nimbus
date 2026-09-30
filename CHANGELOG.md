@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.434] - 2026-10-01
+
+### Changed
+- **Flex signals now run HiGHS ranging once per 5-minute interval, not on every solve**
+  ([#489](https://github.com/code-imstillalive/nimbus/issues/489)). With
+  `switch.nimbus_solver_flex_signals_enabled` on, ranging was measured at ~9x solve time
+  (median 1.16 s -> 10.3 s) on every ~17 s solve, which is why the switch could not be
+  left on. The first solve of each UTC 5-minute slot now ranges (the nem-flex-telemetry
+  record's own cadence); the rest solve without it, and the flex sensors hold their last
+  real payload -- with its own `generated_at` -- instead of going `unavailable`. Expected
+  cost about 1.4x instead of 8.9x. A test pins that a ranged and an unranged solve
+  dispatch identically. Switch off: unchanged. Standalone/cron: ranges every run, as before.
+
+### Added
+- **A period-0 pin instrument for the charge-window chatter**
+  ([#1417](https://github.com/code-imstillalive/nimbus/issues/1417)), off by default. With
+  its own logger at DEBUG (`logger.set_level`
+  `custom_components.nimbus_load.solver_plan.period0_pin: debug`), each solve whose
+  period[0] crosses the dispatch deadband relative to the previous plan is re-solved once
+  with period[0] pinned to the previous value, and the objective difference is logged
+  with the period-0 inputs: ~0 is a tie the proximal anchor should have held, large is a
+  genuine re-plan. The published plan is identical on or off.
+
+### Internal
+- **The injected `hass` lives on a stable-identity holder, `solver_shared.NATIVE`**
+  ([#1437](https://github.com/code-imstillalive/nimbus/issues/1437)), replacing the
+  rebound `solver_writer._NATIVE_HASS`. Every reader and all 201 test sites moved; the old
+  name is deleted and a test asserts zero code uses of it. No behaviour change.
+
 ## [0.94.433] - 2026-09-30
 
 ### Added
