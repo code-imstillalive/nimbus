@@ -74,6 +74,8 @@ def _reset_module_state() -> None:
     # first occurrence -- the tiering is per-consecutive-run, so the harness
     # has to start from zero the same way a fresh install does.
     solver_runtime._consecutive_not_configured = 0
+    solver_runtime._not_configured_since = None
+    solver_runtime._not_configured_warned = False
 
 
 class TestASelfHealingNotConfiguredRaceDoesNotWarn(unittest.TestCase):
@@ -90,6 +92,71 @@ class TestASelfHealingNotConfiguredRaceDoesNotWarn(unittest.TestCase):
         assert result is False
         mock_logger.warning.assert_not_called()
         mock_logger.debug.assert_called()
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self):
+        return self.t
+
+
+def _cycles(clock, n, step_s, *, configured):
+    """Run n cycles `step_s` apart; returns the mocked logger."""
+    hass = MagicMock()
+    err = None if configured else _not_configured_error()
+    sw = _make_sw(main_side_effect=err)
+    with (
+        patch.object(solver_runtime, "_ensure_ready", return_value=sw),
+        patch.object(solver_runtime, "_log_dispatch_dry_run"),
+        patch.object(solver_runtime.time, "monotonic", clock),
+        patch.object(solver_runtime, "_LOGGER") as log,
+    ):
+        for _ in range(n):
+            solver_runtime._run_one_cycle(hass)
+            clock.t += step_s
+    return log
+
+
+class TestTheThresholdIsTimeNotCycles(unittest.TestCase):
+    """nimbus #1466: the count-based grace window fired on a real install
+    whose post-upgrade restore took ~3 minutes to self-heal."""
+
+    def setUp(self):
+        _reset_module_state()
+
+    def tearDown(self):
+        _reset_module_state()
+
+    def test_the_1466_case_three_minutes_of_restore_does_not_warn(self):
+        # ~17 s cadence (reference household) for 3 minutes = 11 cycles --
+        # far past the old 2-cycle threshold.
+        log = _cycles(_Clock(), 11, 17.0, configured=False)
+        log.warning.assert_not_called()
+
+    def test_a_real_gap_warns_once_past_ten_minutes_and_never_repeats(self):
+        clock = _Clock()
+        log = _cycles(clock, 40, 17.0, configured=False)  # ~11 minutes
+        self.assertEqual(log.warning.call_count, 1)
+        log = _cycles(clock, 100, 60.0, configured=False)  # 100 more minutes
+        log.warning.assert_not_called()
+
+    def test_recovery_logs_info_and_a_new_episode_starts_the_clock_again(self):
+        clock = _Clock()
+        _cycles(clock, 40, 17.0, configured=False)
+        log = _cycles(clock, 1, 17.0, configured=True)
+        log.info.assert_called_once()
+        self.assertIsNone(solver_runtime._not_configured_since)
+        log = _cycles(clock, 11, 17.0, configured=False)
+        log.warning.assert_not_called()
+
+    def test_a_success_in_between_resets_the_episode(self):
+        clock = _Clock()
+        _cycles(clock, 20, 17.0, configured=False)  # ~5.7 min
+        _cycles(clock, 1, 17.0, configured=True)
+        log = _cycles(clock, 20, 17.0, configured=False)  # another ~5.7 min
+        log.warning.assert_not_called()
 
 
 if __name__ == "__main__":

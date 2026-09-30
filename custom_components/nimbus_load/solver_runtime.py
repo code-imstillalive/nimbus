@@ -164,12 +164,26 @@ _consecutive_lock_skips = 0
 #: "consecutive", never "ever".
 _consecutive_not_configured = 0
 
-#: How many consecutive occurrences before it is a real WARNING. Two, not
-#: ten: the documented false positive is exactly one tick, and a genuine
-#: misconfiguration never recovers on its own, so the very next cycle
-#: already separates them. Waiting longer would delay a real, actionable
-#: message for no extra information.
-_NOT_CONFIGURED_WARN_AFTER = 2
+#: nimbus issue #1466: how long "not configured" must persist, CONTINUOUSLY,
+#: before it is a real WARNING -- in seconds, not cycles.
+#:
+#: #1296 set this as "2 consecutive cycles" on the premise that the startup
+#: false positive lasts exactly one tick. It does not, and a cycle count
+#: cannot express it: the value comes from `sensor.nimbus_solver_config`, a
+#: POLLED bridge (HA's default 30 s), read by solve cycles whose cadence
+#: varies by install (~17 s on the reference household). And the underlying
+#: cause -- `number.nimbus_solver_*` restoring during startup -- scales with
+#: how heavy the restart is. On a real install after the v0.94.430 upgrade it
+#: outlasted 2 cycles and self-healed within ~3 minutes (#1466). Ten minutes
+#: covers that with margin. A genuinely unconfigured install loses little by
+#: waiting: the first-setup persistent notification already tells it what to
+#: do, and it never self-heals, so it still crosses this threshold.
+_NOT_CONFIGURED_WARN_AFTER_S = 600.0
+#: Monotonic time the current not-configured episode began, or None.
+_not_configured_since: float | None = None
+#: Whether the current episode has already been warned about -- once per
+#: episode, not once per cycle forever on an install that stays unconfigured.
+_not_configured_warned = False
 # nimbus issue #945: cumulative count of SINGLE-tick overlaps (the kind
 # that self-heal on the next tick and are therefore logged at DEBUG).
 # Deliberately not reset on a successful acquire, unlike
@@ -322,7 +336,7 @@ def reset_module_state() -> None:
     """
     global _solver_writer, _last_solve_completed_monotonic, _import_error_notified
     global _price_latency_sensor, _consecutive_lock_skips, _single_skip_total
-    global _consecutive_not_configured
+    global _consecutive_not_configured, _not_configured_since, _not_configured_warned
     _solver_writer = None
     _last_solve_completed_monotonic = None
     _import_error_notified = False
@@ -331,6 +345,8 @@ def reset_module_state() -> None:
     # nimbus issue #1296: cleared with its siblings, so a re-added entry does
     # not inherit a previous entry's consecutive count and warn immediately.
     _consecutive_not_configured = 0
+    _not_configured_since = None
+    _not_configured_warned = False
     # nimbus issue #945: "since startup" in the summary WARNING means
     # since this reset, so a reload gives a clean count rather than
     # carrying a previous config entry's overlaps into a new one.
@@ -712,6 +728,7 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
             )
         return False
     global _consecutive_lock_skips, _single_skip_total, _consecutive_not_configured
+    global _not_configured_since, _not_configured_warned
     if not sw.acquire_lock():
         _consecutive_lock_skips += 1
         # nimbus issue #315 made this a WARNING, because the silent-skip
@@ -779,7 +796,15 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         # consecutive count must go back to zero -- otherwise one transient
         # tick early in an uptime would make an unrelated transient hours
         # later look like a persistent misconfiguration.
+        if _not_configured_warned:
+            _LOGGER.info(
+                "Nimbus Solver: configured again after %d not-configured "
+                "cycles -- solving normally (nimbus issue #1466)",
+                _consecutive_not_configured,
+            )
         _consecutive_not_configured = 0
+        _not_configured_since = None
+        _not_configured_warned = False
         return True
     except RuntimeError as e:
         # fetch_solver_config()'s own "Solver settings not configured
@@ -801,20 +826,28 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         # next cycle and gets a louder message than before, naming the
         # persistence. Only the transient case is quieted.
         _consecutive_not_configured += 1
-        if _consecutive_not_configured < _NOT_CONFIGURED_WARN_AFTER:
+        now = time.monotonic()
+        if _not_configured_since is None:
+            _not_configured_since = now
+        persisted_s = now - _not_configured_since
+        if persisted_s < _NOT_CONFIGURED_WARN_AFTER_S or _not_configured_warned:
             _LOGGER.debug(
-                "Nimbus Solver: %s (occurrence %d -- not warning yet, a "
-                "single tick of this self-heals on startup, see nimbus "
-                "issue #1296)",
+                "Nimbus Solver: %s (occurrence %d, %.0f s into this episode "
+                "-- not warning: startup restore self-heals, nimbus issues "
+                "#1296/#1466)",
                 e,
                 _consecutive_not_configured,
+                persisted_s,
             )
         else:
+            _not_configured_warned = True
             _LOGGER.warning(
-                "Nimbus Solver: %s (persisted for %d consecutive cycles, so "
-                "this is a real configuration gap rather than the one-tick "
-                "startup race -- nimbus issue #1296)",
+                "Nimbus Solver: %s (persisted for %.0f s across %d consecutive "
+                "cycles -- longer than any startup restore, so this is a real "
+                "configuration gap; logged once per episode -- nimbus issues "
+                "#1296/#1466)",
                 e,
+                persisted_s,
                 _consecutive_not_configured,
             )
         return False
