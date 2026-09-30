@@ -37,6 +37,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   rebound `solver_writer._NATIVE_HASS`. Every reader and all 201 test sites moved; the old
   name is deleted and a test asserts zero code uses of it. No behaviour change.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 2f8d815**, installed
+  untagged via HACS (`installed_version: 2f8d815`) against a 23:08-00:14 v0.94.433 log
+  baseline, restarted 00:39 AEST 1 Oct. **#1437 (the NATIVE holder), live:** 13 of 13
+  devhub-own solves over 00:41-00:48 `status='optimal'` (identified by the devhub-only
+  `Test EV` participant), including native-mode reads that now go through
+  `solver_shared.NATIVE.hass` (`async_entries`, the participant's live SoC); zero
+  `ImportError`, `Traceback` or `solve cycle failed`; devhub-own entities stamped
+  0.94.434 (2), the rest production's mirror (0.94.429). **#1417:** the instrument's
+  logger was set to DEBUG via `logger.set_level` and it ran without error; no deadband
+  crossing occurred in the window (overnight), so no measurement line yet -- the
+  real-solve tests cover the pin, the delta and the off-by-default gate. **#489: not
+  validated live** -- `switch.nimbus_solver_flex_signals_enabled` on devhub is
+  production's mirrored entity (off), so ranging never ran; the cadence and hold are
+  covered by real-solve tests, including ranged-vs-unranged dispatch identity. **Log vs
+  baseline:** only the known restart-time mirror duplicate-unique-ID refusals, recorder
+  attribute-size warnings for mirrored entities, overlap skips and cast duplicates.
+  **Not validated:** HA 2026.7.4 (#1245).
+- Consumer check: nothing a card reads changes on an install with the flex switch off
+  (the default, and production's state). With it on, the flex sensors refresh once per
+  5-minute interval instead of every solve and stop costing ~9x solve time. The #1417
+  instrument is invisible unless its logger is set to DEBUG.
+
 ## [0.94.433] - 2026-09-30
 
 ### Added
