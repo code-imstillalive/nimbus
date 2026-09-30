@@ -8,7 +8,49 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.431] - 2026-09-30
+
+### Fixed
+- **The quality scorecard no longer goes `unavailable` at midnight when the new day
+  cannot be scored yet** ([#1463](https://github.com/code-imstillalive/nimbus/issues/1463)).
+  At local midnight the "already scored" fast path stops matching; if the new day's
+  compute returned None the publisher pushed nothing, so after the push sensor's
+  5-minute staleness window `sensor.nimbus_solver_quality_report` went `unavailable`
+  -- 6+ hours on a real install -- and an `unavailable` read is what arms #1248's
+  history-truncation ratchet. The previous report is now held on the sensor verbatim
+  (its `latest_date` still names its own day), with one WARNING per day naming the
+  stuck day. Nothing is held when there is no genuine prior score.
+- **The "Solver is not configured yet" warning no longer fires on a slow restart**
+  ([#1466](https://github.com/code-imstillalive/nimbus/issues/1466)). #1296's grace
+  was 2 consecutive cycles, but the condition comes from a 30 s polled bridge read at
+  an install-dependent cadence, and its startup restore took ~3 minutes after a real
+  upgrade. The threshold is now 10 minutes continuously not-configured, logged once
+  per episode, with an INFO line on recovery.
+- **The quality archive re-captures a day when its per-hour detail changes**
+  ([#1468](https://github.com/code-imstillalive/nimbus/issues/1468), found by IV&V
+  #1467). Its change-detection fingerprint covered five scalars and none of the
+  hourly series it exists to keep; it is now the whole archived record minus
+  `captured_at`.
+
+### Added
+- **A durable 120-day archive of each day's quality score and its per-hour detail**
+  ([#1355](https://github.com/code-imstillalive/nimbus/issues/1355), step 2):
+  `hourly_regret`, `soc_discrepancy_hourly` and `j_*_hourly`, which age off the sensor
+  after one day and cannot be rebuilt once the recorder purges. One HA `Store`
+  (`.storage/nimbus_load_<entry>_quality_history`), overwritten and pruned in-dict,
+  never unlinked (#1324's backup race); a day is rewritten when the settled rescore
+  replaces the provisional midnight figure.
+- **A managed entity whose publish is skipped every cycle now says so**
+  ([#1396](https://github.com/code-imstillalive/nimbus/issues/1396)): after 10
+  consecutive skips for the same entity_id, one WARNING naming it and the likely
+  cause (the id occupied by another integration, e.g. a `remote_homeassistant`
+  mirror, or the entity disabled); INFO on recovery. Previously only a DEBUG line.
+
 ### Internal
+- **The release gate judges the tag's CHANGELOG, not the working tree's**
+  ([#1459](https://github.com/code-imstillalive/nimbus/pull/1459)) -- a local
+  pre-check run from another branch could otherwise refuse a valid tag or pass an
+  invalid one. CI was never affected (it checks out the tag).
 - **A release can no longer be published before it is validated**
   ([#1447](https://github.com/code-imstillalive/nimbus/issues/1447)). Twice in the
   #1298 decomposition a release was tagged before its devhub check, and v0.94.428 --
