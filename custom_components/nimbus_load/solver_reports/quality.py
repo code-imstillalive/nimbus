@@ -1300,6 +1300,8 @@ def _compute_report_for_window(
         # QualityReport's own field docs for the 15 Sep case.
         "j_star_evaluator": report.j_star_evaluator,
         "j_star_path_delta": report.j_star_path_delta,
+        "j_star_path_delta_explained": report.j_star_path_delta_explained,
+        "j_star_path_delta_unexplained": report.j_star_path_delta_unexplained,
         "regret_dollars": round(regret_dollars, 4),
         # nimbus issue #1162 (ask 3): how much of the published regret is
         # the two pricing paths disagreeing about the ORACLE'S OWN PLAN,

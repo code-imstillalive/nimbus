@@ -205,6 +205,23 @@ class QualityReport:
     question the same way, or a counterfactual scored here is not
     comparable to one the LP produced."*"""
 
+    j_star_path_delta_explained: float = 0.0
+    """The part of `j_star_path_delta` accounted for by LP-only terms the
+    evaluator deliberately does not price (nimbus #1480): the #731
+    round-trip-loss tie-breaker, the #692 battery charge-earliness
+    tie-break, the soft-SoC penalty and the import-excess penalty markup, each read off the oracle `Plan` that carried it.
+
+    Measured on the reference household, 28 Sep 2026: of the $1.8388
+    delta, $1.61 was the loss tie-breaker and ~$0.21 the earliness
+    tie-break -- tie-breaking friction, not money. Published beside the
+    raw delta so that "74.5% of regret" reads as what it is."""
+
+    j_star_path_delta_unexplained: float = 0.0
+    """`j_star_path_delta - j_star_path_delta_explained`: the residual #1081
+    actually wants to watch. Near zero means the LP and evaluator agree once
+    known LP-only terms are set aside; materially nonzero is a real,
+    uncharacterised disagreement worth chasing."""
+
     energy_decomposition: dict[str, dict[str, float]] = field(default_factory=dict)
     """Whole-day energy in kWh for each trajectory, plus the achieved-
     minus-oracle delta -- four rows (`reference`, `achieved`, `oracle`,
@@ -1220,6 +1237,15 @@ def compute_quality_report(
         period_starts=timestamps,
     )
     j_star_path_delta = j_star - j_star_evaluator
+    # nimbus #1480: the known LP-only terms, each as the oracle Plan itself
+    # carried it. `getattr` with 0.0 so a Plan from a caller that predates
+    # a field cannot fail the report.
+    j_star_path_delta_explained = (
+        float(getattr(oracle_plan, "battery_loss_tiebreak_cost", 0.0) or 0.0)
+        + float(getattr(oracle_plan, "battery_charge_earliness_cost", 0.0) or 0.0)
+        + float(getattr(oracle_plan, "soc_penalty_cost", 0.0) or 0.0)
+        + float(getattr(oracle_plan, "grid_import_excess_penalty_cost", 0.0) or 0.0)
+    )
 
     # 24-hour reconstruction dicts, one per trajectory (2026-08-31, direct
     # ask, full state reconstruction on the flattened J_ref/J_ach/J_star
@@ -1495,6 +1521,10 @@ def compute_quality_report(
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
         j_star_evaluator=round(j_star_evaluator, 4),
         j_star_path_delta=round(j_star_path_delta, 4),
+        j_star_path_delta_explained=round(j_star_path_delta_explained, 4),
+        j_star_path_delta_unexplained=round(
+            j_star_path_delta - j_star_path_delta_explained, 4
+        ),
         # Built per tuple rather than from one unpacked `(*a, *b)`: mypy
         # unions the two config types to `object` there and loses `.name`.
         oracle_controllable_loads_scored=(
