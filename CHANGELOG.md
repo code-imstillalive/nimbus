@@ -77,6 +77,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   would have written, it fails on exactly the two specs. Measured cost: 2 of the last
   300 merged changes deleted anything.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 89f4737**, installed
+  untagged via HACS (`installed_version: 89f4737`) against a 09:24-10:59 v0.94.430 log
+  baseline, restarted 11:17 AEST 30 Sep, observed for 10 minutes. **Solver:** devhub's
+  own solve (`plan.batteries` includes the devhub-only `Test EV`) `status='optimal'` on
+  10 of 10 cycles, `#773` phases all Optimal; zero `ImportError`, `ModuleNotFoundError`,
+  `solve cycle failed` or `Traceback` from Nimbus code. **#1466:** zero "not configured
+  yet" lines at any level across the restart. **#1355:** the archive captured and filed
+  a day on its first cycle ("archived the 2026-09-29 quality score (76.78, settled)") --
+  note devhub's quality entity carries the mirrored production row (#1396), so this
+  proves the capture path, not devhub's own score. **#1396:** zero managed-publish skips
+  occurred this restart, so the warning correctly stayed silent; its firing path is
+  covered by unit tests, not observed live. **#1463 and #1468:** not observable on
+  devhub (the quality entity is mirror-fed); unit- and mutation-tested only. **Log vs
+  baseline:** the new lines are restart-time mirror duplicate-unique-ID refusals, stale
+  persisted-model and rename notices and recorder unit warnings -- each matching the
+  v0.94.430 restart count for count (19/19, 14/14, 18/18) -- plus one
+  `coordinator.py` `RuntimeError: cannot schedule new futures after shutdown` logged
+  **during HA's shutdown**, from a forecast refresh racing the recorder executor's
+  stop. `coordinator.py` is unchanged in this release, so that is a pre-existing race,
+  tracked separately rather than attributed here. **Not validated:** HA 2026.7.4
+  (#1245).
+- Consumer check: the quality card no longer blanks after midnight when a day cannot
+  be scored yet -- it keeps showing the previous day's score, labelled with that day's
+  date; a restart no longer produces a spurious "not configured" warning; nothing
+  else a household sees changes.
+
 ## [0.94.430] - 2026-09-29
 
 ### Fixed
