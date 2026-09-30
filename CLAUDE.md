@@ -296,6 +296,11 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-10-01](docs/worklog/2026-10-01.md) -- **v0.94.434, validated on devhub before its
+  tag.** #1437: `_NATIVE_HASS` replaced by a stable-identity holder (`solver_shared.NATIVE`),
+  201 test sites retargeted, no `ignore_imports` entry dissolved (measured). #489: flex
+  ranging once per 5-minute interval (~1.4x instead of 8.9x). #1417: period-0 pin
+  instrument, off unless its own logger is at DEBUG. #1434, #1396, #496 closed by decision.
 - [2026-09-30](docs/worklog/2026-09-30.md) -- **Three releases (v0.94.431-433), each
   validated on devhub before its tag and published through the #1447 gate.** #1463/#1477:
   a held sensor value (PV at 0 overnight) was read as a coverage gap -- HA records only on
