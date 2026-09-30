@@ -2274,6 +2274,11 @@ def rescore_quality_history(
     }
 
 
+#: nimbus issue #1463: days already warned about being unscoreable while the
+#: previous report is held on the sensor -- once per day, not once a minute.
+_QUALITY_HOLD_WARNED: set[str] = set()
+
+
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
     entity_id the devhub dashboard's own "Nimbus Solver Quality" card
@@ -2366,6 +2371,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     # too) and `unreachable` (knows nothing, routine on the cron path) warrant
     # different things being said when there is nothing to recover.
     existing_attrs: dict = {}
+    existing: dict | None = None
     prior_read = PRIOR_READ_OK
     try:
         # resolve_real_entity_id() (2026-08-31): read back THIS entity's
@@ -2473,6 +2479,38 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # never seen before, or transiently unreachable -- fall through and try to compute
     day_entry = sw.compute_daily_quality_report(cfg, now)
     if day_entry is None:
+        # nimbus issue #1463: keep the LAST GOOD report alive instead of
+        # publishing nothing. This branch used to just return, and this
+        # sensor goes `unavailable` after _STALE_AFTER_SECONDS (5 min)
+        # without a push -- so from local midnight, when the fast path stops
+        # matching and the new day cannot be scored yet, the scorecard
+        # vanished for as long as scoring kept failing (6+ hours on a real
+        # install). Worse than cosmetic: an `unavailable` read is exactly
+        # what arms #1248's history-truncation ratchet on the next publish.
+        #
+        # Re-pushed verbatim, so `latest_date` still names the day the score
+        # belongs to -- nothing claims to be a score for a day it is not.
+        # Only when the previous report was genuinely read and is a real
+        # score (not unknown/unavailable, not an unreachable read).
+        if (
+            existing is not None
+            and prior_read == PRIOR_READ_OK
+            and existing_attrs.get("latest_date")
+        ):
+            if yesterday_key not in _QUALITY_HOLD_WARNED:
+                _QUALITY_HOLD_WARNED.add(yesterday_key)
+                solver_shared._LOGGER.warning(
+                    "Nimbus quality: %s could not be scored yet (reason "
+                    "logged just above, if any) -- holding the %s report on "
+                    "the sensor rather than letting it go unavailable. Will "
+                    "keep retrying every cycle; logged once per day (nimbus "
+                    "issue #1463)",
+                    yesterday_key,
+                    existing_attrs.get("latest_date"),
+                )
+            sw.ha_post_state(
+                sw.QUALITY_ENTITY_ID, existing["state"], existing["attributes"]
+            )
         # issue #313: compute_daily_quality_report()/_compute_report_for_
         # window() already logs the SPECIFIC reason for a None return
         # (missing config, missing history, infeasible oracle) at its own
