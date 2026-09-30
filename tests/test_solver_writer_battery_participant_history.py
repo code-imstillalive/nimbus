@@ -3,7 +3,7 @@ _resolve_battery_participant_history() -- the retrospective, HISTORY-
 based sibling of build_extra_batteries() that lets
 compute_daily_quality_report() score the whole real battery fleet
 (home + EV battery_participants), not just the home pack. Same
-solver_writer._NATIVE_HASS-mocking pattern as
+solver_writer.NATIVE.hass-mocking pattern as
 test_solver_writer_battery_participants.py.
 """
 
@@ -94,11 +94,11 @@ _EV_DATA = {
 
 class TestResolveBatteryParticipantHistory(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._grid_times = [YESTERDAY_START + timedelta(hours=i) for i in range(24)]
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _call(self):
         return battery_participants_inputs._resolve_battery_participant_history(
@@ -110,15 +110,15 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
         )
 
     def test_returns_empty_list_when_not_in_native_mode(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         self.assertEqual(self._call(), [])
 
     def test_zero_subentries_is_a_real_no_op(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass([])
+        solver_writer.NATIVE.hass = _fake_native_hass([])
         self.assertEqual(self._call(), [])
 
     def test_non_battery_participant_subentries_are_ignored(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "load", {"load_sensor": "sensor.pool"})]
         )
         self.assertEqual(self._call(), [])
@@ -126,13 +126,13 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
     def test_participant_missing_power_sensor_is_skipped_not_crashed(self):
         data = dict(_EV_DATA)
         del data["battery_participant_power_sensor"]
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)]
         )
         self.assertEqual(self._call(), [])
 
     def test_participant_with_no_real_history_is_skipped_not_crashed(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -145,7 +145,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
         same sign convention test_battery_power_sign_convention.py
         already locks in for the home battery, mirrored here for a
         participant."""
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -177,7 +177,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
         bad_data = dict(_EV_DATA)
         bad_data["battery_participant_min_soc_percent"] = 95.0
         bad_data["battery_participant_max_soc_percent"] = 20.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", bad_data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -213,11 +213,11 @@ class TestAvailabilityGating(unittest.TestCase):
     not left in as if it were a real grid flow."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._grid_times = [YESTERDAY_START + timedelta(hours=i) for i in range(24)]
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _call(self):
         return battery_participants_inputs._resolve_battery_participant_history(
@@ -231,7 +231,7 @@ class TestAvailabilityGating(unittest.TestCase):
     def test_no_available_entity_is_a_real_no_op(self):
         """Zero available_entity configured (every install before this
         fix) -- gating never activates, byte-identical to before."""
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -258,7 +258,7 @@ class TestAvailabilityGating(unittest.TestCase):
         data = dict(
             _EV_DATA, battery_participant_available_entity="binary_sensor.m3p_home"
         )
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -326,7 +326,7 @@ class TestAvailabilityGating(unittest.TestCase):
         data = dict(
             _EV_DATA, battery_participant_available_entity="binary_sensor.m3p_home"
         )
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -396,13 +396,13 @@ class TestComputeDailyQualityReportIncludesParticipants(unittest.TestCase):
         return []
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_ev_participant_is_included_in_scored_participants(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -420,7 +420,7 @@ class TestComputeDailyQualityReportIncludesParticipants(unittest.TestCase):
         """Zero battery_participant subentries (every install before
         #768/#585, and any install with none configured) is a real
         no-op -- scored_participants stays exactly ["home"]."""
-        solver_writer._NATIVE_HASS = _fake_native_hass([])
+        solver_writer.NATIVE.hass = _fake_native_hass([])
         with _patch_history(self._fetch):
             report = solver_writer.compute_daily_quality_report(self._cfg(), NOW)
         self.assertIsNotNone(report)

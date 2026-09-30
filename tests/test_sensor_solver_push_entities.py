@@ -268,7 +268,7 @@ def _clean_dispatch_state():
     """
     solver_writer._ENTITY_UPDATE_HANDLERS.clear()
     solver_writer._ENTITY_REAL_IDS.clear()
-    solver_writer._NATIVE_HASS = None
+    solver_writer.NATIVE.hass = None
 
 
 def test_ha_post_state_routes_registered_entity_through_dispatch_handler():

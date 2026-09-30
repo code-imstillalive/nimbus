@@ -25,12 +25,13 @@ the original.
 The outer function is **sync**. It builds `_update_all` as a closure over its own
 locals and runs it on HA's own loop:
 
-    future = _asyncio.run_coroutine_threadsafe(_update_all(), sw._NATIVE_HASS.loop)
+    future = _asyncio.run_coroutine_threadsafe(_update_all(), solver_shared.NATIVE.hass.loop)
     future.result(timeout=10)
 
-wrapped in the broad `except Exception` that logs #1019's WARNING. So
-`_NATIVE_HASS` is needed for `.loop`, not only for state reads -- worth saying,
-because "it reads hass.states" understates why that seam is load-bearing here.
+wrapped in the broad `except Exception` that logs #1019's WARNING. So the
+injected `hass` is needed for `.loop`, not only for state reads. Since #1437 it
+is read from `solver_shared.NATIVE`, a stable-identity holder, rather than
+through the deferred `solver_writer` seam.
 
 That closure structure is very likely *why* the function is 1,300 lines: the
 nested bodies capture the outer scope, so splitting them out is a real refactor
@@ -45,7 +46,8 @@ right and this module's first draft was wrong.
 `_fetch_weather_hourly_forecast` stays in `solver_writer.py` and is reached from
 here, exactly as spec 006's Facade decision specifies: it has a second,
 non-dispatch caller, and its own blocker `ha_call_service_with_response` is
-itself blocked on `_NATIVE_HASS` (Phase 7b).
+was blocked on `_NATIVE_HASS` (Phase 7b) until #1437 replaced that rebound
+name with `solver_shared.NATIVE`.
 """
 
 from __future__ import annotations
@@ -293,7 +295,7 @@ def apply_commanded_state_guard(
     dispatch failure for one load is caught per-load below and does not
     escalate here) -- same posture as _sample_load_run_state(). Native
     mode only, same reasoning as build_controllable_loads() itself -- a
-    no-op when _NATIVE_HASS is None (standalone/cron mode, or
+    no-op when solver_shared.NATIVE.hass is None (standalone/cron mode, or
     plan.sheddable_loads/adequacy_loads are always empty there anyway
     since build_controllable_loads() already returns ([], [])
     unconditionally in that mode).
@@ -314,7 +316,7 @@ def apply_commanded_state_guard(
     # time -- see this package's __init__.py for why, and what breaks if a
     # module-scope `from ..solver_writer import x` is used instead.
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None or len(grid_times) < 2:
+    if solver_shared.NATIVE.hass is None or len(grid_times) < 2:
         return
     entries_with_ids = (
         [
@@ -396,7 +398,7 @@ def apply_commanded_state_guard(
                 DOMAIN,
             )
 
-        entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+        entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
         if not entries:
             return
         hub_entry_id = entries[0].entry_id
@@ -521,20 +523,20 @@ def apply_commanded_state_guard(
                 return []
             try:
                 temp_changes = await _recorder_get_instance(
-                    sw._NATIVE_HASS
+                    solver_shared.NATIVE.hass
                 ).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    solver_shared.NATIVE.hass,
                     start,
                     end,
                     done_entity,
                     False,  # no_attributes=False -- current_temperature lives there
                 )
                 power_changes = await _recorder_get_instance(
-                    sw._NATIVE_HASS
+                    solver_shared.NATIVE.hass
                 ).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    solver_shared.NATIVE.hass,
                     start,
                     end,
                     power_sensor,
@@ -602,10 +604,10 @@ def apply_commanded_state_guard(
                 return []
             try:
                 changes = await _recorder_get_instance(
-                    sw._NATIVE_HASS
+                    solver_shared.NATIVE.hass
                 ).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    solver_shared.NATIVE.hass,
                     start,
                     end,
                     entity_id,
@@ -633,7 +635,9 @@ def apply_commanded_state_guard(
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
                 store=_Store(
-                    sw._NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state"
+                    solver_shared.NATIVE.hass,
+                    1,
+                    f"{DOMAIN}_{hub_entry_id}_load_run_state",
                 )
             )
             for subentry_id, period0_kw, load_kind, load_plan in entries_with_ids:
@@ -778,7 +782,7 @@ def apply_commanded_state_guard(
                         in done_condition.ATTRIBUTE_DONE_DOMAINS
                     ):
                         live_temperature = done_condition.read_current_temperature(
-                            sw._NATIVE_HASS, done_entity
+                            solver_shared.NATIVE.hass, done_entity
                         )
                         # nimbus issue #609 (Mark Purcell, real finding:
                         # current_temperature reads ~10-11 degC LOW while
@@ -1087,7 +1091,9 @@ def apply_commanded_state_guard(
                             # done line the projection needs to actually
                             # reach is never clamped below itself.
                             ceiling_temperature = None
-                            done_state_obj = sw._NATIVE_HASS.states.get(done_entity)
+                            done_state_obj = solver_shared.NATIVE.hass.states.get(
+                                done_entity
+                            )
                             if done_state_obj is not None:
                                 for _attr in ("max_temp", "temperature"):
                                     _raw = done_state_obj.attributes.get(_attr)
@@ -1338,7 +1344,7 @@ def apply_commanded_state_guard(
                             ):
                                 try:
                                     await dispatch_commanded_state(
-                                        sw._NATIVE_HASS,
+                                        solver_shared.NATIVE.hass,
                                         device_entity,
                                         True,
                                         climate_on_hvac_mode=climate_on_hvac_mode,
@@ -1375,7 +1381,7 @@ def apply_commanded_state_guard(
                         else:
                             try:
                                 await dispatch_commanded_state(
-                                    sw._NATIVE_HASS, device_entity, False
+                                    solver_shared.NATIVE.hass, device_entity, False
                                 )
                                 new = replace(new, last_dispatch_failed=False)
                             except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
@@ -1407,7 +1413,7 @@ def apply_commanded_state_guard(
                         )
                         try:
                             await dispatch_commanded_state(
-                                sw._NATIVE_HASS,
+                                solver_shared.NATIVE.hass,
                                 device_entity,
                                 new.commanded_state,
                                 climate_on_hvac_mode=(
@@ -1507,7 +1513,9 @@ def apply_commanded_state_guard(
 
         import asyncio as _asyncio
 
-        future = _asyncio.run_coroutine_threadsafe(_update_all(), sw._NATIVE_HASS.loop)
+        future = _asyncio.run_coroutine_threadsafe(
+            _update_all(), solver_shared.NATIVE.hass.loop
+        )
         future.result(timeout=10)
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #1019. This handler must stay -- it is the last

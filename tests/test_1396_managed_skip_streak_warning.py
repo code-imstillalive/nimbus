@@ -45,7 +45,7 @@ _N = solver_shared._MANAGED_SKIP_WARN_AFTER
 
 
 def _reset() -> None:
-    solver_writer._NATIVE_HASS = None
+    solver_writer.NATIVE.hass = None
     solver_writer._ENTITY_UPDATE_HANDLERS.clear()
     solver_writer._ENTITY_REAL_IDS.clear()
     solver_shared._MANAGED_SKIP_STREAK.clear()
@@ -55,7 +55,7 @@ def _reset() -> None:
 @pytest.fixture
 def native(caplog):
     _reset()
-    solver_writer._NATIVE_HASS = MagicMock()
+    solver_writer.NATIVE.hass = MagicMock()
     caplog.set_level(logging.INFO, logger=solver_shared._LOGGER.name)
     try:
         yield caplog
@@ -107,8 +107,8 @@ def test_a_permanent_skip_warns_exactly_once(native):
 def test_the_skip_itself_is_unchanged(native):
     """The warning is additive: a skipped publish still writes nothing."""
     _post(_MANAGED, _N + 1)
-    solver_writer._NATIVE_HASS.add_job.assert_not_called()
-    solver_writer._NATIVE_HASS.states.async_set.assert_not_called()
+    solver_writer.NATIVE.hass.add_job.assert_not_called()
+    solver_writer.NATIVE.hass.states.async_set.assert_not_called()
 
 
 def test_recovery_is_announced_and_re_arms_the_warning(native):

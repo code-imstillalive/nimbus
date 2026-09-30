@@ -120,10 +120,10 @@ def _resolve():
 
 class _NativeModeCase(unittest.TestCase):
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
+        self._orig = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
 
 class TestTheIntegratorItself(unittest.TestCase):
@@ -157,7 +157,7 @@ class TestTheIntegratorItself(unittest.TestCase):
 
 class TestTheNumberIsReal(_NativeModeCase):
     def test_two_loads_each_reconstruct_their_own_delivered_energy(self):
-        solver_writer._NATIVE_HASS = _native_hass(
+        solver_writer.NATIVE.hass = _native_hass(
             [_subentry("s_hws", _HWS), _subentry("s_pool", _POOL)]
         )
         # HWS: 0.65 kW for hours 2,3,4 -> 1.95 kWh.
@@ -195,7 +195,7 @@ class TestTheNumberIsReal(_NativeModeCase):
         not the configured target. The fixture's target (4.0 kWh) and its
         real delivery (1.95 kWh) differ on purpose, so a regression that
         read the config field would be visible rather than plausible."""
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", _HWS)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", _HWS)])
         hws = [0.0] * 24
         hws[2] = hws[3] = hws[4] = 0.65
         with _power_history({"sensor.wwk302_power": _hourly(hws)}):
@@ -204,7 +204,7 @@ class TestTheNumberIsReal(_NativeModeCase):
         self.assertAlmostEqual(out.delivered_kwh, 1.95, places=6)
 
     def test_a_battery_participant_subentry_is_not_a_controllable_load(self):
-        solver_writer._NATIVE_HASS = _native_hass(
+        solver_writer.NATIVE.hass = _native_hass(
             [
                 _subentry(
                     "s_ev", {"battery_participant_name": "ev"}, "battery_participant"
@@ -221,7 +221,7 @@ class TestARecorderGapCreditsNothing(_NativeModeCase):
 
     def test_it_reuses_the_repositorys_own_constant_rather_than_a_literal(self):
         self.assertEqual(load_run_state.MAX_SAMPLE_GAP_HOURS, 1.0)
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_pool", _POOL)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_pool", _POOL)])
         # One sample only, at 00:00, at 1.2 kW. resample_history_mean()
         # holds it forward across all 24 hours, so an unguarded integration
         # credits 28.8 kWh for a pump nobody observed running.
@@ -241,7 +241,7 @@ class TestARecorderGapCreditsNothing(_NativeModeCase):
         """Proof the number really comes from that helper: the same fixture,
         with the guard widened at its source, credits more hours. A
         hardcoded 1.0 inside this module could not respond to this."""
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_pool", _POOL)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_pool", _POOL)])
         rows = [(DAY_START, 1.2)]
         real = solver_writer._stale_power_period_indices
 
@@ -262,7 +262,7 @@ class TestAbsenceIsAbsence(_NativeModeCase):
     def test_no_power_sensor_reports_a_reason_and_not_zero(self):
         data = dict(_POOL)
         del data["controllable_load_power_sensor"]
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_pool", data)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_pool", data)])
         # Discovery is what would otherwise fill the gap; here it finds
         # nothing, which is the real case for a switch with no metering.
         with (
@@ -281,7 +281,7 @@ class TestAbsenceIsAbsence(_NativeModeCase):
         self.assertEqual(out.delivered_kwh_by_period, ())
 
     def test_a_day_before_the_sensor_existed_is_not_scorable(self):
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", _HWS)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", _HWS)])
         with _power_history({"sensor.wwk302_power": []}):
             (out,) = _resolve()
         self.assertFalse(out.scorable)
@@ -293,7 +293,7 @@ class TestAbsenceIsAbsence(_NativeModeCase):
         self.assertEqual(out.power_sensor, "sensor.wwk302_power")
 
     def test_the_published_summary_carries_null_rather_than_a_number(self):
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", _HWS)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", _HWS)])
         with _power_history({"sensor.wwk302_power": []}):
             (out,) = _resolve()
         attr = out.as_attribute()
@@ -308,7 +308,7 @@ class TestAbsenceIsAbsence(_NativeModeCase):
 
 class TestStandaloneModeIsAnEmptyNoOp(_NativeModeCase):
     def test_no_hass_means_no_reconstruction_and_no_error(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         self.assertEqual(_resolve(), [])
 
 
@@ -321,7 +321,7 @@ class TestDiscoveryFillsTheGapWhenNothingIsConfigured(_NativeModeCase):
     def test_a_discovered_sensor_is_used(self):
         data = dict(_HWS)
         del data["controllable_load_power_sensor"]
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", data)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", data)])
         hws = [0.0] * 24
         hws[5] = 0.65
         with (

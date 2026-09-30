@@ -175,7 +175,7 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
     green."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _active_store_cls()._shared_data.clear()
         # The fix introduced a module-level warned-once set (the
@@ -187,7 +187,7 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         solver_writer._REAFFIRM_CAP_WARNED.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -272,7 +272,7 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
 
     def test_a_warning_is_logged_once_the_reaffirm_cap_is_hit(self):
         hass, services = self._hass()
-        solver_writer._NATIVE_HASS = hass
+        solver_writer.NATIVE.hass = hass
         now = datetime(2026, 9, 16, 10, 0, tzinfo=_TZ)
         self._seed_exhausted_diverging_state(now)
         grid_times = _grid(now, 4, minutes=5)
@@ -307,7 +307,7 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         cycles past the cap, same day, must produce exactly ONE WARNING
         mentioning this load, not two."""
         hass, services = self._hass()
-        solver_writer._NATIVE_HASS = hass
+        solver_writer.NATIVE.hass = hass
         now = datetime(2026, 9, 16, 10, 0, tzinfo=_TZ)
         self._seed_exhausted_diverging_state(now)
         grid_times = _grid(now, 4, minutes=5)

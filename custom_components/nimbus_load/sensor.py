@@ -3439,7 +3439,7 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
         and there is no honest way to publish a state through an entity
         HA doesn't know exists yet. The next solve tick (30 seconds
         later) will find the entity properly added and publish normally.
-        The dispatch table is only ever queried while _NATIVE_HASS is
+        The dispatch table is only ever queried while solver_shared.NATIVE.hass is
         set, so hass is guaranteed available here.
         """
         # #85 diagnostic (2026-08-23, not yet root-caused): Mark's own

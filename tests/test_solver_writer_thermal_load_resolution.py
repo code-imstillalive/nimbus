@@ -53,15 +53,15 @@ def _fake_water_heater_state(mode="eco", current_temperature=None):
 
 class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _run(self, data: dict, states: dict, now=None):
         now = now or datetime(2026, 9, 13, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 96)  # 48h of 30-min periods
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "controllable_load", data)], states=states
         )
         return solver_writer.build_controllable_loads(now, grid_times, len(grid_times))
@@ -275,7 +275,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         }
         now = datetime(2026, 9, 13, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 96)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "controllable_load", data)], states=states
         )
 

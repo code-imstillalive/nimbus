@@ -3,7 +3,7 @@ build_controllable_loads() -- solver_writer.py's own real controllable-
 load subentry -> LP config wiring, replacing the two hardcoded empty
 lists network.build_plan() used to always be called with.
 
-Uses solver_writer._NATIVE_HASS directly (module-level global, reset
+Uses solver_writer.NATIVE.hass directly (module-level global, reset
 after each test) rather than the full HA test harness -- these two
 functions are pure Python beyond that one seam (config_entries.
 async_entries()), and mocking it directly is the same pattern already
@@ -130,13 +130,13 @@ def _fake_water_heater_state(
 
 class TestBuildControllableLoads(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_returns_empty_lists_when_not_in_native_mode(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, _grid(now, 4), 4
@@ -147,7 +147,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_builds_a_real_sheddable_load_from_its_subentry(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -177,7 +177,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_builds_a_real_deferrable_load_with_resolved_period_indices(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 48, minutes=30)  # 24h @ 30min
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -232,7 +232,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         # window it was supposed to be active in.
         now = datetime(2026, 9, 9, 6, 1, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -274,7 +274,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         # here, this just guards the fix didn't introduce one).
         now = datetime(2026, 9, 9, 3, 0, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -314,7 +314,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         # ahead of tonight's still-pending earliest).
         now = datetime(2026, 9, 9, 10, 0, tzinfo=_TZ)
         grid_times, _ = solver_writer.build_tiered_grid(now)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -344,7 +344,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_deferrable_value_per_kwh_carried_through_when_set(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -376,7 +376,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         grid_times = _grid(now, 8)
         eid = "input_number.miner_willing_to_pay"
         states = {eid: SimpleNamespace(entity_id=eid, state="0.25", attributes={})}
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -412,7 +412,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         states = {
             eid: SimpleNamespace(entity_id=eid, state="unavailable", attributes={})
         }
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -443,7 +443,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         grid_times = _grid(now, 8)
         eid = "input_number.miner_willing_to_pay"
         states = {eid: SimpleNamespace(entity_id=eid, state="0.07", attributes={})}
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -471,7 +471,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         # applied safe_num() fallback.
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -493,7 +493,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_sheddable_missing_nominal_kw_is_skipped_not_crashed(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -514,7 +514,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_deferrable_missing_target_kwh_is_skipped_not_crashed(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -541,7 +541,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         # recurring-window treatment with an undefined deadline.
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 48, minutes=30)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -566,7 +566,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_non_controllable_load_subentries_are_ignored(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "load", {"load_sensor": "sensor.pool"})]
         )
         sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
@@ -578,7 +578,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_multiple_subentries_of_both_kinds_all_get_built(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 48, minutes=30)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -657,22 +657,22 @@ class TestParseDoneWhen(unittest.TestCase):
 
 class TestEvaluateDoneCondition(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
         solver_writer._DONE_CONDITION_WARNED.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         solver_writer._DONE_CONDITION_WARNED.clear()
         solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
 
     def test_no_native_hass_returns_none(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
         self.assertIsNone(result)
 
     def test_missing_entity_returns_none(self):
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: None)
         )
         result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
@@ -680,7 +680,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_unavailable_entity_returns_none(self):
         states = {"binary_sensor.x": _fake_state("unavailable")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         result = controllable_loads._evaluate_done_condition("binary_sensor.x", None)
@@ -688,7 +688,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_binary_sensor_on_with_no_done_when_is_done(self):
         states = {"binary_sensor.x": _fake_state("on")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertTrue(
@@ -697,7 +697,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_binary_sensor_off_with_no_done_when_is_not_done(self):
         states = {"binary_sensor.x": _fake_state("off")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertFalse(
@@ -706,7 +706,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_numeric_sensor_with_done_when_met_is_done(self):
         states = {"sensor.tank_temp": _fake_state("62.5")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertTrue(
@@ -715,7 +715,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_numeric_sensor_with_done_when_not_met_is_not_done(self):
         states = {"sensor.tank_temp": _fake_state("45.0")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         self.assertFalse(
@@ -724,7 +724,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_malformed_done_when_returns_none_not_raise(self):
         states = {"sensor.tank_temp": _fake_state("62.5")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         result = controllable_loads._evaluate_done_condition("sensor.tank_temp", "hot")
@@ -732,7 +732,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
 
     def test_non_numeric_state_with_done_when_returns_none_not_raise(self):
         states = {"sensor.tank_temp": _fake_state("not_a_number")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         result = controllable_loads._evaluate_done_condition(
@@ -746,7 +746,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         # same bad condition persisted -- the #313/#314 "log once per
         # condition" discipline this project already follows elsewhere.
         states = {"sensor.tank_temp": _fake_state("not_a_number")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
@@ -766,7 +766,7 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         # new diagnostic event -- must still get its own one-time log,
         # not be suppressed by the earlier condition's own dedup key.
         states = {"sensor.tank_temp": _fake_state("still_not_a_number")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid))
         )
         solver_writer._DONE_CONDITION_WARNED.add(
@@ -786,17 +786,17 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
     binary_sensor "state == on" default every other domain uses."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
         solver_writer._DONE_CONDITION_WARNED.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         solver_writer._DONE_CONDITION_WARNED.clear()
         solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
 
     def _hass(self, entity_id, state_obj):
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: {entity_id: state_obj}.get(eid))
         )
 
@@ -981,15 +981,15 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
     done_entity wiring on deferrable loads."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_a_done_binary_sensor_releases_the_load_this_cycle(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1013,7 +1013,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
     def test_a_not_yet_done_binary_sensor_schedules_normally(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1039,7 +1039,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
         # unavailable is ignored (fail open: keep the schedule)."
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1063,7 +1063,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
     def test_a_numeric_done_sensor_with_done_when_releases_the_load(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1088,7 +1088,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
     def test_no_done_entity_configured_is_unaffected(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1121,17 +1121,17 @@ class TestBuildControllableLoadsFloorCrossing(unittest.TestCase):
     to start at 06:00 and simply preferred the cheaper 08:00."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _build(
         self, *, current_temperature, min_temp, earliest_hour=6.0, deadline_hour=16.0
     ):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 48, minutes=30)  # 24h @ 30min
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1203,7 +1203,7 @@ class TestBuildControllableLoadsFloorCrossing(unittest.TestCase):
     def test_non_water_heater_done_entity_is_unaffected(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 48, minutes=30)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1295,19 +1295,19 @@ def _make_running_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
 
 class TestSampleLoadRunState(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
 
     def test_a_real_sample_is_persisted_to_the_run_state_store(self):
         states = {"sensor.pool_pump_power": _fake_state("1.5")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1328,7 +1328,7 @@ class TestSampleLoadRunState(unittest.TestCase):
 
     def test_an_unavailable_sensor_is_silently_skipped(self):
         states = {"sensor.pool_pump_power": _fake_state("unavailable")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1359,7 +1359,7 @@ class TestSampleLoadRunState(unittest.TestCase):
         states = {
             "sensor.hws_power": _fake_state("4.6", unit="W"),
         }
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1375,7 +1375,7 @@ class TestSampleLoadRunState(unittest.TestCase):
         # (#535's own worked example: "~550 kWh per hour instead of
         # 0.55").
         states = {"sensor.hws_power": _fake_state("550", unit="W")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1394,7 +1394,7 @@ class TestSampleLoadRunState(unittest.TestCase):
     def test_a_kw_sensor_is_unaffected_by_the_scale_check(self):
         # Explicit kW unit -- no scaling, same as the no-unit default.
         states = {"sensor.pool_pump_power": _fake_state("1.5", unit="kW")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1407,7 +1407,7 @@ class TestSampleLoadRunState(unittest.TestCase):
 
     def test_watt_scaling_hint_logs_once_per_entity(self):
         states = {"sensor.hws_power": _fake_state("550", unit="W")}
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
         )
@@ -1436,7 +1436,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.update(orig_logged)
 
     def test_a_missing_sensor_is_silently_skipped(self):
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             states=SimpleNamespace(get=lambda eid: None),
             loop=self._loop,
         )
@@ -1466,7 +1466,7 @@ class TestSampleLoadRunState(unittest.TestCase):
                 )
             },
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
             states=SimpleNamespace(get=lambda eid: states.get(eid)),
             loop=self._loop,
@@ -1509,7 +1509,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             ),
         )
         states = {"sensor.hws_power": _fake_state("0.65")}
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1553,7 +1553,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             ),
         )
         states = {"sensor.hws_power": _fake_state("0.65")}
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1593,7 +1593,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             ),
         )
         states = {"sensor.hws_power": _fake_state("0.65")}
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry(
                     "s1",
@@ -1647,12 +1647,12 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
     bare-module harness)."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -1669,7 +1669,7 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         return asyncio.run(_read())
 
     def test_a_sheddable_loads_first_ever_decision_is_persisted_immediately(self):
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [SimpleNamespace(entry_id="entry_a")]
             ),
@@ -1686,7 +1686,7 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         self.assertEqual(result.commanded_since, now.timestamp())
 
     def test_an_adequacy_loads_period_0_power_below_threshold_commands_off(self):
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [SimpleNamespace(entry_id="entry_b")]
             ),
@@ -1711,7 +1711,7 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         # min_hysteresis_seconds through from the real grid period).
         import numpy as np
 
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [SimpleNamespace(entry_id="entry_c")]
             ),
@@ -1745,7 +1745,7 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         # to 0.65 kW -- this must never register as a real OFF.
         import numpy as np
 
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [SimpleNamespace(entry_id="entry_d")]
             ),
@@ -1791,7 +1791,7 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         # because a later period in the same plan wants it on soon.
         import numpy as np
 
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [SimpleNamespace(entry_id="entry_e")]
             ),
@@ -1823,12 +1823,12 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
     plan_deadline_period/plan_nominal_kw fields."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -1856,7 +1856,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
                 "deferrable_deadline_hour": 6.0,
             },
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf", subentries={"s_defer": sub})
@@ -1911,7 +1911,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
             "controllable_load",
             {"deferrable_target_kwh": 5.0},
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_sc", subentries={"s_shadow": sub})
@@ -1949,7 +1949,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
             "controllable_load",
             {"deferrable_target_kwh": 5.0},
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_tc", subentries={"s_tariff": sub})
@@ -1984,7 +1984,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
             "controllable_load",
             {"deferrable_target_kwh": 5.0},
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_nt", subentries={"s_notariff": sub})
@@ -2024,7 +2024,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
                 "deferrable_deadline_hour": 16.0,
             },
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(
@@ -2056,7 +2056,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         sub = _fake_subentry(
             "s_shed", "controllable_load", {"sheddable_nominal_kw": 1.5}
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf2", subentries={"s_shed": sub})
@@ -2089,7 +2089,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         sub = _fake_subentry(
             "s_refresh", "controllable_load", {"sheddable_nominal_kw": 1.5}
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf3", subentries={"s_refresh": sub})
@@ -2133,7 +2133,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         import numpy as np
 
         sub = _fake_subentry("s_old", "controllable_load", {})
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf4", subentries={"s_old": sub})
@@ -2170,7 +2170,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         sub = _fake_subentry(
             "s_shadow", "controllable_load", {"deferrable_target_kwh": 5.0}
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf6", subentries={"s_shadow": sub})
@@ -2219,7 +2219,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         sub = _fake_subentry(
             "s_reason", "controllable_load", {"deferrable_target_kwh": 5.0}
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf8", subentries={"s_reason": sub})
@@ -2255,7 +2255,7 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         import numpy as np
 
         sub = _fake_subentry("s_noduals", "controllable_load", {})
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(
                 async_entries=lambda domain: [
                     SimpleNamespace(entry_id="entry_pf7", subentries={"s_noduals": sub})
@@ -2292,12 +2292,12 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
     load_kind == "adequacy"` block)."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -2370,7 +2370,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=55.2)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t1", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t1", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2425,7 +2425,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
             # Real #609 shape: a depressed in-run reading, ~10 degC low.
             "water_heater.hws": _fake_water_heater_state(current_temperature=40.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t2", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t2", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         # Plan power already matches the configured max, so #611's own
@@ -2481,7 +2481,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=39.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t3", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t3", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2540,7 +2540,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=50.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t4", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t4", sub, states)
         # 5-min grid, same shape as the existing #595 hold-window test:
         # period 0 dips to 0.0 but period 1 (well inside the default
         # 10-min hold window) is back up -- #595's lookahead keeps this
@@ -2605,7 +2605,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
                 current_temperature=58.0, temperature=60.0
             )
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t5", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t5", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2652,7 +2652,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=58.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t6", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t6", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2711,7 +2711,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
                 current_temperature=45.0, temperature=45.0, max_temp=65.0
             )
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t8", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t8", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2766,7 +2766,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=58.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t9", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t9", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2817,7 +2817,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t7", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t7", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2880,7 +2880,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t8", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t8", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2933,7 +2933,7 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         states = {
             "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
         }
-        solver_writer._NATIVE_HASS = self._hub("entry_t9", sub, states)
+        solver_writer.NATIVE.hass = self._hub("entry_t9", sub, states)
         grid_times = _grid(now, 4, minutes=30)
         period_hours_arr = np.full(len(grid_times), 0.5)
         plan = _fake_plan(
@@ -2979,12 +2979,12 @@ class TestDispatchCommandedState(unittest.TestCase):
     cap, and per-load min_hold_minutes)."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -3030,7 +3030,7 @@ class TestDispatchCommandedState(unittest.TestCase):
             "controllable_load",
             {"controllable_load_device_entity": "switch.pool_pump"},
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(sheddable=[_fake_load_plan("s_sw", np.array([1.5, 1.5]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
@@ -3059,7 +3059,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_min_hold_minutes": 0,
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(start, 4, minutes=5)
         on_plan = _fake_plan(sheddable=[_fake_load_plan("s_sw2", np.array([1.5, 1.5]))])
@@ -3089,7 +3089,7 @@ class TestDispatchCommandedState(unittest.TestCase):
             "controllable_load",
             {"controllable_load_device_entity": "switch.stays_on"},
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
         for i in range(5):
@@ -3115,7 +3115,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 )
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(sheddable=[_fake_load_plan("s_wh", np.array([0.55, 0.55]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
@@ -3143,7 +3143,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_min_hold_minutes": 0,
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(start, 4, minutes=5)
         on_plan = _fake_plan(
@@ -3182,7 +3182,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_climate_on_hvac_mode": "cool",
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(sheddable=[_fake_load_plan("s_cl", np.array([1.5, 1.5]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
@@ -3209,7 +3209,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_min_hold_minutes": 0,
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(start, 4, minutes=5)
         on_plan = _fake_plan(sheddable=[_fake_load_plan("s_cl2", np.array([1.5, 1.5]))])
@@ -3243,7 +3243,7 @@ class TestDispatchCommandedState(unittest.TestCase):
             "controllable_load",
             {"controllable_load_device_entity": "climate.aircon_test"},
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(sheddable=[_fake_load_plan("s_cl3", np.array([1.5, 1.5]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
@@ -3260,7 +3260,7 @@ class TestDispatchCommandedState(unittest.TestCase):
         import numpy as np
 
         sub = _fake_subentry("s_nodevice", "controllable_load", {})
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(
             sheddable=[_fake_load_plan("s_nodevice", np.array([1.5, 1.5]))]
         )
@@ -3289,7 +3289,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_min_hold_minutes": 0,
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(start, 4, minutes=5)
         high = np.array([1.5, 1.5])
@@ -3330,7 +3330,7 @@ class TestDispatchCommandedState(unittest.TestCase):
                 "controllable_load_min_hold_minutes": 0,
             },
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
         plan = _fake_plan(sheddable=[_fake_load_plan("s_fast", np.array([1.5, 1.5]))])
@@ -3352,7 +3352,7 @@ class TestDispatchCommandedState(unittest.TestCase):
             "controllable_load",
             {"controllable_load_device_entity": "switch.will_succeed"},
         )
-        solver_writer._NATIVE_HASS, _services = self._hass(
+        solver_writer.NATIVE.hass, _services = self._hass(
             [sub_bad, sub_good], raise_for={"switch"}
         )
         # raise_for covers BOTH switches (same domain) -- confirms the
@@ -3387,7 +3387,7 @@ class TestDispatchCommandedState(unittest.TestCase):
             "controllable_load",
             {"controllable_load_device_entity": "fan.circulator"},
         )
-        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        solver_writer.NATIVE.hass, services = self._hass([sub])
         plan = _fake_plan(sheddable=[_fake_load_plan("s_fan", np.array([1.5, 1.5]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
@@ -3433,12 +3433,12 @@ class TestFlipFloppingRawDecisionNeverActivatesHws(unittest.TestCase):
     _MIN_HOLD_MINUTES = 15
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
         self._loop.close()
@@ -3453,7 +3453,7 @@ class TestFlipFloppingRawDecisionNeverActivatesHws(unittest.TestCase):
             },
         )
         hass, services = self._hass([sub])
-        solver_writer._NATIVE_HASS = hass
+        solver_writer.NATIVE.hass = hass
         return services
 
     def _solve(self, on: bool, now):

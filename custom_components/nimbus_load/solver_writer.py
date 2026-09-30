@@ -375,6 +375,7 @@ try:
         _SOH_RANGE_WARNED,
         LOCAL_TZ,
         MAX_TIER1_HOURS,
+        NATIVE,
         NETWORK_FEE_BLOCK_KEYS,
         P2P_BLOCK_KEYS,
         TIER1_PERIOD_HOURS,
@@ -410,6 +411,7 @@ except ImportError:
         _SOH_RANGE_WARNED,  # noqa: F401 -- re-export, see comment below
         LOCAL_TZ,
         MAX_TIER1_HOURS,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
+        NATIVE,
         NETWORK_FEE_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
         P2P_BLOCK_KEYS,  # noqa: F401 -- re-export, see comment below
         TIER1_PERIOD_HOURS,
@@ -792,7 +794,7 @@ _household_specific_overrides_logged = False
 # solver_inputs/controllable_loads.py. Re-exported here for all eight rather
 # than only the three the caller-count criterion strictly requires, because
 # main() calls build_controllable_loads as a bare name and two test files
-# monkeypatch resolve_controllable_load_power_sensor and _NATIVE_HASS on THIS
+# monkeypatch resolve_controllable_load_power_sensor and NATIVE.hass (formerly _NATIVE_HASS) on THIS
 # module -- leaving those resolving through one import is cheaper than
 # rewriting the call sites, and one import block beats two.
 # nimbus issue #1303 (spec 004, Phase 4 of #1298): plan assembly moved to
@@ -1336,7 +1338,7 @@ def _load_token() -> str | None:
     (TOKEN_PATH) on the event loop the moment this module is first
     imported natively (sensor.py's own async_setup_entry). Only ever
     called from the REST-mode branches below (ha_get()/ha_post_state()/
-    fetch_price_history()) -- native mode's own _NATIVE_HASS seam skips
+    fetch_price_history()) -- native mode's own NATIVE.hass seam skips
     every one of those entirely, so a native install now never touches
     this file/env lookup at all, not even once. Cached (resolved once
     per process, same as the original module-level TOKEN) since the
@@ -1366,12 +1368,15 @@ def _load_token() -> str | None:
 # inside HA Core's own process (via custom_components/nimbus_load/
 # solver_runtime.py, same repo), with ZERO behaviour change to the
 # existing standalone deployment (cron on this household's own NUC) --
-# _NATIVE_HASS defaults to None, and
+# NATIVE.hass defaults to None (#1437; formerly _NATIVE_HASS), and
 # every one of the ~2400 lines below still just calls ha_get(...)/
 # ha_post_state(...)/fetch_price_history(...) by name, exactly as it
 # always has. Only what THOSE THREE functions do internally branches on
 # whether a real hass instance has been injected.
-_NATIVE_HASS = None  # None = standalone/REST mode (default, unchanged behaviour).
+# nimbus issue #1437: the injected `hass` now lives on `solver_shared.NATIVE`,
+# a holder whose IDENTITY never changes -- see that class's own docstring.
+# `set_native_hass()` below mutates `NATIVE.hass`; nothing rebinds a module
+# name any more. `NATIVE.hass is None` = standalone/REST mode (the default).
 
 # stdlib logging.Logger, NOT this file's own print() convention -- deliberately
 # so the #85 trace below (which used to be print()-only, and per issue #85's
@@ -1468,8 +1473,8 @@ def set_native_hass(hass) -> None:
     whatever it already resolved to at module import time rather than
     blocking native setup over a timezone lookup.
     """
-    global _NATIVE_HASS, LOCAL_TZ, _LAST_KNOWN_QUALITY_HISTORY
-    _NATIVE_HASS = hass
+    global LOCAL_TZ, _LAST_KNOWN_QUALITY_HISTORY
+    NATIVE.hass = hass
     # nimbus issue #1248: a new `hass` is a different instance, so whatever
     # #1248's recovery cache holds describes a report that is no longer the one
     # being published. Carrying it across would let a reconfigure or a reload
@@ -1677,9 +1682,9 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
     _notify_load_forecast_error_once()) -- any failure here is
     deliberately swallowed by the caller, since a failed notification
     must never be allowed to break the actual solve."""
-    if _NATIVE_HASS is not None:
-        _NATIVE_HASS.add_job(
-            functools.partial(_NATIVE_HASS.services.async_call, domain, service, data)
+    if NATIVE.hass is not None:
+        NATIVE.hass.add_job(
+            functools.partial(NATIVE.hass.services.async_call, domain, service, data)
         )
         return
     body = json.dumps(data).encode("utf-8")
@@ -1723,12 +1728,12 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
     is itself a coroutine, and there's no public sync-callable variant,
     same reasoning as that function's own comment.
     """
-    if _NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
             async def _call() -> dict:
-                return await _NATIVE_HASS.services.async_call(
+                return await NATIVE.hass.services.async_call(
                     domain,
                     service,
                     data,
@@ -1736,7 +1741,7 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
                     return_response=True,
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_call(), _NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_call(), NATIVE.hass.loop)
             return future.result(timeout=15)
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             # nimbus issue #363 (Mark Purcell, codebase review): the swallow
@@ -5230,7 +5235,7 @@ def fetch_entity_power_history_kw(
     Same "degrade to [] on any failure, never crash" discipline as every
     other real-data fetch here.
     """
-    if _NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
@@ -5240,18 +5245,16 @@ def fetch_entity_power_history_kw(
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(
-                    _NATIVE_HASS
-                ).async_add_executor_job(
+                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    _NATIVE_HASS,
+                    NATIVE.hass,
                     start,
                     end,
                     entity_id,
                     False,  # no_attributes=False -- unit_of_measurement lives there
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
@@ -5326,7 +5329,7 @@ def fetch_entity_state_history_range(
     "unavailable") -- every other real string state is kept as-is,
     unlike fetch_entity_history_range()'s own numeric-cast filter.
     """
-    if _NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
@@ -5336,18 +5339,16 @@ def fetch_entity_state_history_range(
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(
-                    _NATIVE_HASS
-                ).async_add_executor_job(
+                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    _NATIVE_HASS,
+                    NATIVE.hass,
                     start,
                     end,
                     entity_id,
                     True,  # no_attributes
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
@@ -6494,7 +6495,7 @@ def _quality_history_cache_active() -> bool:
     A conftest fixture resetting the global would have hidden that; this
     removes the channel.
     """
-    return _NATIVE_HASS is not None
+    return NATIVE.hass is not None
 
 
 _QUALITY_HISTORY_FIELDS = (
@@ -7581,14 +7582,14 @@ def _discover_power_sensor_for_device(device_entity: str) -> str | None:
     registry to consult, and Controllable Loads have no standalone
     existence anyway (build_controllable_loads() returns ([], []) there).
     """
-    if _NATIVE_HASS is None or not device_entity:
+    if NATIVE.hass is None or not device_entity:
         return None
     try:
         from homeassistant.helpers import entity_registry as er
     except ImportError:  # pragma: no cover - standalone/cron path
         return None
 
-    registry = er.async_get(_NATIVE_HASS)
+    registry = er.async_get(NATIVE.hass)
     entry = registry.async_get(device_entity)
     if entry is None or entry.device_id is None:
         return None

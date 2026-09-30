@@ -57,18 +57,30 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
         self.assertNotIn("__init__", names)
 
     def test_it_reports_the_name_this_issue_was_filed_about(self):
-        """Non-vacuity, against the real tree. `_NATIVE_HASS` is the whole
-        reason #1434 exists: 192 assignments the gate cannot see."""
+        """Non-vacuity, against the real tree. `_NATIVE_HASS` was the reason
+        #1434 existed -- 192 assignments the gate could not see -- until #1437
+        replaced it with `solver_shared.NATIVE`, whose `hass` attribute lives on
+        a stable object rather than being a rebound module name. So the old
+        name must now be ZERO sites (the count #1437 said to verify the sweep
+        by), while the scan still finds the rebound module names that remain,
+        e.g. `solver_writer._LAST_KNOWN_QUALITY_HISTORY`."""
         sites = _static_direct_assignment_sites(REPO_ROOT)
         flat = [h for hits in sites.values() for h in hits]
-        native = [h for h in flat if h.endswith("solver_writer._NATIVE_HASS")]
+        self.assertEqual(
+            [h for h in flat if "_NATIVE_HASS" in h],
+            [],
+            "#1437 retargeted every _NATIVE_HASS write onto solver_writer.NATIVE",
+        )
+        remaining = [
+            h for h in flat if h.endswith("solver_writer._LAST_KNOWN_QUALITY_HISTORY")
+        ]
         self.assertGreater(
-            len(native),
-            100,
-            "expected the ~192 solver_writer._NATIVE_HASS assignments; got "
-            f"{len(native)}. If this dropped, either the suite genuinely "
-            "retargeted them (check before editing this number) or the scan "
-            "regressed.",
+            len(remaining),
+            0,
+            "expected the scan to still find solver_writer."
+            "_LAST_KNOWN_QUALITY_HISTORY assignments; if this dropped, either "
+            "the suite genuinely retargeted them (check before editing) or the "
+            "scan regressed.",
         )
 
     def test_it_does_not_report_a_local_variable_that_shares_a_module_name(self):

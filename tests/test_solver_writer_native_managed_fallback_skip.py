@@ -53,7 +53,7 @@ _UNMANAGED_ENTITY_ID = "sensor.nimbus_some_never_migrated_entity"
 
 
 def _reset_module_state() -> None:
-    solver_writer._NATIVE_HASS = None
+    solver_writer.NATIVE.hass = None
     solver_writer._ENTITY_UPDATE_HANDLERS.clear()
     solver_writer._ENTITY_REAL_IDS.clear()
 
@@ -68,7 +68,7 @@ def test_managed_entity_id_is_actually_in_the_frozenset():
 def test_managed_entity_with_no_handler_skips_the_raw_fallback():
     _reset_module_state()
     mock_hass = MagicMock()
-    solver_writer._NATIVE_HASS = mock_hass
+    solver_writer.NATIVE.hass = mock_hass
     try:
         solver_writer.ha_post_state(_MANAGED_ENTITY_ID, 86.11, {"epr": 0.8611})
         mock_hass.add_job.assert_not_called()
@@ -80,7 +80,7 @@ def test_managed_entity_with_no_handler_skips_the_raw_fallback():
 def test_managed_entity_with_a_registered_handler_still_dispatches_normally():
     _reset_module_state()
     mock_hass = MagicMock()
-    solver_writer._NATIVE_HASS = mock_hass
+    solver_writer.NATIVE.hass = mock_hass
     handler = MagicMock()
     solver_writer.register_entity_handler(_MANAGED_ENTITY_ID, handler)
     try:
@@ -100,7 +100,7 @@ def test_unmanaged_entity_id_still_uses_the_raw_fallback_unchanged():
     # not-yet-migrated one) must be completely untouched by this fix.
     _reset_module_state()
     mock_hass = MagicMock()
-    solver_writer._NATIVE_HASS = mock_hass
+    solver_writer.NATIVE.hass = mock_hass
     try:
         solver_writer.ha_post_state(_UNMANAGED_ENTITY_ID, 42, {"unit": "kW"})
         mock_hass.add_job.assert_called_once()

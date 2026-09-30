@@ -225,7 +225,7 @@ def resolve_controllable_load_delivery_history(
     on a tunable field anyway: it reads recorded power, not a target.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return []
     try:
         from ..const import (
@@ -242,7 +242,7 @@ def resolve_controllable_load_delivery_history(
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
 
-    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return []
 
@@ -435,9 +435,9 @@ def build_oracle_controllable_loads(
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
 
-    if not deliveries or sw._NATIVE_HASS is None:
+    if not deliveries or solver_shared.NATIVE.hass is None:
         return None
-    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return None
     by_id = {

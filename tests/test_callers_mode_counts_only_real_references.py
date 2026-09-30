@@ -181,37 +181,37 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
         )
 
     def test_the_real_tree_still_finds_the_native_hass_callers(self):
-        """The non-vacuity check `_LOGGER` used to provide (`if this drops
-        to 0 the alias set is wrong`) needs a name that's still a real
-        `sw.<name>` reference after Phase 2a. `_NATIVE_HASS` is one of the
-        names pyproject.toml's own `nimbus-layers` contract comment names
-        as an unrelated, still-live reason the six `solver_inputs/*.py`
-        modules keep their `solver_writer` exception -- `solver_shared.py`
-        itself also reaches for it, via the same deferred `_solver_writer()`
-        seam, which Phase 2a's own Migration explicitly authorises."""
+        """Non-vacuity for the alias set, now on a name that is still a real
+        `sw.<name>` reference.
+
+        This used to count six `sw._NATIVE_HASS` references. nimbus #1437
+        replaced that rebound name with `solver_shared.NATIVE`, read directly
+        rather than through the `solver_writer` seam -- so its correct count is
+        now 0, which is #1437's own success condition, not the tool regressing.
+        `resolve_controllable_load_power_sensor` carries the non-vacuity
+        property instead: it is patched on the `solver_writer` module object by
+        `test_768_controllable_load_delivery_reconstruction.py`, so the three
+        modules that call it must go through the seam, and must never drop to 0.
+        """
         package = (
             Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
         )
-        hits = [
-            p.relative_to(package).as_posix()
-            for p in _amd._py_files(package, skip={"solver_writer.py"})
-            if "_NATIVE_HASS" in _amd._referenced_names(p)
-        ]
+
+        def hits_for(name):
+            return sorted(
+                p.relative_to(package).as_posix()
+                for p in _amd._py_files(package, skip={"solver_writer.py"})
+                if name in _amd._referenced_names(p)
+            )
+
+        self.assertEqual(hits_for("_NATIVE_HASS"), [])
         self.assertEqual(
-            len(hits),
-            6,
-            f"expected exactly six real sw._NATIVE_HASS references "
-            f"(battery_participants.py, extra_batteries.py, "
-            f"controllable_load_history.py, controllable_loads.py, "
-            f"solver_dispatch/guard.py, and solver_shared.py itself), "
-            f"got {hits}. This is an explicit inventory, deliberately: it "
-            f"rises when a module legitimately starts reaching for the "
-            f"native seam -- controllable_load_history.py (nimbus issue "
-            f"#768) is the fourth, and solver_dispatch/guard.py (nimbus "
-            f"issue #1305, spec 006, Phase 6) is the fifth, which needs it "
-            f"for _NATIVE_HASS.loop rather than for a state read -- and it "
-            f"must never drop to 0, which is the non-vacuity property this "
-            f"test exists to hold.",
+            hits_for("resolve_controllable_load_power_sensor"),
+            [
+                "solver_dispatch/guard.py",
+                "solver_inputs/controllable_load_history.py",
+                "solver_inputs/controllable_loads.py",
+            ],
         )
 
 

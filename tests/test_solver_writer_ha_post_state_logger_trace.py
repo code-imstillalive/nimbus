@@ -51,7 +51,7 @@ _SOLVER_SHARED_PY = (
 
 
 def _extract_ha_post_state_native_branch(src: str) -> str:
-    """Return just the `if _NATIVE_HASS is not None:` block inside
+    """Return just the `if NATIVE.hass is not None:` block inside
     `ha_post_state()`, so the assertions below can't accidentally match
     some unrelated logger/print call elsewhere in this large file."""
     marker = "def ha_post_state(entity_id: str, state, attributes: dict) -> None:"
@@ -97,7 +97,7 @@ def test_raw_states_async_set_fallback_has_its_own_logger_trace():
     src = _SOLVER_SHARED_PY.read_text(encoding="utf-8")
     block = _extract_ha_post_state_native_branch(src)
 
-    fallback_marker = "sw._NATIVE_HASS.states.async_set, entity_id, state, attributes"
+    fallback_marker = "NATIVE.hass.states.async_set, entity_id, state, attributes"
     assert fallback_marker in block, (
         "the raw states.async_set() fallback call site moved or was "
         "renamed -- update this test's marker to match"

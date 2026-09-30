@@ -94,7 +94,7 @@ class _DiscoveryTestBase(unittest.TestCase):
         sys.modules["homeassistant"] = ha
         sys.modules["homeassistant.helpers"] = helpers
         try:
-            with patch.object(solver_writer, "_NATIVE_HASS", object()):
+            with patch.object(solver_writer.NATIVE, "hass", object()):
                 return solver_writer._discover_power_sensor_for_device(device_entity)
         finally:
             for k, v in saved.items():
@@ -194,13 +194,13 @@ class TestNativeOnlyAndExplicitOverride(unittest.TestCase):
     def test_standalone_mode_never_attempts_discovery(self):
         """No entity registry exists in standalone/cron mode, and
         Controllable Loads have no standalone existence at all."""
-        with patch.object(solver_writer, "_NATIVE_HASS", None):
+        with patch.object(solver_writer.NATIVE, "hass", None):
             self.assertIsNone(
                 solver_writer._discover_power_sensor_for_device("water_heater.hws")
             )
 
     def test_blank_device_entity_returns_none(self):
-        with patch.object(solver_writer, "_NATIVE_HASS", object()):
+        with patch.object(solver_writer.NATIVE, "hass", object()):
             self.assertIsNone(solver_writer._discover_power_sensor_for_device(""))
 
     def test_an_explicit_setting_always_wins_over_discovery(self):

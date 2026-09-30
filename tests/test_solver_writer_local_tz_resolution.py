@@ -38,11 +38,11 @@ import solver_writer
 class TestLocalTzResolution(unittest.TestCase):
     def setUp(self):
         self._orig_local_tz = solver_writer.LOCAL_TZ
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
         solver_writer.LOCAL_TZ = self._orig_local_tz
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_set_native_hass_resolves_local_tz_from_hass_config(self):
         solver_writer.LOCAL_TZ = ZoneInfo("Australia/Brisbane")  # the old default
@@ -91,7 +91,7 @@ class TestLocalTzResolution(unittest.TestCase):
         hass = MagicMock()
         hass.config.time_zone = "Not/A/Real/Zone"
         solver_writer.set_native_hass(hass)
-        self.assertIs(solver_writer._NATIVE_HASS, hass)
+        self.assertIs(solver_writer.NATIVE.hass, hass)
 
     def test_hass_with_no_config_attribute_at_all_never_raises(self):
         """Real CI failure caught the first time this shipped: several

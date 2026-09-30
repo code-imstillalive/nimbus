@@ -4,7 +4,7 @@ solver support. Real battery_participant subentries -> real BatteryConfig
 objects, additional to (never replacing) the hub's own single "home"
 battery.
 
-Same solver_writer._NATIVE_HASS-mocking pattern as test_solver_writer_
+Same solver_writer.NATIVE.hass-mocking pattern as test_solver_writer_
 controllable_loads.py -- pure Python beyond that one seam.
 """
 
@@ -68,27 +68,27 @@ _TESLA_DATA = {
 
 class TestBuildExtraBatteries(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_returns_empty_list_when_not_in_native_mode(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_zero_subentries_is_a_real_no_op(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass([])
+        solver_writer.NATIVE.hass = _fake_native_hass([])
         self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_non_battery_participant_subentries_are_ignored(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "load", {"load_sensor": "sensor.pool"})]
         )
         self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_builds_a_real_battery_participant_from_its_subentry(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _TESLA_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -114,7 +114,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
         # trade-degeneracy guard) -- a naive 0.0/0.0 default here would
         # crash build_extra_batteries() (and therefore every real solve)
         # for EVERY configured battery participant.
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _TESLA_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -126,7 +126,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
     def test_charge_limit_entity_overrides_configured_max_soc_percent(self):
         data = dict(_TESLA_DATA)
         data["battery_participant_charge_limit_entity"] = "number.m3p_t_charge_limit"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -140,7 +140,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
     def test_missing_capacity_kwh_is_skipped_not_crashed(self):
         data = dict(_TESLA_DATA)
         del data["battery_participant_capacity_kwh"]
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -149,7 +149,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
     def test_missing_soc_sensor_is_skipped_not_crashed(self):
         data = dict(_TESLA_DATA)
         del data["battery_participant_soc_sensor"]
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)]
         )
         self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
@@ -157,7 +157,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
     def test_name_reserved_as_home_is_skipped_not_crashed(self):
         data = dict(_TESLA_DATA)
         data["battery_participant_name"] = "home"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -166,7 +166,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
     def test_duplicate_names_the_second_one_is_skipped(self):
         data2 = dict(_TESLA_DATA)
         data2["battery_participant_soc_sensor"] = "sensor.my_t_battery_level"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry("s1", "battery_participant", _TESLA_DATA),
                 _fake_subentry("s2", "battery_participant", data2),
@@ -185,7 +185,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
         my = dict(_TESLA_DATA)
         my["battery_participant_name"] = "ev_my"
         my["battery_participant_soc_sensor"] = "sensor.my_t_battery_level"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [
                 _fake_subentry("s1", "battery_participant", m3p),
                 _fake_subentry("s2", "battery_participant", my),
@@ -203,7 +203,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
         # live SoC read in main() -- a real sensor glitch (>100% or
         # negative) must not crash the whole solve cycle.
         data = dict(_TESLA_DATA)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("140.0")},
         )
@@ -219,13 +219,13 @@ class TestAvailabilityGateWiring(unittest.TestCase):
     file only proves the config-surface -> BatteryConfig wiring."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_no_available_entity_configured_defaults_available_true(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -237,7 +237,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
         data["battery_participant_available_entity"] = (
             "binary_sensor.m3p_t_located_at_home"
         )
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -252,7 +252,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
         data["battery_participant_available_entity"] = (
             "binary_sensor.m3p_t_located_at_home"
         )
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -269,7 +269,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
         # reading for a live safety-relevant gate), not silently True.
         data = dict(_TESLA_DATA)
         data["battery_participant_available_entity"] = "binary_sensor.does_not_exist"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -286,10 +286,10 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
     file only proves the config-surface -> BatteryConfig wiring."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _periods(self, start_hour: int, n: int, period_hours: float = 1.0):
         from datetime import UTC, datetime
@@ -310,7 +310,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
         return data
 
     def test_available_now_leaves_index_none_regardless_of_periods(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", self._away_data())],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -323,7 +323,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
         self.assertIsNone(b.unavailable_until_period_index)
 
     def test_away_with_one_hour_periods_resolves_to_index_one(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", self._away_data())],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -338,7 +338,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
         self.assertEqual(b.unavailable_until_period_index, 1)
 
     def test_away_with_15_minute_periods_resolves_to_index_four(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", self._away_data())],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -356,7 +356,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
         # this file) calls build_extra_batteries() with zero arguments --
         # must degrade gracefully to the old whole-horizon behavior
         # (index stays None) rather than crash or guess.
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", self._away_data())],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("55.0"),
@@ -370,10 +370,10 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
 
 class TestDepartureDeadlineWiring(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def _periods(self, start_hour: int, n: int):
         from datetime import datetime
@@ -398,7 +398,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 8
         data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -437,7 +437,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 7
         data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -461,7 +461,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 20
         data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -475,7 +475,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
     def test_only_departure_hour_set_is_treated_as_neither_set(self):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 8
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -491,7 +491,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 8
         data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -502,16 +502,16 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
 
 class TestSharedChargerWiring(unittest.TestCase):
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
 
     def test_group_and_ceiling_pass_through_to_batteryconfig(self):
         data = dict(_TESLA_DATA)
         data["battery_participant_shared_charger_group"] = "dc_charger"
         data["battery_participant_shared_charger_max_kw"] = 25.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -520,7 +520,7 @@ class TestSharedChargerWiring(unittest.TestCase):
         self.assertEqual(b.shared_charger_max_kw, 25.0)
 
     def test_ungrouped_by_default(self):
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -538,7 +538,7 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
     just now also logs."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         # nimbus issue #601: this suite's own module-level warn-once
         # tracking now persists across calls (previously every call
         # warned unconditionally, so a leaked key from another test
@@ -546,12 +546,12 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
         extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def test_soc_above_configured_ceiling_logs_a_warning(self):
         data = dict(_TESLA_DATA)  # max_soc_percent=95.0
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("100.0")},
         )
@@ -565,7 +565,7 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
 
     def test_soc_within_range_does_not_log(self):
         data = dict(_TESLA_DATA)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
@@ -587,16 +587,16 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
     entirely while the participant is unavailable."""
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def _below_floor_hass(self):
         data = dict(_TESLA_DATA)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("16.11")},
         )
@@ -625,7 +625,7 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
         self._below_floor_hass()
         extra_batteries_inputs.build_extra_batteries()  # establishes the excursion
         data = dict(_TESLA_DATA)
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},  # back inside
         )
@@ -649,7 +649,7 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
         # so nothing should be logged at all.
         data = dict(_TESLA_DATA)
         data["battery_participant_available_entity"] = "binary_sensor.away"
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={
                 "sensor.m3p_t_battery_level": _fake_state("16.11"),

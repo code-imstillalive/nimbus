@@ -162,14 +162,14 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
     """The defect itself, driven through the real reconstruction."""
 
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        self._orig = solver_writer.NATIVE.hass
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_battery_level": _fake_state("55.0")},
         )
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
     def test_a_sensor_that_stops_recording_credits_only_what_it_saw(self):
         # 5 kW discharge recorded 00:00-02:00, then the sensor goes quiet
@@ -234,14 +234,14 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
 
 class TestTheCaveatIsPublishedRatherThanSilent(unittest.TestCase):
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
-        solver_writer._NATIVE_HASS = _fake_native_hass(
+        self._orig = solver_writer.NATIVE.hass
+        solver_writer.NATIVE.hass = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_battery_level": _fake_state("55.0")},
         )
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
     def test_the_config_carries_the_unobserved_periods(self):
         power = [(DAY_START + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
