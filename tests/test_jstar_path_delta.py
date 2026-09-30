@@ -158,6 +158,22 @@ class TestItSeesABonusModelDisagreement(unittest.TestCase):
             places=4,
         )
 
+    def test_an_unbonused_oracle_agrees_once_known_lp_terms_are_set_aside(self):
+        """nimbus #1480 settled the xfail below: the "at least one more term"
+        was the #731 round-trip-loss tie-breaker and the #692 battery
+        charge-earliness tie-break, both LP-only by design. With them (and
+        the soft-SoC/excess penalties) set aside, the paths agree."""
+        r = _report()
+        self.assertGreater(
+            abs(r.j_star_path_delta), 0.1, "fixture must show the raw gap"
+        )
+        self.assertAlmostEqual(
+            r.j_star_path_delta_explained + r.j_star_path_delta_unexplained,
+            r.j_star_path_delta,
+            places=3,
+        )
+        self.assertLess(abs(r.j_star_path_delta_unexplained), 0.01)
+
     @pytest.mark.xfail(
         reason=(
             "nimbus #1081, MEASURED 2026-09-17: the LP objective and the "
@@ -177,6 +193,12 @@ class TestItSeesABonusModelDisagreement(unittest.TestCase):
             "So the penalty, a modelling device j_ach never pays, is a "
             "major contributor but not the whole gap; at least one more "
             "term is unaccounted for.\n\n"
+            "RESOLVED 2026-09-30 by nimbus #1480: the unaccounted terms are the "
+            "#731 round-trip-loss tie-breaker and the #692 battery "
+            "charge-earliness tie-break, both LP-only by design; see "
+            "test_an_unbonused_oracle_agrees_once_known_lp_terms_are_set_aside, "
+            "which asserts the UNEXPLAINED part is ~0. The raw delta stays "
+            "nonzero, which is correct, so this pin stays xfail.\n\n"
             "Direction matters: an inflated j_star makes the oracle look "
             "WORSE, which shrinks regret and inflates EPR -- the same "
             "direction as the 100.11% / -$0.0214 that opened this issue."

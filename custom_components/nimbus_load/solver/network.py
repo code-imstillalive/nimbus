@@ -913,6 +913,25 @@ class Plan:
     # 0.0 whenever the excess release valve was never needed this cycle
     # (the common case) or on a Plan built before this field existed.
     grid_import_excess_penalty_cost: float = 0.0
+    # nimbus issue #1480: the dollar total of the #731 round-trip-loss
+    # tie-breaker (`charge_loss_cost`/`discharge_loss_cost`, capped at
+    # MIN_CHARGE_DISCHARGE_COST_SPREAD per kWh) actually carried by this
+    # plan's solved charge/discharge. Anti-wash-trade FRICTION, not money:
+    # the efficiency loss it stands in for is already physically in the
+    # trajectory's energy flows, which is why the scorer's evaluator
+    # rightly excludes it -- and why, measured on a real day, it WAS the
+    # whole of `j_star_path_delta` ($1.838 of $1.8388). Computed from the
+    # same per-period rates and solved variables that priced it, so it
+    # cannot drift from the LP's own number. 0.0 on a Plan built before
+    # this field existed.
+    battery_loss_tiebreak_cost: float = 0.0
+    # nimbus issue #1480: the dollar total of the #692 battery
+    # charge-earliness tie-break (`battery_charge_earliness_budget_kw`) this
+    # plan's solved charging carried on the PRIMARY objective -- the other
+    # LP-only term measured inside `j_star_path_delta` ($0.21 of $1.84 on a
+    # real day). Also a tie-break, not money. 0.0 when it sat on the
+    # secondary channel (not part of total_cost) or on an older Plan.
+    battery_charge_earliness_cost: float = 0.0
     # 2026-09-07, direct household ask: the risk-aversion sliders
     # (mechanism 3, this module's own docstring) had no visible way to
     # confirm they were doing anything -- "moved slider, nothing
@@ -2805,6 +2824,10 @@ def _build_plan_once(
     # price would be too cheap to actually deter reaching for this before
     # exhausting every real, cheaper option first.
     import_excess_penalty_rate = max(10.0 * float(np.max(effective_import_price)), 5.0)
+    # nimbus issue #1480: per-battery (charge, discharge) loss tie-break
+    # rates, recorded where they are priced so the solved total can be
+    # reported without re-deriving the formula.
+    loss_rates: dict[str, tuple[NDArray[np.float64], NDArray[np.float64]]] = {}
     for t in range(n):
         p.set_cost(grid_import[t], effective_import_price[t] * hours[t])
         # Real energy at the real import price, PLUS the deterrent penalty
@@ -2873,6 +2896,9 @@ def _build_plan_once(
                 effective_import_price[t] * (1.0 / b.discharge_efficiency - 1.0),
                 MIN_CHARGE_DISCHARGE_COST_SPREAD,
             )
+            loss_rates.setdefault(b.name, (np.zeros(n), np.zeros(n)))
+            loss_rates[b.name][0][t] = charge_loss_cost
+            loss_rates[b.name][1][t] = discharge_loss_cost
             p.set_cost(
                 charge_vars[b.name][t],
                 (
@@ -2903,6 +2929,9 @@ def _build_plan_once(
     # priced above -- period 0 is never penalized, the LATEST period in
     # the whole horizon costs exactly battery_charge_earliness_budget_kw
     # more, by construction, regardless of horizon length.
+    # nimbus issue #1480: per-battery primary-objective earliness cost per
+    # period (already multiplied by hours[t]), for battery_charge_earliness_cost.
+    earliness_costs: dict[str, NDArray[np.float64]] = {}
     if batteries and battery_charge_earliness_budget_kw > 0.0:
         horizon_hours = float(np.sum(hours))
         if horizon_hours > 0.0:
@@ -2922,6 +2951,9 @@ def _build_plan_once(
                             p.set_secondary_cost(charge_vars[b.name][t], cost)
                         else:
                             p.set_cost(charge_vars[b.name][t], cost)
+                            # nimbus issue #1480: only PRIMARY-channel
+                            # costs are part of total_cost.
+                            earliness_costs.setdefault(b.name, np.zeros(n))[t] = cost
     # Two-tier export bonus (see elements.py's own GridConfig docstring):
     # export_bonus[t] earns an EXTRA revenue credit on top of whatever
     # grid_export[t] already earns at the base rate above -- set_cost()
@@ -4467,6 +4499,19 @@ def _build_plan_once(
     grid_import_excess_penalty_cost = import_excess_penalty_rate * float(
         np.sum(grid_import_excess_arr * hours)
     )
+    battery_charge_earliness_cost = float(
+        sum(
+            np.sum(_get(charge_vars[name]) * costs)
+            for name, costs in earliness_costs.items()
+        )
+    )
+    battery_loss_tiebreak_cost = float(
+        sum(
+            np.sum(_get(charge_vars[name]) * rates[0] * hours)
+            + np.sum(_get(discharge_vars[name]) * rates[1] * hours)
+            for name, rates in loss_rates.items()
+        )
+    )
     # mypy issue #384: export_bonus is list[str] | None -- restructured
     # out of the return statement's own inline ternary (which doesn't
     # narrow) into an explicit if/else on a local, same fix pattern as
@@ -4507,6 +4552,8 @@ def _build_plan_once(
         reduced_costs=result.reduced_costs,
         grid_import_excess_kw=grid_import_excess_arr,
         grid_import_excess_penalty_cost=grid_import_excess_penalty_cost,
+        battery_loss_tiebreak_cost=battery_loss_tiebreak_cost,
+        battery_charge_earliness_cost=battery_charge_earliness_cost,
         effective_solar_kw=np.asarray(effective_solar_kw, dtype=np.float64),
         effective_import_price=np.asarray(effective_import_price, dtype=np.float64),
         effective_export_price=np.asarray(effective_export_price, dtype=np.float64),
