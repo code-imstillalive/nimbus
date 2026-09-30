@@ -296,6 +296,12 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-09-30](docs/worklog/2026-09-30.md) -- **Three releases (v0.94.431-433), each
+  validated on devhub before its tag and published through the #1447 gate.** #1463/#1477:
+  a held sensor value (PV at 0 overnight) was read as a coverage gap -- HA records only on
+  change. #1480: the ~$2/day `j_star_path_delta` is two LP-only tie-breakers (#731 loss,
+  #692 earliness), found by a read-only local reproduction matching production to the cent;
+  an export-bonus hypothesis was posted and retracted on measurement.
 - [2026-09-29](docs/worklog/2026-09-29.md) — **#1298 CLOSED at eight phases:
   `solver_writer.py` 18,708 -> 8,777 lines (-53%), ratchet 67 -> 36, 16,352 lines now in
   extracted modules.** Phases 4, 5, 6 and 7a landed (#1414, #1412, #1430, #1425);
