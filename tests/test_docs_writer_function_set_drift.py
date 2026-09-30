@@ -238,6 +238,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "reset_flex_ranging_state",
         "flex_ranging_due",
         "_flex_ranging_slot",
+        # nimbus issue #1417: the period-0 pin instrument. Switched on by HA's
+        # own `logger.set_level` service on its dedicated logger, which only
+        # exists in-process; the standalone/cron copy has no way to turn it on.
+        "period0_crossing_delta",
+        "_deadband_class",
+        "_period0_net_kw",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
         # nimbus #994: builds the quality report's own `history` table.

@@ -84,6 +84,8 @@ at 6 pre-existing findings; the whole-package job is advisory (`|| true`).
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -249,6 +251,120 @@ def flex_ranging_due(now: datetime) -> bool:
 def reset_flex_ranging_state() -> None:
     """Forget which interval last ranged -- the next call is due."""
     _FLEX_RANGING_STATE["slot"] = None
+
+
+# nimbus issue #1417: the period-0 pin instrument.
+#
+# The charge-window chatter is period[0] of consecutive plans crossing the
+# dispatch automation's +/-0.05 kW deadband. #1406's reshaped proximal anchor
+# already prices a 40 kW deviation on period[0] at ~$1.80, ~66x what a
+# degenerate flip at the p90 adjacent-period spread can earn -- so the
+# crossings that remain are mostly NOT ties the anchor fails to catch, or at
+# least the published data cannot show they are. Three candidates, with
+# opposite remedies: a genuine re-plan on new inputs (leave the LP alone; the
+# fix is hysteresis in the automation), an anchor pulling toward a moved
+# baseline, or a tie in something the anchor does not cover.
+#
+# This separates them. On a solve whose period[0] lands in a different
+# deadband class from the previous plan's period[0], re-solve once with
+# period[0] pinned to the previous value and log the objective difference:
+#
+#   delta ~ 0              -> a tie: the anchor should have held it
+#   delta large            -> the new period[0] is genuinely better; read the
+#                             logged inputs against the previous line to tell
+#                             "the forecast moved" from "it did not"
+#
+# The pin is a restriction of the same problem, so delta >= 0 by construction
+# (to solver tolerance). The published plan is never touched: the re-solve's
+# only output is one log line.
+#
+# OFF unless its own logger is at DEBUG. Turn it on with
+#   logger.set_level: {custom_components.nimbus_load.solver_plan.period0_pin: debug}
+# which is a plain HA service, needs no new entity or option, and resets on
+# restart. Pinned to INFO at import so setting the whole integration to DEBUG
+# does NOT quietly add a re-solve to every crossing cycle. Cost when on: one
+# extra solve per crossing (~7/hour on the reference household's charge
+# window), with ranging and the offer curve off in the re-solve.
+DISPATCH_DEADBAND_KW = 0.05
+PERIOD0_PIN_LOGGER = logging.getLogger(f"{__name__}.period0_pin")
+if PERIOD0_PIN_LOGGER.level == logging.NOTSET:
+    PERIOD0_PIN_LOGGER.setLevel(logging.INFO)
+
+
+def _deadband_class(net_kw: float) -> int:
+    """The dispatch automation's own three-way read of period[0]:
+    +1 Discharge, -1 Charge, 0 Self-Consume."""
+    if net_kw > DISPATCH_DEADBAND_KW:
+        return 1
+    if net_kw < -DISPATCH_DEADBAND_KW:
+        return -1
+    return 0
+
+
+def _period0_net_kw(plan) -> float | None:
+    try:
+        return float(plan.battery_discharge_kw[0]) - float(plan.battery_charge_kw[0])
+    except (AttributeError, IndexError, TypeError):
+        return None
+
+
+def period0_crossing_delta(
+    plan, previous_plan, resolve_pinned, *, inputs: dict | None = None
+) -> dict | None:
+    """Measure one crossing -- see the comment block above.
+
+    `resolve_pinned(pin_net_kw)` must re-solve the SAME problem with
+    batteries[0] pinned at period 0 and return that plan. `inputs` (this
+    solve's period-0 prices, solar and load) is logged so consecutive lines
+    show whether the forecast moved between two crossing solves. Returns the logged
+    record, or None when there is nothing to measure (instrument off, no
+    previous plan, a failed solve, or no crossing). Never raises: a
+    diagnostic must not be able to take a solve down.
+    """
+    if not PERIOD0_PIN_LOGGER.isEnabledFor(logging.DEBUG):
+        return None
+    if previous_plan is None or getattr(plan, "status", None) != "optimal":
+        return None
+    new_kw = _period0_net_kw(plan)
+    prev_kw = _period0_net_kw(previous_plan)
+    if new_kw is None or prev_kw is None:
+        return None
+    if _deadband_class(new_kw) == _deadband_class(prev_kw):
+        return None
+    try:
+        pinned = resolve_pinned(prev_kw)
+    except Exception as e:  # noqa: BLE001 - diagnostic only
+        PERIOD0_PIN_LOGGER.debug("Nimbus #1417 period0 pin: re-solve raised %r", e)
+        return None
+    record = {
+        "new_period0_kw": round(new_kw, 3),
+        "prev_period0_kw": round(prev_kw, 3),
+        "pinned_status": getattr(pinned, "status", None),
+        "free_objective": plan.total_cost,
+        "pinned_objective": getattr(pinned, "total_cost", None),
+        "delta_objective": None,
+        "inputs": {
+            k: (None if v is None else round(float(v), 4))
+            for k, v in (inputs or {}).items()
+        },
+    }
+    if record["pinned_status"] == "optimal" and None not in (
+        record["free_objective"],
+        record["pinned_objective"],
+    ):
+        record["delta_objective"] = round(
+            float(record["pinned_objective"]) - float(record["free_objective"]), 4
+        )
+    PERIOD0_PIN_LOGGER.debug(
+        "Nimbus #1417 period0 crossing: new=%+.3f kW prev=%+.3f kW "
+        "delta_objective=%s (pinned status=%s) inputs=%s",
+        new_kw,
+        prev_kw,
+        record["delta_objective"],
+        record["pinned_status"],
+        record["inputs"],
+    )
+    return record
 
 
 @dataclass(frozen=True)
@@ -546,25 +662,54 @@ def assemble_and_solve_plan(
         cfg.get("solver_calibrated_objective_enabled", True)
     )
     solve_options = lp.CalibratedOptions() if calibrated_objective_enabled else None
-    plan = network.build_plan(
-        periods=periods,
-        grid=grid,
-        batteries=all_batteries,
-        solar=solar,
-        loads=loads,
-        sheddable_loads=sheddable_loads,
-        adequacy_loads=adequacy_loads,
-        thermal_loads=thermal_loads,
-        previous_plan=previous_plan,
-        risk_aversion=risk_aversion,
-        import_price_risk_aversion=import_price_risk_aversion,
-        export_price_risk_aversion=export_price_risk_aversion,
-        proximal_weight=proximal_weight,
-        smoothness_weight=smoothness_weight,
-        battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
+
+    # One call site for both the real solve and #1417's diagnostic re-solve, so
+    # the re-solve can never drift from the problem it is meant to reproduce.
+    def _build(batteries, *, compute_offer_curve, compute_signals):
+        return network.build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=batteries,
+            solar=solar,
+            loads=loads,
+            sheddable_loads=sheddable_loads,
+            adequacy_loads=adequacy_loads,
+            thermal_loads=thermal_loads,
+            previous_plan=previous_plan,
+            risk_aversion=risk_aversion,
+            import_price_risk_aversion=import_price_risk_aversion,
+            export_price_risk_aversion=export_price_risk_aversion,
+            proximal_weight=proximal_weight,
+            smoothness_weight=smoothness_weight,
+            battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
+            compute_offer_curve=compute_offer_curve,
+            compute_signals=compute_signals,
+            solve_options=solve_options,
+        )
+
+    plan = _build(
+        all_batteries,
         compute_offer_curve=offer_curve_enabled,
         compute_signals=flex_signals_enabled,
-        solve_options=solve_options,
+    )
+    # nimbus issue #1417: no-op unless its own logger is at DEBUG.
+    period0_crossing_delta(
+        plan,
+        previous_plan,
+        lambda pin_kw: _build(
+            [
+                dataclasses.replace(all_batteries[0], period0_pin_net_kw=pin_kw),
+                *all_batteries[1:],
+            ],
+            compute_offer_curve=False,
+            compute_signals=False,
+        ),
+        inputs={
+            "import_price": import_price[0] if len(import_price) else None,
+            "export_price": export_price[0] if len(export_price) else None,
+            "solar_kw": solar_kw[0] if len(solar_kw) else None,
+            "load_kw": load_kw[0] if len(load_kw) else None,
+        },
     )
     if flex_signals_enabled and plan.grid_signals is not None:
         _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)

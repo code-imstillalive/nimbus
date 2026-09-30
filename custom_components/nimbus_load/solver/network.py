@@ -2207,6 +2207,29 @@ def _build_plan_once(
             )
             for t in range(n)
         ]
+        # nimbus issue #1417: diagnostic period-0 pin -- see BatteryConfig.
+        # period0_pin_net_kw. Equality ROWS rather than bounds, so a pin the
+        # other constraints cannot meet shows up as a non-optimal status on
+        # the diagnostic re-solve instead of an lb > ub ValueError.
+        if (
+            b_idx == 0
+            and b.available
+            and b.period0_pin_net_kw is not None
+            and n > 0
+            and 0 not in gated_periods
+            and not spike_active_now
+        ):
+            pin = float(b.period0_pin_net_kw)
+            p.add_eq_constraint(
+                {charge_vars[b.name][0]: 1.0},
+                max(-pin, 0.0),
+                name=f"period0_pin_charge_{b.name}",
+            )
+            p.add_eq_constraint(
+                {discharge_vars[b.name][0]: 1.0},
+                max(pin, 0.0),
+                name=f"period0_pin_discharge_{b.name}",
+            )
         # nimbus issue #328 (Mark Purcell): soc[t]'s only HARD bound is
         # now the true physical range [0, capacity_kwh] -- min_soc_kwh/
         # max_soc_kwh are enforced as a SOFT preference via underfill/

@@ -948,6 +948,14 @@ class BatteryConfig:
     # now suppresses the override for a gated period; see its own
     # discharge_vars construction for the full reasoning.
     spike_override_discharge_kw: float | None = None
+    # nimbus issue #1417: DIAGNOSTIC ONLY -- never set on a solve whose plan is
+    # published. Pins this battery's period-0 NET power (positive = discharge,
+    # negative = charge) with two equality rows, so a re-solve can price "keep
+    # doing what the previous plan said" against the free solve. Only honoured
+    # on batteries[0], and ignored where period 0 is gated or a spike override
+    # is active (both already fix period 0 for a real reason). See
+    # solver_plan.period0_crossing_delta().
+    period0_pin_net_kw: float | None = None
 
     def __post_init__(self) -> None:
         # nimbus issue #467: accept any iterable of ints (a list
