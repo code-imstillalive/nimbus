@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.432] - 2026-09-30
+
+### Fixed
+- **A quiet evening no longer blocks a day's quality score**
+  ([#1477](https://github.com/code-imstillalive/nimbus/issues/1477)). The coverage gate
+  measured "last recorded row - first recorded row", but HA's recorder writes a row
+  only when a value changes -- so a PV sensor holding 0.0 from dusk to midnight
+  (last row 17:39 on a real install) read as a 6-hour gap, and a fully-closed day was
+  refused on every cycle, 200+ times. When a series comes up short, its raw history
+  after the last row is now checked: no `unavailable`/`unknown` transition means the
+  value was held and it counts to the window end; a real outage, or an unreadable
+  recorder, is still refused. Series that already pass are never probed. This is also
+  the cause of the midnight scorecard outage behind #1463 on that install.
+- **No more "cannot schedule new futures after shutdown" ERROR on restart**
+  ([#1475](https://github.com/code-imstillalive/nimbus/issues/1475)). A forecast refresh
+  racing Home Assistant's shutdown reached the recorder after its executor stopped. While
+  HA is stopping, the forecast coordinator now keeps its current data and does not fetch.
+
 ## [0.94.431] - 2026-09-30
 
 ### Fixed
