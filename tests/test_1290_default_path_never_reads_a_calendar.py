@@ -61,6 +61,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -177,7 +178,9 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         """Only what build_extra_batteries() actually touches."""
 
         def __init__(self, hass) -> None:
-            self._NATIVE_HASS = hass
+            # nimbus #1437: build_extra_batteries() reads the injected hass from
+            # solver_shared.NATIVE, not from the writer; the drivers install it.
+            self.hass = hass
             self._LOGGER = logging.getLogger("nimbus.test.1290")
             self.calendar_calls: list[tuple] = []
             #: Set when build_extra_batteries() raised, so a failure is visible
@@ -232,6 +235,8 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         )
         real = extra_batteries._solver_writer
         extra_batteries._solver_writer = lambda: writer
+        native = patch.object(extra_batteries.solver_shared.NATIVE, "hass", writer.hass)
+        native.start()
         try:
             extra_batteries.build_extra_batteries(periods)
         except Exception as exc:  # noqa: BLE001
@@ -246,6 +251,7 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
             # to catch -- and did catch twice while this was being written.
             writer.failed_with = exc
         finally:
+            native.stop()
             extra_batteries._solver_writer = real
         return writer
 
@@ -302,11 +308,14 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         writer = self._FakeWriter(self._FakeHass([]))
         real = extra_batteries._solver_writer
         extra_batteries._solver_writer = lambda: writer
+        native = patch.object(extra_batteries.solver_shared.NATIVE, "hass", writer.hass)
+        native.start()
         try:
             extra_batteries.build_extra_batteries(None)
         except Exception as exc:  # noqa: BLE001 -- same reasoning as _drive()
             writer.failed_with = exc
         finally:
+            native.stop()
             extra_batteries._solver_writer = real
         self.assertEqual(writer.calendar_calls, [])
 

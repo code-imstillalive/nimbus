@@ -120,7 +120,7 @@ class TestTheProbeItself(unittest.TestCase):
             [{"state": s, "last_changed": w.isoformat()} for s, w in (rows or [])]
         ]
         with (
-            patch.object(sw, "_NATIVE_HASS", None),
+            patch.object(sw.NATIVE, "hass", None),
             patch.object(sw, "_load_token", lambda: "t"),
             patch.object(
                 shared.urllib.request,

@@ -194,13 +194,13 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
     """
 
     def setUp(self):
-        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_native_hass = solver_writer.NATIVE.hass
         self._orig_tuning = solver_writer._resolve_controllable_load_tuning
         _controllable.__dict__["_FakeRunStateStore"]._shared_data.clear()
         self._loop, self._loop_thread = _controllable._make_running_loop()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer.NATIVE.hass = self._orig_native_hass
         solver_writer._resolve_controllable_load_tuning = self._orig_tuning
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._loop_thread.join(timeout=5)
@@ -238,7 +238,7 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
             entry_id=f"entry_1019_{tag}",
             subentries={s.subentry_id: s for s in (bad, good)},
         )
-        solver_writer._NATIVE_HASS = SimpleNamespace(
+        solver_writer.NATIVE.hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
             services=services,
             loop=self._loop,

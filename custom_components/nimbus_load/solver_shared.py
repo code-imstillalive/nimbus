@@ -65,24 +65,24 @@ intercept its logging has to patch `solver_shared._LOGGER` specifically
 file). `assertLogs` has no such gap because it takes a live object
 reference rather than a namespace+name pair.
 
-**`_NATIVE_HASS`/`HA_BASE`/`_load_token()` deliberately stay behind** in
-`solver_writer.py`, reached here via the same deferred, by-MODULE
-`_solver_writer()` seam `solver_inputs/*.py`/`solver_publish.py` already
-use for exactly this reason (see either module's own `_solver_writer()`
-docstring for the full "relocating a function also relocates who its
-internal callers resolve" story, nimbus issue #861). `_NATIVE_HASS` is
-spec 001's own named exception (it is REASSIGNED by `set_native_hass()`,
-which stays in `solver_writer.py`, so a plain re-export would freeze this
-module's own copy at whatever `_NATIVE_HASS` was at import time).
-`HA_BASE`/`_load_token()` are bundled onto the same seam for a second,
-independently-discovered reason: `tests/test_solver_writer_import_and_
-token_laziness.py` source-scans `solver_writer.py` itself for the literal
-`open(TOKEN_PATH` call site inside a function literally named
-`_load_token()` -- moving that body would break a real, existing,
-unedited test. Both reasons land on the same fix: read them off the live
-`solver_writer` module object at call time, exactly like `_NATIVE_HASS`.
-This is not a new *kind* of seam, just the same one carrying two more
-names alongside the one spec 001 names explicitly.
+**The injected `hass` lives HERE, on `NATIVE`, not on `solver_writer`**
+(nimbus issue #1437). It used to be `solver_writer._NATIVE_HASS`, a module
+name REBOUND by `set_native_hass()` -- spec 001's own named exception, since
+a rebound name cannot be imported (an import freezes it at `None`), so every
+reader went through the deferred `_solver_writer()` seam. `NATIVE` is a
+holder whose identity never changes and whose `hass` attribute is mutated,
+so any module can import it at module scope and read `NATIVE.hass` at call
+time. `solver_writer` re-exports it, so `solver_writer.NATIVE is NATIVE`.
+
+**`HA_BASE`/`_load_token()` still stay behind** in `solver_writer.py`,
+reached here via the deferred, by-MODULE `_solver_writer()` seam
+`solver_inputs/*.py`/`solver_publish.py` also use (see either module's own
+`_solver_writer()` docstring for the "relocating a function also relocates
+who its internal callers resolve" story, nimbus issue #861):
+`tests/test_solver_writer_import_and_token_laziness.py` source-scans
+`solver_writer.py` itself for the literal `open(TOKEN_PATH` call site inside
+a function literally named `_load_token()` -- moving that body would break a
+real, existing, unedited test.
 
 **Two private companions moved alongside their one real caller**, neither
 literally named in spec 001's own 19-name interface list because neither
@@ -136,15 +136,44 @@ def _solver_writer():
     ...)` in the suite and turning a mocked call into a live HTTP
     request.
 
-    Used here only for the three names spec 001 documents as staying
-    behind in `solver_writer.py` -- `_NATIVE_HASS`, `HA_BASE`, and
-    `_load_token()` -- never for a name this module itself owns.
+    Used here only for the names spec 001 documents as staying behind in
+    `solver_writer.py` -- `HA_BASE` and `_load_token()` -- never for a name
+    this module itself owns. (`_NATIVE_HASS` was the third until #1437
+    replaced it with `NATIVE` below.)
     """
     try:
         from . import solver_writer
     except ImportError:  # pragma: no cover - standalone/cron path
         import solver_writer
     return solver_writer
+
+
+class _NativeContext:
+    """Where the in-process `hass` lives (nimbus issue #1437).
+
+    `hass` is None in the standalone/cron/REST deployment and a real
+    `HomeAssistant` once `solver_writer.set_native_hass()` has run inside the
+    integration. The point is the STABLE IDENTITY: `NATIVE` is created once
+    and never rebound, only its `hass` attribute is mutated -- so
+    `from .solver_shared import NATIVE` is safe at module scope, where
+    importing the old rebound `_NATIVE_HASS` name froze it at `None`.
+
+    `__slots__` is deliberate: a misspelt write (`NATIVE.has = stub`) raises
+    AttributeError instead of silently creating an attribute nothing reads --
+    the silent-no-op class #1434 is about, closed for this object by
+    construction.
+
+    Tests set it with `patch.object(solver_writer.NATIVE, "hass", stub)` or
+    plain assignment; both write the one object every reader reads.
+    """
+
+    __slots__ = ("hass",)
+
+    def __init__(self) -> None:
+        self.hass = None
+
+
+NATIVE = _NativeContext()
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +504,7 @@ def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTP
 
 def ha_get(entity_id: str) -> dict:
     sw = _solver_writer()
-    if sw._NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         # hass.states.get() is a plain, synchronous, in-memory dict
         # lookup (HA's own state machine) -- real, established practice
         # to call it from a worker thread (see solver_runtime.py's own
@@ -483,7 +512,7 @@ def ha_get(entity_id: str) -> dict:
         # not textbook-perfect event-loop-only HA threading but the
         # pragmatic, low-risk choice given the alternative is restructuring
         # ~2400 lines of already-correct, already-live-tested logic.
-        state = sw._NATIVE_HASS.states.get(entity_id)
+        state = NATIVE.hass.states.get(entity_id)
         if state is None:
             raise _native_http_error(entity_id, 404, f"Entity {entity_id} not found")
         return {
@@ -705,7 +734,7 @@ def _note_managed_publish_delivered(entity_id: str) -> None:
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     sw = _solver_writer()
-    if sw._NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         # Dispatch-table shortcut (2026-08-23, issue #55): if a real
         # SensorEntity has registered itself as the handler for this
         # entity_id, route through its own update_from_solver() so HA
@@ -747,7 +776,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         _LOGGER.debug(_trace_msg)
         if handler is not None:
             _note_managed_publish_delivered(entity_id)
-            sw._NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
+            NATIVE.hass.add_job(functools.partial(handler, state, attributes))
             return
         # Real root cause of issue #312's residual (2026-09-01, see
         # _NATIVE_MANAGED_ENTITY_IDS' own comment and __init__.py's
@@ -796,9 +825,9 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
             sorted(attributes.keys()) if attributes else attributes,
         )
         _warn_if_attrs_exceed_recorder_cap(entity_id, attributes)
-        sw._NATIVE_HASS.add_job(
+        NATIVE.hass.add_job(
             functools.partial(
-                sw._NATIVE_HASS.states.async_set, entity_id, state, attributes
+                NATIVE.hass.states.async_set, entity_id, state, attributes
             )
         )
         return
@@ -1020,7 +1049,7 @@ def fetch_entity_went_unavailable(
     """
     sw = _solver_writer()
     raw: list[str] = []
-    if sw._NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
@@ -1030,18 +1059,16 @@ def fetch_entity_went_unavailable(
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(
-                    sw._NATIVE_HASS
-                ).async_add_executor_job(
+                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    NATIVE.hass,
                     after,
                     end,
                     entity_id,
                     True,  # no_attributes
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), sw._NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
             states = future.result(timeout=30).get(entity_id, [])
             raw = [s.state for s in states if s.last_changed > after]
         except Exception:
@@ -1092,7 +1119,7 @@ def fetch_entity_history_range(
     file.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
@@ -1102,18 +1129,16 @@ def fetch_entity_history_range(
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(
-                    sw._NATIVE_HASS
-                ).async_add_executor_job(
+                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    NATIVE.hass,
                     start,
                     end,
                     entity_id,
                     True,  # no_attributes
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), sw._NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:
@@ -1178,7 +1203,7 @@ def fetch_entity_attribute_history_range(
     discipline as every other real-data fetch in this file.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is not None:
+    if NATIVE.hass is not None:
         try:
             import asyncio
 
@@ -1188,18 +1213,16 @@ def fetch_entity_attribute_history_range(
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(
-                    sw._NATIVE_HASS
-                ).async_add_executor_job(
+                return await _recorder_get_instance(NATIVE.hass).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    sw._NATIVE_HASS,
+                    NATIVE.hass,
                     start,
                     end,
                     entity_id,
                     False,  # no_attributes -- must be False, the whole point here
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), sw._NATIVE_HASS.loop)
+            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:

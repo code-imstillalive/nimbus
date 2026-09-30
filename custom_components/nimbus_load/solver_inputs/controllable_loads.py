@@ -22,10 +22,10 @@ the seam is load-bearing rather than stylistic. Same shape as
 "is it a pure function".** Two names here would look safe to import directly and
 are not:
 
-- **`_NATIVE_HASS`** is *rebound* by `set_native_hass()`. An import would freeze
-  whatever it held at import time — the same trap
-  `_LAST_KNOWN_QUALITY_HISTORY` set in Phase 2c, where an alias cannot help
-  because the name itself is reassigned.
+- **The injected `hass`** used to be `_NATIVE_HASS`, *rebound* by
+  `set_native_hass()`, so an import would have frozen it at import time. Since
+  nimbus #1437 it is `solver_shared.NATIVE.hass`: the holder's identity never
+  changes, so it is read directly and needs no seam.
 - **`resolve_controllable_load_power_sensor` moves into this module and is still
   reached as `sw.resolve_controllable_load_power_sensor`.**
   `test_768_controllable_load_delivery_reconstruction.py` patches it as
@@ -228,7 +228,7 @@ def _sample_load_run_state(
     caller resolves target_kwh.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         # Not reachable from build_controllable_loads() (guarded at its
         # own entry), but this function has no other caller today either
         # -- a defensive, cheap-to-keep guard rather than an assumption.
@@ -236,7 +236,7 @@ def _sample_load_run_state(
     try:
         from homeassistant.helpers.storage import Store as _Store
 
-        state_obj = sw._NATIVE_HASS.states.get(power_sensor)
+        state_obj = solver_shared.NATIVE.hass.states.get(power_sensor)
         if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
             return None
         # nimbus issue #535 (Mark Purcell, real household finding): this
@@ -276,7 +276,9 @@ def _sample_load_run_state(
         async def _update() -> load_run_state.LoadRunState:
             store = load_run_state.LoadRunStateStore(
                 store=_Store(
-                    sw._NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state"
+                    solver_shared.NATIVE.hass,
+                    1,
+                    f"{DOMAIN}_{hub_entry_id}_load_run_state",
                 )
             )
             prev = await store.async_read(subentry_id)
@@ -292,7 +294,9 @@ def _sample_load_run_state(
 
         import asyncio as _asyncio
 
-        future = _asyncio.run_coroutine_threadsafe(_update(), sw._NATIVE_HASS.loop)
+        future = _asyncio.run_coroutine_threadsafe(
+            _update(), solver_shared.NATIVE.hass.loop
+        )
         return future.result(timeout=10)
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         solver_shared._LOGGER.debug(
@@ -323,9 +327,9 @@ def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | 
     (setpoint) attribute rather than the binary_sensor "on" convention.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return None
-    state_obj = sw._NATIVE_HASS.states.get(done_entity)
+    state_obj = solver_shared.NATIVE.hass.states.get(done_entity)
     if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
         return None
     domain = done_entity.split(".", 1)[0]
@@ -474,7 +478,7 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
     has finished setup) or reads unknown/unavailable/non-numeric falls
     straight back to `data`'s own existing value -- the wizard value
     stays a REAL fallback, never silently dropped. Native mode only
-    (returns `data` unchanged when `_NATIVE_HASS` is None), same
+    (returns `data` unchanged when `NATIVE.hass` is None), same
     reasoning as build_controllable_loads() itself: ConfigSubentries
     have no standalone/cron equivalent to read a live entity from
     either. Also returns `data` unchanged if `subentry` has no `title`
@@ -483,7 +487,7 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
     crashing this whole load's own solve over a slug it can't compute).
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return data
     title = getattr(subentry, "title", None)
     if not title:
@@ -491,7 +495,7 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
     slug = sw._slug_for_controllable_load_entity_id(title)
     resolved = dict(data)
     for key in sw._CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS:
-        state = sw._NATIVE_HASS.states.get(f"number.nimbus_{slug}_{key}")
+        state = solver_shared.NATIVE.hass.states.get(f"number.nimbus_{slug}_{key}")
         if state is None or state.state in (None, "unknown", "unavailable"):
             continue
         try:
@@ -503,7 +507,7 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
     # value actually in force, never a stale wizard entry the
     # household has already tuned past. `home` and an unset mode
     # are the identity transform.
-    mode_state = sw._NATIVE_HASS.states.get("select.nimbus_household_mode")
+    mode_state = solver_shared.NATIVE.hass.states.get("select.nimbus_household_mode")
     mode = None
     if mode_state is not None and mode_state.state not in (
         None,
@@ -599,7 +603,7 @@ def build_controllable_loads(
     same async relearning trigger to kind=thermal loads too.
 
     Native/in-process mode ONLY (returns ([], [], []) unconditionally when
-    _NATIVE_HASS is None, i.e. the standalone/cron deployment) --
+    NATIVE.hass is None, i.e. the standalone/cron deployment) --
     ConfigSubentries are a real HA config_entries object, not something
     exposed over this module's own plain-REST ha_get()/ha_post_state()
     seam the standalone path uses, and Mark's own #486 spec doesn't ask
@@ -607,10 +611,10 @@ def build_controllable_loads(
     locally (not at module top) so this module's own standalone-mode
     import path (see this file's own top-of-file try/except) never has
     to resolve `.const` at all -- it's only ever needed here, and only
-    ever reached once _NATIVE_HASS is already known to be set.
+    ever reached once NATIVE.hass is already known to be set.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return [], [], []
     # Same relative-then-absolute fallback as this file's own top-of-file
     # import block -- solver_writer.py can be imported either as part of
@@ -699,7 +703,7 @@ def build_controllable_loads(
     sheddable_loads: list = []
     adequacy_loads: list = []
     thermal_loads: list = []
-    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return [], [], []
     # nimbus issue #757 (temporary diagnostic, remove once root-caused):
@@ -969,9 +973,9 @@ def build_controllable_loads(
                     done_condition.ATTRIBUTE_DONE_DOMAINS
                 ):
                     live_temperature = done_condition.read_current_temperature(
-                        sw._NATIVE_HASS, done_entity
+                        solver_shared.NATIVE.hass, done_entity
                     )
-                    done_state_obj = sw._NATIVE_HASS.states.get(done_entity)
+                    done_state_obj = solver_shared.NATIVE.hass.states.get(done_entity)
                     min_temp = (
                         done_state_obj.attributes.get("min_temp")
                         if done_state_obj is not None
@@ -1189,7 +1193,7 @@ def build_controllable_loads(
                 )
                 continue
             live_temperature = done_condition.read_current_temperature(
-                sw._NATIVE_HASS, temperature_entity
+                solver_shared.NATIVE.hass, temperature_entity
             )
             if live_temperature is None:
                 solver_shared._LOGGER.warning(

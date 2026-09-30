@@ -27,13 +27,13 @@ def _hass(states: dict) -> SimpleNamespace:
 
 class TestNativeModeOnly(unittest.TestCase):
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
+        self._orig = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
     def test_standalone_mode_returns_data_unchanged(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         data = {"deferrable_target_kwh": 2.0}
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
         result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
@@ -42,13 +42,13 @@ class TestNativeModeOnly(unittest.TestCase):
 
 class TestLiveOverlay(unittest.TestCase):
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
+        self._orig = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
     def test_no_live_entities_configured_falls_back_to_wizard_data(self):
-        solver_writer._NATIVE_HASS = _hass({})
+        solver_writer.NATIVE.hass = _hass({})
         data = {
             "deferrable_target_kwh": 2.0,
             "deferrable_max_power_kw": 0.65,
@@ -62,7 +62,7 @@ class TestLiveOverlay(unittest.TestCase):
         self.assertEqual(result["controllable_load_device_entity"], "water_heater.hws")
 
     def test_live_number_overrides_the_wizard_value(self):
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
                     "3.5"
@@ -76,7 +76,7 @@ class TestLiveOverlay(unittest.TestCase):
 
     def test_all_seven_live_fields_can_be_overridden_independently(self):
         slug = "hot_water_heat_pump"
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 f"number.nimbus_{slug}_deferrable_target_kwh": _fake_state("1.1"),
                 f"number.nimbus_{slug}_deferrable_max_power_kw": _fake_state("2.2"),
@@ -102,7 +102,7 @@ class TestLiveOverlay(unittest.TestCase):
         self.assertEqual(result["controllable_load_max_activations_per_day"], 7.0)
 
     def test_unavailable_live_entity_falls_back_to_wizard_data(self):
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
                     "unavailable"
@@ -115,7 +115,7 @@ class TestLiveOverlay(unittest.TestCase):
         self.assertEqual(result["deferrable_target_kwh"], 2.0)
 
     def test_unknown_live_entity_falls_back_to_wizard_data(self):
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
                     "unknown"
@@ -130,7 +130,7 @@ class TestLiveOverlay(unittest.TestCase):
     def test_non_numeric_live_state_falls_back_to_wizard_data(self):
         """Defensive against a genuinely corrupt/mid-transition state --
         must never crash the whole load's own solve over one bad read."""
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
                     "not-a-number"
@@ -146,7 +146,7 @@ class TestLiveOverlay(unittest.TestCase):
         """Neither source has this field -- must not fabricate a 0.0 or
         any other default; the caller's own existing `.get(key)` default
         handling stays exactly as it was before #645."""
-        solver_writer._NATIVE_HASS = _hass({})
+        solver_writer.NATIVE.hass = _hass({})
         subentry = SimpleNamespace(title="Hot Water Heat Pump")
         result = controllable_loads._resolve_controllable_load_tuning({}, subentry)
         self.assertNotIn("deferrable_target_kwh", result)
@@ -155,7 +155,7 @@ class TestLiveOverlay(unittest.TestCase):
         """A real ConfigSubentry always has .title -- but a genuinely
         unusual/malformed object here must fail open rather than crash
         this load's own solve over a slug it can't compute."""
-        solver_writer._NATIVE_HASS = _hass(
+        solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
                     "9.9"

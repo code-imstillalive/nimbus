@@ -113,7 +113,7 @@ SHEDDABLE_DATA = {
 
 
 def _build(deliveries, subs):
-    with patch.object(solver_writer, "_NATIVE_HASS", _Hass(subs)):
+    with patch.object(solver_writer.NATIVE, "hass", _Hass(subs)):
         return clh.build_oracle_controllable_loads(
             deliveries=deliveries,
             grid_times=GRID_TIMES,

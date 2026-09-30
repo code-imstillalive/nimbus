@@ -188,12 +188,12 @@ def run_build_extra_batteries(sw_module, build_extra_batteries_fn) -> list:
     is passed in explicitly so the SAME scenario drives either the
     pre-extraction solver_writer.build_extra_batteries or the
     post-extraction solver_inputs.extra_batteries.build_extra_batteries."""
-    original = sw_module._NATIVE_HASS
-    sw_module._NATIVE_HASS = build_extra_batteries_native_hass()
+    original = sw_module.NATIVE.hass
+    sw_module.NATIVE.hass = build_extra_batteries_native_hass()
     try:
         return build_extra_batteries_fn(periods=BUILD_PERIODS)
     finally:
-        sw_module._NATIVE_HASS = original
+        sw_module.NATIVE.hass = original
 
 
 # ---------------------------------------------------------------------------
@@ -305,11 +305,11 @@ def history_fetch(entity_id: str, start: datetime, end: datetime):
 def run_resolve_history(sw_module, resolve_fn) -> list:
     """Runs resolve_fn(...) against sw_module's own recorder-history
     seams, restoring every patched attribute afterwards."""
-    original_hass = sw_module._NATIVE_HASS
+    original_hass = sw_module.NATIVE.hass
     original_history = sw_module.fetch_entity_history_range
     original_power = sw_module.fetch_entity_power_history_kw
     original_state = sw_module.fetch_entity_state_history_range
-    sw_module._NATIVE_HASS = history_native_hass()
+    sw_module.NATIVE.hass = history_native_hass()
     sw_module.fetch_entity_history_range = history_fetch
     sw_module.fetch_entity_power_history_kw = history_fetch
     sw_module.fetch_entity_state_history_range = history_state_fetch
@@ -322,7 +322,7 @@ def run_resolve_history(sw_module, resolve_fn) -> list:
             n_periods=N_PERIODS,
         )
     finally:
-        sw_module._NATIVE_HASS = original_hass
+        sw_module.NATIVE.hass = original_hass
         sw_module.fetch_entity_history_range = original_history
         sw_module.fetch_entity_power_history_kw = original_power
         sw_module.fetch_entity_state_history_range = original_state

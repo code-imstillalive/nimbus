@@ -96,7 +96,7 @@ def solver_writer_bound_to_hass(hass):
     """Bind this test's `hass` into `solver_writer`, and unbind after.
 
     `ha_post_state()` only routes through the entity dispatch seam when
-    `solver_writer._NATIVE_HASS` is set. The one production caller of
+    `solver_writer.NATIVE.hass` is set. The one production caller of
     `set_native_hass()` is `solver_runtime.async_run_solve()`, which the
     `nimbus_entry` fixture deliberately patches out, so nothing binds
     `hass` and every push falls through to the REST fallback instead.
@@ -108,7 +108,7 @@ def solver_writer_bound_to_hass(hass):
     The teardown unbind is deliberate hygiene rather than a load-bearing
     fix, and mutation testing says so: deleting it leaves all nine tests
     passing, because setup rebinds before the next test runs. It stays
-    because `_NATIVE_HASS` and `_ENTITY_UPDATE_HANDLERS` are
+    because `NATIVE.hass` and `_ENTITY_UPDATE_HANDLERS` are
     module-level, which is right in production where one HA process
     imports the module once, but wrong for a test session that builds a
     fresh `hass` per test while the module stays imported. Any future

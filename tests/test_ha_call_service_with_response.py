@@ -62,7 +62,7 @@ class TestHaCallServiceWithResponseNativeMode(unittest.TestCase):
         self.loop.run_forever()
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.thread.join(timeout=5)
         self.loop.close()
@@ -71,7 +71,7 @@ class TestHaCallServiceWithResponseNativeMode(unittest.TestCase):
         response = {
             "weather.home": {"forecast": [{"datetime": "t", "temperature": 21.0}]}
         }
-        solver_writer._NATIVE_HASS = _FakeNativeHass(self.loop, response=response)
+        solver_writer.NATIVE.hass = _FakeNativeHass(self.loop, response=response)
         result = solver_writer.ha_call_service_with_response(
             "weather", "get_forecasts", {"entity_id": "weather.home", "type": "hourly"}
         )
@@ -80,11 +80,11 @@ class TestHaCallServiceWithResponseNativeMode(unittest.TestCase):
     def test_native_mode_passes_through_domain_service_and_blocking_response_flags(
         self,
     ):
-        solver_writer._NATIVE_HASS = _FakeNativeHass(self.loop, response={})
+        solver_writer.NATIVE.hass = _FakeNativeHass(self.loop, response={})
         solver_writer.ha_call_service_with_response(
             "weather", "get_forecasts", {"entity_id": "weather.home", "type": "hourly"}
         )
-        calls = solver_writer._NATIVE_HASS.services.calls
+        calls = solver_writer.NATIVE.hass.services.calls
         self.assertEqual(len(calls), 1)
         domain, service, data, blocking, return_response = calls[0]
         self.assertEqual(domain, "weather")
@@ -94,7 +94,7 @@ class TestHaCallServiceWithResponseNativeMode(unittest.TestCase):
         self.assertTrue(return_response)
 
     def test_native_mode_service_call_failure_returns_none_not_a_crash(self):
-        solver_writer._NATIVE_HASS = _FakeNativeHass(
+        solver_writer.NATIVE.hass = _FakeNativeHass(
             self.loop, exc=RuntimeError("does not support 'hourly' forecast")
         )
         result = solver_writer.ha_call_service_with_response(

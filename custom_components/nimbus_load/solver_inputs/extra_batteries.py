@@ -28,8 +28,8 @@ sibling, which needs the identical reference floor for the same reason.
 
 See `solver_inputs/__init__.py` for why the `solver_writer` import is
 deferred and by-module; the reasoning is identical and load-bearing here
-too -- 30+ tests patch `solver_writer._NATIVE_HASS`/`solver_writer.safe_num`
-as module attributes, and a module-scope `from ..solver_writer import X`
+too -- tests patch `solver_writer.safe_num` (and friends) as module
+attributes, and a module-scope `from ..solver_writer import X`
 would resolve those names at import time and silently defeat every patch.
 """
 
@@ -166,7 +166,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     this function only carries the two raw config values across.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return []
     try:
         from ..const import (
@@ -218,7 +218,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         )
 
     batteries: list = []
-    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return []
     seen_names: set[str] = set()
@@ -380,7 +380,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
         available = True
         if available_entity:
-            state_obj = sw._NATIVE_HASS.states.get(available_entity)
+            state_obj = solver_shared.NATIVE.hass.states.get(available_entity)
             available = state_obj is not None and state_obj.state == "on"
         # nimbus issue #779: a currently-away participant is only gated
         # for the next _BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS, not

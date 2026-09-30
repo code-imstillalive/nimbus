@@ -359,7 +359,7 @@ def _resolve_battery_participant_history(
     before this function existed.
     """
     sw = _solver_writer()
-    if sw._NATIVE_HASS is None:
+    if solver_shared.NATIVE.hass is None:
         return []
     try:
         from ..const import (
@@ -404,7 +404,7 @@ def _resolve_battery_participant_history(
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
 
-    entries = sw._NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    entries = solver_shared.NATIVE.hass.config_entries.async_entries(DOMAIN)
     if not entries:
         return []
 

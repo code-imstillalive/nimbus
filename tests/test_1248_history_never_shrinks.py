@@ -142,10 +142,10 @@ class _IsolatedCache(unittest.TestCase):
 
     def setUp(self):
         solver_writer._LAST_KNOWN_QUALITY_HISTORY = {}
-        self._prior_hass = solver_writer._NATIVE_HASS
-        solver_writer._NATIVE_HASS = object()
+        self._prior_hass = solver_writer.NATIVE.hass
+        solver_writer.NATIVE.hass = object()
         self.addCleanup(setattr, solver_writer, "_LAST_KNOWN_QUALITY_HISTORY", {})
-        self.addCleanup(setattr, solver_writer, "_NATIVE_HASS", self._prior_hass)
+        self.addCleanup(setattr, solver_writer.NATIVE, "hass", self._prior_hass)
 
 
 class TestTheProductionShapeIsRecovered(_IsolatedCache):
@@ -240,7 +240,7 @@ class TestTheCacheIsNativeOnly(_IsolatedCache):
         solver_writer._LAST_KNOWN_QUALITY_HISTORY = {
             f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)
         }
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         out = _carry(None, "2026-09-26", 55.0, read="unavailable")
         self.assertEqual(
             len(out), 1, "the cron path must not recover from a cache it can never fill"
@@ -250,7 +250,7 @@ class TestTheCacheIsNativeOnly(_IsolatedCache):
         """Symmetric on purpose. A cron run that populated a cache nothing will
         ever read is pure overhead, and a half-gated cache is how the leak
         would come back."""
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
         self.assertEqual(solver_writer._LAST_KNOWN_QUALITY_HISTORY, {})
 

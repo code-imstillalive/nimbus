@@ -66,7 +66,7 @@ class _Resp:
 def _fetch(rows):
     """Drive the REST branch of fetch_entity_power_history_kw()."""
     with (
-        mock.patch.object(solver_writer, "_NATIVE_HASS", None),
+        mock.patch.object(solver_writer.NATIVE, "hass", None),
         mock.patch.object(solver_writer, "_load_token", lambda: "tok"),
         mock.patch.object(
             solver_writer.urllib.request, "urlopen", lambda *a, **k: _Resp([rows])
@@ -147,7 +147,7 @@ class TestDegradesSafely(unittest.TestCase):
             raise solver_writer.urllib.error.URLError("down")
 
         with (
-            mock.patch.object(solver_writer, "_NATIVE_HASS", None),
+            mock.patch.object(solver_writer.NATIVE, "hass", None),
             mock.patch.object(solver_writer, "_load_token", lambda: "tok"),
             mock.patch.object(solver_writer.urllib.request, "urlopen", _boom),
         ):
@@ -174,7 +174,7 @@ class TestScopedToThisPathOnly(unittest.TestCase):
             return _Resp([[]])
 
         with (
-            mock.patch.object(solver_writer, "_NATIVE_HASS", None),
+            mock.patch.object(solver_writer.NATIVE, "hass", None),
             mock.patch.object(solver_writer, "_load_token", lambda: "tok"),
             mock.patch.object(solver_writer.urllib.request, "urlopen", _capture),
         ):
@@ -198,7 +198,7 @@ class TestScopedToThisPathOnly(unittest.TestCase):
             return _Resp([[]])
 
         with (
-            mock.patch.object(solver_writer, "_NATIVE_HASS", None),
+            mock.patch.object(solver_writer.NATIVE, "hass", None),
             mock.patch.object(solver_writer, "_load_token", lambda: "tok"),
             mock.patch.object(solver_writer.urllib.request, "urlopen", _capture),
         ):

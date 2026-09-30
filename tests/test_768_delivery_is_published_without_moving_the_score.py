@@ -167,15 +167,15 @@ def _report():
 
 class _NativeModeCase(unittest.TestCase):
     def setUp(self):
-        self._orig = solver_writer._NATIVE_HASS
+        self._orig = solver_writer.NATIVE.hass
 
     def tearDown(self):
-        solver_writer._NATIVE_HASS = self._orig
+        solver_writer.NATIVE.hass = self._orig
 
 
 class TestItArrivesOnTheReport(_NativeModeCase):
     def test_a_configured_load_is_reported_with_its_real_delivery(self):
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", _HWS)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", _HWS)])
         report = _report()
         assert report is not None
         (entry,) = report["controllable_load_delivery"]
@@ -190,7 +190,7 @@ class TestItArrivesOnTheReport(_NativeModeCase):
         self.assertNotAlmostEqual(entry["delivered_kwh"], 4.0, places=2)
 
     def test_an_install_with_no_controllable_loads_publishes_an_empty_list(self):
-        solver_writer._NATIVE_HASS = _native_hass([])
+        solver_writer.NATIVE.hass = _native_hass([])
         report = _report()
         assert report is not None
         # Present and empty, not absent: the reference household and devhub
@@ -200,7 +200,7 @@ class TestItArrivesOnTheReport(_NativeModeCase):
         self.assertEqual(report["controllable_load_delivery"], [])
 
     def test_standalone_mode_publishes_an_empty_list_too(self):
-        solver_writer._NATIVE_HASS = None
+        solver_writer.NATIVE.hass = None
         report = _report()
         assert report is not None
         self.assertEqual(report["controllable_load_delivery"], [])
@@ -211,9 +211,9 @@ class TestItMovesNothingThatIsScored(_NativeModeCase):
     whether a Controllable Load exists -- every scored figure identical."""
 
     def test_every_scored_figure_is_unchanged_by_the_reconstruction(self):
-        solver_writer._NATIVE_HASS = _native_hass([])
+        solver_writer.NATIVE.hass = _native_hass([])
         without = _report()
-        solver_writer._NATIVE_HASS = _native_hass([_subentry("s_hws", _HWS)])
+        solver_writer.NATIVE.hass = _native_hass([_subentry("s_hws", _HWS)])
         with_load = _report()
         assert without is not None and with_load is not None
 
