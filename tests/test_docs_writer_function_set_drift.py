@@ -230,6 +230,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # so there is no streak to count there.
         "_note_managed_publish_skipped",
         "_note_managed_publish_delivered",
+        # nimbus issue #489: the in-process flex-ranging cadence (one ranging
+        # solve per 5-minute interval) and its reset. The standalone/cron copy
+        # runs one process per solve, so no state survives between its solves
+        # and it ranges every run -- there is no cadence to port.
+        "reset_flex_ranging_cadence",
+        "reset_flex_ranging_state",
+        "flex_ranging_due",
+        "_flex_ranging_slot",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
         # nimbus #994: builds the quality report's own `history` table.

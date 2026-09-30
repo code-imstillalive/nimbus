@@ -266,6 +266,15 @@ except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
 
 
+# nimbus issue #489: the last record actually posted, re-posted unchanged while
+# ranging is deferred to the next 5-minute interval (see solver_plan.
+# FLEX_RANGING_INTERVAL_SECONDS). It is the same record -- same
+# `interval_start_utc`, which is also the sensor state -- so a consumer that
+# keys on the interval sees nothing new, and the push sensor does not go
+# `unavailable` in the ~300 s between two ranging solves.
+_LAST_FLEX_TELEMETRY_POST: dict = {}
+
+
 def publish_flex_telemetry_record(
     cfg: dict,
     plan,
@@ -277,6 +286,7 @@ def publish_flex_telemetry_record(
     import_limit_kw: float,
     export_limit_kw: float,
     period_hours: float,
+    hold_last: bool = False,
 ) -> None:
     """Pushes `sensor.nimbus_flex_telemetry` (#495) -- a no-op, reason
     logged at DEBUG, when no valid record can be built.
@@ -308,6 +318,14 @@ def publish_flex_telemetry_record(
         )
         return
     if build.record is None:
+        if hold_last and _LAST_FLEX_TELEMETRY_POST:
+            # Ranging deferred, not off -- see _LAST_FLEX_TELEMETRY_POST.
+            sw.ha_post_state(
+                sw.FLEX_TELEMETRY_ENTITY_ID,
+                _LAST_FLEX_TELEMETRY_POST["state"],
+                dict(_LAST_FLEX_TELEMETRY_POST["attributes"]),
+            )
+            return
         solver_shared._LOGGER.debug(
             "Nimbus flex telemetry: no record this cycle -- %s", build.reason
         )
@@ -320,21 +338,21 @@ def publish_flex_telemetry_record(
             flex_telemetry.PRICE_MAX,
             ", ".join(build.clamped_fields),
         )
-    sw.ha_post_state(
-        sw.FLEX_TELEMETRY_ENTITY_ID,
-        build.record["interval_start_utc"],
-        {
-            "friendly_name": "Nimbus Flex Telemetry",
-            "record": build.record,
-            # No attribute here shares a NAME with a record field, on
-            # purpose: a duplicate would have two places to disagree, and
-            # the whole reason the record is nested is that the attribute
-            # dict and the record are different objects with different
-            # contracts. `schema_version` lives in the record alone.
-            "clamped_fields": list(build.clamped_fields),
-            "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
-        },
-    )
+    attributes = {
+        "friendly_name": "Nimbus Flex Telemetry",
+        "record": build.record,
+        # No attribute here shares a NAME with a record field, on
+        # purpose: a duplicate would have two places to disagree, and
+        # the whole reason the record is nested is that the attribute
+        # dict and the record are different objects with different
+        # contracts. `schema_version` lives in the record alone.
+        "clamped_fields": list(build.clamped_fields),
+        "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
+    }
+    state = build.record["interval_start_utc"]
+    sw.ha_post_state(sw.FLEX_TELEMETRY_ENTITY_ID, state, attributes)
+    _LAST_FLEX_TELEMETRY_POST.clear()
+    _LAST_FLEX_TELEMETRY_POST.update(state=state, attributes=dict(attributes))
 
 
 # --------------------------------------------------------------------

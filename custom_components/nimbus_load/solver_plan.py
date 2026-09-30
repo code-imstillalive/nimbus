@@ -212,6 +212,45 @@ def terminal_value_breakpoints_for(
     ]
 
 
+# nimbus issue #489: HiGHS ranging (what `switch.nimbus_solver_flex_signals_
+# enabled` turns on) was measured on a real install at ~9x solve time -- a
+# median of 1.16 s became 10.3 s -- and it ran on EVERY solve, which on the
+# native runtime is one every ~17 seconds. That cost is why the switch cannot
+# be left on, and so why every flex sensor reads `unknown` in practice.
+#
+# The signals do not need that cadence. What consumes them is the
+# nem-flex-telemetry record, which is one record per 5-minute NEM interval
+# (#495, `last_complete_interval_start()`), and a grid-operator/aggregator
+# surface whose natural unit is the same 5-minute dispatch interval. Ranging
+# the first solve of each interval gives every record the same inputs it gets
+# today while paying for ranging once per interval rather than ~18 times.
+#
+# Keyed on the UTC 5-minute slot of `now`, and recorded only once a solve has
+# actually produced signals -- so a ranging solve that fails is retried on the
+# next cycle rather than skipping the interval. A mutated dict rather than a
+# rebound name, for #1437's reason: tests and callers can hold a reference.
+#
+# The standalone/cron deployment runs one process per solve, so this state
+# never survives between its solves and it ranges every run, exactly as it
+# always has. Only the long-lived native runtime is changed.
+FLEX_RANGING_INTERVAL_SECONDS = 300
+_FLEX_RANGING_STATE: dict[str, int | None] = {"slot": None}
+
+
+def _flex_ranging_slot(now: datetime) -> int:
+    return int(now.timestamp() // FLEX_RANGING_INTERVAL_SECONDS)
+
+
+def flex_ranging_due(now: datetime) -> bool:
+    """True unless this 5-minute interval already has a ranging solve."""
+    return _FLEX_RANGING_STATE["slot"] != _flex_ranging_slot(now)
+
+
+def reset_flex_ranging_state() -> None:
+    """Forget which interval last ranged -- the next call is due."""
+    _FLEX_RANGING_STATE["slot"] = None
+
+
 @dataclass(frozen=True)
 class PlanAssembly:
     """What `assemble_and_solve_plan()` produces that the rest of `main()` still
@@ -233,6 +272,11 @@ class PlanAssembly:
     risk_aversion: float
     import_price_risk_aversion: float
     export_price_risk_aversion: float
+    # nimbus issue #489: the switch is on but this interval already ranged, so
+    # `plan.grid_signals` is None by design this cycle. The flex publishers use
+    # it to hold their last payload instead of letting the sensors go stale --
+    # which is exactly what they should NOT do when the switch is off.
+    flex_ranging_deferred: bool = False
 
 
 def assemble_and_solve_plan(
@@ -479,7 +523,16 @@ def assemble_and_solve_plan(
     # see const.py's own comment on CONF_SOLVER_FLEX_SIGNALS_ENABLED for
     # why this one is deliberately NOT just "same reasoning as offer
     # curve" -- a real, live capacity concern (#773), not only convention.
-    flex_signals_enabled = bool(cfg.get("solver_flex_signals_enabled"))
+    flex_signals_switch_on = bool(cfg.get("solver_flex_signals_enabled"))
+    # nimbus issue #489: once per 5-minute interval, not every solve -- see
+    # FLEX_RANGING_INTERVAL_SECONDS above for the measured reason.
+    flex_signals_enabled = flex_signals_switch_on and flex_ranging_due(now)
+    flex_ranging_deferred = flex_signals_switch_on and not flex_signals_enabled
+    if flex_ranging_deferred:
+        solver_shared._LOGGER.debug(
+            "Nimbus #489: flex signals already ranged for this 5-minute "
+            "interval -- solving without ranging this cycle"
+        )
     # nimbus issue #696, Stage 2: default TRUE (unlike offer_curve_
     # enabled above) -- see const.py's own comment on CONF_SOLVER_
     # CALIBRATED_OBJECTIVE_ENABLED for the full "household's own
@@ -513,6 +566,8 @@ def assemble_and_solve_plan(
         compute_signals=flex_signals_enabled,
         solve_options=solve_options,
     )
+    if flex_signals_enabled and plan.grid_signals is not None:
+        _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)
     solver_shared._LOGGER.debug(
         "Nimbus #757 diag: plan.batteries immediately after build_plan() returns = %s (status=%r)",
         [b.name for b in plan.batteries],
@@ -528,4 +583,5 @@ def assemble_and_solve_plan(
         risk_aversion=risk_aversion,
         import_price_risk_aversion=import_price_risk_aversion,
         export_price_risk_aversion=export_price_risk_aversion,
+        flex_ranging_deferred=flex_ranging_deferred,
     )

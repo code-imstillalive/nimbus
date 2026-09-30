@@ -2064,7 +2064,26 @@ def _build_offer_curve_bands(
     return bands
 
 
-def publish_flex_signals(plan) -> None:
+# nimbus issue #489: the last payload publish_flex_signals() actually posted,
+# re-posted verbatim on a cycle where ranging was deferred to the next 5-minute
+# interval (see solver_plan.FLEX_RANGING_INTERVAL_SECONDS). Without it the push
+# sensor would go `unavailable` after _STALE_AFTER_SECONDS (300 s) between two
+# ranging solves that are ~300 s apart. The payload keeps its own
+# `generated_at`, so a held value never claims to be newer than it is.
+_LAST_FLEX_SIGNALS_POST: dict = {}
+
+
+def reset_flex_ranging_cadence() -> None:
+    """nimbus issue #489: forget the in-process flex cadence state -- which
+    5-minute interval last ranged, and the two held payloads -- so the next
+    `main()` ranges and nothing is held over. For tests, which drive `main()`
+    many times inside one interval; production never needs it."""
+    solver_plan.reset_flex_ranging_state()
+    _LAST_FLEX_SIGNALS_POST.clear()
+    solver_publish._LAST_FLEX_TELEMETRY_POST.clear()
+
+
+def publish_flex_signals(plan, *, hold_last: bool = False) -> None:
     """nimbus issue #496 (Signals 7/7 of #489): pushes sensor.nimbus_
     flex_signals when build_plan() actually computed ranging this cycle
     (switch.nimbus_solver_flex_signals_enabled on) -- no-op otherwise,
@@ -2091,6 +2110,16 @@ def publish_flex_signals(plan) -> None:
     16KB attribute list either way.
     """
     if plan.grid_signals is None:
+        # nimbus issue #489: ranging deferred to the next 5-minute interval --
+        # keep the last real payload alive. NOT when the switch is off
+        # (`hold_last` is False then), so switching it off still lets the
+        # sensors go stale exactly as before.
+        if hold_last and _LAST_FLEX_SIGNALS_POST:
+            ha_post_state(
+                "sensor.nimbus_flex_signals",
+                _LAST_FLEX_SIGNALS_POST["state"],
+                dict(_LAST_FLEX_SIGNALS_POST["attributes"]),
+            )
         return
     gs = plan.grid_signals
     battery_signals = [
@@ -2122,44 +2151,45 @@ def publish_flex_signals(plan) -> None:
         }
         for ls in plan.load_signals
     ]
-    ha_post_state(
-        "sensor.nimbus_flex_signals",
-        round(float(gs.flex_available_up_kw[0]), 3),
-        {
-            "unit_of_measurement": "kW",
-            "friendly_name": "Nimbus Flex Signals",
-            "grid_import_headroom_kw": round(float(gs.grid_import_headroom_kw[0]), 3),
-            "grid_import_headroom_kwh": round(float(gs.grid_import_headroom_kwh[0]), 3),
-            "grid_export_headroom_kw": round(float(gs.grid_export_headroom_kw[0]), 3),
-            "grid_export_headroom_kwh": round(float(gs.grid_export_headroom_kwh[0]), 3),
-            # nimbus issue #496: whether each headroom figure above is a real
-            # band or a zero-width tie. Without these a published 0.0 conflates
-            # "genuinely no headroom" with "the ranging could not say", and the
-            # two mean opposite things to anyone acting on the number.
-            #
-            # Measured on the reference household 2026-09-27: export headroom
-            # reached 19.069 kW while import never left 0.0. That asymmetry is
-            # consistent with import being pinned at a bound -- i.e. a CORRECT
-            # 0.0 -- but nothing published could distinguish that from a
-            # non-answer, which is what these two settle.
-            #
-            # `flex_available_up_kw`/`_down_kw` below are aliases of the two
-            # headroom arrays (#493 unbuilt), so their degeneracy is these same
-            # flags rather than separate ones -- deliberately not duplicated
-            # under a second name that could drift.
-            "grid_import_headroom_unranged": bool(gs.grid_import_headroom_unranged[0]),
-            "grid_export_headroom_unranged": bool(gs.grid_export_headroom_unranged[0]),
-            "forced_import_cost": round(float(gs.forced_import_cost[0]), 4),
-            "forced_export_cost": round(float(gs.forced_export_cost[0]), 4),
-            "flex_available_up_kw": round(float(gs.flex_available_up_kw[0]), 3),
-            "flex_available_down_kw": round(float(gs.flex_available_down_kw[0]), 3),
-            "load_headroom_up_kwh": round(float(gs.load_headroom_up_kwh[0]), 3),
-            "load_headroom_down_kwh": round(float(gs.load_headroom_down_kwh[0]), 3),
-            "battery_signals": battery_signals,
-            "load_signals": load_signals,
-            "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
-        },
-    )
+    state = round(float(gs.flex_available_up_kw[0]), 3)
+    attributes = {
+        "unit_of_measurement": "kW",
+        "friendly_name": "Nimbus Flex Signals",
+        "grid_import_headroom_kw": round(float(gs.grid_import_headroom_kw[0]), 3),
+        "grid_import_headroom_kwh": round(float(gs.grid_import_headroom_kwh[0]), 3),
+        "grid_export_headroom_kw": round(float(gs.grid_export_headroom_kw[0]), 3),
+        "grid_export_headroom_kwh": round(float(gs.grid_export_headroom_kwh[0]), 3),
+        # nimbus issue #496: whether each headroom figure above is a real
+        # band or a zero-width tie. Without these a published 0.0 conflates
+        # "genuinely no headroom" with "the ranging could not say", and the
+        # two mean opposite things to anyone acting on the number.
+        #
+        # Measured on the reference household 2026-09-27: export headroom
+        # reached 19.069 kW while import never left 0.0. That asymmetry is
+        # consistent with import being pinned at a bound -- i.e. a CORRECT
+        # 0.0 -- but nothing published could distinguish that from a
+        # non-answer, which is what these two settle.
+        #
+        # `flex_available_up_kw`/`_down_kw` below are aliases of the two
+        # headroom arrays (#493 unbuilt), so their degeneracy is these same
+        # flags rather than separate ones -- deliberately not duplicated
+        # under a second name that could drift.
+        "grid_import_headroom_unranged": bool(gs.grid_import_headroom_unranged[0]),
+        "grid_export_headroom_unranged": bool(gs.grid_export_headroom_unranged[0]),
+        "forced_import_cost": round(float(gs.forced_import_cost[0]), 4),
+        "forced_export_cost": round(float(gs.forced_export_cost[0]), 4),
+        "flex_available_up_kw": round(float(gs.flex_available_up_kw[0]), 3),
+        "flex_available_down_kw": round(float(gs.flex_available_down_kw[0]), 3),
+        "load_headroom_up_kwh": round(float(gs.load_headroom_up_kwh[0]), 3),
+        "load_headroom_down_kwh": round(float(gs.load_headroom_down_kwh[0]), 3),
+        "battery_signals": battery_signals,
+        "load_signals": load_signals,
+        "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
+    }
+    ha_post_state("sensor.nimbus_flex_signals", state, attributes)
+    # nimbus issue #489: remembered so a deferred-ranging cycle can hold it.
+    _LAST_FLEX_SIGNALS_POST.clear()
+    _LAST_FLEX_SIGNALS_POST.update(state=state, attributes=dict(attributes))
 
 
 FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
@@ -8738,7 +8768,7 @@ def main() -> None:
     # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
     # enabled was true above (plan.grid_signals stays None otherwise) --
     # see publish_flex_signals()'s own docstring.
-    publish_flex_signals(plan)
+    publish_flex_signals(plan, hold_last=_assembly.flex_ranging_deferred)
     # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
     # schema-v2.0 record. Gated on the SAME switch as the flex signals
     # above, and not by choice -- the schema's own `flex_available_up_kw`/
@@ -8756,6 +8786,7 @@ def main() -> None:
         import_limit_kw=float(np.asarray(import_limit_kw).ravel()[0]),
         export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
         period_hours=float(period_hours_arr[0]),
+        hold_last=_assembly.flex_ranging_deferred,
     )
 
 
