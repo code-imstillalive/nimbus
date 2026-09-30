@@ -2589,10 +2589,15 @@ def publish_plan(
                 # optimally at simplex_iteration_count == 0, because presolve
                 # finishes it -- so "0 iterations" is not self-evidently a
                 # rejection. It is only a rejection relative to what this
-                # install's own healthy cycles cost, which for the reference
-                # household's 199-period model is tens of thousands (#773
-                # measured 12k-214k). Without the baseline recorded next to
-                # it, the discriminating number is still an inference.
+                # install's own healthy cycles cost -- and that baseline is
+                # INSTALL-SPECIFIC, which the first version of this comment
+                # got wrong: #773's 12k-214k was devhub's 1,312-binary
+                # lexicographic model. Measured on the reference household's
+                # production install (nimbus #1360, 3,629 healthy cycles on
+                # v0.94.429): median 0, max 94 -- so there a failing cycle
+                # reading ~0 is indistinguishable from a healthy one on this
+                # field. Read it against this install's own recorded history,
+                # never against a number written here.
                 "simplex_iterations": plan.iterations,
             },
             "generated_at": now.isoformat(),
