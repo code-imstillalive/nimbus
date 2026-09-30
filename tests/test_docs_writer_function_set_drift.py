@@ -201,6 +201,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # `_compute_report_for_window` below rather than an unported fix.
         "build_oracle_controllable_loads",
         "_compute_report_for_window",
+        # nimbus issue #1477: its only caller is _compute_report_for_window's
+        # coverage gate (directly above), which the standalone/cron copy does
+        # not have -- there is no quality scorer there to probe for.
+        "fetch_entity_went_unavailable",
         # nimbus issue #363 step 2 (Mark Purcell's own approved staged-
         # extraction plan): a pure code-organization move out of main()
         # in the integration copy only -- the docs/cron copy's own

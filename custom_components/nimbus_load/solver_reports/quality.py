@@ -268,6 +268,42 @@ def _compute_report_for_window(
             day_start,
             day_end,
         )
+        # nimbus issue #1477: a series that stops early is not necessarily
+        # short. HA's recorder writes a row only on a CHANGE, so a sensor
+        # holding a steady value -- PV at 0.0 from dusk to midnight -- writes
+        # nothing after its last change, and "last row - first row" reads a
+        # quiet evening as a 6-hour gap. On a real install that refused a
+        # fully-closed day on every cycle, 200+ times. Only when the
+        # threshold would fail, check each short series for a real outage
+        # after its last row; with none, the value was held, so the span
+        # runs to the window end (never past now). Unreadable -> keep
+        # refusing: an unknown is not evidence the sensor was fine.
+        if min(cov.hours for cov in coverage.values()) < (
+            window_hours * sw._MIN_DAILY_COVERAGE_FRACTION
+        ):
+            held_until = min(day_end, datetime.now(day_end.tzinfo))
+            needed = window_hours * sw._MIN_DAILY_COVERAGE_FRACTION
+            for name, cov in list(coverage.items()):
+                # Only the series that are themselves short -- the others
+                # already pass, and each probe is a recorder read.
+                if (
+                    cov.hours >= needed
+                    or cov.first is None
+                    or cov.last is None
+                    or cov.last >= held_until
+                ):
+                    continue
+                if (
+                    solver_shared.fetch_entity_went_unavailable(
+                        name, cov.last, held_until
+                    )
+                    is False
+                ):
+                    coverage[name] = type(cov)(
+                        (held_until - cov.first).total_seconds() / 3600.0,
+                        cov.first,
+                        held_until,
+                    )
         covered = min(cov.hours for cov in coverage.values())
         if covered < window_hours * sw._MIN_DAILY_COVERAGE_FRACTION:
             # Worst first -- the one that actually failed the gate leads.
