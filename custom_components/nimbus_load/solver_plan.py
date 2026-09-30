@@ -333,8 +333,10 @@ def period0_crossing_delta(
         return None
     try:
         pinned = resolve_pinned(prev_kw)
-    except Exception as e:  # noqa: BLE001 - diagnostic only
-        PERIOD0_PIN_LOGGER.debug("Nimbus #1417 period0 pin: re-solve raised %r", e)
+    except Exception:  # noqa: BLE001 - diagnostic only, never fatal
+        solver_shared._LOGGER.debug(
+            "Nimbus #1417 period0 pin: diagnostic re-solve raised", exc_info=True
+        )
         return None
     record = {
         "new_period0_kw": round(new_kw, 3),
