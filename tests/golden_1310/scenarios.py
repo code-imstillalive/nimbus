@@ -359,8 +359,30 @@ def serialize_battery_config(cfg) -> dict:
     exercise still shows up (and matches) rather than being silently
     excluded from the comparison. elements.py is unchanged by #1308 (see
     the PR's own diff), so the reference and current field sets are
-    identical."""
-    return {f.name: _json_safe(getattr(cfg, f.name)) for f in dataclasses.fields(cfg)}
+    identical.
+
+    One field is excluded, and only after asserting its value: nimbus #1417's
+    `period0_pin_net_kw` is a diagnostic-only field added after the reference
+    commit, so the reference cannot carry it. Neither function under
+    characterization may ever set it -- it belongs on a diagnostic re-solve,
+    never on a published solve's batteries -- so it must read None here, and a
+    regression that set it would still fail this comparison."""
+    out = {}
+    for f in dataclasses.fields(cfg):
+        value = getattr(cfg, f.name)
+        if f.name in _ADDED_AFTER_REFERENCE:
+            assert value is None, (
+                f"{f.name} must never be set by the functions under "
+                f"characterization, got {value!r} (nimbus #1417)"
+            )
+            continue
+        out[f.name] = _json_safe(value)
+    return out
+
+
+#: BatteryConfig fields added after the reference commit 0d0d553a, which must
+#: be None on everything these two functions build (see above).
+_ADDED_AFTER_REFERENCE = frozenset({"period0_pin_net_kw"})
 
 
 def serialize_build_extra_batteries(batteries: list) -> list:
