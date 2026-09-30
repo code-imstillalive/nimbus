@@ -52,6 +52,7 @@ turning one JSON rewrite into a large one.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -133,15 +134,22 @@ def build_quality_capture(
     return day, record
 
 
-def fingerprint(record: dict[str, Any]) -> tuple[Any, ...]:
-    """What has to change for a day to be re-captured. Deliberately excludes
-    `captured_at`, or every cycle would rewrite the file."""
-    return (
-        record.get("epr"),
-        record.get("j_ach"),
-        record.get("regret_dollars"),
-        record.get("real_p2p_settlement_status"),
-        record.get("provisional"),
+def fingerprint(record: dict[str, Any]) -> str:
+    """What has to change for a day to be re-captured: EVERYTHING archived,
+    except `captured_at` (or every cycle would rewrite the file).
+
+    nimbus #1468: this used to be a hand-picked tuple of five scalars, which
+    left out the per-hour detail this file exists to keep -- a correction that
+    redistributes `hourly_regret` (#1438) or rebuilds `soc_discrepancy_hourly`
+    moves none of those five, so the archive kept the stale hours forever.
+    Canonical JSON of the record itself cannot drift from what is archived,
+    including fields added to `_SCALAR_KEYS`/`_HOURLY_KEYS` later. One
+    serialisation of a ~20 KB record per solve cycle.
+    """
+    return json.dumps(
+        {k: v for k, v in record.items() if k != "captured_at"},
+        sort_keys=True,
+        default=str,
     )
 
 

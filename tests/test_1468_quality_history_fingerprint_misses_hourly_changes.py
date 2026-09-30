@@ -30,8 +30,6 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -127,9 +125,6 @@ class TestFingerprintCoversWhatItArchives(_Base):
     """Pure, fast: fingerprint() must change when the archived hourly detail
     changes, even with every fingerprinted scalar held identical."""
 
-    @pytest.mark.xfail(
-        reason="nimbus #1468: fingerprint() does not cover _HOURLY_KEYS", strict=True
-    )
     def test_a_changed_hourly_regret_breakdown_changes_the_fingerprint(self):
         day1, rec1 = qhs.build_quality_capture(
             _report(hourly_regret={"15": 1.413, "14": 0.9287}), captured_at="t1"
@@ -162,9 +157,6 @@ class TestCaptureReArchivesOnHourlyChange(_Base):
     must be re-written once its hourly detail changes, even though every
     fingerprinted scalar stays the same."""
 
-    @pytest.mark.xfail(
-        reason="nimbus #1468: fingerprint() does not cover _HOURLY_KEYS", strict=True
-    )
     def test_a_hourly_only_change_triggers_a_rewrite(self):
         store = _FakeStore()
         first = _Hass(_report(hourly_regret={"15": 1.413, "14": 0.9287}))
@@ -187,6 +179,30 @@ class TestCaptureReArchivesOnHourlyChange(_Base):
             archived_first,
             "the archive still holds the FIRST capture's hourly_regret",
         )
+
+
+class TestFingerprintCoversArchivedScalarsToo(_Base):
+    """#1468 named these as well: archived scalars outside the old five."""
+
+    def test_every_archived_field_moves_the_fingerprint(self):
+        _, base = qhs.build_quality_capture(_report(), captured_at="t1")
+        for key, value in (
+            ("soc_discrepancy_max_pct", 25.1),
+            ("epr_reliable", False),
+            ("epr_reason", "soc_disagreement"),
+            ("soc_discrepancy_hourly", []),
+            ("j_star_hourly", []),
+        ):
+            changed = dict(base, **{key: value})
+            self.assertNotEqual(
+                qhs.fingerprint(base), qhs.fingerprint(changed), f"blind to {key}"
+            )
+
+    def test_captured_at_alone_still_does_not_rewrite(self):
+        store = _FakeStore()
+        self.assertTrue(_run(_Hass(_report()), store))
+        self.assertFalse(_run(_Hass(_report()), store))
+        self.assertEqual(len(store.saves), 1)
 
 
 if __name__ == "__main__":
