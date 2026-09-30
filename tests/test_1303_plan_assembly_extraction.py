@@ -303,7 +303,12 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                     self.fail(
                         "bare _LOGGER in solver_plan.py -- must be solver_shared._LOGGER"
                     )
-        self.assertEqual(calls, 2, "expected the span's two #757 diagnostics")
+        self.assertEqual(
+            calls,
+            3,
+            "expected the span's two #757 diagnostics plus #489's "
+            "deferred-ranging DEBUG line",
+        )
         self.assertIsNotNone(solver_shared._LOGGER)
 
     def test_build_plan_is_called_with_exactly_the_same_keywords_as_before(self):
@@ -359,6 +364,9 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                 "all_batteries",
                 "export_price_risk_aversion",
                 "fleet_capacity_kwh",
+                # nimbus issue #489: the ninth -- main() passes it to both flex
+                # publishers so a deferred-ranging cycle holds their payload.
+                "flex_ranging_deferred",
                 "grid",
                 "import_price_risk_aversion",
                 "plan",

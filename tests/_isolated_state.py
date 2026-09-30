@@ -103,6 +103,13 @@ def isolated_state_paths(solver_writer: ModuleType) -> Iterator[str]:
         tempfile.TemporaryDirectory(prefix="nimbus_solver_state_") as tmpdir,
         contextlib.ExitStack() as stack,
     ):
+        # nimbus issue #489: main() also carries IN-PROCESS state between
+        # calls -- which 5-minute interval last ran HiGHS ranging, and the flex
+        # payloads it holds in between. Tests drive main() many times inside
+        # one real interval, so without this reset every call after the first
+        # would silently skip ranging. Reset on entry and on exit.
+        solver_writer.reset_flex_ranging_cadence()
+        stack.callback(solver_writer.reset_flex_ranging_cadence)
         for const in PERSISTED_PATH_CONSTANTS:
             stack.enter_context(
                 patch.object(
