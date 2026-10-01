@@ -30,6 +30,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The log line now carries that index and value so the next readings can tell. Still off
   unless its own logger is at DEBUG.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 27b415a**, installed
+  untagged via HACS (`installed_version: 27b415a`) against a pre-install v0.94.434 log
+  baseline, restarted 12:16 AEST 1 Oct. **#1496:** devhub's own `compute_quality_report`
+  for 30 Sep returned `report_schema: 2` with `j_star_path_delta_explained` 1.6847 /
+  `_unexplained` -0.3803 (EPR 78.71%). The fast-path re-score itself is not observable on
+  devhub, whose managed quality entity is production's mirror (#1396); the
+  real-solve-free unit tests cover it (rescore once, once per process, current schema
+  untouched), and a pinned key-set test guards the stamp. **Solver:** 4 of 4 devhub-own
+  solves in the first 4 minutes `status='optimal'` (`Test EV`), zero `ImportError`,
+  `Traceback` or `solve cycle failed`; 3 devhub-own entities stamped 0.94.435. **#1417:**
+  the instrument's logger re-enabled after the restart; its new anchor fields are covered
+  by tests and will appear on the next crossing. **Log vs baseline:** only the known
+  restart-time mirror duplicate-unique-ID refusals and "about to add ... conflicting
+  entry" notices (also present after the v0.94.434 restart), recorder attribute-size
+  warnings for mirrored entities, and cast duplicates. **Not validated:** HA 2026.7.4
+  (#1245).
+- Consumer check: after deploying, the quality card's 30 Sep (or whichever day is
+  yesterday) gains `j_star_path_delta_explained` / `_unexplained` and a `report_schema`
+  attribute on the first cycle; scores are recomputed once for that day, not changed in
+  method. The #1417 log line gains the anchor target; still invisible unless enabled.
+
 ## [0.94.434] - 2026-10-01
 
 ### Changed
