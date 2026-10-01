@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.436] - 2026-10-01
+
+### Fixed
+- **A failed one-time report re-score is retried, instead of waiting for the next restart**
+  ([#1496](https://github.com/code-imstillalive/nimbus/issues/1496) follow-up, PR #1503).
+  v0.94.435's "re-score once per process" failed on its first real deploy: the re-score ran
+  during startup, the recorder returned no load/battery rows that early, #1463 held the old
+  report, and nothing retried. Now a failed re-score is retried no more often than every 30
+  minutes.
+
+### Added
+- **Solar curtailment is counted in `j_star_path_delta_explained`** (#1480 follow-up, PR
+  #1502). The oracle may curtail solar; the evaluator, re-deriving grid flow from the real
+  balance, cannot. On 30 Sep a negative-price half-hour (import -15.7c) left -$0.38
+  unexplained on the reference household: the oracle curtailed 2.417 kWh there. With the
+  term, 28/29/30 Sep read -0.0004 / -0.0003 / -0.0003 unexplained. EPR and regret are
+  unchanged -- they are scored against the evaluator.
+
 ## [0.94.435] - 2026-10-01
 
 ### Fixed
