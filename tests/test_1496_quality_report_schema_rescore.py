@@ -115,11 +115,25 @@ class TestTheFastPathRescoresAnOlderSchemaOnce(unittest.TestCase):
         compute, _ = self._run(self._attrs())
         compute.assert_called_once()
 
-    def test_only_once_per_process(self):
-        self._run(self._attrs())
-        compute, post = self._run(self._attrs())
+    def test_a_failed_rescore_is_not_retried_within_the_backoff(self):
+        """compute returns None here (a failed re-score, held by #1463):
+        the very next cycle must not re-solve."""
+        with patch.object(quality.time, "monotonic", return_value=1000.0):
+            self._run(self._attrs())
+        with patch.object(quality.time, "monotonic", return_value=1000.0 + 17):
+            compute, post = self._run(self._attrs())
         compute.assert_not_called()
         post.assert_called_once()
+
+    def test_a_failed_rescore_is_retried_after_the_backoff(self):
+        """The real failure: the first try ran during startup, the recorder
+        returned no rows, and 'once per process' never tried again."""
+        with patch.object(quality.time, "monotonic", return_value=1000.0):
+            self._run(self._attrs())
+        later = 1000.0 + quality._SCHEMA_RESCORE_RETRY_SECONDS + 1
+        with patch.object(quality.time, "monotonic", return_value=later):
+            compute, _ = self._run(self._attrs())
+        compute.assert_called_once()
 
     def test_a_current_schema_day_takes_the_plain_fast_path(self):
         compute, post = self._run(

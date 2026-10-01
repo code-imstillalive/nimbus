@@ -53,6 +53,7 @@ the measured patch counts.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
@@ -2337,23 +2338,36 @@ _QUALITY_HOLD_WARNED: set[str] = set()
 # while a fresh compute_quality_report for the identical window returned 1.2357.
 QUALITY_REPORT_SCHEMA = 2
 
-# Days already re-scored in THIS process because their published schema was
-# older than QUALITY_REPORT_SCHEMA. At most one rescore per day per process --
-# i.e. once after each deploy -- so a recompute that keeps failing (and is then
+# When each day was last re-scored for an older schema, as time.monotonic().
+# A failed re-score is RETRIED, but no more often than
+# _SCHEMA_RESCORE_RETRY_SECONDS, so a recompute that keeps failing (and is then
 # held by #1463) cannot turn into an LP solve on every ~17 s cycle.
-_SCHEMA_RESCORE_TRIED: set[str] = set()
+#
+# It used to be "once per process", and that failed on its first real deploy:
+# the reference household restarted on v0.94.435 at 15:49 AEST 1 Oct, the
+# re-score fired during startup at 15:49:57, the recorder returned 0 load and
+# battery rows that early, the day was held -- and "once" meant it was never
+# tried again until the next restart. A success needs no memo at all: the
+# re-published report carries the current stamp, so the check passes.
+_SCHEMA_RESCORE_RETRY_SECONDS = 30 * 60
+_SCHEMA_RESCORE_TRIED: dict[str, float] = {}
 
 
 def _published_schema_is_current(attrs: dict, day_key: str) -> bool:
-    """False exactly once per day per process when the published report
-    predates QUALITY_REPORT_SCHEMA -- see that constant."""
+    """False when the published report predates QUALITY_REPORT_SCHEMA and
+    this day has not been re-scored in the last _SCHEMA_RESCORE_RETRY_SECONDS
+    -- see QUALITY_REPORT_SCHEMA."""
     try:
         published = int(attrs.get("report_schema") or 1)
     except (TypeError, ValueError):
         published = 1
-    if published >= QUALITY_REPORT_SCHEMA or day_key in _SCHEMA_RESCORE_TRIED:
+    if published >= QUALITY_REPORT_SCHEMA:
         return True
-    _SCHEMA_RESCORE_TRIED.add(day_key)
+    now = time.monotonic()
+    last = _SCHEMA_RESCORE_TRIED.get(day_key)
+    if last is not None and now - last < _SCHEMA_RESCORE_RETRY_SECONDS:
+        return True
+    _SCHEMA_RESCORE_TRIED[day_key] = now
     return False
 
 
