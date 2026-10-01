@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.435] - 2026-10-01
+
+### Fixed
+- **A day scored by an older release now picks up the quality-report fields a newer
+  release adds** ([#1496](https://github.com/code-imstillalive/nimbus/issues/1496), found
+  and root-caused by @purcell-lab). The "already scored" fast path re-pushes a day's
+  published attributes verbatim, so 30 Sep -- scored before v0.94.433 reached Mark's
+  install -- kept `j_star_path_delta_explained: None` while `compute_quality_report`
+  for the same window returned 1.2357. The report now carries `report_schema` (2), and
+  a day published under an older schema is re-scored once per process, i.e. once after
+  each deploy. A test pins the published field set to the schema number, so a new field
+  cannot ship without a bump.
+
+### Changed
+- **The #1417 period-0 instrument now also logs what the proximal anchor ties period[0]
+  to** ([#1417](https://github.com/code-imstillalive/nimbus/issues/1417)). Its first live
+  readings (devhub, 1 Oct) showed crossings costing $0.0002 and $0.0019 to keep the
+  previous period[0] -- far below what the anchor should charge. One candidate, not yet
+  verified: the anchor ties new[0] to the old period *containing* its start, not old[0].
+  The log line now carries that index and value so the next readings can tell. Still off
+  unless its own logger is at DEBUG.
+
 ## [0.94.434] - 2026-10-01
 
 ### Changed
