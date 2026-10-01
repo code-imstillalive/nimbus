@@ -244,6 +244,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "period0_crossing_delta",
         "_deadband_class",
         "_period0_net_kw",
+        "_anchor_target_kw",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
         # nimbus issue #1496: the quality publisher's schema-rescore check.
