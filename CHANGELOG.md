@@ -26,6 +26,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   term, 28/29/30 Sep read -0.0004 / -0.0003 / -0.0003 unexplained. EPR and regret are
   unchanged -- they are scored against the evaluator.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at f0e3ea7**, installed
+  untagged via HACS (`installed_version: f0e3ea7`) against a pre-install v0.94.435 log
+  baseline, restarted 23:36 AEST 1 Oct. **#1502:** devhub's own `compute_quality_report`
+  for 30 Sep returned `j_star_path_delta` 1.3044 / explained 1.3046 / **unexplained
+  -0.0002** -- the same day read -0.3803 unexplained on v0.94.435 -- with EPR 78.71% and
+  regret $5.5888 unchanged, as intended. **#1503:** its retry path is not observable on
+  devhub (the managed quality entity is production's mirror, #1396); covered by the
+  tests (no retry inside the 30-minute backoff, a retry after it), mutation-checked.
+  **Solver:** devhub-own solves after the restart `status='optimal'` (`Test EV`), zero
+  `ImportError`, `Traceback` or `solve cycle failed`; 2 devhub-own entities stamped
+  0.94.436. **Not validated:** HA 2026.7.4 (#1245).
+- Consumer check: yesterday's quality card gains `report_schema` and the two path-delta
+  split fields within 30 minutes of a deploy even when the first re-score runs during
+  startup; a negative-price day's path delta now reads as explained. EPR and regret do not
+  change.
+
 ## [0.94.435] - 2026-10-01
 
 ### Fixed
