@@ -158,6 +158,17 @@ class TestDeltaMeansWhatItSays(_InstrumentOn):
         )
         self.assertAlmostEqual(_net0(captured["free"]), _net0(free), places=6)
 
+    def test_the_record_names_the_anchor_target(self):
+        """The anchor ties new[0] to the old period CONTAINING its start. With
+        the same start time (both solves in one minute) that is prev[0], and
+        the record must report it -- the field that tells a scheduled change
+        from a re-plan in the field."""
+        free = _assemble()
+        pin = -10.0 if _net0(free.plan) > 0 else 25.0
+        _, rec = self._delta_for(pin)
+        self.assertEqual(rec["anchor_prev_index"], 0)
+        self.assertAlmostEqual(rec["anchor_target_kw"], pin, places=3)
+
     def test_the_log_line_carries_the_inputs(self):
         with self.assertLogs(solver_plan.PERIOD0_PIN_LOGGER, level="DEBUG") as cm:
             _, rec = self._delta_for(-10.0 if _net0(_assemble().plan) > 0 else 25.0)

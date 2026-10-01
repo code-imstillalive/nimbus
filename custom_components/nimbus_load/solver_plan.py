@@ -301,11 +301,37 @@ def _deadband_class(net_kw: float) -> int:
     return 0
 
 
-def _period0_net_kw(plan) -> float | None:
+def _period0_net_kw(plan, idx: int = 0) -> float | None:
     try:
-        return float(plan.battery_discharge_kw[0]) - float(plan.battery_charge_kw[0])
+        return float(plan.battery_discharge_kw[idx]) - float(
+            plan.battery_charge_kw[idx]
+        )
     except (AttributeError, IndexError, TypeError):
         return None
+
+
+def _anchor_target_kw(plan, previous_plan) -> tuple[int | None, float | None]:
+    """The previous-plan period the proximal anchor actually ties the new
+    period[0] to, and its net kW.
+
+    Not necessarily the previous plan's period[0]: `_align_previous_periods()`
+    maps a new period to whichever OLD period's interval contains its start,
+    so once a minute boundary has passed between two solves, new[0] is
+    anchored to old[1]. If old[0] and old[1] differ, a crossing can be the
+    previous plan's OWN scheduled change rather than a re-plan -- the
+    distinction the first live readings (#1417, 1 Oct) needed to make.
+    """
+    try:
+        mapping = network._align_previous_periods(plan.periods, previous_plan)
+    except Exception:  # noqa: BLE001 - diagnostic only, never fatal
+        solver_shared._LOGGER.debug(
+            "Nimbus #1417 period0 pin: anchor alignment unavailable", exc_info=True
+        )
+        return None, None
+    idx = mapping.get(0)
+    if idx is None:
+        return None, None
+    return idx, _period0_net_kw(previous_plan, idx)
 
 
 def period0_crossing_delta(
@@ -338,9 +364,14 @@ def period0_crossing_delta(
             "Nimbus #1417 period0 pin: diagnostic re-solve raised", exc_info=True
         )
         return None
+    anchor_idx, anchor_kw = _anchor_target_kw(plan, previous_plan)
     record = {
         "new_period0_kw": round(new_kw, 3),
         "prev_period0_kw": round(prev_kw, 3),
+        # What the proximal anchor ties new[0] to (see _anchor_target_kw):
+        # None index = the anchor is not bearing on period 0 at all.
+        "anchor_prev_index": anchor_idx,
+        "anchor_target_kw": None if anchor_kw is None else round(anchor_kw, 3),
         "pinned_status": getattr(pinned, "status", None),
         "free_objective": plan.total_cost,
         "pinned_objective": getattr(pinned, "total_cost", None),
@@ -359,9 +390,11 @@ def period0_crossing_delta(
         )
     PERIOD0_PIN_LOGGER.debug(
         "Nimbus #1417 period0 crossing: new=%+.3f kW prev=%+.3f kW "
-        "delta_objective=%s (pinned status=%s) inputs=%s",
+        "anchor=prev[%s]=%s kW delta_objective=%s (pinned status=%s) inputs=%s",
         new_kw,
         prev_kw,
+        record["anchor_prev_index"],
+        record["anchor_target_kw"],
         record["delta_objective"],
         record["pinned_status"],
         record["inputs"],
