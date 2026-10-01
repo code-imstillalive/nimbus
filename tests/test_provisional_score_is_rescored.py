@@ -48,6 +48,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 BRISBANE = solver_writer.LOCAL_TZ
 NOW = datetime(2026, 9, 17, 21, 30, tzinfo=BRISBANE)
@@ -58,6 +59,9 @@ def _attrs(status, *, generated_minutes_ago=180, **over):
         "latest_date": "2026-09-16",
         "real_p2p_settlement_status": status,
         "generated_at": (NOW - timedelta(minutes=generated_minutes_ago)).isoformat(),
+        # nimbus #1496: published by the current release, so only the
+        # settlement logic under test decides whether it is re-scored.
+        "report_schema": QUALITY_REPORT_SCHEMA,
     }
     a.update(over)
     return a

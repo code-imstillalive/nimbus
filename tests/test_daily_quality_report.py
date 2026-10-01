@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 BRISBANE = solver_writer.LOCAL_TZ
 
@@ -948,7 +949,14 @@ class TestPublishDailyQualityReport(unittest.TestCase):
         what let this entity's own freshness stamp go stale and get
         marked unavailable, over and over."""
         cfg = _cfg()
-        existing = {"state": "0.75", "attributes": {"latest_date": "2026-08-24"}}
+        # report_schema current (nimbus #1496), so this is the plain fast path.
+        existing = {
+            "state": "0.75",
+            "attributes": {
+                "latest_date": "2026-08-24",
+                "report_schema": QUALITY_REPORT_SCHEMA,
+            },
+        }
         with (
             patch.object(solver_writer, "ha_get", return_value=existing),
             patch.object(solver_writer, "compute_daily_quality_report") as compute,
