@@ -1196,6 +1196,11 @@ def _compute_report_for_window(
     return {
         **nowcast_skill_attrs,
         **forecast_regret_attrs,
+        # nimbus issue #1496: which shape of report this is. The "already
+        # scored" fast path re-pushes a day's published attributes verbatim, so
+        # without this a day first scored by an older release never gains the
+        # fields a newer one adds. See QUALITY_REPORT_SCHEMA.
+        "report_schema": QUALITY_REPORT_SCHEMA,
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the sw.compute_quality_report service payload, and the
         # LinkedIn article all treat this attribute as a 0..1 ratio. Do
@@ -2316,6 +2321,41 @@ def rescore_quality_history(
 #: previous report is held on the sensor -- once per day, not once a minute.
 _QUALITY_HOLD_WARNED: set[str] = set()
 
+# nimbus issue #1496: the shape of the published quality report. BUMP THIS
+# whenever a field is added to (or removed from) the dict
+# `_compute_report_for_window()` returns -- tests/test_1496_* pins the dict's
+# literal key set to this number, so forgetting fails CI rather than silently
+# freezing old days at their old shape.
+#
+#   1  every report published before the stamp existed (absent = 1)
+#   2  #1480's j_star_path_delta_explained / _unexplained, plus the stamp
+#
+# Why it is needed: the "already scored" fast path below re-pushes a day's
+# published attributes verbatim on every later cycle. Measured on a real
+# install (Mark Purcell, #1496): 30 Sep was scored before v0.94.433 reached it,
+# and after the upgrade its sensor still read j_star_path_delta_explained=None
+# while a fresh compute_quality_report for the identical window returned 1.2357.
+QUALITY_REPORT_SCHEMA = 2
+
+# Days already re-scored in THIS process because their published schema was
+# older than QUALITY_REPORT_SCHEMA. At most one rescore per day per process --
+# i.e. once after each deploy -- so a recompute that keeps failing (and is then
+# held by #1463) cannot turn into an LP solve on every ~17 s cycle.
+_SCHEMA_RESCORE_TRIED: set[str] = set()
+
+
+def _published_schema_is_current(attrs: dict, day_key: str) -> bool:
+    """False exactly once per day per process when the published report
+    predates QUALITY_REPORT_SCHEMA -- see that constant."""
+    try:
+        published = int(attrs.get("report_schema") or 1)
+    except (TypeError, ValueError):
+        published = 1
+    if published >= QUALITY_REPORT_SCHEMA or day_key in _SCHEMA_RESCORE_TRIED:
+        return True
+    _SCHEMA_RESCORE_TRIED.add(day_key)
+    return False
+
 
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
@@ -2459,6 +2499,18 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                     "real figures may have landed",
                     yesterday_key,
                     existing_attrs.get("real_p2p_settlement_status"),
+                )
+            elif not _published_schema_is_current(existing_attrs, yesterday_key):
+                # nimbus issue #1496: scored by an older release, so it lacks
+                # fields this one publishes. Re-score once (per process) so the
+                # day carries the current report shape.
+                solver_shared._LOGGER.info(
+                    "Nimbus quality: %s was published with report schema %s; "
+                    "this release publishes schema %s -- re-scoring it once so "
+                    "it carries the current fields",
+                    yesterday_key,
+                    existing_attrs.get("report_schema", 1),
+                    QUALITY_REPORT_SCHEMA,
                 )
             else:
                 # issue #313 (Mark Purcell): this fast path used to be

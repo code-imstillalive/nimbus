@@ -246,6 +246,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "_period0_net_kw",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
+        # nimbus issue #1496: the quality publisher's schema-rescore check.
+        # Native-only for the same reason as the line above -- the standalone
+        # copy has no quality-report publisher.
+        "_published_schema_is_current",
         # nimbus #994: builds the quality report's own `history` table.
         # Native-only for the same reason its two callers directly above
         # and below already are -- the standalone/cron copy has no

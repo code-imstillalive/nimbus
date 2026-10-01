@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 BRISBANE = solver_writer.LOCAL_TZ
 LOGGER_NAME = solver_writer._LOGGER.name
@@ -169,7 +170,11 @@ class TestPublishDailyQualityReportSkipLogging(unittest.TestCase):
     def test_fast_path_hit_logs_debug(self):
         existing = {
             "state": 72.74,
-            "attributes": {"latest_date": "2026-08-24"},
+            # report_schema current (nimbus #1496), so this is the plain fast path.
+            "attributes": {
+                "latest_date": "2026-08-24",
+                "report_schema": QUALITY_REPORT_SCHEMA,
+            },
         }
         with (
             patch.object(solver_writer, "ha_get", return_value=existing),
