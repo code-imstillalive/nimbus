@@ -830,6 +830,45 @@ def _p2p_commitment_shortfall_kwh(
     return float(np.sum(shortfall_kw * hours[pinned]))
 
 
+def _curtailment_repricing(plan, *, hours, import_price, export_price) -> float:
+    """The part of `j_star_path_delta` that is solar CURTAILMENT.
+
+    The LP may curtail solar; the evaluator re-derives grid flow from the real
+    balance (load - all real solar - discharge + charge), so it never does. On
+    a period where the oracle curtails, the evaluator's net grid flow is the
+    LP's minus the curtailed kW, priced at the real import/export price. This
+    returns sum(hours * (cost(net_lp) - cost(net_lp - curtailed))) with
+    cost(x) = import_price * max(x, 0) - export_price * max(-x, 0) -- the
+    amount the two paths differ by for that reason alone.
+
+    Measured on the reference household (#1480 follow-up, 1 Oct): 30 Sep had
+    one negative-price half-hour at 14:30 (import -15.7 c, export -16.0 c).
+    The oracle imported at the 42 kW limit AND curtailed 4.83 kW of solar
+    (2.417 kWh); the evaluator, unable to curtail, imported that much less at
+    a negative price. 2.417 x -0.1572 = -0.380, against an unexplained
+    residual of -0.3804. Zero on any day without curtailment.
+    """
+    try:
+        curt = np.asarray(plan.solar_curtailed_kw, dtype=float)
+        gi = np.asarray(plan.grid_import_kw, dtype=float)
+        ge = np.asarray(plan.grid_export_kw, dtype=float)
+    except (AttributeError, TypeError, ValueError):
+        return 0.0
+    h = np.asarray(hours, dtype=float)
+    n = len(h)
+    if curt.size < n or gi.size < n or ge.size < n or not np.any(curt[:n] > 0):
+        return 0.0
+    imp = np.broadcast_to(np.asarray(import_price, dtype=float), (n,))
+    exp_ = np.broadcast_to(np.asarray(export_price, dtype=float), (n,))
+    net_lp = gi[:n] - ge[:n]
+    net_eval = net_lp - curt[:n]
+
+    def cost(x):
+        return imp * np.maximum(x, 0.0) - exp_ * np.maximum(-x, 0.0)
+
+    return float(np.sum(h * (cost(net_lp) - cost(net_eval))))
+
+
 def compute_quality_report(
     *,
     periods: PeriodGrid,
@@ -1245,6 +1284,12 @@ def compute_quality_report(
         + float(getattr(oracle_plan, "battery_charge_earliness_cost", 0.0) or 0.0)
         + float(getattr(oracle_plan, "soc_penalty_cost", 0.0) or 0.0)
         + float(getattr(oracle_plan, "grid_import_excess_penalty_cost", 0.0) or 0.0)
+        + _curtailment_repricing(
+            oracle_plan,
+            hours=hours,
+            import_price=grid_residual.import_price,
+            export_price=grid_residual.export_price,
+        )
     )
 
     # 24-hour reconstruction dicts, one per trajectory (2026-08-31, direct
