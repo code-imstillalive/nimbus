@@ -10,6 +10,31 @@
 > please open a GitHub issue rather than expect a polished, plug-and-play
 > experience.
 
+> 🔌 **Nimbus controls real equipment and makes decisions with real financial
+> consequences.** Read [What Nimbus controls](#what-nimbus-controls) before you
+> install it. It is provided with no warranty of any kind — you are responsible
+> for your own hardware, your own electricity costs, and for any automation you
+> build on its output.
+
+## What Nimbus controls
+
+Stated up front, because it is the first thing a new user should know and the
+answer is not "nothing":
+
+| | |
+|---|---|
+| **Your battery / inverter** | Nimbus **publishes a plan** and never commands your inverter itself. To make the plan move your battery you write your own HA automation that reads `sensor.nimbus_solver_battery_forecast` and commands your hardware. That is a deliberate boundary — the inverter-specific, money-moving step stays yours. |
+| **Controllable loads** | Nimbus **does command these directly** — `switch` (`turn_on`/`turn_off`), `water_heater` (`set_operation_mode`: `performance`/`eco`) and `climate` (`set_hvac_mode`) — but **only** when you explicitly set a "Device to command" on a Controllable Load subentry. Leave that field blank and Nimbus plans and scores the load without ever touching it. |
+| **Everything else** | Read-only. Nimbus never writes to your config and never calls a service outside the controllable-load path above. |
+
+With no Controllable Load configured, **Nimbus changes nothing in your house.** It
+watches and it plans. Turn on `switch.nimbus_solver_dispatch_dry_run` to record
+what it *would* have dispatched, as real recorder history, before you let anything
+act.
+
+Step-by-step setup is in **[`docs/setup-guide.md`](docs/setup-guide.md)** — Part 1
+is the minimum that gets it solving.
+
 See [`CHANGELOG.md`](CHANGELOG.md) for the release history and current version — versioned from `custom_components/nimbus_load/manifest.json`, not restated here to avoid drifting stale again (this line previously read a hardcoded `0.92.2` for many releases after `manifest.json` had moved well past v0.94).
 
 Nimbus is the first open-source load Forecaster and LP battery-dispatch Solver that ships as a single HACS integration and runs in Home Assistant's own process. Two cooperating pieces under one hub:
@@ -557,14 +582,49 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
    Add-ons → **Nimbus Solver** → **Uninstall**, then remove the repository
    from Add-on Store → Repositories.
 
-## Status and roadmap
+## Proven in production
 
-Nimbus's Solver now drives real, live battery and grid dispatch on the
-reference household — it has graduated out of observe-only shadow mode.
-Still no production-use recommendation for other households yet: this remains
-actively developed against one reference household, with rough edges and bugs
-still being found and fixed regularly (tracked in `docs/real-world-integration/`
-and `CLAUDE.md`).
+**Nimbus has been driving live battery and grid dispatch on the reference
+household continuously since early September 2026** — not a trial, not shadow
+mode, not a dry run. It plans and dispatches across a two-inverter, four-tower
+battery fleet every day, including the household's real peer-to-peer export
+window where the money is.
+
+### The hardware it runs on
+
+| | |
+|---|---|
+| **Inverters** | **2 ×** Sungrow hybrids — one **SH25T**, one **SH15T** — over Modbus TCP |
+| **Battery** | **2 dual stacks = 4 towers**, 7 and 8 modules per stack (BCU firmware `SBHBCU-S_22011.04.10`) |
+| **Usable capacity** | **122.2 kWh** |
+| **Power limits** | **40 kW** charge / **40 kW** discharge |
+| **Grid connection** | **42 kW** import / **40 kW** export |
+| **Measured round-trip efficiency** | **85.8 %** |
+| **Battery State of Health** | towers at 99 / 99 / 96 / 94 %, combined **96.5 %** |
+| **Monitored loads** | **18** individually-metered circuit breakers |
+| **Retailer / market** | LocalVolts, 5-minute wholesale settlement, with a real P2P export contract |
+| **Host** | Two NUCs in a keepalived active/standby pair, Nimbus running in-process inside Home Assistant |
+
+### How it actually performs on that hardware
+
+All measured on the live install, not asserted:
+
+| | |
+|---|---|
+| Solve time | **~1.2 s** for a **202-period, 96-hour** horizon, re-planned continuously |
+| Economic Performance Ratio | **76 %** of the theoretically-available value captured (1 Oct 2026), scored against a perfect-foresight oracle |
+| Export performance | 1 Oct 2026 settled at **$18.02** P2P export revenue on **41.8 kWh**, **$19.69** net for the day |
+| Dispatch precision | battery reaches its committed P2P rate **~28 seconds before** the window opens, after the block lead-time was tuned |
+| Stability | 42 independent job-health checks green; no unplanned failover since 8 September |
+
+**This is one household, not a fleet.** It is a genuinely demanding one — real
+money, real export commitments, 122 kWh of battery across two inverters — and
+every rough edge below was found on it. But a single reference install is still a
+single install: **there is no production-use recommendation for other households
+yet.** Nimbus remains actively developed, with bugs found and fixed regularly
+(tracked in `docs/real-world-integration/` and `CLAUDE.md`).
+
+## Status and roadmap
 
 The next milestones (as tracked in GitHub Issues):
 
