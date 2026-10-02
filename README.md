@@ -594,7 +594,7 @@ window where the money is.
 
 | | |
 |---|---|
-| **Inverters** | **2 ×** Sungrow hybrid inverters, Modbus TCP |
+| **Inverters** | **2 ×** Sungrow hybrids — one **SH25T**, one **SH15T** — over Modbus TCP |
 | **Battery** | **2 dual stacks = 4 towers**, 7 and 8 modules per stack (BCU firmware `SBHBCU-S_22011.04.10`) |
 | **Usable capacity** | **122.2 kWh** |
 | **Power limits** | **40 kW** charge / **40 kW** discharge |
