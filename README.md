@@ -89,43 +89,153 @@ know whether it's helping.
 
 ## Install (HACS)
 
-1. HACS → the three-dot menu → **Custom repositories**
+The short version. [`docs/setup-guide.md`](docs/setup-guide.md) is the same thing
+explained in plain English with screenshots, split into Basic and Advanced — use
+that if this is your first install.
+
+### Before you start
+
+You need, at minimum:
+
+- **Home Assistant with HACS.**
+- **A battery State-of-Charge sensor** (0–100 %).
+- **An import price sensor and an export price sensor** ($/kWh). A fixed-value
+  template sensor is fine on a flat tariff.
+- **A solar generation forecast** (Solcast, Open-Meteo Solar Forecast,
+  Forecast.Solar — any of them).
+- **A whole-house power sensor.** Nimbus builds the household load forecast from it.
+- **Recorder history** on those sensors. Nimbus learns from it; day one works but
+  is rough.
+
+> **Architecture limit.** The Solver needs `highspy`, a compiled LP solver that
+> Home Assistant installs automatically. Prebuilt wheels exist for **amd64 and
+> aarch64 only** — a 64-bit x86 box, a Pi 4/5 on a 64-bit OS, most NUCs and VMs.
+> On 32-bit ARM (`armv7`) there is no wheel and the Solver will not start. The
+> Forecaster still works.
+
+### 1. Install
+
+1. HACS → three-dot menu → **Custom repositories**
 2. Add `https://github.com/code-imstillalive/nimbus`, category **Integration**
-3. Install **Nimbus**, restart Home Assistant
-4. Settings → Devices & Services → **Add Integration** → search "Nimbus". This
-   creates the hub, no fields to fill in.
-5. On the Nimbus hub, click **Configure** to walk the wizard:
-   - **Forecaster settings.** Temperature sensor (optional, improves accuracy),
-     temperature-forecast sensor, forecast horizon, retrain hour, training window.
-     Every field has a sensible default.
-   - **Solver settings.** A 3-step sub-wizard (Battery → Grid → Sources) that
-     points the Solver at your SoC sensor, price sensors, PV forecast, and load
-     forecast. See "Running the Solver" below.
-   - **Switchboard.** Describes your household's per-circuit topology so
-     the topology dashboard card can render it. Pre-populated from Home Assistant's
-     Energy Dashboard config when possible.
-6. Click **+ Add** on the hub's device page to add a **Load** (a power sensor Nimbus
-   should learn from and forecast), a **Power Signal** (a pass-through signal
-   for topology mapping), a **Power Source** (an inverter or BMS unit for topology),
-   a **PV String**, or a **Battery Tower**. Repeat as many as you need. The
-   reference household has 18 circuit-breaker loads plus 2 inverters and 4 battery
-   towers, no restart or repeat wizard needed.
+3. Install **Nimbus**, then **restart Home Assistant** — a full restart, not a
+   reload. Home Assistant only loads new Python on a restart.
 
-**Verify.** Open Developer Tools → States and confirm `sensor.nimbus_solver_config` reads `configured`, and that at least one `sensor.nimbus_<your_load>_forecast` has a non-null `forecast` attribute. If either is missing, see the two gotchas below (`nimbus_load` naming, and the aggregator trap).
+### 2. Add the integration
 
-7. **See it on a dashboard.** The wizard above configures Nimbus's own entities — it doesn't place any Lovelace cards. [`docs/dashboards.md`](docs/dashboards.md) has a full copy-paste three-view dashboard (Control Panel / Regret / Topology) to add next.
+**Settings → Devices & Services → Add Integration → "Nimbus".** No fields; it just
+creates the hub. A persistent notification then points you at Solver settings —
+that notification exists because of step 5.
 
-**New to Nimbus and want the plain-English walkthrough instead of this section?** See [`docs/setup-guide.md`](docs/setup-guide.md) — same steps, explained without the jargon. [`docs/configuration-reference.md`](docs/configuration-reference.md) is the field-by-field lookup table for after you've set it up once.
+On the integration page you get **seven `+` buttons** (Load, Power Signal, Power
+Source, PV String, Battery Tower, Controllable Load, Battery Participant) and a
+**gear icon** on the `Nimbus` hub row, which is where all the settings live.
 
-**A naming quirk worth knowing** ([#43](https://github.com/code-imstillalive/nimbus/issues/43)):
-every entity this integration creates carries the internal domain `nimbus_load`
-(e.g. `sensor.nimbus_load_solver_config`, `number.nimbus_load_solver_grid_max_export`),
-not `nimbus`, even though you search for and install "Nimbus." This is a historical
-accident from before the Solver existed (the integration used to be load-forecasting
-only) and changing it now would break every existing user's entity IDs, long-term
-statistics, and automations, which is not something to do lightly. Read `nimbus_load` and
-`Nimbus` as the same thing. The domain name doesn't reflect current scope, and
-there's no plan to silently migrate it.
+### 3. Create the whole-house Power Signal — do this BEFORE the Solver wizard
+
+The Solver needs a household load forecast, and Nimbus makes one for you — but it
+has to exist before the wizard can offer it. **+ Power Signal →** point it at your
+whole-house power sensor, leave Role as Other.
+
+Skipping this is the single most common reason the Solver wizard looks impossible
+to finish: its required load-forecast field has nothing to select.
+
+### 4. Configure — the gear icon on the hub row
+
+Three options:
+
+- **Forecaster settings.** Shared across every load and signal. Temperature /
+  humidity / battery / grid / solar context sensors, forecast horizon, retrain
+  hour, training window and source. **Every field is optional**; submitting it
+  blank is a complete working configuration.
+- **Solver settings.** A 3-step sub-wizard (Battery → Grid Prices → Solar & Load
+  Forecasts). **Only 5 fields across all three screens are required**: SoC sensor;
+  import and export price sensors; solar forecast; load forecast (the Power Signal
+  from step 3). Everything else is a refinement — leave it blank. Required fields
+  are marked 🔴 on screen.
+- **Topology diagram settings.** Cosmetic, for the topology card. Grid power,
+  battery power and Loads are auto-detected; the fields worth filling are the six
+  daily-kWh totals, since Nimbus forecasts power and has no equivalent. Suggestions
+  are pre-populated from your Energy Dashboard config where possible.
+
+### 5. Set your real battery and grid numbers — do not skip this
+
+Every numeric Solver setting is a live `number.*` entity, **not** a wizard field,
+and they all start at a defensive placeholder minimum. **Battery capacity starts at
+0.1 kWh.**
+
+A 0.1 kWh battery solves perfectly happily and produces a completely useless plan,
+with no error and no warning. Set at least:
+
+```
+number.nimbus_solver_battery_capacity_kwh     your real usable capacity
+number.nimbus_solver_max_charge_kw            real charge limit
+number.nimbus_solver_max_discharge_kw         real discharge limit
+number.nimbus_solver_grid_max_import_kw       your connection import limit
+number.nimbus_solver_grid_max_export_kw       your approved export limit
+number.nimbus_solver_battery_min_soc_percent  floor, e.g. 10
+number.nimbus_solver_battery_max_soc_percent  ceiling, e.g. 100
+number.nimbus_solver_efficiency_percent       round-trip, e.g. 90
+number.nimbus_solver_battery_soh_percent      100 if new
+```
+
+All live-editable forever — you never re-run the wizard to change a number.
+
+### 6. Add what you want forecast or controlled
+
+Use the `+` buttons, as many times as you like, no restart:
+
+| Button | What it is |
+|---|---|
+| **Load** | One circuit or appliance to learn and forecast |
+| **Power Signal** | A whole-system quantity to forecast (battery, solar, grid, weather) |
+| **Controllable Load** | A load the Solver schedules — and, if you give it a device entity, **physically switches** |
+| **Battery Participant** | An additional battery or an EV the Solver dispatches separately |
+| **Power Source** / **PV String** / **Battery Tower** | Topology-diagram metadata only, never forecast targets |
+
+The reference household runs 18 circuit-breaker loads, 2 inverters and 4 battery
+towers this way.
+
+### 7. Verify
+
+Developer Tools → States:
+
+| Entity | Expected |
+|---|---|
+| `sensor.nimbus_solver_config` | `configured` |
+| `sensor.nimbus_solver_lp_status` | `optimal` — **this is the one that means it works** |
+| `sensor.nimbus_solver_solve_seconds` | a number, typically 0.5–3 |
+| `number.nimbus_solver_battery_capacity_kwh` | your real capacity, **not `0.1`** |
+| `sensor.nimbus_solver_binding_constraint_now` | a plain-English reason for the current plan |
+
+At least one `sensor.nimbus_<your_load>_forecast` should also have a non-null
+`forecast` attribute. If something is missing, see the two gotchas below
+(load-forecast override, and the aggregator trap), and the Troubleshooting section
+of [`docs/setup-guide.md`](docs/setup-guide.md).
+
+### 8. Put it on a dashboard
+
+The wizard configures entities; it places no Lovelace cards.
+[`docs/dashboards.md`](docs/dashboards.md) has a copy-paste three-view dashboard
+(Control Panel / Topology / Regret) using the custom cards the integration
+registers for you.
+
+### A naming quirk worth knowing
+
+The integration's internal **domain** is `nimbus_load`, not `nimbus` — a historical
+accident from when it was load-forecasting only, before the Solver existed. You see
+it in service names (`nimbus_load.retrain`, `nimbus_load.solve_now`) and in logger
+paths (`custom_components.nimbus_load.*`).
+
+**Entity IDs are not affected.** They are `sensor.nimbus_solver_config`,
+`number.nimbus_solver_grid_max_export_kw` and so on — `nimbus_`, never
+`nimbus_load_`. Read `nimbus_load` and `Nimbus` as the same project; renaming the
+domain now would break every existing user's entity IDs, long-term statistics and
+automations ([#43](https://github.com/code-imstillalive/nimbus/issues/43)).
+
+**Want the long version?** [`docs/setup-guide.md`](docs/setup-guide.md) walks the
+same steps with screenshots and a troubleshooting section;
+[`docs/configuration-reference.md`](docs/configuration-reference.md) is the
+field-by-field lookup for afterwards.
 
 ## Understanding the configuration model
 
