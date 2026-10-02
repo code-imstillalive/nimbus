@@ -296,6 +296,19 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-10-02](docs/worklog/2026-10-02.md) -- **Documentation pass for public testers. No
+  integration code changed; six PRs, all merged.** `docs/setup-guide.md` rewritten as
+  Basic -> Advanced with 10 real screenshots and a real acceptance test
+  (`lp_status == optimal`). README: a "What Nimbus controls" table, because the README
+  had ZERO mentions of `set_operation_mode`/`set_hvac_mode`/`turn_on` and so never said
+  it switches hot water and aircon; the install guide finished; the two subentry types
+  the config model omitted; a Contents list. **Two entity ids in the README did not
+  exist on any install** (`sensor.nimbus_load_solver_config` and sibling) -- README was
+  exempt from `test_entities_doc_references_exist` on grounds that turned out to be
+  protecting the error, and is now covered, guard verified to bite. Vendored schema's
+  upstream licence recorded (dual-licensed upstream; `LICENSE-CODE` applies) and its
+  notice vendored. `docs/TESTERS.md` now tells a tester where to start.
+
 - [2026-10-01](docs/worklog/2026-10-01.md) -- **v0.94.434, validated on devhub before its
   tag.** #1437: `_NATIVE_HASS` replaced by a stable-identity holder (`solver_shared.NATIVE`),
   201 test sites retargeted, no `ignore_imports` entry dissolved (measured). #489: flex
