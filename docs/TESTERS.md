@@ -4,6 +4,22 @@ Real installs, tracked by version, so a bug report always carries its
 own anchor — "it broke" is much less useful than "it broke on v0.73.0,
 here's the traceback."
 
+## Start here
+
+**New and want to try it? Read [`setup-guide.md`](setup-guide.md).** Part 1 is the
+minimum that gets Nimbus producing a real plan — five required fields — and ends
+with a verification step so you can tell whether it worked. Part 2 is everything
+else.
+
+Two things worth knowing before you install, both covered there in full:
+
+- **Nimbus publishes a battery plan; it does not command your inverter.** Wiring
+  the plan to hardware is an automation you write. The one exception is a
+  **Controllable Load** with a device entity set — that Nimbus *does* switch
+  directly.
+- **The Solver needs `highspy`**, which has prebuilt wheels for **amd64 and
+  aarch64 only**. On 32-bit ARM it will not start. The Forecaster still works.
+
 ## Active
 
 | Tester | Hardware / setup | First install | Notes |
@@ -33,6 +49,34 @@ so a fix can be verified against the exact same conditions:
   full traceback, when one exists, is the single most useful thing a
   report can include — see #82 for how precisely a good traceback can
   pin a root cause.
+
+### The fastest way to capture most of that
+
+Developer Tools → **Template**, paste this, and paste the output into the issue.
+It carries the version anchor and the Solver's real state in one go:
+
+```jinja
+Nimbus:      {{ state_attr('sensor.nimbus_solver_solve_seconds','nimbus_version') }}
+Config:      {{ states('sensor.nimbus_solver_config') }}
+LP status:   {{ states('sensor.nimbus_solver_lp_status') }}
+Solve time:  {{ states('sensor.nimbus_solver_solve_seconds') }} s
+Periods:     {{ states('sensor.nimbus_solver_n_periods') }}
+Capacity:    {{ states('number.nimbus_solver_battery_capacity_kwh') }} kWh
+SoC now:     {{ states('sensor.nimbus_solver_current_soc_pct') }} %
+Load now:    {{ states('sensor.nimbus_solver_current_load_kw') }} kW
+Why:         {{ states('sensor.nimbus_solver_binding_constraint_now') }}
+Health:      {{ states('sensor.nimbus_health_report') }} errors
+Load source: {{ state_attr('sensor.nimbus_household_load_total_forecast','load_forecast_source_used') }}
+```
+
+Two lines in that block answer the most common false alarms before anyone
+investigates: **`Capacity`** reading `0.1` means the live `number.*` entities were
+never set, so the plan is meaningless rather than wrong; and **`Load source`** names
+which load-forecast field actually won, which settles the silent-override trap
+documented in the README.
+
+Also attach `sensor.nimbus_health_report`'s own `recent_errors` attribute — it holds
+up to 20 recent errors with detail, so you rarely need the raw log file.
 
 ## Adding yourself
 
