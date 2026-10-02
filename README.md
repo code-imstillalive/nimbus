@@ -240,20 +240,26 @@ field-by-field lookup for afterwards.
 ## Understanding the configuration model
 
 Everything lives under one Nimbus hub (one "Add Integration"), but the model has
-grown (5 subentry types plus a 3-way Configure menu) and it splits into
-two separate concerns sharing that one hub:
+grown — **7 subentry types** plus a 3-way settings menu — and it splits into
+**three** separate concerns sharing that one hub:
 
 1. **Forecasting.** `Load` and `Power Signal` subentries. Both feed the same
    k-NN/GBRT ML engine (`ml/model.py`, `coordinator.py`) and both produce a
    `sensor.nimbus_<x>_forecast` entity with training/validation.
-2. **Topology and wiring.** `Power Source`, `PV String`, `Battery Tower` subentries.
+2. **Dispatch.** `Controllable Load` and `Battery Participant` subentries. These
+   are things the **Solver decides about** — when a load runs, how an extra
+   battery or EV charges. No ML model and no forecast sensor, but very much not
+   cosmetic: a Controllable Load with a device entity is the one place Nimbus
+   **physically commands your hardware**.
+3. **Topology and wiring.** `Power Source`, `PV String`, `Battery Tower` subentries.
    Pure metadata for the dashboard's topology diagram card. **No ML model, no
    coordinator, no forecast sensor.** These exist purely so the diagram knows what's
    physically wired to what.
 
-If a subentry doesn't produce a `_forecast` sensor, it's topology metadata, not a
-forecast target. That single fact resolves most of the "why doesn't X have a
-forecast line" confusion.
+The useful heuristic is **not** "no forecast sensor means topology" — that was true
+when there were five types and is wrong now, because the dispatch pair produce no
+forecast sensor either. The real test is what consumes the subentry: **the ML
+engine (forecasting), the LP solver (dispatch), or only the diagram (topology).**
 
 ### 1. Load subentry
 
@@ -326,6 +332,48 @@ plus the same optional Power Source link as PV String, same reasoning.
 SoC is the one field worth filling in first if you only do one. It drives the
 visible fill-bar on the diagram. The form won't block you from submitting with
 nothing filled in yet.
+
+### 6. Controllable Load subentry
+
+A load the Solver decides the **timing or level** of, rather than merely forecasting.
+Three kinds, and only the fields for the chosen kind are read:
+
+- **Sheddable** — can be reduced under price pressure, down to an optional minimum
+  fraction, at a configurable shed cost that keeps shedding a last resort rather
+  than the LP's free first choice.
+- **Deferrable** — a real energy target by a real deadline (hot water, EV charging).
+  The Solver chooses *when* inside that window, as a soft-priced preference.
+- **Thermal** — a temperature tracked as a genuine **hard** constraint, not a priced
+  preference. An unreachable target is relaxed once, automatically, to a soft
+  shortfall price rather than breaking the whole plan.
+
+**This is the only subentry that commands hardware.** Set "Device to command" and
+Nimbus drives it directly: `switch` (`turn_on`/`turn_off`), `water_heater`
+(`set_operation_mode`, `performance`/`eco`) or `climate` (`set_hvac_mode`). Any
+other domain logs a warning and does nothing. **Leave that field blank and the load
+is planned and scored but never touched** — the right way to try one first.
+
+Rate limits are per-load and worth setting: minimum hold between commands, maximum
+activations per day, and a re-send interval for a device that did not obey (default
+15 minutes; a re-send never counts against the daily cap).
+
+### 7. Battery Participant subentry
+
+An **additional**, independently-metered battery the Solver dispatches on its own —
+a second inverter, or an EV. Your main household battery is configured in Solver
+settings and is always the `home` participant; do not add it again here.
+
+Beyond the obvious (capacity, SoC sensor, power sensor, charge/discharge limits,
+min/max SoC, efficiency) the fields that matter are the EV ones: an **availability**
+binary_sensor that blocks charge and discharge entirely while off, a **departure
+hour plus required SoC** enforced as a hard requirement so the car is drivable, a
+**live charge-limit entity** so changing the limit in the vehicle's own app just
+works, a **trip calendar** that reserves energy for a distance named in the event
+title, and a **shared charger group** so two EVs on one physical charger cannot both
+be planned at full rate.
+
+Note the per-participant **"positive reading means charging"** flag. Conventions
+differ by vendor; check a real reading while the thing is actually charging.
 
 ### The hub wizard: how you reach all of this
 
