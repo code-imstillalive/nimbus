@@ -17,8 +17,9 @@ things up; this one is for doing it the first time.
 Nothing here is simplified to the point of being wrong. Every field name, default,
 warning and expected value below matches the real code.
 
-> 📷 **About the images.** The three dashboard screenshots are real, from a live
-> install, but they are **placeholders pending better captures**. Lines still
+> 📷 **About the images.** Every screenshot here is a real capture from a live
+> install, not a mock-up, so the numbers in them are real numbers. They are
+> **working placeholders** and will be replaced with cleaner captures. Lines still
 > marked 📷 are screenshots yet to be taken — the surrounding text is written to
 > stand on its own, so nothing here depends on an image to be followable.
 
@@ -335,8 +336,13 @@ On the Nimbus device page (or Settings → Devices & Services → Nimbus → ent
 | `number.nimbus_solver_efficiency_percent` | Round-trip efficiency, e.g. `90` |
 | `number.nimbus_solver_battery_soh_percent` | State of health, `100` if new |
 
-> 📷 *Screenshot: the Nimbus device page entity list filtered to
-> `number.nimbus_solver_`, showing capacity at its 0.1 placeholder before editing.*
+![Nimbus number entities on a dashboard](images/setup/load-controls.png)
+
+*Every setting in this step is an ordinary `number.*` entity, so you can put them
+all on one dashboard and edit them inline — no wizard, no restart. This is a
+fully-populated example: capacity, SoC floor/ceiling, charge and discharge limits,
+grid limits, efficiency and the economic costs, alongside the network-fee blocks
+and scheduled loads from Part 2.*
 
 > ℹ️ **Usable, not nameplate.** If you have a 10 kWh pack the manufacturer only lets
 > you use 9 kWh of, enter 9. You can instead leave capacity at nameplate and carve
@@ -359,8 +365,12 @@ Open **Developer Tools → States**. This is the whole acceptance test.
 | 3 | `sensor.nimbus_solver_solve_seconds` | a number, typically **0.5–3** | If absent, the Solver never ran |
 | 4 | `sensor.nimbus_solver_battery_forecast` | a kW number with a long `forecast` attribute | If `unknown`, no plan yet |
 
-> 📷 *Screenshot: Developer Tools → States filtered to `nimbus_solver_`, showing
-> `lp_status: optimal`.*
+![Nimbus Solver dashboard showing config, solve status and parameters](images/setup/solver-overview.png)
+
+*The same acceptance test, as a dashboard instead of Developer Tools. **Solver
+Config: configured**, **Status: optimal**, solve time **1.18 s**, **204 periods /
+96.4 h** horizon — and the live `number.*` parameters on the left showing real
+values rather than placeholders (Battery Capacity **122.2 kWh**, not `0.1`).*
 
 **`lp_status: optimal` is the one that means "it is working."** It means the
 optimiser found a real, feasible, cost-minimal plan.
@@ -443,21 +453,25 @@ copy-paste whole**. Do that rather than building cards one at a time:
 
 **Expected outcome:** three views — Control Panel, Topology, Regret.
 
-![Nimbus Control Panel view](images/setup/dashboard-control-panel.jpg)
+![Nimbus Control Panel view](images/setup/control-panel.png)
 
-*The **Control Panel** view. The headline tells you the state in words
-(DISCHARGING, 32 %, grid −11.7 kW), the risk sliders are live and editable, and
-the plan-vs-actual chart and forecast-interval table sit below. The ARMED/OFF
-toggle top-right is the kill switch for your own dispatch automation.*
+*The **Control Panel** view. It states the decision and the reasoning in plain
+English — here, *"Battery discharging 12.9 kW plus 0.0 kW solar covers the 0.9 kW
+load with 12.0 kW left to export at 57.0c/kWh (spot 9.7c + P2P 47.3c) — worth more
+now than buying it back later at 25.7c/kWh."* The risk sliders are live and
+editable, the plan-vs-actual chart and the per-interval price table sit below, and
+the ARMED/OFF toggle top-right is the kill switch for your own dispatch automation.*
 
-![Nimbus Topology view](images/setup/dashboard-topology.jpg)
+![Nimbus Topology view](images/setup/topology.png)
 
-*The **Topology** view, on a two-inverter / four-tower system. Live power animates
-along each path, every battery tower shows its own SoC / SoH / voltage /
-temperature, and each monitored circuit appears on the right. Daily solar, battery
-and load totals run across the top.*
+*The **Topology** view on a two-inverter / four-tower system. Each inverter is
+named with its real model (here `SH25T` and `SH15T`) and carries its own battery
+towers, every tower showing its own SoC / SoH / voltage / temperature. Live power
+animates along each active path, every monitored circuit is listed on the right
+with its live draw and its Nimbus forecast, and daily solar / battery / load
+totals run across the top.*
 
-![Nimbus Regret view](images/setup/dashboard-regret.jpg)
+![Nimbus Regret view](images/setup/regret.png)
 
 *The **Regret** view. `EPR` is the headline — the share of theoretically-available
 value captured. `J_REF` is the do-nothing baseline, `J_ACH` what actually happened,
@@ -471,6 +485,34 @@ chart compares all three hour by hour.*
 > ℹ️ The Regret view stays empty until the quality score is switched on and has had
 > a full day to score — see [§15](#15-the-daily-quality-score). An empty Regret card
 > on day one is expected, not broken.
+
+### Other views worth building
+
+The three cards above are what Nimbus ships. The reference household adds a few
+ordinary-Lovelace views on top, shown here as ideas rather than as something you
+have to reproduce:
+
+![Forecaster view — combined forecast chart](images/setup/forecaster-chart.png)
+
+*A **Forecaster** view: every Nimbus forecast on one axis — solar, battery and
+grid, each with its upper/lower confidence band — plus temperature and humidity,
+and the Solver's own proposed battery/grid trajectory overlaid. The vertical
+`now` line separates measured history from forecast.*
+
+![Shadow-mode comparison chart](images/setup/solver-shadow-comparison.png)
+
+*A **shadow-mode comparison**: what Nimbus plans, against what actually happened,
+against whatever optimiser you are migrating from. This is the single most useful
+thing to build before you let Nimbus drive anything — it answers "would I have
+been better off?" with data instead of opinion, and it costs nothing to run
+because Nimbus is only publishing a plan.*
+
+![Solver parameters and counterfactual](images/setup/solver-fees-counterfactual.png)
+
+*A **Solver** view carrying the tuning knobs from [§17](#17-tuning-knobs), the
+network-fee blocks, and the daily counterfactual — "if Nimbus alone had been
+deciding since midnight, would the battery still have been ready?" — with a
+multi-day trend of that answer.*
 
 ### If you would rather not use the custom cards
 
