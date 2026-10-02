@@ -19,12 +19,40 @@ is Mark Purcell's, in his own companion project.
 | pinned commit subject | `v0.3.0: schema v2.0 - assets, deferrable loads, shadow prices, $/kWh` |
 | vendored on | 2026-09-17 |
 | sha256 of this copy | `24478a75be3cbaae53b1ff613b911483149e8362608f83bcd29078dd3db91f35` |
+| **upstream licence** | **MIT** — see [`LICENSE.nem-flex-telemetry`](LICENSE.nem-flex-telemetry), vendored beside this file |
+| **upstream copyright** | **Copyright (c) 2025 Mark Purcell and contributors** |
 
 Raw URL for the pinned revision (not `main` — pinning is the point):
 
 ```
 https://raw.githubusercontent.com/purcell-lab/nem-flex-telemetry/024f45c61b3f4a6cb251326f0b15955a9556d3ed/schema/telemetry.schema.json
 ```
+
+### Which upstream licence applies, and why it is the code one
+
+`nem-flex-telemetry` is **dual-licensed**, so "it's MIT" was not a safe
+assumption and is recorded here rather than guessed:
+
+| upstream file | covers |
+|---|---|
+| `LICENSE-CODE` | MIT, © 2025 Mark Purcell and contributors |
+| `LICENSE-DATA` | CC BY 4.0, © 2025 NEM Flex Telemetry contributors |
+
+`LICENSE-DATA` scopes itself explicitly — *"All data files in `data/` and
+`site/data/` are licensed under the Creative Commons Attribution 4.0
+International License."* `telemetry.schema.json` lives in `schema/`, not in
+either of those directories, so **the MIT `LICENSE-CODE` is the one that
+applies**, and that is the notice vendored alongside it.
+
+MIT's single real obligation is that the copyright notice travels with copies:
+
+> *"The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software."*
+
+This file previously recorded the commit, the date, the sha256 and the raw URL —
+everything except the licence and the copyright holder. A verbatim copy of
+someone else's file with no notice attached does not meet that condition, however
+friendly the relationship. `LICENSE.nem-flex-telemetry` fixes it.
 
 ### Why a pinned commit rather than `main`
 
