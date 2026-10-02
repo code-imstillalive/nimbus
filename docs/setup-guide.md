@@ -196,8 +196,9 @@ it, and if it does not exist yet there is nothing in the dropdown.
 > selected and Role left as Other.*
 
 **Expected outcome:** a new sensor named after your source:
-`sensor.nimbus_<your_sensor_name>_forecast`. A source of
-`sensor.house_total_power` gives `sensor.nimbus_house_total_power_forecast`.
+`sensor.nimbus_<your_sensor_name>_forecast`. The name is derived from your source sensor's own name, so a
+whole-house sensor called `house_total_power` produces a Nimbus forecast entity
+ending `_house_total_power_forecast`.
 
 > ⚠️ **It will read `unknown` for a few minutes.** Nimbus has to train a model
 > against your Recorder history first. That is expected. If it is still `unknown`
@@ -324,10 +325,10 @@ On the Nimbus device page (or Settings → Devices & Services → Nimbus → ent
 | `number.nimbus_solver_max_discharge_kw` | Real max discharge power |
 | `number.nimbus_solver_grid_max_import_kw` | Your main breaker / connection import limit |
 | `number.nimbus_solver_grid_max_export_kw` | Your approved export limit |
-| `number.nimbus_solver_min_soc_percent` | Your floor, e.g. `10` |
-| `number.nimbus_solver_max_soc_percent` | Your ceiling, e.g. `100` |
+| `number.nimbus_solver_battery_min_soc_percent` | Your floor, e.g. `10` |
+| `number.nimbus_solver_battery_max_soc_percent` | Your ceiling, e.g. `100` |
 | `number.nimbus_solver_efficiency_percent` | Round-trip efficiency, e.g. `90` |
-| `number.nimbus_solver_soh_percent` | State of health, `100` if new |
+| `number.nimbus_solver_battery_soh_percent` | State of health, `100` if new |
 
 > 📷 *Screenshot: the Nimbus device page entity list filtered to
 > `number.nimbus_solver_`, showing capacity at its 0.1 placeholder before editing.*
