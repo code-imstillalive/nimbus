@@ -17,6 +17,11 @@ things up; this one is for doing it the first time.
 Nothing here is simplified to the point of being wrong. Every field name, default,
 warning and expected value below matches the real code.
 
+> 📷 **About the images.** The three dashboard screenshots are real, from a live
+> install, but they are **placeholders pending better captures**. Lines still
+> marked 📷 are screenshots yet to be taken — the surrounding text is written to
+> stand on its own, so nothing here depends on an image to be followable.
+
 ---
 
 ## Contents
@@ -438,13 +443,26 @@ copy-paste whole**. Do that rather than building cards one at a time:
 
 **Expected outcome:** three views — Control Panel, Topology, Regret.
 
-> 📷 *Screenshot: the finished **Control Panel** view, showing the live dispatch
-> plan, current prices and SoC.*
+![Nimbus Control Panel view](images/setup/dashboard-control-panel.jpg)
 
-> 📷 *Screenshot: the **Topology** view, showing the animated power-flow diagram.*
+*The **Control Panel** view. The headline tells you the state in words
+(DISCHARGING, 32 %, grid −11.7 kW), the risk sliders are live and editable, and
+the plan-vs-actual chart and forecast-interval table sit below. The ARMED/OFF
+toggle top-right is the kill switch for your own dispatch automation.*
 
-> 📷 *Screenshot: the **Regret** view, showing yesterday's EPR score and the
-> hour-by-hour breakdown.*
+![Nimbus Topology view](images/setup/dashboard-topology.jpg)
+
+*The **Topology** view, on a two-inverter / four-tower system. Live power animates
+along each path, every battery tower shows its own SoC / SoH / voltage /
+temperature, and each monitored circuit appears on the right. Daily solar, battery
+and load totals run across the top.*
+
+![Nimbus Regret view](images/setup/dashboard-regret.jpg)
+
+*The **Regret** view. `EPR` is the headline — the share of theoretically-available
+value captured. `J_REF` is the do-nothing baseline, `J_ACH` what actually happened,
+`J_STAR` what perfect foresight would have achieved, and `REGRET` the gap. The
+chart compares all three hour by hour.*
 
 > ⚠️ **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
 > Cmd-Shift-R). The cards are registered by the integration at startup, and the
