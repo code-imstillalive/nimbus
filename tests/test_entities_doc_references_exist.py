@@ -73,10 +73,24 @@ _FLATTENED_PY = _NIMBUS / "sensor_flattened.py"
 #   creates (`sensor.nimbus_test_hvac_power`). Those cannot be composed
 #   from this source at all, so they are legitimately unverifiable rather
 #   than stale.
-# - `README.md` has its own guard (`test_readme_entity_references_exist`)
-#   and deliberately shows `nimbus_load`-domain spellings while
-#   explaining that naming quirk, which this check would misread.
+# `README.md` IS included, as of the install-guide rewrite. It used to be
+# excluded on the grounds that it "deliberately shows `nimbus_load`-domain
+# spellings while explaining that naming quirk, which this check would
+# misread". That rationale did not survive being checked: those spellings
+# (`sensor.nimbus_load_solver_config`,
+# `number.nimbus_load_solver_grid_max_export`) were simply WRONG -- no
+# entity on any install carries a `nimbus_load_` prefix, the domain is
+# `nimbus_load` but entity ids are `nimbus_*`, and the README contradicted
+# its own verify step three paragraphs earlier. So the exemption was
+# protecting an error, not a deliberate spelling.
+#
+# Note the two guards check OPPOSITE directions and both are needed:
+# `test_readme_entity_references_exist` asserts the README still MENTIONS
+# entities that exist (catching a rename that leaves the docs silent);
+# this one asserts every id the README NAMES is real (catching an id that
+# never existed). Only the second would have caught the above.
 _USER_FACING_DOCS = (
+    "README.md",
     "docs/entities.md",
     "docs/configuration-reference.md",
     "docs/dashboards.md",
