@@ -166,14 +166,23 @@ Services → **Add Integration** search.
 notification** appears pointing you at Configure → Solver settings. That
 notification is not an error — it exists because of the trap in [§7](#7-set-your-real-battery-and-grid-numbers).
 
-On the Nimbus device page, two controls matter:
+On the Nimbus integration page, two things matter:
 
-- **Configure** — settings that apply to everything at once.
-- **+ Add** — a menu for adding things (Load, Power Signal, Controllable Load,
-  Battery Participant, and three diagram-only types).
+- **The `+` buttons along the top** — one per thing you can add (Load, Power
+  Signal, Controllable Load, Battery Participant, and three diagram-only types).
+  This guide writes these as **"+ Add → Power Signal"** and so on.
+- **The gear icon on the `Nimbus` hub row** — settings that apply to everything at
+  once. This guide calls it **Configure**, which is what Home Assistant calls it
+  elsewhere.
 
-> 📷 *Screenshot: the Nimbus device page showing the Configure button and the
-> "+ Add" menu expanded with its seven options.*
+![The Nimbus integration page](images/setup/integration-page.png)
+
+*The Nimbus integration page. The **seven `+` buttons** across the top are how you
+add everything — Load, Power Signal, Power Source, PV String, Battery Tower,
+Controllable Load, Battery Participant. The **gear icon** on the `Nimbus` hub row
+(right-hand side) is what this guide calls **Configure**. Sub-devices like Backtest
+and Counterfactual appear on their own as Nimbus creates them; you never add those
+yourself.*
 
 > ℹ️ If you only want **load forecasting** and no optimisation at all, you can stop
 > after [§12](#12-loads--learn-one-appliance-at-a-time) and never touch the Solver.
@@ -234,7 +243,7 @@ you want Nimbus to forecast your inverter's DC power itself.
 
 ## 6. Run the Solver settings wizard
 
-**Nimbus device page → Configure.**
+**Nimbus integration page → the gear icon on the `Nimbus` hub row.**
 
 You get a menu, **"Nimbus settings"**, with three options:
 
@@ -244,7 +253,10 @@ You get a menu, **"Nimbus settings"**, with three options:
 | **Solver settings (your real battery/grid/solar setup)** | **Yes — this one** |
 | Topology diagram settings | **No** — cosmetic, [§16](#16-the-topology-diagram) |
 
-> 📷 *Screenshot: the "Nimbus settings" menu with its three options.*
+![The Nimbus settings menu](images/setup/settings-menu.png)
+
+*The **Nimbus settings** menu, reached from the gear icon. Three options, and only
+the middle one matters for Part 1.*
 
 Pick **Solver settings**. It is a three-screen wizard.
 
