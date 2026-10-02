@@ -16,6 +16,26 @@
 > for your own hardware, your own electricity costs, and for any automation you
 > build on its output.
 
+## Contents
+
+- [What Nimbus controls](#what-nimbus-controls) — what it commands, and what it only plans
+- [Why](#why) — what it gets you, and what else exists
+- [Install (HACS)](#install-hacs) — **start here** — install, configure, verify
+- [Understanding the configuration model](#understanding-the-configuration-model) — the 7 subentry types and the 3 concerns they split into
+- [Running the Solver](#running-the-solver) — what the Solver needs, and the two gotchas that bite
+- [What Nimbus publishes](#what-nimbus-publishes) — every sensor, tuning knob, diagnostic and service
+- [How it works](#how-it-works) — the ML engine and the LP formulation, for the curious
+- [Compatibility](#compatibility) — versions and platforms
+- [Removing Nimbus](#removing-nimbus) — clean uninstall
+- [Proven in production](#proven-in-production) — the reference household's hardware, and what it measures
+- [Status and roadmap](#status-and-roadmap) — what is solid, what is not, what is next
+- [Contributing](#contributing) — tests, workflow, licence of contributions
+- [License](#license) — MIT
+
+New here? **[Install (HACS)](#install-hacs)** is the short version;
+**[`docs/setup-guide.md`](docs/setup-guide.md)** is the same thing in plain English
+with screenshots, split into Basic and Advanced.
+
 ## What Nimbus controls
 
 Stated up front, because it is the first thing a new user should know and the
@@ -838,6 +858,10 @@ charge and discharge power, and a blended round-trip efficiency.
 - Reference-household validation is a load-bearing part of the
   merge criteria. See `CLAUDE.md` and `docs/real-world-integration/` for the
   full context.
+
+- **Licence of contributions.** By contributing you agree your contributions are
+  licensed under the same licence as this project (MIT). That is the GitHub
+  default, stated here so there is no ambiguity. There is no CLA.
 
 ## License
 
