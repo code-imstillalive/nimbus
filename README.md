@@ -16,11 +16,18 @@
 > for your own hardware, your own electricity costs, and for any automation you
 > build on its output.
 
+> 📖 **New here? Start with the step-by-step guide:
+> [`docs/setup-guide.md`](docs/setup-guide.md).**
+> It walks the whole install in plain English with real screenshots of every
+> screen — install, configure, verify, dashboard. The install section below is
+> the condensed version for people who already know Home Assistant.
+
 ## Contents
 
+- **[Step-by-step setup guide](docs/setup-guide.md)** — the full walkthrough with screenshots (start here if you are new)
 - [What Nimbus controls](#what-nimbus-controls) — what it commands, and what it only plans
 - [Why](#why) — what it gets you, and what else exists
-- [Install (HACS)](#install-hacs) — **start here** — install, configure, verify
+- [Install (HACS)](#install-hacs) — the short version; the guide above is the long one
 - [Understanding the configuration model](#understanding-the-configuration-model) — the 7 subentry types and the 3 concerns they split into
 - [Running the Solver](#running-the-solver) — what the Solver needs, and the two gotchas that bite
 - [What Nimbus publishes](#what-nimbus-publishes) — every sensor, tuning knob, diagnostic and service
