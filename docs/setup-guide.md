@@ -17,11 +17,10 @@ things up; this one is for doing it the first time.
 Nothing here is simplified to the point of being wrong. Every field name, default,
 warning and expected value below matches the real code.
 
-> 📷 **About the images.** Every screenshot here is a real capture from a live
-> install, not a mock-up, so the numbers in them are real numbers. They are
-> **working placeholders** and will be replaced with cleaner captures. Lines still
-> marked 📷 are screenshots yet to be taken — the surrounding text is written to
-> stand on its own, so nothing here depends on an image to be followable.
+> **About the images.** Every screenshot here is a real capture from a live
+> install, not a mock-up, so the numbers in them are real numbers — yours will
+> differ. The surrounding text is written to stand on its own, so you can follow
+> every step without relying on an image.
 
 ---
 
@@ -141,8 +140,9 @@ not fill in fields just because they are there.
 5. **Restart Home Assistant** (Settings → System → top-right power icon →
    Restart Home Assistant).
 
-> 📷 *Screenshot: HACS "Custom repositories" dialog with the Nimbus URL typed in
-> and Category set to Integration.*
+![HACS Custom repositories dialog, with Nimbus listed as code-imstillalive/nimbus](images/setup/hacs-custom-repo.png)
+
+*Paste the URL into **Repository**, set **Type** to **Integration**, then **ADD**. Once added it appears in the list, as shown.*
 
 **Expected outcome:** after the restart, Nimbus appears in Settings → Devices &
 Services → **Add Integration** search.
@@ -160,7 +160,10 @@ Services → **Add Integration** search.
    creates the Nimbus hub, the device everything else attaches to. Click
    **Submit**.
 
-> 📷 *Screenshot: the "Set up Nimbus" dialog — text only, with a Submit button.*
+![The Select brand dialog with "nimbu" typed, showing Nimbus and JustNimbus](images/setup/setup-nimbus-dialog.png)
+
+> ⚠️ **Pick the one with the cloud-and-sun icon, named exactly “Nimbus”.**
+> Searching `nimbu` also returns **JustNimbus**, a completely unrelated integration for JustNimbus solar hardware. They are different products that happen to sort together. The Nimbus entry shows a local-package icon; JustNimbus shows a globe.
 
 **Expected outcome:** you land on the Nimbus device page, and a **persistent
 notification** appears pointing you at Configure → Solver settings. That
@@ -207,8 +210,9 @@ it, and if it does not exist yet there is nothing in the dropdown.
 4. **Role** → leave as **Other**. (Role only affects the topology diagram.)
 5. Submit.
 
-> 📷 *Screenshot: the "Add a power signal" dialog with the whole-house sensor
-> selected and Role left as Other.*
+![The Add a power signal dialog, with Role left as Other](images/setup/add-power-signal.png)
+
+*Pick your real whole-house power sensor under **Sensor to forecast**, and leave **Role** as **Other**. Note the help text: it must be a genuine MEASUREMENT, never another optimiser's plan or forecast entity.*
 
 **Expected outcome:** a new sensor named after your source:
 `sensor.nimbus_<your_sensor_name>_forecast`. The name is derived from your source sensor's own name, so a
@@ -269,7 +273,7 @@ Pick **Solver settings**. It is a three-screen wizard.
 | **🔴 Battery State of Charge sensor (%)** | Your inverter's own live SoC sensor. A real 0–100 % measurement, not a target or setpoint. |
 | Live max-discharge setpoint entity | **Leave blank.** Correct for almost every install. |
 
-> 📷 *Screenshot: "Solver: Battery (1 of 3)" with the SoC sensor picked.*
+![Solver Battery, screen 1 of 3, with the State of Charge sensor selected](images/setup/solver-wizard-1-battery.png)
 
 > ℹ️ **Where is capacity? Where are the power limits?** Not here. They are live
 > `number.*` entities you edit from the dashboard instead — that is
@@ -285,7 +289,7 @@ Pick **Solver settings**. It is a three-screen wizard.
 | **🔴 Live export (sell) price sensor ($/kWh)** | What you are paid to export, right now. |
 | Everything else (2nd/3rd price sources, price-event simulation, DNSP envelopes) | **Leave blank.** [§18](#18-optional-inputs) |
 
-> 📷 *Screenshot: "Solver: Grid Prices (2 of 3)" with only the two 🔴 fields filled.*
+![Solver Grid Prices, screen 2 of 3, with the two required price sensors set](images/setup/solver-wizard-2-prices.png)
 
 > ℹ️ **On a flat tariff?** Make two template sensors with your fixed rates and point
 > these at them. Nimbus still earns its keep on solar self-consumption and battery
@@ -306,8 +310,7 @@ Pick **Solver settings**. It is a three-screen wizard.
 | *Optional: individual circuit forecast sensors* | **Leave completely blank.** See the warning below. |
 | Everything else | **Leave blank.** [§15](#15-the-daily-quality-score) and [§18](#18-optional-inputs) cover them. |
 
-> 📷 *Screenshot: "Solver: Solar & Load Forecasts (3 of 3)" with the two 🔴 fields
-> filled and the circuit-list field visibly empty.*
+![Solver Solar and Load Forecasts, screen 3 of 3](images/setup/solver-wizard-3-forecasts.png)
 
 > ⚠️ **The silent-override trap.** "Individual circuit forecast sensors" **beats**
 > "Household load forecast sensor" outright the moment it has even one entry — no
@@ -461,7 +464,9 @@ copy-paste whole**. Do that rather than building cards one at a time:
    [`dashboards.md`](dashboards.md#full-three-view-nimbus-dashboard-copy-paste),
    **Save**.
 
-> 📷 *Screenshot: the Raw configuration editor with the Nimbus dashboard YAML pasted in.*
+![The dashboard edit menu, with Raw configuration editor highlighted](images/setup/raw-config-editor.png)
+
+*With the dashboard in edit mode, the ⋮ menu top-right has **Raw configuration editor**. That opens a YAML pane — replace everything in it with the dashboard YAML, then **Save**.*
 
 **Expected outcome:** three views — Control Panel, Topology, Regret.
 
