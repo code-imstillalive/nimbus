@@ -1,48 +1,55 @@
 # Setting up Nimbus
 
-This is the "explain it like I'm not a developer" guide. Read **Part 1** start to
-finish and you will have Nimbus producing a real optimisation plan. Read **Part 2**
-later, when you want more out of it.
+Use this guide to install Nimbus and check its plans before you connect them to
+hardware. It is for Home Assistant users who already have working energy sensors.
 
-- **Part 1 — Basic.** The smallest set of steps that gets Nimbus solving. Five
-  required fields, nothing else. Most people should stop here for the first week.
-- **Part 2 — Advanced.** Everything else: dashboards, per-appliance learning,
+- **Part 1: Basic.** Install Nimbus, create a load forecast, complete five required
+  Solver fields, and set the numeric limits for your equipment.
+- **Part 2: Advanced.** Everything else: dashboards, per-appliance learning,
   controllable loads Nimbus physically switches, EVs, the daily quality score,
   price events, tuning.
 
 If you want the exhaustive field-by-field table instead, see
-[`configuration-reference.md`](configuration-reference.md). That one is for looking
-things up; this one is for doing it the first time.
+[`configuration-reference.md`](configuration-reference.md). Use that reference to
+check individual fields. This guide follows the installation sequence.
 
-Nothing here is simplified to the point of being wrong. Every field name, default,
-warning and expected value below matches the real code.
+**First-run Solver goal:** a current plan based on your sensors and equipment limits.
+Completing the wizard alone does not meet this goal. Use the checks in
+[§8](#8-check-it-actually-worked) before you consider control.
 
-> **About the images.** Every screenshot here is a real capture from a live
-> install, not a mock-up, so the numbers in them are real numbers — yours will
-> differ. The surrounding text is written to stand on its own, so you can follow
-> every step without relying on an image.
+**Control boundary:** leave every **Device to command** field blank during
+observation. Keep external dispatch automations disabled. The dry-run switch
+records observations but does not disable other control paths.
+
+This guide follows the repository's `main` branch. Your installed release can
+differ. Check its version before you report a mismatch. Entity IDs below are
+defaults. If you renamed an entity, use its current ID.
+
+> **About the images:** screenshots illustrate one installation. Their capacities,
+> prices, timings and entity names are not recommended settings. Follow the written
+> steps if your screen differs.
 
 ---
 
 ## Contents
 
-**Part 1 — Basic**
+**Part 1: Basic**
 1. [What Nimbus is, in one minute](#1-what-nimbus-is-in-one-minute)
 2. [What you need before you start](#2-what-you-need-before-you-start)
 3. [Install it](#3-install-it)
 4. [Add the integration](#4-add-the-integration)
-5. [Create the forecast the Solver needs](#5-create-the-forecast-the-solver-needs) ← *the step everyone skips*
+5. [Create the forecast the Solver needs](#5-create-the-forecast-the-solver-needs)
 6. [Run the Solver settings wizard](#6-run-the-solver-settings-wizard)
-7. [Set your real battery and grid numbers](#7-set-your-real-battery-and-grid-numbers) ← *the step that silently ruins plans*
+7. [Set your real battery and grid numbers](#7-set-your-real-battery-and-grid-numbers)
 8. [Check it actually worked](#8-check-it-actually-worked)
 9. [Put a dashboard on it](#9-put-a-dashboard-on-it)
 10. [What "working" looks like after a week](#10-what-working-looks-like-after-a-week)
 
-**Part 2 — Advanced**
-11. [Forecaster settings — make the learning better](#11-forecaster-settings--make-the-learning-better)
-12. [Loads — learn one appliance at a time](#12-loads--learn-one-appliance-at-a-time)
-13. [Controllable loads — let Nimbus switch things](#13-controllable-loads--let-nimbus-switch-things)
-14. [Battery participants — a second battery or an EV](#14-battery-participants--a-second-battery-or-an-ev)
+**Part 2: Advanced**
+11. [Forecaster settings: make the learning better](#11-forecaster-settings--make-the-learning-better)
+12. [Loads: learn one appliance at a time](#12-loads--learn-one-appliance-at-a-time)
+13. [Controllable loads: let Nimbus switch things](#13-controllable-loads--let-nimbus-switch-things)
+14. [Battery participants: a second battery or an EV](#14-battery-participants--a-second-battery-or-an-ev)
 15. [The daily quality score](#15-the-daily-quality-score)
 16. [The topology diagram](#16-the-topology-diagram)
 17. [Tuning knobs](#17-tuning-knobs)
@@ -57,20 +64,21 @@ warning and expected value below matches the real code.
 
 ---
 
-# Part 1 — Basic
+<a id="part-1--basic"></a>
+
+# Part 1: Basic
 
 ## 1. What Nimbus is, in one minute
 
 Nimbus does two separate jobs. You can use either on its own.
 
-**The Forecaster** watches power sensors you already have and learns your
-household's habits. After a couple of weeks it knows things like "the pool pump
-draws 1.2 kW between 8am and 3pm" without you typing any of that in.
+**The Forecaster** uses measured power history to estimate future demand.
+Accuracy depends on the available history and how regularly the household uses
+each load.
 
-**The Solver** takes those forecasts plus your real electricity prices and works
-out the cheapest plan: when to charge the battery, when to discharge, when to
-import, when to export. It re-plans continuously and publishes the result as
-sensors.
+**The Solver** combines forecasts, prices and equipment limits to calculate a
+plan. It publishes proposed battery charging, discharging, imports and exports as
+sensors. The plan is optimal for its model, not a guarantee of the lowest real bill.
 
 ### What Nimbus does and does not control
 
@@ -78,129 +86,179 @@ This matters, so it is stated plainly rather than buried:
 
 | | |
 |---|---|
-| **Your battery / inverter** | Nimbus **publishes a plan**. It never commands your inverter itself. If you want the plan to actually move your battery, *you* write a Home Assistant automation that reads the plan sensor and commands your hardware — see [§20](#20-actually-driving-your-battery-with-the-plan). |
-| **Controllable loads** (hot water, pool pump, aircon) | Nimbus **does** command these directly — but only `switch`, `water_heater` and `climate` entities, and only if you explicitly set a "Device to command" on a Controllable Load. See [§13](#13-controllable-loads--let-nimbus-switch-things). |
+| **Your battery / inverter** | Nimbus publishes a plan. An external automation can read that plan and command your inverter. See [§20](#20-actually-driving-your-battery-with-the-plan) before you connect one. |
+| **Controllable loads** (hot water, pool pump, aircon) | Nimbus can directly command `switch`, `water_heater` and `climate` entities. Assigning a **Device to command** enables this path. Read [§13](#13-controllable-loads--let-nimbus-switch-things) first. |
 | **Everything else** | Nimbus only reads. |
 
-So out of the box, after Part 1, **Nimbus changes nothing in your house.** It
-watches and it plans. That is deliberate — you get to look at its plans for a
-while and decide whether you trust them before anything acts on them.
+On a new installation, Part 1 configures observation and planning only.
+An existing automation that reads these sensors can still act on them.
 
 ### Brand independence
 
-Nimbus does not care what inverter, battery or retailer you have. Everywhere it
-needs a number — battery charge level, current price, solar output — it asks you
-to point it at whatever sensor already exists in your Home Assistant. If your
-inverter's integration shows a battery percentage, Nimbus can use it.
+Nimbus uses Home Assistant sensors rather than a single inverter or retailer
+brand. Compatibility still depends on the sensor's units, forecast format and
+available history. Hardware control requires a separate, device-specific integration.
+
+### Terms used in this guide
+
+| Term | Meaning |
+|---|---|
+| SoC | State of charge, expressed as a percentage of the battery's capacity basis |
+| SoH | State of health, used here to derate configured capacity |
+| LP | Linear programming, the mathematical optimisation method |
+| EPR | Economic Performance Ratio, a comparison with modelled available value |
+| Oracle | A comparison model that uses known past inputs instead of forecasts |
+| kW / kWh | Power / energy. These units are not interchangeable. |
 
 ---
 
 ## 2. What you need before you start
 
-**Required:**
+### Choose your route
 
-- **Home Assistant** with HACS installed.
-- **A battery with a State-of-Charge sensor** (a `sensor.*` reading 0–100 %).
-- **An import price sensor and an export price sensor** ($/kWh). Amber,
-  LocalVolts, Tibber, or a template sensor you wrote yourself — anything works,
-  including a fixed-value template sensor if you are on a flat tariff.
-- **A solar forecast** from some integration (Solcast, Open-Meteo Solar Forecast,
-  Forecast.Solar — any of them).
+| Goal | Follow these steps |
+|---|---|
+| Forecast an appliance or circuit only | Install Nimbus (§3), add the hub (§4), then add a Load (§12). |
+| Forecast whole-house consumption only | Install Nimbus (§3), add the hub (§4), then create a Power Signal (§5). |
+| Plan battery operation | Complete §§3 to 8, including the Solver wizard and numeric limits. |
+
+Forecasting-only users do not need a battery, price sensors or a solar forecast.
+They still need a measured power sensor and usable history.
+Skip the Solver wizard and Solver acceptance checks on that route.
+
+**Required for all routes:**
+
+- **Home Assistant 2026.8.0 or later**, with HACS installed. This is the minimum
+  declared in [`hacs.json`](../hacs.json).
+- **A measured power sensor** in W or kW for the quantity you want to forecast.
+- **Usable recorded measurements** for initial model training.
+
+**Also required for battery optimisation:**
+
+- **A battery with a State-of-Charge sensor** (a `sensor.*` reading 0 to 100 %).
+- **An import price sensor and an export price sensor** in $/kWh.
+  If you lack these, use the [flat-tariff example](#create-price-sensors-for-a-flat-tariff) where applicable.
+- **A solar forecast** with a supported time-series format. Examples include
+  Solcast, Open-Meteo Solar Forecast and Forecast.Solar.
 - **A whole-house power sensor** (kW or W). Nimbus builds the household load
   forecast from this itself.
 
-**Strongly recommended:**
+Newly created source sensors might not yet have enough history.
+Check training progress before assuming the forecast is ready.
 
-- **Recorder actually recording those sensors** for at least a few days. Nimbus
-  learns from Recorder history. Day one it works but is rough — that is normal,
-  not broken.
+### Choose the right consumption measurement
 
-**Architecture note:** Nimbus needs `highspy`, a compiled linear-programming
-solver. Home Assistant installs it automatically, but prebuilt wheels exist only
-for **amd64 and aarch64** — a 64-bit Intel/AMD box, a Raspberry Pi 4/5 on a
-64-bit OS, most NUCs and VMs. On 32-bit ARM (`armv7`, older Pi OS installs) there
-is no wheel and the Solver will not start. The Forecaster still works fine.
+Select total household consumption, not net grid import/export.
+Grid power alone excludes demand supplied by solar or the battery.
+
+| Source describes | Use for the whole-house load forecast? |
+|---|---|
+| Total measured household consumption in W or kW | Yes, after checking its meaning and coverage |
+| Grid import/export in W or kW | No. This is exchange with the grid, not total consumption. |
+| Today's consumption in kWh | No. This is energy, not instantaneous power. |
+| Another optimiser's proposed load or battery power | No. This is a plan, not a measurement. |
+
+If you cannot identify total consumption, stop before creating its Power Signal.
+Check your equipment integration's documentation rather than choosing by name alone.
+
+**Architecture note:** Nimbus declares `highspy` as an installation requirement
+in its [manifest](../custom_components/nimbus_load/manifest.json).
+Use a supported 64-bit Home Assistant installation.
+If this dependency cannot install, Nimbus setup can fail, including forecasting.
+Do not assume that the Forecaster remains available on an unsupported platform.
+
+### Check the inputs before installation
+
+1. Open **Developer Tools → States**.
+2. Check that each source has a numeric state rather than `unknown` or `unavailable`.
+3. Confirm the unit of each source.
+4. Check the forecast attributes for future timestamps and values.
+5. Check the source sensors in **History**.
+
+Use power sensors in W or kW, not cumulative energy meters in kWh.
+For prices, `30 c/kWh` means `0.30 $/kWh`, not `30 $/kWh`.
+Confirm that the selected solar forecast exposes intervals, not only a daily total.
+Use the [configuration reference](configuration-reference.md) for the available fields.
 
 ### A note on required fields
 
-Every Nimbus screen marks genuinely required fields with a **🔴** and says
-"🔴 = required" in its own description. **Everything without a 🔴 can be left
-blank.** Several screens have fifteen-plus fields and only two of them matter. Do
-not fill in fields just because they are there.
+The Solver wizard marks required fields with **🔴** and explains the marker.
+For the basic path, leave optional fields blank.
+Advanced features can require related fields together, even when each field is
+individually optional. Read that feature's instructions before enabling it.
 
 ---
 
 ## 3. Install it
 
 1. Open **HACS**.
-2. Three-dot menu, top right → **Custom repositories**.
-3. Repository: `https://github.com/code-imstillalive/nimbus`
-   Type/Category: **Integration**. Click **Add**.
-4. Search HACS for **Nimbus**, open it, click **Download**.
-5. **Restart Home Assistant** (Settings → System → top-right power icon →
-   Restart Home Assistant).
+2. From the three-dot menu, select **Custom repositories**.
+3. Enter `https://github.com/code-imstillalive/nimbus` in **Repository**.
+4. Select **Integration** as the type or category.
+5. Select **Add**.
+6. Find **Nimbus** in HACS.
+7. Open its page.
+8. Select **Download**.
+9. Restart Home Assistant from **Settings → System**.
 
 ![HACS Custom repositories dialog, with Nimbus listed as code-imstillalive/nimbus](images/setup/hacs-custom-repo.png)
 
-*Paste the URL into **Repository**, set **Type** to **Integration**, then **ADD**. Once added it appears in the list, as shown.*
+The custom repository appears in HACS after you add it.
 
 **Expected outcome:** after the restart, Nimbus appears in Settings → Devices &
 Services → **Add Integration** search.
 
-> ⚠️ **A restart is genuinely required, not a reload.** Nimbus is a Python
-> integration; Home Assistant can only load new Python on a full restart.
+> **Restart Home Assistant after installation or an update.**
+> A config-entry reload does not reliably load changed Python modules.
 
 ---
 
 ## 4. Add the integration
 
-1. **Settings → Devices & Services → + Add Integration**.
-2. Search **Nimbus**, click it.
-3. The dialog is titled **"Set up Nimbus"** and has **no fields** — it only
-   creates the Nimbus hub, the device everything else attaches to. Click
-   **Submit**.
+1. Open **Settings → Devices & Services → + Add Integration**.
+2. Search for **Nimbus**.
+3. Select **Nimbus**.
+4. Select **Submit** in the **"Set up Nimbus"** dialog.
+
+This dialog has no fields. It creates the Nimbus hub.
 
 ![The Select brand dialog with "nimbu" typed, showing Nimbus and JustNimbus](images/setup/setup-nimbus-dialog.png)
 
-> ⚠️ **Pick the one with the cloud-and-sun icon, named exactly “Nimbus”.**
-> Searching `nimbu` also returns **JustNimbus**, a completely unrelated integration for JustNimbus solar hardware. They are different products that happen to sort together. The Nimbus entry shows a local-package icon; JustNimbus shows a globe.
+> **Select the integration named exactly "Nimbus", not "JustNimbus".**
+> Use the name to identify it. Icons can vary between Home Assistant versions.
 
 **Expected outcome:** you land on the Nimbus device page, and a **persistent
 notification** appears pointing you at Configure → Solver settings. That
-notification is not an error — it exists because of the trap in [§7](#7-set-your-real-battery-and-grid-numbers).
+notification is not an error: it exists because of the trap in [§7](#7-set-your-real-battery-and-grid-numbers).
 
 On the Nimbus integration page, two things matter:
 
-- **The `+` buttons along the top** — one per thing you can add (Load, Power
+- **The `+` buttons along the top**: one per thing you can add (Load, Power
   Signal, Controllable Load, Battery Participant, and three diagram-only types).
   This guide writes these as **"+ Add → Power Signal"** and so on.
-- **The gear icon on the `Nimbus` hub row** — settings that apply to everything at
+- **The gear icon on the `Nimbus` hub row**: settings that apply to everything at
   once. This guide calls it **Configure**, which is what Home Assistant calls it
   elsewhere.
 
 ![The Nimbus integration page](images/setup/integration-page.png)
 
-*The Nimbus integration page. The **seven `+` buttons** across the top are how you
-add everything — Load, Power Signal, Power Source, PV String, Battery Tower,
-Controllable Load, Battery Participant. The **gear icon** on the `Nimbus` hub row
-(right-hand side) is what this guide calls **Configure**. Sub-devices like Backtest
-and Counterfactual appear on their own as Nimbus creates them; you never add those
-yourself.*
+The integration page has controls for adding devices and signals.
+The gear icon opens the hub configuration. Nimbus creates reporting sub-devices
+such as Backtest and Counterfactual automatically.
 
-> ℹ️ If you only want **load forecasting** and no optimisation at all, you can stop
-> after [§12](#12-loads--learn-one-appliance-at-a-time) and never touch the Solver.
-> Nothing breaks.
+> **Forecasting only:** follow your route in [§2](#choose-your-route).
+> Create the relevant Load or Power Signal, then verify that its forecast appears.
+> Do not continue into the Solver wizard.
 
 ---
 
 ## 5. Create the forecast the Solver needs
 
-**Do this before the Solver wizard.** This is the step people skip, and skipping
-it is why the Solver wizard then looks impossible to finish.
+Create the household load forecast before opening the Solver wizard.
+The wizard needs the resulting forecast entity.
 
-The Solver needs a **household load forecast**. Nimbus makes one for you — but you
-have to create it first, as a **Power Signal**. The Solver wizard asks you to pick
-it, and if it does not exist yet there is nothing in the dropdown.
+Create a **Power Signal** from your measured whole-house power sensor.
+Do not select a forecast or an optimiser output as its source.
 
 ### Create the whole-house load signal
 
@@ -212,36 +270,50 @@ it, and if it does not exist yet there is nothing in the dropdown.
 
 ![The Add a power signal dialog, with Role left as Other](images/setup/add-power-signal.png)
 
-*Pick your real whole-house power sensor under **Sensor to forecast**, and leave **Role** as **Other**. Note the help text: it must be a genuine MEASUREMENT, never another optimiser's plan or forecast entity.*
+The Power Signal screen takes a measured sensor as its input.
+The **Other** role is suitable for a whole-house consumption signal.
 
 **Expected outcome:** a new sensor named after your source:
 `sensor.nimbus_<your_sensor_name>_forecast`. The name is derived from your source sensor's own name, so a
 whole-house sensor called `house_total_power` produces a Nimbus forecast entity
 ending `_house_total_power_forecast`.
 
-> ⚠️ **It will read `unknown` for a few minutes.** Nimbus has to train a model
-> against your Recorder history first. That is expected. If it is still `unknown`
-> after ~15 minutes, see [Troubleshooting](#troubleshooting).
+### Find the forecast you just created
+
+1. Open **Settings → Devices & Services → Entities**.
+2. Filter the list to the Nimbus integration.
+3. Find the forecast whose name matches your selected source.
+4. Open the entity and its settings.
+5. Copy its actual **Entity ID**.
+6. Find that ID in **Developer Tools → States**.
+7. Inspect its `forecast` attribute for timestamped values.
+
+Record both the displayed name and entity ID.
+Select this same entity in the Solver's household-load field.
+Names can differ between installations or after renaming.
+Do not enter `sensor.nimbus_<your_sensor_name>_forecast` literally.
+
+> **Initial training can take several minutes.**
+> If the forecast remains `unknown`, check its training status and source history.
+> See [Troubleshooting](#troubleshooting). Fifteen minutes is a diagnostic prompt,
+> not a guaranteed training deadline.
 
 ### Optionally, a solar signal
 
 If your solar forecast integration already gives you a forecast sensor (Solcast
-etc.), you do **not** need this — use theirs. Only add a Power Signal for solar if
+etc.), you do **not** need this: use theirs. Only add a Power Signal for solar if
 you want Nimbus to forecast your inverter's DC power itself.
 
 ### The two traps on this screen
 
-> ⚠️ **Never point a Power Signal at an optimiser's plan entity.** Use real,
+> **Never point a Power Signal at an optimiser's plan entity.** Use real,
 > measured sensors only. Point it at HAEO's, EMHASS's or Nimbus's own output and
 > the model learns from its own predictions, and the forecast slowly becomes
 > nonsense.
 
-> ⚠️ **Never use `sensor.nimbus_household_load_total_forecast` as a source for
-> anything.** That entity is the Solver's *output* roll-up, not an input. Pointing
-> the Solver's load field at it creates a loop that produces a confident-looking
-> plan built on "nobody in this house uses any power". A real install lost about
-> **$46 in a day** to exactly this, with every health field still green. Nimbus now
-> rejects this case automatically, but the cleanest fix is not to do it.
+> **Do not use `sensor.nimbus_household_load_total_forecast` as a forecasting or Solver input.**
+> It is an output for display and diagnostics. Feeding it back into planning creates
+> a circular dependency. Select the Power Signal forecast instead.
 
 ---
 
@@ -253,35 +325,40 @@ You get a menu, **"Nimbus settings"**, with three options:
 
 | Menu option | Do it now? |
 |---|---|
-| Forecaster settings (shared sensors + tuning) | **No** — entirely optional, [§11](#11-forecaster-settings--make-the-learning-better) |
-| **Solver settings (your real battery/grid/solar setup)** | **Yes — this one** |
-| Topology diagram settings | **No** — cosmetic, [§16](#16-the-topology-diagram) |
+| Forecaster settings (shared sensors + tuning) | **No**: entirely optional, [§11](#11-forecaster-settings--make-the-learning-better) |
+| **Solver settings (your real battery/grid/solar setup)** | **Yes: this one** |
+| Topology diagram settings | **No**: cosmetic, [§16](#16-the-topology-diagram) |
 
 ![The Nimbus settings menu](images/setup/settings-menu.png)
 
-*The **Nimbus settings** menu, reached from the gear icon. Three options, and only
-the middle one matters for Part 1.*
+The basic path uses **Solver settings**.
+Forecaster tuning and topology settings are optional.
 
 Pick **Solver settings**. It is a three-screen wizard.
 
-### Screen 1 of 3 — "Solver: Battery"
+<a id="screen-1-of-3--solver-battery"></a>
+
+### Screen 1 of 3: "Solver: Battery"
 
 **Exactly one required field.**
 
 | Field | What to put |
 |---|---|
-| **🔴 Battery State of Charge sensor (%)** | Your inverter's own live SoC sensor. A real 0–100 % measurement, not a target or setpoint. |
+| **🔴 Battery State of Charge sensor (%)** | Your inverter's own live SoC sensor. A real 0 to 100 % measurement, not a target or setpoint. |
 | Live max-discharge setpoint entity | **Leave blank.** Correct for almost every install. |
 
 ![Solver Battery, screen 1 of 3, with the State of Charge sensor selected](images/setup/solver-wizard-1-battery.png)
 
-> ℹ️ **Where is capacity? Where are the power limits?** Not here. They are live
-> `number.*` entities you edit from the dashboard instead — that is
-> [§7](#7-set-your-real-battery-and-grid-numbers), and you must not skip it.
+> **Set capacity and power limits after the wizard.**
+> These are live `number.*` entities.
+> Complete [§7](#7-set-your-real-battery-and-grid-numbers) before evaluating the plan.
 
-### Screen 2 of 3 — "Solver: Grid Prices"
+<a id="screen-2-of-3--solver-grid-prices"></a>
 
-**Two required fields.** There are ten on screen; ignore the other eight.
+### Screen 2 of 3: "Solver: Grid Prices"
+
+Two fields are required for the basic path.
+Leave the remaining fields blank initially.
 
 | Field | What to put |
 |---|---|
@@ -291,31 +368,65 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 ![Solver Grid Prices, screen 2 of 3, with the two required price sensors set](images/setup/solver-wizard-2-prices.png)
 
-> ℹ️ **On a flat tariff?** Make two template sensors with your fixed rates and point
-> these at them. Nimbus still earns its keep on solar self-consumption and battery
-> cycling; it just has less to work with.
+> **For a flat tariff:** use existing price sensors or create the helpers below.
+> Savings depend on your equipment and usage, not only the tariff.
 >
-> ℹ️ **If your price sensor has its own `forecast` attribute**, Nimbus uses it
-> automatically for forward planning. If not, it holds the current price flat across
-> the horizon. Both work; the first works better.
+> **If the source provides a supported price forecast, Nimbus uses it for planning.**
+> Otherwise, it can hold the current price across the horizon.
+> Check the resulting plan prices rather than assuming a forecast was accepted.
 
-### Screen 3 of 3 — "Solver: Solar & Load Forecasts"
+#### Create price sensors for a flat tariff
+
+Skip this example if your retailer already provides suitable price sensors.
+Do not use fixed prices to represent time-of-use or dynamic tariffs.
+
+1. Open **Settings → Devices & Services → Helpers**.
+2. Select **Create helper → Template → Sensor**.
+3. Enter the import sensor's name, state template and unit from the table below.
+4. Leave **Device class** and **State class** unset.
+5. Select **Submit**.
+6. Repeat for the export sensor.
+7. Copy each helper's actual entity ID from its settings.
+8. Inspect both entities in **Developer Tools → States**.
+
+| Field | Import example | Export example |
+|---|---|---|
+| Name | Flat import price | Flat export price |
+| State | `{{ 0.30 }}` | `{{ 0.05 }}` |
+| Unit of measurement | `$/kWh` | `$/kWh` |
+
+Replace the example rates with your actual tariff before saving.
+These examples represent 30 cents paid per imported kWh and 5 cents received per exported kWh.
+With these example rates, the states must be `0.30` and `0.05`, not `30` and `5`.
+Home Assistant can display equivalent values without trailing zeros.
+Confirm that both units are `$/kWh`, then select the helpers in the Solver wizard.
+
+Use only the per-kWh rates here, not a daily supply charge.
+For a negative export price, retain its sign.
+Update these helpers when your fixed rates change.
+If Template is missing from the helper list, consult the
+[Home Assistant template instructions](https://www.home-assistant.io/integrations/template/).
+The UI helper route requires Home Assistant's `default_config` integration.
+
+<a id="screen-3-of-3--solver-solar--load-forecasts"></a>
+
+### Screen 3 of 3: "Solver: Solar & Load Forecasts"
 
 **Two required fields out of sixteen.**
 
 | Field | What to put |
 |---|---|
 | **🔴 Solar generation forecast sensor** | Your Solcast / Open-Meteo / Forecast.Solar sensor. |
-| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)** — `sensor.nimbus_<your_sensor>_forecast`. |
-| *Optional: individual circuit forecast sensors* | **Leave completely blank.** See the warning below. |
+| **🔴 Household load forecast sensor** | **The Power Signal you made in [§5](#5-create-the-forecast-the-solver-needs)**: `sensor.nimbus_<your_sensor>_forecast`. |
+| Optional: individual circuit forecast sensors | **Leave completely blank.** See the warning below. |
 | Everything else | **Leave blank.** [§15](#15-the-daily-quality-score) and [§18](#18-optional-inputs) cover them. |
 
 ![Solver Solar and Load Forecasts, screen 3 of 3](images/setup/solver-wizard-3-forecasts.png)
 
-> ⚠️ **The silent-override trap.** "Individual circuit forecast sensors" **beats**
-> "Household load forecast sensor" outright the moment it has even one entry — no
-> warning, no error. If you ever experiment with it and change your mind, you must
-> **empty it completely**, or it keeps winning and you will not be told.
+> **Individual circuit forecasts take priority over the household forecast.**
+> For the basic whole-house path, leave the circuit list empty.
+> If you previously added entries, remove all of them to restore the household source.
+> Check `load_forecast_source_used` in the [template check](#every-check-in-one-place).
 
 Submit. **Expected outcome:** the dialog closes and a batch of new
 `number.nimbus_solver_*` entities exists on the Nimbus device.
@@ -326,101 +437,205 @@ Submit. **Expected outcome:** the dialog closes and a batch of new
 
 **This is the single most important step in this guide, and the easiest to miss.**
 
-Every numeric Solver setting — capacity, charge/discharge limits, grid limits,
-efficiency, costs — lives on its own `number.*` entity, **not** in the wizard. They
-all start at a **defensive placeholder minimum**: battery capacity starts at
-**0.1 kWh**.
+Numeric Solver settings live on `number.*` entities, not in the wizard.
+On a fresh installation, capacity and several power limits start at placeholder
+values of **0.1**. Other settings have their own defaults.
+Existing installations can restore previously saved values.
 
-**A 0.1 kWh battery solves perfectly happily and produces a completely useless
-plan.** No error. No warning. The plan just quietly assumes you have almost no
-battery.
+An incorrect capacity can still produce an optimal solve.
+Replace the placeholders before you evaluate the plan.
 
 ### Set these now
 
-On the Nimbus device page (or Settings → Devices & Services → Nimbus → entities):
+Use the entity controls to save these settings:
+
+1. Open **Settings → Devices & Services → Entities**.
+2. Filter to Nimbus and find the number entity from the table.
+3. Open its control and enter your value.
+4. Confirm the change if the dialog requests it.
+5. Close and reopen the control to check the saved value.
+6. Repeat for the remaining settings.
+7. After the next solve, confirm that the values remain correct.
+
+Use equipment and connection documentation for these values.
+If you cannot establish a limit or capacity basis, stop rather than guessing.
+Do not use **Developer Tools → States → Set state** to configure a number.
+That changes the displayed state, not the underlying configuration.
 
 | Entity | Set it to |
 |---|---|
-| `number.nimbus_solver_battery_capacity_kwh` | Your battery's real **usable** capacity in kWh |
+| `number.nimbus_solver_battery_capacity_kwh` | Capacity before the configured SoH derating. See the capacity example below. |
 | `number.nimbus_solver_max_charge_kw` | Real max charge power |
 | `number.nimbus_solver_max_discharge_kw` | Real max discharge power |
-| `number.nimbus_solver_grid_max_import_kw` | Your main breaker / connection import limit |
+| `number.nimbus_solver_grid_max_import_kw` | Your permitted import power in kW. Do not enter a breaker rating in amperes. |
 | `number.nimbus_solver_grid_max_export_kw` | Your approved export limit |
 | `number.nimbus_solver_battery_min_soc_percent` | Your floor, e.g. `10` |
 | `number.nimbus_solver_battery_max_soc_percent` | Your ceiling, e.g. `100` |
 | `number.nimbus_solver_efficiency_percent` | Round-trip efficiency, e.g. `90` |
-| `number.nimbus_solver_battery_soh_percent` | State of health, `100` if new |
+| `number.nimbus_solver_battery_soh_percent` | State of health (SoH), applied to the capacity above |
 
 ![Nimbus number entities on a dashboard](images/setup/load-controls.png)
 
-*Every setting in this step is an ordinary `number.*` entity, so you can put them
-all on one dashboard and edit them inline — no wizard, no restart. This is a
-fully-populated example: capacity, SoC floor/ceiling, charge and discharge limits,
-grid limits, efficiency and the economic costs, alongside the network-fee blocks
-and scheduled loads from Part 2.*
+The number entities can appear together on a dashboard.
+The screenshot includes optional settings from Part 2 as well as the basic limits.
 
-> ℹ️ **Usable, not nameplate.** If you have a 10 kWh pack the manufacturer only lets
-> you use 9 kWh of, enter 9. You can instead leave capacity at nameplate and carve
-> out the reserve with `min_soc_percent` / `max_soc_percent` — just do not do both,
-> or you double-count.
+### Match capacity to the SoC sensor
 
-> ℹ️ Every one of these is live-editable forever. You never need to re-run the wizard
+Nimbus calculates effective capacity as:
+
+```text
+effective capacity = configured capacity × SoH / 100
+minimum stored energy = effective capacity × minimum SoC / 100
+maximum stored energy = effective capacity × maximum SoC / 100
+```
+
+This follows the [capacity calculation](../custom_components/nimbus_load/solver_shared.py).
+The SoC limits apply after SoH derating.
+
+For example, `10 kWh` with `90%` SoH gives `9 kWh` effective capacity.
+A `10%` to `100%` SoC range then permits `0.9 kWh` to `9 kWh`.
+These are illustrative values, not recommended limits.
+
+Use capacity and SoC values that describe the same battery measurement basis.
+If capacity already includes degradation, do not apply that reduction again through SoH.
+Likewise, do not subtract a reserve from capacity and apply the same reserve through
+the SoC floor. Confirm the correct basis with your equipment documentation.
+
+Use manufacturer and connection limits for power settings.
+Do not convert an amperage rating to a kW limit without confirming the supply
+voltage, phase configuration and applicable connection limits.
+
+> Every one of these is live-editable forever. You never need to re-run the wizard
 > to change a number.
 
 ---
 
 ## 8. Check it actually worked
 
-Open **Developer Tools → States**. This is the whole acceptance test.
+Open **Developer Tools → States**. First confirm that Nimbus has produced a plan.
+Then complete the input and plausibility checks below.
 
 | # | Entity | Expected | If it is wrong |
 |---|---|---|---|
-| 1 | `sensor.nimbus_solver_config` | **`configured`** | Wizard did not complete — re-run [§6](#6-run-the-solver-settings-wizard) |
+| 1 | `sensor.nimbus_solver_config` | **`configured`** | Wizard did not complete: re-run [§6](#6-run-the-solver-settings-wizard) |
 | 2 | `sensor.nimbus_solver_lp_status` | **`optimal`** | See [Troubleshooting](#troubleshooting) |
-| 3 | `sensor.nimbus_solver_solve_seconds` | a number, typically **0.5–3** | If absent, the Solver never ran |
+| 3 | `sensor.nimbus_solver_solve_seconds` | A numeric solve duration | If absent, check whether a solve completed |
 | 4 | `sensor.nimbus_solver_battery_forecast` | a kW number with a long `forecast` attribute | If `unknown`, no plan yet |
 
 ![Nimbus Solver dashboard showing config, solve status and parameters](images/setup/solver-overview.png)
 
-*The same acceptance test, as a dashboard instead of Developer Tools. **Solver
-Config: configured**, **Status: optimal**, solve time **1.18 s**, **204 periods /
-96.4 h** horizon — and the live `number.*` parameters on the left showing real
-values rather than placeholders (Battery Capacity **122.2 kWh**, not `0.1`).*
+This dashboard shows solver status and configured parameters.
+Its example capacity and solve time are not acceptance criteria.
 
-**`lp_status: optimal` is the one that means "it is working."** It means the
-optimiser found a real, feasible, cost-minimal plan.
+**`optimal` describes the mathematical solve, not the installation's safety or accuracy.**
+It does not prove correct inputs, physical delivery, forecast accuracy or realised
+savings. Some model limits can carry penalties rather than prevent a solution.
 
-### Sanity-check the plan is about *your* house
+### Sanity-check the plan is about your house
 
 | Entity | Should look like |
 |---|---|
-| `sensor.nimbus_solver_current_soc_pct` | your battery's real charge level right now |
-| `sensor.nimbus_solver_current_load_kw` | your real household draw right now |
-| `sensor.nimbus_solver_current_import_price` | your real current buy price |
-| `sensor.nimbus_solver_horizon_hours` | how far ahead it planned, typically ~96 |
-| `sensor.nimbus_solver_binding_constraint_now` | a plain-English sentence, e.g. *"Grid export at zero (not economical right now)"* |
+| `sensor.nimbus_solver_current_soc_pct` | The plan's current-period SoC. Compare it with the independent battery measurement. |
+| `sensor.nimbus_solver_current_load_kw` | The current-period load used in the plan, not an independent household measurement |
+| `sensor.nimbus_solver_current_import_price` | The price used for the current plan period. Compare it with the source tariff. |
+| `sensor.nimbus_solver_horizon_hours` | The planning horizon, which can exceed the coverage of the source forecasts |
+| `sensor.nimbus_solver_binding_constraint_now` | An explanation such as "Grid export at zero (not economical right now)" |
 
-`binding_constraint_now` is the most useful single sensor in Nimbus. It tells you
-**why** the plan is doing what it is doing, in words.
+`binding_constraint_now` explains the model's current constraint.
+It helps diagnose a plan but does not confirm that hardware followed it.
+
+### First-run acceptance gate
+
+- [ ] Capacity, SoH, SoC limits and power limits match the equipment and connection.
+- [ ] The selected inputs have correct units and plausible values.
+- [ ] The load forecast comes from measured consumption, not another plan.
+- [ ] The plan's `forecast` timestamps cover the current time and future periods.
+- [ ] A new solve produces current results, rather than leaving an old plan on display.
+- [ ] The proposed flows are plausible against independent measurements.
+- [ ] `recent_errors`, `recent_warnings` and `subentry_status` have no unexplained problems.
+- [ ] Device command fields are blank and external dispatch automations are disabled during observation.
+
+If a check fails, correct it before enabling control.
+A week of observation can reveal recurring patterns, but elapsed time alone is not
+an acceptance test.
 
 ### A paste-ready template check
 
-Developer Tools → **Template**, paste this:
+This check is read-only. It does not enable control or request a solve.
+Open **Developer Tools → Template** and paste the complete block:
 
 ```jinja
+{% set rows = state_attr('sensor.nimbus_solver_battery_forecast', 'forecast') %}
+{% set first = rows[0] if rows is sequence and rows is not string
+    and rows is not mapping and rows | length > 0 and rows[0] is mapping else {} %}
+{% set start = as_timestamp(first.get('time'), none) %}
+{% set hours = first.get('hours') | float(0) %}
+{% set clock = as_timestamp(now()) %}
 Config:      {{ states('sensor.nimbus_solver_config') }}
 LP status:   {{ states('sensor.nimbus_solver_lp_status') }}
 Solve time:  {{ states('sensor.nimbus_solver_solve_seconds') }} s
 Periods:     {{ states('sensor.nimbus_solver_n_periods') }}
 Horizon:     {{ states('sensor.nimbus_solver_horizon_hours') }} h
 Capacity:    {{ states('number.nimbus_solver_battery_capacity_kwh') }} kWh
+Max charge:  {{ states('number.nimbus_solver_max_charge_kw') }} kW
+Max dischg:  {{ states('number.nimbus_solver_max_discharge_kw') }} kW
 SoC now:     {{ states('sensor.nimbus_solver_current_soc_pct') }} %
 Load now:    {{ states('sensor.nimbus_solver_current_load_kw') }} kW
+Solar now:   {{ states('sensor.nimbus_solver_current_solar_kw') }} kW
+Import now:  {{ states('sensor.nimbus_solver_current_import_price') }} $/kWh
+Direction:   {{ states('sensor.nimbus_solver_current_dispatch_direction') }}
+Plan cost:   {{ states('sensor.nimbus_solver_total_cost') }} (model objective, not a bill)
 Why:         {{ states('sensor.nimbus_solver_binding_constraint_now') }}
 Health:      {{ states('sensor.nimbus_health_report') }} errors
+Load source: {{ state_attr('sensor.nimbus_household_load_total_forecast', 'load_forecast_source_used') }}
+First period: {{ first.get('time', 'missing') }}
+Period hours: {{ first.get('hours', 'missing') }}
+Period check: {% if not is_number(start) or not is_number(hours) or hours <= 0 %}missing or invalid period
+{% elif clock < start %}future period, not current
+{% elif clock >= start + hours * 3600 %}expired period, inspect solve progress
+{% else %}covers now, continue the other checks
+{% endif %}
+Recent errors: {{ state_attr('sensor.nimbus_health_report', 'recent_errors') }}
+Recent warnings: {{ state_attr('sensor.nimbus_health_report', 'recent_warnings') }}
+Training detail: {{ state_attr('sensor.nimbus_health_report', 'subentry_status') }}
+Never trained: {{ state_attr('sensor.nimbus_health_report', 'never_trained') }}
 ```
 
-A healthy install returns something like:
+The period check uses the published start time and duration, not a guessed solve cadence.
+Missing, non-positive or non-finite durations are rejected by this example.
+A current period does not prove that the source measurements are fresh.
+Check their values and timestamps separately.
+
+### Request and verify one solve
+
+1. Confirm that external dispatch automations are disabled.
+2. Confirm that all controllable-load **Device to command** assignments are blank.
+3. Record the template output above.
+4. Open **Developer Tools → Actions**.
+5. Select `nimbus_load.solve_now` from the action picker.
+6. Select **Perform action**.
+7. Return to **Template** and inspect the output after the solve completes.
+8. Reopen the edited number controls to confirm their values.
+
+The action takes no entity target or other fields.
+It recomputes the plan. It is not inherently an observation-only action.
+The first two steps prevent the configured control paths from using that plan.
+
+| Result | Next step |
+|---|---|
+| Missing or invalid period, or absent plan | Inspect source availability and training details. Do not enable control. |
+| Future or expired period | Inspect solve progress and logs. A successful action call is not proof of a current plan. |
+| Entries in `never_trained`, or missing forecast data | Check recorded source history and training progress before retrying. |
+| Errors, warnings or missing diagnostic attributes (`None`) | Investigate before treating the check as complete. Empty lists are different from missing attributes. |
+| Current period, optimal result and plausible inputs | Complete the remaining first-run checks. This is not permission to enable hardware control. |
+
+Two solves within one period can have identical timestamps and values.
+Use the action result and logs to confirm solve execution.
+Use the template to inspect the plan, not to prove that its inputs were refreshed.
+Avoid repeated calls while a solve is still running.
+
+The following shows selected scalar values from one installation.
+It is not the complete template output or an acceptance threshold:
 
 ```
 Config:      configured
@@ -435,109 +650,41 @@ Why:         Grid export pinned at 12.00 kW by P2P export commitment
 Health:      0 errors
 ```
 
-**If `Capacity` says `0.1`, go back to [§7](#7-set-your-real-battery-and-grid-numbers).**
-That is the most common mistake, and every number above it is meaningless until
-you fix it.
+**If capacity is still a placeholder, return to [§7](#7-set-your-real-battery-and-grid-numbers).**
+Check power limits too. An `optimal` result can still use incorrect configuration.
 
 ---
 
 ## 9. Put a dashboard on it
 
-Nimbus ships three custom cards, installed automatically with the integration —
+Nimbus ships three custom cards, installed automatically with the integration:
 there is nothing to copy into `www/` and no resource to register by hand.
 
 | Card | Shows |
 |---|---|
 | **Control Panel** (`custom:nimbus-dispatch-card-v4`) | The live plan: what it is doing now, why, prices, SoC, upcoming schedule |
 | **Topology** (`custom:nimbus-topology-card`) | An animated diagram of power flowing between solar, battery, house and grid |
-| **Regret** (`custom:nimbus-regret-card`) | Yesterday's score — what the plan captured vs what perfect foresight would have |
+| **Regret** (`custom:nimbus-regret-card`) | Yesterday's score: what the plan captured vs what perfect foresight would have |
 
 ### The fastest way in
 
-[`dashboards.md`](dashboards.md) has a **complete three-view dashboard you can
-copy-paste whole**. Do that rather than building cards one at a time:
+Start with a sensor-only **Entities** card.
+It needs no mode selector, armed helper or household-specific sensor placeholders.
 
-1. **Settings → Dashboards → + Add Dashboard** → "New dashboard from scratch".
-   Name it **Nimbus**.
-2. Open it, pencil icon (top right) → three-dot menu → **Raw configuration editor**.
-3. Delete what is there, paste the block from
-   [`dashboards.md`](dashboards.md#full-three-view-nimbus-dashboard-copy-paste),
-   **Save**.
+1. Open **Settings → Dashboards → + Add Dashboard**.
+2. Create a new dashboard from scratch and name it **Nimbus**.
+3. Open the dashboard and select **Edit**.
+4. Select **Add card**, or the add-card control inside a section.
+5. Choose the **Entities** card.
+6. Add the sensor entities listed below.
+7. Save the card and finish editing the dashboard.
 
-![The dashboard edit menu, with Raw configuration editor highlighted](images/setup/raw-config-editor.png)
-
-*With the dashboard in edit mode, the ⋮ menu top-right has **Raw configuration editor**. That opens a YAML pane — replace everything in it with the dashboard YAML, then **Save**.*
-
-**Expected outcome:** three views — Control Panel, Topology, Regret.
-
-![Nimbus Control Panel view](images/setup/control-panel.png)
-
-*The **Control Panel** view. It states the decision and the reasoning in plain
-English — here, *"Battery discharging 12.9 kW plus 0.0 kW solar covers the 0.9 kW
-load with 12.0 kW left to export at 57.0c/kWh (spot 9.7c + P2P 47.3c) — worth more
-now than buying it back later at 25.7c/kWh."* The risk sliders are live and
-editable, the plan-vs-actual chart and the per-interval price table sit below, and
-the ARMED/OFF toggle top-right is the kill switch for your own dispatch automation.*
-
-![Nimbus Topology view](images/setup/topology.png)
-
-*The **Topology** view on a two-inverter / four-tower system. Each inverter is
-named with its real model (here `SH25T` and `SH15T`) and carries its own battery
-towers, every tower showing its own SoC / SoH / voltage / temperature. Live power
-animates along each active path, every monitored circuit is listed on the right
-with its live draw and its Nimbus forecast, and daily solar / battery / load
-totals run across the top.*
-
-![Nimbus Regret view](images/setup/regret.png)
-
-*The **Regret** view. `EPR` is the headline — the share of theoretically-available
-value captured. `J_REF` is the do-nothing baseline, `J_ACH` what actually happened,
-`J_STAR` what perfect foresight would have achieved, and `REGRET` the gap. The
-chart compares all three hour by hour.*
-
-> ⚠️ **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
-> Cmd-Shift-R). The cards are registered by the integration at startup, and the
-> browser caches the old resource list. If it persists, restart Home Assistant.
-
-> ℹ️ The Regret view stays empty until the quality score is switched on and has had
-> a full day to score — see [§15](#15-the-daily-quality-score). An empty Regret card
-> on day one is expected, not broken.
-
-### Other views worth building
-
-The three cards above are what Nimbus ships. The reference household adds a few
-ordinary-Lovelace views on top, shown here as ideas rather than as something you
-have to reproduce:
-
-![Forecaster view — combined forecast chart](images/setup/forecaster-chart.png)
-
-*A **Forecaster** view: every Nimbus forecast on one axis — solar, battery and
-grid, each with its upper/lower confidence band — plus temperature and humidity,
-and the Solver's own proposed battery/grid trajectory overlaid. The vertical
-`now` line separates measured history from forecast.*
-
-![Shadow-mode comparison chart](images/setup/solver-shadow-comparison.png)
-
-*A **shadow-mode comparison**: what Nimbus plans, against what actually happened,
-against whatever optimiser you are migrating from. This is the single most useful
-thing to build before you let Nimbus drive anything — it answers "would I have
-been better off?" with data instead of opinion, and it costs nothing to run
-because Nimbus is only publishing a plan.*
-
-![Solver parameters and counterfactual](images/setup/solver-fees-counterfactual.png)
-
-*A **Solver** view carrying the tuning knobs from [§17](#17-tuning-knobs), the
-network-fee blocks, and the daily counterfactual — "if Nimbus alone had been
-deciding since midnight, would the battery still have been ready?" — with a
-multi-day trend of that answer.*
-
-### If you would rather not use the custom cards
-
-Everything Nimbus publishes is a plain sensor, so an ordinary Entities card works:
+The following is optional card-editor YAML, not a complete dashboard configuration:
 
 ```yaml
 type: entities
-title: Nimbus
+title: Nimbus observation
+show_header_toggle: false
 entities:
   - sensor.nimbus_solver_lp_status
   - sensor.nimbus_solver_current_dispatch_direction
@@ -546,91 +693,200 @@ entities:
   - sensor.nimbus_solver_current_import_price
   - sensor.nimbus_solver_current_export_price
   - sensor.nimbus_solver_total_cost
-  - number.nimbus_solver_battery_capacity_kwh
 ```
+
+Use your actual IDs if you renamed these entities.
+Do not paste this single-card block into the dashboard's raw configuration editor.
+The [Home Assistant card instructions](https://www.home-assistant.io/dashboards/cards/)
+explain the card picker and layout differences.
+
+**Expected outcome:** one card displays solver status and plan values.
+It has no switches, number controls or dispatch helpers.
+Compare its values with the acceptance check before adding advanced cards.
+
+### Three-view dashboard (optional)
+
+The [three-view template](dashboards.md#full-three-view-nimbus-dashboard-copy-paste)
+adds Control Panel, Topology and Regret.
+It is not ready to paste unchanged into a new household's installation.
+
+Prepare its entity mappings first:
+
+| Template field | What to do |
+|---|---|
+| `battery_power_entity` | Replace the placeholder with your measured battery-power entity. Check the sign options in the card reference. |
+| `battery_soc_entity` | Use your measured battery SoC entity. |
+| `grid_power_entity` | Use measured grid power, not whole-house consumption. Check the card's required units and sign. |
+| `solar_power_entity` | Use measured solar power, not a solar forecast. |
+| `mode_select_entity` and `armed_entity` | For observation, remove both configuration lines. Do not create dispatch helpers just to complete basic setup. |
+
+If you later use the helper controls, create and configure them before mapping them.
+The [card reference](dashboards.md) specifies the helper types and mode options.
+An external automation must explicitly implement their meaning.
+They do not establish a hardware control path by themselves.
+
+To install the mapped three-view template:
+
+1. **Settings → Dashboards → + Add Dashboard** → "New dashboard from scratch".
+   Name it **Nimbus**.
+2. Open it, pencil icon (top right) → three-dot menu → **Raw configuration editor**.
+3. In this new dashboard only, replace the contents with your mapped block from
+   [the three-view template](dashboards.md#full-three-view-nimbus-dashboard-copy-paste),
+   **Save**.
+
+![The dashboard edit menu, with Raw configuration editor highlighted](images/setup/raw-config-editor.png)
+
+The dashboard edit menu opens the raw YAML editor.
+Use a new dashboard so that you do not overwrite an existing layout.
+
+**Expected outcome:** three views: Control Panel, Topology, Regret.
+
+![Nimbus Control Panel view](images/setup/control-panel.png)
+
+The Control Panel explains the proposed dispatch and displays prices and risk settings.
+Its ARMED/OFF toggle controls the helper configured as `armed_entity`.
+
+> **The card toggle is not a built-in hardware interlock.**
+> It changes an `input_boolean` helper only.
+> Your external dispatch automation must check that same helper and implement a
+> safe response when it turns off. It does not stop Nimbus controllable-load commands.
+
+![Nimbus Topology view](images/setup/topology.png)
+
+The Topology view illustrates a two-inverter system with four battery towers.
+Its detail depends on the sensors and topology metadata you configure.
+
+![Nimbus Regret view](images/setup/regret.png)
+
+The Regret view compares actual performance with modelled alternatives.
+`J_REF` is the baseline, `J_ACH` the achieved cost, and `J_STAR` the perfect-foresight cost.
+`REGRET` is the gap between achieved and perfect-foresight costs.
+
+> **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
+> Cmd-Shift-R). The cards are registered by the integration at startup, and the
+> browser caches the old resource list. If it persists, restart Home Assistant.
+
+> The Regret view stays empty until the quality score is switched on and has had
+> a full day to score: see [§15](#15-the-daily-quality-score). An empty Regret card
+> on day one is expected, not broken.
+
+### Other views worth building
+
+The three cards above are what Nimbus ships. The reference household adds a few
+ordinary-Lovelace views on top, shown here as ideas rather than as something you
+have to reproduce:
+
+![Forecaster view: combined forecast chart](images/setup/forecaster-chart.png)
+
+This example compares forecasts and proposed battery and grid trajectories.
+The `now` line separates history from future estimates.
+
+![Shadow-mode comparison chart](images/setup/solver-shadow-comparison.png)
+
+This example compares a proposed plan with actual operation.
+It helps evaluate a change of controller, but it does not prove that the alternative
+dispatch was physically achievable.
+
+![Solver parameters and counterfactual](images/setup/solver-fees-counterfactual.png)
+
+This example groups tuning settings with the daily counterfactual.
+The counterfactual estimates another dispatch outcome from the configured model.
+
+### If you would rather not use the custom cards
+
+Keep the [sensor-only Entities card](#the-fastest-way-in).
+The custom cards and their helper controls are not required to inspect a plan.
 
 ---
 
 ## 10. What "working" looks like after a week
 
-- `sensor.nimbus_solver_lp_status` sits at `optimal` essentially always.
-- `sensor.nimbus_health_report` state is `0` or low. It counts recent ERROR-level
-  log lines; its `recent_errors` / `recent_warnings` attributes hold the detail so
-  you never have to open the log file.
-- Your forecast sensors stop being jumpy as the models see more history.
-- `sensor.nimbus_solver_total_cost` gives the plan's net cost over the horizon.
-  **Negative is good** — the plan expects to earn more than it spends.
+- Check that plans continue to update across changes in prices, demand and solar output.
+- Compare forecasts with measured consumption over several representative days.
+- Investigate non-optimal results and unexplained health errors or warnings.
+- Review planned costs as model estimates, not settled bills or proven savings.
 
-Once you believe the plans, go to Part 2.
+`sensor.nimbus_solver_total_cost` is the model objective over its horizon.
+It can include configured costs, penalties and terminal energy value.
+A negative value alone does not demonstrate a financial benefit.
+
+Proceed to Part 2 when the first-run checks pass.
+Add one feature at a time and repeat the relevant checks.
 
 ---
 
-# Part 2 — Advanced
+<a id="part-2--advanced"></a>
+
+# Part 2: Advanced
 
 Everything below is optional. Add one thing at a time and check
 `sensor.nimbus_solver_lp_status` is still `optimal` after each.
 
-## 11. Forecaster settings — make the learning better
+<a id="11-forecaster-settings--make-the-learning-better"></a>
 
-**Configure → Forecaster settings.** Every field is optional; submitting it blank
-is a complete, working configuration. These apply to *every* load and signal, set
-once instead of per-load.
+## 11. Forecaster settings: make the learning better
+
+Open **Configure → Forecaster settings** to change shared model settings.
+The basic path can use the defaults. These settings apply across loads and signals.
 
 ### Context sensors
 
-These are not forecast themselves. They are fed to every model as **context**, so a
-model can learn "this load behaves differently when the battery is charging".
+Context sensors help the model relate demand to other conditions.
+For example, a load can behave differently while the battery charges.
 
 | Field | Why bother |
 |---|---|
-| Temperature sensor | Real gains for anything weather-sensitive — aircon especially |
-| Temperature forecast sensor | Point it at your `weather.home` entity directly; Nimbus calls `weather.get_forecasts` for you |
+| Temperature sensor | Additional context for weather-sensitive loads |
+| Temperature forecast sensor | Select your weather entity. Nimbus calls `weather.get_forecasts`. |
 | Humidity sensor | Smaller effect, same idea |
 | Battery / Grid / Solar power sensors | System context |
 | Curtailment switch | Only if you have a load run specifically to soak up curtailed solar |
 
-> ⚠️ **"Never an optimizer's own plan/forecast"** appears on three of these fields
+> **"Never an optimizer's own plan/forecast"** appears on three of these fields
 > and it is not boilerplate. Measured sensors only.
 
 ### Tuning
 
 | Field | Default | Change it when |
 |---|---|---|
-| Forecast horizon (hours) | 48 | The Solver plans ~96 h; raising this costs retrain CPU |
-| Retrain at this hour | 3 | Pick a quiet hour — retraining uses real CPU briefly |
+| Forecast horizon (hours) | 48 | Longer forecasts need more computation. Check coverage against the Solver horizon. |
+| Retrain at this hour | 3 | Choose a quiet hour for model training |
 | Days of history to train on | 30 | More = steadier, but slower to adapt to a genuine habit change |
 | **Training data source** | Recorder history | **See below** |
-| Hybrid: recent days | — | Only used when source is Hybrid |
+| Hybrid: recent days | Not applicable to Recorder-only mode | Used when the source is Hybrid |
 
-> ⚠️ **The Recorder purge trap.** Default training reads full-resolution Recorder
-> history, bounded by your `purge_keep_days`. Keep 10 days, ask for 30, and you
-> silently train on 10. Either raise `purge_keep_days`, or switch **Training data
-> source** to:
-> - **Long-term statistics** — hourly buckets kept indefinitely, so a 90- or
->   365-day retrain always works, at the cost of blurring a load that switches on
->   and off within an hour.
-> - **Hybrid** — recent days at full resolution, older days from statistics. The
->   right answer for most people with a short purge window.
+> **Match the training window to available history.**
+> Recorder retention limits the full-resolution data available for training.
+> Requesting 30 days cannot restore records purged after 10 days.
+>
+> Long-term statistics use hourly summaries where suitable statistics exist.
+> They reduce detail for short appliance cycles.
+> Hybrid mode combines recent full-resolution data with older statistics.
+> Neither option creates history that was never recorded.
 
-## 12. Loads — learn one appliance at a time
+<a id="12-loads--learn-one-appliance-at-a-time"></a>
 
-**+ Add → Load.** One per circuit or appliance you want forecast individually — hot
-water, pool pump, EV charger, a specific breaker. As many as you like.
+## 12. Loads: learn one appliance at a time
+
+Select **+ Add → Load** for each appliance or circuit you want to forecast.
+Examples include hot water, a pool pump and an EV charger.
 
 | Field | Notes |
 |---|---|
 | **🔴 Power sensor to learn from** | One real circuit/appliance power sensor |
 | Fixed schedule start / end hour | Only for a load on a real fixed timer. **24-hour decimal**: `12.5` = 12:30pm |
-| Expected power while running (kW) | Only meaningful with a schedule; e.g. `3.7` for a HWS element |
+| Expected power while running (kW) | Used with a schedule. Enter the equipment's actual power. |
 
 **Expected outcome:** `sensor.nimbus_<name>_forecast` per load, plus the whole-house
 roll-up `sensor.nimbus_household_load_total_forecast`.
 
-> ℹ️ **Load vs Power Signal.** A **Load** is one appliance or circuit. A **Power
+> **Load vs Power Signal.** A **Load** is one appliance or circuit. A **Power
 > Signal** is a whole-system quantity (total battery power, total solar, the grid
 > meter). Same engine, different intent. If unsure: one appliance → Load.
 
-## 13. Controllable loads — let Nimbus switch things
+<a id="13-controllable-loads--let-nimbus-switch-things"></a>
+
+## 13. Controllable loads: let Nimbus switch things
 
 **This is the one place Nimbus physically commands your hardware.** Everything else
 only reads and plans.
@@ -640,14 +896,22 @@ only reads and plans.
 | Kind | Meaning | Use for |
 |---|---|---|
 | **Sheddable** | Can be reduced under price pressure, down to an optional floor | Pool heater, a dump load |
-| **Deferrable** | Has an energy target and a deadline; Nimbus picks *when* | Hot water, EV charging |
-| **Thermal** | A temperature is a **hard guarantee**, not a priced preference | A tank that must hit 60 °C daily |
+| **Deferrable** | Has an energy target and a deadline. Nimbus chooses the planned timing. | Hot water, EV charging |
+| **Thermal** | Plans against a temperature constraint. Actual temperature depends on measurement and hardware response. | A tank with a temperature target |
 
-**Only the fields for your chosen Kind are used — leave the rest blank.**
+Complete the fields for your chosen Kind. Leave unrelated fields blank.
+
+> **WARNING: Do not use a Nimbus schedule as the only protection for hot-water hygiene.**
+> A missed temperature target can create a health risk.
+> Retain the equipment's independent hygiene controls and applicable temperature requirements.
+>
+> **CAUTION: Retain the equipment's independent operating limits.**
+> Incorrect commands or rapid cycling can damage equipment.
+> Software hold times and activation caps do not replace manufacturer protections.
 
 ### The field that makes it act
 
-**"Device to command"** — the entity Nimbus switches:
+**"Device to command"**: the entity Nimbus switches:
 
 | Domain | What Nimbus does |
 |---|---|
@@ -655,15 +919,17 @@ only reads and plans.
 | `water_heater` | `set_operation_mode`: `performance` for on, `eco` for off |
 | `climate` | `set_hvac_mode`: your configured mode for on, `off` for off |
 
-Anything else logs a warning and does nothing.
+Other domains log a warning and receive no command.
+Before assigning a device, confirm that it supports the exact modes in this table.
+Not every `water_heater` supports `performance` and `eco`.
 
-> ⚠️ **Leave "Device to command" blank and Nimbus only plans and scores this load —
-> it never touches it.** That is the safe way to try a controllable load first. Fill
-> it in once you are happy with the schedule it has been proposing.
+> **Leave "Device to command" blank during observation.**
+> Assigning it enables Nimbus to command the load.
+> Verify supported modes, equipment limits and the stop procedure first.
 
-> ⚠️ **For a `climate` device you must also set "HVAC mode to command when ON".**
+> **For a `climate` device you must also set "HVAC mode to command when ON".**
 > Nimbus never guesses it from the device's supported modes. Left blank, ON commands
-> are skipped with a warning; OFF still works.
+> are skipped with a warning. OFF still works.
 
 ### Safety rails worth setting
 
@@ -671,36 +937,41 @@ Anything else logs a warning and does nothing.
 |---|---|
 | Minimum hold between commands (minutes) | Stops rapid cycling |
 | Max activations per day | Hard cap, whatever the plan wants |
-| Re-send command after (minutes) | If the device did not obey, re-send. Default 15; `0` = never. Re-sends do not count against the daily cap |
+| Re-send command after (minutes) | Re-send interval, default 15. `0` disables re-sends. Re-sends do not count against the daily cap. |
 
 ### Deferrable, the common case
 
 ```
 Kind:                   Deferrable
-Device to command:      water_heater.hws        (or blank to just plan)
+Device to command:      [leave blank for observation]
 Deferrable: max power:  3.7      kW
 Deferrable: target:     10       kWh by the deadline
 Earliest start:         0        (midnight)
 Deadline:               6.5      (6:30am)
-Done condition:         >= 60    (tank hits 60 °C → finished early)
+Done condition:         [configure the actual sensor and threshold]
 ```
 
-Two refinements people like:
+This example describes a planning target, not a safe hot-water operating procedure.
+Configure the done-condition sensor and threshold for your equipment.
+Do not infer that an energy target proves a hygiene temperature was reached.
 
-- **"Run as soon as it's this cheap"** — deliver early whenever price drops below
-  your figure, instead of holding out for the single cheapest hour on paper.
-- **"Don't wait unless it saves at least $X"** — the only setting in Nimbus allowed
-  to override a price signal. Set it so hot water demands a real dollar before it
-  will wait, while a pool pump happily chases two cents.
+Two optional refinements:
 
-## 14. Battery participants — a second battery or an EV
+- **"Run as soon as it's this cheap"**: allows early delivery below your price threshold.
+- **"Don't wait unless it saves at least $X"**: sets the saving required to justify a delay.
+
+The quoted labels match the interface. Select values appropriate to the appliance.
+
+<a id="14-battery-participants--a-second-battery-or-an-ev"></a>
+
+## 14. Battery participants: a second battery or an EV
 
 **+ Add → Battery Participant.** Only for an **additional** battery. Your main
 household battery is already configured in Solver settings and is always the `home`
-participant — do not add it again.
+participant: do not add it again.
 
 Core fields: name, capacity, SoC sensor, power sensor, **"Positive reading means
-charging"** (check a real reading while it is charging — conventions differ by
+charging"** (check a real reading while it is charging: conventions differ by
 vendor), max charge/discharge power, min/max SoC, efficiency.
 
 EV-specific fields worth knowing:
@@ -708,53 +979,52 @@ EV-specific fields worth knowing:
 | Field | Does |
 |---|---|
 | Availability sensor | A `binary_sensor` for "plugged in" / "at home". While off, this participant cannot charge or discharge at all |
-| Departure hour + Required SoC by departure | A **hard** requirement — the car will be drivable. Must be set together |
-| Live charge-limit entity | The car's own charge-limit slider overrides Max SoC per solve, so changing it in the vehicle app just works |
-| Trip calendar | Put the distance in the event title (*"Trip to Brisbane 120 km"*) and Nimbus reserves the energy. Events with no distance are ignored |
-| Shared charger group + max kW | Two EVs on one physical charger — stops the plan charging both at full rate |
+| Departure hour + Required SoC by departure | Set both to define the planning target. Check availability, achievable charging time and actual SoC before departure. |
+| Live charge-limit entity | Uses the vehicle's charge limit instead of the configured Max SoC for that solve |
+| Trip calendar | Include distance in the event title, such as "Trip to Brisbane 120 km". Events without distance are ignored. |
+| Shared charger group + max kW | Constrains combined planned charging power for a shared charger |
 
 ## 15. The daily quality score
 
 Nimbus can score **yesterday's real dispatch against a perfect-foresight oracle**
-and publish `sensor.nimbus_solver_quality_report`. The headline number is **EPR** —
+and publish `sensor.nimbus_solver_quality_report`. The headline number is **EPR**:
 the percentage of theoretically-available value you actually captured. This is what
 feeds the **Regret** dashboard view.
 
-**To turn it on**, fill these three in Solver settings screen 3 — **all three, or
+**To turn it on**, fill these three in Solver settings screen 3: **all three, or
 there is no score at all**:
 
 1. Household load forecast sensor (already set in Part 1)
-2. **Real, measured solar power sensor** — a measurement, not a forecast
+2. **Real, measured solar power sensor**: a measurement, not a forecast
 3. **Real, measured net battery power sensor**
 
 Plus one checkbox that matters enormously:
 
-> ⚠️ **"Tick ONLY if your battery sensor reports positive = charging."** The common
-> convention is positive = discharging; leave it unticked for that. Getting this
-> wrong **silently inverts every charge/discharge decision in the score** and
-> produces impossible results like a negative EPR. If your score looks nonsensical,
-> check this first.
+> **Check the measured battery sensor's sign during known charging and discharging.**
+> Tick **"Tick ONLY if your battery sensor reports positive = charging"** only when
+> that describes the source. Leave it unticked for positive discharge.
+> An incorrect sign corrupts the score. A negative EPR alone does not prove a sign error.
 
 **Expected outcome:** after the next midnight, `sensor.nimbus_solver_quality_report`
 holds a percentage plus a `history` attribute with per-day detail, and the Regret
 card fills in.
 
-> ℹ️ A score can read provisionally low, or even negative, until your retailer
-> settles the day's export revenue. It corrects itself on the next scoring run.
+> **Treat scores as conditional on their inputs.**
+> Incomplete measurements, tariff data or settlement data can affect the result.
+> A negative score can also represent underperformance against the baseline.
+> Check the report details before changing the sign setting.
 
 ## 16. The topology diagram
 
-**Configure → Topology diagram settings**, plus the **Power Source**, **PV String**
-and **Battery Tower** types on the **+ Add** menu. All of it is **purely cosmetic** —
-wiring metadata for the Topology card. None of it feeds the solve.
+Use **Configure → Topology diagram settings** for the card's display settings.
+Add **Power Source**, **PV String** and **Battery Tower** entries for its layout.
+These entries describe the diagram, not Solver equipment limits.
 
-Grid power, battery power and every Load are auto-detected. The only fields worth
-filling in are the six "today's kWh" ones, because Nimbus forecasts power and has no
-equivalent of a daily energy total — point them at your own `utility_meter` helpers.
+Nimbus detects configured power sources and Loads for the diagram.
+Use the "today's kWh" fields for your daily energy sensors or `utility_meter` helpers.
 
-Add a **Power Source** per inverter, a **PV String** per array (optionally wired to a
-Power Source), and a **Battery Tower** per physical pack, and the diagram gets
-correspondingly more detailed.
+Add one **Power Source** per inverter.
+Add **PV String** and **Battery Tower** entries for additional detail.
 
 ## 17. Tuning knobs
 
@@ -769,13 +1039,13 @@ All live `number.nimbus_solver_*` entities, editable any time, no wizard, no res
 
 The two most useful:
 
-- **`salvage_value` ($/kWh)** — what energy left in the battery at the end of the
+- **`salvage_value` ($/kWh)**: what energy left in the battery at the end of the
   horizon is worth. Too low and Nimbus happily empties the battery at the horizon
-  edge; raise it if the plan looks too keen to sell.
-- **`degradation_cost_per_kwh`** — a real wear cost per kWh cycled. Raise it if
+  edge. Compare the resulting plan before changing this value again.
+- **`degradation_cost_per_kwh`**: a real wear cost per kWh cycled. Raise it if
   Nimbus cycles the battery harder than you are comfortable with for small gains.
 
-> ℹ️ **Change one at a time**, and give it a day. These interact.
+> **Change one at a time**, and give it a day. These interact.
 
 ## 18. Optional inputs
 
@@ -783,15 +1053,20 @@ Everything you left blank in Part 1, in rough order of usefulness:
 
 | Field | Add it when |
 |---|---|
-| 2nd/3rd price or solar source | You have a genuinely independent forecast (e.g. AEMO *and* your retailer). Nimbus blends them, and the disagreement becomes a real uncertainty signal |
+| 2nd/3rd price or solar source | You have an independent forecast. Differences between sources inform the model's uncertainty. |
 | Richer per-5-minute price forecast | Your retailer publishes one |
-| Regional wholesale spot forecast / history | Australian NEM only — extends the price plan beyond your retailer's horizon |
-| Whole-house cross-check sensor | A free sanity check on the first forecast period; no effect on dispatch |
+| Regional wholesale spot forecast / history | Australian NEM only: extends the price plan beyond your retailer's horizon |
+| Whole-house cross-check sensor | A diagnostic comparison for the first forecast period, not a dispatch input |
 | DNSP dynamic import/export limits | You are on a dynamic connection (e.g. Open Dynamic Export) |
 | Price-spike alert entity | Your retailer has a named spike product. The plain $/kWh threshold works without it |
-| P2P/VPP settlement history | Your retailer pays a real export bonus — improves score accuracy |
-| Price-event simulation sensor | **A test tool.** Simulate a price cap or negative-price event. Does nothing until you also arm `switch.nimbus_solver_price_event_enabled`. **Always close a window with an explicit `0`** — step values hold forward, and an unclosed window keeps shifting prices on every future solve |
+| P2P/VPP settlement history | Your retailer pays a real export bonus: improves score accuracy |
+| Price-event simulation sensor | A test input enabled by `switch.nimbus_solver_price_event_enabled`. See the warning below. |
 | Weather forecast sensor | Purely for the dashboard's temp/humidity chart |
+
+**Disable hardware control before testing simulated prices.**
+An enabled simulation changes the plan that external automations can consume.
+End each simulation window with an explicit `0`.
+Otherwise, its step value continues into later periods.
 
 ## 19. Services you can call
 
@@ -800,50 +1075,80 @@ From Developer Tools → Actions, or any automation:
 | Service | Does |
 |---|---|
 | `nimbus_load.retrain` | Force an immediate retrain. Blank entity = everything |
-| `nimbus_load.solve_now` | Run one solve immediately — useful on a real price change rather than guessing a cron time |
+| `nimbus_load.solve_now` | Run one solve immediately: useful on a real price change rather than guessing a cron time |
 | `nimbus_load.compute_quality_report` | Score any past window on demand |
-| `nimbus_load.rescore_history` | Re-score the last N days after a formula change. **Each day is a full oracle solve — start with 2 or 3** |
+| `nimbus_load.rescore_history` | Re-score the last N days after a formula change. **Each day is a full oracle solve: start with 2 or 3** |
 | `nimbus_load.flex_telemetry_record` | Returns a nem-flex-telemetry v2.0 record. Needs `switch.nimbus_solver_flex_signals_enabled` on, which costs real solve time |
 
 ## 20. Actually driving your battery with the plan
 
-Nimbus publishes the plan; **you** connect it to hardware. The relevant entity:
+Nimbus publishes the plan. An external automation translates it into
+device-specific commands. This section defines the checks that automation needs,
+not a ready-to-use controller.
 
-**`sensor.nimbus_solver_battery_forecast`** — its plain state is the **power Nimbus
-wants right now**, in kW. Sign convention follows your install, so verify it against
-`sensor.nimbus_solver_current_dispatch_direction`, which reads `charge`, `discharge`
-or neither in plain words.
+### Plan power and direction
 
-A minimal automation shape:
+The state of `sensor.nimbus_solver_battery_forecast` is planned net battery power
+for the current period, in kW at the AC side of the inverter.
+Its sign is fixed:
 
-```yaml
-# Illustrative only — the commands are yours, specific to your inverter.
-trigger:
-  - platform: state
-    entity_id: sensor.nimbus_solver_battery_forecast
-    for: "00:00:30"          # debounce; see the warning below
-action:
-  - choose:
-      - conditions: "{{ states('sensor.nimbus_solver_battery_forecast')|float(0) > 0.05 }}"
-        sequence: []          # your "discharge at N kW" commands
-      - conditions: "{{ states('sensor.nimbus_solver_battery_forecast')|float(0) < -0.05 }}"
-        sequence: []          # your "charge at N kW" commands
-    default: []               # your "self-consume / hands off" command
-mode: restart
-```
+| Value | Meaning |
+|---|---|
+| Positive | Discharge |
+| Negative | Charge |
+| Zero | No net battery power |
 
-> ⚠️ **Build in hysteresis.** Nimbus re-plans roughly every 15 seconds. Near a
-> threshold, two plans seconds apart can genuinely disagree by a trivial amount, and
-> a bare comparison will flip your inverter's mode back and forth. Use a **deadband**
-> (the `0.05` above), a **`for:` debounce**, and consider a **minimum dwell** before
-> allowing another mode change. On the reference household this was measured at
-> ~7 mode switches an hour without it.
+The plan attributes declare `battery_kw_side: AC` and
+`battery_kw_sign_convention: positive_discharge_negative_charge`.
+These values come from the [plan publisher](../custom_components/nimbus_load/solver_publish.py).
+Compare the proposed direction with `sensor.nimbus_solver_current_dispatch_direction`.
+Your inverter's measurement and command signs can differ from Nimbus's sign.
+Verify the conversion against the hardware documentation.
 
-> ⚠️ **Start in observation mode.** Turn on
-> `switch.nimbus_solver_dispatch_dry_run` and let
-> `sensor.nimbus_solver_dispatch_dry_run` record what Nimbus *would* have done for a
-> week, as real recorder history. Nothing on that path ever calls a service or
-> touches hardware. Read it before you let anything act.
+### Observe without enabling control
+
+1. Keep external dispatch automations disabled.
+2. Leave every controllable load's **Device to command** field blank.
+3. Turn on `switch.nimbus_solver_dispatch_dry_run`.
+4. Review `sensor.nimbus_solver_dispatch_dry_run` in History.
+5. Compare the recorded plan with actual measurements.
+
+**The dry-run switch is a recorder, not a global stop switch.**
+It does not disable external automations or controllable-load commands.
+The dashboard's `armed_entity` helper also needs an explicit check in your automation.
+See the [observation path](../custom_components/nimbus_load/solver_runtime.py)
+and [card configuration](dashboards.md) for these separate mechanisms.
+
+### Control-readiness gate
+
+Before a supervised trial, verify each item:
+
+- [ ] The first-run acceptance checks in [§8](#8-check-it-actually-worked) pass.
+- [ ] Only one controller has authority to command this equipment.
+- [ ] The automation requires explicit arming and has a tested stop action.
+- [ ] Unknown, unavailable, non-numeric and stale plans cannot issue a power command.
+- [ ] A watchdog detects stale plans even when no new state event arrives.
+- [ ] The automation checks plan status, current-period timestamps and source availability.
+- [ ] Device-side power, SoC and connection limits remain enforced independently.
+- [ ] Sign conversion, units and command acknowledgement have been checked.
+- [ ] A deadband, direction debounce and minimum dwell prevent rapid mode changes.
+- [ ] Restart, communication failure and disarming invoke a defined hardware-safe fallback.
+
+Do not convert invalid data to `0` and treat it as a valid plan.
+Do not rely only on a debounce of the raw power state.
+Frequent plan changes can restart that timer without producing an accepted command.
+Choose timing and stale-data limits for your equipment and observed update cadence.
+
+### First supervised trial
+
+1. Confirm that the independent equipment protections are active.
+2. Test the stop action before enabling scheduled commands.
+3. Enable one control path at a time.
+4. Observe actual power, SoC and command acknowledgement.
+5. Stop the trial if measurements do not match the intended command.
+
+Use your equipment's approved fallback procedure after stopping.
+Disabling an automation does not necessarily clear the last inverter command.
 
 ---
 
@@ -861,33 +1166,30 @@ way through screen 3.
 | Status | Meaning | Fix |
 |---|---|---|
 | `infeasible` | Constraints contradict each other | Usually min SoC > max SoC, an impossible deferrable target/deadline, or a grid limit of 0. Check your `number.nimbus_solver_*` values |
-| `unknown` / absent | No solve has completed | Check the log for `highspy`; on 32-bit ARM there is no wheel |
+| `unknown` / absent | No usable solve result is available | Check input availability and logs, including dependency installation errors |
 | missing entirely | Solver never started | Confirm `sensor.nimbus_solver_config` is `configured` |
 
 ### The plan looks wrong / nonsensical
 
 In order:
 
-1. **`number.nimbus_solver_battery_capacity_kwh` — is it still `0.1`?** Most common
-   cause by a wide margin. [§7](#7-set-your-real-battery-and-grid-numbers).
-2. **Is "individual circuit forecast sensors" empty?** Anything in it silently
-   overrides your household load sensor.
-3. **Is the load forecast pointed at a real Power Signal**, not
-   `sensor.nimbus_household_load_total_forecast`?
-4. **Read `sensor.nimbus_solver_binding_constraint_now`.** It states the reason in
-   words, and very often the plan is right and the constraint is the surprise.
+1. Check capacity, SoH and power limits against [§7](#7-set-your-real-battery-and-grid-numbers).
+2. Remove individual circuit forecasts if you intend to use the household source.
+3. Check that the load input is a Power Signal forecast, not the Solver output.
+4. Read `sensor.nimbus_solver_binding_constraint_now`.
+5. Compare units, timestamps and values with independent source measurements.
 
 ### A forecast sensor reads `unknown`
 
-Normal for the first ~15 minutes after creating it. Beyond that:
+Check progress while the initial model trains:
 
 - Does the **source** sensor have real Recorder history? Nimbus cannot learn from
   nothing.
 - Is `purge_keep_days` shorter than "days of history to train on"? See the purge
   trap in [§11](#11-forecaster-settings--make-the-learning-better).
-- Force it: call `nimbus_load.retrain` and watch the log.
-- Check `sensor.nimbus_health_report`'s `subentry_status` attribute — it reports
-  per-subentry state, including `never_trained`.
+- After checking the inputs, call `nimbus_load.retrain` once and inspect the log.
+- Check `sensor.nimbus_health_report` for `subentry_status` and `never_trained`.
+  These show training progress and entries without a trained model.
 
 ### A controllable load is not being switched
 
@@ -906,59 +1208,53 @@ restart Home Assistant.
 
 ### The quality score is missing or impossible-looking
 
-- **Missing**: all three real-measurement sensors must be set — load, real solar
+- **Missing**: all three real-measurement sensors must be set: load, real solar
   power, real battery power. Any one blank means no score at all.
-- **Negative or absurd**: check the **"positive = charging"** checkbox. It silently
-  inverts everything.
+- **Unexpected**: verify measured power signs, units, data coverage and tariff or
+  settlement data. A negative EPR alone is not proof of a configuration error.
 
 ### Nothing works after an update
 
-Nimbus is a Python integration: **restart Home Assistant**, do not reload. A
-config-entry reload cannot load changed Python.
+Restart Home Assistant after an update.
+If the problem persists, record both versions and the error before changing configuration.
 
 ## Every check in one place
 
-```jinja
-{# Developer Tools → Template — paste this whole block #}
-Config:      {{ states('sensor.nimbus_solver_config') }}          {# want: configured #}
-LP status:   {{ states('sensor.nimbus_solver_lp_status') }}       {# want: optimal #}
-Solve time:  {{ states('sensor.nimbus_solver_solve_seconds') }} s
-Capacity:    {{ states('number.nimbus_solver_battery_capacity_kwh') }} kWh  {# NOT 0.1 #}
-Max charge:  {{ states('number.nimbus_solver_max_charge_kw') }} kW
-Max dischg:  {{ states('number.nimbus_solver_max_discharge_kw') }} kW
-SoC now:     {{ states('sensor.nimbus_solver_current_soc_pct') }} %
-Load now:    {{ states('sensor.nimbus_solver_current_load_kw') }} kW
-Solar now:   {{ states('sensor.nimbus_solver_current_solar_kw') }} kW
-Import now:  {{ states('sensor.nimbus_solver_current_import_price') }} $/kWh
-Direction:   {{ states('sensor.nimbus_solver_current_dispatch_direction') }}
-Why:         {{ states('sensor.nimbus_solver_binding_constraint_now') }}
-Horizon:     {{ states('sensor.nimbus_solver_horizon_hours') }} h
-Plan cost:   {{ states('sensor.nimbus_solver_total_cost') }}      {# negative = earning #}
-Health:      {{ states('sensor.nimbus_health_report') }} errors
-Load source: {{ state_attr('sensor.nimbus_household_load_total_forecast','load_forecast_source_used') }}
-```
-
-That last line is worth knowing about: it tells you **which** load-forecast field
-actually won, which settles the silent-override trap in one read.
+Use the complete [paste-ready check in §8](#a-paste-ready-template-check).
+It includes the active load source, current-period coverage and health details.
+The same section explains how to request and verify one solve.
+There is one maintained template so the two locations cannot drift apart.
 
 ## Removing Nimbus
 
-Settings → Devices & Services → Nimbus → three-dot menu → **Delete**. Removes every
-entity and subentry. Then remove it from HACS if you want the files gone too.
-Nothing is left behind in your configuration files, because Nimbus never writes to
-them.
+1. Disable external automations that consume Nimbus plans.
+2. Remove controllable-load command assignments.
+3. Return each device to its approved local or fallback mode.
+4. Verify the actual device state.
+5. Open **Settings → Devices & Services → Nimbus**.
+6. Select the three-dot menu, then **Delete**.
+7. Remove Nimbus from HACS if you also want to remove its integration files.
+8. Remove obsolete dashboard cards, helpers and automations you created separately.
+
+Deleting Nimbus is not a hardware stop command.
+Recorder history and external configuration can remain after removal.
 
 ---
 
 ## Getting help
 
-- **Bugs**: <https://github.com/code-imstillalive/nimbus/issues> — please include the
-  output of the template block above, plus `sensor.nimbus_health_report`'s
-  `recent_errors` attribute.
+- **Bugs**: [open an issue](https://github.com/code-imstillalive/nimbus/issues).
+  Include the Nimbus and Home Assistant versions, installation architecture,
+  reproduction steps, expected result and actual result.
+  Add the relevant template output and redacted error messages.
 - **Field-by-field reference**: [`configuration-reference.md`](configuration-reference.md)
 - **Dashboards**: [`dashboards.md`](dashboards.md)
 - **What every entity means**: [`entities.md`](entities.md)
 
-> ℹ️ Nimbus is actively developed and moves fast. Expect rough edges. If something in
-> this guide does not match what you see on screen, the code is right and this guide
-> is stale — please open an issue saying so.
+**Before posting publicly, review all diagnostics and screenshots.**
+Remove tokens, credentials, addresses, location details and unnecessary household
+or commercial data. Do not attach a complete configuration or `.storage` directory.
+
+If the guide and your installation disagree, report both versions and the exact
+step. The mismatch can be a documentation error, a software defect or a release
+difference. Do not assume that either side is correct without checking.
