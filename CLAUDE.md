@@ -296,6 +296,12 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-10-05](docs/worklog/2026-10-05.md): Remote session during the household's
+  travel. #1517 closed after the household merged #1525; Chris C's first-install tester
+  feedback filed as #1526 with four sub-issues (topology how-to, Energy-dashboard
+  auto-populate, no Forecaster chart, Grid box cut off); the last one root-caused and
+  fixed in PR #1532, proven by headless render. No release, no live install touched.
+
 - [2026-10-04](docs/worklog/2026-10-04.md): Setup-guide B2B and technical-writing
   review, parent #1517 with seven sub-issues. Documentation-only corrections to
   control boundaries, sign conventions, capacity, acceptance and support guidance.
