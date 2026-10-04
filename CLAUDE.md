@@ -299,7 +299,9 @@ first (this said "most recent 5" while carrying fourteen, so it now says what it
 - [2026-10-04](docs/worklog/2026-10-04.md): Setup-guide B2B and technical-writing
   review, parent #1517 with seven sub-issues. Documentation-only corrections to
   control boundaries, sign conventions, capacity, acceptance and support guidance.
-  Local verification recorded. No live deployment or hardware validation claimed.
+  Includes eight novice-walkthrough fixes and executable documentation-example
+  tests (76 focused tests passed locally). No live deployment or hardware
+  validation claimed.
 
 - [2026-10-02](docs/worklog/2026-10-02.md) -- **Documentation pass for public testers. No
   integration code changed; six PRs, all merged.** `docs/setup-guide.md` rewritten as
