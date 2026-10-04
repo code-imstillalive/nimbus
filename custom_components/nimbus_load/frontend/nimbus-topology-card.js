@@ -1345,7 +1345,22 @@ class TopologyCard extends HTMLElement {
     const nimbusVersion = this._discoverNimbusVersion() || cfg.nimbus_version;
     const footerHeight = nimbusVersion ? 20 : 0;
 
-    this._svg.setAttribute("viewBox", `0 0 ${totalW} ${totalH + whHeight + footerHeight}`);
+    // nimbus issue #1531 (tester finding): the Grid box is placed ABOVE the
+    // bus in diagram coordinates (gmY = busTop - 70, so its top edge is at
+    // y = -69), and the only thing that used to move the diagram down into
+    // the viewBox was the whole-house header's own height -- which is 0 on
+    // every install whose card YAML has no `whole_house` block, i.e. every
+    // install following docs/dashboards.md. The reference household's
+    // dashboard happens to set it, so the box was never seen cut off there.
+    // Shift by whatever the topmost element actually needs, independent of
+    // the header: with the header present this is 79 instead of 78 (one
+    // pixel); without it, 79 instead of 0, which brings the Grid box into
+    // view. The header group itself is not shifted and shares no horizontal
+    // space with the Grid column, so the two still never collide.
+    const diagramTop = gmY - gmH / 2;
+    const topShift = Math.max(whHeight, Math.ceil(-diagramTop) + 10);
+
+    this._svg.setAttribute("viewBox", `0 0 ${totalW} ${totalH + topShift + footerHeight}`);
     // Mobile fix (see the CSS comment in _buildStaticShell()): floors the
     // rendered width at this diagram's own true native pixel scale, every
     // render (totalW itself varies with the real, auto-discovered load
@@ -1365,7 +1380,7 @@ class TopologyCard extends HTMLElement {
     ]);
     this._svg.appendChild(defs);
 
-    const shiftGroup = svgEl("g", { transform: `translate(0, ${whHeight})` });
+    const shiftGroup = svgEl("g", { transform: `translate(0, ${topShift})` });
     lines.forEach((l) => shiftGroup.appendChild(l));
     nodes.forEach((n) => shiftGroup.appendChild(n));
     this._svg.appendChild(shiftGroup);
@@ -1373,7 +1388,7 @@ class TopologyCard extends HTMLElement {
 
     if (nimbusVersion) {
       const footer = svgEl("text", {
-        x: totalW / 2, y: whHeight + totalH + 14, "text-anchor": "middle",
+        x: totalW / 2, y: topShift + totalH + 14, "text-anchor": "middle",
         class: "node-value-sub", style: `fill:${COLORS.textDim}`,
       });
       footer.textContent = `Powered by Nimbus v${nimbusVersion}`;

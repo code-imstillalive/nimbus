@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Topology card: the Grid box is no longer cut off at the top of the diagram**
+  ([#1531](https://github.com/code-imstillalive/nimbus/issues/1531), tester Chris C via
+  #1526). The box is placed above the switchboard bus in diagram coordinates (its top edge
+  at y = -69) and the only thing that shifted the diagram down into the SVG's viewBox was
+  the whole-house header's height, which is 0 unless the card YAML sets a `whole_house`
+  block. The documented card config never does, so on every install following
+  `docs/dashboards.md` the Grid box was drawn entirely above the visible area. The reference
+  household's dashboard sets `whole_house`, which is why it was never seen there. The diagram
+  is now shifted by whatever its topmost element needs, independent of the header: 79 px
+  without a header (was 0), 79 px with one (was 78).
+- Devhub validation: not claimed, because devhub was not reachable from the session that
+  made this change. Verified instead by headless render of the real card (Playwright,
+  Chromium) against a mock `hass` with the documented config: Grid box top measured at
+  **-79 px** relative to the SVG before (fully clipped) and **+11 px** after; with a
+  `whole_house` block, +10 px before and +11 px after. Zero console errors in all four
+  renders. Pinned by `tests/frontend/test_topology_card_grid_box_in_viewbox.py`, which
+  reads the layout constants out of the source and checks the shift arithmetic clears them.
+- Consumer check: a household that added the Topology card from the card picker or from
+  the documented YAML now sees the Grid box with its live reading and Buy/Sell prices at the
+  top of the diagram. A household with a `whole_house` block sees a one-pixel change.
+
 ## [0.94.436] - 2026-10-01
 
 ### Fixed
