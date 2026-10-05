@@ -130,7 +130,7 @@ def _run(mod, hass):
 
 def test_adds_a_forecaster_tab_to_the_nimbus_dashboard_only(ha) -> None:
     mod = _load_module()
-    assert _run(mod, ha.hass) == ["dashboard-nimbus"]
+    assert _run(mod, ha.hass) == ["dashboard-nimbus:forecaster"]
     views = ha.dashboards["dashboard-nimbus"].config["views"]
     assert [v["title"] for v in views] == [
         "Control Panel",
@@ -173,7 +173,7 @@ def test_own_forecaster_view_gets_a_nimbus_forecaster_tab_beside_it(ha) -> None:
     }
     own["views"].insert(0, mine)
     ha.dashboards["dashboard-nimbus"].config = own
-    assert _run(mod, ha.hass) == ["dashboard-nimbus"]
+    assert _run(mod, ha.hass) == ["dashboard-nimbus:forecaster"]
     views = ha.dashboards["dashboard-nimbus"].config["views"]
     assert views[0] == mine
     assert views[-1]["title"] == "Nimbus Forecaster"
@@ -223,3 +223,28 @@ def test_setup_calls_it_and_tolerates_failure() -> None:
     assert init.rindex("try:", 0, call) < call < init.index("except Exception:", call)
     manifest = (MODULE_PATH.parent / "manifest.json").read_text(encoding="utf-8")
     assert '"lovelace"' in manifest
+
+
+def test_a_view_added_by_a_later_release_still_reaches_a_visited_dashboard(
+    ha, monkeypatch
+) -> None:
+    """nimbus #1543: remembering per dashboard would starve every future
+    standard view. Memory is per (dashboard, view): the Forecaster tab the
+    household deleted stays deleted, a new standard view still arrives."""
+    mod = _load_module()
+    _run(mod, ha.hass)
+    dash = ha.dashboards["dashboard-nimbus"]
+    dash.config["views"] = dash.config["views"][:3]  # household deletes the tab
+    later = {
+        "key": "future",
+        "card": "custom:nimbus-future-card",
+        "title": "Future",
+        "alt_title": "Nimbus Future",
+        "path": "future",
+        "alt_path": "nimbus-future",
+        "icon": "mdi:star",
+    }
+    monkeypatch.setattr(mod, "STANDARD_VIEWS", (*mod.STANDARD_VIEWS, later))
+    assert _run(mod, ha.hass) == ["dashboard-nimbus:future"]
+    titles = [v["title"] for v in dash.config["views"]]
+    assert titles == ["Control Panel", "Regret", "Topology", "Future"]

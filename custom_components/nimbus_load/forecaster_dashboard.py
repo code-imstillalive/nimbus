@@ -26,9 +26,11 @@ Rules it keeps
   view that happens to be titled "Forecaster" (its own charts, not this card)
   is never touched either: the new tab is then titled "Nimbus Forecaster" and
   sits beside it (household decision, 5 Oct 2026).
-* **Once per dashboard.** Each dashboard handled is remembered in Nimbus's own
-  storage, so a household that deletes the tab does not get it back on the
-  next restart.
+* **Once per dashboard, per view.** Each (dashboard, view) handled is
+  remembered in Nimbus's own storage, so a household that deletes the tab does
+  not get it back on the next restart, while a standard view that a *later*
+  release adds still reaches a dashboard an earlier release already visited
+  (nimbus #1543: new views must reach existing dashboards, not only new ones).
 * **YAML-mode dashboards are skipped:** they cannot be written to.
 * **Non-fatal.** Lovelace absent, recovery mode or an internal API change logs
   and leaves the rest of Nimbus running.
@@ -48,42 +50,62 @@ from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-CARD_TYPE = "custom:nimbus-forecast-card"
-VIEW_TITLE = "Forecaster"
-ALT_VIEW_TITLE = "Nimbus Forecaster"
 STORE_KEY = "nimbus_load.forecaster_view"
 STORE_VERSION = 1
 
+# The standard views a release can add to an existing Nimbus dashboard
+# (nimbus #1543). Each is identified by the card it holds and remembered per
+# dashboard, so a view a later release adds still reaches a dashboard that an
+# earlier release already visited. Only views whose card needs no
+# household-specific config belong here; the Control Panel needs entity
+# mapping and is not auto-added.
+STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
+    {
+        "key": "forecaster",
+        "card": "custom:nimbus-forecast-card",
+        "title": "Forecaster",
+        "alt_title": "Nimbus Forecaster",
+        "path": "forecaster",
+        "alt_path": "nimbus-forecaster",
+        "icon": "mdi:chart-timeline-variant",
+    },
+)
 
-def _forecaster_view(views: list[Any]) -> dict[str, Any]:
+# Back-compat names used elsewhere (tests, docs).
+CARD_TYPE = STANDARD_VIEWS[0]["card"]
+VIEW_TITLE = STANDARD_VIEWS[0]["title"]
+ALT_VIEW_TITLE = STANDARD_VIEWS[0]["alt_title"]
+
+
+def _view_for(spec: dict[str, Any], views: list[Any]) -> dict[str, Any]:
     paths = {str(v.get("path")) for v in views if isinstance(v, dict)}
     titles = {
         str(v.get("title", "")).strip().lower() for v in views if isinstance(v, dict)
     }
-    path = "forecaster" if "forecaster" not in paths else "nimbus-forecaster"
-    title = VIEW_TITLE if VIEW_TITLE.lower() not in titles else ALT_VIEW_TITLE
     return {
-        "title": title,
-        "path": path,
-        "icon": "mdi:chart-timeline-variant",
+        "title": spec["title"]
+        if spec["title"].lower() not in titles
+        else spec["alt_title"],
+        "path": spec["path"] if spec["path"] not in paths else spec["alt_path"],
+        "icon": spec["icon"],
         "type": "panel",
-        "cards": [{"type": CARD_TYPE}],
+        "cards": [{"type": spec["card"]}],
     }
 
 
 def _is_nimbus_dashboard(config: dict[str, Any]) -> bool:
-    text = json.dumps(config)
-    return '"custom:nimbus-' in text
+    return '"custom:nimbus-' in json.dumps(config)
 
 
-def _already_has_card(config: dict[str, Any]) -> bool:
-    return f'"{CARD_TYPE}"' in json.dumps(config)
+def _has_card(config: dict[str, Any], card: str) -> bool:
+    return f'"{card}"' in json.dumps(config)
 
 
 async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
-    """Add the Forecaster tab to each Nimbus dashboard that lacks one.
+    """Append each missing standard view to each Nimbus dashboard.
 
-    Returns the dashboards it was added to ("default" for the default one).
+    Returns "<dashboard>:<view key>" for every view added ("default" is the
+    default dashboard).
     """
     # Deferred imports, same reasoning as frontend.py: a module-level import
     # drags homeassistant.components.* into every unit test.
@@ -95,19 +117,23 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
 
     data = hass.data.get(LOVELACE_DATA)
     if data is None:
-        _LOGGER.debug("Nimbus: Lovelace not loaded, Forecaster tab skipped")
+        _LOGGER.debug("Nimbus: Lovelace not loaded, standard views skipped")
         return []
 
     store: Store = Store(hass, STORE_VERSION, STORE_KEY)
     remembered = await store.async_load() or {}
-    handled: list[str] = list(remembered.get("handled", []))
+    raw = remembered.get("handled", {})
+    handled: dict[str, list[str]] = {
+        k: list(v) for k, v in (raw.items() if isinstance(raw, dict) else [])
+    }
+    before = {k: list(v) for k, v in handled.items()}
     added: list[str] = []
 
     for url_path, dashboard in list(data.dashboards.items()):
         key = url_path or "default"
-        if key in handled:
-            continue
-        if getattr(dashboard, "mode", None) != "storage":
+        done = handled.setdefault(key, [])
+        pending = [v for v in STANDARD_VIEWS if v["key"] not in done]
+        if not pending or getattr(dashboard, "mode", None) != "storage":
             continue
         try:
             config = await dashboard.async_load(False)
@@ -115,18 +141,23 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
             continue
         if not isinstance(config, dict) or not _is_nimbus_dashboard(config):
             continue
-        handled.append(key)
-        if _already_has_card(config):
-            continue
         views = config.get("views")
         if not isinstance(views, list):
             continue
-        new_config = dict(config)
-        new_config["views"] = [*views, _forecaster_view(views)]
-        await dashboard.async_save(new_config)
-        added.append(key)
-        _LOGGER.info("Nimbus: added the Forecaster tab to dashboard %s", key)
+        new_views = list(views)
+        for spec in pending:
+            done.append(spec["key"])
+            if _has_card(config, spec["card"]):
+                continue
+            new_views.append(_view_for(spec, new_views))
+            added.append(f"{key}:{spec['key']}")
+            _LOGGER.info("Nimbus: added the %s view to dashboard %s", spec["key"], key)
+        if len(new_views) != len(views):
+            new_config = dict(config)
+            new_config["views"] = new_views
+            await dashboard.async_save(new_config)
 
-    if handled != remembered.get("handled", []):
+    handled = {k: v for k, v in handled.items() if v}
+    if handled != before:
         await store.async_save({"handled": handled})
     return added
