@@ -1,7 +1,7 @@
 {
   "domain": "nimbus_load",
   "name": "Nimbus",
-  "after_dependencies": ["energy"],
+  "after_dependencies": ["energy", "lovelace"],
   "codeowners": ["@code-imstillalive", "@purcell-lab"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "recorder"],
