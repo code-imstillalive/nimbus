@@ -1,5 +1,7 @@
 # Release process
 
+The policy (when to release) comes first; [the steps](#cutting-a-release-the-steps) (how) follow it.
+
 Written in direct response to nimbus repo issue #217 (Mark Purcell, "14-day
 project health assessment", item 4: "soak window before same-day fix-releases").
 That thread's own comment already stated the decision ("Landing on: hold
@@ -60,6 +62,59 @@ Worked examples, from the day the rule was adopted:
 | re-affirming a dispatch a device is ignoring ([#875](https://github.com/code-imstillalive/nimbus/issues/875)) | **no** | a diverging load genuinely behaves differently; that is the feature |
 | net-vs-gross thermal rate ([#897](https://github.com/code-imstillalive/nimbus/issues/897)) | **no** | changes the arithmetic behind a real hot-water guarantee |
 | tests-only, docs-only | **yes** | not dispatch code at all; the rule never applied |
+
+## Cutting a release: the steps
+
+Anyone with write access can do this; it is not reserved to one maintainer.
+The workflow `.github/workflows/release.yml` fires on any pushed `vX.Y.Z` tag
+and publishes the GitHub Release that HACS offers. Its first step,
+`.github/scripts/check_release_validated.py`, refuses to publish a tag whose
+CHANGELOG section lacks the two lines below. A refused tag is offered to no
+install, so a mistake costs a re-tag, not a bad release.
+
+1. **Release PR.** On a branch, rename the CHANGELOG's `## [Unreleased]`
+   content to `## [X.Y.Z] - YYYY-MM-DD` (keep an empty `## [Unreleased]` above
+   it) and set `"version"` in `custom_components/nimbus_load/manifest.json` to
+   the same `X.Y.Z`. Nothing else. Merge it once every check has completed and
+   passed. **Do not tag yet.**
+2. **Validate the merged commit, untagged.** With devhub, install `main`
+   through HACS (it reports the short commit as `installed_version`), restart,
+   and check: the integration loads, solves come back `optimal`, no new
+   `ERROR`/`Traceback` against a pre-install log baseline, and whatever the
+   release changed actually behaves. Without devhub, validate on your own
+   install the same way, or not at all; see the next step.
+3. **Verdict PR.** Write two lines into that version's CHANGELOG section,
+   **after** the check, and merge:
+   - `- Devhub validation: confirmed live on devhub at <commit> ...` naming the
+     commit you installed and what you saw. If you validated on a different
+     install, say which, and cite the commit the same way. If no live check
+     was possible, write `- Devhub validation: not claimed, because <reason>`.
+     That is a first-class answer: the gate accepts it, and an honest "not
+     claimed" is always better than a claim nobody checked.
+   - `- Consumer check: ...` saying what a household sees differently.
+
+   When the validation line cites a commit, the gate also checks that
+   `custom_components/` is byte-identical between that commit and the tag. A
+   code change between validating and tagging therefore fails the release
+   rather than shipping unvalidated, so make the verdict PR CHANGELOG-only.
+4. **Tag the merged verdict commit and push the tag:**
+
+   ```sh
+   git checkout main && git pull --ff-only
+   git tag -a vX.Y.Z -m "vX.Y.Z: <one-line summary>"
+   git push origin vX.Y.Z
+   ```
+
+   Then check the **Release** workflow run under Actions completed `success`,
+   and that `gh release view vX.Y.Z` shows it published and not a draft.
+   HACS installs pick the release up on their next repository refresh, which
+   can trail the release by a while.
+
+To try the gate locally before pushing a tag:
+`python .github/scripts/check_release_validated.py vX.Y.Z`.
+
+Timing still follows the policy above: a change to LP dispatch or pricing
+holds overnight between step 1 and step 4.
 
 ## Why not a full RC channel
 
