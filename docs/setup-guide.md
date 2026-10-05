@@ -657,7 +657,7 @@ Check power limits too. An `optimal` result can still use incorrect configuratio
 
 ## 9. Put a dashboard on it
 
-Nimbus ships three custom cards, installed automatically with the integration:
+Nimbus ships four custom cards, installed automatically with the integration:
 there is nothing to copy into `www/` and no resource to register by hand.
 
 | Card | Shows |
@@ -665,6 +665,7 @@ there is nothing to copy into `www/` and no resource to register by hand.
 | **Control Panel** (`custom:nimbus-dispatch-card-v4`) | The live plan: what it is doing now, why, prices, SoC, upcoming schedule |
 | **Topology** (`custom:nimbus-topology-card`) | An animated diagram of power flowing between solar, battery, house and grid |
 | **Regret** (`custom:nimbus-regret-card`) | Yesterday's score: what the plan captured vs what perfect foresight would have |
+| **Forecaster** (`custom:nimbus-forecast-card`) | Measured history, forecast and forecast range for each Load and Power Signal, and how well its model is doing |
 
 ### The fastest way in
 
@@ -704,10 +705,13 @@ explain the card picker and layout differences.
 It has no switches, number controls or dispatch helpers.
 Compare its values with the acceptance check before adding advanced cards.
 
-### Three-view dashboard (optional)
+<a id="three-view-dashboard-optional"></a>
 
-The [three-view template](dashboards.md#full-three-view-nimbus-dashboard-copy-paste)
-adds Control Panel, Topology and Regret.
+### Four-view dashboard (optional)
+
+The [four-view template](dashboards.md#full-four-view-nimbus-dashboard-copy-paste)
+adds Control Panel, Topology, Regret and Forecaster.
+The Forecaster view needs no entity mapping.
 It is not ready to paste unchanged into a new household's installation.
 
 Prepare its entity mappings first:
@@ -725,13 +729,13 @@ The [card reference](dashboards.md) specifies the helper types and mode options.
 An external automation must explicitly implement their meaning.
 They do not establish a hardware control path by themselves.
 
-To install the mapped three-view template:
+To install the mapped four-view template:
 
 1. **Settings → Dashboards → + Add Dashboard** → "New dashboard from scratch".
    Name it **Nimbus**.
 2. Open it, pencil icon (top right) → three-dot menu → **Raw configuration editor**.
 3. In this new dashboard only, replace the contents with your mapped block from
-   [the three-view template](dashboards.md#full-three-view-nimbus-dashboard-copy-paste),
+   [the four-view template](dashboards.md#full-four-view-nimbus-dashboard-copy-paste),
    **Save**.
 
 ![The dashboard edit menu, with Raw configuration editor highlighted](images/setup/raw-config-editor.png)
@@ -739,7 +743,7 @@ To install the mapped three-view template:
 The dashboard edit menu opens the raw YAML editor.
 Use a new dashboard so that you do not overwrite an existing layout.
 
-**Expected outcome:** three views: Control Panel, Topology, Regret.
+**Expected outcome:** four views: Control Panel, Topology, Regret, Forecaster.
 
 ![Nimbus Control Panel view](images/setup/control-panel.png)
 
@@ -762,6 +766,19 @@ The Regret view compares actual performance with modelled alternatives.
 `J_REF` is the baseline, `J_ACH` the achieved cost, and `J_STAR` the perfect-foresight cost.
 `REGRET` is the gap between achieved and perfect-foresight costs.
 
+![Nimbus Forecaster view](images/setup/forecaster-card.png)
+
+The Forecaster view shows one forecast at a time.
+The white line is the measured value over the last 24 hours.
+The blue line is the forecast. The shaded area is its published range.
+Select a chip above the chart to show another Load or Power Signal.
+The card opens on the forecast that the Solver uses for planning.
+
+The panel below the chart names the model in use.
+It compares that model with seasonal persistence, the same time on recent days.
+Sometimes persistence is more accurate. Nimbus then uses persistence, and the card says so.
+A newly added Load shows no model comparison until it has enough history.
+
 > **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
 > Cmd-Shift-R). The cards are registered by the integration at startup, and the
 > browser caches the old resource list. If it persists, restart Home Assistant.
@@ -772,7 +789,7 @@ The Regret view compares actual performance with modelled alternatives.
 
 ### Other views worth building
 
-The three cards above are what Nimbus ships. The reference household adds a few
+The four cards above are what Nimbus ships. The reference household adds a few
 ordinary-Lovelace views on top, shown here as ideas rather than as something you
 have to reproduce:
 
