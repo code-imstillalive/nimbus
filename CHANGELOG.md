@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.438] - 2026-10-05
+
 ### Changed
 - **The Forecaster card is now the reference household's own two ApexCharts
   charts, auto-detected, and Nimbus adds them as a Forecaster tab by itself**
