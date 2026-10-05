@@ -10,7 +10,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ### Changed
 - **The Forecaster card is now the reference household's own two ApexCharts
-  charts, auto-detected, and Nimbus adds them as a sidebar dashboard by itself**
+  charts, auto-detected, and Nimbus adds them as a Forecaster tab by itself**
   ([#1529](https://github.com/code-imstillalive/nimbus/issues/1529)). v0.94.437's
   card was a new design nobody had asked for, and it reached no view: a tester
   updated, restarted and found nothing. `custom:nimbus-forecast-card` now builds
@@ -18,18 +18,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   household's Forecaster view has run for weeks, from this install's own Loads,
   Power Signals, weather signals and Solver plan, and renders them through
   ApexCharts Card (HACS). No entity list: a Load added later appears on its own.
-  Nimbus also creates a **Nimbus Forecaster** sidebar dashboard holding it, once,
-  never overwriting edits to it and never touching another dashboard
-  (`forecaster_dashboard.py`).
+  On startup Nimbus also adds a **Forecaster** tab to the household's Nimbus
+  dashboard (any storage dashboard already holding a Nimbus card), next to
+  Control Panel, Topology and Regret: it appends one view and changes nothing
+  else, skips a dashboard that already has a Forecaster view, adds once per
+  dashboard and leaves YAML dashboards alone (`forecaster_dashboard.py`). On
+  the reference household the only Nimbus dashboard already has its own
+  Forecaster view, so nothing there changes.
 - Verified by headless run against the reference household's real production
   state, read-only, diffed series by series against its live charts: Power
   Signals 20 of 20 series identical in colour, axis, fill and dash; Load Forecasts
   40 against the live 38, the two extra being a Load the hand-kept chart had never
   been given, and every circuit colour identical except the five the household
   had hand-picked. Devhub validation: not yet claimed.
-- Consumer check: after updating, a household sees a Nimbus Forecaster entry in
-  the sidebar showing its own power signals and loads, measured against forecast,
-  without adding anything.
+- Consumer check: after updating and restarting, a household's Nimbus dashboard
+  gains a Forecaster tab showing its own power signals and loads, measured
+  against forecast, without adding anything.
 
 ## [0.94.437] - 2026-10-05
 

@@ -227,11 +227,12 @@ The Forecaster's own charts (issue #1529): **"Nimbus Power Signals"** and
 built automatically for any install. Needs **ApexCharts Card**
 (`apexcharts-card`, from HACS → Frontend); without it the card says so.
 
-**You do not have to add it.** Nimbus creates a **Nimbus Forecaster**
-dashboard in the sidebar on startup, holding this card on a full-width view.
-It is created once and never overwrites your edits to it, and Nimbus never
-touches any other dashboard. It does not appear under Settings → Dashboards;
-hide it from the sidebar like any other panel if you do not want it.
+**You do not have to add it.** On startup Nimbus adds a **Forecaster** tab
+to your Nimbus dashboard (any dashboard already holding a Nimbus card), next
+to Control Panel, Topology and Regret. It appends that one view and changes
+nothing else. It skips a dashboard that already has a Forecaster view, adds
+the tab once per dashboard (delete it and it stays deleted), and leaves
+YAML-mode dashboards alone.
 
 Nothing is configured: every series is discovered from this install's own
 entities each time the dashboard loads, so a new Load appears by itself.

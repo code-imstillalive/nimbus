@@ -1,18 +1,20 @@
-"""nimbus #1529: the Forecaster view is added automatically, safely.
+"""nimbus #1529: the Forecaster tab is added to the Nimbus dashboard, safely.
 
-`forecaster_dashboard.async_register_forecaster_dashboard` must put a
-"Nimbus Forecaster" sidebar dashboard in front of every household, and must
-never touch a dashboard the household owns. These tests drive it against
-small fakes of the three Home Assistant internals it uses
-(`frontend.async_panel_exists` / `async_register_built_in_panel`,
-`lovelace.const.LOVELACE_DATA` / `ConfigNotFound`,
-`lovelace.dashboard.LovelaceStorage`), whose shapes were read from HA
-2026.7.4 and 2026.9.3 and are identical in both.
+`forecaster_dashboard.async_add_forecaster_view` appends a Forecaster view
+to each storage dashboard that already holds Nimbus's own cards, next to
+its Control Panel / Topology / Regret views. It must change nothing else,
+never duplicate, add once per dashboard, and skip YAML dashboards.
+
+Driven against small fakes of the Home Assistant internals it uses
+(`lovelace.const.LOVELACE_DATA` / `ConfigNotFound`, a storage dashboard's
+`async_load` / `async_save` / `mode`, and `helpers.storage.Store`), whose
+shapes were read from HA 2026.7.4 and 2026.9.3 and are identical in both.
 """
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import importlib.util
 import sys
 import types
@@ -44,104 +46,161 @@ class _ConfigNotFound(Exception):
     pass
 
 
-class _FakeStorage:
-    saved: ClassVar[dict[str, dict]] = {}
-
-    def __init__(self, hass, config):
+class _FakeDashboard:
+    def __init__(self, config, mode="storage"):
         self.config = config
-        self.key = config["id"]
+        self.mode = mode
+        self.saves = 0
 
     async def async_load(self, force):
-        if self.key not in _FakeStorage.saved:
+        if self.config is None:
             raise _ConfigNotFound
-        return _FakeStorage.saved[self.key]
+        return copy.deepcopy(self.config)
 
     async def async_save(self, config):
-        _FakeStorage.saved[self.key] = config
+        self.config = config
+        self.saves += 1
+
+
+class _FakeStore:
+    data: ClassVar[dict] = {}
+
+    def __init__(self, hass, version, key):
+        self.key = key
+
+    async def async_load(self):
+        return _FakeStore.data.get(self.key)
+
+    async def async_save(self, data):
+        _FakeStore.data[self.key] = data
+
+
+NIMBUS_DASH = {
+    "title": "Nimbus",
+    "views": [
+        {
+            "title": "Control Panel",
+            "path": "control",
+            "cards": [
+                {"type": "custom:nimbus-dispatch-card-v4", "card_mod": {"style": "x"}}
+            ],
+        },
+        {
+            "title": "Regret",
+            "path": "regret",
+            "cards": [{"type": "custom:nimbus-regret-card"}],
+        },
+        {
+            "title": "Topology",
+            "path": "topology",
+            "cards": [{"type": "custom:nimbus-topology-card"}],
+        },
+    ],
+}
+OTHER_DASH = {"views": [{"title": "Home", "cards": [{"type": "entities"}]}]}
 
 
 @pytest.fixture
 def ha(monkeypatch):
-    panels: dict[str, dict] = {}
-    lovelace_key = object()
-
-    frontend = types.ModuleType("homeassistant.components.frontend")
-    frontend.async_panel_exists = lambda hass, url: url in panels
-
-    def register(hass, component, **kw):
-        if kw["frontend_url_path"] in panels:
-            raise ValueError("Overwriting panel")
-        panels[kw["frontend_url_path"]] = {"component": component, **kw}
-
-    frontend.async_register_built_in_panel = register
+    key = object()
     const = types.ModuleType("homeassistant.components.lovelace.const")
-    const.LOVELACE_DATA = lovelace_key
+    const.LOVELACE_DATA = key
     const.ConfigNotFound = _ConfigNotFound
-    dashboard = types.ModuleType("homeassistant.components.lovelace.dashboard")
-    dashboard.LovelaceStorage = _FakeStorage
-    for name, mod in (
-        ("homeassistant.components.frontend", frontend),
-        ("homeassistant.components.lovelace", types.ModuleType("x")),
-        ("homeassistant.components.lovelace.const", const),
-        ("homeassistant.components.lovelace.dashboard", dashboard),
-    ):
-        monkeypatch.setitem(sys.modules, name, mod)
-    _FakeStorage.saved = {}
-    hass = types.SimpleNamespace(
-        data={lovelace_key: types.SimpleNamespace(dashboards={None: object()})}
+    storage = types.ModuleType("homeassistant.helpers.storage")
+    storage.Store = _FakeStore
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.components.lovelace", types.ModuleType("x")
     )
-    return types.SimpleNamespace(hass=hass, panels=panels, key=lovelace_key)
+    monkeypatch.setitem(sys.modules, "homeassistant.components.lovelace.const", const)
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.storage", storage)
+    _FakeStore.data = {}
+    dashboards = {
+        "dashboard-nimbus": _FakeDashboard(copy.deepcopy(NIMBUS_DASH)),
+        None: _FakeDashboard(copy.deepcopy(OTHER_DASH)),
+    }
+    hass = types.SimpleNamespace(
+        data={key: types.SimpleNamespace(dashboards=dashboards)}
+    )
+    return types.SimpleNamespace(hass=hass, dashboards=dashboards, key=key)
 
 
-def test_creates_and_seeds_the_forecaster_dashboard(ha) -> None:
+def _run(mod, hass):
+    return asyncio.run(mod.async_add_forecaster_view(hass))
+
+
+def test_adds_a_forecaster_tab_to_the_nimbus_dashboard_only(ha) -> None:
     mod = _load_module()
-    assert asyncio.run(mod.async_register_forecaster_dashboard(ha.hass)) is True
-    panel = ha.panels[mod.URL_PATH]
-    assert panel["component"] == "lovelace"
-    assert panel["sidebar_title"] == "Nimbus Forecaster"
-    assert panel["config"] == {"mode": "storage"}
-    assert panel["require_admin"] is False
-    saved = _FakeStorage.saved[mod.STORAGE_ID]
-    cards = saved["views"][0]["cards"]
-    assert cards == [{"type": "custom:nimbus-forecast-card"}]
-    assert mod.URL_PATH in ha.hass.data[ha.key].dashboards
+    assert _run(mod, ha.hass) == ["dashboard-nimbus"]
+    views = ha.dashboards["dashboard-nimbus"].config["views"]
+    assert [v["title"] for v in views] == [
+        "Control Panel",
+        "Regret",
+        "Topology",
+        "Forecaster",
+    ]
+    assert views[-1]["cards"] == [{"type": "custom:nimbus-forecast-card"}]
+    # A dashboard with no Nimbus card is not touched.
+    assert ha.dashboards[None].saves == 0
 
 
-def test_never_overwrites_a_households_edits(ha) -> None:
+def test_changes_nothing_else(ha) -> None:
     mod = _load_module()
-    edited = {"views": [{"title": "Mine", "cards": []}]}
-    _FakeStorage.saved[mod.STORAGE_ID] = edited
-    asyncio.run(mod.async_register_forecaster_dashboard(ha.hass))
-    assert _FakeStorage.saved[mod.STORAGE_ID] is edited
+    _run(mod, ha.hass)
+    views = ha.dashboards["dashboard-nimbus"].config["views"]
+    assert views[:3] == NIMBUS_DASH["views"]  # card_mod and all, untouched
+    assert ha.dashboards["dashboard-nimbus"].config["title"] == "Nimbus"
 
 
-def test_leaves_an_existing_dashboard_or_panel_alone(ha) -> None:
+def test_never_duplicates_an_existing_forecaster_view(ha) -> None:
     mod = _load_module()
-    ha.panels[mod.URL_PATH] = {"component": "someone_elses"}
-    assert asyncio.run(mod.async_register_forecaster_dashboard(ha.hass)) is False
-    assert ha.panels[mod.URL_PATH] == {"component": "someone_elses"}
-    assert _FakeStorage.saved == {}
+    own = copy.deepcopy(NIMBUS_DASH)
+    own["views"].insert(
+        0, {"title": "Forecaster", "cards": [{"type": "custom:apexcharts-card"}]}
+    )
+    ha.dashboards["dashboard-nimbus"].config = own
+    assert _run(mod, ha.hass) == []
+    assert ha.dashboards["dashboard-nimbus"].saves == 0
+
+
+def test_once_per_dashboard_even_after_the_tab_is_deleted(ha) -> None:
+    mod = _load_module()
+    _run(mod, ha.hass)
+    dash = ha.dashboards["dashboard-nimbus"]
+    dash.config["views"] = dash.config["views"][:3]  # household deletes the tab
+    assert _run(mod, ha.hass) == []
+    assert [v["title"] for v in dash.config["views"]] == [
+        "Control Panel",
+        "Regret",
+        "Topology",
+    ]
+
+
+def test_skips_yaml_dashboards(ha) -> None:
+    mod = _load_module()
+    ha.dashboards["dashboard-nimbus"].mode = "yaml"
+    assert _run(mod, ha.hass) == []
+    assert ha.dashboards["dashboard-nimbus"].saves == 0
+
+
+def test_does_not_collide_with_an_existing_forecaster_path(ha) -> None:
+    mod = _load_module()
+    ha.dashboards["dashboard-nimbus"].config["views"][0]["path"] = "forecaster"
+    _run(mod, ha.hass)
+    assert (
+        ha.dashboards["dashboard-nimbus"].config["views"][-1]["path"]
+        == "nimbus-forecaster"
+    )
 
 
 def test_skips_quietly_without_lovelace(ha) -> None:
     mod = _load_module()
     ha.hass.data.pop(ha.key)
-    assert asyncio.run(mod.async_register_forecaster_dashboard(ha.hass)) is False
-    assert ha.panels == {}
-
-
-def test_registers_once_per_process(ha) -> None:
-    mod = _load_module()
-    assert asyncio.run(mod.async_register_forecaster_dashboard(ha.hass)) is True
-    # A second call (another config-entry reload) must not raise
-    # "Overwriting panel" or touch anything.
-    assert asyncio.run(mod.async_register_forecaster_dashboard(ha.hass)) is False
+    assert _run(mod, ha.hass) == []
 
 
 def test_setup_calls_it_and_tolerates_failure() -> None:
     init = (MODULE_PATH.parent / "__init__.py").read_text(encoding="utf-8")
-    call = init.index("await async_register_forecaster_dashboard(hass)")
-    block = init[init.rindex("try:", 0, call) : init.index("except Exception:", call)]
-    assert "async_register_forecaster_dashboard" in block
+    call = init.index("await async_add_forecaster_view(hass)")
+    assert init.rindex("try:", 0, call) < call < init.index("except Exception:", call)
     manifest = (MODULE_PATH.parent / "manifest.json").read_text(encoding="utf-8")
     assert '"lovelace"' in manifest

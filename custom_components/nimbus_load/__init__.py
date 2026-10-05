@@ -642,18 +642,19 @@ async def _async_setup_entry_impl(
             "registered manually via Settings -> Dashboards -> Resources"
         )
 
-    # nimbus #1529: put the Forecaster view in front of the household
-    # instead of leaving it to be discovered in the card picker. Creates
-    # only Nimbus's own "Nimbus Forecaster" sidebar dashboard, once, never
-    # a household dashboard -- see forecaster_dashboard.py. Non-fatal.
+    # nimbus #1529: add a Forecaster tab to the household's own Nimbus
+    # dashboard (the one already holding Nimbus's cards), next to Control
+    # Panel, Topology and Regret. Appends one view, never changes anything
+    # else, never duplicates, once per dashboard -- see
+    # forecaster_dashboard.py. Non-fatal.
     try:
-        from .forecaster_dashboard import async_register_forecaster_dashboard
+        from .forecaster_dashboard import async_add_forecaster_view
 
-        await async_register_forecaster_dashboard(hass)
+        await async_add_forecaster_view(hass)
     except Exception:
         _LOGGER.exception(
-            "Nimbus: could not add the Nimbus Forecaster dashboard; the "
-            "card can still be added by hand (custom:nimbus-forecast-card)"
+            "Nimbus: could not add the Forecaster tab; the card can still "
+            "be added by hand (custom:nimbus-forecast-card)"
         )
 
     # Runs before anything else -- a rename must land BEFORE the sensor
