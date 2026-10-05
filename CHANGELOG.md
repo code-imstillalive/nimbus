@@ -25,14 +25,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   card says so. A range that would dip below zero on a non-negative signal is drawn from
   zero, in the chart and the table alike. `docs/dashboards.md` and setup-guide section 9
   gain a fourth view.
-- Devhub validation: not yet claimed. Verified by headless render (Playwright, Chromium)
-  against a fixture of the reference household's real production state, read-only: 26
-  forecast sensors with 24 h of history for all 26 sources. Whole house at desktop and
-  390 px width, a circuit, temperature and the signed battery signal all rendered with zero
-  console errors and no horizontal scroll. On that data the whole-house signal's recursive
-  validation error is 0.233 kW for seasonal persistence against 0.549 (GBRT) and 0.657
-  (k-NN), and the card reports persistence as the model in use, which is what the
-  Forecaster's own rule selects.
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 8ba344a**, installed
+  untagged via HACS (`installed_version: 8ba344a`) against a pre-install v0.94.436 log
+  baseline, restarted 15:32 AEST 5 Oct. `/nimbus_load/nimbus-forecast-card.js` is served
+  (HTTP 200) byte-identical to the committed file, so the fourth card is registered and
+  reachable. **Solver:** 2 of 2 devhub-own solves after the restart `status='optimal'`
+  (`home`, `Test EV`); 2 devhub-own entities stamped 0.94.437; zero `ImportError`,
+  `Traceback` or `solve cycle failed`; every WARNING class after the restart also present
+  in the pre-install baseline. Card behaviour was verified by headless render against a
+  fixture of the reference household's real production state, read-only (26 forecast
+  sensors, 24 h of history for all 26 sources; five views, zero console errors, no
+  horizontal scroll at 390 px), not on devhub's own entities, whose canonical ids carry
+  production's mirrored state (#1396). **Not validated:** HA 2026.7.4 (#1245).
 - Consumer check: a household opening the Forecaster view now sees whether its forecast is
   tracking reality and whether the model is beating a simple repeat of recent days, the
   question the tester could not answer before.
@@ -48,13 +52,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   household's dashboard sets `whole_house`, which is why it was never seen there. The diagram
   is now shifted by whatever its topmost element needs, independent of the header: 79 px
   without a header (was 0), 79 px with one (was 78).
-- Devhub validation: not claimed, because devhub was not reachable from the session that
-  made this change. Verified instead by headless render of the real card (Playwright,
-  Chromium) against a mock `hass` with the documented config: Grid box top measured at
-  **-79 px** relative to the SVG before (fully clipped) and **+11 px** after; with a
-  `whole_house` block, +10 px before and +11 px after. Zero console errors in all four
-  renders. Pinned by `tests/frontend/test_topology_card_grid_box_in_viewbox.py`, which
-  reads the layout constants out of the source and checks the shift arithmetic clears them.
+- Devhub validation: confirmed live on devhub at 8ba344a as part of this release:
+  `/nimbus_load/nimbus-topology-card.js` is served (HTTP 200) byte-identical to the
+  committed file. The geometry itself was verified by headless render against a mock
+  `hass` with the documented config: Grid box top at **-79 px** relative to the SVG before
+  (fully clipped) and **+11 px** after; with a `whole_house` block, +10 px before and
+  +11 px after. Zero console errors in all four renders. Pinned by
+  `tests/frontend/test_topology_card_grid_box_in_viewbox.py`.
 - Consumer check: a household that added the Topology card from the card picker or from
   the documented YAML now sees the Grid box with its live reading and Buy/Sell prices at the
   top of the diagram. A household with a `whole_house` block sees a one-pixel change.
