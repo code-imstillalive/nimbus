@@ -123,3 +123,12 @@ def test_js_hash_port_has_the_same_constants() -> None:
     assert "(h % 360) / 360.0" in body
     assert "const l = 0.55;" in body and "const s = 0.55;" in body
     assert "Math.floor(x * 255)" in body
+
+
+def test_soc_series_is_labelled_percent_not_the_plan_sensors_kw() -> None:
+    """The Solver plan sensor's unit is kW, so without an explicit unit the
+    SoC series inherited it and its legend read "70.6 kW"."""
+    src = _card()
+    soc = src[src.index('name: "Solver SoC % (proposed)"') :]
+    soc = soc[: soc.index("}")]
+    assert 'unit: "%"' in soc
