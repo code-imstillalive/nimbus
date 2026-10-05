@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The Forecaster card is now the reference household's own two ApexCharts
+  charts, auto-detected, and Nimbus adds them as a Forecaster tab by itself**
+  ([#1529](https://github.com/code-imstillalive/nimbus/issues/1529)). v0.94.437's
+  card was a new design nobody had asked for, and it reached no view: a tester
+  updated, restarted and found nothing. `custom:nimbus-forecast-card` now builds
+  "Nimbus Power Signals" and "Nimbus Load Forecasts", the charts the reference
+  household's Forecaster view has run for weeks, from this install's own Loads,
+  Power Signals, weather signals and Solver plan, and renders them through
+  ApexCharts Card (HACS). No entity list: a Load added later appears on its own.
+  On startup Nimbus also adds a **Forecaster** tab to the household's Nimbus
+  dashboard (any storage dashboard already holding a Nimbus card), next to
+  Control Panel, Topology and Regret: it appends one view and changes nothing
+  else, skips a dashboard that already shows the card, adds once per dashboard
+  and leaves YAML dashboards alone (`forecaster_dashboard.py`). A household's
+  own view already titled "Forecaster" is never touched; the new tab is then
+  titled "Nimbus Forecaster" and sits beside it. On the reference household
+  that is what happens: its own Forecaster view stays as it is and a Nimbus
+  Forecaster tab is added at the end.
+- Verified by headless run against the reference household's real production
+  state, read-only, diffed series by series against its live charts: Power
+  Signals 20 of 20 series identical in colour, axis, fill and dash; Load Forecasts
+  40 against the live 38, the two extra being a Load the hand-kept chart had never
+  been given, and every circuit colour identical except the five the household
+  had hand-picked. Devhub validation: not yet claimed.
+- Consumer check: after updating and restarting, a household's Nimbus dashboard
+  gains a Forecaster tab showing its own power signals and loads, measured
+  against forecast, without adding anything.
+
 ## [0.94.437] - 2026-10-05
 
 ### Added

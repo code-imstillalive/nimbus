@@ -665,7 +665,7 @@ there is nothing to copy into `www/` and no resource to register by hand.
 | **Control Panel** (`custom:nimbus-dispatch-card-v4`) | The live plan: what it is doing now, why, prices, SoC, upcoming schedule |
 | **Topology** (`custom:nimbus-topology-card`) | An animated diagram of power flowing between solar, battery, house and grid |
 | **Regret** (`custom:nimbus-regret-card`) | Yesterday's score: what the plan captured vs what perfect foresight would have |
-| **Forecaster** (`custom:nimbus-forecast-card`) | Measured history, forecast and forecast range for each Load and Power Signal, and how well its model is doing |
+| **Forecaster** (`custom:nimbus-forecast-card`) | The Power Signals and Load Forecasts charts, built automatically from your own Loads and Power Signals |
 
 ### The fastest way in
 
@@ -766,18 +766,13 @@ The Regret view compares actual performance with modelled alternatives.
 `J_REF` is the baseline, `J_ACH` the achieved cost, and `J_STAR` the perfect-foresight cost.
 `REGRET` is the gap between achieved and perfect-foresight costs.
 
-![Nimbus Forecaster view](images/setup/forecaster-card.png)
+![Nimbus Forecaster view](images/setup/forecaster-chart.png)
 
-The Forecaster view shows one forecast at a time.
-The white line is the measured value over the last 24 hours.
-The blue line is the forecast. The shaded area is its published range.
-Select a chip above the chart to show another Load or Power Signal.
-The card opens on the forecast that the Solver uses for planning.
-
-The panel below the chart names the model in use.
-It compares that model with seasonal persistence, the same time on recent days.
-Sometimes persistence is more accurate. Nimbus then uses persistence, and the card says so.
-A newly added Load shows no model comparison until it has enough history.
+The Forecaster view shows two charts: Power Signals, and Load Forecasts.
+Nimbus adds it for you as a **Forecaster** tab on your Nimbus dashboard.
+It needs **ApexCharts Card**, installed from HACS under Frontend.
+Each series is found automatically from your Loads and Power Signals.
+A Load you add later appears without any change.
 
 > **"Custom element doesn't exist"?** Hard-refresh the browser (Ctrl-F5 /
 > Cmd-Shift-R). The cards are registered by the integration at startup, and the
@@ -792,11 +787,6 @@ A newly added Load shows no model comparison until it has enough history.
 The four cards above are what Nimbus ships. The reference household adds a few
 ordinary-Lovelace views on top, shown here as ideas rather than as something you
 have to reproduce:
-
-![Forecaster view: combined forecast chart](images/setup/forecaster-chart.png)
-
-This example compares forecasts and proposed battery and grid trajectories.
-The `now` line separates history from future estimates.
 
 ![Shadow-mode comparison chart](images/setup/solver-shadow-comparison.png)
 

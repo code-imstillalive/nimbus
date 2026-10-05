@@ -222,38 +222,38 @@ sections:
 
 ## Nimbus Forecaster Card (`custom:nimbus-forecast-card`) — "Forecaster"
 
-The Forecaster's own chart (issue #1529). Needs no configuration and no
-HACS card: it finds every Nimbus Load and Power Signal forecast from live
-state and draws, for the one selected:
+The Forecaster's own charts (issue #1529): **"Nimbus Power Signals"** and
+**"Nimbus Load Forecasts"**, the reference household's own Forecaster view,
+built automatically for any install. Needs **ApexCharts Card**
+(`apexcharts-card`, from HACS → Frontend); without it the card says so.
 
-- the **measured** source sensor's last 24 h of recorder history (for the
-  summed-circuits rollup, the sum of its circuits' own sources);
-- the **forecast** and its published **range** (`lower`/`upper`);
-- a **now** marker.
+**You do not have to add it.** On startup Nimbus adds a **Forecaster** tab
+to your Nimbus dashboard (any dashboard already holding a Nimbus card), next
+to Control Panel, Topology and Regret. It appends that one view and changes
+nothing else. If you already have your own view called "Forecaster", that
+view is left alone and the new tab is called **Nimbus Forecaster**. A
+dashboard that already shows this card is skipped. The tab is added once per
+dashboard (delete it and it stays deleted), and YAML-mode dashboards are left
+alone.
 
-It opens on the forecast the Solver plans with (the Solver's own "load
-forecast sensor", read from `sensor.nimbus_solver_config`). A row of chips
-switches between every other forecast.
+Nothing is configured: every series is discovered from this install's own
+entities each time the dashboard loads, so a new Load appears by itself.
 
-Below the chart, a model panel says which model is in use and how it
-compares with seasonal persistence (the same time on recent days), with
-the raw average errors beside the percentage. It follows the Forecaster's
-own selection rule (`ml/model.py`): lowest recursive validation error,
-falling back to one-step error, falling back to k-NN when there is too
-little validation data. Persistence is a real candidate there, so the card
-says plainly when it wins rather than implying the trained model always
-does. A range that would dip below zero on a signal that never goes
-negative (a load) is drawn from zero; signed signals such as battery or
-grid keep their full range.
+- **Power Signals chart:** each Power Signal's measured history, forecast
+  and lower/upper bounds (Battery green, Grid blue, Solar orange, classified
+  by the signal's role or entity name), the temperature and humidity
+  forecasts if you have those Power Signals, and the Solver's proposed
+  battery, grid import/export and SoC from
+  `sensor.nimbus_solver_battery_forecast`.
+- **Load Forecasts chart:** each Load's measured history and forecast, each
+  circuit in its own stable colour, pool and hot-water circuits drawn bold
+  and filled, plus the whole-house forecast the Solver plans with (white).
+- Measured lines come from each forecast's own source sensor; a source in W
+  is converted to kW. Axes size themselves to your system.
 
 ```yaml
 type: custom:nimbus-forecast-card
-entity: sensor.nimbus_household_load_total_forecast  # optional: which forecast to open on
-entities:                                   # optional: limit the chips to these
-  - sensor.nimbus_household_load_total_forecast
-history_hours: 24    # optional, default 24
-forecast_hours: 48   # optional, default 48
-title: Forecaster    # optional, default "Nimbus Forecaster"
+chart: both   # optional: both (default), signals or loads
 ```
 
 ## Nimbus Topology Card (`custom:nimbus-topology-card`) — "Topology"

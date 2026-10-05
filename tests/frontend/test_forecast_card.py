@@ -1,34 +1,33 @@
-"""nimbus #1529: the Forecaster ships a chart of its own.
+"""nimbus #1529: the Forecaster charts, auto-detected.
 
-`nimbus-forecast-card.js` is the fourth card frontend.py registers. It needs
-no configuration: it discovers every Nimbus forecast sensor from live state,
-draws the measured source's recorder history, the forecast and its range,
-and explains which model is in use.
+`nimbus-forecast-card.js` builds the reference household's two
+apexcharts-card charts ("Nimbus Power Signals", "Nimbus Load Forecasts")
+from whatever Nimbus entities the install has, and hands the config to
+apexcharts-card. On the reference install those charts were produced by a
+Python generator script against its own entity ids.
 
 ## How this was verified, and what this file can and cannot check
 
-Rendered headlessly (Playwright, Chromium) against a fixture built from the
-reference household's real production state, read-only, on 2026-10-05:
-26 forecast sensors, 24 h of history for all 26 source sensors, and
-`sensor.nimbus_solver_config`. Five views (whole house at desktop and phone
-width, a circuit, temperature, the signed battery signal) rendered with no
-console errors and no horizontal scroll at 390 px.
+Run headlessly (Playwright, Chromium) against a fixture of the reference
+household's real production state, read-only, 5 Oct 2026, and diffed
+series by series against that install's live charts:
+
+* Power Signals: 20 series against the live 20. Every colour, axis, fill
+  and dash identical. By design the weather overlay comes from Nimbus's
+  own temperature/humidity forecasts rather than a household's weather
+  integration.
+* Load Forecasts: 40 against the live 38. The two extra are a Load the
+  hand-maintained chart had never been given (the EV charger). Every
+  circuit colour matched the generator's hash except the five the
+  household had hand-picked.
 
 CI has no Node (same posture as every test in this directory), so what is
-pinned here is structure that would silently break the card:
-
-* the card is registered and its custom-element tag matches the
-  registration;
-* every attribute the card reads is one Nimbus actually publishes, so a
-  rename on the Python side fails here rather than blanking the card;
-* the model panel follows ml/model.py's own selection rule, including
-  `naive` being a real winner;
-* the card opens on the forecast the Solver plans with, and never treats
-  the Solver's own plan as a forecast.
+pinned here is structure that would silently break the card.
 """
 
 from __future__ import annotations
 
+import colorsys
 import pathlib
 import re
 
@@ -42,10 +41,6 @@ def _card() -> str:
 
 
 def test_card_is_registered_with_a_matching_tag() -> None:
-    # Read from source: importing frontend.py pulls in homeassistant.* (see
-    # that module's own note on its deferred imports). The real-HA harness
-    # in tests/hass_integration/test_frontend_cards_registered.py loops
-    # over _CARDS and proves every entry is served and registered.
     frontend_py = (PKG / "frontend.py").read_text(encoding="utf-8")
     assert (
         '_CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card")' in frontend_py
@@ -55,12 +50,17 @@ def test_card_is_registered_with_a_matching_tag() -> None:
     assert 'type: "nimbus-forecast-card"' in src
 
 
-def test_every_attribute_the_card_reads_is_published() -> None:
-    """A rename on the Python side must fail here, not blank the card."""
+def test_renders_through_apexcharts_and_says_so_when_missing() -> None:
     src = _card()
-    read = set(re.findall(r"\battr(?:s|ibutes)\.([a-z_]+)", src))
-    # Home Assistant's own attributes, not Nimbus's.
-    read -= {"friendly_name", "unit_of_measurement"}
+    assert 'document.createElement("apexcharts-card")' in src
+    assert 'customElements.get("apexcharts-card")' in src
+    assert "Nimbus Forecaster needs ApexCharts Card" in src
+
+
+def test_every_nimbus_attribute_the_card_reads_is_published() -> None:
+    src = _card()
+    read = set(re.findall(r"\battributes\.([a-z_]+)", src))
+    read -= {"friendly_name", "unit_of_measurement", "forecast"}
     assert read, "found no attribute reads -- the pattern above is stale"
     publishers = "\n".join(
         p.read_text(encoding="utf-8")
@@ -70,63 +70,56 @@ def test_every_attribute_the_card_reads_is_published() -> None:
     assert not missing, f"card reads attributes nothing publishes: {missing}"
 
 
-def test_model_panel_follows_the_forecasters_own_selection_rule() -> None:
-    model_py = (PKG / "ml" / "model.py").read_text(encoding="utf-8")
-    # The rule the card mirrors. If it changes there, revisit _modelInfo.
-    assert "model_type = min(recursive_mae, key=recursive_mae.__getitem__)" in model_py
-    assert "model_type = min(candidate_mae, key=candidate_mae.__getitem__)" in model_py
-    assert 'model_type = (\n        "knn"' in model_py
-
+def test_discovers_rather_than_lists() -> None:
     src = _card()
-    body = src[src.index("_modelInfo(attrs) {") :]
-    body = body[: body.index("\n  }\n")]
-    # recursive when every candidate has one, else one-step, else k-NN
-    assert "recKeys.length === oneKeys.length" in body
-    assert 'basis = "recursive"' in body and 'basis = "one-step"' in body
-    assert 'chosen: "knn"' in body
-    # naive can win and the card must say so rather than hide it
-    assert 'naiveWins: chosen === "naive"' in body
-    assert "naiveWins" in src[src.index("_render(entities)") :]
+    for needle in (
+        'id.startsWith("sensor.nimbus_")',
+        'a.subentry_type === "load"',
+        'a.subentry_type === "power_signal"',
+        "solver_load_forecast_sensor",
+        'st["sensor.nimbus_solver_battery_forecast"]',
+        "s.attributes.source_sensor",
+    ):
+        assert needle in src, needle
+    # No household entity id may appear in the card.
+    assert not re.search(r"sensor\.(cb_|logger_|archerfield|pirateweather)", src)
 
 
-def test_opens_on_the_solvers_load_forecast_and_skips_the_plan() -> None:
-    src = _card()
-    assert 'states["sensor.nimbus_solver_config"]' in src
-    assert "solver_load_forecast_sensor" in src
-    assert "if (solverLoad && s.entity_id === solverLoad) return 0;" in src
-    # The Solver's published plan is dispatch, not a Forecaster output.
-    assert 'if (id.startsWith("sensor.nimbus_solver_")) continue;' in src
-    const_py = (PKG / "const.py").read_text(encoding="utf-8")
+def test_w_sources_are_scaled_to_kw() -> None:
     assert (
-        'CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"'
-        in const_py
+        'if (unit === "w" && fu === "kw") series.transform = "return x / 1000;";'
+        in _card()
     )
 
 
-def test_range_is_not_drawn_below_zero_for_a_non_negative_signal() -> None:
+def _py_hash_color(entity_id: str) -> str:
+    """The generator script's own _hash_color_for(), verbatim in logic."""
+    h = 0
+    for ch in entity_id:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    r, g, b = colorsys.hls_to_rgb((h % 360) / 360.0, 0.55, 0.55)
+    return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
+
+
+def test_python_reference_hash_matches_live_colours() -> None:
+    """The live chart's circuit colours, as rendered on the reference
+    install. The card's JS port was diffed against these by headless run;
+    this pins the reference algorithm the port must equal."""
+    live = {
+        "sensor.nimbus_cb_lt_l1_power_forecast": "#CB4D9A",
+        "sensor.nimbus_cb_pw_ac_b1_power_forecast": "#4DCB79",
+        "sensor.nimbus_cb_pw_comms_power_forecast": "#514DCB",
+        "sensor.nimbus_cb_pw_oven_power_forecast": "#92CB4D",
+    }
+    for eid, colour in live.items():
+        assert _py_hash_color(eid) == colour, eid
+
+
+def test_js_hash_port_has_the_same_constants() -> None:
     src = _card()
-    assert (
-        "const nonNeg = histIn.every((p) => p[1] >= 0) && fc.every((p) => p.v >= 0);"
-        in src
-    )
-    assert "p.lo < 0 ? { ...p, lo: 0 } : p" in src
-
-
-def test_whole_house_rollup_draws_the_sum_of_its_circuits() -> None:
-    src = _card()
-    assert "Array.isArray(a.source_entities)" in src
-    assert "_sumSeries(lists" in src
-
-
-def test_table_and_chart_draw_the_same_clipped_series() -> None:
-    """The hourly table and the chart must never disagree: the clip is
-    applied once in _render, before either is built from `fc`."""
-    src = _card()
-    render = src[
-        src.index("_render(entities) {") : src.index("_table(fc, now, unit) {")
-    ]
-    clip_at = render.index("const nonNeg = histIn.every")
-    assert clip_at < render.index("this._table(fc, now, unit)")
-    assert clip_at < render.index("this._chart(histIn, fc, t0, t1, now, unit)")
-    chart = src[src.index("_chart(hist, fc, t0, t1, now, unit) {") :]
-    assert "nonNeg" not in chart[: chart.index("_esc(s) {")]
+    body = src[src.index("function nimbusFcHashColor") :]
+    body = body[: body.index("\n}\n")]
+    assert "Math.imul(h, 31) + entityId.charCodeAt(i)) >>> 0" in body
+    assert "(h % 360) / 360.0" in body
+    assert "const l = 0.55;" in body and "const s = 0.55;" in body
+    assert "Math.floor(x * 255)" in body
