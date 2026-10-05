@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **The P2P matched-rate field reads LocalVolts v2's own rows**
+  ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)). Since
+  purcell-lab/localvolts_v2 2.7.0 (its #31), Current Sell Rate's `forecast` rows
+  carry `matchedCost` beside `volume` and `proportionP2P`, but key the interval end
+  as `intervalEnd` where the reference household's own sensor uses `time`.
+  `resample_real_p2p_rate` now accepts either; both mean the interval end, so the
+  rate arithmetic is unchanged and a row carrying `time` behaves exactly as before.
+  A LocalVolts household can point the P2P field at Current Sell Rate directly.
+  It is read on the price-forecast-array path, which LV v2's Flex Up Forecast
+  sensor (its PR #41) will feed.
+
 ### Fixed
 - Forecaster card: the Solver's proposed SoC series is labelled **%**. It inherited
   the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
