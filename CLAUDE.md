@@ -296,7 +296,13 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
-- [2026-10-05](docs/worklog/2026-10-05.md): Remote session during the household's
+- [2026-10-05](docs/worklog/2026-10-05.md): Afternoon: **v0.94.437 and v0.94.438**.
+  The Forecaster became the reference household's own two ApexCharts charts,
+  auto-detected, added automatically as a dashboard tab (#1542; per-view memory
+  from Mark's #1543). The first card design was not what was asked for, recorded
+  as the lesson. Chris C's LocalVolts setup diagnosed; #1537, #1540 and two
+  LV v2 upstream issues filed. Morning, below:
+  Remote session during the household's
   travel. #1517 closed after the household merged #1525; Chris C's first-install tester
   feedback filed as #1526 with four sub-issues (topology how-to, Energy-dashboard
   auto-populate, no Forecaster chart, Grid box cut off); the last one root-caused and
