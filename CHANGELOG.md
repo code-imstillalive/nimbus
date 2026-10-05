@@ -34,7 +34,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Signals 20 of 20 series identical in colour, axis, fill and dash; Load Forecasts
   40 against the live 38, the two extra being a Load the hand-kept chart had never
   been given, and every circuit colour identical except the five the household
-  had hand-picked. Devhub validation: not yet claimed.
+  had hand-picked.
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 54d21aa**, installed
+  untagged via HACS (`installed_version: 54d21aa`) against a pre-install log
+  baseline, restarted 18:20 AEST 5 Oct. **The tab:** devhub's own "Nimbus (devhub)"
+  dashboard, which already had its own view titled "Forecaster" (path
+  `forecaster`), gained a **Nimbus Forecaster** view at `nimbus-forecaster`
+  holding `custom:nimbus-forecast-card`; its six existing views are byte-identical
+  to a snapshot taken before the install (6 views before, 7 after). **The card:**
+  `/nimbus_load/nimbus-forecast-card.js` served byte-identical to the committed file
+  and loaded by the frontend at `v=0.94.438`; rendered headlessly with devhub's own
+  installed apexcharts-card v2.2.3 against the reference household's production
+  state (read-only): both charts drawn ("Nimbus Power Signals", "Nimbus Load
+  Forecasts"), zero console errors. Not shown in that render: the measured
+  history lines, which apexcharts-card fetches itself through a history API the
+  harness only stubbed. **Solver:** 2 of 2 devhub-own solves after the restart
+  `status='optimal'` (`home`, `Test EV`); 3 devhub-own entities stamped 0.94.438;
+  zero `Traceback`, `ImportError`, `solve cycle failed` or Forecaster-tab errors
+  since the restart. **Not validated:** HA 2026.7.4 (#1245); the dashboard
+  internals used were read against 2026.7.4's source and are identical to
+  2026.9.3's.
 - Consumer check: after updating and restarting, a household's Nimbus dashboard
   gains a Forecaster tab showing its own power signals and loads, measured
   against forecast, without adding anything.
