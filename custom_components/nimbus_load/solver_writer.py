@@ -3755,7 +3755,12 @@ def resample_real_p2p_rate(
     pts = []
     for p in raw:
         try:
-            end_t = parse_iso(p["time"])
+            # nimbus #1537: purcell-lab/localvolts_v2 (>= 2.7.0) publishes the
+            # same Sell rows with `matchedCost`, but keys the interval end as
+            # `intervalEnd` rather than the reference household's renamed
+            # `time`. Both are the interval END, so the arithmetic below is
+            # unchanged; `time` wins when a row carries both.
+            end_t = parse_iso(p["time"] if "time" in p else p["intervalEnd"])
             start_t = end_t - timedelta(minutes=5)
             vol = float(p.get("volume") or 0.0)
             prop = float(p.get("proportionP2P") or 0.0)
