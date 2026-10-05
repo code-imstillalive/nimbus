@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.437] - 2026-10-05
+
 ### Added
 - **Forecaster card (`custom:nimbus-forecast-card`), the Forecaster's own chart**
   ([#1529](https://github.com/code-imstillalive/nimbus/issues/1529), tester Chris C via
