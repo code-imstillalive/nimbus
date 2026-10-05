@@ -298,7 +298,8 @@ class NimbusForecastCard extends HTMLElement {
         {
           entity: f.solver.entity_id, name: "Solver SoC % (proposed)", extend_to: false,
           data_generator: g("soc_pct"), yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
-          show: { in_header: true, in_legend: true },
+          // The plan sensor's own unit is kW; this series is a percentage.
+          unit: "%", show: { in_header: true, in_legend: true },
         }
       );
     }

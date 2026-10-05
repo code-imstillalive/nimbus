@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- Forecaster card: the Solver's proposed SoC series is labelled **%**. It inherited
+  the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
+  v0.94.438 render check.
+
 ## [0.94.438] - 2026-10-05
 
 ### Changed
