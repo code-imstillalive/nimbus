@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Forecaster card (`custom:nimbus-forecast-card`), the Forecaster's own chart**
+  ([#1529](https://github.com/code-imstillalive/nimbus/issues/1529), tester Chris C via
+  #1526). Until now all three shipped cards were Solver-side, so a household could see its
+  forecasts only as raw sensor attributes. The fourth card is registered automatically like
+  the other three and needs no configuration and no HACS card. It discovers every Load and
+  Power Signal forecast from live state and draws, for the selected one, the measured
+  source's last 24 h of recorder history, the forecast, its published range and a now
+  marker, with an hourly table of the next 24 h underneath. It opens on the forecast the
+  Solver plans with (`solver_load_forecast_sensor`). A model panel names the model in use
+  and compares it with seasonal persistence, showing the raw average errors beside the
+  percentage. It follows `ml/model.py`'s own selection rule, so when persistence wins the
+  card says so. A range that would dip below zero on a non-negative signal is drawn from
+  zero, in the chart and the table alike. `docs/dashboards.md` and setup-guide section 9
+  gain a fourth view.
+- Devhub validation: not yet claimed. Verified by headless render (Playwright, Chromium)
+  against a fixture of the reference household's real production state, read-only: 26
+  forecast sensors with 24 h of history for all 26 sources. Whole house at desktop and
+  390 px width, a circuit, temperature and the signed battery signal all rendered with zero
+  console errors and no horizontal scroll. On that data the whole-house signal's recursive
+  validation error is 0.233 kW for seasonal persistence against 0.549 (GBRT) and 0.657
+  (k-NN), and the card reports persistence as the model in use, which is what the
+  Forecaster's own rule selects.
+- Consumer check: a household opening the Forecaster view now sees whether its forecast is
+  tracking reality and whether the model is beating a simple repeat of recent days, the
+  question the tester could not answer before.
+
 ### Fixed
 - **Topology card: the Grid box is no longer cut off at the top of the diagram**
   ([#1531](https://github.com/code-imstillalive/nimbus/issues/1531), tester Chris C via

@@ -77,6 +77,10 @@ _CARDS: tuple[_CardAsset, ...] = (
     _CardAsset("nimbus-topology-card.js", "nimbus-topology-card"),
     _CardAsset("nimbus-dispatch-card-v4.js", "nimbus-dispatch-card-v4"),
     _CardAsset("nimbus-regret-card.js", "nimbus-regret-card"),
+    # nimbus issue #1529: the Forecaster's own chart. Until this, every
+    # shipped card was Solver-side and a household could see its
+    # forecasts only as raw sensor attributes.
+    _CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card"),
 )
 
 

@@ -242,8 +242,8 @@ of [`docs/setup-guide.md`](docs/setup-guide.md).
 ### 8. Put it on a dashboard
 
 The wizard configures entities; it places no Lovelace cards.
-[`docs/dashboards.md`](docs/dashboards.md) has a copy-paste three-view dashboard
-(Control Panel / Topology / Regret) using the custom cards the integration
+[`docs/dashboards.md`](docs/dashboards.md) has a copy-paste four-view dashboard
+(Control Panel / Topology / Regret / Forecaster) using the custom cards the integration
 registers for you.
 
 ### A naming quirk worth knowing

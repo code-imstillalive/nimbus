@@ -1,10 +1,10 @@
-# Dashboards — Control Panel, Regret, and Topology cards
+# Dashboards — Control Panel, Regret, Topology and Forecaster cards
 
-Three ready-made Lovelace cards ship with this integration (issue #364,
+Four ready-made Lovelace cards ship with this integration (issue #364,
 Mark Purcell) — no `www/` file copy, no manual Settings -> Dashboards ->
 Resources step. Installing/updating Nimbus via HACS is the entire setup
 step; see `custom_components/nimbus_load/frontend.py` for how they're
-served and registered. All three are findable in the card picker by
+served and registered. All four are findable in the card picker by
 searching "nimbus" (issue #519) — each `type` starts with `nimbus-` and
 each picker entry's name says Nimbus.
 
@@ -12,15 +12,17 @@ each picker entry's name says Nimbus.
 #550/#552, Mark Purcell)**: a household that never hand-authors dashboard
 YAML has no way to discover a card exists just because HACS installed
 it — confirmed live on Mark's own install, where the Topology card
-shipped for several releases before ever reaching a view. The three
+shipped for several releases before ever reaching a view. The
 sections below (one per card) are the field reference; the full
 copy-paste dashboard right here is the fastest path to actually seeing
-all three cards on screen.
+all four cards on screen.
 
-## Full three-view "Nimbus" dashboard (copy-paste)
+<a id="full-three-view-nimbus-dashboard-copy-paste"></a>
 
-One complete dashboard — Control Panel / Regret / Topology, one view
-each — using the same `sections` layout and `max_columns: 4` this doc
+## Full four-view "Nimbus" dashboard (copy-paste)
+
+One complete dashboard — Control Panel / Regret / Topology / Forecaster,
+one view each — using the same `sections` layout and `max_columns: 4` this doc
 already recommends per-card below (see the Control Panel section's own
 "Sections-view width gotcha" for why). Replace every
 `sensor.your_*`/`input_select.nimbus_dispatch_mode`/
@@ -91,6 +93,18 @@ views:
           - type: custom:nimbus-topology-card
             switchboard: {}
             inverters: []
+            grid_options:
+              columns: full
+              rows: auto
+  - title: Forecaster
+    path: forecaster
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - type: custom:nimbus-forecast-card
             grid_options:
               columns: full
               rows: auto
@@ -204,6 +218,42 @@ sections:
         heading: 2 Days Ago
       - type: custom:nimbus-regret-card
         days_ago: 2
+```
+
+## Nimbus Forecaster Card (`custom:nimbus-forecast-card`) — "Forecaster"
+
+The Forecaster's own chart (issue #1529). Needs no configuration and no
+HACS card: it finds every Nimbus Load and Power Signal forecast from live
+state and draws, for the one selected:
+
+- the **measured** source sensor's last 24 h of recorder history (for the
+  summed-circuits rollup, the sum of its circuits' own sources);
+- the **forecast** and its published **range** (`lower`/`upper`);
+- a **now** marker.
+
+It opens on the forecast the Solver plans with (the Solver's own "load
+forecast sensor", read from `sensor.nimbus_solver_config`). A row of chips
+switches between every other forecast.
+
+Below the chart, a model panel says which model is in use and how it
+compares with seasonal persistence (the same time on recent days), with
+the raw average errors beside the percentage. It follows the Forecaster's
+own selection rule (`ml/model.py`): lowest recursive validation error,
+falling back to one-step error, falling back to k-NN when there is too
+little validation data. Persistence is a real candidate there, so the card
+says plainly when it wins rather than implying the trained model always
+does. A range that would dip below zero on a signal that never goes
+negative (a load) is drawn from zero; signed signals such as battery or
+grid keep their full range.
+
+```yaml
+type: custom:nimbus-forecast-card
+entity: sensor.nimbus_household_load_total_forecast  # optional: which forecast to open on
+entities:                                   # optional: limit the chips to these
+  - sensor.nimbus_household_load_total_forecast
+history_hours: 24    # optional, default 24
+forecast_hours: 48   # optional, default 48
+title: Forecaster    # optional, default "Nimbus Forecaster"
 ```
 
 ## Nimbus Topology Card (`custom:nimbus-topology-card`) — "Topology"
