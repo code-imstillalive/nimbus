@@ -21,9 +21,11 @@ Rules it keeps
 * **Adds a view, changes nothing else.** The whole config is loaded, one view
   is appended, and the same config is saved, so every existing view, card and
   `card_mod` style is carried through untouched.
-* **Never duplicates.** A dashboard that already has a Forecaster view (by
-  title) or the card anywhere is left alone. The reference household's own
-  hand-built Forecaster view is therefore never touched.
+* **Never duplicates the card.** A dashboard that already shows
+  `custom:nimbus-forecast-card` anywhere is left alone. A household's own
+  view that happens to be titled "Forecaster" (its own charts, not this card)
+  is never touched either: the new tab is then titled "Nimbus Forecaster" and
+  sits beside it (household decision, 5 Oct 2026).
 * **Once per dashboard.** Each dashboard handled is remembered in Nimbus's own
   storage, so a household that deletes the tab does not get it back on the
   next restart.
@@ -48,14 +50,20 @@ _LOGGER = logging.getLogger(__name__)
 
 CARD_TYPE = "custom:nimbus-forecast-card"
 VIEW_TITLE = "Forecaster"
+ALT_VIEW_TITLE = "Nimbus Forecaster"
 STORE_KEY = "nimbus_load.forecaster_view"
 STORE_VERSION = 1
 
 
-def _forecaster_view(existing_paths: set[str]) -> dict[str, Any]:
-    path = "forecaster" if "forecaster" not in existing_paths else "nimbus-forecaster"
+def _forecaster_view(views: list[Any]) -> dict[str, Any]:
+    paths = {str(v.get("path")) for v in views if isinstance(v, dict)}
+    titles = {
+        str(v.get("title", "")).strip().lower() for v in views if isinstance(v, dict)
+    }
+    path = "forecaster" if "forecaster" not in paths else "nimbus-forecaster"
+    title = VIEW_TITLE if VIEW_TITLE.lower() not in titles else ALT_VIEW_TITLE
     return {
-        "title": VIEW_TITLE,
+        "title": title,
         "path": path,
         "icon": "mdi:chart-timeline-variant",
         "type": "panel",
@@ -68,14 +76,8 @@ def _is_nimbus_dashboard(config: dict[str, Any]) -> bool:
     return '"custom:nimbus-' in text
 
 
-def _already_has_forecaster(config: dict[str, Any]) -> bool:
-    if f'"{CARD_TYPE}"' in json.dumps(config):
-        return True
-    return any(
-        str(v.get("title", "")).strip().lower() == VIEW_TITLE.lower()
-        for v in config.get("views", [])
-        if isinstance(v, dict)
-    )
+def _already_has_card(config: dict[str, Any]) -> bool:
+    return f'"{CARD_TYPE}"' in json.dumps(config)
 
 
 async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
@@ -114,14 +116,13 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
         if not isinstance(config, dict) or not _is_nimbus_dashboard(config):
             continue
         handled.append(key)
-        if _already_has_forecaster(config):
+        if _already_has_card(config):
             continue
         views = config.get("views")
         if not isinstance(views, list):
             continue
-        paths = {str(v.get("path")) for v in views if isinstance(v, dict)}
         new_config = dict(config)
-        new_config["views"] = [*views, _forecaster_view(paths)]
+        new_config["views"] = [*views, _forecaster_view(views)]
         await dashboard.async_save(new_config)
         added.append(key)
         _LOGGER.info("Nimbus: added the Forecaster tab to dashboard %s", key)

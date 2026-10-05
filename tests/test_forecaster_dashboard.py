@@ -151,15 +151,34 @@ def test_changes_nothing_else(ha) -> None:
     assert ha.dashboards["dashboard-nimbus"].config["title"] == "Nimbus"
 
 
-def test_never_duplicates_an_existing_forecaster_view(ha) -> None:
+def test_never_duplicates_the_card(ha) -> None:
     mod = _load_module()
     own = copy.deepcopy(NIMBUS_DASH)
-    own["views"].insert(
-        0, {"title": "Forecaster", "cards": [{"type": "custom:apexcharts-card"}]}
-    )
+    own["views"][0]["cards"].append({"type": "custom:nimbus-forecast-card"})
     ha.dashboards["dashboard-nimbus"].config = own
     assert _run(mod, ha.hass) == []
     assert ha.dashboards["dashboard-nimbus"].saves == 0
+
+
+def test_own_forecaster_view_gets_a_nimbus_forecaster_tab_beside_it(ha) -> None:
+    """Household decision, 5 Oct 2026: a household's own "Forecaster" view
+    (its own charts, not this card) is never touched, and the new tab is
+    added beside it as "Nimbus Forecaster"."""
+    mod = _load_module()
+    own = copy.deepcopy(NIMBUS_DASH)
+    mine = {
+        "title": "Forecaster",
+        "path": "forecaster",
+        "cards": [{"type": "custom:apexcharts-card"}],
+    }
+    own["views"].insert(0, mine)
+    ha.dashboards["dashboard-nimbus"].config = own
+    assert _run(mod, ha.hass) == ["dashboard-nimbus"]
+    views = ha.dashboards["dashboard-nimbus"].config["views"]
+    assert views[0] == mine
+    assert views[-1]["title"] == "Nimbus Forecaster"
+    assert views[-1]["path"] == "nimbus-forecaster"
+    assert views[-1]["cards"] == [{"type": "custom:nimbus-forecast-card"}]
 
 
 def test_once_per_dashboard_even_after_the_tab_is_deleted(ha) -> None:

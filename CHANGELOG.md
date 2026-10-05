@@ -21,10 +21,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   On startup Nimbus also adds a **Forecaster** tab to the household's Nimbus
   dashboard (any storage dashboard already holding a Nimbus card), next to
   Control Panel, Topology and Regret: it appends one view and changes nothing
-  else, skips a dashboard that already has a Forecaster view, adds once per
-  dashboard and leaves YAML dashboards alone (`forecaster_dashboard.py`). On
-  the reference household the only Nimbus dashboard already has its own
-  Forecaster view, so nothing there changes.
+  else, skips a dashboard that already shows the card, adds once per dashboard
+  and leaves YAML dashboards alone (`forecaster_dashboard.py`). A household's
+  own view already titled "Forecaster" is never touched; the new tab is then
+  titled "Nimbus Forecaster" and sits beside it. On the reference household
+  that is what happens: its own Forecaster view stays as it is and a Nimbus
+  Forecaster tab is added at the end.
 - Verified by headless run against the reference household's real production
   state, read-only, diffed series by series against its live charts: Power
   Signals 20 of 20 series identical in colour, axis, fill and dash; Load Forecasts

@@ -230,9 +230,11 @@ built automatically for any install. Needs **ApexCharts Card**
 **You do not have to add it.** On startup Nimbus adds a **Forecaster** tab
 to your Nimbus dashboard (any dashboard already holding a Nimbus card), next
 to Control Panel, Topology and Regret. It appends that one view and changes
-nothing else. It skips a dashboard that already has a Forecaster view, adds
-the tab once per dashboard (delete it and it stays deleted), and leaves
-YAML-mode dashboards alone.
+nothing else. If you already have your own view called "Forecaster", that
+view is left alone and the new tab is called **Nimbus Forecaster**. A
+dashboard that already shows this card is skipped. The tab is added once per
+dashboard (delete it and it stays deleted), and YAML-mode dashboards are left
+alone.
 
 Nothing is configured: every series is discovered from this install's own
 entities each time the dashboard loads, so a new Load appears by itself.
