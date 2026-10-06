@@ -124,6 +124,11 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
+try:
+    from .power_units import power_scale_to_kw
+except ImportError:  # pragma: no cover - standalone/cron path
+    from power_units import power_scale_to_kw  # type: ignore[no-redef]
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -1520,7 +1525,8 @@ def _kw_scale_factor(entity_id: str) -> float:
         unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         return 1.0
-    return 0.001 if unit == "W" else 1.0
+    # nimbus #1570: the shared converter (W/kW/MW/GW, any case).
+    return power_scale_to_kw(unit)
 
 
 @functools.cache

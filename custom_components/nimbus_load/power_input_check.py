@@ -2,8 +2,8 @@
 is expected.
 
 Every power input Nimbus reads -- a Load or Power Signal's own sensor, and the
-hub's shared Battery/Grid/Solar sensors -- is converted to kW with HA's
-PowerConverter. An energy unit (Wh, kWh, ...) is not a power unit, so that
+hub's shared Battery/Grid/Solar sensors -- is converted to kW by
+power_units.py. An energy unit (Wh, kWh, ...) is not a power unit, so that
 conversion raises, and until this module the coordinator logged
 "unconvertible unit 'Wh' -- treating as kW as-is" and carried on using the
 number. For an energy counter that is never right: a cumulative total is not a

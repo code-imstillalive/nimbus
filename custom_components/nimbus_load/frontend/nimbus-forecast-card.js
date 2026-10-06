@@ -62,6 +62,18 @@ const NIMBUS_FC_GEN = {
 };
 
 class NimbusForecastCard extends HTMLElement {
+  static powerScaleToKw(unit) {
+    // nimbus #1570: the same table as power_units.py (POWER_TO_KW);
+    // tests/test_1570_power_units.py checks every card against it.
+    const NIMBUS_POWER_TO_KW = {"mw": 1e3, "w": 1e-3, "kw": 1.0, "gw": 1e6, "tw": 1e9, "btu/h": 0.00029307107};
+    const NIMBUS_POWER_EXACT = {"mW": 1e-6, "MW": 1e3};
+    if (typeof unit !== 'string') return 1;
+    const u = unit.trim();
+    if (Object.prototype.hasOwnProperty.call(NIMBUS_POWER_EXACT, u)) return NIMBUS_POWER_EXACT[u];
+    const k = u.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(NIMBUS_POWER_TO_KW, k) ? NIMBUS_POWER_TO_KW[k] : 1;
+  }
+
   static getStubConfig() {
     return {};
   }
@@ -183,7 +195,9 @@ class NimbusForecastCard extends HTMLElement {
       yaxis_id: yaxis,
       show: { in_header: false, in_legend: false },
     };
-    if (unit === "w" && fu === "kw") series.transform = "return x / 1000;";
+    // nimbus #1570: any power unit, not only W behind a kW forecast.
+    const k = NimbusForecastCard.powerScaleToKw(unit) / NimbusForecastCard.powerScaleToKw(fu);
+    if (k !== 1) series.transform = "return x * " + k + ";";
     return series;
   }
 

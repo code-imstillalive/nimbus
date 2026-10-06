@@ -37,7 +37,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
-from homeassistant.util.unit_conversion import PowerConverter
 
 from .anomaly import ResidualDriftStatus, detect_residual_drift, residual_drift_status
 from .const import (
@@ -93,6 +92,7 @@ from .ml.model import (
     train_model,
 )
 from .power_input_check import energy_unit_of, is_energy_unit, warn_ignored_once
+from .power_units import is_power_unit, power_to_kw
 
 # nimbus issue #375 (Mark Purcell, codebase review): matches
 # _async_fetch_lts_history()'s own hardcoded period="hour" argument to
@@ -105,7 +105,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _unconvertible_unit_message(unit: object, *, lts: bool = False) -> str:
-    """Log format for a unit PowerConverter cannot convert. nimbus issue
+    """Log format for a unit the power converter cannot convert. nimbus issue
     #1562: an energy unit gets a message that says what is wrong, instead
     of the generic one, which read as if 'treating as kW' were harmless."""
     source = "%s LTS reports" if lts else "%s reported"
@@ -406,7 +406,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _convert_power_for_target(self) -> bool:
         """False for Temperature/Humidity power-signal subentries -- their
         own forecast target is never a power quantity, so attempting a
-        PowerConverter conversion against a real °C/% unit always fails
+        power-unit conversion against a real °C/% unit always fails
         and only ever produces a spurious "unconvertible unit -- treating
         as kW as-is" WARNING every coordinator cycle. Real bug found live
         2026-09-03: a household was guided to add Temperature/Humidity
@@ -1084,7 +1084,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         `convert_power=True` (used for the load sensor, never temperature)
         reads each history point's own recorded `unit_of_measurement` and
-        converts it to kW via Home Assistant's own PowerConverter, rather
+        converts it to kW via power_units.py (nimbus #1570), rather
         than assuming the source is already in kW. Confirmed live
         2026-08-14: a real source sensor can report W while a visually
         similar sibling reports kW -- silently assuming kW on a W-unit
@@ -1152,11 +1152,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if convert_power:
                     unit = s.attributes.get("unit_of_measurement")
                     if unit and unit != UnitOfPower.KILO_WATT:
-                        try:
-                            value = PowerConverter.convert(
-                                value, unit, UnitOfPower.KILO_WATT
-                            )
-                        except Exception:  # noqa: BLE001 -- an unrecognized unit string must degrade to "treat as kW", never crash the coordinator
+                        # nimbus #1570: the one converter the Solver and
+                        # the cards share; an unknown unit degrades to
+                        # "treat as kW", never a crash.
+                        if is_power_unit(unit):
+                            value = power_to_kw(value, unit)
+                        else:
                             if not warned_missing_unit:
                                 _LOGGER.warning(
                                     _unconvertible_unit_message(unit),
@@ -1230,7 +1231,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         recorder path so ml/model.py's resample_last_value() and the seasonal-lookup
         bucketing can treat both origins identically.
 
-        convert_power converts the returned mean to kW via PowerConverter, reading
+        convert_power converts the returned mean to kW via power_units.py, reading
         the entity's own configured unit_of_measurement (LTS doesn't store per-row
         units -- statistics.statistics_meta records one unit per statistic_id,
         recorded once when the statistic was first created). Falls back to
@@ -1287,11 +1288,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not math.isfinite(value):
                     continue
                 if convert_power and unit and unit != UnitOfPower.KILO_WATT:
-                    try:
-                        value = PowerConverter.convert(
-                            value, unit, UnitOfPower.KILO_WATT
-                        )
-                    except Exception:  # noqa: BLE001 -- match recorder path: degrade to "treat as kW", never crash
+                    if is_power_unit(unit):  # nimbus #1570: shared converter
+                        value = power_to_kw(value, unit)
+                    else:
                         if not warned_missing_unit:
                             _LOGGER.warning(
                                 _unconvertible_unit_message(unit, lts=True),
@@ -1374,7 +1373,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         real value changes materially within the horizon, same trade-off
         this integration already accepts for humidity.
 
-        Converts unit via PowerConverter same as history fetches
+        Converts unit via power_units.py, same as history fetches
         (convert_power=True) -- confirmed live 2026-08-15 that a real
         solar sensor on this system reports W while battery/grid sensors
         report kW, so this can't assume kW unconditionally.
@@ -1398,9 +1397,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return 0.0
         unit = state.attributes.get("unit_of_measurement")
         if unit and unit != UnitOfPower.KILO_WATT:
-            try:
-                value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
-            except Exception:  # noqa: BLE001 -- same reasoning as the sibling catch above: degrade to kW-as-is, never crash
+            if is_power_unit(unit):  # nimbus #1570: shared converter
+                value = power_to_kw(value, unit)
+            else:
                 _LOGGER.warning(
                     _unconvertible_unit_message(unit),
                     entity_id,

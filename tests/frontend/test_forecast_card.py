@@ -86,10 +86,14 @@ def test_discovers_rather_than_lists() -> None:
 
 
 def test_w_sources_are_scaled_to_kw() -> None:
+    # nimbus #1570: any power unit through the shared table, not only W
+    # behind a kW forecast; test_1570_power_units.py checks the table.
+    src = _card()
     assert (
-        'if (unit === "w" && fu === "kw") series.transform = "return x / 1000;";'
-        in _card()
+        "NimbusForecastCard.powerScaleToKw(unit) / NimbusForecastCard.powerScaleToKw(fu)"
+        in src
     )
+    assert 'if (k !== 1) series.transform = "return x * " + k + ";";' in src
 
 
 def _py_hash_color(entity_id: str) -> str:

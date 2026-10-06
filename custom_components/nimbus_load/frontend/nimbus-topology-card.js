@@ -171,11 +171,27 @@ function numOf(state) {
 // depending on the sensor, and a raw-number threshold silently breaks
 // for whichever unit it wasn't tuned for (confirmed live: a real 0.6kW
 // grid reading failed a ">5" check meant for watts).
+function topologyPowerScaleToKw(unit) {
+  // nimbus #1570: the same table as power_units.py (POWER_TO_KW);
+  // tests/test_1570_power_units.py checks every card against it.
+  const NIMBUS_POWER_TO_KW = {"mw": 1e3, "w": 1e-3, "kw": 1.0, "gw": 1e6, "tw": 1e9, "btu/h": 0.00029307107};
+  const NIMBUS_POWER_EXACT = {"mW": 1e-6, "MW": 1e3};
+  if (typeof unit !== 'string') return 1;
+  const u = unit.trim();
+  if (Object.prototype.hasOwnProperty.call(NIMBUS_POWER_EXACT, u)) return NIMBUS_POWER_EXACT[u];
+  const k = u.toLowerCase();
+  return Object.prototype.hasOwnProperty.call(NIMBUS_POWER_TO_KW, k) ? NIMBUS_POWER_TO_KW[k] : 1;
+}
+
+// nimbus #1570: every power unit via the shared table. No unit keeps
+// this card's historical assumption (W), so nothing changes for a
+// unit-less sensor.
 function toWatts(state) {
   const n = numOf(state);
   if (Number.isNaN(n)) return NaN;
-  const unit = ((state.attributes && state.attributes.unit_of_measurement) || "").toLowerCase();
-  return unit === "kw" ? n * 1000 : n;
+  const unit = state.attributes && state.attributes.unit_of_measurement;
+  if (typeof unit !== "string" || !unit.trim()) return n;
+  return n * topologyPowerScaleToKw(unit) * 1000;
 }
 
 function fmtValue(state) {

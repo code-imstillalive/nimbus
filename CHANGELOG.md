@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **One power-unit converter for the Forecaster, the Solver and every card**
+  ([#1570](https://github.com/code-imstillalive/nimbus/issues/1570)). About
+  seven places carried their own `unit == "W"` check, which missed `w`, `MW`
+  and `GW`. The Solver's live whole-house load overwrote the plan's first
+  period with no conversion at all, so a W sensor made it 1000x too large. The
+  Control Panel card read battery, grid and EV power raw: a W battery sensor
+  stretched the chart's y-axis to thousands and flattened the plan's green and
+  blue shading to a line. All of them now use `power_units.py` (W, kW, MW, GW,
+  TW, BTU/h, any letter case; no unit is still taken as kW), the Forecaster
+  included, in place of Home Assistant's PowerConverter, so the Forecaster and
+  Solver cannot disagree about a sensor. Each card carries the same table and a
+  test checks it against the Python one. The Control Panel's history line is
+  scaled by its sensor's unit.
+
 ## [0.94.440] - 2026-10-06
 
 - **Same-day release, by household decision.** #1557, #1560 and #1567 change LP

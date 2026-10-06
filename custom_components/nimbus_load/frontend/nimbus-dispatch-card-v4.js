@@ -154,7 +154,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // reading (_battSign()) so the "Actual" line overlaid on the
         // timeline matches the plan's own convention instead of being
         // mirrored against it on a positive-is-charge install.
-        const sign = this._battSign();
+        const sign = this._battSign() * this._kwScaleOf(this._battEntity);
         this._actualHistory = series
           .map(pt => [new Date(pt.last_changed || pt.lu * 1000).getTime(), parseFloat(pt.state) * sign])
           .filter(pt => !isNaN(pt[1]));
@@ -173,13 +173,30 @@ class NimbusDispatchCardV4 extends HTMLElement {
   // which sensor -- read the entity's own unit_of_measurement rather than
   // assume, and convert to kW consistently (already-documented, real gotcha
   // for sensor.combined_total_dc_power specifically, which is native W).
+  static powerScaleToKw(unit) {
+    // nimbus #1570: the same table as power_units.py (POWER_TO_KW);
+    // tests/test_1570_power_units.py checks every card against it.
+    const NIMBUS_POWER_TO_KW = {"mw": 1e3, "w": 1e-3, "kw": 1.0, "gw": 1e6, "tw": 1e9, "btu/h": 0.00029307107};
+    const NIMBUS_POWER_EXACT = {"mW": 1e-6, "MW": 1e3};
+    if (typeof unit !== 'string') return 1;
+    const u = unit.trim();
+    if (Object.prototype.hasOwnProperty.call(NIMBUS_POWER_EXACT, u)) return NIMBUS_POWER_EXACT[u];
+    const k = u.toLowerCase();
+    return Object.prototype.hasOwnProperty.call(NIMBUS_POWER_TO_KW, k) ? NIMBUS_POWER_TO_KW[k] : 1;
+  }
+
+  // The entity's own unit, as a multiplier to kW (1 when it has none).
+  _kwScaleOf(entityId) {
+    const e = this._hass && this._hass.states[entityId];
+    return NimbusDispatchCardV4.powerScaleToKw(e && e.attributes && e.attributes.unit_of_measurement);
+  }
+
   _numAsKw(entityId, fallback) {
     const e = this._hass.states[entityId];
     if (!e) return fallback;
     const v = parseFloat(e.state);
     if (isNaN(v)) return fallback;
-    const unit = ((e.attributes && e.attributes.unit_of_measurement) || '').toLowerCase();
-    return unit === 'w' ? v / 1000 : v;
+    return v * this._kwScaleOf(entityId);
   }
 
   _fmtNum(v, decimals, suffix) {
@@ -316,10 +333,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
       // right now, same as it does for every other mode -- CHARGING (SOLAR),
       // CHARGING (GRID), DISCHARGING, or SELF-CONSUME, read from real, live
       // measured sensors (never the Solver's plan, since dispatch is off).
-      const realBatt = this._num(this._battEntity, 0) * this._battSign();
-      const realGrid = this._num(this._gridEntity, 0);
+      // nimbus #1570: every power entity through the shared converter
+      // (battery, grid and EV were read raw; a W sensor read as kW).
+      const realBatt = this._numAsKw(this._battEntity, 0) * this._battSign();
+      const realGrid = this._numAsKw(this._gridEntity, 0);
       const realSolarKw = this._numAsKw(this._solarEntity, 0);
-      const realEv = this._evEntity ? this._num(this._evEntity, 0) : 0;
+      const realEv = this._evEntity ? this._numAsKw(this._evEntity, 0) : 0;
       bkw = realBatt;
       kwTriple = {grid: realGrid, solar: realSolarKw, batt: realBatt};
       const evActive = realEv > 0.05;
@@ -705,7 +724,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // ask: "maybe at current time period row?"). Every other row keeps the
     // Solver's own forecast-derived figure, since nothing measured exists
     // for a future period.
-    const realGridNow = this._num(this._gridEntity, NaN);
+    const realGridNow = this._numAsKw(this._gridEntity, NaN);
     // nimbus issue #421 (Mark Purcell): the identical real-data-on-the-
     // NOW-row treatment above was never applied to the BATT column --
     // it always showed the Solver's own PLANNED battery_kw, even for
@@ -718,7 +737,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // (discharging, by this card's own sign convention) for the exact
     // same instant. Same fix as realGridNow: prefer the real, sign-
     // corrected measured value on the now row only.
-    const realBattNow = this._num(this._battEntity, NaN) * this._battSign();
+    const realBattNow = this._numAsKw(this._battEntity, NaN) * this._battSign();
     for (let idx = 0; idx < fc.length && !ftDone; idx++) {
       const p = fc[idx];
       const pDate = ftDateKey(p.time);
