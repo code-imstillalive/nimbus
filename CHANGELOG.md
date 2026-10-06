@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.439] - 2026-10-06
+
 ### Added
 - **The P2P matched-rate field reads LocalVolts v2's own rows**
   ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)). Since
