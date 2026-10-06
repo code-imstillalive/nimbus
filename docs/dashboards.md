@@ -284,14 +284,25 @@ with its own PV strings + battery towers), auto-discovered Loads, and a
 whole-house readout, with live arrows/coloring showing which direction
 power is actually flowing right now.
 
-Auto-discovers almost everything once the Nimbus hub's own Topology
-wizard (hub → Configure → Power Source / PV String / Battery Tower
-steps) has at least one Power Source subentry configured — its live
-data (`sensor.nimbus_topology_config`) wholesale-overrides whatever the
-card's own config says. `switchboard` and `inverters` are both
-**optional** (nimbus issue #551 — a card added directly from HA's own
-card picker, with no config at all, no longer errors; both default to
-`{}`/`[]`), so the minimal config for a wizard-configured household is
+Step-by-step setup, including which entry draws which box and what a
+fresh install shows, is in
+[setup guide §16](setup-guide.md#16-the-topology-diagram). This section is
+the card reference.
+
+The card draws its inverters from `sensor.nimbus_topology_config`, which
+publishes the hub's **Power Source**, **PV String** and **Battery Tower**
+entries (added with the integration page's **+ Add** buttons, not the
+Configure menu). When at least one Power Source exists, that live data
+wholesale-overrides the card's own `inverters`. When none of the three
+entry types exists, the sensor publishes a stand-in inverter named
+"Nimbus" from the Solver's measured battery and solar power sensors
+(when either is set) and its SoC sensor, plus one per Battery Participant (nimbus issue #575). Add
+any real entry and the stand-in is dropped. A PV String or Battery Tower
+is drawn only under the Power Source it is assigned to.
+
+`switchboard` and `inverters` are both **optional** (nimbus issue #551 —
+a card added directly from HA's own card picker, with no config at all,
+no longer errors; both default to `{}`/`[]`), so the minimal config is
 just:
 
 ```yaml
@@ -303,17 +314,53 @@ inverters: []
 Every Nimbus **Load** subentry (HWS, pool, an individual circuit
 breaker — anything added via the hub's own "+ Add" → Load) appears on
 the diagram automatically, with no config at all — added the moment its
-forecast sensor exists, removed the moment it doesn't.
+forecast sensor exists, removed the moment it doesn't. The card pairs
+each `sensor.nimbus_<your_sensor_name>_forecast` with the source sensor
+named inside it for the live reading, so keep the default entity ID.
 
-**Empty state (nimbus issue #553):** until the Topology wizard has at
-least one Power Source subentry — or if `sensor.nimbus_topology_config`
+**Power Signals on this card.** Only two roles are read, and neither
+draws a box of its own:
+
+- A Power Signal with Role **Grid** supplies the Grid box's live power
+  and arrow direction (positive = importing).
+- A Power Signal with Role **Battery** supplies the battery's share of
+  the switchboard colour (positive = discharging).
+
+Both win over any `switchboard.grid_meter` / `switchboard.battery_power`
+in the card YAML. Roles **Solar**, **Other**, **Temperature** and
+**Humidity** are not read here; solar comes from PV Strings. The
+whole-house Power Signal from setup guide §5 is therefore not drawn
+either. It appears on the Forecaster card instead, as the white Whole
+House line once it is the Solver's household load forecast, and every
+other Power Signal appears on the Forecaster's Power Signals chart.
+
+**Whole-house headline (optional).** Add a `whole_house` block to show
+the house's live and forecast power at the top left. The daily solar,
+battery and house-load kWh from **Configure → Topology diagram
+settings** are shown only inside this headline:
+
+```yaml
+type: custom:nimbus-topology-card
+switchboard: {}
+inverters: []
+whole_house:
+  live: sensor.<your_sensor_name>
+  forecast: sensor.nimbus_<your_sensor_name>_forecast
+```
+
+**Prices** on the Grid box come from the Solver's import and export
+price sensors (`sensor.nimbus_solver_config`). The Topology diagram
+settings price fields are a fallback for an install without them.
+
+**Empty state (nimbus issue #553):** when there is no inverter to draw —
+no Power Source and no stand-in, or `sensor.nimbus_topology_config`
 doesn't exist yet (an older integration version, or the entity
 disabled) — the card shows a banner reading *"No topology configured.
 Nimbus hub → Configure → add a Power Source, PV Strings and Battery
-Towers; this card fills in automatically."* Auto-discovered Loads and
-Power Signals still draw underneath the banner, so the card stays
-useful on a loads-only install even before the Topology wizard has
-been run at all.
+Towers; this card fills in automatically."* Despite the wording, those
+are **+ Add** buttons on the integration page. Load tiles and the Grid
+box still draw underneath the banner, so the card stays useful on a
+loads-only install.
 
 If you'd rather hand-author the topology instead of running the wizard
 (or are still migrating a static file from a hand-copied `www/`
