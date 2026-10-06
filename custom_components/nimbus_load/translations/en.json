@@ -520,5 +520,69 @@
       "name": "Flex telemetry record",
       "description": "Return the current nem-flex-telemetry schema v2.0 record for the last complete NEM 5-minute interval, built entirely from Nimbus's own entities and last solve. Reads what sensor.nimbus_flex_telemetry already published rather than rebuilding it, so a caller and a dashboard can never disagree about the same interval. Needs switch.nimbus_solver_flex_signals_enabled on: it is off by default and costs roughly 9x solve time when on, because the schema's required flexibility fields come from HiGHS ranging."
     }
+  },
+  "issues": {
+    "forecast_not_trained": {
+      "title": "Nimbus: no forecast yet for {name}",
+      "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
+    },
+    "energy_unit_power_input": {
+      "title": "Nimbus: an energy total is set where a power sensor is needed",
+      "description": "These settings point at an energy counter (Wh/kWh), but Nimbus needs a power sensor (W or kW):\n\n{inputs}\n\nPick the matching power sensor (most inverters and meters expose both) in Nimbus → Configure, or reconfigure the Load / Power Signal. This message clears itself once fixed."
+    },
+    "fees_on_top_of_flex_up": {
+      "title": "Nimbus: network fees are counted twice",
+      "description": "Your import price is `{flex_up}` (LocalVolts v2 Buy Flex Up), which already includes your network and flat fees. Nimbus also adds its own fees on top ({fees}), so the plan sees grid energy as dearer than it is and imports less than it should. Set those fee rates to 0 on the Solver dashboard, or in Configure → Solver settings. This message clears itself once they are 0."
+    },
+    "solver_input_missing": {
+      "title": "Nimbus: the Solver is missing an input",
+      "description": "The Solver cannot plan properly without: **{inputs}**. Set them in Nimbus → Configure → Solver settings. This message clears itself once they are set."
+    },
+    "setup_fill_battery_power": {
+      "title": "Nimbus: use {sensor} for the Solver's battery power?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's battery power?",
+            "description": "The Solver's **battery power** sensor is empty. You already chose `{sensor}` as the battery sensor in Forecaster settings, so Nimbus can use the same sensor here.\n\nIt reads **{reading}** right now.\n\n{sign}\n\nSubmit sets this one field and nothing else. Nothing is sent to any device. To change it later, use Nimbus → Configure → Solver settings; Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_solar_power": {
+      "title": "Nimbus: use {sensor} for the Solver's solar power?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's solar power?",
+            "description": "The Solver's **solar power** sensor is empty. You already chose `{sensor}` as the solar sensor in Forecaster settings, so Nimbus can use the same sensor here.\n\nIt reads **{reading}** right now. It must be your **total** solar output, every inverter included. If it covers only one inverter, do not submit: set the total in Nimbus → Configure → Solver settings instead.\n\nSubmit sets this one field and nothing else. Nothing is sent to any device, and Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_cross_check": {
+      "title": "Nimbus: use {sensor} for the Solver's whole-house cross-check?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's whole-house cross-check?",
+            "description": "The Solver's **whole-house cross-check** is empty. Your household load forecast is trained on `{sensor}`, so Nimbus can cross-check against the same sensor.\n\nIt reads **{reading}** right now.\n\nSubmit sets this one field and nothing else. Nothing is sent to any device, and Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_blocked": {
+      "title": "Nimbus: {field} cannot be filled from {sensor}",
+      "description": "Nimbus could fill the **{field}** from `{sensor}`, which you already chose elsewhere, but {reason}.\n\nPick a power sensor (W or kW) in Nimbus → Configure, or set the {field} yourself in Solver settings. This message clears itself once that is fixed."
+    }
   }
 }

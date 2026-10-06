@@ -277,29 +277,25 @@ def test_find_names_hub_inputs_and_load_or_signal_sensors_only():
     ]
 
 
-def test_notification_is_created_when_found_and_dismissed_when_clean():
+def test_the_old_notification_is_dismissed_and_the_repair_takes_over():
+    """nimbus #1574 stage 2: the household-facing report is a Repair
+    (setup_health), which clears itself. The startup check only logs and
+    dismisses the notification 0.94.440 created."""
     hass = _hass()
     bad = _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})
     asyncio.run(pic.async_notify_energy_unit_inputs(hass, bad))
-    domain, service, data = hass.services.async_call.call_args.args[:3]
-    assert (domain, service) == ("persistent_notification", "create")
-    assert data["notification_id"] == pic.NOTIFICATION_ID
-    assert (
-        "sensor.solar_production_total" in data["message"] and "Wh" in data["message"]
-    )
-
-    hass.services.async_call.reset_mock()
-    asyncio.run(
-        pic.async_notify_energy_unit_inputs(
-            hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_power"})
-        )
-    )
+    services = [c.args[:2] for c in hass.services.async_call.call_args_list]
+    assert ("persistent_notification", "create") not in services
     domain, service, data = hass.services.async_call.call_args.args[:3]
     assert (domain, service, data) == (
         "persistent_notification",
         "dismiss",
         {"notification_id": pic.NOTIFICATION_ID},
     )
+    # and the Repair's input is still found
+    assert pic.find_energy_unit_inputs(hass, bad) == [
+        ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh")
+    ]
 
 
 def test_the_notifier_never_raises():

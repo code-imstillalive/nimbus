@@ -9,20 +9,46 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
-- **Setup fills the Solver's missing inputs from sensors you already chose**
-  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 1 of
-  the two-step setup). The Solver's empty battery power and solar power fields
-  are filled from the Forecaster's battery and solar sensors, and its empty
-  whole-house cross-check from the source of its own load forecast. Nothing set
-  is ever changed, an energy-total (Wh/kWh) sensor is refused, a field you later
-  clear is not refilled, and one notification lists what was filled. No forecasts
-  are created: per Mark's device contract, battery and grid power is telemetry,
-  not something to train a forecast on. The Control Panel card's blank battery,
-  SoC and solar fields now follow the Solver's sensors on every render, not only
-  when the card is first added, so its history line appears without editing the card.
+- **Setup offers to fill the Solver's missing inputs from sensors you already
+  chose, one click each** ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574),
+  stage 1 of the two-step setup). When the Solver's battery power, solar power
+  or whole-house cross-check is empty and you already named that sensor in
+  Forecaster settings, Settings → Repairs offers it. The offer shows the sensor's
+  current reading and, for the battery, the sign the Solver will apply. **Nothing
+  changes until you press Submit**, and Submit sets only that one field.
+  - An energy total (Wh/kWh) or a unit-less sensor is not offered. Instead a
+    Repair says why, and clears itself once fixed.
+  - A sensor that does not exist yet gets 30 minutes to appear before it is
+    reported.
+  - Only a whole-house Power Signal's source is offered as the cross-check, never
+    a single circuit's.
+  - Sign settings are never changed.
+  - A field you clear later is not offered again.
+  - No forecasts are created: per Mark's device contract, battery and grid
+    power is telemetry, not something to train a forecast on.
+  - The Control Panel card's blank battery, SoC and solar fields now follow the
+    Solver's sensors on every render, so its history line appears without
+    editing the card.
 
+- **Setup problems are Home Assistant Repairs that clear themselves**
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 2 of
+  the two-step setup). Settings → Repairs now says, in plain words, when:
+  - a forecast has not trained (with the reason, after a 30-minute startup grace);
+  - an energy total is set where a power sensor is needed;
+  - network fees are counted twice on top of LocalVolts Flex Up;
+  - a required Solver input is empty.
+
+  Each entry goes away on its own once the problem is fixed, which a
+  notification cannot do. The energy-sensor and doubled-fee notifications are
+  replaced by these Repairs, and dismissed if still showing.
 
 ### Changed
+- **The tracking-fidelity docs say it carries no information.** `tracking_fidelity`
+  reads 1.0 and `tracking_cost` 0 on every day and install, because the quality
+  report sets commanded dispatch equal to actual (no generic commanded signal
+  exists). The entity reference and the dispatch-report checklist no longer
+  imply it measures anything, or that a 1.0 is worth investigating
+  ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
 
 ## [0.94.441] - 2026-10-06

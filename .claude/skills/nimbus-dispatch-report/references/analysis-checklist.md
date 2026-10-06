@@ -83,12 +83,13 @@ one battery's power, a sensor dropping samples) and the achieved cost is a model
 grid sign too: the report's `grid_kw` vs the meter's mean tells you whether the house was
 importing or exporting in the hours the report thinks it imported.
 
-**Tracking fidelity.** Nimbus now drives real dispatch on the reference household, but if
-`tracking_fidelity` = 1.0 and `tracking_cost` = 0 look suspiciously perfect, still check
-which automation actually owns the battery on THIS install (`ha_search` over automation
-bodies for the inverter name) before interpreting — a household running Nimbus alongside
-another controller (or one that hasn't yet handed real dispatch to Nimbus) will still show
-this vacuous pattern.
+**Tracking fidelity carries no information. Do not read it, and do not investigate it.**
+`tracking_fidelity` is 1.0 and `tracking_cost` is 0 on **every day, on every install, whichever
+automation drives the battery**. The quality report sets commanded = actual outright
+(`solver_reports/quality.py`, `commanded_*_kw_list = actual_*_kw_list`), because no generic
+commanded-vs-actual signal exists (nimbus #1465, Mark Purcell, 2026-10-06). So "which automation
+owns the battery" cannot be answered from this metric. If it matters, answer it from the
+automations themselves; never cite 1.0 / $0.00 as evidence of good, or of vacuous, tracking.
 
 **Counterfactual sensor.** `sensor.nimbus_counterfactual_soc` gives Nimbus's own would-have
 closing SoC vs the real one. It tells you which direction Nimbus would have moved relative
