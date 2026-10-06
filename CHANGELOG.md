@@ -20,6 +20,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   converted to the sections layout in place, keeping its title and path; a tab
   someone has edited is left alone.
 
+### Fixed
+- **Load forecasts for circuits that sit idle are right again: idle time is
+  training data, not an outage**
+  ([#1556](https://github.com/code-imstillalive/nimbus/issues/1556)). Home
+  Assistant records a power sensor only when its value changes, so a circuit at
+  0 W for hours writes nothing for hours. Training treated any silence over 45
+  minutes as an outage and kept only "new readings" as targets, so a circuit's
+  idle time produced no training rows: the model learned only from moments it
+  was running, and a circuit idle long enough could not retrain at all. On the
+  reference household a heater forecast 3.3 kW and a laundry circuit 0.42 kW,
+  against 0.00 and 0.06 kW actual, and the Solver's summed load read 6.7 kW
+  against 3.2 kW measured. Outages are now explicit instead of guessed from gap
+  length: an `unavailable`/`unknown` state, and Home Assistant's own downtime
+  (from the recorder's run history), become gap markers, and a value held
+  between readings counts as a real observation. Replayed through the real
+  training code on the reference household's history: the heater went from no
+  model (15 usable points) to 0.01-0.03 kW against 0.00 actual, the laundry to
+  0.05-0.07 kW against a 0.062 kW 30-day mean. Hourly long-term-statistics
+  training keeps its existing rules (#350, #353, #375) unchanged. A served
+  model whose retraining keeps failing is now flagged: the forecast sensor
+  carries `model_age_days` and `retrain_failing_since`, and the log warns once
+  per failure episode when that model is over 7 days old.
+
 ## [0.94.439] - 2026-10-06
 
 ### Added

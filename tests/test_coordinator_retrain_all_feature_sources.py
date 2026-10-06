@@ -158,8 +158,11 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
         # train_model()'s own log lines can attribute themselves. Captured
         # below so this test also pins that it is actually supplied.
         label=None,
+        # nimbus issue #1556: where the history becomes change-only.
+        change_only_from=None,
     ):
         captured["label"] = label
+        captured["change_only_from"] = change_only_from
         captured["load_events"] = load_events
         captured["temp_events"] = temp_events
         captured["humidity_events"] = humidity_events
@@ -195,3 +198,7 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
     assert captured["curtailment_events"] == [
         (datetime(2026, 8, 31, 0, 0, tzinfo=UTC), 1.0)
     ]
+
+    # nimbus issue #1556: the default recorder source declares the whole
+    # window change-only, so the boundary is passed through and set.
+    assert captured["change_only_from"] is not None
