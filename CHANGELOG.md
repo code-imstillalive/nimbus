@@ -21,6 +21,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   notification cannot do. The energy-sensor and doubled-fee notifications are
   replaced by these Repairs, and dismissed if still showing.
 
+### Fixed
+- **Forecaster card: a milliwatt power history line was scaled as if it were
+  megawatt** ([#1597](https://github.com/code-imstillalive/nimbus/issues/1597),
+  found by the daily IV&V pass). `nimbus-forecast-card.js`'s `_history()`
+  lowercased the unit string before calling the shared `powerScaleToKw()`,
+  defeating its deliberate exact-case `mW`-vs-`MW` disambiguation (the
+  dispatch and topology cards already passed the raw-case unit and were
+  unaffected). Real-world impact is low — a milliwatt household power sensor
+  essentially never occurs — but the error was a genuine 1e9x on the
+  history line's scale factor had one existed.
+
 ### Changed
 - **The tracking-fidelity docs say it carries no information.** `tracking_fidelity`
   reads 1.0 and `tracking_cost` 0 on every day and install, because the quality
