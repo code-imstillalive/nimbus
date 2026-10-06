@@ -235,11 +235,17 @@ def test_fees_set_alongside_buy_flex_up_are_flagged():
         asyncio.run(
             pa.async_notify_pricing_setup(hass, {**_complete(), **REFERENCE_FEES})
         )
-    notes = _notifications(hass)
-    assert list(notes) == [pa.NOTIFY_FEES_DOUBLED_ID]
-    msg = notes[pa.NOTIFY_FEES_DOUBLED_ID]
-    assert "sensor.localvolts_v2_buy_flex_up" in msg
-    assert "solver_flat_fee_rate" in msg and "solver_network_fee_3_rate" not in msg
+    # nimbus #1574 stage 2: reported as a Repair (setup_health), not a
+    # notification; the startup check only dismisses the old notification.
+    assert _notifications(hass) == {}
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        doubled = pa.detect_fees_doubled(hass, {**_complete(), **REFERENCE_FEES})
+    assert doubled is not None
+    flex_up, listed = doubled
+    assert flex_up == "sensor.localvolts_v2_buy_flex_up"
+    assert (
+        "solver_flat_fee_rate" in listed and "solver_network_fee_3_rate" not in listed
+    )
 
 
 def test_zero_fees_with_buy_flex_up_are_quiet():

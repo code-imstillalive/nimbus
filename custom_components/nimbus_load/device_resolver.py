@@ -160,7 +160,9 @@ def parse_energy_sources(prefs: Mapping[str, Any] | None) -> list[EnergySource]:
                 )
             )
         elif kind == "grid" and ("flow_from" in src or "flow_to" in src):
-            flows_from = [f for f in src.get("flow_from") or [] if isinstance(f, Mapping)]
+            flows_from = [
+                f for f in src.get("flow_from") or [] if isinstance(f, Mapping)
+            ]
             flows_to = [f for f in src.get("flow_to") or [] if isinstance(f, Mapping)]
             powers = [p for p in src.get("power") or [] if isinstance(p, Mapping)]
             out.append(
@@ -173,7 +175,9 @@ def parse_energy_sources(prefs: Mapping[str, Any] | None) -> list[EnergySource]:
                     price_import=_strs(
                         *(f.get("entity_energy_price") for f in flows_from)
                     ),
-                    price_export=_strs(*(f.get("entity_energy_price") for f in flows_to)),
+                    price_export=_strs(
+                        *(f.get("entity_energy_price") for f in flows_to)
+                    ),
                     rate=_strs(*(p.get("stat_rate") for p in powers)),
                     power_config=tuple(
                         dict(p["power_config"])
@@ -308,17 +312,32 @@ def coverage(series: Series, start: datetime, end: datetime) -> float:
 
 def counter_rise(series: Series, start: datetime, end: datetime) -> float | None:
     """kWh a `total_increasing` counter rose over [start, end), or None when
-    it cannot be read (fewer than two readable points). A drop is a reset (a
-    daily counter at midnight): the new value counts from zero. None is
-    missing evidence, never zero."""
-    pts = [(t, v) for t, v in _clean(series) if v is not None]
-    inside = [p for p in pts if start <= p[0] < end]
-    before = [p for p in pts if p[0] < start]
+    that cannot be read. A drop is a reset (a daily counter at midnight): the
+    new value counts from zero.
+
+    Home Assistant records a counter only when it changes, so a counter whose
+    last reading holds through the window is MEASURED to have risen 0 -- that
+    is evidence, not a gap. It is missing (None) only when no reading is
+    known at the start and fewer than two arrive inside, or when it is
+    unavailable at the start or at any point inside the window."""
+    pts = _clean(series)
+    before = [p for p in pts if p[0] <= start]
+    # A reading AT `end` belongs here: it holds the energy up to `end`. With
+    # the next window's baseline being that same reading, every change is
+    # counted exactly once across adjacent windows.
+    inside = [p for p in pts if start < p[0] <= end]
     if before:
-        inside = [before[-1], *inside]
-    if len(inside) < 2:
+        if before[-1][1] is None:
+            return None  # unavailable as the window opens
+        chain = [before[-1], *inside]
+    else:
+        if len(inside) < 2:
+            return None
+        chain = inside
+    if any(v is None for _, v in chain):
         return None
-    return sum((b - a) if b >= a else b for (_, a), (_, b) in pairwise(inside))
+    values = [v for _, v in chain]
+    return sum((b - a) if b >= a else b for a, b in pairwise(values))
 
 
 def _rel_err(got: float, want: float) -> float:
@@ -387,7 +406,9 @@ def match_power_sensor(
         if coverage(series, start, end) >= MIN_COVERAGE
     }
     if not candidates:
-        return PowerMatch(NO_CANDIDATES, None, None, math.inf, [], "no power sensors to compare")
+        return PowerMatch(
+            NO_CANDIDATES, None, None, math.inf, [], "no power sensors to compare"
+        )
     if not eligible:
         return PowerMatch(
             INSUFFICIENT,
@@ -450,7 +471,9 @@ def match_power_sensor(
     out_total = _finite(energy_out) if energy_out is not None else None
     in_total = _finite(energy_in) if energy_in is not None else None
     if out_total is None and in_total is None:
-        return PowerMatch(INSUFFICIENT, None, None, math.inf, [], "no energy counter given")
+        return PowerMatch(
+            INSUFFICIENT, None, None, math.inf, [], "no energy counter given"
+        )
     if (out_total or 0.0) + (in_total or 0.0) < MIN_ENERGY_KWH:
         return PowerMatch(
             INSUFFICIENT,
@@ -556,16 +579,16 @@ def check_energy_balance(
     """grid ≈ load − solar − battery (battery positive = discharge, grid
     positive = import), on aligned samples in kW. If it does not hold, list
     each single change that makes it hold: a flipped sign on one role, one
-    role ×1000 or ÷1000, or solar that is only part of the total."""
+    role ×1000 or ÷1000, or solar that is only part of the total (scaled up
+    by the factor that best fits). A change counts only if the corrected
+    balance closes within `tolerance_kw`."""
     series = [list(load), list(solar), list(battery), list(grid)]
     n = len(series[0])
     if any(len(s) != n for s in series):
         return BalanceVerdict(
             False, INSUFFICIENT, math.inf, []
         )  # not aligned sample for sample
-    if n < MIN_BALANCE_SAMPLES or any(
-        _finite(v) is None for s in series for v in s
-    ):
+    if n < MIN_BALANCE_SAMPLES or any(_finite(v) is None for s in series for v in s):
         return BalanceVerdict(False, INSUFFICIENT, math.inf, [])
 
     def residual(l, s, b, g):
@@ -584,17 +607,23 @@ def check_energy_balance(
             (f"scale:{role}:/1000", lambda v: v * 0.001),
         ):
             trial = {**roles, role: [change(v) for v in values]}
-            res = residual(trial["load"], trial["solar"], trial["battery"], trial["grid"])
+            res = residual(
+                trial["load"], trial["solar"], trial["battery"], trial["grid"]
+            )
             if res <= tolerance_kw:
                 fits.append((res, label))
-    # partial solar: the residual is consistently "more solar than measured"
-    missing = [(load[i] - solar[i] - battery[i]) - grid[i] for i in range(n)]
-    if (
-        all(m >= -tolerance_kw for m in missing)
-        and sum(missing) / n > tolerance_kw
-        and max(solar) > 0
-    ):
-        fits.append((tolerance_kw, "partial_solar"))
+    # Partial solar: the measured solar is one part of the total. Fit the
+    # factor k that best explains the balance (least squares on
+    # grid = load - k*solar - battery) and count it only when k > 1 and the
+    # corrected balance actually closes -- not merely because the residual
+    # leans the right way, which a W/kW mix-up on another role also does.
+    s2 = sum(v * v for v in solar)
+    if s2 > 0:
+        k = sum(solar[i] * (load[i] - battery[i] - grid[i]) for i in range(n)) / s2
+        if k > 1.05:
+            res = residual(load, [v * k for v in solar], battery, grid)
+            if res <= tolerance_kw:
+                fits.append((res, "partial_solar"))
     fits.sort()
     hypotheses = [label for _res, label in fits]
     if not hypotheses:

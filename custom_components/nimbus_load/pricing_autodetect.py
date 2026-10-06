@@ -218,29 +218,50 @@ async def async_notify_pricing_setup(
     # network/flat fees on top of the import price, so with Flex Up as the
     # import sensor any non-zero fee is counted twice and the LP sees grid
     # energy dearer than it is. Notify only; the household decides.
+    # nimbus #1574 stage 2: reported as a Home Assistant Repair
+    # (setup_health.py), which clears itself once the fees are 0; the
+    # notification this used to raise is dismissed instead.
+    doubled = detect_fees_doubled(hass, options, detected=detected)
+    if doubled is not None:
+        _LOGGER.warning(
+            "Nimbus Solver: the import price is LocalVolts v2 Buy Flex Up, "
+            "which already includes network charges, and fees are also set "
+            "(%s) -- they are counted twice",
+            doubled[1],
+        )
+    await _dismiss(hass, NOTIFY_FEES_DOUBLED_ID)
+
+
+def detect_fees_doubled(
+    hass: HomeAssistant,
+    options: dict[str, Any],
+    *,
+    detected: dict[str, str] | None = None,
+) -> tuple[str, str] | None:
+    """(Flex Up entity, listed fees) when the import price is the detected
+    LocalVolts v2 Buy Flex Up and any network/flat fee is non-zero, else
+    None (nimbus #1564). Pure apart from the registry read."""
+    if detected is None:
+        detected = detect_localvolts_v2_profile(hass)
     flex_up = detected.get(CONF_SOLVER_IMPORT_PRICE_SENSOR)
-    if flex_up and options.get(CONF_SOLVER_IMPORT_PRICE_SENSOR) == flex_up:
-        fees = {k: _as_float(options.get(k)) for k in _FEE_RATE_KEYS}
-        set_fees = {k: v for k, v in fees.items() if v > 0}
-        if set_fees:
-            listed = ", ".join(f"`{k}` = {v:g}" for k, v in set_fees.items())
-            _LOGGER.warning(
-                "Nimbus Solver: the import price is LocalVolts v2 Buy Flex Up, "
-                "which already includes network charges, and fees are also set "
-                "(%s) -- they are counted twice",
-                listed,
-            )
-            await _notify(
-                hass,
-                NOTIFY_FEES_DOUBLED_ID,
-                "Nimbus: network fees are counted twice",
-                f"Your import price is `{flex_up}` (LocalVolts v2 Buy Flex Up), "
-                "which already includes your network and flat fees. Nimbus also "
-                f"adds its own fees on top ({listed}), so the plan sees grid "
-                "energy as dearer than it is and imports less than it should. "
-                "Set those fee rates to 0 (Solver dashboard, or Configure -> "
-                "Solver settings). Nothing has been changed.",
-            )
+    if not flex_up or options.get(CONF_SOLVER_IMPORT_PRICE_SENSOR) != flex_up:
+        return None
+    fees = {k: _as_float(options.get(k)) for k in _FEE_RATE_KEYS}
+    set_fees = {k: v for k, v in fees.items() if v > 0}
+    if not set_fees:
+        return None
+    return flex_up, ", ".join(f"`{k}` = {v:g}" for k, v in set_fees.items())
+
+
+async def _dismiss(hass: HomeAssistant, notification_id: str) -> None:
+    try:
+        await hass.services.async_call(
+            "persistent_notification",
+            "dismiss",
+            {"notification_id": notification_id},
+        )
+    except Exception:  # noqa: BLE001 -- a notification must never block setup
+        _LOGGER.debug("Nimbus: could not dismiss notification %s", notification_id)
 
 
 def _as_float(value: Any) -> float:
