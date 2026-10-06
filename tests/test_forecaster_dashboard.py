@@ -604,17 +604,18 @@ def test_an_already_handled_install_still_converts_its_old_panel_tab(ha) -> None
             "cards": [{"type": "custom:nimbus-forecast-card"}],
         }
     )
-    dash = ha.dashboards["dashboard-nimbus"]
-    dash.config = old
+    dash = _FakeDashboard(old)
+    ha.dashboards["dashboard-nimbus"] = dash
     _FakeStore.data = {
         "nimbus_load.forecaster_view": {"handled": {"dashboard-nimbus": ["forecaster"]}}
     }
     _run(mod, ha.hass)
-    view = dash.config["views"][-1]
+    view = next(v for v in dash.config["views"] if v.get("path") == "forecaster")
     assert view["title"] == "Forecaster Charts"
-    assert view["path"] == "forecaster"
-    _assert_forecaster_sections_view(view)
-    assert dash.saves == 1
+    assert view["type"] == "sections"
+    assert "icon" not in view
+    assert [c["chart"] for c in view["sections"][0]["cards"]] == ["signals", "loads"]
+    assert dash.saves == 1  # one save, carrying the conversion
 
 
 def test_an_edited_panel_tab_is_left_alone(ha) -> None:
