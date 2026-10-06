@@ -198,6 +198,10 @@ except ImportError:
 # call time from the other side (see solver_inputs/__init__.py for the
 # full note on that import direction).
 try:
+    from .power_units import power_scale_to_kw
+except ImportError:  # pragma: no cover - standalone/cron path
+    from power_units import power_scale_to_kw  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
@@ -3390,11 +3394,7 @@ def _validate_and_parse_load_forecast_attrs(
     # Nimbus's own canonical forecast entities are always already kW, so
     # this only ever fires on the alternate-shape path in practice, but
     # checked unconditionally rather than assumed.
-    scale = (
-        1.0 / 1000.0
-        if str(attrs.get("unit_of_measurement", "")).strip().lower() == "w"
-        else 1.0
-    )
+    scale = power_scale_to_kw(attrs.get("unit_of_measurement"))  # nimbus #1570
 
     fc_dicts = []
     for point in parsed_points:
@@ -5287,11 +5287,11 @@ def fetch_entity_power_history_kw(
     have imposed the cost on every install to fix a wake transient on one
     sensor family.
 
-    Per-row conversion mirrors `_async_fetch_thermal_history()`'s own
-    existing precedent in this same file (`unit == "W"` -> divide by
-    1000) rather than inventing a second convention. A row with no unit
-    at all is taken as already-kW, matching `_kw_scale_factor()`'s own
-    documented default for the same case.
+    Per-row conversion goes through `power_units.power_scale_to_kw()`, the
+    one converter every Nimbus power reading shares (nimbus #1570), rather
+    than a convention of its own. A row with no unit at all is taken as
+    already-kW, matching `_kw_scale_factor()`'s own documented default for
+    the same case.
 
     Same "degrade to [] on any failure, never crash" discipline as every
     other real-data fetch here.
@@ -5331,8 +5331,9 @@ def fetch_entity_power_history_kw(
                 v = float(s.state)
             except (TypeError, ValueError):
                 continue
-            if s.attributes.get("unit_of_measurement") == "W":
-                v = v / 1000.0
+            v *= power_scale_to_kw(  # nimbus #1570
+                s.attributes.get("unit_of_measurement")
+            )
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
     # REST fallback: no `&minimal_response`, so each point keeps its own
@@ -5361,8 +5362,9 @@ def fetch_entity_power_history_kw(
             v = float(state)
         except (TypeError, ValueError):
             continue
-        if (p.get("attributes") or {}).get("unit_of_measurement") == "W":
-            v = v / 1000.0
+        v *= power_scale_to_kw(  # nimbus #1570
+            (p.get("attributes") or {}).get("unit_of_measurement")
+        )
         out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
     return sorted(out, key=lambda x: x[0])
 

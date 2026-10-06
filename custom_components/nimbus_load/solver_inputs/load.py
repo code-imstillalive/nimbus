@@ -521,7 +521,11 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
         whole_house_cross_check_sensor
     ):
         try:
-            live_load_kw = float(sw.ha_get(whole_house_cross_check_sensor)["state"])
+            # nimbus #1570: this overwrote period 0 with the raw value, so a
+            # W sensor made the plan's first period 1000x too large.
+            live_load_kw = float(
+                sw.ha_get(whole_house_cross_check_sensor)["state"]
+            ) * sw._kw_scale_factor(whole_house_cross_check_sensor)
             load_kw[0] = max(0.0, live_load_kw)
             load_lower_kw[0] = load_kw[0]
             load_upper_kw[0] = load_kw[0]

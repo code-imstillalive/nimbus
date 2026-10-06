@@ -253,7 +253,7 @@ def _sample_load_run_state(
         # ha_get() round-trip (native mode only here, unlike
         # _kw_scale_factor()'s own REST-shaped caller).
         unit = state_obj.attributes.get("unit_of_measurement")
-        scale = 0.001 if unit == "W" else 1.0
+        scale = solver_shared.power_scale_to_kw(unit)  # nimbus #1570
         if scale != 1.0 and power_sensor not in sw._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED:
             sw._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.add(power_sensor)
             solver_shared._LOGGER.info(
