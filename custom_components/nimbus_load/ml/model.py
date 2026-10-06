@@ -517,6 +517,14 @@ def resample_last_value(
     is fold-blind across a DST transition. `max_staleness` is likewise
     compared as a real elapsed-UTC-time difference, not wall-clock, for
     the identical reason.
+
+    nimbus issue #1556: an event whose value is NaN is an explicit GAP
+    marker -- the source was `unavailable`/`unknown`, or Home Assistant
+    itself was not running -- and every grid point it covers, up to the
+    next real event, is None. That is what lets a change-only source be
+    held without a wall-clock staleness cap (see train_model()'s
+    `change_only_from`): an outage no longer has to be guessed from the
+    length of a gap, because the fetch layer says where it is.
     """
     times = [_dst_safe_key(e[0]) for e in events]
     values = [e[1] for e in events]
@@ -528,6 +536,9 @@ def resample_last_value(
             out.append(None)
             continue
         if max_staleness is not None and (g_key - times[idx]) > max_staleness:
+            out.append(None)
+            continue
+        if not math.isfinite(values[idx]):
             out.append(None)
             continue
         out.append(values[idx])
@@ -570,11 +581,13 @@ def resample_observed_mask(
     above, for the same DST-fold-blindness reason.
     """
     times = [_dst_safe_key(e[0]) for e in events]
+    finite = [math.isfinite(e[1]) for e in events]
     out: list[bool] = []
     prev_idx = -1
     for g in grid:
         idx = bisect_right(times, _dst_safe_key(g)) - 1
-        out.append(idx >= 0 and idx != prev_idx)
+        # nimbus issue #1556: a NaN gap marker is never an observation.
+        out.append(idx >= 0 and idx != prev_idx and finite[idx])
         prev_idx = idx
     return out
 
@@ -737,6 +750,7 @@ def train_model(
     solar_events: list[tuple[datetime, float]] | None = None,
     max_staleness_minutes: float | None = None,
     label: str | None = None,
+    change_only_from: datetime | None = None,
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
@@ -791,6 +805,33 @@ def train_model(
     the caller who DOES know which training_source is active passes the
     right cap in; None (the default) preserves the original, unchanged
     behaviour for the plain recorder-only path.
+
+    change_only_from (nimbus issue #1556): from this instant on, every
+    events list is CHANGE-ONLY history -- Home Assistant's recorder,
+    which writes a row only when a value changes, so a circuit sitting
+    at 0 W for six hours writes nothing for six hours and is genuinely
+    at 0 W throughout. For grid points at or after it, a held value is
+    therefore a real observation: it is forward-filled with no
+    wall-clock staleness cap, and it counts as a training target. Real
+    outages are marked explicitly by the caller as NaN events (see
+    resample_last_value()), so they still drop out.
+
+    Why it exists: under the #353 cap and the #350 observed-mask alone,
+    an idle stretch longer than three grid steps became None, and a held
+    point never became a training row, so a circuit's idle time
+    contributed no rows at all. Measured on the reference household's
+    real history: a heater with 15 usable points in 30 days and a
+    laundry circuit with 437, both refusing to retrain, while the models
+    served for them -- trained almost only on moments the circuit was
+    switching or running -- forecast 3.3 kW and 0.42 kW against 0.00
+    and 0.10 kW actual.
+
+    Grid points BEFORE it keep the original rules exactly. That is what
+    the long-term-statistics part of a hybrid window needs: hourly LTS
+    buckets are one observation per hour, not change-only samples, and
+    #350's mask is right for them. None (the default) applies the
+    original rules everywhere: the LTS source, and any caller that does
+    not know where its events came from.
     """
     # nimbus issue #1206: one prefix, applied to every line this
     # function logs, so a multi-subentry install can attribute any of
@@ -810,7 +851,25 @@ def train_model(
         if max_staleness_minutes is not None
         else resample_minutes * MAX_TRAINING_STALENESS_GRID_STEPS
     )
-    load_vals = resample_last_value(load_events, grid, max_staleness=max_staleness)
+    # nimbus issue #1556: grid points at or after change_only_from use the
+    # change-only rule (see the docstring); earlier points keep the
+    # original capped forward-fill.
+    held_from = [
+        change_only_from is not None
+        and _dst_safe_key(g) >= _dst_safe_key(change_only_from)
+        for g in grid
+    ]
+
+    def _resample(events: list[tuple[datetime, float]]) -> list[float | None]:
+        capped = resample_last_value(events, grid, max_staleness=max_staleness)
+        if not any(held_from):
+            return capped
+        held = resample_last_value(events, grid)
+        return [
+            h if hf else c for h, c, hf in zip(held, capped, held_from, strict=True)
+        ]
+
+    load_vals = _resample(load_events)
     # nimbus issue #350: see resample_observed_mask()'s own docstring --
     # used below (the x_rows loop) to skip emitting a training ROW where
     # the TARGET itself is a pure forward-fill carry-over, not a genuine
@@ -819,6 +878,12 @@ def train_model(
     # real-data coverage regardless of whether a given point happens to
     # also be freshly-observed (see that table's own comment).
     load_observed = resample_observed_mask(load_events, grid)
+    # nimbus issue #1556: in the change-only segment a held value is a
+    # genuine observation, so every point with a real value is a target.
+    load_observed = [
+        (lv is not None and math.isfinite(lv)) if hf else obs
+        for lv, hf, obs in zip(load_vals, held_from, load_observed, strict=True)
+    ]
 
     # Seasonal lookup (see TrainedModel.seasonal_lookup's own docstring) --
     # built from EVERY grid point with a real observed value, deliberately
@@ -888,36 +953,16 @@ def train_model(
         seasonal_lookup[(wd, hr, mb)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (
             n + SHRINKAGE_K
         )
-    temp_vals = (
-        resample_last_value(temp_events, grid, max_staleness=max_staleness)
-        if temp_events
-        else [None] * len(grid)
-    )
+    temp_vals = _resample(temp_events) if temp_events else [None] * len(grid)
     humidity_vals = (
-        resample_last_value(humidity_events, grid, max_staleness=max_staleness)
-        if humidity_events
-        else [None] * len(grid)
+        _resample(humidity_events) if humidity_events else [None] * len(grid)
     )
     curtailment_vals = (
-        resample_last_value(curtailment_events, grid, max_staleness=max_staleness)
-        if curtailment_events
-        else [None] * len(grid)
+        _resample(curtailment_events) if curtailment_events else [None] * len(grid)
     )
-    battery_vals = (
-        resample_last_value(battery_events, grid, max_staleness=max_staleness)
-        if battery_events
-        else [None] * len(grid)
-    )
-    grid_vals = (
-        resample_last_value(grid_events, grid, max_staleness=max_staleness)
-        if grid_events
-        else [None] * len(grid)
-    )
-    solar_vals = (
-        resample_last_value(solar_events, grid, max_staleness=max_staleness)
-        if solar_events
-        else [None] * len(grid)
-    )
+    battery_vals = _resample(battery_events) if battery_events else [None] * len(grid)
+    grid_vals = _resample(grid_events) if grid_events else [None] * len(grid)
+    solar_vals = _resample(solar_events) if solar_events else [None] * len(grid)
 
     x_rows: list[list[float]] = []
     y_vals: list[float] = []
