@@ -34,13 +34,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   [#1417](https://github.com/code-imstillalive/nimbus/issues/1417)).
   **Diagnostic only.** When #1417's re-solve with `period[0]` pinned to the
   previous plan's value comes back `infeasible`, its DEBUG line now ends with
-  `blocked_by=` naming the period-0 constraint the pin violates -- battery
+  `blocked_by(<battery>)=` naming the participant (`batteries[0]` only, by
+  solver name) and each period-0 constraint the pin violates -- battery
   max charge/discharge, a power curve, SoC capacity headroom, the #328
   discharge reserve, a shared charger, the grid export limit, or a fixed P2P
   export commitment (charge gate or floor) -- or `unexplained_at_period0`
   for a multi-period coupling. This is the reading guide's missing third row:
-  **infeasible means the old value no longer fits, so the crossing was
-  forced, not chosen.** Computed by arithmetic over the configs the pinned
+  **the previous setpoint is infeasible under the current model; the listed
+  checks explain sufficient period-0 violations where available, and do not
+  establish that the observed direction reversal was the only feasible
+  alternative.** `unexplained_at_period0` is not evidence that a device is
+  safe to control or that a limit should be relaxed, and nothing reads these
+  fields -- no Repair, no limit change, no dispatch input. Computed by arithmetic over the configs the pinned
   re-solve was built from (`solver/pin_blockers.py`), with no extra solve and
   only on the already-infeasible branch, inside its own `except Exception`.
   Each check is a sufficient condition, so it can under-report but never

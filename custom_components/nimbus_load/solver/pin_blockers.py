@@ -8,8 +8,25 @@ was missing:
 
     delta ~ 0       a tie the anchor should have held
     delta large     a genuine re-plan, or a moved baseline
-    infeasible      the old value no longer fits: the crossing was FORCED,
-                    and `blocked_by` names the constraint that forced it
+    infeasible      the previous setpoint is infeasible under the current
+                    model. The listed checks explain sufficient period-0
+                    violations where available; they do not establish that
+                    the observed direction reversal was the only feasible
+                    alternative (a smaller same-direction setpoint, or zero,
+                    may still have been feasible)
+
+SCOPE: batteries[0] only -- the one participant the #1417 pin is applied to.
+The log line names it (`blocked_by(<solver name>)=`), so a blocker such as
+`battery_max_discharge` is that battery's, never every battery's on a
+multi-device site. Other batteries enter only as the permissive sinks/sources
+the checks below allow for, and as members of a shared-charger group.
+
+"Under the current model", not "physically": a wrong input or a mis-set
+configured limit produces the same infeasibility. `UNEXPLAINED` is not
+evidence that a device is safe to control or that a limit should be relaxed.
+Nothing consumes this output: it is a DEBUG log line and a field on the
+instrument's record, never a Repair, a limit change or a dispatch input
+(`tests/test_1577_infeasible_pin_reports_constraint.py` pins that statically).
 
 Every check is a period-0 restatement of a row or bound `network.build_plan()`
 already builds for batteries[0] (the site each one mirrors is named on it),
@@ -49,7 +66,8 @@ TOL = 1e-6
 
 UNEXPLAINED = (
     "unexplained_at_period0: no single period-0 bound is violated -- a "
-    "multi-period coupling (e.g. a later hard SoC floor) or a solver status"
+    "multi-period coupling (e.g. a later hard SoC floor) or a solver status; "
+    "not evidence a device is safe to control or a limit should be relaxed"
 )
 
 

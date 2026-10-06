@@ -1,9 +1,9 @@
 """nimbus issue #1577: an infeasible period-0 pin names the constraint it hit.
 
 #1417's instrument logs `delta_objective=None (pinned status=infeasible)` when
-holding the previous plan's period[0] is not available at all. #1577 adds
-`blocked_by=`, computed by `solver/pin_blockers.py` from the configs the
-pinned re-solve was built from. This file pins that:
+the previous plan's period[0] setpoint is infeasible under the current model.
+#1577 adds `blocked_by(<battery>)=`, computed by `solver/pin_blockers.py` from
+the configs the pinned re-solve was built from. This file pins that:
 
 1. **Each blocker is real.** For every constraint it can name, a pin is built
    that the REAL LP (`network.build_plan`, the same kwargs the free solve used)
@@ -15,6 +15,13 @@ pinned re-solve was built from. This file pins that:
 3. **It is diagnostic only.** The explainer is consulted only on an infeasible
    pin, a feasible pin's record and log line are unchanged, a raising
    explainer is swallowed, and the published plan is identical on or off.
+4. **It is scoped to batteries[0], and says so.** On a two-battery site the
+   record and log line name the participant; the second battery's own limits
+   are never reported as the pinned one's; a shared-charger group is checked.
+5. **Nothing consumes it.** No module but `solver_plan` imports the helper or
+   reads its record fields -- in particular not the Repairs path
+   (`setup_health.py`) -- so insufficient or unexplained evidence cannot
+   become a Repair, a limit change or a dispatch input.
 """
 
 from __future__ import annotations
@@ -179,6 +186,90 @@ class TestNeverAccusesAFeasiblePin(unittest.TestCase):
         self.assertEqual(_explain(kw, 20.0, battery0=spiked), [])
 
 
+def _two_batteries(kw, *, group_kw=None, ev_limits_kw=None) -> dict:
+    """`kw` with a second battery ("ev") alongside batteries[0] ("home")."""
+    home = kw["batteries"][0]
+    ev = dataclasses.replace(home, name="ev")
+    if ev_limits_kw is not None:
+        ev = dataclasses.replace(
+            ev, max_charge_kw=ev_limits_kw, max_discharge_kw=ev_limits_kw
+        )
+    if group_kw is not None:
+        home = dataclasses.replace(
+            home, shared_charger_group="g", shared_charger_max_kw=group_kw
+        )
+        ev = dataclasses.replace(
+            ev, shared_charger_group="g", shared_charger_max_kw=group_kw
+        )
+    return dict(kw, batteries=[home, ev])
+
+
+class TestMultiBatteryScope(unittest.TestCase):
+    def test_a_shared_charger_group_is_checked(self):
+        """home and ev share a 6 kW charger: an 8 kW charge pin on home is
+        within its own 10 kW bound but not the group's."""
+        kw = _two_batteries(_build_kwargs(_scenario()), group_kw=6.0)
+        self.assertEqual(_pinned_status(kw, -8.0), "infeasible")
+        self.assertEqual(_names(_explain(kw, -8.0)), ["shared_charger_g"])
+        self.assertEqual(_pinned_status(kw, -5.0), "optimal")
+        self.assertEqual(_explain(kw, -5.0), [])
+
+    def test_the_other_batterys_limits_are_never_reported(self):
+        """ev is limited to 1 kW; a 20 kW pin on home is feasible and blames
+        nothing, and a 30 kW pin blames home's own max_discharge_kw (25)."""
+        kw = _two_batteries(_build_kwargs(_scenario()), ev_limits_kw=1.0)
+        self.assertEqual(_pinned_status(kw, 20.0), "optimal")
+        self.assertEqual(_explain(kw, 20.0), [])
+        self.assertEqual(_pinned_status(kw, 30.0), "infeasible")
+        blockers = _explain(kw, 30.0)
+        self.assertEqual(_names(blockers), ["battery_max_discharge"])
+        self.assertIn("max_discharge_kw 25.000", blockers[0])
+
+    def test_no_feasible_pin_is_accused_on_a_two_battery_site(self):
+        for extra in ({"group_kw": 6.0}, {"ev_limits_kw": 1.0}):
+            kw = _two_batteries(_build_kwargs(_scenario()), **extra)
+            for pin in (-10.0, -6.0, -2.0, 0.0, 2.0, 8.0, 20.0, 25.0):
+                status = _pinned_status(kw, pin)
+                with self.subTest(extra=extra, pin=pin):
+                    if status == "optimal":
+                        self.assertEqual(_explain(kw, pin), [])
+                    else:
+                        self.assertTrue(_explain(kw, pin))
+
+
+class TestNothingConsumesTheExplanation(unittest.TestCase):
+    """Insufficient or unexplained evidence must never become an action. The
+    structural guarantee: the helper and its record fields are reachable only
+    from the instrument's own log-line code."""
+
+    def test_only_solver_plan_uses_the_helper_or_its_fields(self):
+        import pathlib
+
+        root = pathlib.Path(solver_plan.__file__).resolve().parent
+        allowed = {
+            root / "solver_plan.py",
+            root / "solver" / "pin_blockers.py",
+        }
+        users = []
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if any(
+                token in text
+                for token in ("pin_blockers", "pinned_blockers", "pinned_participant")
+            ):
+                users.append(path)
+        self.assertTrue(users, "scan found nothing -- wrong root?")
+        self.assertEqual(sorted(set(users) - allowed), [])
+
+    def test_the_repairs_path_does_not_read_the_instrument(self):
+        import pathlib
+
+        root = pathlib.Path(solver_plan.__file__).resolve().parent
+        text = (root / "setup_health.py").read_text(encoding="utf-8")
+        for token in ("period0", "pin_blockers", "pinned_blockers", "#1577"):
+            self.assertNotIn(token, text)
+
+
 class _InstrumentOn(unittest.TestCase):
     def setUp(self):
         logger = solver_plan.PERIOD0_PIN_LOGGER
@@ -232,7 +323,8 @@ class TestTheInstrumentReportsIt(_InstrumentOn):
         self.assertIsNone(rec["delta_objective"])
         self.assertEqual(_names(rec["pinned_blockers"]), ["discharge_reserve"])
         self.assertIn("pinned status=infeasible", cm.output[-1])
-        self.assertIn("blocked_by=discharge_reserve:", cm.output[-1])
+        self.assertEqual(rec["pinned_participant"], "home")
+        self.assertIn("blocked_by(home)=discharge_reserve:", cm.output[-1])
 
     def test_published_plan_is_identical_on_and_off(self):
         kwargs = _scenario(_LowSoc)

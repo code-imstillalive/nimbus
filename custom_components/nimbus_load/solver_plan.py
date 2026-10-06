@@ -273,16 +273,26 @@ def reset_flex_ranging_state() -> None:
 #   delta large            -> the new period[0] is genuinely better; read the
 #                             logged inputs against the previous line to tell
 #                             "the forecast moved" from "it did not"
-#   delta None, pinned     -> the old value no longer fits: holding it was not
-#   status=infeasible         physically available, so the crossing was FORCED,
-#                             not chosen. `blocked_by=` names the period-0
-#                             constraint it hit (#1577, solver/pin_blockers.py)
-#                             -- battery power or power curve, SoC headroom or
-#                             reserve, a shared charger, the grid export limit
-#                             or a fixed P2P export commitment -- or
-#                             `unexplained_at_period0` for a multi-period
-#                             coupling. Computed by arithmetic, no extra solve,
-#                             and only on this already-infeasible branch.
+#   delta None, pinned     -> the previous setpoint is infeasible under the
+#   status=infeasible         current model. The listed checks explain
+#                             sufficient period-0 violations where available;
+#                             they do not establish that the observed direction
+#                             reversal was the only feasible alternative (a
+#                             smaller same-direction setpoint, or zero, may
+#                             still have been feasible). `blocked_by(<battery>)=`
+#                             names the participant -- batteries[0] only, by its
+#                             solver name -- and each period-0 check it fails
+#                             (#1577, solver/pin_blockers.py): battery power or
+#                             power curve, SoC headroom or reserve, a shared
+#                             charger, the grid export limit or a fixed P2P
+#                             export commitment. `unexplained_at_period0` means
+#                             no single period-0 check explains it; it is NOT
+#                             evidence that a device is safe to control or that
+#                             a limit should be relaxed. Nothing reads these
+#                             fields: they are a log line, never a Repair, a
+#                             limit change or a dispatch input. Computed by
+#                             arithmetic, no extra solve, and only on this
+#                             already-infeasible branch.
 #
 # The pin is a restriction of the same problem, so delta >= 0 by construction
 # (to solver tolerance). The published plan is never touched: the re-solve's
@@ -351,6 +361,7 @@ def period0_crossing_delta(
     *,
     inputs: dict | None = None,
     explain_infeasible=None,
+    pin_participant: str | None = None,
 ) -> dict | None:
     """Measure one crossing -- see the comment block above.
 
@@ -360,7 +371,9 @@ def period0_crossing_delta(
     show whether the forecast moved between two crossing solves.
     `explain_infeasible(pin_net_kw)` (#1577), called ONLY when the pinned
     re-solve comes back `infeasible`, returns the list of period-0 constraints
-    the pin violates; it is never consulted on a feasible pin. Returns the logged
+    the pin violates; it is never consulted on a feasible pin.
+    `pin_participant` is the solver name of the battery the pin (and so the
+    explanation) applies to -- batteries[0], the only one pinned. Returns the logged
     record, or None when there is nothing to measure (instrument off, no
     previous plan, a failed solve, or no crossing). Never raises: a
     diagnostic must not be able to take a solve down.
@@ -397,6 +410,9 @@ def period0_crossing_delta(
         # nimbus issue #1577: which constraint(s) an infeasible pin hit.
         # None on every non-infeasible pin -- the explainer is not called.
         "pinned_blockers": None,
+        # Which battery the pin and its explanation cover: batteries[0] only,
+        # by solver name, so a blocker never reads as every battery's.
+        "pinned_participant": pin_participant,
         "inputs": {
             k: (None if v is None else round(float(v), 4))
             for k, v in (inputs or {}).items()
@@ -430,7 +446,8 @@ def period0_crossing_delta(
         record["inputs"],
         ""
         if record["pinned_blockers"] is None
-        else " blocked_by=" + "; ".join(record["pinned_blockers"]),
+        else f" blocked_by({record['pinned_participant']})="
+        + "; ".join(record["pinned_blockers"]),
     )
     return record
 
@@ -793,6 +810,7 @@ def assemble_and_solve_plan(
             thermal_loads=thermal_loads,
             risk_aversion=risk_aversion,
         ),
+        pin_participant=all_batteries[0].name,
     )
     if flex_signals_enabled and plan.grid_signals is not None:
         _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)
