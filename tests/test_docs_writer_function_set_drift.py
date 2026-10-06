@@ -683,6 +683,12 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #1537 -- the P2P volume cap's default from the
+        # household's own configured blocks, when no settlement history is
+        # configured. The docs copy has no P2P block settings at all (it
+        # still gates on the reference household's 17:00-24:00 and reads its
+        # settlement sensor), so there is nothing there yet for this to feed.
+        "p2p_blocks_daily_energy_kwh",
         # nimbus issue #768, step 1 of 2 --
         # solver_inputs/controllable_load_history.py. Reconstructs what a
         # configured controllable_load actually delivered over an elapsed

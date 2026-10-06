@@ -171,8 +171,12 @@ def build_price_arrays(
             aemo_forecast,
             export_offset_by_5min,
         )
+        # nimbus #1537 item 5: the matched rate counts inside the household's
+        # own configured blocks, not a fixed 17:00-24:00.
         p2p_export = sw.resample_real_p2p_rate(
-            grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
+            grid_times,
+            cfg.get("solver_p2p_matched_rate_forecast_sensor"),
+            sw.fetch_p2p_fixed_export_kw(cfg, grid_times),
         )
 
         # nimbus issue #452: current-interval AEMO P5MIN cross-check.
@@ -295,6 +299,13 @@ def build_price_arrays(
         p2p_recent_volume_kwh = sw.p2p_recent_avg_volume_kwh(
             settlement_sensor=p2p_settlement_sensor
         )
+        # nimbus #1537: with no settlement history to measure from, the
+        # blocks' own committed energy, not the reference household's 60 kWh.
+        # An install with a settlement sensor is unchanged.
+        if not p2p_settlement_sensor:
+            block_kwh = sw.p2p_blocks_daily_energy_kwh(cfg)
+            if block_kwh > 0:
+                p2p_recent_volume_kwh = block_kwh
         # Fix 2026-09-05 (mirrors the identical fix in the sibling
         # 116KAT-HA-AI/scripts/nimbus_solver_forecast_writer.py -- the
         # standalone cron writer's own copy of this exact logic). Direct
@@ -353,6 +364,10 @@ def build_price_arrays(
         # block (both default to 0.0 -- a full no-op -- if the household
         # doesn't have any P2P/community-trading scheme at all).
         p2p_recent_volume_kwh = sw._cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
+        # nimbus #1537: left at 0 with blocks configured, the LP could claim
+        # no P2P volume at all, so the blocks' own committed energy instead.
+        if p2p_recent_volume_kwh <= 0:
+            p2p_recent_volume_kwh = sw.p2p_blocks_daily_energy_kwh(cfg)
         bonus_price_flat = sw._cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
         # nimbus #1079: gated to the household's own committed blocks,
         # for the same reason the LocalVolts branch above zeroes it
