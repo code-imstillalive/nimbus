@@ -82,7 +82,7 @@ def _detect(hass, keys=FULL, disabled=()):
         return pa.detect_localvolts_v2_profile(hass)
 
 
-def test_full_lv_v2_install_gives_the_six_field_profile():
+def test_full_lv_v2_install_proposes_the_profile_and_the_transitional_binding():
     assert _detect(_hass()) == {
         CONF_SOLVER_IMPORT_PRICE_SENSOR: FULL["buy_flex_up"],
         CONF_SOLVER_EXPORT_PRICE_SENSOR: FULL["sell_flex_up"],
@@ -162,23 +162,21 @@ def test_startup_notifies_when_lv_v2_is_installed_and_fields_are_empty():
         asyncio.run(pa.async_notify_pricing_setup(hass, {}))
     notes = _notifications(hass)
     assert pa.NOTIFY_DETECTED_ID in notes
-    assert "6 of Nimbus's 6" in notes[pa.NOTIFY_DETECTED_ID]
+    assert "5 of Nimbus's 5" in notes[pa.NOTIFY_DETECTED_ID]
 
 
-def test_a_five_field_profile_is_told_about_the_second_p2p_source():
-    """nimbus #1537: an install that saved the original five fields is told,
-    once at startup and without any change, that the second matched-rate
-    source (Sell P2P Matched Cost) is available."""
+def test_the_transitional_p2p_binding_is_not_part_of_the_basic_contract():
+    """nimbus #1537 (Mark Purcell's review of PR #1592): the second matched-
+    rate source is a transitional binding, not a sixth Basic sensor. An
+    install with the five profile fields set and it EMPTY is complete: no
+    "fields are empty" notification."""
     hass = _hass()
-    five = {
-        f: FULL[k]
-        for f, k in pa.LV_V2_PROFILE.items()
-        if f != CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2
-    }
+    five = {f: FULL[k] for f, k in pa.LV_V2_PROFILE.items()}
+    assert CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2 not in five
+    assert len(five) == 5
     with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
         asyncio.run(pa.async_notify_pricing_setup(hass, five))
-    notes = _notifications(hass)
-    assert "1 of Nimbus's 6" in notes[pa.NOTIFY_DETECTED_ID]
+    assert pa.NOTIFY_DETECTED_ID not in _notifications(hass)
 
 
 def test_the_second_p2p_source_is_prefilled_when_empty():
