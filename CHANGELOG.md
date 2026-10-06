@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **LocalVolts v2 is detected and the Solver's pricing is pre-filled from it**
+  ([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)). With
+  LocalVolts v2 installed, the Solver settings screens pre-fill import (Buy Flex
+  Up), export (Sell Flex Up), price forecast array (Flex Up Forecast), P2P
+  matched rate (Current Sell Rate) and P2P settlement history, matched by
+  integration and unique_id rather than entity name. Only empty fields, or
+  fields naming an entity this install does not have, are pre-filled; nothing is
+  saved until the household submits, and more than one LocalVolts v2 account
+  pre-fills nothing. At startup Nimbus notifies when LocalVolts v2 is found with
+  fields still empty, when the P2P matched rate is set without a price forecast
+  array (the matched rate is then never read, so the plan shows no P2P), and
+  when a pricing setting names an entity that does not exist.
+
 ### Fixed
 - **Load forecasts for circuits that sit idle are right again: idle time is
   training data, not an outage**

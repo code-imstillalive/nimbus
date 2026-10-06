@@ -355,6 +355,29 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 <a id="screen-2-of-3--solver-grid-prices"></a>
 
+### If you are on LocalVolts: install LocalVolts v2 first
+
+With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
+integration (2.9.0 or later) installed, the Solver settings screens below come
+pre-filled with its five sensors, and Nimbus says so in a notification at
+startup. Check them and save; nothing is changed until you do. A field you have
+already set to a real sensor is never replaced.
+
+| Solver setting | screen | LocalVolts v2 sensor |
+|---|---|---|
+| Import price | 2 | Buy Flex Up |
+| Export price | 2 | Sell Flex Up |
+| Price forecast array | 3 | Flex Up Forecast |
+| P2P matched rate | 3 | Current Sell Rate |
+| P2P settlement history | 3 | P2P Settlement History |
+
+Sensors are matched by integration, not by name, so renamed entities are still
+found. With more than one LocalVolts v2 account nothing is pre-filled, since
+the site would be a guess. Nimbus also warns if the P2P matched rate is set
+without a price forecast array (without the array the matched rate is not
+read, so the plan shows no P2P), and if a price setting names an entity this
+install does not have.
+
 ### Screen 2 of 3: "Solver: Grid Prices"
 
 Two fields are required for the basic path.
