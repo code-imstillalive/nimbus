@@ -132,3 +132,15 @@ def test_soc_series_is_labelled_percent_not_the_plan_sensors_kw() -> None:
     soc = src[src.index('name: "Solver SoC % (proposed)"') :]
     soc = soc[: soc.index("}")]
     assert 'unit: "%"' in soc
+
+
+def test_sizes_itself_full_width_in_a_sections_view() -> None:
+    """Without getGridOptions() a sections view gives the card a small
+    default tile and the wide charts are squeezed into a narrow column
+    (seen live on the reference household, 6 Oct 2026)."""
+    src = _card()
+    body = src[src.index("getGridOptions()") :]
+    body = body[: body.index("}") + 1]
+    assert 'columns: "full"' in body
+    assert 'rows: "auto"' in body
+    assert ":host{display:block;width:100%}" in src

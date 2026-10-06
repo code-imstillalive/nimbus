@@ -70,13 +70,58 @@ class RateFollowsTheBlocks(unittest.TestCase):
         self.assertAlmostEqual(rates[1], RATE, places=6)
         self.assertEqual(rates[2], 0.0)  # post-midnight self-consume pin
 
-    def test_without_blocks_the_reference_window_is_unchanged(self) -> None:
-        self.assertEqual(_rates(self.MIDDAY, None), [0.0, 0.0, 0.0])
-        for r in _rates(self.EVENING, None):
+    def test_without_blocks_the_rate_is_flexible_at_any_hour(self) -> None:
+        """nimbus #1559: no block configured, no hardcoded window -- a
+        matched interval counts whatever the hour."""
+        for grid in (self.MIDDAY, self.EVENING):
+            for r in _rates(grid, None):
+                self.assertAlmostEqual(r, RATE, places=6)
+
+    def test_without_blocks_nothing_is_assumed_past_the_forecast(self) -> None:
+        """Rows cover only the first period; the rest is beyond coverage.
+        Without a block there is no commitment to extrapolate, so 0."""
+        rows = [_row_ending(self.EVENING[0])]
+        with patch.object(
+            solver_writer, "ha_get", return_value={"attributes": {"forecast": rows}}
+        ):
+            rates = solver_writer.resample_real_p2p_rate(
+                self.EVENING, "sensor.p2p", None
+            )
+        self.assertAlmostEqual(rates[0], RATE, places=6)
+        self.assertEqual(rates[1:], [0.0, 0.0])
+
+    def test_with_blocks_past_the_forecast_the_block_keeps_its_rate(self) -> None:
+        rows = [_row_ending(self.EVENING[0])]
+        with patch.object(
+            solver_writer, "ha_get", return_value={"attributes": {"forecast": rows}}
+        ):
+            rates = solver_writer.resample_real_p2p_rate(
+                self.EVENING, "sensor.p2p", [11.5, 11.5, 11.5]
+            )
+        for r in rates:
             self.assertAlmostEqual(r, RATE, places=6)
 
+    def test_an_unmatched_interval_is_zero_without_blocks(self) -> None:
+        rows = [
+            {
+                "intervalEnd": (t + timedelta(minutes=5)).isoformat(),
+                **REAL,
+                "proportionP2P": 0.0,
+            }
+            for t in self.MIDDAY
+        ]
+        with patch.object(
+            solver_writer, "ha_get", return_value={"attributes": {"forecast": rows}}
+        ):
+            rates = solver_writer.resample_real_p2p_rate(
+                self.MIDDAY, "sensor.p2p", None
+            )
+        self.assertEqual(rates, [0.0, 0.0, 0.0])
+
     def test_a_window_of_the_wrong_length_is_ignored_not_misaligned(self) -> None:
-        self.assertEqual(_rates(self.MIDDAY, [5.0]), [0.0, 0.0, 0.0])
+        """A window that does not line up with the grid is not applied
+        period by period; it is treated as no blocks (a flexible rate)."""
+        self.assertEqual(_rates(self.MIDDAY, [5.0]), _rates(self.MIDDAY, None))
 
 
 def _blocks(*blocks) -> dict:

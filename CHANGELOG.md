@@ -22,6 +22,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   array (the matched rate is then never read, so the plan shows no P2P), and
   when a pricing setting names an entity that does not exist.
 
+### Changed
+- **The Forecaster tab Nimbus adds is a sections view, not a panel, and the
+  Forecaster card sizes itself for sections views.** A panel view holds one card
+  and nothing can be added to it. The added tab is now a 4-column sections view
+  with one full-width section holding two cards, Power Signals and Load
+  Forecasts, and no icon, so the tab shows its title. The card now reports
+  full width to sections views (`getGridOptions`), so added through the UI
+  without `grid_options` it no longer lands as a narrow default tile. A tab an
+  earlier release added as a panel, and that nobody has changed since, is
+  converted to the sections layout in place, keeping its title and path; a tab
+  someone has edited is left alone.
+
+### Fixed
+- **No hardcoded P2P window: without P2P blocks the matched rate is flexible**
+  ([#1559](https://github.com/code-imstillalive/nimbus/issues/1559)). With no
+  block configured, the P2P matched rate was still gated to 17:00-24:00 (the
+  reference household's window) and extrapolated past the forecast at that
+  window's median. It now counts in every interval LocalVolts' own forecast
+  shows matched, at any hour, and is 0 beyond the forecast. With blocks
+  configured nothing changes. The #348 log line that described the window as
+  fixed "regardless of your own configured P2P block hours" is gone, since it
+  stopped being true in v0.94.439.
+
 ### Fixed
 - **Load forecasts for circuits that sit idle are right again: idle time is
   training data, not an outage**

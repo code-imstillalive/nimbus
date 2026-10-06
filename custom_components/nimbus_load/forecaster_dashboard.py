@@ -31,6 +31,10 @@ Rules it keeps
   not get it back on the next restart, while a standard view that a *later*
   release adds still reaches a dashboard an earlier release already visited
   (nimbus #1543: new views must reach existing dashboards, not only new ones).
+* **A sections view, never a panel.** A panel view holds one card and nothing
+  can be added to it. The added view is a 4-column sections view with one
+  full-width section, one card per chart, so a household can add its own
+  sections and cards beside them.
 * **A title, never an icon.** HA shows a view's icon *instead of* its title, so
   an icon leaves the tab unlabelled. The added view carries no `icon` (household
   instruction, 6 Oct 2026: "use TITLES").
@@ -70,6 +74,12 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
         "alt_title": "Nimbus Forecaster",
         "path": "forecaster",
         "alt_path": "nimbus-forecaster",
+        # One card per chart, each full width, so each is a separate card
+        # in the section that a household can move, resize or remove.
+        "cards": (
+            {"chart": "signals"},
+            {"chart": "loads"},
+        ),
     },
 )
 
@@ -89,9 +99,53 @@ def _view_for(spec: dict[str, Any], views: list[Any]) -> dict[str, Any]:
         if spec["title"].lower() not in titles
         else spec["alt_title"],
         "path": spec["path"] if spec["path"] not in paths else spec["alt_path"],
-        "type": "panel",
-        "cards": [{"type": spec["card"]}],
+        # A sections view, never a panel: a panel view holds exactly one card
+        # and nothing else can be added to it (household, 6 Oct 2026: "noone
+        # can add anything to these views otherwise"). One full-width section
+        # holds the cards; the household can add sections and cards around it.
+        "type": "sections",
+        "max_columns": 4,
+        "sections": [
+            {
+                "type": "grid",
+                "column_span": 4,
+                "cards": [
+                    {
+                        "type": spec["card"],
+                        **extra,
+                        "grid_options": {"columns": "full", "rows": "auto"},
+                    }
+                    for extra in spec.get("cards", ({},))
+                ],
+            }
+        ],
     }
+
+
+def _upgraded_panel_view(view: Any) -> dict[str, Any] | None:
+    """The sections layout for a panel view that Nimbus itself added and
+    nobody has changed since, or None to leave the view alone.
+
+    Releases before this one added the Forecaster tab as a panel view holding
+    exactly one card, `{"type": "custom:nimbus-forecast-card"}`. A panel view
+    takes one card and nothing can be added to it, and because each
+    dashboard is handled once, deleting the tab would not bring the new one
+    back either. So the untouched tab is converted in place, keeping its
+    title and path. Anything a household has edited -- another card, a
+    wrapper, a different view type -- is not Nimbus's to change.
+    """
+    if not isinstance(view, dict) or view.get("type") != "panel":
+        return None
+    for spec in STANDARD_VIEWS:
+        if view.get("cards") == [{"type": spec["card"]}] and "sections" not in view:
+            upgraded = _view_for(spec, [])
+            upgraded["title"] = view.get("title", upgraded["title"])
+            if "path" in view:
+                upgraded["path"] = view["path"]
+            else:
+                upgraded.pop("path", None)
+            return upgraded
+    return None
 
 
 def _is_nimbus_dashboard(config: dict[str, Any]) -> bool:
@@ -134,7 +188,7 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
         key = url_path or "default"
         done = handled.setdefault(key, [])
         pending = [v for v in STANDARD_VIEWS if v["key"] not in done]
-        if not pending or getattr(dashboard, "mode", None) != "storage":
+        if getattr(dashboard, "mode", None) != "storage":
             continue
         try:
             config = await dashboard.async_load(False)
@@ -145,7 +199,19 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
         views = config.get("views")
         if not isinstance(views, list):
             continue
-        new_views = list(views)
+        # Convert a panel tab an earlier release added, if still untouched.
+        new_views = []
+        upgraded_any = False
+        for v in views:
+            upgraded = _upgraded_panel_view(v)
+            if upgraded is not None:
+                upgraded_any = True
+                _LOGGER.info(
+                    "Nimbus: converted the %r tab on dashboard %s to a sections view",
+                    v.get("title"),
+                    key,
+                )
+            new_views.append(upgraded if upgraded is not None else v)
         for spec in pending:
             done.append(spec["key"])
             if _has_card(config, spec["card"]):
@@ -153,7 +219,7 @@ async def async_add_forecaster_view(hass: HomeAssistant) -> list[str]:
             new_views.append(_view_for(spec, new_views))
             added.append(f"{key}:{spec['key']}")
             _LOGGER.info("Nimbus: added the %s view to dashboard %s", spec["key"], key)
-        if len(new_views) != len(views):
+        if upgraded_any or len(new_views) != len(views):
             new_config = dict(config)
             new_config["views"] = new_views
             await dashboard.async_save(new_config)
