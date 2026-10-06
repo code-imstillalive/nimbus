@@ -77,7 +77,6 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   fixed "regardless of your own configured P2P block hours" is gone, since it
   stopped being true in v0.94.439.
 
-### Fixed
 - **Load forecasts for circuits that sit idle are right again: idle time is
   training data, not an outage**
   ([#1556](https://github.com/code-imstillalive/nimbus/issues/1556)). Home
