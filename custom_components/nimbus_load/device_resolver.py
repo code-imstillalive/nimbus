@@ -1,176 +1,270 @@
 """Device resolver for the two-step setup (nimbus #1574, design
-docs/design/two-step-setup.md §3; Mark's review: *"devices with entities under
-each; power, energy, limits, forecasts"*).
+docs/design/two-step-setup.md §3; Mark's device contract on #1574).
 
-Home Assistant's Energy Dashboard names **energy** totals only. Read live from
-the reference household (HA 2026.7.4, `energy/get_prefs`) it holds two solar
-and two battery sources, one per inverter, no power fields and no battery SoC.
-The power sensor behind each source has to be found on the source's **device**,
-and a hybrid inverter carries PV, battery, grid and load power all on one
-device. So "the one power sensor on the device" is not enough, and choosing by
-entity name is a guess.
+**Evidence, not proof.** Everything this module returns is a *candidate* or a
+*hypothesis* for the household to confirm, never a mapping applied on its own.
+"Same Home Assistant device" is a candidate-selection hint; a match must also
+have an unambiguous role and measurement boundary, compatible units, sign
+convention and timestamps. Where the evidence cannot tell candidates, signs or
+explanations apart, the result says so (`ambiguous`, `insufficient_evidence`)
+instead of picking one -- entity order never decides (Mark's review of #1590).
 
-This module pairs each energy total with the power sensor whose own history
-**integrates to it**. A candidate whose positive part over a window matches
-the rise in `daily_battery_discharge_inv1` is that battery's power sensor, and
-the same comparison says which way its sign runs. That is evidence, not a name
-match, and it is the design's §3.4 "energy is a second witness" check doing the
-selection.
+What the Energy Dashboard already states comes first
+-----------------------------------------------------
+Home Assistant's Energy Dashboard preferences carry more than energy totals
+(`energy/data.py`, read in HA 2026.3.0, 2026.7.4 and 2026.9.3):
 
-**Evidence, not proof** (Mark's device contract, #1574). Everything this
-module returns is a *candidate* for the user to confirm, never a mapping applied
-on its own: "same Home Assistant device" is a candidate-selection hint, and a
-match must also have an unambiguous role and measurement boundary, compatible
-units, sign convention and timestamps. A balance residual can *suggest* a
-mismatch; it does not uniquely prove a bad sensor or justify a calibration
-correction. Callers present these results as "here is what Nimbus found -- is
-this right?".
+- `stat_rate` on a grid, battery or solar source is a **power** statistic in
+  HA's own sign convention -- battery positive = discharging, grid positive =
+  from the grid, solar = production. When the household chose an inverted or
+  two-sensor power config, `stat_rate` is HA's own normalised template sensor
+  and `power_config` holds what they picked.
+- `stat_soc` on a battery (HA 2026.6+) is its state of charge.
+- a device's `included_in_stat` says which other device's total already
+  contains it.
 
-Everything here is pure (no Home Assistant), so real installs' history replays
-through it in tests.
+`parse_energy_sources` keeps all of it, with where each value came from. Only
+when a source names no power sensor does `match_power_sensor` look for one, by
+pairing each candidate's integrated history with the source's energy counter.
+
+The grid, kept as Home Assistant keeps it
+-----------------------------------------
+Since HA 2026.3 each grid source is one import/export connection, and HA
+migrated the older `flow_from` / `flow_to` lists into such connections by list
+position. A unified source is therefore HA's own pairing, kept as one source
+with its own index; a source HA built by migration cannot be told from one the
+household made, so separate grid sources are never claimed to be separate
+physical connections. An older (pre-2026.3) grid source keeps all its import
+and export flows on one source, unpaired: list position is not evidence that
+two flows belong to one connection.
+
+Pure (no Home Assistant), so real installs' history replays through it.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import pairwise
 from typing import Any
 
-# A candidate is accepted only when its integrated energy is within this
-# relative error of the counter, AND clearly better than the runner-up.
+# A candidate is accepted only when its error is within MATCH_TOLERANCE of the
+# counter AND clearly better than the runner-up: the runner-up must be both
+# RUNNER_UP_MARGIN times worse and more than TIE_ABS worse. TIE_ABS also
+# decides whether a sensor's two signs can be told apart.
 MATCH_TOLERANCE = 0.15
-RUNNER_UP_MARGIN = 2.0  # the best's error must be at most half the second's
+RUNNER_UP_MARGIN = 2.0
+TIE_ABS = 0.02
+# Evidence needed before anything is compared: candidate history covering at
+# least MIN_COVERAGE of the window; counters readable in at least MIN_COVERAGE
+# of the hours and in at least MIN_EVIDENCE_HOURS of them; and the counters
+# moving by at least MIN_ENERGY_KWH, or there is nothing to match against.
+MIN_COVERAGE = 0.9
+MIN_EVIDENCE_HOURS = 6
+MIN_ENERGY_KWH = 0.5
+MIN_BALANCE_SAMPLES = 12
 
-Series = Sequence[tuple[datetime, float]]
+CANDIDATE = "candidate"
+AMBIGUOUS = "ambiguous"
+NO_MATCH = "no_match"
+INSUFFICIENT = "insufficient_evidence"
+NO_CANDIDATES = "no_candidates"
+
+# A value of None is a gap (unavailable / unknown), never zero.
+Series = Sequence[tuple[datetime, float | None]]
+
+ENERGY_DASHBOARD = "energy_dashboard"
 
 
 # --- Energy Dashboard preferences ---------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class EnergySource:
-    """One Energy Dashboard source, normalised across schema versions."""
+    """One Energy Dashboard source, normalised across schema versions.
+
+    Directions follow HA: `energy_from` is grid import / solar production /
+    battery discharge, `energy_to` is grid export / battery charge. Every
+    binding is a tuple, because an older grid source holds several flows; on
+    current HA each holds at most one.
+    """
 
     kind: str  # "grid" | "solar" | "battery"
-    energy_from: str | None = None  # grid import / solar production / battery discharge
-    energy_to: str | None = None  # grid export / battery charge
-    price_import: str | None = None
-    price_export: str | None = None
-    forecast_entries: list[str] = field(default_factory=list)
+    index: int  # position in energy_sources: which HA source this came from
+    schema: str  # "unified" | "legacy" (grid only; "unified" otherwise)
+    name: str | None = None
+    energy_from: tuple[str, ...] = ()
+    energy_to: tuple[str, ...] = ()
+    price_import: tuple[str, ...] = ()
+    price_export: tuple[str, ...] = ()
+    # HA's power statistic(s), in HA's sign convention (module doc)
+    rate: tuple[str, ...] = ()
+    power_config: tuple[Mapping[str, Any], ...] = ()
+    soc: str | None = None
+    forecast_entries: tuple[str, ...] = ()
+    provenance: str = ENERGY_DASHBOARD
+
+
+def _strs(*values: Any) -> tuple[str, ...]:
+    return tuple(v for v in values if isinstance(v, str) and v)
+
+
+def _power(src: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[Mapping, ...]]:
+    config = src.get("power_config")
+    return _strs(src.get("stat_rate")), (
+        (dict(config),) if isinstance(config, Mapping) else ()
+    )
 
 
 def parse_energy_sources(prefs: Mapping[str, Any] | None) -> list[EnergySource]:
-    """Energy Dashboard `energy_sources`, normalised (#1589).
-
-    Reads both grid schemas: the current flat one (`stat_energy_from`,
-    `stat_energy_to`, `entity_energy_price`, `entity_energy_price_export`,
-    seen on HA 2026.7) and the older `flow_from` / `flow_to` lists (HA 2025.1's
-    `energy/data.py`). Gas and water are ignored.
-    """
+    """Energy Dashboard `energy_sources`, normalised (module doc). Gas and
+    water are ignored."""
     out: list[EnergySource] = []
-    for src in (prefs or {}).get("energy_sources") or []:
+    for index, src in enumerate((prefs or {}).get("energy_sources") or []):
         if not isinstance(src, Mapping):
             continue
-        kind = src.get("type")
+        kind, name = src.get("type"), src.get("name")
+        name = name if isinstance(name, str) else None
         if kind == "solar":
-            fc = src.get("config_entry_solar_forecast") or []
+            rate, config = _power(src)
             out.append(
                 EnergySource(
                     kind="solar",
-                    energy_from=src.get("stat_energy_from"),
-                    forecast_entries=[e for e in fc if isinstance(e, str)],
+                    index=index,
+                    schema="unified",
+                    name=name,
+                    energy_from=_strs(src.get("stat_energy_from")),
+                    rate=rate,
+                    power_config=config,
+                    forecast_entries=_strs(
+                        *(src.get("config_entry_solar_forecast") or [])
+                    ),
                 )
             )
         elif kind == "battery":
+            rate, config = _power(src)
+            soc = src.get("stat_soc")
             out.append(
                 EnergySource(
                     kind="battery",
-                    energy_from=src.get("stat_energy_from"),
-                    energy_to=src.get("stat_energy_to"),
+                    index=index,
+                    schema="unified",
+                    name=name,
+                    energy_from=_strs(src.get("stat_energy_from")),
+                    energy_to=_strs(src.get("stat_energy_to")),
+                    rate=rate,
+                    power_config=config,
+                    soc=soc if isinstance(soc, str) and soc else None,
+                )
+            )
+        elif kind == "grid" and ("flow_from" in src or "flow_to" in src):
+            flows_from = [f for f in src.get("flow_from") or [] if isinstance(f, Mapping)]
+            flows_to = [f for f in src.get("flow_to") or [] if isinstance(f, Mapping)]
+            powers = [p for p in src.get("power") or [] if isinstance(p, Mapping)]
+            out.append(
+                EnergySource(
+                    kind="grid",
+                    index=index,
+                    schema="legacy",
+                    energy_from=_strs(*(f.get("stat_energy_from") for f in flows_from)),
+                    energy_to=_strs(*(f.get("stat_energy_to") for f in flows_to)),
+                    price_import=_strs(
+                        *(f.get("entity_energy_price") for f in flows_from)
+                    ),
+                    price_export=_strs(*(f.get("entity_energy_price") for f in flows_to)),
+                    rate=_strs(*(p.get("stat_rate") for p in powers)),
+                    power_config=tuple(
+                        dict(p["power_config"])
+                        for p in powers
+                        if isinstance(p.get("power_config"), Mapping)
+                    ),
                 )
             )
         elif kind == "grid":
-            if "flow_from" in src or "flow_to" in src:
-                flows_from = [
-                    f for f in src.get("flow_from") or [] if isinstance(f, Mapping)
-                ]
-                flows_to = [
-                    f for f in src.get("flow_to") or [] if isinstance(f, Mapping)
-                ]
-                # one EnergySource per import/export pair, in order
-                for i in range(max(len(flows_from), len(flows_to), 1)):
-                    ff = flows_from[i] if i < len(flows_from) else {}
-                    ft = flows_to[i] if i < len(flows_to) else {}
-                    out.append(
-                        EnergySource(
-                            kind="grid",
-                            energy_from=ff.get("stat_energy_from"),
-                            energy_to=ft.get("stat_energy_to"),
-                            price_import=ff.get("entity_energy_price"),
-                            price_export=ft.get("entity_energy_price"),
-                        )
-                    )
-            else:
-                out.append(
-                    EnergySource(
-                        kind="grid",
-                        energy_from=src.get("stat_energy_from"),
-                        energy_to=src.get("stat_energy_to"),
-                        price_import=src.get("entity_energy_price"),
-                        price_export=src.get("entity_energy_price_export"),
-                    )
+            rate, config = _power(src)
+            out.append(
+                EnergySource(
+                    kind="grid",
+                    index=index,
+                    schema="unified",
+                    name=name,
+                    energy_from=_strs(src.get("stat_energy_from")),
+                    energy_to=_strs(src.get("stat_energy_to")),
+                    price_import=_strs(src.get("entity_energy_price")),
+                    price_export=_strs(src.get("entity_energy_price_export")),
+                    rate=rate,
+                    power_config=config,
                 )
+            )
     return out
 
 
-def as_flow_lists(source: Mapping[str, Any]) -> Mapping[str, Any]:
-    """A grid source in the older `flow_from` / `flow_to` list form, whichever
-    schema it arrived in (#1589), so code written against the list form keeps
-    working on current Home Assistant. Non-grid sources pass through."""
-    if not isinstance(source, Mapping) or source.get("type") != "grid":
-        return source
-    if "flow_from" in source or "flow_to" in source:
-        return source
-    return {
-        **source,
-        "flow_from": [
-            {
-                "stat_energy_from": source.get("stat_energy_from"),
-                "entity_energy_price": source.get("entity_energy_price"),
-            }
-        ],
-        "flow_to": [
-            {
-                "stat_energy_to": source.get("stat_energy_to"),
-                "entity_energy_price": source.get("entity_energy_price_export"),
-            }
-        ],
-    }
+@dataclass(frozen=True)
+class DeviceConsumption:
+    """One Energy Dashboard individual device, with what HA says contains it."""
+
+    stat: str  # energy total
+    index: int
+    name: str | None = None
+    rate: str | None = None  # instantaneous power statistic, when set
+    included_in: str | None = None  # the device whose total already contains it
+    provenance: str = ENERGY_DASHBOARD
+
+
+def device_consumption(prefs: Mapping[str, Any] | None) -> list[DeviceConsumption]:
+    """The Energy Dashboard's individual devices, in order, keeping
+    `included_in_stat` -- containment as the household stated it, never
+    rediscovered from Home Assistant device ownership (Mark, #1590)."""
+    out: list[DeviceConsumption] = []
+    for index, d in enumerate((prefs or {}).get("device_consumption") or []):
+        if not isinstance(d, Mapping) or not isinstance(d.get("stat_consumption"), str):
+            continue
+
+        def _opt(key: str, d: Mapping[str, Any] = d) -> str | None:
+            value = d.get(key)
+            return value if isinstance(value, str) and value else None
+
+        out.append(
+            DeviceConsumption(
+                stat=d["stat_consumption"],
+                index=index,
+                name=_opt("name"),
+                rate=_opt("stat_rate"),
+                included_in=_opt("included_in_stat"),
+            )
+        )
+    return out
 
 
 def device_consumption_entities(prefs: Mapping[str, Any] | None) -> list[str]:
-    """The Energy Dashboard's individual devices (energy totals), in order."""
-    return [
-        d["stat_consumption"]
-        for d in (prefs or {}).get("device_consumption") or []
-        if isinstance(d, Mapping) and isinstance(d.get("stat_consumption"), str)
-    ]
+    """The individual devices' energy totals, in order."""
+    return [d.stat for d in device_consumption(prefs)]
 
 
 # --- integrating history ---------------------------------------------------------
 
 
-def integrate_parts(
-    series: Series, start: datetime, end: datetime
-) -> tuple[float, float]:
-    """(positive kWh, negative kWh as a positive number) of a kW series over
-    [start, end), holding each value until the next change -- Home Assistant
-    records a sensor only when it changes, so hold, never interpolate."""
-    pos = neg = 0.0
-    pts = sorted(series, key=lambda p: p[0])
-    value = None
+def _finite(value: Any) -> float | None:
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) else None
+
+
+def _clean(series: Series) -> list[tuple[datetime, float | None]]:
+    """Sorted, with every non-finite or unreadable value turned into a gap."""
+    return sorted(((t, _finite(v)) for t, v in series), key=lambda p: p[0])
+
+
+def _segments(series: Series, start: datetime, end: datetime):
+    """(value or None, hours) for each held segment of [start, end). Home
+    Assistant records a sensor only when it changes, so a value holds until
+    the next one; before the first sample there is no value (a gap)."""
+    pts = _clean(series)
+    value: float | None = None
     for t, v in pts:
         if t <= start:
             value = v
@@ -180,15 +274,22 @@ def integrate_parts(
             continue
         if t >= end:
             break
-        if value is not None:
-            hours = (t - cursor).total_seconds() / 3600.0
-            if value > 0:
-                pos += value * hours
-            else:
-                neg += -value * hours
+        yield value, (t - cursor).total_seconds() / 3600.0
         value, cursor = v, t
-    if value is not None and end > cursor:
-        hours = (end - cursor).total_seconds() / 3600.0
+    if end > cursor:
+        yield value, (end - cursor).total_seconds() / 3600.0
+
+
+def integrate_parts(
+    series: Series, start: datetime, end: datetime
+) -> tuple[float, float]:
+    """(positive kWh, negative kWh as a positive number) of a kW series over
+    [start, end), holding each value until the next change. Gaps add
+    nothing -- see `coverage` for how much of the window was measured."""
+    pos = neg = 0.0
+    for value, hours in _segments(series, start, end):
+        if value is None:
+            continue
         if value > 0:
             pos += value * hours
         else:
@@ -196,25 +297,32 @@ def integrate_parts(
     return pos, neg
 
 
+def coverage(series: Series, start: datetime, end: datetime) -> float:
+    """The fraction of [start, end) for which the series held a real value."""
+    total = (end - start).total_seconds() / 3600.0
+    if total <= 0:
+        return 0.0
+    held = sum(h for v, h in _segments(series, start, end) if v is not None)
+    return held / total
+
+
 def counter_rise(series: Series, start: datetime, end: datetime) -> float | None:
-    """kWh a `total_increasing` counter rose over [start, end). A drop is a
-    reset (a daily counter at midnight): the new value counts from zero."""
-    pts = sorted((p for p in series if start <= p[0] < end), key=lambda p: p[0])
-    before = [p for p in series if p[0] < start]
+    """kWh a `total_increasing` counter rose over [start, end), or None when
+    it cannot be read (fewer than two readable points). A drop is a reset (a
+    daily counter at midnight): the new value counts from zero. None is
+    missing evidence, never zero."""
+    pts = [(t, v) for t, v in _clean(series) if v is not None]
+    inside = [p for p in pts if start <= p[0] < end]
+    before = [p for p in pts if p[0] < start]
     if before:
-        pts = [max(before, key=lambda p: p[0])] + pts
-    if len(pts) < 2:
+        inside = [before[-1], *inside]
+    if len(inside) < 2:
         return None
-    rise = 0.0
-    for (_, a), (_, b) in pairwise(pts):
-        rise += (b - a) if b >= a else b
-    return rise
+    return sum((b - a) if b >= a else b for (_, a), (_, b) in pairwise(inside))
 
 
 def _rel_err(got: float, want: float) -> float:
-    if want <= 0:
-        return 0.0 if got <= 0.05 else float("inf")
-    return abs(got - want) / want
+    return abs(got - want) / want if want > 0 else (0.0 if got <= 0.05 else math.inf)
 
 
 # --- pairing power with energy ---------------------------------------------------
@@ -222,16 +330,17 @@ def _rel_err(got: float, want: float) -> float:
 
 @dataclass
 class PowerMatch:
-    entity_id: str | None
-    sign: int  # +1: the sensor's own sign matches the role's convention; -1: flipped
-    error: float  # relative error of the best match
-    ranking: list[tuple[str, float]]  # (entity_id, error), best first
+    """A candidate for the household to confirm (module doc)."""
+
+    status: str  # CANDIDATE | AMBIGUOUS | NO_MATCH | INSUFFICIENT | NO_CANDIDATES
+    entity_id: str | None  # set only when status is CANDIDATE
+    sign: int | None  # +1: the sensor's sign is the role's; -1: flipped; None: unknown
+    error: float  # relative error of the best candidate
+    ranking: list[tuple[str, float]] = field(default_factory=list)  # best first
     reason: str = ""
 
 
 def _hourly(start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
-    from datetime import timedelta
-
     out, t = [], start
     while t < end:
         out.append((t, min(t + timedelta(hours=1), end)))
@@ -246,8 +355,8 @@ def _profile_error(cand: Sequence[float], want: Sequence[float]) -> float:
     sensors with the same daily total no longer tie."""
     total = sum(want)
     if total <= 0:
-        return 0.0 if sum(cand) <= 0.05 else float("inf")
-    return sum(abs(c - w) for c, w in zip(cand, want, strict=False)) / total
+        return math.inf
+    return sum(abs(c - w) for c, w in zip(cand, want, strict=True)) / total
 
 
 def match_power_sensor(
@@ -259,44 +368,99 @@ def match_power_sensor(
     energy_in: float | Series | None = None,
 ) -> PowerMatch:
     """The candidate power sensor whose integrated history matches the
-    source's energy counters over [start, end) -- a CANDIDATE for the user to
-    confirm, not a mapping (Mark, #1574).
+    source's energy counters over [start, end) -- a CANDIDATE, not a mapping.
 
     `energy_out` is the counter the role's POSITIVE direction fills: solar
     production, battery discharge, grid import. `energy_in` is the opposite
     direction (battery charge, grid export), or None for solar. Each candidate
-    is tried with its own sign and flipped; the sign that fits is reported.
+    is tried with its own sign and flipped.
 
-    Pass the counters' own HISTORY (a Series) rather than a total, and the
-    match is scored hour by hour (`_profile_error`), which separates sensors
-    whose daily totals happen to agree. A plain float scores the total only.
-    """
+    Pass the counters' HISTORY (a Series) and the match is scored hour by
+    hour, over the hours where every counter is readable; a plain float
+    scores the window's total only. Missing evidence is never read as a
+    measured zero: too little counter history, counters that barely moved, or
+    candidate history with gaps gives `insufficient_evidence`."""
     hours = _hourly(start, end)
+    eligible = {
+        eid: series
+        for eid, series in candidates.items()
+        if coverage(series, start, end) >= MIN_COVERAGE
+    }
+    if not candidates:
+        return PowerMatch(NO_CANDIDATES, None, None, math.inf, [], "no power sensors to compare")
+    if not eligible:
+        return PowerMatch(
+            INSUFFICIENT,
+            None,
+            None,
+            math.inf,
+            [],
+            f"no candidate has history for {MIN_COVERAGE:.0%} of the window",
+        )
 
-    def _rises(counter: float | Series | None) -> list[float] | None:
+    def _rises(counter: float | Series | None) -> list[float | None] | None:
         if counter is None or isinstance(counter, (int, float)):
             return None
-        return [counter_rise(counter, a, b) or 0.0 for a, b in hours]
+        return [counter_rise(counter, a, b) for a, b in hours]
 
     out_h, in_h = _rises(energy_out), _rises(energy_in)
+    scored: list[tuple[float, str, int]] = []
     if out_h is not None or in_h is not None:
-        scored_h: list[tuple[float, str, int]] = []
-        for eid, series in candidates.items():
-            parts = [integrate_parts(series, a, b) for a, b in hours]
+        # Hours where every counter given as history is readable.
+        use = [
+            i
+            for i in range(len(hours))
+            if (out_h is None or out_h[i] is not None)
+            and (in_h is None or in_h[i] is not None)
+        ]
+        if len(use) < MIN_EVIDENCE_HOURS or len(use) < MIN_COVERAGE * len(hours):
+            return PowerMatch(
+                INSUFFICIENT,
+                None,
+                None,
+                math.inf,
+                [],
+                f"the energy counters are readable in only {len(use)} of {len(hours)} hours",
+            )
+        want_out = [out_h[i] for i in use] if out_h is not None else None
+        want_in = [in_h[i] for i in use] if in_h is not None else None
+        moved = sum(want_out or []) + sum(want_in or [])
+        if moved < MIN_ENERGY_KWH:
+            return PowerMatch(
+                INSUFFICIENT,
+                None,
+                None,
+                math.inf,
+                [],
+                f"the energy counters moved only {moved:.2f} kWh: nothing to match",
+            )
+        for eid, series in eligible.items():
+            parts = [integrate_parts(series, *hours[i]) for i in use]
             pos_h = [p for p, _ in parts]
             neg_h = [n for _, n in parts]
             for sign, o, i in ((+1, pos_h, neg_h), (-1, neg_h, pos_h)):
-                err = _profile_error(o, out_h) if out_h is not None else 0.0
-                if in_h is not None:
-                    err = max(err, _profile_error(i, in_h))
-                elif sum(i) > max(0.1, 0.1 * sum(out_h or [0.0])):
+                err = _profile_error(o, want_out) if want_out is not None else 0.0
+                if want_in is not None:
+                    err = max(err, _profile_error(i, want_in))
+                elif sum(i) > max(0.1, 0.1 * sum(want_out or [0.0])):
                     err = max(err, 1.0)  # solar never runs backwards
-                scored_h.append((err, eid, sign))
-        return _pick(scored_h)
-    out_total = float(energy_out) if isinstance(energy_out, (int, float)) else None
-    in_total = float(energy_in) if isinstance(energy_in, (int, float)) else None
-    scored: list[tuple[float, str, int]] = []
-    for eid, series in candidates.items():
+                scored.append((err, eid, sign))
+        return _pick(scored)
+
+    out_total = _finite(energy_out) if energy_out is not None else None
+    in_total = _finite(energy_in) if energy_in is not None else None
+    if out_total is None and in_total is None:
+        return PowerMatch(INSUFFICIENT, None, None, math.inf, [], "no energy counter given")
+    if (out_total or 0.0) + (in_total or 0.0) < MIN_ENERGY_KWH:
+        return PowerMatch(
+            INSUFFICIENT,
+            None,
+            None,
+            math.inf,
+            [],
+            "the energy counters barely moved: nothing to match",
+        )
+    for eid, series in eligible.items():
         pos, neg = integrate_parts(series, start, end)
         for sign, out_part, in_part in ((+1, pos, neg), (-1, neg, pos)):
             err = _rel_err(out_part, out_total) if out_total is not None else 0.0
@@ -308,38 +472,57 @@ def match_power_sensor(
     return _pick(scored)
 
 
+def _indistinguishable(a: float, b: float) -> bool:
+    """Two errors the evidence cannot tell apart: within TIE_ABS, or within
+    RUNNER_UP_MARGIN of each other. An exact tie (0 and 0) is one."""
+    lo, hi = min(a, b), max(a, b)
+    return hi - lo <= TIE_ABS or hi <= lo * RUNNER_UP_MARGIN
+
+
 def _pick(scored: list[tuple[float, str, int]]) -> PowerMatch:
-    scored.sort()
-    best_per_entity: dict[str, tuple[float, int]] = {}
+    per_entity: dict[str, dict[int, float]] = {}
     for err, eid, sign in scored:
-        best_per_entity.setdefault(eid, (err, sign))
+        per_entity.setdefault(eid, {})[sign] = err
     ranking = sorted(
-        ((eid, e) for eid, (e, _s) in best_per_entity.items()), key=lambda x: x[1]
+        ((eid, min(errs.values())) for eid, errs in per_entity.items()),
+        key=lambda x: (x[1], x[0]),
     )
-    if not ranking:
-        return PowerMatch(None, +1, float("inf"), [], "no power sensors on the device")
     best_eid, best_err = ranking[0]
     if best_err > MATCH_TOLERANCE:
         return PowerMatch(
+            NO_MATCH,
             None,
-            +1,
+            None,
             best_err,
             ranking,
             f"no power sensor matches the energy counter (best {best_err:.0%} off)",
         )
-    if (
-        len(ranking) > 1
-        and ranking[1][1] < best_err * RUNNER_UP_MARGIN
-        and ranking[1][1] <= MATCH_TOLERANCE
-    ):
+    rivals = [
+        eid
+        for eid, err in ranking[1:]
+        if err <= MATCH_TOLERANCE and _indistinguishable(best_err, err)
+    ]
+    if rivals:
         return PowerMatch(
+            AMBIGUOUS,
             None,
-            +1,
+            None,
             best_err,
             ranking,
-            f"{best_eid} and {ranking[1][0]} both match; pick one",
+            f"{best_eid} and {', '.join(rivals)} match equally well; pick one",
         )
-    return PowerMatch(best_eid, best_per_entity[best_eid][1], best_err, ranking)
+    signs = per_entity[best_eid]
+    if _indistinguishable(signs.get(+1, math.inf), signs.get(-1, math.inf)):
+        return PowerMatch(
+            INSUFFICIENT,
+            None,
+            None,
+            best_err,
+            ranking,
+            f"{best_eid} matches, but its direction cannot be told apart over this window",
+        )
+    sign = +1 if signs.get(+1, math.inf) <= signs.get(-1, math.inf) else -1
+    return PowerMatch(CANDIDATE, best_eid, sign, best_err, ranking)
 
 
 # --- the devices check each other (design §3.3) -----------------------------------
@@ -347,15 +530,19 @@ def _pick(scored: list[tuple[float, str, int]]) -> PowerMatch:
 
 @dataclass
 class BalanceVerdict:
-    """Corroborating evidence only (Mark, #1574): `explanation` is the single
-    change that would make the balance close, offered as a *hypothesis* for
-    the user to confirm, never applied automatically. It is meaningful only
-    when the four series share a measurement boundary, are time-aligned, and
-    vary enough over the window to tell the hypotheses apart."""
+    """Corroborating evidence only (Mark, #1574). `hypotheses` lists every
+    single change that makes the balance close; `explanation` names it only
+    when there is exactly one. Several fitting at once is `ambiguous`, not a
+    unique cause. Never applied automatically.
+
+    The caller must pass series sharing one measurement boundary (whole site),
+    time-aligned sample for sample; this checks only what it can (equal
+    lengths, finite values, enough samples)."""
 
     ok: bool
-    explanation: str  # "agree" | "flip:<role>" | "scale:<role>:<factor>" | "partial_solar" | "unexplained"
+    explanation: str  # "agree" | "flip:<role>" | "scale:<role>:<x1000|/1000>" | "partial_solar" | "ambiguous" | "unexplained" | "insufficient_evidence"
     residual_kw: float
+    hypotheses: list[str] = field(default_factory=list)
 
 
 def check_energy_balance(
@@ -367,69 +554,54 @@ def check_energy_balance(
     tolerance_kw: float = 0.5,
 ) -> BalanceVerdict:
     """grid ≈ load − solar − battery (battery positive = discharge, grid
-    positive = import), on aligned samples in kW. If it does not hold, find
-    the single change that makes it hold: a flipped sign on one role, one role
-    ×1000 or ÷1000, or solar that is only part of the total."""
+    positive = import), on aligned samples in kW. If it does not hold, list
+    each single change that makes it hold: a flipped sign on one role, one
+    role ×1000 or ÷1000, or solar that is only part of the total."""
+    series = [list(load), list(solar), list(battery), list(grid)]
+    n = len(series[0])
+    if any(len(s) != n for s in series):
+        return BalanceVerdict(
+            False, INSUFFICIENT, math.inf, []
+        )  # not aligned sample for sample
+    if n < MIN_BALANCE_SAMPLES or any(
+        _finite(v) is None for s in series for v in s
+    ):
+        return BalanceVerdict(False, INSUFFICIENT, math.inf, [])
 
-    def mean_abs_residual(l, s, b, g):
-        n = min(len(l), len(s), len(b), len(g))
-        if n == 0:
-            return float("inf")
+    def residual(l, s, b, g):
         return sum(abs(g[i] - (l[i] - s[i] - b[i])) for i in range(n)) / n
 
-    base = mean_abs_residual(load, solar, battery, grid)
+    base = residual(*series)
     if base <= tolerance_kw:
-        return BalanceVerdict(True, "agree", base)
+        return BalanceVerdict(True, "agree", base, [])
 
-    roles = {
-        "load": list(load),
-        "solar": list(solar),
-        "battery": list(battery),
-        "grid": list(grid),
-    }
-    trials: list[tuple[float, str]] = []
+    roles = dict(zip(("load", "solar", "battery", "grid"), series, strict=True))
+    fits: list[tuple[float, str]] = []
     for role, values in roles.items():
-        flipped = {**roles, role: [-v for v in values]}
-        trials.append(
-            (
-                mean_abs_residual(
-                    flipped["load"],
-                    flipped["solar"],
-                    flipped["battery"],
-                    flipped["grid"],
-                ),
-                f"flip:{role}",
-            )
-        )
-        for factor in (1000.0, 0.001):
-            scaled = {**roles, role: [v * factor for v in values]}
-            label = "x1000" if factor > 1 else "/1000"
-            trials.append(
-                (
-                    mean_abs_residual(
-                        scaled["load"],
-                        scaled["solar"],
-                        scaled["battery"],
-                        scaled["grid"],
-                    ),
-                    f"scale:{role}:{label}",
-                )
-            )
+        for label, change in (
+            (f"flip:{role}", lambda v: -v),
+            (f"scale:{role}:x1000", lambda v: v * 1000.0),
+            (f"scale:{role}:/1000", lambda v: v * 0.001),
+        ):
+            trial = {**roles, role: [change(v) for v in values]}
+            res = residual(trial["load"], trial["solar"], trial["battery"], trial["grid"])
+            if res <= tolerance_kw:
+                fits.append((res, label))
     # partial solar: the residual is consistently "more solar than measured"
-    n = min(len(load), len(solar), len(battery), len(grid))
     missing = [(load[i] - solar[i] - battery[i]) - grid[i] for i in range(n)]
     if (
-        n
-        and all(m >= -tolerance_kw for m in missing)
+        all(m >= -tolerance_kw for m in missing)
         and sum(missing) / n > tolerance_kw
-        and max(solar[:n] or [0]) > 0
+        and max(solar) > 0
     ):
-        trials.append((tolerance_kw, "partial_solar"))
-    trials.sort()
-    best_res, best = trials[0]
-    if best_res <= tolerance_kw:
-        return BalanceVerdict(False, best, best_res)
-    return BalanceVerdict(False, "unexplained", base)
+        fits.append((tolerance_kw, "partial_solar"))
+    fits.sort()
+    hypotheses = [label for _res, label in fits]
+    if not hypotheses:
+        return BalanceVerdict(False, "unexplained", base, [])
+    if len(hypotheses) > 1:
+        return BalanceVerdict(False, AMBIGUOUS, fits[0][0], hypotheses)
+    return BalanceVerdict(False, hypotheses[0], fits[0][0], hypotheses)
 
 
 def entities_on_device(

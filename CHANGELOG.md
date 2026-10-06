@@ -8,22 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-### Fixed
-- **Energy Dashboard price suggestions work on current Home Assistant**
-  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Current
-  Home Assistant stores a grid source flat (`stat_energy_from`,
-  `entity_energy_price`, `entity_energy_price_export`), not as `flow_from` /
-  `flow_to` lists, so the Solver's import/export price suggestion and the
-  switchboard's grid suggestions silently found nothing. Both formats are now read.
-
 ### Added
 - **A device resolver for the two-step setup**
-  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It finds
-  the power sensor behind each Energy Dashboard source by matching each
-  candidate's integrated history, hour by hour, against the source's own energy
-  counter. That works on hybrid inverters with many power sensors on one device,
-  and tells which way the sensor's sign runs. It also checks that grid ≈ load −
-  solar − battery, and names a flipped sign, a W/kW mix-up or partial solar.
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
+  what the Energy Dashboard already states: each source's power sensor in Home
+  Assistant's own sign convention, the battery's state of charge, and which
+  device's total contains which. Where a source names no power sensor, it finds
+  candidates by matching each one's history, hour by hour, against the source's
+  energy counter. That works on hybrid inverters with many power sensors on one
+  device. Every result is a candidate or hypothesis, never applied by itself:
+  - **Ties are never broken by order.** Exact and near ties are reported as
+    `ambiguous`, so you are asked rather than guessed for.
+  - **Missing data is never read as zero.** Gaps, too little history, or counters
+    that barely moved give `insufficient_evidence`, and so does a direction that
+    cannot be told apart.
+  - **The energy balance check** (grid ≈ load − solar − battery) lists every
+    single change that would close it, and says `ambiguous` when more than one
+    fits.
+  - **Grid sources are kept as Home Assistant keeps them**, and older
+    import/export lists are never paired by their position.
+
   It's groundwork only; nothing uses it yet.
 
 ### Changed
