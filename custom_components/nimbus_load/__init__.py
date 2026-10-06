@@ -956,10 +956,22 @@ async def _async_setup_entry_impl(
     # (Wh/kWh). Run once HA has started, so every sensor's unit is known --
     # at setup time a sensor from a later-loading integration does not
     # exist yet, and a missing entity is not known to be wrong.
+    from homeassistant.helpers.event import async_track_time_interval
+
     from .power_input_check import async_notify_energy_unit_inputs
+    from .setup_health import REFRESH_INTERVAL, async_refresh_health
 
     async def _energy_unit_check(_event: object = None) -> None:
         await async_notify_energy_unit_inputs(hass, entry)
+        # nimbus #1574 stage 2: setup gaps as Repairs that clear themselves.
+        await async_refresh_health(hass, entry)
+
+    async def _health_tick(_now: object = None) -> None:
+        await async_refresh_health(hass, entry)
+
+    entry.async_on_unload(
+        async_track_time_interval(hass, _health_tick, REFRESH_INTERVAL)
+    )
 
     if getattr(hass, "is_running", False) is True:
         hass.async_create_task(_energy_unit_check())
