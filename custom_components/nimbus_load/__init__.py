@@ -674,6 +674,27 @@ async def _async_setup_entry_impl(
             "be added by hand (custom:nimbus-forecast-card)"
         )
 
+    # nimbus #1550: if LocalVolts v2 is installed, say so when a pricing
+    # field is still empty, and flag a matched-rate sensor set without a price
+    # forecast array. Notifications only; nothing is configured. Deferred to
+    # HA's own "started" event when needed, so LocalVolts v2 has loaded.
+    async def _pricing_check(_event: object = None) -> None:
+        try:
+            from .pricing_autodetect import async_notify_pricing_setup
+
+            await async_notify_pricing_setup(hass, dict(entry.options))
+        except Exception:
+            _LOGGER.exception("Nimbus: pricing setup check failed")
+
+    if hass.is_running:
+        await _pricing_check()
+    else:
+        # "homeassistant_started" is homeassistant.const.EVENT_HOMEASSISTANT_STARTED,
+        # spelled out so the unit-test stubs need no new constant.
+        entry.async_on_unload(
+            hass.bus.async_listen_once("homeassistant_started", _pricing_check)
+        )
+
     # Runs before anything else -- a rename must land BEFORE the sensor
     # platform tries to add NimbusForecastSensor with its own freshly-
     # derived entity_id, so the platform sees "already exactly this" and
