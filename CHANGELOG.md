@@ -53,6 +53,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
   v0.94.438 render check.
 
+- **Same-day release, by household decision.** #1551 and #1552 change LP pricing
+  and solve timing, which the release process holds overnight. The household waived
+  the hold on 6 Oct 2026 so production could have #1548's LocalVolts v2 matched-rate
+  read and #1552's block-start solve before that evening's P2P window.
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at d8ea458**, installed
+  untagged via HACS (`installed_version: d8ea458`) and restarted 12:13 AEST 6 Oct,
+  with Nimbus logging at debug from 12:16:49. Solves at 12:15:50 and 12:20:56 both
+  `optimal`, batteries `['home', 'Test EV']`, the same as v0.94.438's check on 5 Oct.
+  HiGHS took 38.9 s and 25.6 s (devhub's test EV is a MIP; production solves in about
+  1 s). No Nimbus `Traceback`, no `solve cycle failed`. The boot-time "does not
+  generate unique IDs" errors also hit cast, met, open_meteo and pirateweather in the
+  same second, so they belong to devhub's mirrored registry, not this release. **Not
+  observed:** the #1552 block-start solve, because devhub's earliest block start
+  (16:59) is after this tag; its first live run is the reference household's 16:59
+  AEST tonight.
+- Consumer check: a household with a P2P lead time sees its battery reach the block
+  rate inside the lead-time minute again (16:59 for a 17:00 block), not seconds after
+  the block starts. A household whose blocks are not 17:00-24:00 sees P2P priced and
+  shaded inside its own blocks. A LocalVolts v2 household can point the P2P
+  matched-rate field at Current Sell Rate. A household with a settlement-history
+  sensor and blocks at 17:00-24:00 sees no other change.
+
 ## [0.94.438] - 2026-10-05
 
 ### Changed
