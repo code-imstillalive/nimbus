@@ -101,9 +101,21 @@ def evaluate_health(
     if hub_up_for >= TRAIN_GRACE:
         for subentry_id, title, data in forecasts:
             data = data or {}
-            if data.get("trained_at") or data.get("forecast"):
+            if (
+                data.get("trained_at")
+                or data.get("forecast")
+                or data.get("forecast_readiness") == "ready"
+            ):
                 continue  # trained, or a deterministic load that needs no model
             reason = data.get("last_retrain_error")
+            if not reason and data.get("forecast_readiness") == "incomplete_rule":
+                # nimbus #1575: an expected power without both schedule hours
+                # is a configuration gap, not missing history.
+                reason = (
+                    "it has an expected power but not both schedule hours, so "
+                    "its fixed-hours rule cannot run; set the start and end "
+                    "hours, or remove the expected power to let it learn"
+                )
             issues.append(
                 HealthIssue(
                     key=f"{KIND_NOT_TRAINED}_{subentry_id}",

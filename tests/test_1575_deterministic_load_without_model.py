@@ -36,7 +36,10 @@ from custom_components.nimbus_load.const import (
     RESAMPLE_MINUTES,
     SUBENTRY_TYPE_LOAD,
 )
-from custom_components.nimbus_load.coordinator import NimbusCoordinator
+from custom_components.nimbus_load.coordinator import (
+    NimbusCoordinator,
+    forecast_provenance,
+)
 from custom_components.nimbus_load.ml.model import deterministic_values, predict
 
 # 02:00 UTC is 12:00 in Brisbane (UTC+10, no DST): inside an 08:00-15:00
@@ -168,3 +171,96 @@ def test_other_modes_still_return_the_empty_untrained_payload():
         assert result["state"] is None, data
         assert result["forecast"] == [], data
         assert result["training_points"] == 0, data
+
+
+# --- Mark's review of #1593: readiness and provenance ---------------------------
+
+
+def test_provenance_table():
+    """Every combination, so a configured rule, a learned model, an
+    incomplete rule and missing history are always told apart."""
+    assert forecast_provenance("deterministic", False, True) == (
+        "configured_rule",
+        "ready",
+    )
+    assert forecast_provenance("deterministic", True, True) == (
+        "configured_rule",
+        "ready",
+    )
+    assert forecast_provenance("scheduled_ml", True, False) == ("learned", "ready")
+    assert forecast_provenance("unscheduled", True, True) == ("learned", "ready")
+    assert forecast_provenance("unscheduled", False, True) == (None, "incomplete_rule")
+    assert forecast_provenance("scheduled_ml", False, False) == (None, "not_trained")
+    assert forecast_provenance("unscheduled", False, False) == (None, "not_trained")
+
+
+def test_a_complete_rule_with_no_model_is_ready_from_the_configured_rule():
+    result = _run(_coordinator(DETERMINISTIC))
+    assert result["forecast_origin"] == "configured_rule"
+    assert result["forecast_readiness"] == "ready"
+    assert result["trained_at"] is None  # no ML evidence is fabricated
+
+
+def test_configured_zero_incomplete_rule_and_missing_history_are_distinct():
+    zero = _run(
+        _coordinator(
+            {
+                CONF_EXPECTED_LOAD_KW: 0.0,
+                CONF_SCHEDULE_START_HOUR: "08:00:00",
+                CONF_SCHEDULE_END_HOUR: "15:00:00",
+            }
+        )
+    )
+    assert (zero["forecast_origin"], zero["forecast_readiness"]) == (
+        "configured_rule",
+        "ready",
+    )
+    assert zero["forecast"] and {p["value"] for p in zero["forecast"]} == {0.0}
+    incomplete = _run(_coordinator({CONF_EXPECTED_LOAD_KW: 1.3}))
+    assert incomplete["forecast_readiness"] == "incomplete_rule"
+    assert incomplete["forecast"] == []
+    for data in (
+        {},
+        {CONF_SCHEDULE_START_HOUR: "08:00:00", CONF_SCHEDULE_END_HOUR: "15:00:00"},
+    ):
+        missing = _run(_coordinator(data))
+        assert missing["forecast_readiness"] == "not_trained", data
+        assert missing["forecast_origin"] is None
+
+
+def test_an_out_of_window_zero_is_a_rule_value_not_missing_evidence():
+    result = _run(_coordinator(DETERMINISTIC))
+    outside = [p for p in result["forecast"] if not _in_window(p["time"], 8.0, 15.0)]
+    assert outside and all(p["value"] == 0.0 for p in outside)
+    assert result["forecast_origin"] == "configured_rule"
+
+
+def test_window_start_is_inclusive_and_end_exclusive_on_local_time():
+    def at(h, m=0):
+        return datetime(2026, 10, 6, h, m, tzinfo=LOCAL_TZ)
+
+    stamps = [at(7, 55), at(8, 0), at(14, 55), at(15, 0)]
+    assert deterministic_values(stamps, 1.3, 8.0, 15.0) == [0.0, 1.3, 1.3, 0.0]
+    # Overnight: 22:00 starts it, 06:00 ends it.
+    stamps = [at(21, 55), at(22, 0), at(5, 55), at(6, 0)]
+    assert deterministic_values(stamps, 2.0, 22.0, 6.0) == [0.0, 2.0, 2.0, 0.0]
+
+
+def test_the_window_follows_the_sites_wall_clock_not_utc():
+    """The same UTC instant is inside an 08:00-15:00 window in Brisbane
+    (12:00 local) and outside it in UTC (02:00)."""
+    instant = datetime(2026, 10, 6, 2, 0, tzinfo=UTC)
+    assert deterministic_values([instant.astimezone(LOCAL_TZ)], 1.3, 8.0, 15.0) == [1.3]
+    assert deterministic_values([instant], 1.3, 8.0, 15.0) == [0.0]
+
+
+def test_switching_modes_switches_provenance():
+    """With a model on disk, a complete rule still wins (predict() returns
+    it first), and removing the rule makes the forecast learned again --
+    a scheduled output is never mistaken for a trained one, or vice versa."""
+    with_model = True
+    assert (
+        forecast_provenance("deterministic", with_model, True)[0] == "configured_rule"
+    )
+    assert forecast_provenance("scheduled_ml", with_model, False)[0] == "learned"
+    assert forecast_provenance("scheduled_ml", False, False) == (None, "not_trained")

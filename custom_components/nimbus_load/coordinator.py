@@ -66,6 +66,11 @@ from .const import (
     DEFAULT_TRAIN_DAYS,
     DEFAULT_TRAINING_SOURCE,
     DOMAIN,
+    FORECAST_INCOMPLETE_RULE,
+    FORECAST_NOT_TRAINED,
+    FORECAST_ORIGIN_LEARNED,
+    FORECAST_ORIGIN_RULE,
+    FORECAST_READY,
     LAG_LONG_STEPS,
     MIN_FORECAST_HORIZON_HOURS,
     MIN_TRAINING_POINTS,
@@ -1904,10 +1909,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     for ts, v in zip(timestamps, values, strict=True)
                 ]
                 state = round(values[0], 3) if values else 0.0
+            origin, readiness = forecast_provenance(
+                self._mode, False, self._expected_load_kw is not None
+            )
             return {
                 "state": state,
                 "forecast": forecast,
                 "mode": self._mode,
+                "forecast_origin": origin,
+                "forecast_readiness": readiness,
                 "trained_at": None,
                 "training_points": 0,
                 "model_type": None,
@@ -2081,10 +2091,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if timestamps and preds:
             self._last_step_prediction = (timestamps[0], preds[0])
 
+        origin, readiness = forecast_provenance(
+            self._mode, True, self._expected_load_kw is not None
+        )
         return {
             "state": round(current, 3),
             "forecast": points,
             "mode": self._mode,
+            "forecast_origin": origin,
+            "forecast_readiness": readiness,
             "trained_at": self._trained.trained_at.isoformat(),
             "training_points": self._trained.training_points,
             # getattr-defensive, same reasoning as mase_scale_points/resample_minutes/
@@ -2142,6 +2157,30 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else None
             ),
         }
+
+
+def forecast_provenance(
+    mode: str | None, has_model: bool, rule_intended: bool
+) -> tuple[str | None, str]:
+    """(origin, readiness) of a subentry's published forecast (nimbus issue
+    #1575, Mark's review of #1593).
+
+    `mode == "deterministic"` means the rule is complete (expected power AND
+    both schedule bounds), and predict() returns it before reading any model,
+    so the forecast is the configured rule, ready at once. Its exact band
+    (lower = upper) describes the rule, not certainty about the appliance,
+    and its values are not learned accuracy. `rule_intended` (an expected
+    power is set) without a complete rule falls back to the model; with no
+    model that is `incomplete_rule` -- a configuration gap, not missing
+    history (`not_trained`).
+    """
+    if mode == "deterministic":
+        return FORECAST_ORIGIN_RULE, FORECAST_READY
+    if has_model:
+        return FORECAST_ORIGIN_LEARNED, FORECAST_READY
+    if rule_intended:
+        return None, FORECAST_INCOMPLETE_RULE
+    return None, FORECAST_NOT_TRAINED
 
 
 def _forecast_grid_utc(start: datetime, end: datetime) -> list[datetime]:

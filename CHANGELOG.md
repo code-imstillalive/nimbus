@@ -37,7 +37,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   kW inside the window and 0 outside it, without the ML model. It still waited
   for a model to train first, so a mostly-idle load that could not train
   published no forecast at all. It now publishes the configured schedule from
-  the first update, trained or not.
+  the first update, trained or not, and counts as ready. Settings → Repairs
+  and the status sensor no longer report it as "still learning".
+  - Each forecast sensor now says where its forecast comes from:
+    `forecast_origin` is `configured_rule` or `learned`, and
+    `forecast_readiness` is `ready`, `incomplete_rule` or `not_trained`.
+  - A configured rule's exact band describes the rule, not certainty about
+    the appliance.
+  - An expected power set without both schedule hours is reported as an
+    incomplete rule, not as missing history.
 - **A forecast is never trained on its own source sensor**
   ([#1540](https://github.com/code-imstillalive/nimbus/issues/1540)). A
   temperature or humidity signal whose source was also the hub's temperature
