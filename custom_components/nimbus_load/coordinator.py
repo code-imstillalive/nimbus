@@ -91,6 +91,7 @@ from .ml.model import (
     predict,
     train_model,
 )
+from .power_input_check import energy_unit_of, is_energy_unit, warn_ignored_once
 
 # nimbus issue #375 (Mark Purcell, codebase review): matches
 # _async_fetch_lts_history()'s own hardcoded period="hour" argument to
@@ -100,6 +101,21 @@ from .ml.model import (
 _LTS_PERIOD_MINUTES = 60
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _unconvertible_unit_message(unit: object, *, lts: bool = False) -> str:
+    """Log format for a unit PowerConverter cannot convert. nimbus issue
+    #1562: an energy unit gets a message that says what is wrong, instead
+    of the generic one, which read as if 'treating as kW' were harmless."""
+    source = "%s LTS reports" if lts else "%s reported"
+    if is_energy_unit(unit):
+        return (
+            source + " '%s', an energy unit: this is an energy counter, not a "
+            "power sensor, and its values cannot be read as kW. Configure a "
+            "power sensor (W or kW) instead."
+        )
+    return source + " unconvertible unit '%s' -- treating as kW as-is"
+
 
 # Idempotent cold-start-retrain task tracking, module-level (survives across
 # a re-entrant async_setup_entry() call the same way __init__.py's own
@@ -320,26 +336,43 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # genuinely benefits from a coarse "what's the system doing right
     # now" hint, which is the intended, working use case these three
     # features were originally built for.
+    def _power_feature_or_none(self, sensor: str | None, role: str) -> str | None:
+        """The shared Battery/Grid/Solar feature sensor, or None when it
+        must not be used: it is this subentry's own target (see the comment
+        above), or -- nimbus issue #1562 -- it reports an energy unit. An
+        energy counter is not a power reading, and before #1562 it was read
+        as kW regardless. Ignoring it here, in the one accessor both
+        training and prediction go through, keeps the two consistent: the
+        feature is absent from both, exactly as if it were not configured.
+        """
+        if sensor is None or sensor == self._load_sensor:
+            return None
+        unit = energy_unit_of(self.hass, sensor)
+        if unit is not None:
+            warn_ignored_once(sensor, unit, role)
+            return None
+        return sensor
+
     @property
     def _battery_sensor(self) -> str | None:
         if self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL:
             return None
         sensor = self.entry.options.get(CONF_BATTERY_SENSOR)
-        return None if sensor == self._load_sensor else sensor
+        return self._power_feature_or_none(sensor, "battery")
 
     @property
     def _grid_sensor(self) -> str | None:
         if self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL:
             return None
         sensor = self.entry.options.get(CONF_GRID_SENSOR)
-        return None if sensor == self._load_sensor else sensor
+        return self._power_feature_or_none(sensor, "grid")
 
     @property
     def _solar_sensor(self) -> str | None:
         if self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL:
             return None
         sensor = self.entry.options.get(CONF_SOLAR_SENSOR)
-        return None if sensor == self._load_sensor else sensor
+        return self._power_feature_or_none(sensor, "solar")
 
     # Per-load, unlike everything else above -- a fixed schedule window
     # (if any) is specific to this one load, not shared across the hub.
@@ -1118,7 +1151,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         except Exception:  # noqa: BLE001 -- an unrecognized unit string must degrade to "treat as kW", never crash the coordinator
                             if not warned_missing_unit:
                                 _LOGGER.warning(
-                                    "%s reported unconvertible unit '%s' -- treating as kW as-is",
+                                    _unconvertible_unit_message(unit),
                                     entity_id,
                                     unit,
                                 )
@@ -1253,7 +1286,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     except Exception:  # noqa: BLE001 -- match recorder path: degrade to "treat as kW", never crash
                         if not warned_missing_unit:
                             _LOGGER.warning(
-                                "%s LTS reports unconvertible unit '%s' -- treating as kW as-is",
+                                _unconvertible_unit_message(unit, lts=True),
                                 entity_id,
                                 unit,
                             )
@@ -1361,7 +1394,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
             except Exception:  # noqa: BLE001 -- same reasoning as the sibling catch above: degrade to kW-as-is, never crash
                 _LOGGER.warning(
-                    "%s reported unconvertible unit '%s' -- treating as kW as-is",
+                    _unconvertible_unit_message(unit),
                     entity_id,
                     unit,
                 )

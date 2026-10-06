@@ -49,6 +49,7 @@ from ..const import (
     SIGNAL_ROLE_SOLAR,
     SIGNAL_ROLE_TEMPERATURE,
 )
+from ..power_input_check import energy_unit_field_errors
 from . import find_subentry_sharing_source_sensor
 
 
@@ -145,6 +146,17 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                     step_id="user",
                     data_schema=_schema(user_input),
                     errors={"load_sensor": "duplicate_source_sensor"},
+                )
+            # nimbus issue #1562: an energy counter (Wh/kWh) is not a
+            # power reading and cannot be forecast as kW.
+            energy_errors = energy_unit_field_errors(
+                self.hass, user_input, [CONF_LOAD_SENSOR]
+            )
+            if energy_errors:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_schema(user_input),
+                    errors=energy_errors,
                 )
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
