@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The tracking-fidelity docs say it carries no information.** `tracking_fidelity`
+  reads 1.0 and `tracking_cost` 0 on every day and install, because the quality
+  report sets commanded dispatch equal to actual (no generic commanded signal
+  exists). The entity reference and the dispatch-report checklist no longer
+  imply it measures anything, or that a 1.0 is worth investigating
+  ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
+
 ## [0.94.441] - 2026-10-06
 
 - **Same-day release, by household decision.** #1571 changes an LP input (the
