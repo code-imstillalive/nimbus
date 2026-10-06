@@ -881,10 +881,8 @@ def train_model(
     # nimbus issue #1556: in the change-only segment a held value is a
     # genuine observation, so every point with a real value is a target.
     load_observed = [
-        (load_vals[i] is not None and math.isfinite(load_vals[i]))
-        if held_from[i]
-        else load_observed[i]
-        for i in range(len(grid))
+        (lv is not None and math.isfinite(lv)) if hf else obs
+        for lv, hf, obs in zip(load_vals, held_from, load_observed, strict=True)
     ]
 
     # Seasonal lookup (see TrainedModel.seasonal_lookup's own docstring) --
