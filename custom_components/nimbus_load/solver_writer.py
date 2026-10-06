@@ -394,6 +394,7 @@ try:
         ha_get,
         ha_post_state,
         import_fee_rate,
+        p2p_blocks_daily_energy_kwh,
         p2p_bonus_price_by_period,
         parse_iso,
         resample_history_mean,
@@ -431,6 +432,7 @@ except ImportError:
         ha_get,
         ha_post_state,
         import_fee_rate,
+        p2p_blocks_daily_energy_kwh,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/prices.py (#1537)
         p2p_bonus_price_by_period,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         parse_iso,
         resample_history_mean,
@@ -3670,7 +3672,9 @@ def _clear_load_forecast_error_notification_if_needed() -> None:
 
 
 def resample_real_p2p_rate(
-    grid_times: list[datetime], sensor_id: str | None = None
+    grid_times: list[datetime],
+    sensor_id: str | None = None,
+    p2p_window_kw: list[float] | None = None,
 ) -> list[float]:
     """Real, per-interval P2P export rate ($/kWh) -- REPLACES the old
     resample_p2p_forecast()/sensor.localvolts_p2p_price_forecast flat-
@@ -3732,6 +3736,14 @@ def resample_real_p2p_rate(
     the real window because only the extrapolation branch had the gate;
     not repeating that mistake here.
 
+    The window (nimbus #1537 item 5): `p2p_window_kw` is the household's
+    own configured blocks, from `fetch_p2p_fixed_export_kw()`, and a period
+    is inside the window when its value there is > 0. Without it, or with no
+    block configured, the 17:00-24:00 gate above still applies, which is the
+    reference household's own window. Before this a household whose blocks
+    sat anywhere else had every P2P rate zeroed outside 17:00-24:00 and saw
+    none inside its own blocks, with nothing in the log to say why.
+
     Returns a flat 0.0 array (never crashes) if `sensor_id` is blank --
     the same graceful no-op every household with no P2P/community-
     trading program at all gets.
@@ -3780,9 +3792,14 @@ def resample_real_p2p_rate(
         statistics.median(real_positive_rates) if real_positive_rates else 0.0
     )
 
+    use_blocks = p2p_window_kw is not None and len(p2p_window_kw) == len(grid_times)
     out = []
-    for gt in grid_times:
-        if not (17 <= _local(gt).hour < 24):
+    for i, gt in enumerate(grid_times):
+        if use_blocks:
+            in_window = p2p_window_kw[i] > 0  # NaN (no block) compares False
+        else:
+            in_window = 17 <= _local(gt).hour < 24
+        if not in_window:
             out.append(0.0)
         elif gt <= last_real_time:
             val = pts[0][1]

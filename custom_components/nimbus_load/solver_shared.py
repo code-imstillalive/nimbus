@@ -978,6 +978,34 @@ def fetch_p2p_fixed_export_kw(
     return result
 
 
+def p2p_blocks_daily_energy_kwh(cfg: dict) -> float:
+    """kWh the household's configured P2P blocks commit to per day, the sum
+    of rate_kw x (end_hour - start_hour) over every configured block, and
+    0.0 when none is.
+
+    The P2P volume cap's default when no settlement history says otherwise
+    (nimbus #1537). A block is a fixed commitment, a locked window at a
+    locked kW delivered every day, so its own energy is the volume the
+    household sells as P2P. Before this, an install with blocks but no
+    settlement sensor got this repository's reference household's 60 kWh
+    (`P2P_RECENT_AVG_VOLUME_FALLBACK_KWH`), and a generic-branch install
+    left at the wizard's 0 got no P2P volume at all. The lead time is left
+    out: it moves a block's start by minutes, not its committed energy.
+    """
+    total = 0.0
+    for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
+        try:
+            rate_kw = _cfg_num(cfg, rate_key, 0.0)
+            start_hour = _cfg_int(cfg, start_key, 0)
+            end_hour = _cfg_int(cfg, end_key, 0)
+        except (TypeError, ValueError):
+            continue
+        if rate_kw <= 0 or end_hour <= start_hour:
+            continue
+        total += rate_kw * (end_hour - start_hour)
+    return total
+
+
 def p2p_bonus_price_by_period(
     bonus_rate: float, fixed_export_kw: list[float] | None, n_periods: int
 ) -> np.ndarray:
