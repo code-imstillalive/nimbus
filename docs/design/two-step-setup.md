@@ -1,4 +1,4 @@
-# Two-step setup: five sensors build everything
+# Two-step setup: pick your devices, Nimbus builds everything
 
 **Status:** proposal for review ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). Nothing here is built yet.
 
@@ -7,6 +7,9 @@
 > *"it has to be very very clever and simple for the users... whatever we do... we must make it a breeze for the user... not a nightmare Chris has experienced"*
 
 Every decision below is judged against that. Where a choice trades capability for simplicity, simplicity wins at the basic level and the capability moves to advanced.
+
+**Revised 2026-10-06 after Mark's review:** *"I don't like the 5 sensor construct, I think they should be devices with entities under each; power, energy, limits, forecasts."*
+The unit of setup is now the **device**, not the sensor. The user picks the 3-4 things they recognise ("my GoodWe", "my Smappee", "my LocalVolts account"), and Nimbus resolves every entity under each one: power, energy, limits and forecasts. The earlier "5 sensors" wording is superseded throughout.
 
 ---
 
@@ -56,7 +59,7 @@ Add Nimbus
   │
   ├─ 1. Scan            (automatic, no screen; a few seconds)
   │
-  ├─ 2. "Your home"     ONE screen: 5 sensors + 3 battery numbers, all pre-filled
+  ├─ 2. "Your home"     ONE screen: your devices (battery, inverters, grid, house), all pre-filled
   │
   ├─ 3. "Your prices"   ONE confirm screen, pre-filled from what was detected
   │
@@ -80,8 +83,8 @@ The scan runs before any screen is shown. It finds candidates. It saves nothing.
 
 | source | gives | rule |
 |---|---|---|
-| **Energy Dashboard** (`energy` manager prefs) | battery, solar, grid energy sources; battery SoC (`stat_soc`); tariff price entities | the energy sensor itself is **never** used as power (#1067's reason). It identifies the **device**. |
-| **The device registry**, from each Energy Dashboard source's device | the same device's `device_class: power` sensor, in W/kW/MW | taken only when exactly one power sensor of the right role exists on that device. Several or none means ask, and say why. |
+| **Energy Dashboard** (`energy` manager prefs) | battery, solar and grid energy sources; battery SoC (`stat_soc`); tariff price entities; individual devices | each source identifies a **device**. Its energy entity is kept *as energy* (§3.4), never used as power (#1067's reason). |
+| **The device registry** | every candidate device's entities, grouped by role: power, energy in/out, SoC/SoH, limits, temperature, switches | a role is filled only when exactly one entity of that role exists on the device. Several or none means ask, and say why. |
 | **Known integration profiles** | role-tagged entities for supported inverters and batteries, and capacity and limit entities where the integration publishes them | matched by integration and unique_id, never by entity name (the #1561 pattern). Starts with the integrations testers actually run; each profile ships with a captured fixture. |
 | **Pricing profiles** | import, export, forecast, P2P (#1550 and its provider sub-issues #1578-#1583) | the same detect → pre-fill → notify shape; LocalVolts v2 is done |
 | **Solar forecast integrations** | Solcast or Forecast.Solar forecast entity | exactly-one rule |
@@ -94,13 +97,13 @@ The scan runs before any screen is shown. It finds candidates. It saves nothing.
 3. **History.** The recorder holds enough to train. This is shown, not blocking: *"6 days of history; forecasts improve as it grows."*
 4. **Not already used for a different role.** The same sensor is never offered as both battery and grid.
 
-### 3.3 The clever part: the five sensors check each other
+### 3.3 The clever part: the devices check each other
 
 Physics ties them together: **grid ≈ load − solar − battery** (with this project's battery sign, positive = discharge). Once candidates exist for all four power roles, the scan reads the last hour of history for each and fits that balance:
 
 | what the residual shows | what it means | what the user sees |
 |---|---|---|
-| near zero | the five agree | ✅ |
+| near zero | the devices agree | ✅ |
 | fits only if one sensor's sign is flipped | that sensor uses the opposite convention | the sign option pre-set, with *"your battery reads positive when charging; Nimbus will flip it"* |
 | fits only if one sensor is scaled ×1000 | a W/kW mix-up or a mislabelled unit | that field flagged with the factor |
 | fits only without solar, or solar looks like one inverter of two | solar is partial (e.g. Fronius and GoodWe both produce) | *"solar looks like one inverter of two; pick a total, or Nimbus can add the two for you"* |
@@ -108,28 +111,44 @@ Physics ties them together: **grid ≈ load − solar − battery** (with this p
 
 This replaces "the user discovers the mistake a week later in a chart" with "the form says which sensor is wrong before Submit". It reuses #1241's detector for the battery sign and extends the same idea to the other three.
 
+### 3.4 Energy entities become a second witness
+
+Because each device brings its **energy** counters as well as its power, every power reading gets an independent check. A device's power integrated over a day should match the rise in its own energy counter, to within losses:
+
+- **They match:** the power sensor is trusted.
+- **Off by ×1000:** a unit mislabel, named.
+- **Off by a steady ~5%:** recorded as that sensor's own calibration (the reference household's battery power reads 5.3% under its BMS counter). Shown, not corrected silently.
+- **Power reads 0 while energy climbs:** a stale or wrong power entity, named.
+
+Energy entities also give the quality report and Regret a measured daily total to score against, rather than one rebuilt from integrated power.
+
 ---
 
-## 4. Step 2: "Your home" (one screen)
+## 4. Step 2: "Your home" (one screen of devices)
 
-| field | pre-filled from | shown beside it |
-|---|---|---|
-| **House load power** | Energy Dashboard device / profile / unique device class | live value and unit (*"now 1.9 kW"*), source tag (*"from your Smappee device"*) |
-| **Solar power** | same | live value; the partial-solar warning from §3.3 if it applies |
-| **Battery power** | same | live value; sign as detected |
-| **Battery state of charge** | Energy Dashboard `stat_soc` | live % |
-| **Grid power** | same | live value; the energy-balance result from §3.3 |
-| **Battery capacity (kWh)** | integration profile if published | **required**, never a placeholder default (the old "0.1 kWh" trap) |
-| **Max charge (kW)** / **Max discharge (kW)** | integration profile if published | required; sanity-checked against the largest battery power seen in history |
+The screen lists **devices**, each pre-filled and each expandable to show the entities Nimbus resolved under it:
+
+| device role | the user picks | Nimbus resolves under it | shown on the row |
+|---|---|---|---|
+| **Battery** (one or more) | e.g. *"GoodWe battery"*, *"SigEnergy plant"* | power (signed), energy charged/discharged, SoC, SoH, **capacity**, **max charge/discharge**, temperature | live power and SoC (*"charging 4.2 kW, 63%"*); the sign as detected |
+| **Solar / inverter** (one per inverter) | e.g. *"Fronius Symo"*, *"GoodWe inverter"* | PV power, PV energy, inverter AC limit; the **forecast** device (Solcast or Forecast.Solar) attached to it | live PV per inverter, and the **total**, so two inverters are explicit, never partial |
+| **Grid** | the meter device | import/export power, import/export energy, connection **limits** | live import/export |
+| **Tariff / prices** | the provider device or account (LocalVolts, Amber...) | import, export, price **forecast**, P2P matched rate and settlement (§5) | current prices and forecast coverage |
+| **House** | the consumption meter device (e.g. Smappee) | house power, house energy, and its **circuits** as candidate loads (§4.1) | live house load |
+
+Each row carries its source (*"from your Energy Dashboard"*, *"GoodWe integration"*) and the §3.3/§3.4 check result.
+
+**Limits come from the device when it publishes them:** battery capacity, charge/discharge limits, the inverter's AC limit and the grid connection limit. When a device does not publish one, that single number is asked for on the row, **required** and never a placeholder default (the old "0.1 kWh" trap). It's sanity-checked against the largest value seen in history.
 
 Rules for this screen:
 - **No empty-looking field.** A field Nimbus could not fill carries a one-line reason: *"two power sensors on your inverter; pick one"*.
-- **Optional, but recommended:** grid power. Without it the balance check in §3.3 has nothing to compare against, so leaving it blank is allowed and explained.
+- **Optional, but recommended:** the grid device. Without it the balance check in §3.3 has nothing to compare against, so leaving it out is allowed and explained.
+- **Multiple of one kind are normal:** two inverters, a home battery plus an EV, or two meters. Each is its own row; the Solver sums inverters, and treats batteries as separate participants (the existing #563 model).
 - **Nothing else** appears at this level. Temperature, weather, circuits, EVs and fees are all advanced, and most are detected anyway.
 
 ### 4.1 Loads, offered on the same screen
 
-Below the five sensors, a pre-ticked list: *"Also forecast these 9 loads? (from your Energy Dashboard's individual devices and your Smappee circuits)"*.
+Below the devices, a pre-ticked list: *"Also forecast these 9 loads? (from your Energy Dashboard's individual devices and your Smappee circuits)"*.
 
 - **Candidates:** each Energy Dashboard individual device (`device_consumption`), resolved to the power sensor on the same device. The kWh total is never used, the same rule as §3.1. Circuit-level power sensors on the house-load device are added too (Smappee, Emporia, IoTaWatt and similar).
 - **Pre-ticked, one tap to accept:** unticking removes a load. Loads are optional at the basic level, so none is created without this confirmation.
@@ -155,12 +174,13 @@ One press of Submit creates or fills, **only where empty**:
 
 | from | creates or fills |
 |---|---|
-| House load power | **Whole House** Power Signal; the Solver's load forecast (its forecast entity); the whole-house cross-check |
-| Solar power | **Solar** Power Signal; the Solver's live solar power; the Forecaster's solar feature |
-| Battery power | **Battery** Power Signal; the Solver's battery power and sign; the Forecaster's battery feature |
-| Grid power | **Grid** Power Signal; the Forecaster's grid feature |
-| Battery SoC | the Solver's SoC |
-| Battery numbers | `number.nimbus_solver_battery_capacity_kwh`, `…max_charge_kw`, `…max_discharge_kw` |
+| House device: power | **Whole House** Power Signal; the Solver's load forecast (its forecast entity); the whole-house cross-check |
+| Solar/inverter devices: PV power (summed across inverters) | **Solar** Power Signal; the Solver's live solar power; the Forecaster's solar feature; one Topology Power Source per inverter |
+| Battery device: power | **Battery** Power Signal; the Solver's battery power and sign; the Forecaster's battery feature |
+| Grid device: power and limits | **Grid** Power Signal; the Forecaster's grid feature; the Solver's grid import/export limits |
+| Battery device: SoC, SoH | the Solver's SoC and SoH |
+| Battery device: capacity and limits | `number.nimbus_solver_battery_capacity_kwh`, `…max_charge_kw`, `…max_discharge_kw` |
+| Every device: energy counters | the §3.4 power-vs-energy check, and measured daily totals for the quality report and Regret |
 | Solar forecast | the Solver's solar forecast source |
 | Device registry | a **Topology** Power Source per inverter device (PV and battery attached by device), so the diagram draws itself (#575, #1528) |
 | Everything above | **Regret** and quality scoring, which need nothing more |
@@ -262,7 +282,7 @@ Stages 1 and 2 need no new screens and fix today's testers first.
 
 ## 13. Open questions (for Mark)
 
-1. Are these the right five? Is grid optional at basic, as proposed in §4?
+1. ~~Are these the right five?~~ Answered: devices, with power, energy, limits and forecasts under each. Remaining: is the grid device optional at basic, as proposed in §4?
 2. Is "same device as the Energy Dashboard source" a safe enough link for pre-filling a power sensor, on SigEnergy and multi-inverter installs?
 3. Should basic create Battery and Grid Power Signals, or only Whole House and Solar, which the Solver consumes?
 4. Is battery power + SoC + prices enough for a sensible first Regret/EPR score?
