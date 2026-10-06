@@ -9,6 +9,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **The Nimbus dashboard keeps its standard tabs, and nothing of yours is
+  touched** ([#1543](https://github.com/code-imstillalive/nimbus/issues/1543)).
+  The rules were agreed by the household and Mark Purcell on 6 Oct 2026:
+  - An install with no Nimbus dashboard gets one, **Nimbus**, with **Forecaster,
+    Topology, Control Panel, Regret**. It is created once, so if you delete it,
+    it stays deleted.
+  - A missing standard tab is added.
+  - A tab Nimbus added that you have not changed is updated in place when a
+    release changes it.
+  - A tab you changed or built yourself is never touched. The new version goes
+    beside it, under the same title, so you can compare.
+  - Only a real design change does any of this. A restart or deploy on its own
+    adds nothing.
+  - A tab you deleted comes back once, and only on a design change.
+  - Nimbus never deletes, edits or reorders your tabs.
+  - **Contained:** Nimbus writes only to its own dashboard. Your Home dashboard
+    and every other one are never written, whatever Nimbus cards they hold.
+  - Every tab has a title and no icon, and no tab title contains "Nimbus".
+  - The old `switchboard-topology-card` name counts as the Topology tab, so it is
+    never duplicated.
+
 - **Setup problems are Home Assistant Repairs that clear themselves**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 2 of
   the two-step setup). Settings → Repairs now says, in plain words, when:

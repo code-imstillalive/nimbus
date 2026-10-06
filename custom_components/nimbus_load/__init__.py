@@ -659,19 +659,18 @@ async def _async_setup_entry_impl(
             "registered manually via Settings -> Dashboards -> Resources"
         )
 
-    # nimbus #1529: add a Forecaster tab to the household's own Nimbus
-    # dashboard (the one already holding Nimbus's cards), next to Control
-    # Panel, Topology and Regret. Appends one view, never changes anything
-    # else, never duplicates, once per dashboard -- see
+    # nimbus #1529/#1543: a new install gets a Nimbus dashboard with the
+    # standard tabs (Forecaster, Topology, Control Panel, Regret), once.
+    # An existing install's dashboards are never given a new tab -- see
     # forecaster_dashboard.py. Non-fatal.
     try:
-        from .forecaster_dashboard import async_add_forecaster_view
+        from .forecaster_dashboard import async_ensure_nimbus_dashboard
 
-        await async_add_forecaster_view(hass)
+        await async_ensure_nimbus_dashboard(hass)
     except Exception:
         _LOGGER.exception(
-            "Nimbus: could not add the Forecaster tab; the card can still "
-            "be added by hand (custom:nimbus-forecast-card)"
+            "Nimbus: could not create the Nimbus dashboard; build it by "
+            "hand from docs/dashboards.md"
         )
 
     # nimbus #1550: if LocalVolts v2 is installed, say so when a pricing
