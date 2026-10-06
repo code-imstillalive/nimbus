@@ -59,7 +59,11 @@ def _hass(units: dict[str, str | None] = UNITS) -> MagicMock:
     def _get(entity_id):
         if entity_id not in units:
             return None
-        attrs = {} if units[entity_id] is None else {"unit_of_measurement": units[entity_id]}
+        attrs = (
+            {}
+            if units[entity_id] is None
+            else {"unit_of_measurement": units[entity_id]}
+        )
         return SimpleNamespace(entity_id=entity_id, state="1.0", attributes=attrs)
 
     hass.states.get.side_effect = _get
@@ -135,7 +139,10 @@ def test_forecaster_step_saves_a_power_sensor():
     flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
     result = asyncio.run(
         flow.async_step_forecaster(
-            {CONF_SOLAR_SENSOR: "sensor.solar_power", CONF_GRID_SENSOR: "sensor.grid_power"}
+            {
+                CONF_SOLAR_SENSOR: "sensor.solar_power",
+                CONF_GRID_SENSOR: "sensor.grid_power",
+            }
         )
     )
     assert result == {"type": "create_entry"}
@@ -159,7 +166,9 @@ def test_load_and_signal_flows_refuse_an_energy_counter():
             flow.async_step_user({CONF_LOAD_SENSOR: "sensor.battery_energy"})
         )
         assert result["type"] == "form", cls.__name__
-        assert result["errors"] == {CONF_LOAD_SENSOR: "energy_sensor_not_power"}, cls.__name__
+        assert result["errors"] == {CONF_LOAD_SENSOR: "energy_sensor_not_power"}, (
+            cls.__name__
+        )
 
 
 def test_load_flow_accepts_a_power_sensor():
@@ -177,7 +186,9 @@ def _coordinator(hass, options, load_sensor="sensor.some_load"):
     coord.hass = hass
     coord.entry = SimpleNamespace(options=options)
     coord.subentry = SimpleNamespace(
-        subentry_id="s1", subentry_type=SUBENTRY_TYPE_LOAD, data={CONF_LOAD_SENSOR: load_sensor}
+        subentry_id="s1",
+        subentry_type=SUBENTRY_TYPE_LOAD,
+        data={CONF_LOAD_SENSOR: load_sensor},
     )
     return coord
 
@@ -198,14 +209,18 @@ def test_an_energy_counter_feature_is_treated_as_not_configured(caplog):
         assert coord._grid_sensor == "sensor.grid_power"
         # asked every cycle; warned once per entity
         assert coord._solar_sensor is None
-    warnings = [r.getMessage() for r in caplog.records if "energy unit" in r.getMessage()]
+    warnings = [
+        r.getMessage() for r in caplog.records if "energy unit" in r.getMessage()
+    ]
     assert len(warnings) == 2, warnings
     assert any("sensor.solar_production_total" in w and "'Wh'" in w for w in warnings)
 
 
 def test_the_existing_self_reference_rule_still_holds():
     coord = _coordinator(
-        _hass(), {CONF_GRID_SENSOR: "sensor.grid_power"}, load_sensor="sensor.grid_power"
+        _hass(),
+        {CONF_GRID_SENSOR: "sensor.grid_power"},
+        load_sensor="sensor.grid_power",
     )
     assert coord._grid_sensor is None
 
@@ -218,7 +233,10 @@ def test_a_sensor_not_loaded_yet_is_not_dropped():
 def test_the_conversion_warning_names_an_energy_unit_for_what_it_is():
     energy = coordinator_module._unconvertible_unit_message("Wh") % ("sensor.x", "Wh")
     assert "energy counter" in energy and "treating as kW" not in energy
-    lts = coordinator_module._unconvertible_unit_message("kWh", lts=True) % ("sensor.x", "kWh")
+    lts = coordinator_module._unconvertible_unit_message("kWh", lts=True) % (
+        "sensor.x",
+        "kWh",
+    )
     assert lts.startswith("sensor.x LTS reports") and "energy counter" in lts
     other = coordinator_module._unconvertible_unit_message("VA") % ("sensor.x", "VA")
     assert other == "sensor.x reported unconvertible unit 'VA' -- treating as kW as-is"
@@ -228,16 +246,26 @@ def test_the_conversion_warning_names_an_energy_unit_for_what_it_is():
 
 
 def _entry(options, *subentries):
-    return SimpleNamespace(options=options, subentries={s.subentry_id: s for s in subentries})
+    return SimpleNamespace(
+        options=options, subentries={s.subentry_id: s for s in subentries}
+    )
 
 
 def _sub(sid, kind, sensor, title):
-    return SimpleNamespace(subentry_id=sid, subentry_type=kind, data={CONF_LOAD_SENSOR: sensor}, title=title)
+    return SimpleNamespace(
+        subentry_id=sid,
+        subentry_type=kind,
+        data={CONF_LOAD_SENSOR: sensor},
+        title=title,
+    )
 
 
 def test_find_names_hub_inputs_and_load_or_signal_sensors_only():
     entry = _entry(
-        {CONF_SOLAR_SENSOR: "sensor.solar_production_total", CONF_GRID_SENSOR: "sensor.grid_power"},
+        {
+            CONF_SOLAR_SENSOR: "sensor.solar_production_total",
+            CONF_GRID_SENSOR: "sensor.grid_power",
+        },
         _sub("a", SUBENTRY_TYPE_LOAD, "sensor.battery_energy", "Heater"),
         _sub("b", SUBENTRY_TYPE_SIGNAL, "sensor.solar_power", "Solar"),
         _sub("c", SUBENTRY_TYPE_POWER_SOURCE, "sensor.battery_energy", "PS"),
@@ -256,10 +284,16 @@ def test_notification_is_created_when_found_and_dismissed_when_clean():
     domain, service, data = hass.services.async_call.call_args.args[:3]
     assert (domain, service) == ("persistent_notification", "create")
     assert data["notification_id"] == pic.NOTIFICATION_ID
-    assert "sensor.solar_production_total" in data["message"] and "Wh" in data["message"]
+    assert (
+        "sensor.solar_production_total" in data["message"] and "Wh" in data["message"]
+    )
 
     hass.services.async_call.reset_mock()
-    asyncio.run(pic.async_notify_energy_unit_inputs(hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_power"})))
+    asyncio.run(
+        pic.async_notify_energy_unit_inputs(
+            hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_power"})
+        )
+    )
     domain, service, data = hass.services.async_call.call_args.args[:3]
     assert (domain, service, data) == (
         "persistent_notification",
@@ -271,4 +305,8 @@ def test_notification_is_created_when_found_and_dismissed_when_clean():
 def test_the_notifier_never_raises():
     hass = _hass()
     hass.services.async_call = AsyncMock(side_effect=RuntimeError("boom"))
-    asyncio.run(pic.async_notify_energy_unit_inputs(hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})))
+    asyncio.run(
+        pic.async_notify_energy_unit_inputs(
+            hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})
+        )
+    )
