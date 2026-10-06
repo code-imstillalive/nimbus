@@ -44,6 +44,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   value below that is raised at run time and shown raised in Forecaster
   settings, and a test ties the minimum to the Solver's horizon so it cannot
   fall behind again. Longer horizons cost more compute per forecast.
+- **Fees set alongside LocalVolts Buy Flex Up are flagged: they were counted
+  twice** ([#1564](https://github.com/code-imstillalive/nimbus/issues/1564)).
+  Buy Flex Up is spot plus the network layer; on the reference household, Flex
+  Up minus spot matched its configured network and flat fees to the cent in
+  every settled interval (1.30 c midday, 7.50 c off-peak, 22.31 c peak). Nimbus
+  adds those fees on top of the import price, so the plan saw grid energy as
+  dearer than it is. At startup Nimbus now warns, and names the fees, when the
+  import price is the detected LocalVolts v2 Buy Flex Up and any fee rate is not
+  0. Nothing is changed automatically; the setup guide says to leave fees at 0
+  with LocalVolts.
+- **An energy counter (Wh/kWh) set where a power sensor is needed is caught,
+  not read as kW** ([#1562](https://github.com/code-imstillalive/nimbus/issues/1562)).
+  Nimbus logged "unconvertible unit 'Wh' -- treating as kW as-is" and then used
+  the counter's value as kW, so a forecaster trained on a meaningless input. Now
+  the Forecaster settings and the Load / Power Signal forms refuse a sensor that
+  reports an energy unit; at startup a notification names any saved power input
+  that is one; and a Battery, Grid or Solar feature that is one is ignored, the
+  same as not configured, until it is changed. A Load or Power Signal's own
+  sensor cannot be ignored, since it is what is being forecast, so for that one
+  the notification is the remedy. The log line for an energy unit now says what
+  it is.
 - **No hardcoded P2P window: without P2P blocks the matched rate is flexible**
   ([#1559](https://github.com/code-imstillalive/nimbus/issues/1559)). With no
   block configured, the P2P matched rate was still gated to 17:00-24:00 (the
