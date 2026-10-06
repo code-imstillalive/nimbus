@@ -957,8 +957,16 @@ async def _async_setup_entry_impl(
     # at setup time a sensor from a later-loading integration does not
     # exist yet, and a missing entity is not known to be wrong.
     from .power_input_check import async_notify_energy_unit_inputs
+    from .setup_builder import async_apply_setup_fills
 
     async def _energy_unit_check(_event: object = None) -> None:
+        # nimbus #1574 stage 1: fill setup gaps from sensors the user already
+        # chose (a Power Signal per configured battery/solar/grid sensor, the
+        # Solver's empty power fields). Same "once HA has started" timing as
+        # the unit check below, for the same reason: units must be known.
+        # If it changes anything the hub reloads once and this runs again,
+        # finding nothing left to do.
+        await async_apply_setup_fills(hass, entry)
         await async_notify_energy_unit_inputs(hass, entry)
 
     if getattr(hass, "is_running", False) is True:

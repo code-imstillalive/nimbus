@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Setup fills its own gaps from the sensors you already chose**
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 1 of
+  the two-step setup). A sensor set as the battery, grid or solar sensor in
+  Forecaster settings, or as the Solver's battery or solar power, now gets its
+  own forecast (a Power Signal) if nothing forecasts it yet. The Solver's empty
+  battery power, solar power and whole-house cross-check fields are filled from
+  the Forecaster's sensors and from the source of the Solver's own load forecast.
+  Nothing set is ever changed, an energy-total (Wh/kWh) sensor is refused, and
+  anything you later remove is not put back. One notification lists what was
+  filled. The Control Panel card's blank battery, SoC and solar fields now
+  follow the Solver's sensors on every render, not only when the card is first
+  added, so its history line appears without editing the card.
+
 ## [0.94.441] - 2026-10-06
 
 - **Same-day release, by household decision.** #1571 changes an LP input (the
