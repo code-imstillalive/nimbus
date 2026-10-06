@@ -710,6 +710,9 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_p2p_snapshot_time",
         "_p2p_is_localvolts_matched_rate_feed",
         "_p2p_source_observations",
+        "_p2p_unit_scale",
+        "_p2p_rate_intervals",
+        "_p2p_triple_intervals",
         "_p2p_observation_at",
         "_resolve_p2p_observations",
         # nimbus issue #768, step 1 of 2 --

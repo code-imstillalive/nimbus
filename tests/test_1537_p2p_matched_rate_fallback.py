@@ -253,6 +253,20 @@ class Units(unittest.TestCase):
                 out = _run({"sensor.mc": state}, list(self.GRID), "sensor.mc")
                 self.assertEqual(out, [0.0])
 
+    def test_the_household_currency_code_is_the_major_unit(self) -> None:
+        hass = SimpleNamespace(config=SimpleNamespace(currency="AUD"))
+        state = _feed_state([_rate_row(T0, 0.5)], unit_of_measurement="AUD/kWh")
+        with patch.object(solver_writer.NATIVE, "hass", hass):
+            out = _run({"sensor.mc": state}, list(self.GRID), "sensor.mc")
+        self.assertEqual(out, [0.5])
+
+    def test_another_currency_code_is_refused(self) -> None:
+        hass = SimpleNamespace(config=SimpleNamespace(currency="AUD"))
+        state = _feed_state([_rate_row(T0, 0.5)], unit_of_measurement="EUR/kWh")
+        with patch.object(solver_writer.NATIVE, "hass", hass):
+            out = _run({"sensor.mc": state}, list(self.GRID), "sensor.mc")
+        self.assertEqual(out, [0.0])
+
     def test_a_refused_fallback_never_overrides_the_primary(self) -> None:
         bad = _feed_state([_rate_row(T0, 99.0)], updated=T0 + FIVE)
         del bad["attributes"]["unit_of_measurement"]

@@ -38,8 +38,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   showed about $0.50/kWh for 45 intervals (18:15-23:55).
   - The P2P matched-rate field now also reads `{time, value}` rows, whose value
     is the matched rate per kWh stamped at the interval start. They are accepted
-    only with a `$/kWh` or `c/kWh` unit (anything else, or no unit, means the
-    source is not used) and a known interval: each row covers only its own
+    only with a per-kWh money unit (a currency symbol, the household's ISO code,
+    or `c/kWh`; anything else, or no unit, means the source is not used) and a
+    known interval: each row covers only its own
     interval, from an explicit `end` or from the provider's contract. LocalVolts
     v2's Sell P2P Matched Cost is 5 minutes, and an omitted row inside its horizon
     is that provider's explicit no-match. The shape is detected from the rows,

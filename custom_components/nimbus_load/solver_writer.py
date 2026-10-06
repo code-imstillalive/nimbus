@@ -3800,11 +3800,6 @@ def resample_real_p2p_rate(
 # interval, and the same 5 minutes the raw triple's end-to-start shift uses).
 _P2P_DEFAULT_INTERVAL = timedelta(minutes=5)
 
-# Units accepted on a `{time, value}` matched-rate feed, and the factor that
-# takes each to $/kWh. Anything else -- including NO unit -- refuses the
-# source: the row shape alone does not establish currency or scale.
-_P2P_RATE_UNITS = {"$/kwh": 1.0, "c/kwh": 0.01, "¢/kwh": 0.01}
-
 # A source whose snapshot is older than this, measured from the first plan
 # period, is EXPIRED: it neither decides an interval nor feeds the block
 # median. LocalVolts v2 polls every 5 minutes, so an hour is twelve missed
@@ -3954,6 +3949,94 @@ def _p2p_is_localvolts_matched_rate_feed(attrs: dict) -> bool:
     )
 
 
+def _p2p_unit_scale(unit: object) -> float | None:
+    """The factor taking a `<money>/kWh` unit to the household's major unit
+    per kWh, or None when the unit is not a per-kWh price.
+
+    `c/kWh` and `¢/kWh` are minor units (x 0.01). A single currency symbol
+    (LocalVolts v2 publishes one, HAEO's own convention) or the household's
+    ISO currency code is the major unit (x 1). No unit, `kW`, `%`, a bare
+    currency, or another currency's code is refused: the row shape alone
+    does not establish currency or scale."""
+    text = str(unit or "").strip()
+    if not text.lower().endswith("/kwh"):
+        return None
+    prefix = text[: -len("/kwh")].strip()
+    if prefix.lower() in ("c", "¢"):
+        return 0.01
+    if len(prefix) == 1 and not prefix.isalnum() and not prefix.isspace():
+        return 1.0
+    household = getattr(getattr(NATIVE.hass, "config", None), "currency", None)
+    if household and prefix.upper() == str(household).upper():
+        return 1.0
+    return None
+
+
+def _p2p_rate_intervals(
+    raw: list, scale: float, lv_feed: bool
+) -> list[tuple[datetime, datetime, str, float]]:
+    """`{time, value}` rows as intervals. Each row covers only its own
+    interval: an explicit `end`, or the LocalVolts feed's 5 minutes. A row
+    with neither has no known extent and covers nothing -- never the spacing
+    to the next row (Mark Purcell's review of PR #1592)."""
+    intervals = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        try:
+            start = parse_iso(p["time"])
+            if "end" in p:
+                end = parse_iso(p["end"])
+            elif lv_feed:
+                end = start + _P2P_DEFAULT_INTERVAL
+            else:
+                continue
+            if end <= start:
+                continue
+            value = p.get("value")
+            if value is None or value == "":
+                intervals.append((start, end, P2P_NO_MATCH, 0.0))
+                continue
+            rate = float(value) * scale
+            if math.isnan(rate) or math.isinf(rate):
+                continue
+            intervals.append((start, end, P2P_RATE, rate))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return intervals
+
+
+def _p2p_triple_intervals(raw: list) -> list[tuple[datetime, datetime, str, float]]:
+    """Raw-triple rows as intervals, `[intervalEnd - intervalDuration,
+    intervalEnd)` (5 minutes when undeclared). Matched volume at or below
+    0.01 kWh (the pre-#1537 threshold) is an explicit no-match; a row that
+    does not state volume or proportion, or states a match without a cost,
+    says nothing about its interval."""
+    intervals = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        try:
+            end = parse_iso(p["time"] if "time" in p else p["intervalEnd"])
+            minutes = p.get("intervalDuration")
+            dur = (
+                timedelta(minutes=float(minutes)) if minutes else _P2P_DEFAULT_INTERVAL
+            )
+            vol, prop, cost = (
+                p.get(k) for k in ("volume", "proportionP2P", "matchedCost")
+            )
+            if vol is None or prop is None:
+                continue
+            matched_vol = float(vol) * float(prop)
+            if matched_vol <= 0.01:
+                intervals.append((end - dur, end, P2P_NO_MATCH, 0.0))
+            elif cost is not None:
+                intervals.append((end - dur, end, P2P_RATE, float(cost) / matched_vol))
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            continue
+    return intervals
+
+
 def _p2p_source_observations(
     state: dict | None, sensor_id: str, now: datetime | None
 ) -> dict:
@@ -3963,20 +4046,20 @@ def _p2p_source_observations(
     actually published; `horizon` is the `(start, end)` span inside which a
     MISSING interval is an explicit no-match (None: a missing interval is
     uncovered). `status` is P2P_UNAVAILABLE when the source cannot be used at
-    all (unreadable, unknown unit or duration, or expired), else "ok"."""
+    all (unreadable, unknown unit, or expired), else "ok"."""
     out: dict = {
         "status": P2P_UNAVAILABLE,
         "snapshot": None,
         "intervals": [],
         "horizon": None,
     }
-    if state is None:
-        return out
-    if str(state.get("state", "")).lower() in ("unavailable", "unknown"):
+    if state is None or str(state.get("state", "")).lower() in (
+        "unavailable",
+        "unknown",
+    ):
         return out
     attrs = state["attributes"]
-    snapshot = _p2p_snapshot_time(state)
-    out["snapshot"] = snapshot
+    snapshot = out["snapshot"] = _p2p_snapshot_time(state)
     if (
         now is not None
         and snapshot is not None
@@ -3990,12 +4073,11 @@ def _p2p_source_observations(
         return out
     raw = attrs.get("forecast")
     raw = raw if isinstance(raw, list) else []
-    intervals: list[tuple[datetime, datetime, str, float]] = []
     horizon = None
-    if _p2p_rows_are_rate_shape(raw):
-        scale = _P2P_RATE_UNITS.get(
-            str(attrs.get("unit_of_measurement") or "").strip().lower()
-        )
+    if not _p2p_rows_are_rate_shape(raw):
+        intervals = _p2p_triple_intervals(raw)
+    else:
+        scale = _p2p_unit_scale(attrs.get("unit_of_measurement"))
         if scale is None:
             _LOGGER.debug(
                 "Nimbus Solver: P2P matched-rate source %s has unit %r, not a "
@@ -4005,64 +4087,10 @@ def _p2p_source_observations(
             )
             return out
         lv_feed = _p2p_is_localvolts_matched_rate_feed(attrs)
-        for p in raw:
-            if not isinstance(p, dict):
-                continue
-            try:
-                start = parse_iso(p["time"])
-                if "end" in p:
-                    end = parse_iso(p["end"])
-                elif lv_feed:
-                    end = start + _P2P_DEFAULT_INTERVAL
-                else:
-                    # No declared duration: the row's extent is unknown, so
-                    # it covers nothing rather than whatever the spacing to
-                    # the next row happens to be.
-                    continue
-                if end <= start:
-                    continue
-                value = p.get("value")
-                if value is None or value == "":
-                    intervals.append((start, end, P2P_NO_MATCH, 0.0))
-                    continue
-                rate = float(value) * scale
-                if math.isnan(rate) or math.isinf(rate):
-                    continue
-                intervals.append((start, end, P2P_RATE, rate))
-            except (KeyError, TypeError, ValueError):
-                continue
+        intervals = _p2p_rate_intervals(raw, scale, lv_feed)
         if lv_feed and intervals and snapshot is not None:
-            last_end = max(e for _, e, _, _ in intervals)
             first = min(s for s, _, _, _ in intervals)
-            horizon = (min(first, snapshot), last_end)
-    else:
-        for p in raw:
-            if not isinstance(p, dict):
-                continue
-            try:
-                end = parse_iso(p["time"] if "time" in p else p["intervalEnd"])
-                minutes = p.get("intervalDuration")
-                dur = (
-                    timedelta(minutes=float(minutes))
-                    if minutes
-                    else _P2P_DEFAULT_INTERVAL
-                )
-                start = end - dur
-                vol, prop, cost = (
-                    p.get(k) for k in ("volume", "proportionP2P", "matchedCost")
-                )
-                if vol is None or prop is None:
-                    continue  # the row does not say whether anything matched
-                matched_vol = float(vol) * float(prop)
-                if matched_vol <= 0.01:
-                    # Same threshold as the pre-#1537 arithmetic.
-                    intervals.append((start, end, P2P_NO_MATCH, 0.0))
-                    continue
-                if cost is None:
-                    continue  # matched, but at an unstated price
-                intervals.append((start, end, P2P_RATE, float(cost) / matched_vol))
-            except (KeyError, TypeError, ValueError, ZeroDivisionError):
-                continue
+            horizon = (min(first, snapshot), max(e for _, e, _, _ in intervals))
     intervals.sort(key=lambda x: x[0])
     out.update(status="ok", intervals=intervals, horizon=horizon)
     return out
