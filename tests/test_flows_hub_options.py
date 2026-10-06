@@ -115,10 +115,12 @@ def test_forecaster_schema_numeric_field_uses_real_default_not_suggested_value()
     # real default= -- HA won't let a Required-style numeric field submit
     # truly empty anyway, so "sticky" is correct behaviour there (per the
     # function's own docstring).
-    schema = _forecaster_schema({CONF_FORECAST_HORIZON_HOURS: 72})
+    # 120, not 72: since #1566 a value below the Solver's plan (97 h) is
+    # shown raised, which test_1566 covers.
+    schema = _forecaster_schema({CONF_FORECAST_HORIZON_HOURS: 120})
     marker = _find_marker(schema, CONF_FORECAST_HORIZON_HOURS)
     assert marker.default is not vol.UNDEFINED
-    assert marker.default() == 72
+    assert marker.default() == 120
     assert marker.description is None
 
 

@@ -118,6 +118,7 @@ from ..const import (
     DEFAULT_RETRAIN_HOUR_LOCAL,
     DEFAULT_TRAIN_DAYS,
     DEFAULT_TRAINING_SOURCE,
+    MIN_FORECAST_HORIZON_HOURS,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
     SIGNAL_ROLE_SOLAR,
@@ -126,6 +127,13 @@ from ..const import (
     TRAINING_SOURCE_CHOICES,
 )
 from ..pricing_autodetect import with_detected_profile
+
+
+def _at_least_solver_horizon(value: Any) -> int:
+    try:
+        return max(int(value), MIN_FORECAST_HORIZON_HOURS)
+    except (TypeError, ValueError):
+        return DEFAULT_FORECAST_HORIZON_HOURS
 
 
 def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -211,12 +219,17 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
-                default=defaults.get(
-                    CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
+                # nimbus #1566: never below the Solver's plan; a value
+                # saved before the minimum existed is shown raised, so
+                # resubmitting the form cannot fail on it.
+                default=_at_least_solver_horizon(
+                    defaults.get(
+                        CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
+                    )
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1,
+                    min=MIN_FORECAST_HORIZON_HOURS,
                     max=168,
                     step=1,
                     mode=selector.NumberSelectorMode.BOX,

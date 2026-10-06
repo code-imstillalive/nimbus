@@ -879,7 +879,7 @@ For example, a load can behave differently while the battery charges.
 
 | Field | Default | Change it when |
 |---|---|---|
-| Forecast horizon (hours) | 48 | Longer forecasts need more computation. Check coverage against the Solver horizon. |
+| Forecast horizon (hours) | 97 | Never less than the Solver's 96-hour plan, so every planned hour has a real load forecast. Longer forecasts need more computation. |
 | Retrain at this hour | 3 | Choose a quiet hour for model training |
 | Days of history to train on | 30 | More = steadier, but slower to adapt to a genuine habit change |
 | **Training data source** | Recorder history | **See below** |

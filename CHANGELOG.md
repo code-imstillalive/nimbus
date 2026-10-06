@@ -35,6 +35,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   someone has edited is left alone.
 
 ### Fixed
+- **The Forecaster always covers the Solver's whole plan**
+  ([#1566](https://github.com/code-imstillalive/nimbus/issues/1566)). The
+  Forecaster defaulted to 48 hours while the Solver plans 96, and past the end
+  of a load forecast the Solver holds the last value flat, so days 3-4 of every
+  plan ran on one usually small early-morning load and the lowest SoC sat too
+  high. The forecast horizon is now at least 97 hours (the new default); a saved
+  value below that is raised at run time and shown raised in Forecaster
+  settings, and a test ties the minimum to the Solver's horizon so it cannot
+  fall behind again. Longer horizons cost more compute per forecast.
 - **No hardcoded P2P window: without P2P blocks the matched rate is flexible**
   ([#1559](https://github.com/code-imstillalive/nimbus/issues/1559)). With no
   block configured, the P2P matched rate was still gated to 17:00-24:00 (the
