@@ -21,6 +21,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   someone has edited is left alone.
 
 ### Fixed
+- **An energy counter (Wh/kWh) set where a power sensor is needed is caught,
+  not read as kW** ([#1562](https://github.com/code-imstillalive/nimbus/issues/1562)).
+  Nimbus logged "unconvertible unit 'Wh' -- treating as kW as-is" and then used
+  the counter's value as kW, so a forecaster trained on a meaningless input. Now
+  the Forecaster settings and the Load / Power Signal forms refuse a sensor that
+  reports an energy unit; at startup a notification names any saved power input
+  that is one; and a Battery, Grid or Solar feature that is one is ignored, the
+  same as not configured, until it is changed. A Load or Power Signal's own
+  sensor cannot be ignored, since it is what is being forecast, so for that one
+  the notification is the remedy. The log line for an energy unit now says what
+  it is.
 - **No hardcoded P2P window: without P2P blocks the matched rate is flexible**
   ([#1559](https://github.com/code-imstillalive/nimbus/issues/1559)). With no
   block configured, the P2P matched rate was still gated to 17:00-24:00 (the

@@ -931,6 +931,22 @@ async def _async_setup_entry_impl(
     # async_block_till_done()'s wait, while still being auto-cancelled on
     # HA shutdown. Requires a `name=` (used in log messages if the task
     # raises).
+    # nimbus issue #1562: say so when a power input is an energy counter
+    # (Wh/kWh). Run once HA has started, so every sensor's unit is known --
+    # at setup time a sensor from a later-loading integration does not
+    # exist yet, and a missing entity is not known to be wrong.
+    from .power_input_check import async_notify_energy_unit_inputs
+
+    async def _energy_unit_check(_event: object = None) -> None:
+        await async_notify_energy_unit_inputs(hass, entry)
+
+    if getattr(hass, "is_running", False) is True:
+        hass.async_create_task(_energy_unit_check())
+    else:
+        entry.async_on_unload(
+            hass.bus.async_listen_once("homeassistant_started", _energy_unit_check)
+        )
+
     startup_solve_task = hass.async_create_background_task(
         _async_run_solve_with_startup_retries(hass),
         name="nimbus_load_startup_solve_retry",

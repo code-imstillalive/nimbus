@@ -166,6 +166,9 @@
           "switchboard_battery_discharge_daily_sensor": "Same as above, for total energy discharged from the battery today."
         }
       }
+    },
+    "error": {
+      "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
     }
   },
   "config_subentries": {
@@ -195,7 +198,8 @@
         }
       },
       "error": {
-        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate."
+        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate.",
+        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
       }
     },
     "power_signal": {
@@ -220,7 +224,8 @@
         }
       },
       "error": {
-        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate."
+        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate.",
+        "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
       }
     },
     "power_source": {

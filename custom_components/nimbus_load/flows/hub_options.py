@@ -125,6 +125,7 @@ from ..const import (
     SUBENTRY_TYPE_SIGNAL,
     TRAINING_SOURCE_CHOICES,
 )
+from ..power_input_check import energy_unit_field_errors
 
 
 def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -1441,6 +1442,22 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # merge contract. Do NOT "fix" this loop by switching to `if
             # key in user_input` -- it would trade one real, reported bug
             # for a worse, silent regression of an already-shipped one.
+            # nimbus issue #1562: refuse an energy counter (Wh/kWh) in a
+            # power field -- it cannot be read as kW, and before this it
+            # was, silently. Shown back with what was entered.
+            errors = energy_unit_field_errors(
+                self.hass,
+                user_input,
+                [CONF_BATTERY_SENSOR, CONF_GRID_SENSOR, CONF_SOLAR_SENSOR],
+            )
+            if errors:
+                return self.async_show_form(
+                    step_id="forecaster",
+                    data_schema=_forecaster_schema(
+                        {**self.config_entry.options, **user_input}
+                    ),
+                    errors=errors,
+                )
             merged = dict(self.config_entry.options)
             for key in _FORECASTER_SCHEMA_KEYS:
                 merged[key] = user_input.get(key)
