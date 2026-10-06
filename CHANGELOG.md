@@ -21,6 +21,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   sensor (its PR #41) will feed.
 
 ### Fixed
+- **P2P follows the household's own configured blocks, not 17:00-24:00**
+  ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537) items 3 and 5).
+  `resample_real_p2p_rate` counted a matched rate only between 17:00 and 24:00
+  local, which is the reference household's window, so a household whose blocks
+  sat anywhere else had its P2P rate zeroed inside its own blocks. It now gates on
+  the configured blocks. With no block configured the old window still applies.
+  The P2P volume cap also comes from the blocks when nothing measures it: with no
+  settlement-history sensor, the price-array path used the reference household's
+  60 kWh, and the generic path's default volume of 0 let the LP count no P2P
+  export at all. Both now use the blocks' own daily energy (rate x hours, summed).
+  An install with a settlement sensor, or a non-zero configured volume, is
+  unchanged. On the reference household the only change is the 16:59 period
+  its 1-minute lead time adds to the block, which already exported at the block
+  rate.
 - Forecaster card: the Solver's proposed SoC series is labelled **%**. It inherited
   the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
   v0.94.438 render check.
