@@ -1,4 +1,4 @@
-# Two-step setup: pick your devices, Nimbus builds everything
+# Two-step setup: Nimbus finds your site, you confirm it
 
 **Status:** proposal for review ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). Nothing here is built yet.
 
@@ -8,8 +8,7 @@
 
 Every decision below is judged against that. Where a choice trades capability for simplicity, simplicity wins at the basic level and the capability moves to advanced.
 
-**Revised 2026-10-06 after Mark's review:** *"I don't like the 5 sensor construct, I think they should be devices with entities under each; power, energy, limits, forecasts."*
-The unit of setup is now the **device**, not the sensor. The user picks the 3-4 things they recognise ("my GoodWe", "my Smappee", "my LocalVolts account"), and Nimbus resolves every entity under each one: power, energy, limits and forecasts. The earlier "5 sensors" wording is superseded throughout.
+**Revised 2026-10-06, twice, after Mark's review.** First *"devices with entities under each; power, energy, limits, forecasts"*, then his full [device contract](https://github.com/code-imstillalive/nimbus/issues/1574#issuecomment-6015647317). The minimum site is one **Grid** connection and one whole-house **Load**; Solar and Battery are added when present. This document now covers only the setup experience on that contract (§2). The earlier "5 sensors" and "pick your meter device" framing is withdrawn.
 
 ---
 
@@ -52,241 +51,204 @@ The pattern: **each physical sensor is asked for in up to four places, nothing l
 
 ---
 
-## 2. The new flow at a glance
+## 2. The device contract is Mark's, and this document does not copy it
+
+**The authoritative model is [Mark's device schema on #1574](https://github.com/code-imstillalive/nimbus/issues/1574#issuecomment-6015647317)** (with the device-first rationale [here](https://github.com/code-imstillalive/nimbus/issues/1574#issuecomment-6015284390) and the [Energy Dashboard handover note](https://github.com/code-imstillalive/nimbus/issues/1574#issuecomment-6015470655)). As he asked, this document does not keep a second copy. It describes only the **setup experience** built on that contract. Where anything here seems to differ from it, the contract wins.
+
+The parts of the contract the setup experience depends on, by name only:
+
+- **Devices** are logical energy participants: **Grid, Solar, Load and Battery**. They are not Home Assistant device-registry entries and not meters. A whole house is a Load; a circuit or appliance is another Load. A **tariff is a provider attached to a Grid**, not a device.
+- **The minimum site is one Grid and one whole-house Load.** Solar and Battery are added when present, never assumed. A Grid-and-Load site is a complete, valid install.
+- **Bindings** say where each role's data comes from (`entity_state`, `entity_attribute`, `action_response`, `recorder_statistic`, `constant`, `derived`, `model_output`), each with its unit, sign, boundary and provenance. One canonical sign convention applies everywhere: Grid positive = import, Battery positive = discharge, Solar positive = generation, Load positive = consumption.
+- **Relationships** are `supplies`, `included_in_measurement` and `shares_equipment`, and they are separate from **accounting**. **Shared constraints** cover things such as one hybrid-inverter limit across a Solar and a Battery.
+- **Readiness is per function** (`observation`, `forecasting`, `planning`, `scoring`, `control`), each with its status and reason codes. Setup is observation-only.
+- **Configure once, use everywhere.** Basic and Advanced edit the same device definitions. Forecaster, Solver, Topology, cards and Regret read them; today's settings become generated compatibility views, not independently editable copies.
+
+---
+
+## 3. The flow at a glance
 
 ```
 Add Nimbus
   │
-  ├─ 1. Scan            (automatic, no screen; a few seconds)
+  ├─ 1. Discover        automatic, read-only: candidates for each role, with evidence
   │
-  ├─ 2. "Your home"     ONE screen: your devices (battery, inverters, grid, house), all pre-filled
+  ├─ 2. "Here is the site Nimbus found. Is this correct?"
+  │        Grid connection + Whole-house load (always)
+  │        + Solar and Battery, if found
+  │        + its tariff provider, shown on the Grid
+  │        ambiguous roles asked as ONE targeted question each
   │
-  ├─ 3. "Your prices"   ONE confirm screen, pre-filled from what was detected
+  ├─ 3. Confirm         saves the device definitions, nothing else
   │
-  └─ 4. Build           (automatic) → one summary of everything created
-        │
-        └─ Health        Home Assistant Repairs entries with a Fix button,
-                         for anything still missing or wrong
-
-Configure later → Advanced, grouped by what you want to do, never by Nimbus's internals
+  └─ 4. Readiness       per function: what works now, what's training,
+                        what needs one more fact, and why. Control: not enabled.
 ```
 
-A user with a typical install, an Energy Dashboard already configured and a supported battery integration, **presses Submit twice** and gets the Forecaster, Solver, Topology, Control Panel and Regret working, with no "Add" steps.
+**The novice path** (the contract's last acceptance case): the user confirms the detected site once, gets the matching topology and outputs, sees precise guidance for anything missing, and does not enable dispatch merely by finishing setup.
 
 ---
 
-## 3. Step 1: Scan (automatic)
+## 4. Discover (automatic, read-only)
 
-The scan runs before any screen is shown. It finds candidates. It saves nothing.
+Discovery proposes **candidates** with their **evidence**. It saves nothing, and it never writes the Energy Dashboard (per the handover note, `energy/save_prefs` replaces whole keys and the source list is the user's intent).
 
-### 3.1 Where candidates come from, in order of trust
+### 4.1 Where evidence comes from
 
-| source | gives | rule |
+| source | gives | how it is used |
 |---|---|---|
-| **Energy Dashboard** (`energy` manager prefs) | battery, solar and grid energy sources; battery SoC (`stat_soc`); tariff price entities; individual devices | each source identifies a **device**. Its energy entity is kept *as energy* (§3.4), never used as power (#1067's reason). |
-| **The device registry** | every candidate device's entities, grouped by role: power, energy in/out, SoC/SoH, limits, temperature, switches | a role is filled only when exactly one entity of that role exists on the device. Several or none means ask, and say why. |
-| **Known integration profiles** | role-tagged entities for supported inverters and batteries, and capacity and limit entities where the integration publishes them | matched by integration and unique_id, never by entity name (the #1561 pattern). Starts with the integrations testers actually run; each profile ships with a captured fixture. |
-| **Pricing profiles** | import, export, forecast, P2P (#1550 and its provider sub-issues #1578-#1583) | the same detect → pre-fill → notify shape; LocalVolts v2 is done |
-| **Solar forecast integrations** | Solcast or Forecast.Solar forecast entity | exactly-one rule |
-| **Device class, house-wide** | a fallback for any role still empty | exactly-one rule, per `sensor_discovery.py` |
+| **Energy Dashboard** (`energy/get_prefs`, read only) | Grid, Solar and Battery sources; their **energy** statistics; tariff price entities; solar forecast config entries; individual devices with `included_in_stat`; and, where configured, `stat_rate` / `power_config` power | discovery **hints** for roles and relationships. Energy statistics stay `recorder_statistic` bindings, never substituted for power. `included_in_stat` is real `included_in_measurement` evidence. |
+| **Known integration profiles** | role-tagged entities, attributes and response actions for recognised inverters, meters, batteries and pricing providers (LocalVolts v2 first, #1561) | the strongest evidence; one integration may supply several logical devices (an inverter gives Grid, Solar and Battery roles) |
+| **The device registry** | which entities sit together | a **candidate-selection hint only**, never sufficient proof (Mark: "same Home Assistant device should be a candidate-selection hint") |
+| **History** | how each candidate behaved | corroboration (§4.2) |
 
-### 3.2 Checks every candidate passes before it is offered
+### 4.2 Corroboration, not proof
 
-1. **Kind.** A power field only takes a power unit; Wh/kWh is refused (#1562). SoC must be `%` with `device_class: battery`.
-2. **Alive.** The current state is numeric, not `unknown`/`unavailable`, and has updated within the last hour.
-3. **History.** The recorder holds enough to train. This is shown, not blocking: *"6 days of history; forecasts improve as it grows."*
-4. **Not already used for a different role.** The same sensor is never offered as both battery and grid.
+`device_resolver.py` (#1590) supplies two pieces of evidence. Both produce **candidates and hypotheses for the user to confirm**, never a mapping applied on their own.
 
-### 3.3 The clever part: the devices check each other
+- **Power ↔ energy pairing:** a candidate power sensor's history, integrated **hour by hour**, against the role's own energy statistic, trying both signs. On the reference household's real history it singled out each inverter's battery power sensor (with its sign) and inverter 1's PV power from the 247 power sensors on one Modbus device, at a 1–2.6% error, and **asked** where two sensors were the same reading. It is still evidence: the binding must also have an unambiguous role and boundary, compatible units, sign and timestamps.
+- **Energy balance** (grid ≈ load − solar − battery): when it fails to close, it names the single change that would close it (a flipped sign, ×1000, partial solar) as a **hypothesis**. It is meaningful only when the series share a boundary, are aligned, and vary enough. A residual suggests a mismatch; it never proves a bad sensor or justifies a calibration correction.
 
-Physics ties them together: **grid ≈ load − solar − battery** (with this project's battery sign, positive = discharge). Once candidates exist for all four power roles, the scan reads the last hour of history for each and fits that balance:
+**Freshness** uses each source's own update semantics, not just the age of the last state change: a change-only sensor that is idle is not stale (the #1556 lesson).
 
-| what the residual shows | what it means | what the user sees |
+---
+
+## 5. "Here is the site Nimbus found" (one screen)
+
+One row per logical device, each expandable to show its bindings, their sources, and any uncertainty:
+
+| row | always / when found | shown |
 |---|---|---|
-| near zero | the devices agree | ✅ |
-| fits only if one sensor's sign is flipped | that sensor uses the opposite convention | the sign option pre-set, with *"your battery reads positive when charging; Nimbus will flip it"* |
-| fits only if one sensor is scaled ×1000 | a W/kW mix-up or a mislabelled unit | that field flagged with the factor |
-| fits only without solar, or solar looks like one inverter of two | solar is partial (e.g. Fronius and GoodWe both produce) | *"solar looks like one inverter of two; pick a total, or Nimbus can add the two for you"* |
-| no fit | the sensors cover different parts of the house | named, never guessed at |
+| **Grid connection** | always | live import/export; the binding it came from (*"via your Sungrow inverter's meter"*); its **tariff provider** (*"LocalVolts, prices and P2P"*) and forecast coverage |
+| **Whole house** (a Load) | always | live consumption; source |
+| **Solar** (one per array or inverter, as the evidence shows) | when found | live generation; its forecast provider |
+| **Battery** (one per battery) | when found | live power and SoC, sign as found |
 
-This replaces "the user discovers the mistake a week later in a chart" with "the form says which sensor is wrong before Submit". It reuses #1241's detector for the battery sign and extends the same idea to the other three.
+Rules:
+- **The Grid connection is not a meter.** The row is named for the connection; its readings may come through an inverter. If no direct grid measurement exists, the Grid still exists. Its power is either unresolved or, only after the complete balance, signs, timing and boundaries validate, a clearly labelled **derived** binding.
+- **Ambiguity becomes one targeted question,** phrased as a functional role: *"Which sensor measures the whole house?"*, *"These two read the same; which is the inverter's PV total?"*. It is never a list of internal Solver settings.
+- **Limits and capacities are asked only for a capability that needs them** (planning needs battery capacity and charge/discharge limits; observation does not). Historical maxima are plausibility evidence, never a substitute for an equipment or connection rating.
+- **Nothing for absent equipment:** no battery or solar fields on a site without them.
 
-### 3.4 Energy entities become a second witness
+### 5.1 Loads beyond the whole house
 
-Because each device brings its **energy** counters as well as its power, every power reading gets an independent check. A device's power integrated over a day should match the rise in its own energy counter, to within losses:
+Offered on the same screen as a pre-ticked list, from the Energy Dashboard's individual devices and the circuits on the house meter. Each ticked one becomes a Load.
 
-- **They match:** the power sensor is trusted.
-- **Off by ×1000:** a unit mislabel, named.
-- **Off by a steady ~5%:** recorded as that sensor's own calibration (the reference household's battery power reads 5.3% under its BMS counter). Shown, not corrected silently.
-- **Power reads 0 while energy climbs:** a stale or wrong power entity, named.
-
-Energy entities also give the quality report and Regret a measured daily total to score against, rather than one rebuilt from integrated power.
+**Accounting is not inferred from nesting** (the contract's accounting rules). A circuit or appliance that sits inside the whole-house measurement gets an `included_in_measurement` relationship: from the Energy Dashboard's `included_in_stat` where present, otherwise confirmed by one question. The household's demand stays **inclusive** (the whole-house Load alone). Children are displayed and forecast without being added to it. Until a validated residual-plus-children decomposition exists, **overlapping summation is refused and the conflicting loads are named** (the tester's pool inside its circuit is the acceptance case).
 
 ---
 
-## 4. Step 2: "Your home" (one screen of devices)
+## 6. Confirm, and what it creates
 
-The screen lists **devices**, each pre-filled and each expandable to show the entities Nimbus resolved under it:
+Confirm saves the **device definitions** (devices, bindings, relationships, constraints, provenance), and nothing else:
 
-| device role | the user picks | Nimbus resolves under it | shown on the row |
-|---|---|---|---|
-| **Battery** (one or more) | e.g. *"GoodWe battery"*, *"SigEnergy plant"* | power (signed), energy charged/discharged, SoC, SoH, **capacity**, **max charge/discharge**, temperature | live power and SoC (*"charging 4.2 kW, 63%"*); the sign as detected |
-| **Solar / inverter** (one per inverter) | e.g. *"Fronius Symo"*, *"GoodWe inverter"* | PV power, PV energy, inverter AC limit; the **forecast** device (Solcast or Forecast.Solar) attached to it | live PV per inverter, and the **total**, so two inverters are explicit, never partial |
-| **Grid** | the meter device | import/export power, import/export energy, connection **limits** | live import/export |
-| **Tariff / prices** | the provider device or account (LocalVolts, Amber...) | import, export, price **forecast**, P2P matched rate and settlement (§5) | current prices and forecast coverage |
-| **House** | the consumption meter device (e.g. Smappee) | house power, house energy, and its **circuits** as candidate loads (§4.1) | live house load |
+- **Telemetry is registered, not forecast.** A confirmed Battery or Grid power binding is telemetry. It does **not** create a learned forecast, because planned dispatch and grid exchange are outputs of the plan. **Solar and Load** forecasts are planning inputs. Load forecasts are learned; solar comes from its forecast provider where one exists.
+- **Today's settings are generated from the definitions** as compatibility views, so the Solver, Forecaster, Topology and cards keep working unchanged while they migrate to reading the definitions directly.
+- **Control stays off.** A discovered switch or inverter control is not authorisation to actuate it. Completing setup sends no device commands (acceptance case).
 
-Each row carries its source (*"from your Energy Dashboard"*, *"GoodWe integration"*) and the §3.3/§3.4 check result.
+## 7. Readiness: per function, with reasons
 
-**Limits come from the device when it publishes them:** battery capacity, charge/discharge limits, the inverter's AC limit and the grid connection limit. When a device does not publish one, that single number is asked for on the row, **required** and never a placeholder default (the old "0.1 kWh" trap). It's sanity-checked against the largest value seen in history.
+Readiness replaces any "everything works now" promise, which is the contract's readiness model made visible:
 
-Rules for this screen:
-- **No empty-looking field.** A field Nimbus could not fill carries a one-line reason: *"two power sensors on your inverter; pick one"*.
-- **Optional, but recommended:** the grid device. Without it the balance check in §3.3 has nothing to compare against, so leaving it out is allowed and explained.
-- **Multiple of one kind are normal:** two inverters, a home battery plus an EV, or two meters. Each is its own row; the Solver sums inverters, and treats batteries as separate participants (the existing #563 model).
-- **Nothing else** appears at this level. Temperature, weather, circuits, EVs and fees are all advanced, and most are detected anyway.
-
-### 4.1 Loads, offered on the same screen
-
-Below the devices, a pre-ticked list: *"Also forecast these 9 loads? (from your Energy Dashboard's individual devices and your Smappee circuits)"*.
-
-- **Candidates:** each Energy Dashboard individual device (`device_consumption`), resolved to the power sensor on the same device. The kWh total is never used, the same rule as §3.1. Circuit-level power sensors on the house-load device are added too (Smappee, Emporia, IoTaWatt and similar).
-- **Pre-ticked, one tap to accept:** unticking removes a load. Loads are optional at the basic level, so none is created without this confirmation.
-- **Children of Whole House** (§8.2): the Solver's load still comes from Whole House, so these never change the plan. They add per-appliance forecasts, the Topology breakdown, and the groundwork for controllable loads.
-- **A load whose device also has a switch or climate entity** (a pool pump, a hot-water relay) is remembered, and pre-filled later under Advanced → "Devices Nimbus can switch" without asking again.
-- **Overlaps are resolved here:** a candidate that sits inside another candidate (the pool inside its circuit) is nested under it rather than listed beside it.
-
----
-
-## 5. Step 3: "Your prices" (one confirm)
-
-Pre-filled from the pricing profile that was detected: LocalVolts v2 today, the others as #1578-#1583 land.
-
-- **Shown:** the provider and account, current import and export, forecast coverage (*"forecast to 14:00 tomorrow"*), and P2P if the provider has it.
-- **Fees:** LocalVolts' Flex Up already includes network and LocalVolts fees, so they are set to 0 and greyed out, with the reason (#1564). Other providers ask only if their price excludes them.
-- **No provider found:** two fields (import and export price), plus a link to the manual tariff helper.
-
----
-
-## 6. Step 4: Build (automatic), and what it creates
-
-One press of Submit creates or fills, **only where empty**:
-
-| from | creates or fills |
-|---|---|
-| House device: power | **Whole House** Power Signal; the Solver's load forecast (its forecast entity); the whole-house cross-check |
-| Solar/inverter devices: PV power (summed across inverters) | **Solar** Power Signal; the Solver's live solar power; the Forecaster's solar feature; one Topology Power Source per inverter |
-| Battery device: power | **Battery** Power Signal; the Solver's battery power and sign; the Forecaster's battery feature |
-| Grid device: power and limits | **Grid** Power Signal; the Forecaster's grid feature; the Solver's grid import/export limits |
-| Battery device: SoC, SoH | the Solver's SoC and SoH |
-| Battery device: capacity and limits | `number.nimbus_solver_battery_capacity_kwh`, `…max_charge_kw`, `…max_discharge_kw` |
-| Every device: energy counters | the §3.4 power-vs-energy check, and measured daily totals for the quality report and Regret |
-| Solar forecast | the Solver's solar forecast source |
-| Device registry | a **Topology** Power Source per inverter device (PV and battery attached by device), so the diagram draws itself (#575, #1528) |
-| Everything above | **Regret** and quality scoring, which need nothing more |
-| Dashboards | the Forecaster, Solver and Control Panel tabs, as sections views with titles (#1558). The Control Panel card reads the Solver's sensors whenever its own fields are blank (#1574 stage 1). |
-| Dispatch | **dry-run on, live dispatch off.** Setup never enables control. |
-| Energy Dashboard **Individual devices** (`device_consumption`), and circuit power sensors on the house-load device | **Loads**, one per device, **only those the user left ticked** on "Your home" (§4.1), each a **child of Whole House** (§8.2), so nothing is counted twice |
-
-Then a **single summary notification**:
-
-> **Nimbus is set up.** Created: Whole House, Solar, Battery and Grid forecasts (training now, about 3 minutes). Solver: planning from LocalVolts v2 prices and Solcast. Topology: GoodWe inverter with battery; Fronius inverter. Nothing has been sent to your battery: dry-run is on. **Next:** forecasts appear on the Forecaster tab when training finishes.
-
----
-
-## 7. Health: gaps become Repairs with a Fix button
-
-Notifications are easy to miss and do not go away when the problem is fixed. Home Assistant's **Repairs** (issue registry, with fix flows) is built for exactly this: an entry appears under Settings → Repairs, explains itself, and its **Fix** button opens the one screen that resolves it. It clears itself when the condition clears.
-
-| condition | Repair says | Fix opens |
+| function | ready when | otherwise shows |
 |---|---|---|
-| a forecast has not trained | *"Hot Water has no forecast yet: 0 usable hours of history. It needs about 5 days."* with the real reason from `last_retrain_error` | that Load, or nothing if waiting is the fix |
-| a power field reports an energy unit | *"Solar sensor is a Wh total, not power"* | the field |
-| fees set on top of Flex Up | (#1564's text) | Solver prices |
-| a sign mismatch found after setup | *"Battery power and SoC disagree on direction"* | the sign option |
-| a Load and the circuit it sits on are both summed | *"Pool Pump is counted inside Circuit Power 3"* | the parent link (§8.2) |
-| a Forecaster horizon shorter than the plan | can no longer happen (#1566) | n/a |
-| a Solver input missing | *"The Solver has no load forecast"* | the field, pre-filled |
+| **observation** | the Grid and whole-house Load bindings resolve | which binding is missing |
+| **forecasting** | each Load's history has trained (the #1557 rules) | per Load: training, or *"needs ~5 days of history"*, with the coordinator's own reason |
+| **planning** | observation plus prices (Grid tariff) plus, if a Battery exists, its capacity and limits | the one missing fact |
+| **scoring** (Regret/EPR) | a defined baseline, aligned actuals, applicable prices, and for a battery its initial/final stored energy and losses | **"insufficient evidence"** or **"not applicable"**, never a misleading score (a Grid-and-Load site has no battery score to report) |
+| **control** | separately authorised, never by setup | *"not enabled"* |
 
-The existing persistent notifications for these move to Repairs. The startup summary in §6 stays a notification, because it is news, not a problem.
+The surfaces:
+- **Settings → Repairs** for each missing fact. These clear themselves when fixed: stage 2 (#1588) ships the first four.
+- **A readiness summary** on the Nimbus device page.
 
 ---
 
-## 8. Advanced, grouped by what the user wants to do
+## 8. Advanced: the same devices, expanded
 
-The ~30 remaining settings regroup by goal, each screen pre-filled by the same scan:
+Advanced is **not a second configuration model**. It reveals more capabilities on the same devices:
+- Loads become thermal, sheddable or schedulable, with windows, runtimes, comfort limits and deadlines;
+- several batteries and EVs;
+- more than one grid connection;
+- shared constraints;
+- secondary price and forecast sources;
+- P2P blocks;
+- overrides.
 
-| group | holds | the clever bit |
-|---|---|---|
-| **Circuits and appliances** | per-circuit Loads | **bulk add:** *"We found 9 power sensors on your Smappee device. Add them as loads?"*, multi-select, instead of 9 separate Add flows. Each new load gets a **parent** (§8.2). |
-| **Devices Nimbus can switch** | controllable loads (pool, hot water, dryer...) | offers the switch or climate entity on the same device as the load's power sensor |
-| **EVs** | battery participants | pre-filled from car integrations' SoC, odometer and charger entities, by device |
-| **P2P and tariffs** | P2P blocks, fees, secondary price sources | blocks defaulted from the provider's history where it has one |
-| **Weather** | temperature, humidity, weather forecast | auto-filled when exactly one exists today; offered as a pick otherwise |
-| **Fine tuning** | smoothing weights, costs, salvage, horizons | today's dashboard numbers, unchanged, behind one link |
-
-### 8.1 Rule for every advanced field
-
-**An advanced value overrides what basic created; it never creates a second copy.** Setting a different solar sensor in Advanced repoints the Solar signal, the Solver field and the topology source together.
-
-### 8.2 Parent/child loads (#1574 Q6)
-
-Bulk-added circuits are children of Whole House; a Load added on a circuit sensor's device is offered as a child of that circuit. A summed load then subtracts children from parents, and the Topology nests them. The alternative, refusing to sum overlapping sets and naming them, is simpler; the choice is open (question 6).
+Every value is one binding or constraint on one device, used by every subsystem.
 
 ---
 
 ## 9. Existing installs
 
-- On upgrade, the scan runs once in **fill-gaps mode**: it never overwrites, and creates only what is missing. The summary notification says exactly what changed.
-- **The reference household sees no change:** every field is already set. That's pinned by a test that runs the build against its configuration snapshot and asserts zero changes.
-- Chris's install, from his 6 Oct diagnostics, would gain the Solar and Battery signals, the Solver's battery power, solar power and cross-check, and a Topology that draws itself. That's a second fixture test.
+- **Migration builds the device definitions from the existing settings,** preserves explicit choices and history, and **flags conflicting mappings for review**. A conflict is, for example, two different battery sensors in Forecaster and Solver settings.
+- **Re-running discovery is idempotent.** Nimbus IDs survive entity renames and Energy Dashboard reordering; no duplicate devices (acceptance case).
+- **Gap-filling never changes the site's accounting model or enables control.** Stage 1 (#1587) is the first, narrow instance: it fills only the Solver's empty inputs from sensors already confirmed for the same quantity, creates no forecasts, and changes nothing on the reference household (pinned by a test on its real diagnostics).
 
 ---
 
 ## 10. Rules that hold everywhere
 
-1. **Never overwrite** a value the user set.
-2. **Never silent.** Everything created is listed; everything missing is a Repair.
-3. **One source per physical sensor**, derived everywhere else.
-4. **Refuse the wrong kind at the door:** energy for power, doubled fees, unit mismatches.
-5. **Exactly one, or ask.** No sorting-order guesses (`sensor_discovery.py`'s rule).
-6. **Setup never enables dispatch.**
-7. **Fewer fields, not moved fields.** A field that can be derived does not exist at the basic level.
+1. **Never overwrite** a confirmed choice; surface conflicts instead.
+2. **Never silent:** everything created is listed, and everything missing is a Repair with its reason.
+3. **One definition per device**, used by every subsystem.
+4. **Evidence, then confirmation:** discovery proposes, the user confirms ambiguous roles.
+5. **Refuse the wrong kind at the door:** energy for power (#1562), doubled fees (#1564), unit mismatches (#1570).
+6. **Absence is never zero:** an unresolved binding is reported missing, never filled with 0.
+7. **Setup never enables control.**
+8. **Fewer fields, not moved fields:** ask for goals and unresolved facts, not plumbing Nimbus can determine.
 
 ---
 
-## 11. How it is tested
+## 11. Acceptance tests (the contract's, as tests)
 
-- **Setup-outcome fixtures:** each takes a real diagnostics snapshot plus captured states and Energy Dashboard prefs, and asserts what the build creates. Snapshots: the reference household, Chris (6 Oct), Mark's SigEnergy install, and devhub. Real data, not hand-written mirrors (#954's lesson).
-- **The balance check (§3.3):** synthetic histories for each failure row (flipped sign, ×1000, partial solar, unrelated sensors).
-- **Repairs:** each condition appears, its Fix flow opens the right step, and it clears when the condition clears.
-- **No-change test** for the reference household (§9).
-- **Devhub:** run a fresh install end to end, from Add Nimbus to a first optimal solve, and time it.
-
----
-
-## 12. Delivery, each stage released and validated on devhub
-
-| stage | delivers | user-visible result |
+| case | given | must hold |
 |---|---|---|
-| **1. Fill gaps** | create missing Power Signals from the Forecaster's battery/solar/grid; fill empty Solver power fields; cards fall back to the Solver's sensors; summary notification. **Uses only entities the user already chose and adds no new construct**; a bridge for existing installs, consistent with the device model because every filled entity belongs to a device stage 3 then adopts | Chris's install fixes itself on upgrade |
-| **2. Health as Repairs** | §7 | every silent gap becomes a Repair with a Fix button |
-| **3. "Your home" + scan** | §3-§4, starting with Energy-Dashboard device lookup and the balance check | new installs: one screen |
-| **4. "Your prices" + build** | §5-§6, battery numbers in the wizard | new installs: two Submits |
-| **5. Advanced regroup** | §8, bulk circuit add, parent/child | the ~30 settings, grouped and pre-filled |
-| **6. More profiles** | inverter, battery and pricing profiles, one per PR, each with a captured fixture | wider "it just works" coverage |
+| **Minimal site** | only a Grid and a whole-house Load | setup succeeds without battery or solar fields; planning and scoring show precise reasons |
+| **Shared hardware** | one inverter integration exposing grid, PV and battery | three logical roles with correct boundaries, not three copies of the equipment |
+| **Split providers** | power, prices and forecasts from different integrations | one Grid device owns the resolved roles, including action-returned forecasts |
+| **Rename and rescan** | confirmed mappings | an entity rename or Energy Dashboard reorder keeps Nimbus IDs and creates no duplicates |
+| **Inclusive loads** | a pool inside the household total | showing its forecast leaves planned demand unchanged until a decomposition is enabled |
+| **Incomplete evidence** | stale data, ambiguous signs, a missing tariff direction, forecast gaps | the mapping is kept, and only the affected capabilities are blocked |
+| **No accidental control** | discovered switches and inverter controls | completing setup sends no device commands |
 
-Stages 1 and 2 need no new screens and fix today's testers first.
+How they are run:
+- **Replay real installs:** the reference household, the tester's 6 Oct install, Mark's install and devhub.
+- **The real Home Assistant harness** (`tests/hass_integration/`): drive the actual flow from "Add Nimbus" to a first observation.
+- **Devhub end to end:** remove and re-add Nimbus, then restore the backup.
+- **A real tester's first install last:** the only measure of "a breeze".
 
 ---
 
-## 13. Open questions (for Mark)
+## 12. Delivery
 
-1. ~~Are these the right five?~~ Answered: devices, with power, energy, limits and forecasts under each. Remaining: is the grid device optional at basic, as proposed in §4?
-2. Is "same device as the Energy Dashboard source" a safe enough link for pre-filling a power sensor, on SigEnergy and multi-inverter installs?
-3. Should basic create Battery and Grid Power Signals, or only Whole House and Solar, which the Solver consumes?
-4. Is battery power + SoC + prices enough for a sensible first Regret/EPR score?
-5. What would you remove rather than add?
-6. Parent/child loads, or refuse-and-name (§8.2)?
-7. **New:** Repairs (§7) or persistent notifications for setup gaps? Repairs clear themselves and carry a Fix button, but they are a larger surface to maintain.
-8. **New:** which inverter and battery integration profiles first? The proposal is to start with what testers actually run (GoodWe, Fronius, Smappee, SigEnergy) and add one per PR with a captured fixture.
+Following the contract's own sequence:
+
+| stage | delivers | status |
+|---|---|---|
+| **0. Agree the device contract** | Mark's schema on #1574 | proposed; this document builds on it |
+| **1. Repair existing gaps** | fill the Solver's empty inputs from confirmed mappings, with the card falling back to the Solver's sensors (no forecasts created) | #1587 |
+| **2. Gaps as Repairs** | the first readiness surface: untrained forecasts, energy-unit inputs, doubled fees, missing Solver inputs | #1588 |
+| **2a. Discovery evidence** | `device_resolver.py`: both Energy Dashboard schemas (#1589), power↔energy pairing, the balance check | #1590 |
+| **3. Device definitions** | the contract's types in storage; migration from today's settings, with conflicts surfaced; today's settings generated from them | next |
+| **4. Device-first Basic** | discover → "here is your site" → confirm, starting with Grid + whole-house Load, then optional Solar and Battery | after 3 |
+| **5. Expand progressively** | flexible loads, several batteries/EVs, several connections, advanced constraints, without duplicating definitions | after 4 |
+| **6. Verify the novice path** | a real tester's first install | last |
+
+Each stage is released and validated on devhub.
+
+---
+
+## 13. Questions
+
+Mark answered the first six on #1574 (the answers are folded in above):
+- a Grid device, preferring a boundary meter;
+- same-device is a hint, not proof;
+- telemetry, not forecasts;
+- capability-dependent scoring;
+- remove repeated entry, compulsory solar/battery fields and manual Power Signal steps;
+- parent/child as relationships separate from accounting.
+
+Two remain open:
+1. **Repairs or notifications** for setup gaps (stage 2 ships Repairs).
+2. **Which integration profiles first.** Proposed: the ones testers run (Sungrow, GoodWe, Fronius, Smappee, SigEnergy), one per PR, each with a captured fixture.
