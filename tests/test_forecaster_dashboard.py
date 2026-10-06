@@ -242,9 +242,19 @@ def test_a_view_added_by_a_later_release_still_reaches_a_visited_dashboard(
         "alt_title": "Nimbus Future",
         "path": "future",
         "alt_path": "nimbus-future",
-        "icon": "mdi:star",
     }
     monkeypatch.setattr(mod, "STANDARD_VIEWS", (*mod.STANDARD_VIEWS, later))
     assert _run(mod, ha.hass) == ["dashboard-nimbus:future"]
     titles = [v["title"] for v in dash.config["views"]]
     assert titles == ["Control Panel", "Regret", "Topology", "Future"]
+
+
+def test_added_view_has_a_title_and_no_icon():
+    """HA shows a view's icon instead of its title; an icon leaves the tab
+    unlabelled (household, 6 Oct 2026: "use TITLES")."""
+    fd = _load_module()
+    for spec in fd.STANDARD_VIEWS:
+        assert "icon" not in spec
+        view = fd._view_for(spec, [])
+        assert "icon" not in view
+        assert view["title"] == spec["title"]
