@@ -1,127 +1,97 @@
-"""Two-step setup, stage 1: fill the gaps from what is already entered
-(nimbus #1574, design in docs/design/two-step-setup.md §12).
+"""Two-step setup, stage 1: repair existing gaps from mappings the user already
+confirmed (nimbus #1574; Mark's device contract on #1574: "Repair existing
+gaps: reuse confirmed mappings to fix missing downstream inputs without changing
+their meaning or overwriting explicit settings").
 
-A tester's first install (#1526) showed the pattern this closes: each physical
-sensor had to be entered in up to four places, nothing linked them, and every
-gap was silent. He set a battery and a solar sensor in Forecaster settings,
-which made them *features*, but got no Battery or Solar forecast (that needs a
-separate "Add Power Signal" the wizard never mentions), and the Solver's own
-battery and solar power fields stayed empty.
+A tester's first install (#1526) had his battery and solar sensors named in
+Forecaster settings, yet the Solver's own battery power and solar power fields
+were empty, and so was its whole-house cross-check. The same physical sensor
+had to be entered again, in another screen, for another subsystem, and nothing
+said so.
 
-This module derives the missing pieces from sensors the user has ALREADY named,
-so nothing is guessed:
+This module fills those downstream inputs from what is already confirmed:
 
-- a **Power Signal** for each Forecaster battery / grid / solar sensor, and for
-  each Solver battery / solar power sensor, when no Power Signal or Load already
-  forecasts that sensor (matched by sensor, never by role: the reference
-  household's signals all carry role "other");
-- the Solver's **battery power** and **solar power** fields from the Forecaster's
-  battery and solar sensors, when empty;
-- the Solver's **whole-house cross-check** from the sensor behind the Solver's
-  own load forecast, when empty.
+| empty Solver field | filled from |
+|---|---|
+| battery power | the Forecaster's battery sensor |
+| solar power | the Forecaster's solar sensor |
+| whole-house cross-check | the source sensor of the Solver's own load forecast |
+
+Deliberately **not** done (Mark, #1574): creating Battery, Grid or Solar
+Power Signals. A Power Signal trains an independent learned forecast, and
+*"planned battery dispatch and grid exchange are normally outputs of the
+coordinated plan. Do not create independent learned battery/grid forecasts
+merely because their power sensors exist."* Telemetry registration belongs to
+the device model (later stages), not to gap-filling.
 
 Rules (design §10):
 - **Never overwrite.** Only empty fields are filled; nothing existing is edited.
-- **Never twice.** Each fill is recorded in the entry's options under
-  `CONF_SETUP_BUILDER_DONE`, so an auto-created signal the user deletes, or a
-  field the user clears, is not recreated.
+- **Same meaning.** Each fill copies a sensor already confirmed for the same
+  physical quantity; nothing is inferred or derived.
+- **Never twice.** Each fill is recorded under `CONF_SETUP_BUILDER_DONE`, so a
+  field the user later clears is not refilled.
 - **Refuse the wrong kind.** A candidate must report a power unit (#1562,
   #1570); an energy total or a unit-less sensor is skipped with a reason.
-- **Never silent.** `async_apply_setup_fills` lists everything it did in one
-  notification.
+- **Never silent.** One notification lists what was filled and what was not.
+- **No control.** Nothing here touches dispatch or any device.
 
-`plan_setup_fills` is pure (no Home Assistant) so real installs' diagnostics
+`plan_setup_fills` is pure (no Home Assistant), so real installs' diagnostics
 replay through it in tests (design §11).
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 try:
     from .const import (
         CONF_BATTERY_SENSOR,
-        CONF_GRID_SENSOR,
-        CONF_LOAD_SENSOR,
-        CONF_SIGNAL_ROLE,
         CONF_SOLAR_SENSOR,
         CONF_SOLVER_BATTERY_POWER_SENSOR,
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
         CONF_SOLVER_SOLAR_POWER_SENSOR,
         CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
-        SIGNAL_ROLE_BATTERY,
-        SIGNAL_ROLE_GRID,
-        SIGNAL_ROLE_SOLAR,
-        SUBENTRY_TYPE_LOAD,
-        SUBENTRY_TYPE_SIGNAL,
     )
     from .power_input_check import is_energy_unit
     from .power_units import is_power_unit
 except ImportError:  # pragma: no cover - standalone path
     from const import (  # type: ignore[no-redef]
         CONF_BATTERY_SENSOR,
-        CONF_GRID_SENSOR,
-        CONF_LOAD_SENSOR,
-        CONF_SIGNAL_ROLE,
         CONF_SOLAR_SENSOR,
         CONF_SOLVER_BATTERY_POWER_SENSOR,
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
         CONF_SOLVER_SOLAR_POWER_SENSOR,
         CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
-        SIGNAL_ROLE_BATTERY,
-        SIGNAL_ROLE_GRID,
-        SIGNAL_ROLE_SOLAR,
-        SUBENTRY_TYPE_LOAD,
-        SUBENTRY_TYPE_SIGNAL,
     )
     from power_input_check import is_energy_unit  # type: ignore[no-redef]
     from power_units import is_power_unit  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger(__name__)
 
-# Options key recording what this module has already done, so nothing it
-# created and the user later removed is ever put back. A list of strings:
-# "signal:<sensor>" and "option:<key>".
+# Options key recording what this module has already filled, so a field the
+# user later clears is never refilled. A list of "option:<key>" strings.
 CONF_SETUP_BUILDER_DONE = "setup_builder_done"
 
 NOTIFICATION_ID = "nimbus_setup_builder"
 
-# (options key holding a sensor, role of the Power Signal it should have)
-_SIGNAL_SOURCES: tuple[tuple[str, str], ...] = (
-    (CONF_BATTERY_SENSOR, SIGNAL_ROLE_BATTERY),
-    (CONF_SOLVER_BATTERY_POWER_SENSOR, SIGNAL_ROLE_BATTERY),
-    (CONF_SOLAR_SENSOR, SIGNAL_ROLE_SOLAR),
-    (CONF_SOLVER_SOLAR_POWER_SENSOR, SIGNAL_ROLE_SOLAR),
-    (CONF_GRID_SENSOR, SIGNAL_ROLE_GRID),
-)
-
-# (Solver field to fill, Forecaster field it is filled from)
+# (Solver field to fill, Forecaster field holding the same physical sensor)
 _SOLVER_FILLS: tuple[tuple[str, str], ...] = (
     (CONF_SOLVER_BATTERY_POWER_SENSOR, CONF_BATTERY_SENSOR),
     (CONF_SOLVER_SOLAR_POWER_SENSOR, CONF_SOLAR_SENSOR),
 )
 
-_ROLE_LABEL = {
-    SIGNAL_ROLE_BATTERY: "Battery",
-    SIGNAL_ROLE_SOLAR: "Solar",
-    SIGNAL_ROLE_GRID: "Grid",
+_LABELS = {
+    CONF_SOLVER_BATTERY_POWER_SENSOR: "Solver battery power sensor",
+    CONF_SOLVER_SOLAR_POWER_SENSOR: "Solver solar power sensor",
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: "Solver whole-house cross-check",
 }
 
 
 @dataclass
-class SignalToCreate:
-    sensor: str
-    role: str
-    title: str
-    because: str  # which setting named the sensor
-
-
-@dataclass
 class SetupPlan:
-    signals: list[SignalToCreate] = field(default_factory=list)
     options: dict[str, str] = field(default_factory=dict)
     # (what, why) for each fill that was considered and NOT made
     skipped: list[tuple[str, str]] = field(default_factory=list)
@@ -130,26 +100,11 @@ class SetupPlan:
 
     @property
     def empty(self) -> bool:
-        return not self.signals and not self.options
+        return not self.options
 
 
-# A state lookup: entity_id -> (unit_of_measurement, attributes) or None when
-# the entity does not exist (yet).
+# entity_id -> (unit_of_measurement, attributes), or None when it does not exist
 StateLookup = Callable[[str], "tuple[str | None, Mapping[str, Any]] | None"]
-
-
-def _forecasted_sensors(subentries: Iterable[Any]) -> set[str]:
-    """Every sensor a Load or Power Signal already forecasts."""
-    out: set[str] = set()
-    for sub in subentries:
-        if getattr(sub, "subentry_type", None) in (
-            SUBENTRY_TYPE_LOAD,
-            SUBENTRY_TYPE_SIGNAL,
-        ):
-            sensor = (getattr(sub, "data", None) or {}).get(CONF_LOAD_SENSOR)
-            if sensor:
-                out.add(sensor)
-    return out
 
 
 def _power_problem(sensor: str, lookup: StateLookup) -> str | None:
@@ -169,53 +124,11 @@ def _power_problem(sensor: str, lookup: StateLookup) -> str | None:
     return None
 
 
-def _friendly(sensor: str, lookup: StateLookup) -> str:
-    found = lookup(sensor)
-    if found is not None:
-        name = found[1].get("friendly_name")
-        if isinstance(name, str) and name.strip():
-            return name.strip()
-    return sensor
-
-
-def plan_setup_fills(
-    options: Mapping[str, Any],
-    subentries: Iterable[Any],
-    lookup: StateLookup,
-) -> SetupPlan:
-    """What stage 1 would create or fill on this install. Pure: no writes."""
-    subentries = list(subentries)
+def plan_setup_fills(options: Mapping[str, Any], lookup: StateLookup) -> SetupPlan:
+    """What stage 1 would fill on this install. Pure: no writes."""
     done = set(options.get(CONF_SETUP_BUILDER_DONE) or [])
     plan = SetupPlan()
 
-    # --- Power Signals for sensors already named in settings ---------------
-    forecasted = _forecasted_sensors(subentries)
-    planned: set[str] = set()
-    for key, role in _SIGNAL_SOURCES:
-        sensor = options.get(key)
-        if not isinstance(sensor, str) or not sensor:
-            continue
-        if sensor in forecasted or sensor in planned:
-            continue
-        marker = f"signal:{sensor}"
-        if marker in done:
-            continue  # created before and removed by the user: respect that
-        problem = _power_problem(sensor, lookup)
-        if problem is not None:
-            plan.skipped.append((f"{_ROLE_LABEL[role]} forecast for {sensor}", problem))
-            continue
-        plan.signals.append(
-            SignalToCreate(
-                sensor=sensor,
-                role=role,
-                title=_friendly(sensor, lookup),
-                because=key,
-            )
-        )
-        plan.markers.append(marker)
-        planned.add(sensor)
-
-    # --- Solver power fields from the Forecaster's sensors -----------------
     for target, source in _SOLVER_FILLS:
         if options.get(target):
             continue
@@ -227,12 +140,11 @@ def plan_setup_fills(
             continue
         problem = _power_problem(sensor, lookup)
         if problem is not None:
-            plan.skipped.append((target, f"{sensor}: {problem}"))
+            plan.skipped.append((_LABELS[target], f"{sensor}: {problem}"))
             continue
         plan.options[target] = sensor
         plan.markers.append(marker)
 
-    # --- whole-house cross-check from the Solver's load forecast ------------
     target = CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR
     marker = f"option:{target}"
     load_fc = options.get(CONF_SOLVER_LOAD_FORECAST_SENSOR)
@@ -245,11 +157,11 @@ def plan_setup_fills(
         found = lookup(load_fc)
         source = found[1].get("source_sensor") if found is not None else None
         if not isinstance(source, str) or not source:
-            plan.skipped.append((target, f"{load_fc} names no source sensor"))
+            plan.skipped.append((_LABELS[target], f"{load_fc} names no source sensor"))
         else:
             problem = _power_problem(source, lookup)
             if problem is not None:
-                plan.skipped.append((target, f"{source}: {problem}"))
+                plan.skipped.append((_LABELS[target], f"{source}: {problem}"))
             else:
                 plan.options[target] = source
                 plan.markers.append(marker)
@@ -259,28 +171,19 @@ def plan_setup_fills(
 
 def _describe(plan: SetupPlan) -> str:
     lines = [
-        "Nimbus filled in setup it could derive from sensors you had already chosen:",
+        "Nimbus filled Solver inputs it could take from sensors you had already chosen:",
         "",
     ]
-    labels = {
-        CONF_SOLVER_BATTERY_POWER_SENSOR: "Solver battery power sensor",
-        CONF_SOLVER_SOLAR_POWER_SENSOR: "Solver solar power sensor",
-        CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: "Solver whole-house cross-check",
-    }
-    for sig in plan.signals:
-        lines.append(
-            f"- Added a **{_ROLE_LABEL[sig.role]}** forecast (Power Signal) for `{sig.sensor}`"
-        )
-    for key, value in plan.options.items():
-        lines.append(f"- Set the {labels.get(key, key)} to `{value}`")
+    lines += [f"- {_LABELS.get(k, k)}: `{v}`" for k, v in plan.options.items()]
     if plan.skipped:
         lines += ["", "Not filled:"]
         lines += [f"- {what}: {why}" for what, why in plan.skipped]
     lines += [
         "",
         (
-            "Nothing you had set was changed. Anything above can be removed or changed "
-            "in Nimbus → Configure, and Nimbus will not add it back."
+            "Nothing you had set was changed, and nothing was sent to any device. "
+            "Any of these can be changed in Nimbus → Configure → Solver settings, "
+            "and Nimbus will not fill it again."
         ),
     ]
     return "\n".join(lines)
@@ -289,13 +192,9 @@ def _describe(plan: SetupPlan) -> str:
 async def async_apply_setup_fills(hass: Any, entry: Any) -> SetupPlan:
     """Compute and apply stage 1 for `entry`. Never raises.
 
-    Adds each Power Signal first, then writes the options (the fills plus the
-    `CONF_SETUP_BUILDER_DONE` markers) in ONE update. `async_add_subentry`
-    called outside a flow does not reload the hub (`services.py`'s
-    `set_controllable_load` notes the same), but an options update does, via
-    `__init__._async_update_listener`. So the hub reloads exactly once and the
-    new signals get their entities. The next setup finds nothing to do, so it
-    cannot loop.
+    One options update. It reloads the hub once, via
+    `__init__._async_update_listener`; the next setup finds nothing left to
+    fill, so it cannot loop.
     """
 
     def _lookup(entity_id: str) -> tuple[str | None, Mapping[str, Any]] | None:
@@ -306,21 +205,9 @@ async def async_apply_setup_fills(hass: Any, entry: Any) -> SetupPlan:
         return attrs.get("unit_of_measurement"), attrs
 
     try:
-        plan = plan_setup_fills(dict(entry.options), entry.subentries.values(), _lookup)
+        plan = plan_setup_fills(dict(entry.options), _lookup)
         if plan.empty:
             return plan
-        from homeassistant.config_entries import ConfigSubentry
-
-        for sig in plan.signals:
-            hass.config_entries.async_add_subentry(
-                entry,
-                ConfigSubentry(
-                    data={CONF_LOAD_SENSOR: sig.sensor, CONF_SIGNAL_ROLE: sig.role},
-                    subentry_type=SUBENTRY_TYPE_SIGNAL,
-                    title=sig.title,
-                    unique_id=None,
-                ),
-            )
         new_options = dict(entry.options)
         new_options.update(plan.options)
         new_options[CONF_SETUP_BUILDER_DONE] = sorted(
@@ -328,18 +215,16 @@ async def async_apply_setup_fills(hass: Any, entry: Any) -> SetupPlan:
         )
         hass.config_entries.async_update_entry(entry, options=new_options)
         _LOGGER.info(
-            "Nimbus setup: added %d Power Signal(s) and filled %d Solver field(s) "
-            "from sensors already configured: %s",
-            len(plan.signals),
+            "Nimbus setup: filled %d Solver field(s) from sensors already configured: %s",
             len(plan.options),
-            [s.sensor for s in plan.signals] + list(plan.options.values()),
+            plan.options,
         )
         await hass.services.async_call(
             "persistent_notification",
             "create",
             {
                 "notification_id": NOTIFICATION_ID,
-                "title": "Nimbus: setup completed from your sensors",
+                "title": "Nimbus: Solver inputs filled from your sensors",
                 "message": _describe(plan),
             },
             blocking=False,

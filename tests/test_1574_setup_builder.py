@@ -1,12 +1,13 @@
-"""nimbus #1574 stage 1: fill setup gaps from sensors the user already chose.
+"""nimbus #1574 stage 1: repair existing gaps from mappings the user already
+confirmed (Mark's device contract on #1574).
 
 Replays two real installs (design docs/design/two-step-setup.md §11):
 
 - the **reference household**: everything is configured, so the plan must be
-  EMPTY -- the "your install sees no change" promise, pinned;
-- the **tester's 6 Oct install** (#1526): the gaps he hit (no Battery
-  forecast, empty Solver battery power and cross-check) are filled, and his
-  Wh solar total is refused, not used.
+  EMPTY (the "your install sees no change" promise, pinned);
+- the **tester's 6 Oct install** (#1526): his empty Solver battery power and
+  cross-check are filled from sensors he had already chosen, and his Wh solar
+  total is refused.
 
 Units are not in diagnostics, so each test states the units it assumes.
 """
@@ -27,26 +28,12 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import setup_builder as sb
-from custom_components.nimbus_load.const import (
-    CONF_LOAD_SENSOR,
-    CONF_SIGNAL_ROLE,
-    SIGNAL_ROLE_BATTERY,
-    SIGNAL_ROLE_SOLAR,
-    SUBENTRY_TYPE_SIGNAL,
-)
 
 FIX = Path(__file__).resolve().parent / "fixtures" / "setup_builder"
 
 
-def _load(name):
-    raw = json.loads((FIX / name).read_text(encoding="utf-8"))
-    subs = [
-        SimpleNamespace(
-            subentry_type=s["subentry_type"], title=s["title"], data=s["data"]
-        )
-        for s in raw["subentries"]
-    ]
-    return raw["options"], subs
+def _options(name):
+    return json.loads((FIX / name).read_text(encoding="utf-8"))["options"]
 
 
 def _lookup(states):
@@ -59,15 +46,9 @@ def _lookup(states):
     return look
 
 
-# --- the reference household: nothing to do ----------------------------------
-
 REFERENCE_STATES = {
-    "sensor.logger_battery_power": ("kW", {"friendly_name": "Logger Battery power"}),
-    "sensor.combined_total_dc_power": (
-        "W",
-        {"friendly_name": "Combined Total DC Power"},
-    ),
-    "sensor.logger_meter_total_active_power": ("kW", {}),
+    "sensor.logger_battery_power": ("kW", {}),
+    "sensor.combined_total_dc_power": ("W", {}),
     "sensor.cb_total_combined_power_adjusted_kw": ("kW", {}),
     "sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast": (
         "kW",
@@ -75,25 +56,9 @@ REFERENCE_STATES = {
     ),
 }
 
-
-def test_the_reference_household_gets_nothing():
-    """Every Forecaster and Solver power field is set, and every one of those
-    sensors already has a Power Signal (role "other"), so stage 1 is a no-op."""
-    options, subs = _load("reference_household.json")
-    plan = sb.plan_setup_fills(options, subs, _lookup(REFERENCE_STATES))
-    assert plan.empty, (plan.signals, plan.options)
-    assert plan.skipped == []
-
-
-# --- the tester's install: his gaps are filled -------------------------------
-
 TESTER_STATES = {  # units assumed for the test (W is what Smappee/GoodWe report)
-    "sensor.battery_power_1_2": ("W", {"friendly_name": "Battery Power 1-2"}),
-    "sensor.solar_production_total": (
-        "Wh",
-        {"friendly_name": "Solar production total"},
-    ),
-    "sensor.smappee_grid_realtime": ("W", {}),
+    "sensor.battery_power_1_2": ("W", {}),
+    "sensor.solar_production_total": ("Wh", {}),
     "sensor.smappee_consumption_realtime": ("W", {}),
     "sensor.nimbus_smappee_consumption_realtime_forecast": (
         "kW",
@@ -102,103 +67,59 @@ TESTER_STATES = {  # units assumed for the test (W is what Smappee/GoodWe report
 }
 
 
-def test_the_testers_gaps_are_filled_and_his_wh_total_refused():
-    options, subs = _load("tester_2026_10_06.json")
-    plan = sb.plan_setup_fills(options, subs, _lookup(TESTER_STATES))
+def test_the_reference_household_gets_nothing():
+    plan = sb.plan_setup_fills(
+        _options("reference_household.json"), _lookup(REFERENCE_STATES)
+    )
+    assert plan.empty, plan.options
+    assert plan.skipped == []
 
-    # a Battery forecast for the battery sensor he set in Forecaster settings
-    assert [(s.sensor, s.role) for s in plan.signals] == [
-        ("sensor.battery_power_1_2", SIGNAL_ROLE_BATTERY)
-    ]
-    assert plan.signals[0].title == "Battery Power 1-2"
-    # no Grid signal: his Smappee grid sensor already has one
-    # the Solver's empty fields, from what he already chose
+
+def test_the_testers_gaps_are_filled_and_his_wh_total_refused():
+    plan = sb.plan_setup_fills(
+        _options("tester_2026_10_06.json"), _lookup(TESTER_STATES)
+    )
     assert plan.options == {
         "solver_battery_power_sensor": "sensor.battery_power_1_2",
         "solver_whole_house_cross_check_sensor": "sensor.smappee_consumption_realtime",
     }
-    # the Wh total is refused for both the Solar signal and the Solver field
-    reasons = " | ".join(f"{w}: {why}" for w, why in plan.skipped)
-    assert reasons.count("'Wh', an energy total") == 2, reasons
+    assert any("'Wh', an energy total" in why for _, why in plan.skipped)
 
 
 def test_after_he_picks_a_power_sensor_solar_is_filled_too():
-    options, subs = _load("tester_2026_10_06.json")
-    options = {**options, "solar_sensor": "sensor.solar_production"}
-    states = {**TESTER_STATES, "sensor.solar_production": ("W", {})}
-    plan = sb.plan_setup_fills(options, subs, _lookup(states))
-    assert ("sensor.solar_production", SIGNAL_ROLE_SOLAR) in [
-        (s.sensor, s.role) for s in plan.signals
-    ]
+    options = {
+        **_options("tester_2026_10_06.json"),
+        "solar_sensor": "sensor.solar_production",
+    }
+    plan = sb.plan_setup_fills(
+        options, _lookup({**TESTER_STATES, "sensor.solar_production": ("W", {})})
+    )
     assert plan.options["solver_solar_power_sensor"] == "sensor.solar_production"
 
 
-# --- the rules -----------------------------------------------------------------
-
-
-def _one_battery_install(**extra_options):
-    options = {"battery_sensor": "sensor.batt", **extra_options}
-    states = {"sensor.batt": ("kW", {})}
-    return options, [], _lookup(states)
-
-
 def test_never_overwrites_a_set_field():
-    options, subs, look = _one_battery_install(
-        solver_battery_power_sensor="sensor.other"
-    )
-    plan = sb.plan_setup_fills(options, subs, look)
-    assert "solver_battery_power_sensor" not in plan.options
-
-
-def test_matches_existing_signals_by_sensor_not_role():
-    options, _, look = _one_battery_install()
-    subs = [
-        SimpleNamespace(
-            subentry_type="power_signal",
-            title="x",
-            data={"load_sensor": "sensor.batt", "signal_role": "other"},
-        )
-    ]
-    assert sb.plan_setup_fills(options, subs, look).signals == []
-
-
-def test_a_load_on_the_sensor_also_counts():
-    options, _, look = _one_battery_install()
-    subs = [
-        SimpleNamespace(
-            subentry_type="load", title="x", data={"load_sensor": "sensor.batt"}
-        )
-    ]
-    assert sb.plan_setup_fills(options, subs, look).signals == []
-
-
-def test_something_the_user_removed_is_not_recreated():
-    options, subs, look = _one_battery_install(
-        setup_builder_done=["signal:sensor.batt", "option:solver_battery_power_sensor"]
-    )
-    plan = sb.plan_setup_fills(options, subs, look)
-    assert plan.empty
-
-
-def test_one_sensor_named_twice_gets_one_signal():
     options = {
         "battery_sensor": "sensor.batt",
-        "solver_battery_power_sensor": "sensor.batt",
+        "solver_battery_power_sensor": "sensor.other",
     }
-    plan = sb.plan_setup_fills(options, [], _lookup({"sensor.batt": ("kW", {})}))
-    assert len(plan.signals) == 1
+    assert sb.plan_setup_fills(options, _lookup({"sensor.batt": ("kW", {})})).empty
+
+
+def test_a_field_the_user_cleared_is_not_refilled():
+    options = {
+        "battery_sensor": "sensor.batt",
+        "setup_builder_done": ["option:solver_battery_power_sensor"],
+    }
+    assert sb.plan_setup_fills(options, _lookup({"sensor.batt": ("kW", {})})).empty
 
 
 def test_missing_or_unit_less_sensors_are_skipped_with_a_reason():
-    options = {"battery_sensor": "sensor.gone", "grid_sensor": "sensor.nounit"}
-    plan = sb.plan_setup_fills(options, [], _lookup({"sensor.nounit": (None, {})}))
-    assert plan.signals == []
+    options = {"battery_sensor": "sensor.gone", "solar_sensor": "sensor.nounit"}
+    plan = sb.plan_setup_fills(options, _lookup({"sensor.nounit": (None, {})}))
+    assert plan.empty
     why = dict(plan.skipped)
-    assert "does not exist" in why["Battery forecast for sensor.gone"]
-    assert "no power unit" in why["Grid forecast for sensor.nounit"]
-
-
-# --- applying -------------------------------------------------------------------
+    assert "does not exist" in why["Solver battery power sensor"]
+    assert "no power unit" in why["Solver solar power sensor"]
 
 
 def _hass(states):
@@ -217,63 +138,32 @@ def _hass(states):
     return hass
 
 
-def test_apply_adds_signals_then_writes_options_once_and_notifies():
-    options, subs = _load("tester_2026_10_06.json")
-    entry = SimpleNamespace(
-        entry_id="e1",
-        options=options,
-        subentries={str(i): s for i, s in enumerate(subs)},
-    )
+def test_apply_writes_options_once_creates_no_power_signal_and_notifies():
+    """Mark, #1574: no learned battery/grid forecasts just because a power
+    sensor exists. Stage 1 never adds a subentry."""
+    options = _options("tester_2026_10_06.json")
+    entry = SimpleNamespace(entry_id="e1", options=options, subentries={})
     hass = _hass(TESTER_STATES)
-    calls = []
-    hass.config_entries.async_add_subentry.side_effect = lambda e, sub: calls.append(
-        ("add", sub)
-    )
-    hass.config_entries.async_update_entry.side_effect = lambda e, options: (
-        calls.append(("options", options))
-    )
-
-    # the HA stub's ConfigSubentry discards its arguments; record them instead
-    import homeassistant.config_entries as ce
-
-    real = ce.ConfigSubentry
-    ce.ConfigSubentry = lambda **kw: SimpleNamespace(**kw)
-    try:
-        plan = asyncio.run(sb.async_apply_setup_fills(hass, entry))
-    finally:
-        ce.ConfigSubentry = real
-
-    assert [c[0] for c in calls] == [
-        "add",
-        "options",
-    ]  # subentries first, ONE options write
-    sub = calls[0][1]
-    assert sub.subentry_type == SUBENTRY_TYPE_SIGNAL
-    assert dict(sub.data) == {
-        CONF_LOAD_SENSOR: "sensor.battery_power_1_2",
-        CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY,
-    }
-    written = calls[1][1]
+    plan = asyncio.run(sb.async_apply_setup_fills(hass, entry))
+    hass.config_entries.async_add_subentry.assert_not_called()
+    hass.config_entries.async_update_entry.assert_called_once()
+    written = hass.config_entries.async_update_entry.call_args.kwargs["options"]
     assert written["solver_battery_power_sensor"] == "sensor.battery_power_1_2"
     assert set(written[sb.CONF_SETUP_BUILDER_DONE]) == set(plan.markers)
     assert (
         written["battery_sensor"] == options["battery_sensor"]
     )  # nothing else touched
     msg = hass.services.async_call.call_args.args[2]["message"]
-    assert "Battery" in msg and "Nothing you had set was changed" in msg
+    assert "nothing was sent to any device" in msg
 
 
 def test_apply_on_the_reference_household_writes_nothing():
-    options, subs = _load("reference_household.json")
     entry = SimpleNamespace(
-        entry_id="e1",
-        options=options,
-        subentries={str(i): s for i, s in enumerate(subs)},
+        entry_id="e1", options=_options("reference_household.json"), subentries={}
     )
     hass = _hass(REFERENCE_STATES)
     asyncio.run(sb.async_apply_setup_fills(hass, entry))
     hass.config_entries.async_update_entry.assert_not_called()
-    hass.config_entries.async_add_subentry.assert_not_called()
     hass.services.async_call.assert_not_called()
 
 
@@ -282,5 +172,5 @@ def test_apply_never_raises():
         entry_id="e1", options={"battery_sensor": "sensor.batt"}, subentries={}
     )
     hass = _hass({"sensor.batt": ("kW", {})})
-    hass.config_entries.async_add_subentry.side_effect = RuntimeError("boom")
+    hass.config_entries.async_update_entry.side_effect = RuntimeError("boom")
     asyncio.run(sb.async_apply_setup_fills(hass, entry))

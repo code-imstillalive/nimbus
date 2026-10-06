@@ -9,18 +9,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
-- **Setup fills its own gaps from the sensors you already chose**
+- **Setup fills the Solver's missing inputs from sensors you already chose**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 1 of
-  the two-step setup). A sensor set as the battery, grid or solar sensor in
-  Forecaster settings, or as the Solver's battery or solar power, now gets its
-  own forecast (a Power Signal) if nothing forecasts it yet. The Solver's empty
-  battery power, solar power and whole-house cross-check fields are filled from
-  the Forecaster's sensors and from the source of the Solver's own load forecast.
-  Nothing set is ever changed, an energy-total (Wh/kWh) sensor is refused, and
-  anything you later remove is not put back. One notification lists what was
-  filled. The Control Panel card's blank battery, SoC and solar fields now
-  follow the Solver's sensors on every render, not only when the card is first
-  added, so its history line appears without editing the card.
+  the two-step setup). The Solver's empty battery power and solar power fields
+  are filled from the Forecaster's battery and solar sensors, and its empty
+  whole-house cross-check from the source of its own load forecast. Nothing set
+  is ever changed, an energy-total (Wh/kWh) sensor is refused, a field you later
+  clear is not refilled, and one notification lists what was filled. No forecasts
+  are created: per Mark's device contract, battery and grid power is telemetry,
+  not something to train a forecast on. The Control Panel card's blank battery,
+  SoC and solar fields now follow the Solver's sensors on every render, not only
+  when the card is first added, so its history line appears without editing the card.
+
+
 ### Changed
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
 

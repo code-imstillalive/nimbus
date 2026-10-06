@@ -960,10 +960,11 @@ async def _async_setup_entry_impl(
     from .setup_builder import async_apply_setup_fills
 
     async def _energy_unit_check(_event: object = None) -> None:
-        # nimbus #1574 stage 1: fill setup gaps from sensors the user already
-        # chose (a Power Signal per configured battery/solar/grid sensor, the
-        # Solver's empty power fields). Same "once HA has started" timing as
-        # the unit check below, for the same reason: units must be known.
+        # nimbus #1574 stage 1: fill the Solver's empty battery/solar power and
+        # whole-house cross-check from sensors the user already confirmed
+        # elsewhere. No Power Signals are created (Mark, #1574: no learned
+        # battery/grid forecasts just because a power sensor exists). Same
+        # "once HA has started" timing as the unit check below: units must be known.
         # If it changes anything the hub reloads once and this runs again,
         # finding nothing left to do.
         await async_apply_setup_fills(hass, entry)
