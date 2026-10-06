@@ -31,6 +31,9 @@ Rules it keeps
   not get it back on the next restart, while a standard view that a *later*
   release adds still reaches a dashboard an earlier release already visited
   (nimbus #1543: new views must reach existing dashboards, not only new ones).
+* **A title, never an icon.** HA shows a view's icon *instead of* its title, so
+  an icon leaves the tab unlabelled. The added view carries no `icon` (household
+  instruction, 6 Oct 2026: "use TITLES").
 * **YAML-mode dashboards are skipped:** they cannot be written to.
 * **Non-fatal.** Lovelace absent, recovery mode or an internal API change logs
   and leaves the rest of Nimbus running.
@@ -67,7 +70,6 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
         "alt_title": "Nimbus Forecaster",
         "path": "forecaster",
         "alt_path": "nimbus-forecaster",
-        "icon": "mdi:chart-timeline-variant",
     },
 )
 
@@ -87,7 +89,6 @@ def _view_for(spec: dict[str, Any], views: list[Any]) -> dict[str, Any]:
         if spec["title"].lower() not in titles
         else spec["alt_title"],
         "path": spec["path"] if spec["path"] not in paths else spec["alt_path"],
-        "icon": spec["icon"],
         "type": "panel",
         "cards": [{"type": spec["card"]}],
     }
