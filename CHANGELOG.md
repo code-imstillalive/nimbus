@@ -21,6 +21,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   sensor (its PR #41) will feed.
 
 ### Fixed
+- **A P2P block's early start fires again: Nimbus solves in each block's
+  start minute.** With a lead time set (`number.nimbus_solver_p2p_block_lead_time_minutes`),
+  a 17:00 block's first minute is 16:59, but the phase-locked cron solves only at
+  :00:30, :05:30, ..., and the price watcher only when a watched price changes, so
+  that minute was planned only if a price update happened to land in it. On the
+  reference household the battery reached the block rate ~30 s early on 1-2 Oct
+  and 14-32 s late on 3-5 Oct. Nothing in Nimbus changed: its LocalVolts writer
+  moved to the v2 API on 3 Oct, an unchanged price stopped changing the sensor's
+  state, and solves fell from ~215 an hour to ~36. Nimbus now also solves at :05
+  in every configured block's start minute (lead time included), read from the
+  live Solver settings each minute, so a block edited on the dashboard takes
+  effect at once. One extra solve per block per day.
 - **P2P follows the household's own configured blocks, not 17:00-24:00**
   ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537) items 3 and 5).
   `resample_real_p2p_rate` counted a matched rate only between 17:00 and 24:00
@@ -33,8 +45,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   export at all. Both now use the blocks' own daily energy (rate x hours, summed).
   An install with a settlement sensor, or a non-zero configured volume, is
   unchanged. On the reference household the only change is the 16:59 period
-  its 1-minute lead time adds to the block, which already exported at the block
-  rate.
+  its 1-minute lead time adds to the block, where the plan already pins export
+  to the block rate.
 - Forecaster card: the Solver's proposed SoC series is labelled **%**. It inherited
   the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
   v0.94.438 render check.

@@ -205,6 +205,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # coverage gate (directly above), which the standalone/cron copy does
         # not have -- there is no quality scorer there to probe for.
         "fetch_entity_went_unavailable",
+        # The P2P block-start solve trigger: its only caller is the
+        # per-minute check registered in __init__.py's async_setup_entry.
+        # The standalone/cron copy runs from cron and has no HA event loop
+        # to register a minute trigger on.
+        "p2p_block_start_minutes",
         # nimbus issue #363 step 2 (Mark Purcell's own approved staged-
         # extraction plan): a pure code-organization move out of main()
         # in the integration copy only -- the docs/cron copy's own
@@ -689,6 +694,9 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # still gates on the reference household's 17:00-24:00 and reads its
         # settlement sensor), so there is nothing there yet for this to feed.
         "p2p_blocks_daily_energy_kwh",
+        # Same reason: the shared block parser behind it and behind
+        # fetch_p2p_fixed_export_kw(), which the docs copy does not have.
+        "_configured_p2p_blocks",
         # nimbus issue #768, step 1 of 2 --
         # solver_inputs/controllable_load_history.py. Reconstructs what a
         # configured controllable_load actually delivered over an elapsed

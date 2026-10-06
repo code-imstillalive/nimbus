@@ -887,6 +887,46 @@ P2P_BLOCK_KEYS = (
 )
 
 
+def _configured_p2p_blocks(cfg: dict) -> list[tuple[float, int, int]]:
+    """Every configured P2P block as (rate_kw, start_minute, end_minute),
+    in local minutes of the day, with the lead time already taken off the
+    start (see fetch_p2p_fixed_export_kw() for the lead-time and
+    "rate 0 means not configured" rules). One parser, so the plan's block
+    window and the block-start solve trigger (p2p_block_start_minutes())
+    can never disagree about when a block begins."""
+    lead_time_minutes = _cfg_int(cfg, "solver_p2p_block_lead_time_minutes", 0)
+
+    blocks: list[tuple[float, int, int]] = []
+    for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
+        try:
+            rate_kw = _cfg_num(cfg, rate_key, 0.0)
+            start_hour = _cfg_int(cfg, start_key, 0)
+            end_hour = _cfg_int(cfg, end_key, 0)
+        except (TypeError, ValueError):
+            continue
+        if rate_kw <= 0 or end_hour <= start_hour:
+            continue
+        start_minute = max(0, start_hour * 60 - lead_time_minutes)
+        blocks.append((rate_kw, start_minute, end_hour * 60))
+    return blocks
+
+
+def p2p_block_start_minutes(cfg: dict) -> frozenset[int]:
+    """Local minute of the day at which each configured P2P block starts,
+    lead time included, e.g. {1019} for a 17:00 block with a 1-minute lead.
+
+    The block-start solve trigger in __init__.py fires a solve in exactly
+    these minutes. Without it a block's first minute is only ever planned
+    if some other trigger happens to land inside it: the phase-locked
+    cron runs at :00:30, :05:30, ..., and the price watcher fires only
+    when a price sensor's state actually changes. On the reference
+    household that cadence was ~15 s until 3 Oct 2026, when its LocalVolts
+    writer moved to the v2 API and stopped republishing an unchanged
+    price, and from then the 16:59 lead-time minute was never planned.
+    """
+    return frozenset(start for _rate, start, _end in _configured_p2p_blocks(cfg))
+
+
 def fetch_p2p_fixed_export_kw(
     cfg: dict, grid_times: list[datetime]
 ) -> list[float] | None:
@@ -941,20 +981,7 @@ def fetch_p2p_fixed_export_kw(
     separate, still-LP-free decision; only the GRID-EXPORT variable
     itself is pinned here).
     """
-    lead_time_minutes = _cfg_int(cfg, "solver_p2p_block_lead_time_minutes", 0)
-
-    blocks: list[tuple[float, int, int]] = []
-    for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
-        try:
-            rate_kw = _cfg_num(cfg, rate_key, 0.0)
-            start_hour = _cfg_int(cfg, start_key, 0)
-            end_hour = _cfg_int(cfg, end_key, 0)
-        except (TypeError, ValueError):
-            continue
-        if rate_kw <= 0 or end_hour <= start_hour:
-            continue
-        start_minute = max(0, start_hour * 60 - lead_time_minutes)
-        blocks.append((rate_kw, start_minute, end_hour * 60))
+    blocks = _configured_p2p_blocks(cfg)
 
     if not blocks:
         return None

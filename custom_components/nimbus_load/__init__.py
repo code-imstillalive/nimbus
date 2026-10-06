@@ -162,6 +162,23 @@ _LOGGER = logging.getLogger(__name__)
 # async_setup_entry() call can retrigger the identical race immediately.
 _solver_timer_unsub: dict[str, Callable[[], None]] = {}
 
+# The P2P block-start solve trigger (see _P2P_BLOCK_START_SECOND below),
+# held and cancelled exactly like _solver_timer_unsub above.
+_p2p_start_timer_unsub: dict[str, Callable[[], None]] = {}
+
+# A solve at this second of each minute that is a configured P2P block's
+# start (lead time included). The cron's :00:30, :05:30, ... cannot plan a
+# lead-time minute such as 16:59, and the price watcher only fires when a
+# price actually changes, so without this a block's first minute was
+# planned only by luck. Measured on the reference household 1-5 Oct 2026:
+# the battery reached the block rate ~30 s before 17:00 on 1-2 Oct, while
+# its LocalVolts writer republished every 15 s, and 14-32 s AFTER 17:00 on
+# 3-5 Oct, once that writer moved to the v2 API and an unchanged price no
+# longer produced a state change. :05 leaves the minute's own plan period
+# almost whole, and the 10 s debounce in a dispatch automation still lands
+# inside it.
+_P2P_BLOCK_START_SECOND = 5
+
 # Same idempotent-unsub pattern as _solver_timer_unsub above -- both to
 # handle a hub reload re-entering async_setup_entry with a listener
 # already registered for the same entry_id (see the CONF_SOLVE_ON_PRICE_
@@ -836,6 +853,39 @@ async def _async_setup_entry_impl(
     _solver_timer_unsub[entry.entry_id] = unsub_periodic_solve
     entry.async_on_unload(unsub_periodic_solve)
 
+    # P2P block-start trigger (see _P2P_BLOCK_START_SECOND's comment above).
+    # Checked every minute rather than scheduled per block, so a block or
+    # lead time edited from the dashboard takes effect at once, with no
+    # re-registration. The check is one state read; a solve runs only in a
+    # block's start minute.
+    old_p2p_unsub = _p2p_start_timer_unsub.pop(entry.entry_id, None)
+    if old_p2p_unsub is not None:
+        old_p2p_unsub()
+
+    async def _p2p_block_start_solve(now) -> None:
+        state = hass.states.get("sensor.nimbus_solver_config")
+        if state is None or state.state != "configured":
+            return
+        from .solver_shared import _local, p2p_block_start_minutes
+
+        local = _local(now)
+        minute = local.hour * 60 + local.minute
+        if minute not in p2p_block_start_minutes(dict(state.attributes)):
+            return
+        _LOGGER.debug(
+            "Nimbus Solver: P2P block starts at %02d:%02d, solving now",
+            local.hour,
+            local.minute,
+        )
+        if await solver_runtime.async_run_solve(hass):
+            solver_runtime.record_solve_completed(trigger_source="p2p_block_start")
+
+    unsub_p2p_start = async_track_utc_time_change(
+        hass, _p2p_block_start_solve, second=_P2P_BLOCK_START_SECOND
+    )
+    _p2p_start_timer_unsub[entry.entry_id] = unsub_p2p_start
+    entry.async_on_unload(unsub_p2p_start)
+
     # Optional native state-change trigger on the configured price
     # sensors (issue #256) -- purely additive on top of the periodic
     # cron above. Default OFF, byte-identical behaviour on every install
@@ -1202,6 +1252,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     old_timer_unsub = _solver_timer_unsub.pop(entry.entry_id, None)
     if old_timer_unsub is not None:
         old_timer_unsub()
+    old_p2p_unsub = _p2p_start_timer_unsub.pop(entry.entry_id, None)
+    if old_p2p_unsub is not None:
+        old_p2p_unsub()
     _cancel_price_watcher(entry.entry_id)
     old_startup_task = _startup_solve_tasks.pop(entry.entry_id, None)
     if old_startup_task is not None:
