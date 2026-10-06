@@ -68,6 +68,7 @@ from .const import (
     DEFAULT_TRAINING_SOURCE,
     DOMAIN,
     LAG_LONG_STEPS,
+    MIN_FORECAST_HORIZON_HOURS,
     MIN_TRAINING_POINTS,
     RESAMPLE_MINUTES,
     SIGNAL_ROLE_HUMIDITY,
@@ -506,9 +507,16 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def _horizon_hours(self) -> int:
-        return self.entry.options.get(
+        """Never shorter than the Solver's plan (nimbus issue #1566): a
+        saved value from before the minimum existed is raised to it."""
+        configured = self.entry.options.get(
             CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
         )
+        try:
+            configured = int(configured)
+        except (TypeError, ValueError):
+            configured = DEFAULT_FORECAST_HORIZON_HOURS
+        return max(configured, MIN_FORECAST_HORIZON_HOURS)
 
     @property
     def _retrain_hour(self) -> int:

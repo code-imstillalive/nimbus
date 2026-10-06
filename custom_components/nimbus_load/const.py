@@ -661,7 +661,18 @@ CONF_SCHEDULE_END_HOUR: Final = "schedule_end_hour"
 #      "that converts a guess from a guess to what we tell it to do."
 CONF_EXPECTED_LOAD_KW: Final = "expected_load_kw"
 
-DEFAULT_FORECAST_HORIZON_HOURS: Final = 48
+# nimbus issue #1566: the Forecaster must cover the Solver's whole plan.
+# The Solver plans TIER0_MINUTES + TOTAL_HORIZON_HOURS (solver_writer.py,
+# 5 min + 96 h) ahead and, past the end of a load forecast, holds the last
+# forecast value flat (resample_forecast). With the old 48 h default every
+# install's days 3-4 were planned on one flat, usually small, early-morning
+# load, so the plan's lowest SoC sat too high -- reported by a tester,
+# 2026-10-06. 97 h covers the 96 h 5 min plan with a margin;
+# test_1566_forecaster_covers_solver_horizon pins the relationship so a
+# longer Solver horizon cannot silently outgrow it again. A saved value
+# below the minimum is raised to it at run time (coordinator._horizon_hours).
+MIN_FORECAST_HORIZON_HOURS: Final = 97
+DEFAULT_FORECAST_HORIZON_HOURS: Final = MIN_FORECAST_HORIZON_HOURS
 DEFAULT_RETRAIN_HOUR_LOCAL: Final = 3
 DEFAULT_TRAIN_DAYS: Final = 30
 # Default stays recorder to preserve exact current behaviour on every existing install
