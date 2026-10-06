@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.440] - 2026-10-06
+
 ### Added
 - **LocalVolts v2 is detected and the Solver's pricing is pre-filled from it**
   ([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)). With
