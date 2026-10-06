@@ -269,7 +269,7 @@ Bulk-added circuits are children of Whole House; a Load added on a circuit senso
 
 | stage | delivers | user-visible result |
 |---|---|---|
-| **1. Fill gaps** | create missing Power Signals from the Forecaster's battery/solar/grid; fill empty Solver power fields; cards fall back to the Solver's sensors; summary notification | Chris's install fixes itself on upgrade |
+| **1. Fill gaps** | create missing Power Signals from the Forecaster's battery/solar/grid; fill empty Solver power fields; cards fall back to the Solver's sensors; summary notification. **Uses only entities the user already chose and adds no new construct**; a bridge for existing installs, consistent with the device model because every filled entity belongs to a device stage 3 then adopts | Chris's install fixes itself on upgrade |
 | **2. Health as Repairs** | §7 | every silent gap becomes a Repair with a Fix button |
 | **3. "Your home" + scan** | §3-§4, starting with Energy-Dashboard device lookup and the balance check | new installs: one screen |
 | **4. "Your prices" + build** | §5-§6, battery numbers in the wizard | new installs: two Submits |
