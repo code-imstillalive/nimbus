@@ -126,6 +126,7 @@ from ..const import (
     TRAINING_SOURCE_CHOICES,
 )
 from ..power_input_check import energy_unit_field_errors
+from ..pricing_autodetect import with_detected_profile
 
 
 def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -1582,12 +1583,19 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     # was really built for -- the household's own import and
                     # export price entities, read from HA's Energy Dashboard.
                     # Saved values last, so they always win.
-                    {
-                        **(
-                            await _energy_dashboard_solver_source_suggestions(self.hass)
-                        ),
-                        **dict(self.config_entry.options),
-                    }
+                    # nimbus #1550: a detected LocalVolts v2 profile fills the
+                    # import/export price only where still empty.
+                    with_detected_profile(
+                        self.hass,
+                        {
+                            **(
+                                await _energy_dashboard_solver_source_suggestions(
+                                    self.hass
+                                )
+                            ),
+                            **dict(self.config_entry.options),
+                        },
+                    )
                 )
             ),
         )
@@ -1652,7 +1660,10 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # instead of sixteen to get a working Solver. Nothing is removed.
             data_schema=_collapse_optionals_into_advanced(
                 _solver_sources_schema(
-                    dict(self.config_entry.options),
+                    # nimbus #1550: the price forecast array, P2P matched rate
+                    # and settlement history from a detected LocalVolts v2,
+                    # only where still empty.
+                    with_detected_profile(self.hass, dict(self.config_entry.options)),
                     single_candidates,
                     summable_candidates,
                 )
