@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The Forecaster tab Nimbus adds is a sections view, not a panel, and the
+  Forecaster card sizes itself for sections views.** A panel view holds one card
+  and nothing can be added to it. The added tab is now a 4-column sections view
+  with one full-width section holding two cards, Power Signals and Load
+  Forecasts, and no icon, so the tab shows its title. The card now reports
+  full width to sections views (`getGridOptions`), so added through the UI
+  without `grid_options` it no longer lands as a narrow default tile. A tab an
+  earlier release added as a panel, and that nobody has changed since, is
+  converted to the sections layout in place, keeping its title and path; a tab
+  someone has edited is left alone.
+
 ## [0.94.439] - 2026-10-06
 
 ### Added
