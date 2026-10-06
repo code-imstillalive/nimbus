@@ -21,6 +21,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   sensor (its PR #41) will feed.
 
 ### Fixed
+- **A P2P block's early start fires again: Nimbus solves in each block's
+  start minute.** With a lead time set (`number.nimbus_solver_p2p_block_lead_time_minutes`),
+  a 17:00 block's first minute is 16:59, but the phase-locked cron solves only at
+  :00:30, :05:30, ..., and the price watcher only when a watched price changes, so
+  that minute was planned only if a price update happened to land in it. On the
+  reference household the battery reached the block rate ~30 s early on 1-2 Oct
+  and 14-32 s late on 3-5 Oct. Nothing in Nimbus changed: its LocalVolts writer
+  moved to the v2 API on 3 Oct, an unchanged price stopped changing the sensor's
+  state, and solves fell from ~215 an hour to ~36. Nimbus now also solves at :05
+  in every configured block's start minute (lead time included), read from the
+  live Solver settings each minute, so a block edited on the dashboard takes
+  effect at once. One extra solve per block per day.
 - Forecaster card: the Solver's proposed SoC series is labelled **%**. It inherited
   the plan sensor's own unit, so its legend and header read "70.6 kW". Found in the
   v0.94.438 render check.

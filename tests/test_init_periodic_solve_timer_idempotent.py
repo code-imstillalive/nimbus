@@ -107,6 +107,17 @@ def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
     of the real functions when first written this way (caught by CI).
     """
     unsub_mocks = [MagicMock(name="unsub_1"), MagicMock(name="unsub_2")]
+    cron_unsubs = iter(unsub_mocks)
+    cron_calls = 0
+
+    def _cron_unsub_or_other(_hass, _callback, **kwargs):
+        # Only the phase-locked cron passes `minute=`. The P2P block-start
+        # trigger shares the helper and gets its own throwaway unsub.
+        nonlocal cron_calls
+        if "minute" not in kwargs:
+            return MagicMock(name="other_timer_unsub")
+        cron_calls += 1
+        return next(cron_unsubs)
 
     entry = _make_entry("test_entry_id_211")
     hass = _make_hass()
@@ -143,7 +154,7 @@ def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
             patch.object(
                 nimbus_init,
                 "async_track_utc_time_change",
-                new=MagicMock(side_effect=unsub_mocks),
+                new=MagicMock(side_effect=_cron_unsub_or_other),
             )
         )
 
@@ -153,7 +164,8 @@ def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
         # Captured (not re-read from nimbus_init) BEFORE the ExitStack
         # restores the original async_track_utc_time_change on exit --
         # reading it after would see the unpatched real one instead.
-        call_count = tracker.call_count
+        assert tracker.call_count >= cron_calls
+        call_count = cron_calls
 
     return unsub_mocks[0], unsub_mocks[1], call_count
 

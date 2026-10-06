@@ -89,8 +89,11 @@ def _setup_and_fire_periodic_solve(entry_id: str, run_solve: AsyncMock) -> None:
     hass = _make_hass()
     captured: dict[str, object] = {}
 
-    def _capture(_hass, callback, **_kwargs):
-        captured["callback"] = callback
+    def _capture(_hass, callback, **kwargs):
+        # Only the phase-locked cron passes `minute=`; the P2P block-start
+        # trigger registers on the same helper with `second=` alone.
+        if "minute" in kwargs:
+            captured["callback"] = callback
         return MagicMock()
 
     with ExitStack() as stack:
