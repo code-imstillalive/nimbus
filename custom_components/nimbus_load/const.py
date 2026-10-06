@@ -736,6 +736,13 @@ VALIDATION_HOLDOUT_FRACTION: Final = 0.2
 # not modeled on or tied to any specific downstream consumer.
 ATTR_FORECAST: Final = "forecast"
 ATTR_MODEL_TRAINED_AT: Final = "model_trained_at"
+# nimbus issue #1556: how old the served model is, and since when
+# retraining has been failing (None while retraining succeeds).
+ATTR_MODEL_AGE_DAYS: Final = "model_age_days"
+ATTR_RETRAIN_FAILING_SINCE: Final = "retrain_failing_since"
+# A served model older than this, while retraining keeps failing, is
+# logged once per failure episode (nimbus issue #1556).
+STALE_MODEL_WARN_DAYS: Final = 7
 ATTR_TRAINING_POINTS: Final = "training_points"
 # One of "unscheduled" / "scheduled_ml" / "deterministic" -- see the
 # CONF_EXPECTED_LOAD_KW comment above for what each mode means. Exposed

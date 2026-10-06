@@ -26,6 +26,7 @@ test_coordinator_retrain_task_idempotent.py.
 from __future__ import annotations
 
 import asyncio
+import math
 import sys
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -337,7 +338,7 @@ def test_recorder_source_drops_nan_states():
         return_value={
             "sensor.test_load": [
                 _FakeState("2.0", now - timedelta(hours=2)),
-                _FakeState("nan", now - timedelta(hours=1)),  # dropped
+                _FakeState("nan", now - timedelta(hours=1)),  # gap marker
                 _FakeState("3.0", now),
             ]
         }
@@ -353,8 +354,26 @@ def test_recorder_source_drops_nan_states():
         )
     )
 
+    # nimbus issue #1556: the TRAINING fetch now keeps the NaN as an
+    # explicit gap marker (see coordinator._async_fetch_change_only_history),
+    # so an idle change-only circuit can be held without guessing outages
+    # from gap length. #353's property is that a NaN never becomes a
+    # training row, and that still holds: train_model() resamples a NaN
+    # marker to None (test_1556_change_only_history pins it). The forecast
+    # path's fetch still drops it outright, asserted below.
     values = [v for _, v in result]
-    assert values == [2.0, 3.0], f"NaN state must be dropped, got {values}"
+    assert values[0] == 2.0 and values[2] == 3.0
+    assert math.isnan(values[1]), f"NaN must be a gap marker, got {values}"
+
+    forecast_path = _run(
+        coord._async_fetch_recorder_history(
+            "sensor.test_load",
+            now - timedelta(hours=24),
+            now,
+            convert_power=True,
+        )
+    )
+    assert [v for _, v in forecast_path] == [2.0, 3.0]
 
 
 def test_lts_source_drops_nan_means():

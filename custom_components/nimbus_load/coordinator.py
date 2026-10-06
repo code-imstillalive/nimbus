@@ -22,7 +22,8 @@ import math
 import pickle
 from bisect import bisect_right
 from dataclasses import asdict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +73,7 @@ from .const import (
     SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_TEMPERATURE,
+    STALE_MODEL_WARN_DAYS,
     SUBENTRY_TYPE_SIGNAL,
     TRAINING_SOURCE_HYBRID,
     TRAINING_SOURCE_LTS,
@@ -185,6 +187,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # failed, or after the next one succeeds -- see _async_retrain()'s
         # own try/except for where this is set/cleared.
         self._last_retrain_error: str | None = None
+        # nimbus issue #1556: when retraining started returning no model
+        # (too few usable points), and whether this failure episode has
+        # already been warned about. Both reset when a retrain succeeds.
+        self._retrain_failing_since: datetime | None = None
+        self._stale_model_warned = False
+        # Home Assistant's own downtime inside the current training
+        # window, read once per retrain (_async_fetch_recorder_downtime).
+        self._retrain_downtime: list[tuple[datetime, datetime]] = []
 
         # Confidence-band calibration state (see ml/model.py's own
         # calibrated_band() for the actual math). Deliberately persisted
@@ -667,6 +677,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             end = dt_util.utcnow()
             start = end - timedelta(days=self._train_days)
+            self._retrain_downtime = await self._async_fetch_recorder_downtime(
+                start, end
+            )
 
             load_events = await self._async_fetch_training_history(
                 self._load_sensor,
@@ -778,9 +791,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # residual-drift WARNING below uses it, and that line is
                 # readable precisely because it is attributed.
                 self.subentry.title,
+                self._change_only_from(start, end),
             )
+            if trained is None:
+                self._note_retrain_without_model()
             if trained is not None:
                 self._trained = trained
+                # nimbus issue #1556: a model again, so the failure episode ends.
+                self._retrain_failing_since = None
+                self._stale_model_warned = False
                 # nimbus issue #373: a genuine success clears any prior
                 # failure -- a stale error attribute lingering after the
                 # problem is actually fixed would be its own false alarm.
@@ -838,9 +857,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         opt into lts or hybrid via the options form.
         """
         source = self._training_source
-        if binary or source == TRAINING_SOURCE_RECORDER:
+        if binary:
             return await self._async_fetch_recorder_history(
-                entity_id, start, end, convert_power=convert_power, binary=binary
+                entity_id, start, end, convert_power=convert_power, binary=True
+            )
+        if source == TRAINING_SOURCE_RECORDER:
+            return await self._async_fetch_change_only_history(
+                entity_id, start, end, convert_power=convert_power
             )
         if source == TRAINING_SOURCE_LTS:
             return await self._async_fetch_lts_history(
@@ -855,10 +878,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Guard against a config with recent_days >= train_days -- degrades
             # gracefully to pure recorder rather than fetching an empty LTS range.
             if recent_start <= start:
-                return await self._async_fetch_recorder_history(
+                return await self._async_fetch_change_only_history(
                     entity_id, start, end, convert_power=convert_power
                 )
-            recent = await self._async_fetch_recorder_history(
+            recent = await self._async_fetch_change_only_history(
                 entity_id, recent_start, end, convert_power=convert_power
             )
             older = await self._async_fetch_lts_history(
@@ -875,8 +898,132 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             source,
             entity_id,
         )
-        return await self._async_fetch_recorder_history(
-            entity_id, start, end, convert_power=convert_power, binary=binary
+        return await self._async_fetch_change_only_history(
+            entity_id, start, end, convert_power=convert_power
+        )
+
+    def _change_only_from(self, start: datetime, end: datetime) -> datetime | None:
+        """Where this retrain's history becomes change-only recorder data
+        (nimbus issue #1556) -- see ml/model.py train_model()'s own
+        `change_only_from`. The window start for the recorder source, the
+        start of the recent recorder segment for hybrid, None for LTS,
+        whose hourly buckets keep #350's one-observation-per-bucket rule.
+        Mirrors _async_fetch_training_history()'s own source routing.
+        """
+        source = self._training_source
+        if source == TRAINING_SOURCE_LTS:
+            return None
+        if source == TRAINING_SOURCE_HYBRID:
+            recent_start = end - timedelta(days=self._hybrid_recent_days)
+            return max(start, recent_start)
+        return start
+
+    async def _async_fetch_change_only_history(
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        convert_power: bool = False,
+    ) -> list[tuple[datetime, float]]:
+        """Recorder history for TRAINING, with every outage marked
+        explicitly (nimbus issue #1556): an `unavailable`/`unknown` state
+        becomes a NaN gap marker instead of being dropped, and so does the
+        end of every Home Assistant run that this window spans
+        (self._retrain_downtime). With outages explicit, ml/model.py can
+        treat a value held between recorder rows as a real observation --
+        which is what a change-only source means -- instead of guessing an
+        outage from the length of a gap.
+
+        The forecast path (recent lag values) still uses
+        _async_fetch_recorder_history() without markers: predict() wants
+        real readings only, and has no training grid to mark gaps on.
+        """
+        events = await self._async_fetch_recorder_history(
+            entity_id, start, end, convert_power=convert_power, gap_markers=True
+        )
+        markers = [
+            (dt_util.as_local(gap_start), math.nan)
+            for gap_start, _gap_end in getattr(self, "_retrain_downtime", [])
+            if start <= gap_start < end
+        ]
+        if not markers:
+            return events
+        return sorted(events + markers, key=lambda e: e[0])
+
+    async def _async_fetch_recorder_downtime(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[datetime, datetime]]:
+        """Home Assistant's own downtime inside [start, end): the gaps
+        between consecutive recorder runs (nimbus issue #1556). The recorder
+        ends every run with a timestamp, including after a crash (it closes
+        an incomplete run at the next start), so a gap between one run's end
+        and the next run's start is a period nothing was recorded, which
+        training must not treat as a held value.
+
+        One read-only query per retrain, shared by every series. Any failure
+        degrades to "no downtime known", logged at debug, never a crash:
+        `unavailable`/`unknown` states are still marked either way.
+        """
+
+        def _fetch() -> list[tuple[datetime, datetime]]:
+            # Deferred imports, same reasoning as the rest of this module's
+            # recorder access: keeps unit tests free of recorder internals.
+            from homeassistant.components.recorder.db_schema import RecorderRuns
+            from homeassistant.components.recorder.util import session_scope
+
+            with session_scope(hass=self.hass, read_only=True) as session:
+                runs = (
+                    session.query(RecorderRuns.start, RecorderRuns.end)
+                    .filter(RecorderRuns.start < end)
+                    .order_by(RecorderRuns.start.asc())
+                    .all()
+                )
+            gaps: list[tuple[datetime, datetime]] = []
+            for (_s1, e1), (s2, _e2) in pairwise(runs):
+                if e1 is None or s2 is None:
+                    continue
+                e1 = dt_util.as_utc(e1)
+                s2 = dt_util.as_utc(s2)
+                if s2 > e1 and s2 > start and e1 < end:
+                    gaps.append((e1, s2))
+            return gaps
+
+        try:
+            return await get_instance(self.hass).async_add_executor_job(_fetch)
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus: could not read recorder runs; training without "
+                "downtime markers",
+                exc_info=True,
+            )
+            return []
+
+    def _note_retrain_without_model(self) -> None:
+        """A retrain returned no model (nimbus issue #1556): record since
+        when, and warn once per episode if the model still being served is
+        older than STALE_MODEL_WARN_DAYS. Before this, a load whose retrain
+        kept failing was served its last model indefinitely and silently --
+        on the reference household, a 4 Sep winter heater model, still
+        forecasting 3.3 kW a month later.
+        """
+        if getattr(self, "_retrain_failing_since", None) is None:
+            self._retrain_failing_since = datetime.now(UTC)
+        if getattr(self, "_trained", None) is None or getattr(
+            self, "_stale_model_warned", False
+        ):
+            return
+        age_days = _model_age_days(self._trained.trained_at)
+        if age_days is None or age_days < STALE_MODEL_WARN_DAYS:
+            return
+        self._stale_model_warned = True
+        _LOGGER.warning(
+            "%s: retraining has produced no model since %s; still serving the "
+            "model trained %.0f days ago, which may no longer reflect this "
+            "load. See the log for why training was skipped.",
+            self.subentry.title,
+            dt_util.as_local(self._retrain_failing_since).isoformat(timespec="minutes"),
+            age_days,
         )
 
     async def _async_fetch_recorder_history(
@@ -887,6 +1034,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         convert_power: bool = False,
         binary: bool = False,
+        gap_markers: bool = False,
     ) -> list[tuple[datetime, float]]:
         """Fetch recorder history for one entity, in-process -- no REST call,
         no token, identical on HAOS/Supervised/Docker. Goes through the
@@ -933,6 +1081,11 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     value = float(s.state)
                 except (TypeError, ValueError):
+                    # nimbus issue #1556: for training, an unavailable /
+                    # unknown state is an explicit gap marker, not a
+                    # silent hole -- see _async_fetch_change_only_history().
+                    if gap_markers:
+                        out.append((dt_util.as_local(s.last_changed), math.nan))
                     continue
                 # nimbus issue #353 (Mark Purcell): float("nan") does not
                 # raise, so a template/REST/Modbus sensor without a numeric
@@ -947,8 +1100,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # returns 0.0 for every step (max(0.0, nan) == 0.0) --
                 # silently, with no error, until the next successful
                 # retrain overwrites the poisoned pickle. Dropped here,
-                # same as an unparseable state already is.
+                # same as an unparseable state already is. (#1556: as a
+                # gap marker when training asks for them -- a marker never
+                # becomes a training row, see ml/model.py
+                # resample_last_value().)
                 if not math.isfinite(value):
+                    if gap_markers:
+                        out.append((dt_util.as_local(s.last_changed), math.nan))
                     continue
                 if convert_power:
                     unit = s.attributes.get("unit_of_measurement")
@@ -1844,7 +2002,26 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "model_schema_stale": self._trained.schema_version
             != TRAINED_MODEL_SCHEMA_VERSION,
             "last_retrain_error": self._last_retrain_error,
+            # nimbus issue #1556
+            "model_age_days": (
+                round(age, 1)
+                if (age := _model_age_days(self._trained.trained_at)) is not None
+                else None
+            ),
+            "retrain_failing_since": (
+                dt_util.as_local(self._retrain_failing_since).isoformat()
+                if getattr(self, "_retrain_failing_since", None)
+                else None
+            ),
         }
+
+
+def _model_age_days(trained_at: datetime | None) -> float | None:
+    """Days since `trained_at` (nimbus issue #1556), or None if unknown.
+    Plain datetime arithmetic: a model's age needs no timezone context."""
+    if not isinstance(trained_at, datetime) or trained_at.tzinfo is None:
+        return None
+    return (datetime.now(UTC) - trained_at.astimezone(UTC)).total_seconds() / 86400
 
 
 def _train_model_job(
@@ -1861,6 +2038,7 @@ def _train_model_job(
     solar_events: list[tuple[datetime, float]],
     max_staleness_minutes: float | None = None,
     label: str | None = None,
+    change_only_from: datetime | None = None,
 ) -> TrainedModel | None:
     """Plain function (not a bound method) so it's cleanly picklable/callable
     from hass.async_add_executor_job without capturing `self`.
@@ -1886,6 +2064,9 @@ def _train_model_job(
         solar_events=solar_events,
         max_staleness_minutes=max_staleness_minutes,
         label=label,
+        change_only_from=(
+            dt_util.as_local(change_only_from) if change_only_from else None
+        ),
     )
 
 
