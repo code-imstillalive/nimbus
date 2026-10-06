@@ -10,6 +10,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [0.94.440] - 2026-10-06
 
+- **Same-day release, by household decision.** #1557, #1560 and #1567 change LP
+  inputs (load forecasts, the P2P matched rate without blocks, and the load
+  horizon), which the release process holds overnight. The household waived the
+  hold on 6 Oct 2026: "go ahead with 440 today" and "keep going till u got the
+  bug and this latest adjustment released and cut".
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 8c47916**,
+  installed untagged via HACS (`installed_version: 8c47916`) and restarted
+  16:00 AEST 6 Oct, with Nimbus logging at debug from 16:00:49. Solves at
+  16:04:00 and 16:04:43 both `optimal`, batteries `['home', 'Test EV']`. HiGHS
+  took 20.5 s and 19.7 s; devhub's test EV is a MIP, while production solves in
+  about 1 s. No Nimbus `Traceback`, no `solve cycle failed`. **#1567:** devhub's
+  saved horizon is 48 h, and its load forecasts went from 193 points ending
+  16:00 on 8 Oct (48 h) to 389 points ending 16:59 on 10 Oct (97 h) with
+  nothing changed in its settings. **#1557:** every devhub load model
+  is at most 0.5 days old, with `model_age_days` and `retrain_failing_since`
+  published (empty). The boot-time "does not generate unique IDs" errors (187
+  Nimbus, 19 cast) are devhub's mirrored registry: production's log has none
+  since its 13:04 restart, and this release adds no entities. **Not observed:**
+  the #1562 energy-unit and #1564 fee notifications, because devhub has neither
+  condition (its import price is the v1 flex-up sensor and its power sensors
+  report W/kW).
+- Consumer check: an install left at the 48 h Forecaster default now plans days
+  3-4 on a real load forecast instead of one held value. Idle circuits stop
+  forecasting a phantom load after their next retrain. A LocalVolts v2 install
+  is pre-filled and told about empty pricing fields, and is warned if network
+  fees are set on top of Buy Flex Up. A Wh/kWh sensor in a power field is
+  refused, named at startup, and ignored as a feature. Without P2P blocks, P2P
+  is priced wherever LocalVolts' forecast shows a match. The Forecaster tab
+  Nimbus adds is a sections view.
+
 ### Added
 - **LocalVolts v2 is detected and the Solver's pricing is pre-filled from it**
   ([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)). With
