@@ -105,6 +105,12 @@ views:
         column_span: 4
         cards:
           - type: custom:nimbus-forecast-card
+            chart: signals
+            grid_options:
+              columns: full
+              rows: auto
+          - type: custom:nimbus-forecast-card
+            chart: loads
             grid_options:
               columns: full
               rows: auto
@@ -230,7 +236,10 @@ built automatically for any install. Needs **ApexCharts Card**
 **You do not have to add it.** On startup Nimbus adds a **Forecaster** tab
 to your Nimbus dashboard (any dashboard already holding a Nimbus card), next
 to Control Panel, Topology and Regret. It appends that one view and changes
-nothing else. If you already have your own view called "Forecaster", that
+nothing else. The tab is a **sections** view (4 columns) with one full-width
+section holding two cards, Power Signals and Load Forecasts, so you can add
+your own sections and cards beside them. It is never a panel view, which
+would hold one card and nothing else. If you already have your own view called "Forecaster", that
 view is left alone and the new tab is called **Nimbus Forecaster**. A
 dashboard that already shows this card is skipped. The tab is added once per
 dashboard (delete it and it stays deleted), and YAML-mode dashboards are left
@@ -251,10 +260,22 @@ entities each time the dashboard loads, so a new Load appears by itself.
 - Measured lines come from each forecast's own source sensor; a source in W
   is converted to kW. Axes size themselves to your system.
 
+To add it to a view of your own, add it **as a card** in a sections view
+(**+ Add card** → Manual), one card per chart. The card sizes itself full
+width; `grid_options` is only needed to override that:
+
 ```yaml
 type: custom:nimbus-forecast-card
-chart: both   # optional: both (default), signals or loads
+chart: signals   # optional: both (default), signals or loads
+grid_options:
+  columns: full
+  rows: auto
 ```
+
+Paste it as a card, not as a section, and do not wrap it in a `type: grid`
+card: inside a card editor `type: grid` is Home Assistant's Grid card, which
+lays its children out in narrow columns. For a section that wide, set the
+view's max columns to 4.
 
 ## Nimbus Topology Card (`custom:nimbus-topology-card`) — "Topology"
 

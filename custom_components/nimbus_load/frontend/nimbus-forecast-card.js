@@ -78,6 +78,13 @@ class NimbusForecastCard extends HTMLElement {
     return this._which === "both" ? 20 : 12;
   }
 
+  // Sections views size a card from this. Without it Home Assistant gives a
+  // card a small default tile, which squeezes these wide charts into a
+  // narrow column. Full width, height from the content.
+  getGridOptions() {
+    return { columns: "full", rows: "auto", min_columns: 6 };
+  }
+
   set hass(hass) {
     this._hass = hass;
     if (!customElements.get("apexcharts-card")) {
@@ -361,7 +368,7 @@ class NimbusForecastCard extends HTMLElement {
   _build(f) {
     const root = this.shadowRoot;
     root.innerHTML =
-      "<style>:host{display:block}.wrap{display:flex;flex-direction:column;gap:12px}" +
+      "<style>:host{display:block;width:100%}.wrap{display:flex;flex-direction:column;gap:12px;width:100%}.wrap>*{display:block;width:100%}" +
       ".empty{padding:16px;color:var(--secondary-text-color);font-size:13px}</style><div class=\"wrap\"></div>";
     const wrap = root.querySelector(".wrap");
     this._charts = [];

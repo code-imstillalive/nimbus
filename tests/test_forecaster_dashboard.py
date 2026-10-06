@@ -124,6 +124,33 @@ def ha(monkeypatch):
     return types.SimpleNamespace(hass=hass, dashboards=dashboards, key=key)
 
 
+EXPECTED_CARDS = [
+    {
+        "type": "custom:nimbus-forecast-card",
+        "chart": "signals",
+        "grid_options": {"columns": "full", "rows": "auto"},
+    },
+    {
+        "type": "custom:nimbus-forecast-card",
+        "chart": "loads",
+        "grid_options": {"columns": "full", "rows": "auto"},
+    },
+]
+
+
+def _assert_forecaster_sections_view(view) -> None:
+    """A sections view, never a panel (household, 6 Oct 2026: a panel view
+    takes one card and nothing else can be added to it): one full-width
+    section holding one full-width card per chart."""
+    assert view["type"] == "sections"
+    assert view["max_columns"] == 4
+    assert "cards" not in view
+    assert "icon" not in view
+    assert view["sections"] == [
+        {"type": "grid", "column_span": 4, "cards": EXPECTED_CARDS}
+    ]
+
+
 def _run(mod, hass):
     return asyncio.run(mod.async_add_forecaster_view(hass))
 
@@ -138,7 +165,7 @@ def test_adds_a_forecaster_tab_to_the_nimbus_dashboard_only(ha) -> None:
         "Topology",
         "Forecaster",
     ]
-    assert views[-1]["cards"] == [{"type": "custom:nimbus-forecast-card"}]
+    _assert_forecaster_sections_view(views[-1])
     # A dashboard with no Nimbus card is not touched.
     assert ha.dashboards[None].saves == 0
 
@@ -178,7 +205,7 @@ def test_own_forecaster_view_gets_a_nimbus_forecaster_tab_beside_it(ha) -> None:
     assert views[0] == mine
     assert views[-1]["title"] == "Nimbus Forecaster"
     assert views[-1]["path"] == "nimbus-forecaster"
-    assert views[-1]["cards"] == [{"type": "custom:nimbus-forecast-card"}]
+    _assert_forecaster_sections_view(views[-1])
 
 
 def test_once_per_dashboard_even_after_the_tab_is_deleted(ha) -> None:
@@ -258,3 +285,50 @@ def test_added_view_has_a_title_and_no_icon():
         view = fd._view_for(spec, [])
         assert "icon" not in view
         assert view["title"] == spec["title"]
+
+
+def test_an_untouched_panel_tab_from_an_earlier_release_becomes_sections(ha) -> None:
+    """Earlier releases added the tab as a panel view holding just the card.
+    It is converted in place, keeping its title and path, and only once."""
+    mod = _load_module()
+    old = copy.deepcopy(NIMBUS_DASH)
+    old["views"].append(
+        {
+            "title": "Forecaster Charts",
+            "path": "forecaster",
+            "type": "panel",
+            "cards": [{"type": "custom:nimbus-forecast-card"}],
+        }
+    )
+    dash = ha.dashboards["dashboard-nimbus"]
+    dash.config = old
+    _run(mod, ha.hass)
+    view = dash.config["views"][-1]
+    assert view["title"] == "Forecaster Charts"
+    assert view["path"] == "forecaster"
+    _assert_forecaster_sections_view(view)
+    assert dash.config["views"][:3] == NIMBUS_DASH["views"]
+    saves = dash.saves
+    _run(mod, ha.hass)
+    assert dash.saves == saves  # already sections: nothing more to do
+
+
+def test_an_edited_panel_tab_is_left_alone(ha) -> None:
+    mod = _load_module()
+    edited = copy.deepcopy(NIMBUS_DASH)
+    mine = {
+        "title": "Forecaster Charts",
+        "path": "forecaster",
+        "type": "panel",
+        "cards": [
+            {
+                "type": "grid",
+                "cards": [{"type": "custom:nimbus-forecast-card", "chart": "loads"}],
+            }
+        ],
+    }
+    edited["views"].append(mine)
+    dash = ha.dashboards["dashboard-nimbus"]
+    dash.config = edited
+    _run(mod, ha.hass)
+    assert dash.config["views"][-1] == mine
