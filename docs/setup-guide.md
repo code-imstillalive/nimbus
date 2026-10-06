@@ -265,7 +265,9 @@ Do not select a forecast or an optimiser output as its source.
 1. On the Nimbus device page: **+ Add → Power Signal**.
 2. Dialog: **"Add a power signal"**.
 3. **🔴 Sensor to forecast** → your **whole-house power sensor**.
-4. **Role** → leave as **Other**. (Role only affects the topology diagram.)
+4. **Role** → leave as **Other**. (Battery, Solar and Grid mark a signal for the dashboard
+   cards and keep it out of the Solver's household-load list.
+   [§16](#16-the-topology-diagram) shows which roles the topology diagram reads.)
 5. Submit.
 
 ![The Add a power signal dialog, with Role left as Other](images/setup/add-power-signal.png)
@@ -692,7 +694,7 @@ there is nothing to copy into `www/` and no resource to register by hand.
 | Card | Shows |
 |---|---|
 | **Control Panel** (`custom:nimbus-dispatch-card-v4`) | The live plan: what it is doing now, why, prices, SoC, upcoming schedule |
-| **Topology** (`custom:nimbus-topology-card`) | An animated diagram of power flowing between solar, battery, house and grid |
+| **Topology** (`custom:nimbus-topology-card`) | An animated diagram of power flowing between solar, battery, house and grid. Set it up with [§16](#16-the-topology-diagram) |
 | **Regret** (`custom:nimbus-regret-card`) | Yesterday's score: what the plan captured vs what perfect foresight would have |
 | **Forecaster** (`custom:nimbus-forecast-card`) | The Power Signals and Load Forecasts charts, built automatically from your own Loads and Power Signals |
 
@@ -787,7 +789,8 @@ Its ARMED/OFF toggle controls the helper configured as `armed_entity`.
 ![Nimbus Topology view](images/setup/topology.png)
 
 The Topology view illustrates a two-inverter system with four battery towers.
-Its detail depends on the sensors and topology metadata you configure.
+Its detail depends on the entries you add. [§16](#16-the-topology-diagram) shows
+which entry draws which part, and why a new install's diagram is nearly empty.
 
 ![Nimbus Regret view](images/setup/regret.png)
 
@@ -914,7 +917,8 @@ Examples include hot water, a pool pump and an EV charger.
 | Expected power while running (kW) | Used with a schedule. Enter the equipment's actual power. |
 
 **Expected outcome:** `sensor.nimbus_<name>_forecast` per load, plus the whole-house
-roll-up `sensor.nimbus_household_load_total_forecast`.
+roll-up `sensor.nimbus_household_load_total_forecast`. Each Load also gets its own
+tile on the topology diagram, with no further setup ([§16](#16-the-topology-diagram)).
 
 > **Load vs Power Signal.** A **Load** is one appliance or circuit. A **Power
 > Signal** is a whole-system quantity (total battery power, total solar, the grid
@@ -1052,15 +1056,186 @@ card fills in.
 
 ## 16. The topology diagram
 
-Use **Configure → Topology diagram settings** for the card's display settings.
-Add **Power Source**, **PV String** and **Battery Tower** entries for its layout.
-These entries describe the diagram, not Solver equipment limits.
+The Topology card ([§9](#9-put-a-dashboard-on-it)) draws your switchboard:
+inverters with their PV strings and battery towers on the left, one tile per Load
+on the right, and the grid above. It builds that picture from your Nimbus entries,
+not from the card's YAML. The documented card config stays `switchboard: {}` and
+`inverters: []`.
 
-Nimbus detects configured power sources and Loads for the diagram.
-Use the "today's kWh" fields for your daily energy sensors or `utility_meter` helpers.
+> **The diagram is not built from your Energy dashboard.** You add each entry
+> below by hand. A few form fields are pre-filled from the Energy dashboard: see
+> [What is pre-filled for you](#what-is-pre-filled-for-you).
 
-Add one **Power Source** per inverter.
-Add **PV String** and **Battery Tower** entries for additional detail.
+### What the diagram reads
+
+| Part of the diagram | Comes from | How to add it |
+|---|---|---|
+| Inverter bar: name, DC power, battery flow | A **Power Source** entry | **+ Add → Power Source** |
+| Solar: one box per string | A **PV String** entry assigned to a Power Source | **+ Add → PV String** |
+| Battery: one box per tower, with SoC | A **Battery Tower** entry assigned to a Power Source | **+ Add → Battery Tower** |
+| One tile per appliance, live and forecast | Every **Load** ([§12](#12-loads--learn-one-appliance-at-a-time)), automatically | **+ Add → Load** |
+| Grid box: live power and arrow direction | The **Power Signal** whose **Role** is **Grid** | **+ Add → Power Signal**, Role **Grid** |
+| Battery share of the switchboard colour | The Power Signal whose Role is **Battery** | **+ Add → Power Signal**, Role **Battery** |
+| Buy and sell price on the Grid box | The Solver's import and export price fields ([§6](#screen-2-of-3--solver-grid-prices)) | Nothing extra |
+| Today's kWh figures | **Configure → Topology diagram settings** | Optional: step 8 below |
+| Whole-house headline, live / forecast | A `whole_house:` block in the card's YAML | Step 7 below |
+
+The diagram does **not** read:
+
+- **The whole-house Power Signal from [§5](#create-the-whole-house-load-signal).**
+  Its Role is Other, and the diagram uses only the Grid and Battery roles. Show the
+  house with step 7.
+- Power Signals with Role **Solar**, **Other**, **Temperature** or **Humidity**.
+  Solar on the diagram comes from PV Strings. Power Signals, including the
+  whole-house one, appear on the Forecaster card instead
+  ([§9](#9-put-a-dashboard-on-it)).
+- Controllable Loads ([§13](#13-controllable-loads--let-nimbus-switch-things)). Only
+  Loads get a tile.
+
+### What you see after Part 1
+
+Part 1 adds no topology entries. What the card draws then depends on screen 3 of
+the Solver wizard ([§6](#screen-3-of-3--solver-solar--load-forecasts)):
+
+- **You filled in the measured solar or battery power sensor** (the quality-score
+  fields, [§15](#15-the-daily-quality-score)): Nimbus draws a stand-in inverter
+  named **Nimbus**. It has a PV string from the solar sensor, if you set one, and
+  a battery tower from the Solver's SoC sensor.
+- **You left both blank:** there is no inverter to draw, so the card shows the
+  empty-state banner (below).
+
+Each Battery Participant ([§14](#14-battery-participants--a-second-battery-or-an-ev))
+adds a stand-in inverter and tower of its own, so with one there is no banner.
+
+Either way, the Grid box shows `—` until a Grid-role Power Signal exists
+(step 1), and there are no Load tiles until you add a Load (step 6).
+
+> **The stand-in disappears when you add any real Power Source, PV String or
+> Battery Tower.** Nimbus never mixes real and stand-in entries. Add the Power
+> Source first: a PV String or Battery Tower on its own replaces the stand-in with
+> an empty diagram.
+
+### The empty-state banner
+
+When the card has no inverter to draw, it shows this banner:
+
+> No topology configured. Nimbus hub → Configure → add a Power Source, PV Strings
+> and Battery Towers; this card fills in automatically.
+
+It means there is no Power Source entry and no stand-in. Load tiles and the Grid
+box still draw underneath it. Despite its wording, Power Source, PV String and
+Battery Tower are **+ Add** buttons on the Nimbus integration page
+([§4](#4-add-the-integration)), not items in the **Configure** menu.
+
+The banner also appears on a Nimbus release without `sensor.nimbus_topology_config`,
+or when that entity is disabled.
+
+### What is pre-filled for you
+
+Nimbus reads Home Assistant's Energy dashboard configuration in three forms:
+
+| Form | Fields it pre-fills | From the Energy dashboard's |
+|---|---|---|
+| **Configure → Topology diagram settings** | Import, export and solar energy today; battery charged and discharged today; the two fallback price fields | Grid, solar and battery energy sources, and the grid's price entities |
+| **Configure → Solver settings**, screens 1 and 2 | Battery State of Charge; import and export price | Battery SoC entity; the grid's price entities |
+| **+ Add → Battery Tower** | State of Charge sensor | The first battery source whose SoC entity reads in % |
+
+These are suggestions. They fill only empty fields, you can change them, and
+nothing is saved until you submit the form. A saved value is never overwritten.
+
+Not pre-filled: **House load energy today**. No Power Source, PV String, Load or
+Power Signal entry is created from the Energy dashboard, and those forms are not
+pre-filled from it. That is tracked in
+[#1528](https://github.com/code-imstillalive/nimbus/issues/1528).
+
+> **Check the kWh suggestions.** The Energy dashboard usually holds lifetime
+> totals. These fields want energy for today. If a suggested sensor does not reset
+> at midnight, create a daily **Utility Meter** helper from it (**Settings →
+> Devices & Services → Helpers**) and select the helper instead.
+
+Detected without any entry or setting: Load tiles, the Grid-role and Battery-role
+Power Signals, the Solver's prices, and the stand-in inverter.
+
+### Build a complete diagram
+
+These steps end with a diagram that shows solar, battery, house, grid and at
+least one Load. Do them in order. Steps 1 to 6 use the **+ Add** buttons on the
+Nimbus integration page ([§4](#4-add-the-integration)).
+
+1. **Grid.** **+ Add → Power Signal**.
+   - **🔴 Sensor to forecast** → your measured grid power sensor, W or kW. Positive
+     must mean importing, negative exporting.
+   - **Role** → **Grid**.
+
+   One sensor can back only one Load or Power Signal. If an entry already uses
+   your grid sensor, reconfigure that entry and set its Role instead.
+2. **Battery flow (optional).** **+ Add → Power Signal** on your measured total
+   battery power sensor, positive = discharging, with **Role** → **Battery**. It
+   colours the switchboard by the battery's share of the supply.
+3. **Inverter.** **+ Add → Power Source**, once per inverter.
+   - **🔴 Name**: the label shown on the diagram.
+   - **Battery power sensor**: this inverter's own battery power, positive =
+     discharging. Leave blank for a solar-only inverter.
+   - **Total DC power sensor**: optional. Without it, an inverter passing solar
+     through to a full battery can look idle.
+
+   Add the Power Source before its strings and towers. Their forms list only Power
+   Sources that already exist.
+4. **Solar.** **+ Add → PV String**, once per string.
+   - **🔴 Power sensor for this string**: a string-level sensor, not the
+     inverter's total.
+   - **Label on the diagram**: optional.
+   - **Power Source this string is wired through** → your inverter. A PV String
+     without a Power Source is saved but not drawn.
+5. **Battery.** **+ Add → Battery Tower**, once per tower. Every field is
+   optional, but set these two:
+   - **State of Charge sensor (%)**: can be pre-filled from the Energy dashboard.
+     The tower takes its name from this sensor's name.
+   - **Power Source this tower belongs to** → your inverter.
+
+   > The form says you can leave the Power Source blank when you have only one.
+   > The diagram does not draw a tower without one, so select it anyway.
+6. **A Load.** **+ Add → Load**, as in
+   [§12](#12-loads--learn-one-appliance-at-a-time). Its tile appears as soon as its
+   forecast entity exists, before training finishes. Keep the forecast's default
+   entity ID: the card finds Loads by the `sensor.nimbus_<your_sensor_name>_forecast`
+   pattern and reads the live value from the source sensor named inside it.
+7. **House.** In the dashboard editor, open the Topology card's YAML and add a
+   `whole_house` block:
+
+   ```yaml
+   type: custom:nimbus-topology-card
+   switchboard: {}
+   inverters: []
+   whole_house:
+     live: sensor.<your_sensor_name>
+     forecast: sensor.nimbus_<your_sensor_name>_forecast
+   ```
+
+   `live` is the measured whole-house power sensor you chose in
+   [§5](#create-the-whole-house-load-signal). `forecast` is the forecast that
+   Power Signal created. Use your actual entity IDs.
+8. **Today's kWh (optional).** **Configure → Topology diagram settings**. Every
+   field is optional, and submitting the form blank is valid.
+   - Import and export energy today appear on the Grid box.
+   - Solar, battery charged, battery discharged and house load today appear in the
+     whole-house headline, so they need step 7.
+   - The diagram reads these fields only once it has an inverter, real or stand-in.
+   - The two price fields are a fallback. The card uses them only when the
+     Solver's own price fields are empty.
+
+**Expected outcome:** the Grid box at the top with live power, buy and sell
+prices, and today's kWh after step 8; your inverter with its strings and towers on
+the left; a tile per Load on the right; the whole-house headline at the top left;
+no banner.
+
+If an entry does not appear, refresh the browser page. Then open
+`sensor.nimbus_topology_config` in **Developer Tools → States**. Its state is the
+number of inverters the card can draw, and its attributes list every Power Source,
+PV String and Battery Tower it read.
+
+The card's own YAML options are in the
+[Topology card reference](dashboards.md#nimbus-topology-card-customnimbus-topology-card--topology).
 
 ## 17. Tuning knobs
 
