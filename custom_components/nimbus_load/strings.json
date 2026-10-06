@@ -520,5 +520,23 @@
       "name": "Flex telemetry record",
       "description": "Return the current nem-flex-telemetry schema v2.0 record for the last complete NEM 5-minute interval, built entirely from Nimbus's own entities and last solve. Reads what sensor.nimbus_flex_telemetry already published rather than rebuilding it, so a caller and a dashboard can never disagree about the same interval. Needs switch.nimbus_solver_flex_signals_enabled on: it is off by default and costs roughly 9x solve time when on, because the schema's required flexibility fields come from HiGHS ranging."
     }
+  },
+  "issues": {
+    "forecast_not_trained": {
+      "title": "Nimbus: no forecast yet for {name}",
+      "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
+    },
+    "energy_unit_power_input": {
+      "title": "Nimbus: an energy total is set where a power sensor is needed",
+      "description": "These settings point at an energy counter (Wh/kWh), but Nimbus needs a power sensor (W or kW):\n\n{inputs}\n\nPick the matching power sensor (most inverters and meters expose both) in Nimbus → Configure, or reconfigure the Load / Power Signal. This message clears itself once fixed."
+    },
+    "fees_on_top_of_flex_up": {
+      "title": "Nimbus: network fees are counted twice",
+      "description": "Your import price is `{flex_up}` (LocalVolts v2 Buy Flex Up), which already includes your network and flat fees. Nimbus also adds its own fees on top ({fees}), so the plan sees grid energy as dearer than it is and imports less than it should. Set those fee rates to 0 on the Solver dashboard, or in Configure → Solver settings. This message clears itself once they are 0."
+    },
+    "solver_input_missing": {
+      "title": "Nimbus: the Solver is missing an input",
+      "description": "The Solver cannot plan properly without: **{inputs}**. Set them in Nimbus → Configure → Solver settings. This message clears itself once they are set."
+    }
   }
 }

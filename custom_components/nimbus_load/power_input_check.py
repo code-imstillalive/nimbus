@@ -168,21 +168,16 @@ def find_energy_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, str]]
 
 
 async def async_notify_energy_unit_inputs(hass: Any, entry: Any) -> None:
-    """Create, or dismiss, the startup notification. Never raises."""
+    """Log each energy-unit power input, and dismiss the notification earlier
+    releases raised for it. Never raises.
+
+    nimbus #1574 stage 2: the household-facing report is now a Home Assistant
+    Repair (setup_health.py, `energy_unit_power_input`), which clears itself
+    once fixed. The notification is dismissed so an install upgrading from
+    0.94.440 is not left with a stale one.
+    """
     try:
-        found = find_energy_unit_inputs(hass, entry)
-        if not found:
-            await hass.services.async_call(
-                "persistent_notification",
-                "dismiss",
-                {"notification_id": NOTIFICATION_ID},
-                blocking=False,
-            )
-            return
-        listed = "\n".join(
-            f"- {label}: `{eid}` reports **{unit}**" for label, eid, unit in found
-        )
-        for label, eid, unit in found:
+        for label, eid, unit in find_energy_unit_inputs(hass, entry):
             _LOGGER.warning(
                 "Nimbus: %s is %s, which reports '%s' -- an energy counter, "
                 "not a power sensor (W or kW)",
@@ -192,22 +187,8 @@ async def async_notify_energy_unit_inputs(hass: Any, entry: Any) -> None:
             )
         await hass.services.async_call(
             "persistent_notification",
-            "create",
-            {
-                "notification_id": NOTIFICATION_ID,
-                "title": "Nimbus: energy sensor where a power sensor is needed",
-                "message": (
-                    "These settings point at an energy counter (Wh/kWh), but "
-                    "Nimbus needs a power sensor (W or kW):\n\n"
-                    f"{listed}\n\n"
-                    "An energy total cannot be read as power. A Battery, Grid "
-                    "or Solar sensor like this is ignored until it is changed; "
-                    "a Load or Power Signal cannot forecast correctly from it. "
-                    "Pick the matching power sensor (most inverters and meters "
-                    "expose both) in Nimbus settings, or reconfigure the Load / "
-                    "Power Signal."
-                ),
-            },
+            "dismiss",
+            {"notification_id": NOTIFICATION_ID},
             blocking=False,
         )
     except Exception:
