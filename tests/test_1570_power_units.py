@@ -142,6 +142,45 @@ def _js_scale_fn(card: str) -> str:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
+def test_forecast_card_history_preserves_case_through_the_real_call_site():
+    """IV&V 2026-10-06: powerScaleToKw() itself gets "mW" vs "MW" right (see
+    test_card_js_matches_python below), but _history() used to lowercase the
+    unit strings before calling it -- defeating that exact-case check at the
+    one call site among the four that share this table which did so. A
+    milliwatt source behind a milliwatt forecast must come out as a 1:1
+    series (both scale by the same 1e-6), not read as a megawatt-vs-
+    milliwatt mismatch."""
+    src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
+    assert ".toLowerCase()" not in src[src.index("_history(s, name") :][:600], (
+        "unit/fu must stay raw-case before powerScaleToKw() -- it does its "
+        "own case handling"
+    )
+    scale_fn = _js_scale_fn("nimbus-forecast-card.js")
+    script = (
+        scale_fn
+        + "\nfunction historyScale(srcUnit, forecastUnit) {"
+        + "  const unit = srcUnit || '';"
+        + "  const fu = forecastUnit || '';"
+        + "  return f(unit) / f(fu);"
+        + "}"
+        + "\nconsole.log(JSON.stringify(["
+        + "  historyScale('mW', 'mW'),"
+        + "  historyScale('mW', 'kW'),"
+        + "]));"
+    )
+    out = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True
+    )
+    got = json.loads(out.stdout)
+    assert got[0] == pytest.approx(
+        1.0
+    )  # milliwatt source, milliwatt forecast: no scale
+    assert got[1] == pytest.approx(
+        pu.power_scale_to_kw("mW") / pu.power_scale_to_kw("kW")
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not installed")
 @pytest.mark.parametrize("card", CARDS)
 def test_card_js_matches_python(card):
     units = [

@@ -184,8 +184,13 @@ class NimbusForecastCard extends HTMLElement {
   _history(s, name, color, yaxis, width) {
     const src = s.attributes.source_sensor;
     if (!src || !this._hass.states[src]) return null;
-    const unit = (this._hass.states[src].attributes.unit_of_measurement || "").toLowerCase();
-    const fu = (s.attributes.unit_of_measurement || "").toLowerCase();
+    // nimbus IV&V 2026-10-06: NOT lowercased -- powerScaleToKw() does its
+    // own case handling, and lowercasing first here defeated its exact-case
+    // "mW" (milliwatt) vs "MW" (megawatt) disambiguation (the dispatch and
+    // topology cards pass the raw-case unit and get it right; this was the
+    // one of the four call sites that didn't).
+    const unit = this._hass.states[src].attributes.unit_of_measurement || "";
+    const fu = s.attributes.unit_of_measurement || "";
     const series = {
       entity: src,
       name: name + NIMBUS_FC_HIST_SUFFIX,
