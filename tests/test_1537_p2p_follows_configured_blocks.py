@@ -196,7 +196,7 @@ class GenericBranchVolume(unittest.TestCase):
 def _primary(cfg, recent_volume=60.0):
     calls: dict = {}
 
-    def fake_rate(grid, sensor_id=None, window=None):
+    def fake_rate(grid, sensor_id=None, window=None, **_k):
         calls["window"] = window
         return [0.5] * len(grid)
 

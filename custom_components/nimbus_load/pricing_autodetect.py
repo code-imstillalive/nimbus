@@ -24,7 +24,10 @@ What this does
   is proposed, rather than guessing which site the Solver should plan.
 
 The profile is the one the reference household and the LV v2 maintainer
-agreed on #1550 (6 Oct 2026): five fields, each a distinct role.
+agreed on #1550 (6 Oct 2026): five fields, each a distinct role. #1537 adds a
+sixth, the second P2P matched-rate source: LV v2's Sell P2P Matched Cost
+(`haeo_feed.py` key `sell_matched_cost`, `{time, value}` rows in $/kWh), read
+alongside Current Sell Rate because the two were seen out of step live.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from .const import (
     CONF_SOLVER_NETWORK_FEE_3_RATE,
     CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
 )
@@ -59,6 +63,7 @@ LV_V2_PROFILE: dict[str, str] = {
     CONF_SOLVER_EXPORT_PRICE_SENSOR: "sell_flex_up",
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: "flex_up_forecast",
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "current_sell_rate",
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "sell_matched_cost",
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: "p2p_settlement_history",
 }
 
@@ -187,9 +192,10 @@ async def async_notify_pricing_setup(
             "LocalVolts v2 sensors are pre-filled there for you to check and "
             "save. Nothing has been changed.",
         )
-    if options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR) and not options.get(
-        CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR
-    ):
+    if (
+        options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR)
+        or options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2)
+    ) and not options.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
         _LOGGER.warning(
             "Nimbus Solver: a P2P matched-rate sensor is set but no price "
             "forecast array, so the matched rate is not read and P2P is not "

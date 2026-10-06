@@ -3673,6 +3673,7 @@ def resample_real_p2p_rate(
     grid_times: list[datetime],
     sensor_id: str | None = None,
     p2p_window_kw: list[float] | None = None,
+    fallback_sensor_id: str | None = None,
 ) -> list[float]:
     """Real, per-interval P2P export rate ($/kWh) -- REPLACES the old
     resample_p2p_forecast()/sensor.localvolts_p2p_price_forecast flat-
@@ -3750,23 +3751,72 @@ def resample_real_p2p_rate(
     Returns a flat 0.0 array (never crashes) if `sensor_id` is blank --
     the same graceful no-op every household with no P2P/community-
     trading program at all gets.
-    """
-    if not sensor_id:
-        return [0.0 for _ in grid_times]
-    try:
-        raw = ha_get(sensor_id)["attributes"]["forecast"]
-    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
-        # nimbus issue #363 (Mark Purcell, codebase review): the degrade-
-        # to-flat-0.0 behaviour stays, but this used to have zero
-        # breadcrumb -- a genuinely misconfigured/renamed P2P sensor would
-        # otherwise silently price every period as if no P2P program
-        # existed at all, with no way to tell that apart from "genuinely
-        # no P2P configured."
-        _LOGGER.debug(
-            "Nimbus Solver: resample_real_p2p_rate(%s) failed", sensor_id, exc_info=True
-        )
-        return [0.0 for _ in grid_times]
 
+    Two row shapes (nimbus #1537 item 3), detected from the rows: the raw
+    triple above, and `{time, value}` rows whose value IS the matched rate
+    in $/kWh, stamped at the interval START (LocalVolts v2's Sell P2P
+    Matched Cost; see `_p2p_points_from_rate`). `fallback_sensor_id`
+    (CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2) is an optional second
+    source, merged per period by `_merge_p2p_sources`.
+    """
+    # nimbus #1537 (Mark Purcell, live 6 Oct 2026): a second, optional
+    # source. LocalVolts v2 derives `current_sell_rate` (raw triple) and
+    # `sell_matched_cost` ({time, value}) from one coordinator snapshot, yet
+    # the two entities were seen out of step: the triple read proportionP2P 0
+    # on all 287 rows while sell_matched_cost still carried ~$0.50/kWh for 45
+    # evening intervals. With both configured, each period takes the source
+    # that has a non-zero rate there, the fresher one (last_updated) when both
+    # do. With one configured the path below is exactly the pre-#1537 one.
+    sources = [s for s in (sensor_id, fallback_sensor_id) if s]
+    if len(sources) == 2 and sources[0] == sources[1]:
+        sources = sources[:1]
+    if not sources:
+        return [0.0 for _ in grid_times]
+    if len(sources) == 1:
+        read = _read_p2p_source(sources[0])
+        if read is None or not read[0]:
+            return [0.0 for _ in grid_times]
+        return _resample_p2p_points(read[0], grid_times, p2p_window_kw)
+
+    per_source: list[tuple[datetime | None, list[float]]] = []
+    for sid in sources:
+        read = _read_p2p_source(sid)
+        if read is None or not read[0]:
+            continue
+        per_source.append(
+            (read[1], _resample_p2p_points(read[0], grid_times, p2p_window_kw))
+        )
+    if not per_source:
+        return [0.0 for _ in grid_times]
+    if len(per_source) == 1:
+        return per_source[0][1]
+    return _merge_p2p_sources(per_source)
+
+
+# The rate shape's interval when a feed holds a single row (LocalVolts' own
+# interval, and the same 5 minutes the raw triple's end-to-start shift uses).
+_P2P_DEFAULT_INTERVAL = timedelta(minutes=5)
+
+# Unit strings read as cents per kWh on a {time, value} matched-rate feed.
+_P2P_CENTS_UNITS = frozenset({"c/kwh", "¢/kwh", "cents/kwh"})
+
+
+def _p2p_rows_are_rate_shape(raw: list) -> bool:
+    """True when a matched-rate feed is `{time, value}` rows (a rate per
+    interval, interval-START stamped) rather than the raw triple
+    (`matchedCost` / `volume` / `proportionP2P`, interval-END stamped).
+
+    Decided from the rows, never the entity name (nimbus #1537). A feed whose
+    rows carry any raw-triple field is the triple, exactly as before; only a
+    feed with none of them and a `value` is read as rates, so every feed the
+    pre-#1537 code read keeps being read the same way."""
+    rows = [p for p in raw if isinstance(p, dict)]
+    if any(("matchedCost" in p or "proportionP2P" in p or "volume" in p) for p in rows):
+        return False
+    return any("value" in p for p in rows)
+
+
+def _p2p_points_from_triple(raw: list) -> list[tuple[datetime, float]]:
     pts = []
     for p in raw:
         try:
@@ -3786,6 +3836,90 @@ def resample_real_p2p_rate(
         except (KeyError, TypeError, ValueError):
             continue
     pts.sort(key=lambda x: x[0])
+    return pts
+
+
+def _p2p_points_from_rate(raw: list, unit: object) -> list[tuple[datetime, float]]:
+    """`{time, value}` rows as dense `(interval start, $/kWh)` points.
+
+    The value is the matched rate itself, so no arithmetic is applied beyond a
+    `c/kWh` unit becoming $/kWh. LocalVolts v2's Sell P2P Matched Cost
+    (`haeo_feed.py`, `matched_price()`) publishes `matchedCost / (volume x
+    proportionP2P)` in $/kWh, stamped at the interval START, and OMITS an
+    interval in which nothing matched. A gap is therefore "no match": a 0.0
+    point is written before the first row and at the end of each run, so
+    the step lookup in `_resample_p2p_points` cannot hold a matched rate
+    across a gap, and the feed's coverage ends one interval after its last
+    row."""
+    scale = 0.01 if str(unit or "").strip().lower() in _P2P_CENTS_UNITS else 1.0
+    pts = []
+    for p in raw:
+        try:
+            value = p.get("value")
+            if value is None or value == "":
+                continue
+            rate = float(value) * scale
+            if math.isnan(rate):
+                continue
+            pts.append((parse_iso(p["time"]), rate))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            continue
+    pts.sort(key=lambda x: x[0])
+    if not pts:
+        return pts
+    gaps = [b[0] - a[0] for a, b in itertools.pairwise(pts) if b[0] > a[0]]
+    step = min(gaps) if gaps else _P2P_DEFAULT_INTERVAL
+    # A period before the first matched row is "no match" too, not the first
+    # row's rate (the step lookup holds pts[0] for anything earlier).
+    dense: list[tuple[datetime, float]] = [(pts[0][0] - step, 0.0)]
+    for i, (t, rate) in enumerate(pts):
+        dense.append((t, rate))
+        nxt = pts[i + 1][0] if i + 1 < len(pts) else None
+        if nxt is None or nxt > t + step:
+            dense.append((t + step, 0.0))
+    return dense
+
+
+def _read_p2p_source(
+    sensor_id: str,
+) -> tuple[list[tuple[datetime, float]], datetime | None] | None:
+    """One matched-rate source as `(points, last_updated)`, or None when it
+    cannot be read. The shape is detected from its rows."""
+    try:
+        state = ha_get(sensor_id)
+        attrs = state["attributes"]
+        raw = attrs["forecast"]
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+        # nimbus issue #363 (Mark Purcell, codebase review): the degrade-
+        # to-flat-0.0 behaviour stays, but this used to have zero
+        # breadcrumb -- a genuinely misconfigured/renamed P2P sensor would
+        # otherwise silently price every period as if no P2P program
+        # existed at all, with no way to tell that apart from "genuinely
+        # no P2P configured."
+        _LOGGER.debug(
+            "Nimbus Solver: resample_real_p2p_rate(%s) failed", sensor_id, exc_info=True
+        )
+        return None
+    if not isinstance(raw, list):
+        raw = []
+    if _p2p_rows_are_rate_shape(raw):
+        pts = _p2p_points_from_rate(raw, attrs.get("unit_of_measurement"))
+    else:
+        pts = _p2p_points_from_triple(raw)
+    updated = None
+    try:
+        stamp = state.get("last_updated") or state.get("last_changed")
+        updated = parse_iso(stamp) if stamp else None
+    except (AttributeError, TypeError, ValueError):
+        updated = None
+    return pts, updated
+
+
+def _resample_p2p_points(
+    pts: list[tuple[datetime, float]],
+    grid_times: list[datetime],
+    p2p_window_kw: list[float] | None,
+) -> list[float]:
     if not pts:
         return [0.0 for _ in grid_times]
 
@@ -3820,6 +3954,36 @@ def resample_real_p2p_rate(
             # Without a block there is no commitment to extrapolate, so no
             # P2P is assumed beyond what the forecast itself shows.
             out.append(0.0)
+    return out
+
+
+def _merge_p2p_sources(
+    per_source: list[tuple[datetime | None, list[float]]],
+) -> list[float]:
+    """Per period: the rate of the source that is non-zero there; when more
+    than one is, the most recently updated (an unknown last_updated counts
+    as oldest, and a tie keeps the configured order, primary first). When
+    none is, the primary's value (0.0)."""
+    oldest = datetime.min.replace(tzinfo=UTC)
+
+    def _age_key(item: tuple[int, datetime | None]) -> tuple[datetime, int]:
+        idx, updated = item
+        when = updated if updated is not None else oldest
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        return (when, -idx)
+
+    order = sorted(enumerate(u for u, _ in per_source), key=_age_key, reverse=True)
+    ranked = [idx for idx, _ in order]
+    out = []
+    for i in range(len(per_source[0][1])):
+        chosen = per_source[0][1][i]
+        for idx in ranked:
+            v = per_source[idx][1][i]
+            if v != 0.0 and not math.isnan(v):
+                chosen = v
+                break
+        out.append(float(chosen))
     return out
 
 

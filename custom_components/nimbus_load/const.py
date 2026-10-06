@@ -1278,6 +1278,18 @@ CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
 CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: Final = (
     "solver_p2p_matched_rate_forecast_sensor"
 )
+# nimbus #1537 item 3 (Mark Purcell, live 6 Oct 2026): an optional SECOND
+# matched-rate source. Either field may hold either row shape -- the raw
+# triple above, or `{time, value}` rows whose value is the matched rate in
+# $/kWh, interval-start stamped (LocalVolts v2's Sell P2P Matched Cost) --
+# detected from the rows, never the entity name. With both set, each period
+# uses whichever source has a non-zero rate there, the more recently updated
+# one when both do (LocalVolts v2's sibling entities were seen out of step:
+# one all-zero, the other still carrying the evening's matches). Blank (the
+# default): the single-source behaviour, unchanged.
+CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: Final = (
+    "solver_p2p_matched_rate_forecast_sensor_2"
+)
 # Real forward temperature/humidity mirror for the dashboard's own
 # Forecaster chart (2026-08-25) -- points at a weather.* entity (Nimbus
 # calls weather.get_forecasts for you) or a sensor.* whose own 'forecast'

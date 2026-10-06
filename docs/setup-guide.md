@@ -361,7 +361,7 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
 integration (2.9.0 or later) installed, the Solver settings screens below come
-pre-filled with its five sensors, and Nimbus says so in a notification at
+pre-filled with its six sensors, and Nimbus says so in a notification at
 startup. Check them and save; nothing is changed until you do. A field you have
 already set to a real sensor is never replaced.
 
@@ -371,7 +371,18 @@ already set to a real sensor is never replaced.
 | Export price | 2 | Sell Flex Up |
 | Price forecast array | 3 | Flex Up Forecast |
 | P2P matched rate | 3 | Current Sell Rate |
+| Second P2P matched-rate source | 3 | Sell P2P Matched Cost |
 | P2P settlement history | 3 | P2P Settlement History |
+
+**Why two P2P sensors.** Current Sell Rate and Sell P2P Matched Cost both come
+from the same LocalVolts data, but they do not always update together. On 6 Oct
+2026 one install's Current Sell Rate showed no predicted match all evening, while
+Sell P2P Matched Cost still showed about $0.50/kWh for 45 evening intervals
+([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)). With both
+set, Nimbus uses whichever shows a match for each interval, and the more
+recently updated one when both do. Either field accepts either sensor: Nimbus
+reads the shape from the sensor's own forecast rows. If you have P2P blocks
+configured, they still decide when P2P counts.
 
 Sensors are matched by integration, not by name, so renamed entities are still
 found. With more than one LocalVolts v2 account nothing is pre-filled, since

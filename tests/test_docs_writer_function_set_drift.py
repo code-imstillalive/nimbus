@@ -697,6 +697,18 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # Same reason: the shared block parser behind it and behind
         # fetch_p2p_fixed_export_kw(), which the docs copy does not have.
         "_configured_p2p_blocks",
+        # nimbus issue #1537 item 3 -- resample_real_p2p_rate()'s two row
+        # shapes and second-source merge, split into helpers. The docs
+        # copy's resample_real_p2p_rate(grid_times) takes no sensor at all
+        # (it reads the reference household's own sensor, raw triple only,
+        # hardcoded 17:00-24:00), so there is no configured second source
+        # there for these to serve.
+        "_p2p_rows_are_rate_shape",
+        "_p2p_points_from_triple",
+        "_p2p_points_from_rate",
+        "_read_p2p_source",
+        "_resample_p2p_points",
+        "_merge_p2p_sources",
         # nimbus issue #768, step 1 of 2 --
         # solver_inputs/controllable_load_history.py. Reconstructs what a
         # configured controllable_load actually delivered over an elapsed

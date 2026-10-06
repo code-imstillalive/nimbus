@@ -29,6 +29,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   imply it measures anything, or that a 1.0 is worth investigating
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
+- **A second, optional P2P matched-rate source, and `{time, value}` matched-rate
+  sensors** ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537),
+  item 3). Mark Purcell found live on 6 Oct 2026 that LocalVolts v2's Current
+  Sell Rate read `proportionP2P` 0 and `matchedCost` 0 on all 287 forecast rows,
+  so Nimbus priced no P2P that evening, while its sibling Sell P2P Matched Cost,
+  built from the same coordinator data, still showed about $0.50/kWh for 45
+  intervals (18:15-23:55). The two entities were updating out of step.
+  - The P2P matched-rate field now also reads `{time, value}` rows, whose value
+    is the matched rate in $/kWh stamped at the interval start (Sell P2P Matched
+    Cost: `matchedCost / (volume x proportionP2P)` per LocalVolts v2's
+    `haeo_feed.py`, with unmatched intervals omitted). The shape is detected
+    from the rows, never the entity name. An omitted interval reads 0, and a
+    `c/kWh` unit is converted.
+  - New Solver setting `solver_p2p_matched_rate_forecast_sensor_2` (Sources
+    screen, Advanced). With both set, each period takes the source with a
+    non-zero rate there, and the more recently updated one when both have one.
+  - LocalVolts v2 detection pre-fills it with Sell P2P Matched Cost (unique_id
+    `<entry_id>_sell_matched_cost`). An install that saved the original five
+    fields gets one startup notification that a sixth is available; nothing is
+    changed.
+  - Unchanged: with blocks configured, P2P counts only inside them (#1560);
+    without blocks it counts wherever the forecast shows a match and is 0 past
+    the forecast. With one source configured and raw-triple rows, the rate is
+    exactly what it was, checked against the previous algorithm on 200
+    generated cases.
+  - Impact: this changes the prices the LP sees only when the new setting is
+    set or the configured sensor publishes `{time, value}` rows.
 
 ## [0.94.441] - 2026-10-06
 
