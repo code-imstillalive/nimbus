@@ -88,6 +88,7 @@ from .ml.model import (
     TrainedModel,
     calibrated_band,
     calibration_half_width,
+    deterministic_values,
     predict,
     train_model,
 )
@@ -292,21 +293,72 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _load_sensor(self) -> str:
         return self.subentry.data[CONF_LOAD_SENSOR]
 
+    def _feature_or_none(self, sensor: str | None) -> str | None:
+        """A shared feature sensor, or None when it is this subentry's own
+        target. A model given its own target as an input learns to copy it
+        through, so its validation error is meaningless (nimbus issue
+        #1540: a temperature signal on the hub's own temperature sensor
+        validated at 0.03 degC four hours out). Every feature accessor goes
+        through this, so a feature is absent from training and prediction
+        alike, exactly as if it were not configured.
+        """
+        if sensor is None or sensor == self._load_sensor:
+            return None
+        return sensor
+
+    def _trained_on_own_source(self) -> bool:
+        """True when the loaded model learned from a feature that is this
+        subentry's own source (nimbus issue #1540).
+
+        A model persisted before the guard above was trained with that
+        feature, and is now fed its untrained default instead, so it is
+        replaced at once rather than at the next nightly retrain. Read from
+        the model's own training rows: a column the guard dropped is a
+        constant there, one it learned from is not. A model retrained since
+        has the constant column, so this fires once.
+        """
+        x_train = getattr(self._trained, "x_train", None)
+        if not isinstance(x_train, np.ndarray) or x_train.ndim != 2:
+            return False
+        if x_train.shape[0] == 0:
+            return False
+        for key, feature in (
+            (CONF_TEMPERATURE_SENSOR, "temp_c"),
+            (CONF_HUMIDITY_SENSOR, "humidity_pct"),
+            (CONF_CURTAILMENT_SENSOR, "curtailment"),
+        ):
+            if self.entry.options.get(key) != self._load_sensor:
+                continue
+            idx = FEATURE_NAMES.index(feature)
+            if idx < x_train.shape[1] and np.ptp(x_train[:, idx]) > 1e-9:
+                return True
+        return False
+
     @property
     def _temp_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_TEMPERATURE_SENSOR)
+        return self._feature_or_none(self.entry.options.get(CONF_TEMPERATURE_SENSOR))
 
     @property
     def _temp_forecast_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+        # The forecast stands in for the temperature feature at predict
+        # time, so it goes wherever that feature goes: a subentry that
+        # trained without temperature (its source IS the temperature
+        # sensor) must not be fed a temperature forecast either (#1540).
+        if self._temp_sensor is None and self.entry.options.get(
+            CONF_TEMPERATURE_SENSOR
+        ):
+            return None
+        return self._feature_or_none(
+            self.entry.options.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+        )
 
     @property
     def _humidity_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_HUMIDITY_SENSOR)
+        return self._feature_or_none(self.entry.options.get(CONF_HUMIDITY_SENSOR))
 
     @property
     def _curtailment_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_CURTAILMENT_SENSOR)
+        return self._feature_or_none(self.entry.options.get(CONF_CURTAILMENT_SENSOR))
 
     # Real measured power sensors only -- never an optimizer's own plan/
     # forecast entity, see this repo's own CLAUDE.md PRIME DIRECTIVE.
@@ -346,7 +398,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         training and prediction go through, keeps the two consistent: the
         feature is absent from both, exactly as if it were not configured.
         """
-        if sensor is None or sensor == self._load_sensor:
+        if self._feature_or_none(sensor) is None:
             return None
         unit = energy_unit_of(self.hass, sensor)
         if unit is not None:
@@ -643,9 +695,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # but treating it as "already current" if it's ever genuinely
         # absent is a safe, conservative default (skips the extra
         # retrain rather than risk an unexpected AttributeError here).
-        needs_immediate_retrain = self._trained is None or (
-            getattr(self._trained, "schema_version", TRAINED_MODEL_SCHEMA_VERSION)
-            != TRAINED_MODEL_SCHEMA_VERSION
+        needs_immediate_retrain = (
+            self._trained is None
+            or (
+                getattr(self._trained, "schema_version", TRAINED_MODEL_SCHEMA_VERSION)
+                != TRAINED_MODEL_SCHEMA_VERSION
+            )
+            or self._trained_on_own_source()
         )
         if needs_immediate_retrain:
             # Nothing on disk yet (or what's there is schema-stale) --
@@ -1813,9 +1869,44 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self.hass, "is_stopping", False) is True:
             return self.data
         if self._trained is None:
+            state: float | None = None
+            forecast: list[dict[str, Any]] = []
+            # nimbus issue #1575: the deterministic mode never uses the
+            # model (predict() returns the configured rule before reading
+            # it), so it must not wait for one to train.
+            expected_kw = self._expected_load_kw
+            start_hour = self._schedule_start_hour
+            end_hour = self._schedule_end_hour
+            if (
+                self._mode == "deterministic"
+                and expected_kw is not None
+                and start_hour is not None
+                and end_hour is not None
+            ):
+                now_utc = dt_util.utcnow()
+                timestamps = [
+                    dt_util.as_local(t)
+                    for t in _forecast_grid_utc(
+                        now_utc, now_utc + timedelta(hours=self._horizon_hours)
+                    )
+                ]
+                values = deterministic_values(
+                    timestamps, expected_kw, start_hour, end_hour
+                )
+                # The configured rule is exact, so the band is the value.
+                forecast = [
+                    {
+                        "time": ts.isoformat(),
+                        "value": round(v, 3),
+                        "lower": round(v, 3),
+                        "upper": round(v, 3),
+                    }
+                    for ts, v in zip(timestamps, values, strict=True)
+                ]
+                state = round(values[0], 3) if values else 0.0
             return {
-                "state": None,
-                "forecast": [],
+                "state": state,
+                "forecast": forecast,
                 "mode": self._mode,
                 "trained_at": None,
                 "training_points": 0,
@@ -1888,9 +1979,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         batteries_kw: list[float] = []
         grids_kw: list[float] = []
         solars_kw: list[float] = []
-        t = now_utc
-        step = timedelta(minutes=RESAMPLE_MINUTES)
-        while t <= horizon_end:
+        for t in _forecast_grid_utc(now_utc, horizon_end):
             timestamps.append(dt_util.as_local(t))
             temps.append(_nearest_temp(temp_forecast, t, fallback_temp))
             humidities.append(current_humidity)
@@ -1901,7 +1990,6 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             batteries_kw.append(current_battery_kw)
             grids_kw.append(current_grid_kw)
             solars_kw.append(current_solar_kw)
-            t += step
 
         result: PredictionResult = await self.hass.async_add_executor_job(
             predict,
@@ -2054,6 +2142,19 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else None
             ),
         }
+
+
+def _forecast_grid_utc(start: datetime, end: datetime) -> list[datetime]:
+    """The forecast's UTC timestamps, RESAMPLE_MINUTES apart from `start`
+    up to and including `end`. Shared by the trained and the deterministic
+    no-model paths so both publish the same grid (nimbus issue #1575)."""
+    grid: list[datetime] = []
+    step = timedelta(minutes=RESAMPLE_MINUTES)
+    t = start
+    while t <= end:
+        grid.append(t)
+        t += step
+    return grid
 
 
 def _model_age_days(trained_at: datetime | None) -> float | None:

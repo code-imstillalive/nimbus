@@ -1676,6 +1676,29 @@ def _in_schedule(hour_frac: float, start: float, end: float) -> bool:
     return hour_frac >= start or hour_frac < end
 
 
+def deterministic_values(
+    timestamps: list[datetime],
+    expected_load_kw: float,
+    schedule_start_hour: float,
+    schedule_end_hour: float,
+) -> list[float]:
+    """The deterministic mode's whole forecast: `expected_load_kw` inside
+    the schedule window, 0.0 outside it, one value per timestamp.
+
+    Needs no trained model. predict() returns exactly this when the mode
+    applies, and the coordinator calls it directly when no model has
+    trained yet (nimbus issue #1575), so the two paths cannot drift.
+    """
+    return [
+        expected_load_kw
+        if _in_schedule(
+            ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour
+        )
+        else 0.0
+        for ts in timestamps
+    ]
+
+
 def predict(
     trained: TrainedModel,
     timestamps: list[datetime],
@@ -1762,14 +1785,9 @@ def predict(
         and schedule_end_hour is not None
     ):
         return PredictionResult(
-            values=[
-                expected_load_kw
-                if _in_schedule(
-                    ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour
-                )
-                else 0.0
-                for ts in timestamps
-            ]
+            values=deterministic_values(
+                timestamps, expected_load_kw, schedule_start_hour, schedule_end_hour
+            )
         )
 
     step = timedelta(minutes=resample_minutes)

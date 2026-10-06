@@ -30,6 +30,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
 
+### Fixed
+- **A deterministic load publishes its forecast straight away**
+  ([#1575](https://github.com/code-imstillalive/nimbus/issues/1575)). A load
+  with an expected kW and a schedule window is meant to forecast exactly that
+  kW inside the window and 0 outside it, without the ML model. It still waited
+  for a model to train first, so a mostly-idle load that could not train
+  published no forecast at all. It now publishes the configured schedule from
+  the first update, trained or not.
+- **A forecast is never trained on its own source sensor**
+  ([#1540](https://github.com/code-imstillalive/nimbus/issues/1540)). A
+  temperature or humidity signal whose source was also the hub's temperature
+  or humidity sensor was given its own value as an input. It learned to copy
+  it, and reported an accuracy it did not have (0.03 °C four hours ahead). The
+  hub's temperature, temperature forecast, humidity and curtailment sensors
+  are now left out for a signal or load whose own source they are, the same
+  rule the battery, grid and solar inputs already followed. A model saved
+  before this fix that learned from its own source retrains once at startup,
+  so expect such a signal's reported accuracy to drop to a believable figure.
+
 ## [0.94.441] - 2026-10-06
 
 - **Same-day release, by household decision.** #1571 changes an LP input (the
