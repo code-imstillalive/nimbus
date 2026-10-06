@@ -17,6 +17,15 @@ the same comparison says which way its sign runs. That is evidence, not a name
 match, and it is the design's §3.4 "energy is a second witness" check doing the
 selection.
 
+**Evidence, not proof** (Mark's device contract, #1574). Everything this
+module returns is a *candidate* for the user to confirm, never a mapping applied
+on its own: "same Home Assistant device" is a candidate-selection hint, and a
+match must also have an unambiguous role and measurement boundary, compatible
+units, sign convention and timestamps. A balance residual can *suggest* a
+mismatch; it does not uniquely prove a bad sensor or justify a calibration
+correction. Callers present these results as "here is what Nimbus found -- is
+this right?".
+
 Everything here is pure (no Home Assistant), so real installs' history replays
 through it in tests.
 """
@@ -249,8 +258,9 @@ def match_power_sensor(
     energy_out: float | Series | None,
     energy_in: float | Series | None = None,
 ) -> PowerMatch:
-    """Pick the candidate power sensor whose integrated history matches the
-    source's energy counters over [start, end).
+    """The candidate power sensor whose integrated history matches the
+    source's energy counters over [start, end) -- a CANDIDATE for the user to
+    confirm, not a mapping (Mark, #1574).
 
     `energy_out` is the counter the role's POSITIVE direction fills: solar
     production, battery discharge, grid import. `energy_in` is the opposite
@@ -337,6 +347,12 @@ def _pick(scored: list[tuple[float, str, int]]) -> PowerMatch:
 
 @dataclass
 class BalanceVerdict:
+    """Corroborating evidence only (Mark, #1574): `explanation` is the single
+    change that would make the balance close, offered as a *hypothesis* for
+    the user to confirm, never applied automatically. It is meaningful only
+    when the four series share a measurement boundary, are time-aligned, and
+    vary enough over the window to tell the hypotheses apart."""
+
     ok: bool
     explanation: str  # "agree" | "flip:<role>" | "scale:<role>:<factor>" | "partial_solar" | "unexplained"
     residual_kw: float
