@@ -37,7 +37,12 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_NETWORK_FEE_1_RATE,
+    CONF_SOLVER_NETWORK_FEE_2_RATE,
+    CONF_SOLVER_NETWORK_FEE_3_RATE,
+    CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
@@ -60,6 +65,16 @@ LV_V2_PROFILE: dict[str, str] = {
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
 NOTIFY_P2P_TRAP_ID = "nimbus_p2p_matched_rate_without_price_array"
 NOTIFY_MISSING_ID = "nimbus_pricing_entity_missing"
+NOTIFY_FEES_DOUBLED_ID = "nimbus_fees_on_top_of_flex_up"
+
+# Every fee Nimbus adds on top of the import price (solver_inputs/prices.py).
+_FEE_RATE_KEYS = (
+    CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
+    CONF_SOLVER_NETWORK_FEE_1_RATE,
+    CONF_SOLVER_NETWORK_FEE_2_RATE,
+    CONF_SOLVER_NETWORK_FEE_3_RATE,
+    CONF_SOLVER_FLAT_FEE_RATE,
+)
 
 
 def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
@@ -194,6 +209,45 @@ async def async_notify_pricing_setup(
                 else "."
             ),
         )
+
+    # nimbus issue #1564: LocalVolts' Buy Flex Up is already spot PLUS the
+    # network layer (its own sensor says so, and measured on the reference
+    # household 2026-10-06: Flex Up minus spot equalled that install's
+    # configured network + flat fee to the cent in every settled interval,
+    # 1.30 c midday, 7.50 c off-peak, 22.31 c peak). Nimbus adds its
+    # network/flat fees on top of the import price, so with Flex Up as the
+    # import sensor any non-zero fee is counted twice and the LP sees grid
+    # energy dearer than it is. Notify only; the household decides.
+    flex_up = detected.get(CONF_SOLVER_IMPORT_PRICE_SENSOR)
+    if flex_up and options.get(CONF_SOLVER_IMPORT_PRICE_SENSOR) == flex_up:
+        fees = {k: _as_float(options.get(k)) for k in _FEE_RATE_KEYS}
+        set_fees = {k: v for k, v in fees.items() if v > 0}
+        if set_fees:
+            listed = ", ".join(f"`{k}` = {v:g}" for k, v in set_fees.items())
+            _LOGGER.warning(
+                "Nimbus Solver: the import price is LocalVolts v2 Buy Flex Up, "
+                "which already includes network charges, and fees are also set "
+                "(%s) -- they are counted twice",
+                listed,
+            )
+            await _notify(
+                hass,
+                NOTIFY_FEES_DOUBLED_ID,
+                "Nimbus: network fees are counted twice",
+                f"Your import price is `{flex_up}` (LocalVolts v2 Buy Flex Up), "
+                "which already includes your network and flat fees. Nimbus also "
+                f"adds its own fees on top ({listed}), so the plan sees grid "
+                "energy as dearer than it is and imports less than it should. "
+                "Set those fee rates to 0 (Solver dashboard, or Configure -> "
+                "Solver settings). Nothing has been changed.",
+            )
+
+
+def _as_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 async def _notify(

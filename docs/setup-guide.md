@@ -378,6 +378,12 @@ without a price forecast array (without the array the matched rate is not
 read, so the plan shows no P2P), and if a price setting names an entity this
 install does not have.
 
+**Leave the network and flat fee rates at 0 with LocalVolts.** Buy Flex Up
+already includes your network charges and LocalVolts' fees (its own sensor
+describes it as spot plus the network layer), so a fee set in Nimbus is counted
+a second time and the plan sees grid energy as dearer than it is. Nimbus warns
+at startup if fees are set alongside Buy Flex Up.
+
 ### Screen 2 of 3: "Solver: Grid Prices"
 
 Two fields are required for the basic path.

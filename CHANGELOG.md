@@ -35,6 +35,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   someone has edited is left alone.
 
 ### Fixed
+- **Fees set alongside LocalVolts Buy Flex Up are flagged: they were counted
+  twice** ([#1564](https://github.com/code-imstillalive/nimbus/issues/1564)).
+  Buy Flex Up is spot plus the network layer; on the reference household, Flex
+  Up minus spot matched its configured network and flat fees to the cent in
+  every settled interval (1.30 c midday, 7.50 c off-peak, 22.31 c peak). Nimbus
+  adds those fees on top of the import price, so the plan saw grid energy as
+  dearer than it is. At startup Nimbus now warns, and names the fees, when the
+  import price is the detected LocalVolts v2 Buy Flex Up and any fee rate is not
+  0. Nothing is changed automatically; the setup guide says to leave fees at 0
+  with LocalVolts.
 - **An energy counter (Wh/kWh) set where a power sensor is needed is caught,
   not read as kW** ([#1562](https://github.com/code-imstillalive/nimbus/issues/1562)).
   Nimbus logged "unconvertible unit 'Wh' -- treating as kW as-is" and then used

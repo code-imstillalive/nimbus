@@ -210,3 +210,74 @@ def test_a_real_entity_of_another_integration_is_never_replaced():
     with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
         out = pa.with_detected_profile(hass, opts)
     assert out[CONF_SOLVER_IMPORT_PRICE_SENSOR] == "sensor.amber_general_price"
+
+
+# --- nimbus #1564: fees on top of Buy Flex Up are counted twice ---------------
+
+REFERENCE_FEES = {
+    "solver_network_fee_default_rate": 0.066759,
+    "solver_network_fee_1_rate": 0.214863,
+    "solver_network_fee_2_rate": 0.004774,
+    "solver_network_fee_3_rate": 0.0,
+    "solver_flat_fee_rate": 0.008246,
+}
+
+
+def _complete():
+    return {f: FULL[k] for f, k in pa.LV_V2_PROFILE.items()}
+
+
+def test_fees_set_alongside_buy_flex_up_are_flagged():
+    """The reference household before 2026-10-06: Flex Up as import, plus its
+    own network and flat fees, which Flex Up already contains."""
+    hass = _hass()
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        asyncio.run(
+            pa.async_notify_pricing_setup(hass, {**_complete(), **REFERENCE_FEES})
+        )
+    notes = _notifications(hass)
+    assert list(notes) == [pa.NOTIFY_FEES_DOUBLED_ID]
+    msg = notes[pa.NOTIFY_FEES_DOUBLED_ID]
+    assert "sensor.localvolts_v2_buy_flex_up" in msg
+    assert "solver_flat_fee_rate" in msg and "solver_network_fee_3_rate" not in msg
+
+
+def test_zero_fees_with_buy_flex_up_are_quiet():
+    hass = _hass()
+    zero = dict.fromkeys(REFERENCE_FEES, 0.0)
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        asyncio.run(pa.async_notify_pricing_setup(hass, {**_complete(), **zero}))
+    assert _notifications(hass) == {}
+
+
+def test_fees_with_a_different_import_sensor_are_not_flagged():
+    """A generic retail price sensor may genuinely exclude network charges;
+    only LocalVolts' Flex Up is known to include them."""
+    hass = _hass()
+    opts = {
+        **_complete(),
+        CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.my_spot_price",
+        **REFERENCE_FEES,
+    }
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        asyncio.run(pa.async_notify_pricing_setup(hass, opts))
+    assert pa.NOTIFY_FEES_DOUBLED_ID not in _notifications(hass)
+
+
+def test_fees_without_lv_v2_are_not_flagged():
+    hass = _hass(entries=())
+    with patch.object(pa.er, "async_get", return_value=_Registry({})):
+        asyncio.run(pa.async_notify_pricing_setup(hass, dict(REFERENCE_FEES)))
+    assert pa.NOTIFY_FEES_DOUBLED_ID not in _notifications(hass)
+
+
+def test_unparseable_fee_values_count_as_zero():
+    hass = _hass()
+    opts = {
+        **_complete(),
+        "solver_flat_fee_rate": "n/a",
+        "solver_network_fee_1_rate": None,
+    }
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        asyncio.run(pa.async_notify_pricing_setup(hass, opts))
+    assert _notifications(hass) == {}
