@@ -10,6 +10,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [0.94.441] - 2026-10-06
 
+- **Same-day release, by household decision.** #1571 changes an LP input (the
+  plan's period-0 load) for installs whose whole-house sensor reports in W,
+  which the release process holds overnight. The household waived the hold on
+  6 Oct 2026: "go for it... get it out".
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 2a4a5d8**,
+  installed untagged via HACS (`installed_version: 2a4a5d8`) and restarted
+  20:13 AEST 6 Oct, with Nimbus logging at debug from 20:14:41. Solves at
+  20:14:55 and 20:15:47 both `optimal`, batteries `['home', 'Test EV']`. HiGHS
+  took 11.3 s and 13.0 s (devhub's test EV is a MIP). No Nimbus `Traceback`, no
+  `solve cycle failed`, and no "unconvertible unit" warning, although devhub's
+  solar sensor (`sensor.combined_total_dc_power`) reports W and now reaches the
+  Forecaster and the Solver through `power_units.py`; its battery, grid and
+  whole-house sensors report kW. The boot-time "does not generate unique IDs"
+  errors are the same 187 Nimbus rows as 0.94.440's check (devhub's mirrored
+  registry; production's log has none), plus cast, met, open_meteo,
+  pirateweather and google_translate in the same second. **Not observed:** a
+  W whole-house sensor, because devhub's is kW; that path is covered by
+  `test_1570_power_units.py`.
+- Consumer check: an install whose whole-house sensor reports in W gets a
+  period-0 load in kW instead of 1000x too large. An install with an MW, GW or
+  lower-case `w` sensor gets it converted instead of read as kW. On the Control
+  Panel card, a W battery, grid or EV sensor reads correctly and no longer
+  flattens the plan shading. A kW install sees no change.
+
 ### Fixed
 - **One power-unit converter for the Forecaster, the Solver and every card**
   ([#1570](https://github.com/code-imstillalive/nimbus/issues/1570)). About
