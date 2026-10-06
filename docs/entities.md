@@ -18,8 +18,8 @@ Publishes the Efficiency Performance Ratio (EPR) and the cost decomposition behi
 | `sensor.nimbus_quality_value_captured` | currency | `J_ref - J_ach`. Positive = Nimbus beats do-nothing. |
 | `sensor.nimbus_quality_theoretical_maximum_yield` | currency | `J_ref - J_star`. Total spread between do-nothing and oracle. |
 | `sensor.nimbus_quality_regret_dollars` | currency | `J_ach - J_star`. Canonical name for regret. |
-| `sensor.nimbus_quality_tracking_fidelity` | (dimensionless 0..1) | Plan-vs-actual tracking ratio. 1.0 = perfect. |
-| `sensor.nimbus_quality_tracking_cost` | currency | Cost added by deviation between planned and actual dispatch. |
+| `sensor.nimbus_quality_tracking_fidelity` | (dimensionless 0..1) | Plan-vs-actual tracking ratio. **Reads 1.0 on every day and install today**: no generic commanded-dispatch signal exists, so the report sets commanded = actual ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)). It carries no information about dispatch quality. |
+| `sensor.nimbus_quality_tracking_cost` | currency | Cost of deviation between commanded and actual dispatch. **Reads 0 today**, for the same reason as `tracking_fidelity`. |
 | `sensor.nimbus_quality_achieved_energy_in_kwh` | kWh | Energy charged over the scored window. **Home battery only** — see the scope note below. |
 | `sensor.nimbus_quality_achieved_energy_out_kwh` | kWh | Energy discharged over the scored window. **Home battery only** — see the scope note below. |
 | `sensor.nimbus_quality_fleet_achieved_energy_in_kwh` | kWh | Energy charged across the **whole fleet** (home battery + every `battery_participant`). |
