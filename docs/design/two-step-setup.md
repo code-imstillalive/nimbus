@@ -12,7 +12,9 @@ Every decision below is judged against that. Where a choice trades capability fo
 
 ---
 
-## 1. What a user faces today (measured on `main`, 9d8e20d)
+## 1. Baseline setup surface (recorded on `main`, 9d8e20d)
+
+This is the original proposal's baseline, not a fresh audit of the current implementation. The requirements below describe intended behaviour and are not evidence that the referenced implementation work has passed acceptance.
 
 | surface | what it holds |
 |---|---|
@@ -64,6 +66,10 @@ The parts of the contract the setup experience depends on, by name only:
 - **Readiness is per function** (`observation`, `forecasting`, `planning`, `scoring`, `control`), each with its status and reason codes. Setup is observation-only.
 - **Configure once, use everywhere.** Basic and Advanced edit the same device definitions. Forecaster, Solver, Topology, cards and Regret read them; today's settings become generated compatibility views, not independently editable copies.
 
+Nimbus identities must not be HA entity IDs, device IDs or Energy Dashboard list positions. Preserve registry/config-entry references where available; if a rename or equipment replacement cannot be resolved unambiguously, ask rather than silently rebinding.
+
+The model's ability to represent several devices does not imply that every consumer already supports them. Unsupported multi-device planning must have a readiness reason, not silently collapse several batteries or sum overlapping generation.
+
 ---
 
 ## 3. The flow at a glance
@@ -79,7 +85,7 @@ Add Nimbus
   │        + its tariff provider, shown on the Grid
   │        ambiguous roles asked as ONE targeted question each
   │
-  ├─ 3. Confirm         saves the device definitions, nothing else
+  ├─ 3. Confirm         validates and saves the model; initialises supported consumers
   │
   └─ 4. Readiness       per function: what works now, what's training,
                         what needs one more fact, and why. Control: not enabled.
@@ -87,17 +93,21 @@ Add Nimbus
 
 **The novice path** (the contract's last acceptance case): the user confirms the detected site once, gets the matching topology and outputs, sees precise guidance for anything missing, and does not enable dispatch merely by finishing setup.
 
+One confirmation is the target for an unambiguous supported site, not a guarantee of immediate forecasts or a first solve. An observation-only user can defer prices and other planning inputs.
+
 ---
 
 ## 4. Discover (automatic, read-only)
 
 Discovery proposes **candidates** with their **evidence**. It saves nothing, and it never writes the Energy Dashboard (per the handover note, `energy/save_prefs` replaces whole keys and the source list is the user's intent).
 
+Data retrieval actions must be known read-only adapter operations. Discovery must not invoke a control action or test an actuator. Manual mapping remains available when a source is unsupported.
+
 ### 4.1 Where evidence comes from
 
 | source | gives | how it is used |
 |---|---|---|
-| **Energy Dashboard** (`energy/get_prefs`, read only) | Grid, Solar and Battery sources; their **energy** statistics; tariff price entities; solar forecast config entries; individual devices with `included_in_stat`; and, where configured, `stat_rate` / `power_config` power | discovery **hints** for roles and relationships. Energy statistics stay `recorder_statistic` bindings, never substituted for power. `included_in_stat` is real `included_in_measurement` evidence. |
+| **Energy Dashboard** (`energy/get_prefs`, read only) | Grid, Solar and Battery sources; their **energy** statistics; tariff price entities; solar forecast config entries; individual devices with `included_in_stat`; and, where configured, `stat_rate` / `power_config` power | discovery **hints** for roles and relationships. Energy statistics stay `recorder_statistic` bindings, never substituted for power. `included_in_stat` is inclusion evidence for the referenced energy statistics, not automatic proof of the boundaries of candidate power or forecast bindings. |
 | **Known integration profiles** | role-tagged entities, attributes and response actions for recognised inverters, meters, batteries and pricing providers (LocalVolts v2 first, #1561) | the strongest evidence; one integration may supply several logical devices (an inverter gives Grid, Solar and Battery roles) |
 | **The device registry** | which entities sit together | a **candidate-selection hint only**, never sufficient proof (Mark: "same Home Assistant device should be a candidate-selection hint") |
 | **History** | how each candidate behaved | corroboration (§4.2) |
@@ -107,9 +117,13 @@ Discovery proposes **candidates** with their **evidence**. It saves nothing, and
 `device_resolver.py` (#1590) supplies two pieces of evidence. Both produce **candidates and hypotheses for the user to confirm**, never a mapping applied on their own.
 
 - **Power ↔ energy pairing:** a candidate power sensor's history, integrated **hour by hour**, against the role's own energy statistic, trying both signs. On the reference household's real history it singled out each inverter's battery power sensor (with its sign) and inverter 1's PV power from the 247 power sensors on one Modbus device, at a 1–2.6% error, and **asked** where two sensors were the same reading. It is still evidence: the binding must also have an unambiguous role and boundary, compatible units, sign and timestamps.
-- **Energy balance** (grid ≈ load − solar − battery): when it fails to close, it names the single change that would close it (a flipped sign, ×1000, partial solar) as a **hypothesis**. It is meaningful only when the series share a boundary, are aligned, and vary enough. A residual suggests a mismatch; it never proves a bad sensor or justifies a calibration correction.
+- **Energy balance** (grid ≈ load − solar − battery): when it fails to close, it may suggest a flipped sign, scaling issue or incomplete generation as a **hypothesis**, not a uniquely identified cause. It is meaningful only when the series share compatible AC/DC and phase boundaries, are aligned, have non-overlapping totals and vary enough. Several explanations can fit idle or correlated signals; return `insufficient_evidence` in that case. A residual never proves a bad sensor or justifies a calibration correction.
 
 **Freshness** uses each source's own update semantics, not just the age of the last state change: a change-only sensor that is idle is not stale (the #1556 lesson).
+
+Distinguish missing, disabled, unavailable and valid zero states. Keep a stale or unavailable source mapped while blocking only functions that need its current data. A statistic without a resolvable current-state entity remains an energy binding, not a failed attempt to manufacture a power sensor.
+
+For power/energy checks, handle counter resets, gaps, directional flows and conversion boundaries before interpreting a mismatch. Agreement is corroboration, not independent proof when both values share a derivation. Show discrepancies without inventing calibration factors.
 
 ---
 
@@ -128,6 +142,7 @@ Rules:
 - **The Grid connection is not a meter.** The row is named for the connection; its readings may come through an inverter. If no direct grid measurement exists, the Grid still exists. Its power is either unresolved or, only after the complete balance, signs, timing and boundaries validate, a clearly labelled **derived** binding.
 - **Ambiguity becomes one targeted question,** phrased as a functional role: *"Which sensor measures the whole house?"*, *"These two read the same; which is the inverter's PV total?"*. It is never a list of internal Solver settings.
 - **Limits and capacities are asked only for a capability that needs them** (planning needs battery capacity and charge/discharge limits; observation does not). Historical maxima are plausibility evidence, never a substitute for an equipment or connection rating.
+- **Capacity and shared limits have explicit meaning:** record nominal versus usable capacity and compatible SoC bounds, avoiding reserves applied twice. A hybrid-inverter constraint applies to its defined combined AC/DC quantity across Solar and Battery, not two independent copies of the same allowance.
 - **Nothing for absent equipment:** no battery or solar fields on a site without them.
 
 ### 5.1 Loads beyond the whole house
@@ -136,13 +151,31 @@ Offered on the same screen as a pre-ticked list, from the Energy Dashboard's ind
 
 **Accounting is not inferred from nesting** (the contract's accounting rules). A circuit or appliance that sits inside the whole-house measurement gets an `included_in_measurement` relationship: from the Energy Dashboard's `included_in_stat` where present, otherwise confirmed by one question. The household's demand stays **inclusive** (the whole-house Load alone). Children are displayed and forecast without being added to it. Until a validated residual-plus-children decomposition exists, **overlapping summation is refused and the conflicting loads are named** (the tester's pool inside its circuit is the acceptance case).
 
+Validate that the inclusion evidence applies to the selected power/forecast boundaries, not only to the dashboard's energy statistics. For independent scheduling, remove each child's embedded baseline once and add its planned demand once. Never subtract a proposed schedule from an unrelated measured parent total.
+
+Reject cycles, multiple inclusion paths and overlapping aggregate/leaf sums; check phase coverage and time alignment. Do not hide an inconsistent decomposition by clamping negative residuals. The inclusive whole-house forecast remains usable if a proposed decomposition is unsupported.
+
+### Prices on the Grid row
+
+Pricing remains a provider attached to a Grid, not a fifth device type or another independently configured Solver screen. Expand the Grid row only for unresolved roles or requested advanced choices.
+
+- **Detected providers:** show import/export directions, native and normalised units, fee/tax inclusion, forecast coverage, resolution and gaps. A feed-in-only source remains usable for export without inventing an import rate.
+- **No provider:** offer manual rates or tariff configuration for required directions. Observation can proceed without prices.
+- **Provider selection:** scope selection to the Grid and validate replacement roles, semantics and coverage before activation. A failed switch retains the existing active selection and explains the failure.
+- **Fees:** prevent double charging using verified inclusion metadata. Do not blanket-reset explicit fee settings when discovering a provider; surface conflicts for resolution.
+- **P2P:** keep forecast rates, matched-rate observations and settlement history distinct. Historical trades are not commitments and must not automatically create dispatch blocks.
+
+Sensor attributes and read-only action responses use the same forecast adapter contract. Require timezone-aware half-open intervals, native start/end timestamp interpretation, quantity/unit and value semantics, issue/fetch times, provenance and explicit gaps. Preserve negative prices.
+
+Reconcile mixed resolutions by interval overlap with quantity-appropriate aggregation. Do not silently bridge gaps, extrapolate expired prices or substitute zero for an absent direction. Longer-horizon continuation, fallback and horizon reduction must be explicit and attributable.
+
 ---
 
 ## 6. Confirm, and what it creates
 
-Confirm saves the **device definitions** (devices, bindings, relationships, constraints, provenance), and nothing else:
+Confirm validates and saves the **device definitions** (devices, bindings, relationships, constraints, provenance), then initialises supported consumers. It does not create independently editable copies or authorise control:
 
-- **Telemetry is registered, not forecast.** A confirmed Battery or Grid power binding is telemetry. It does **not** create a learned forecast, because planned dispatch and grid exchange are outputs of the plan. **Solar and Load** forecasts are planning inputs. Load forecasts are learned; solar comes from its forecast provider where one exists.
+- **Telemetry is registered, not automatically forecast.** A confirmed Battery or Grid power binding does **not** create a learned forecast, because planned dispatch and grid exchange are normally coordinated plan outputs. **Solar and Load** forecasts are planning inputs, supplied by a compatible provider or a supported Nimbus model. Show training and coverage separately from registration.
 - **Today's settings are generated from the definitions** as compatibility views, so the Solver, Forecaster, Topology and cards keep working unchanged while they migrate to reading the definitions directly.
 - **Control stays off.** A discovered switch or inverter control is not authorisation to actuate it. Completing setup sends no device commands (acceptance case).
 
@@ -152,15 +185,19 @@ Readiness replaces any "everything works now" promise, which is the contract's r
 
 | function | ready when | otherwise shows |
 |---|---|---|
-| **observation** | the Grid and whole-house Load bindings resolve | which binding is missing |
-| **forecasting** | each Load's history has trained (the #1557 rules) | per Load: training, or *"needs ~5 days of history"*, with the coordinator's own reason |
-| **planning** | observation plus prices (Grid tariff) plus, if a Battery exists, its capacity and limits | the one missing fact |
+| **observation** | usable measurements resolve for the displayed device role | missing, stale or unavailable bindings, without hiding unrelated working observations |
+| **forecasting** | a compatible external forecast or a supported trained model is available for the relevant Load/Solar role | actual usable history, model-specific training requirement, quality and coverage |
+| **planning** | required forecasts, applicable prices, validated topology/accounting and constraints exist over the supported planning horizon | all unmet prerequisites, prioritised by the next useful action |
 | **scoring** (Regret/EPR) | a defined baseline, aligned actuals, applicable prices, and for a battery its initial/final stored energy and losses | **"insufficient evidence"** or **"not applicable"**, never a misleading score (a Grid-and-Load site has no battery score to report) |
-| **control** | separately authorised, never by setup | *"not enabled"* |
+| **control** | a valid plan, supported control path and safety checks exist, with separate explicit authorisation | *"not enabled"* or the specific unmet safety/readiness prerequisite |
 
 The surfaces:
-- **Settings → Repairs** for each missing fact. These clear themselves when fixed: stage 2 (#1588) ships the first four.
+- **Settings → Repairs** for actionable faults, with a focused fix flow where supported. These clear themselves when fixed; stage 2 (#1588) tracks the initial cases.
 - **A readiness summary** on the Nimbus device page.
+
+Normal training progress, deliberately omitted optional roles and `not_applicable` functions are status, not Repairs. Use actual coordinator/model requirements rather than a universal training duration. A Grid-and-Load site without controllable flexibility must not be presented as a battery optimisation problem.
+
+The completion summary reports what was actually created and what is ready, training or blocked. It does not promise a fixed time to train or a guaranteed optimal solve.
 
 ---
 
@@ -177,6 +214,8 @@ Advanced is **not a second configuration model**. It reveals more capabilities o
 
 Every value is one binding or constraint on one device, used by every subsystem.
 
+A user-authorised change updates the canonical definition, invalidates affected derived results and recomputes readiness. A discovered switch or climate entity is a candidate control binding, not consent to use it; preserve runtime, comfort, deadline and availability constraints.
+
 ---
 
 ## 9. Existing installs
@@ -185,12 +224,14 @@ Every value is one binding or constraint on one device, used by every subsystem.
 - **Re-running discovery is idempotent.** Nimbus IDs survive entity renames and Energy Dashboard reordering; no duplicate devices (acceptance case).
 - **Gap-filling never changes the site's accounting model or enables control.** Stage 1 (#1587) is the first, narrow instance: it fills only the Solver's empty inputs from sensors already confirmed for the same quantity, creates no forecasts, and changes nothing on the reference household (pinned by a test on its real diagnostics).
 
+Validate roles, units and boundaries even when a field is empty; emptiness alone is not permission to create a new signal. Fully configured fixtures must retain effective mappings, accounting, history and control state, although internal version metadata can change. Migration must neither enable disabled control nor silently disable or reconfigure existing authorised control.
+
 ---
 
 ## 10. Rules that hold everywhere
 
 1. **Never overwrite** a confirmed choice; surface conflicts instead.
-2. **Never silent:** everything created is listed, and everything missing is a Repair with its reason.
+2. **Never silent:** changes and readiness reasons are visible; actionable faults become Repairs, while normal progress and optional omissions remain status.
 3. **One definition per device**, used by every subsystem.
 4. **Evidence, then confirmation:** discovery proposes, the user confirms ambiguous roles.
 5. **Refuse the wrong kind at the door:** energy for power (#1562), doubled fees (#1564), unit mismatches (#1570).
@@ -211,12 +252,21 @@ Every value is one binding or constraint on one device, used by every subsystem.
 | **Inclusive loads** | a pool inside the household total | showing its forecast leaves planned demand unchanged until a decomposition is enabled |
 | **Incomplete evidence** | stale data, ambiguous signs, a missing tariff direction, forecast gaps | the mapping is kept, and only the affected capabilities are blocked |
 | **No accidental control** | discovered switches and inverter controls | completing setup sends no device commands |
+| **Statistics without live entities** | a valid energy statistic but no matching current-state entity | energy mapping is preserved; the unresolved power role is explained |
+| **Unchanged versus stale** | a valid constant reading and a genuinely unavailable source | provider-specific evidence distinguishes them; zero is not treated as missing |
+| **Ambiguous balance** | idle or correlated signals with several fitting explanations | insufficient evidence is reported; no sign or calibration change is silently applied |
+| **Mixed intervals and provider failure** | mixed forecast durations, coverage gaps or an invalid replacement provider | no invented prices; failed selection retains the active provider |
+| **Invalid accounting** | inclusion cycles, multiple paths or incompatible boundaries | named conflicts block decomposition, not valid inclusive observation |
+| **Shared equipment limit** | Solar and Battery share a constrained inverter quantity | combined planned flow respects the shared bound |
+| **Repeated migration** | existing choices, history and authorised control state | two runs preserve effective state apart from approved repairs and create no duplicates |
 
 How they are run:
-- **Replay real installs:** the reference household, the tester's 6 Oct install, Mark's install and devhub.
+- **Replay real installs:** the reference household, the tester's 6 Oct install, Mark's install and devhub, using sanitised fixtures that preserve semantics without private endpoints, credentials, account identifiers or household schedules.
 - **The real Home Assistant harness** (`tests/hass_integration/`): drive the actual flow from "Add Nimbus" to a first observation.
-- **Devhub end to end:** remove and re-add Nimbus, then restore the backup.
-- **A real tester's first install last:** the only measure of "a breeze".
+- **Devhub end to end:** use an isolated test instance or an explicitly approved backed-up devhub. Any remove/re-add test must verify restore and must not run against production by default.
+- **Novice walkthroughs:** test the minimal observation site and a supported flexible site during development and before release; record elapsed time, unresolved questions and successful outcomes.
+
+These are acceptance requirements, not claimed test results. Documentation changes alone do not verify runtime behaviour, provider adapters or dispatch safety.
 
 ---
 
