@@ -127,6 +127,16 @@ Rules for this screen:
 - **Optional, but recommended:** grid power. Without it the balance check in §3.3 has nothing to compare against, so leaving it blank is allowed and explained.
 - **Nothing else** appears at this level. Temperature, weather, circuits, EVs and fees are all advanced, and most are detected anyway.
 
+### 4.1 Loads, offered on the same screen
+
+Below the five sensors, a pre-ticked list: *"Also forecast these 9 loads? (from your Energy Dashboard's individual devices and your Smappee circuits)"*.
+
+- **Candidates:** each Energy Dashboard individual device (`device_consumption`), resolved to the power sensor on the same device. The kWh total is never used, the same rule as §3.1. Circuit-level power sensors on the house-load device are added too (Smappee, Emporia, IoTaWatt and similar).
+- **Pre-ticked, one tap to accept:** unticking removes a load. Loads are optional at the basic level, so none is created without this confirmation.
+- **Children of Whole House** (§8.2): the Solver's load still comes from Whole House, so these never change the plan. They add per-appliance forecasts, the Topology breakdown, and the groundwork for controllable loads.
+- **A load whose device also has a switch or climate entity** (a pool pump, a hot-water relay) is remembered, and pre-filled later under Advanced → "Devices Nimbus can switch" without asking again.
+- **Overlaps are resolved here:** a candidate that sits inside another candidate (the pool inside its circuit) is nested under it rather than listed beside it.
+
 ---
 
 ## 5. Step 3: "Your prices" (one confirm)
@@ -156,6 +166,7 @@ One press of Submit creates or fills, **only where empty**:
 | Everything above | **Regret** and quality scoring, which need nothing more |
 | Dashboards | the Forecaster, Solver and Control Panel tabs, as sections views with titles (#1558). The Control Panel card reads the Solver's sensors whenever its own fields are blank (#1574 stage 1). |
 | Dispatch | **dry-run on, live dispatch off.** Setup never enables control. |
+| Energy Dashboard **Individual devices** (`device_consumption`), and circuit power sensors on the house-load device | **Loads**, one per device, **only those the user left ticked** on "Your home" (§4.1), each a **child of Whole House** (§8.2), so nothing is counted twice |
 
 Then a **single summary notification**:
 
