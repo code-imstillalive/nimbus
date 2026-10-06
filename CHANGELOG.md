@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Energy Dashboard suggestions work again on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
+  Assistant 2026.3 changed how a grid source is stored: there is now one source
+  per import/export connection, with its fields flat, instead of `flow_from` /
+  `flow_to` lists. The Solver's import/export price suggestions and the
+  switchboard's grid energy and price suggestions read only the old lists, so
+  they silently found nothing. Both forms are read now, each field mapped back
+  exactly as Home Assistant's own migration mapped it forward.
+
 ### Added
 - **Setup problems are Home Assistant Repairs that clear themselves**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 2 of
