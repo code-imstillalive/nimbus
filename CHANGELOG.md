@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Energy Dashboard price suggestions work on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Current
+  Home Assistant stores a grid source flat (`stat_energy_from`,
+  `entity_energy_price`, `entity_energy_price_export`), not as `flow_from` /
+  `flow_to` lists, so the Solver's import/export price suggestion and the
+  switchboard's grid suggestions silently found nothing. Both formats are now read.
+
+### Added
+- **A device resolver for the two-step setup**
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It finds
+  the power sensor behind each Energy Dashboard source by matching each
+  candidate's integrated history, hour by hour, against the source's own energy
+  counter. That works on hybrid inverters with many power sensors on one device,
+  and tells which way the sensor's sign runs. It also checks that grid ≈ load −
+  solar − battery, and names a flipped sign, a W/kW mix-up or partial solar.
+  It's groundwork only; nothing uses it yet.
+
 ### Changed
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
 

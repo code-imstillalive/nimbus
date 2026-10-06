@@ -126,6 +126,7 @@ from ..const import (
     SUBENTRY_TYPE_SIGNAL,
     TRAINING_SOURCE_CHOICES,
 )
+from ..device_resolver import as_flow_lists
 from ..power_input_check import energy_unit_field_errors
 from ..pricing_autodetect import with_detected_profile
 
@@ -874,7 +875,11 @@ async def _energy_dashboard_solver_source_suggestions(hass: Any) -> dict[str, st
         from homeassistant.components.energy.data import async_get_manager
 
         manager = await async_get_manager(hass)
-        sources = (manager.data or {}).get("energy_sources") or []
+        # nimbus #1589: current HA stores a grid source flat, not as
+        # flow_from / flow_to lists; normalise so the loop below sees both.
+        sources = [
+            as_flow_lists(s) for s in (manager.data or {}).get("energy_sources") or []
+        ]
     except Exception:  # noqa: BLE001 -- see docstring: no Energy Dashboard, an older HA, or any unexpected shape must mean "an unfilled form", never a broken wizard step
         return {}
 
@@ -1004,7 +1009,10 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
         from homeassistant.components.energy.data import async_get_manager
 
         manager = await async_get_manager(hass)
-        sources = (manager.data or {}).get("energy_sources", [])
+        # nimbus #1589: see the solver-source sibling above.
+        sources = [
+            as_flow_lists(s) for s in (manager.data or {}).get("energy_sources") or []
+        ]
 
         def _ok(entity_id: str | None) -> str | None:
             if not entity_id:
