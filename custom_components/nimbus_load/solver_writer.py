@@ -882,12 +882,10 @@ def _log_active_household_specific_overrides_once(cfg: dict) -> None:
         return
     _household_specific_overrides_logged = True
     active: list[str] = []
-    if cfg.get("solver_p2p_matched_rate_forecast_sensor"):
-        active.append(
-            "solver_p2p_matched_rate_forecast_sensor is configured -- its real "
-            "matched rate is forced to 0 outside the fixed 17:00-24:00 window "
-            "regardless of your own configured P2P block hours"
-        )
+    # The P2P matched-rate window used to be listed here (#348): a fixed
+    # 17:00-24:00. It is no longer hardcoded -- configured blocks bound it
+    # (#1551) and without blocks the rate is flexible (#1559) -- so there is
+    # nothing household-specific left to report for it.
     if active:
         _LOGGER.warning(
             "Nimbus Solver: %d household-specific override(s) active for this "
@@ -3738,11 +3736,16 @@ def resample_real_p2p_rate(
 
     The window (nimbus #1537 item 5): `p2p_window_kw` is the household's
     own configured blocks, from `fetch_p2p_fixed_export_kw()`, and a period
-    is inside the window when its value there is > 0. Without it, or with no
-    block configured, the 17:00-24:00 gate above still applies, which is the
-    reference household's own window. Before this a household whose blocks
-    sat anywhere else had every P2P rate zeroed outside 17:00-24:00 and saw
-    none inside its own blocks, with nothing in the log to say why.
+    is inside the window when its value there is > 0; beyond the forecast's
+    coverage a block keeps the median real matched rate.
+
+    With NO block configured (`p2p_window_kw` None) nothing is hardcoded
+    (#1559): the rate is flexible, counting in every interval the forecast
+    itself shows matched, and 0 beyond the forecast's coverage, since
+    without a commitment there is nothing to extrapolate. The paragraph
+    above about "the explicit 17<=hour<24 gate" describes the reference
+    household's original window; it applied to every install, with or
+    without blocks, until v0.94.439 (blocks) and #1559 (no blocks).
 
     Returns a flat 0.0 array (never crashes) if `sensor_id` is blank --
     the same graceful no-op every household with no P2P/community-
@@ -3795,10 +3798,10 @@ def resample_real_p2p_rate(
     use_blocks = p2p_window_kw is not None and len(p2p_window_kw) == len(grid_times)
     out = []
     for i, gt in enumerate(grid_times):
-        if use_blocks:
-            in_window = p2p_window_kw[i] > 0  # NaN (no block) compares False
-        else:
-            in_window = 17 <= _local(gt).hour < 24
+        # Blocks configured: the rate counts inside them only. No block
+        # configured: a flexible rate, every interval LocalVolts' own
+        # forecast shows matched (#1559 -- no hardcoded hours).
+        in_window = p2p_window_kw[i] > 0 if use_blocks else True  # NaN is False
         if not in_window:
             out.append(0.0)
         elif gt <= last_real_time:
@@ -3809,8 +3812,14 @@ def resample_real_p2p_rate(
                 else:
                     break
             out.append(float(val))
-        else:
+        elif use_blocks:
+            # Past the forecast's own coverage, a committed block still
+            # sells at its usual rate: the median of real matched rates.
             out.append(float(fallback_rate))
+        else:
+            # Without a block there is no commitment to extrapolate, so no
+            # P2P is assumed beyond what the forecast itself shows.
+            out.append(0.0)
     return out
 
 

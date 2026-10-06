@@ -49,19 +49,21 @@ class TestHouseholdOverrideVisibility(unittest.TestCase):
 
         mock_logger.warning.assert_not_called()
 
-    def test_logs_p2p_matched_rate_override_when_sensor_configured(self):
-        cfg = {"solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched"}
-        with patch.object(solver_writer, "_LOGGER") as mock_logger:
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-
-        message = mock_logger.warning.call_args[0][-1]
-        self.assertIn("matched rate is forced to 0", message)
-
-    def test_only_logs_once_per_process_not_once_per_cycle(self):
-        cfg = {"solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched"}
-        with patch.object(solver_writer, "_LOGGER") as mock_logger:
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-
-        mock_logger.warning.assert_called_once()
+    def test_matched_rate_sensor_is_no_longer_an_override(self):
+        """nimbus #1559: the matched-rate window is not hardcoded any more
+        (blocks bound it, #1551; without blocks it is flexible), so a
+        configured matched-rate sensor reports nothing, with or without
+        blocks."""
+        for cfg in (
+            {"solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched"},
+            {
+                "solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched",
+                "solver_p2p_block_1_rate_kw": 12.0,
+                "solver_p2p_block_1_start_hour": 17,
+                "solver_p2p_block_1_end_hour": 24,
+            },
+        ):
+            solver_writer._household_specific_overrides_logged = False
+            with patch.object(solver_writer, "_LOGGER") as mock_logger:
+                solver_writer._log_active_household_specific_overrides_once(cfg)
+            mock_logger.warning.assert_not_called()

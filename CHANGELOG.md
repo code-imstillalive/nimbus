@@ -21,6 +21,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   someone has edited is left alone.
 
 ### Fixed
+- **No hardcoded P2P window: without P2P blocks the matched rate is flexible**
+  ([#1559](https://github.com/code-imstillalive/nimbus/issues/1559)). With no
+  block configured, the P2P matched rate was still gated to 17:00-24:00 (the
+  reference household's window) and extrapolated past the forecast at that
+  window's median. It now counts in every interval LocalVolts' own forecast
+  shows matched, at any hour, and is 0 beyond the forecast. With blocks
+  configured nothing changes. The #348 log line that described the window as
+  fixed "regardless of your own configured P2P block hours" is gone, since it
+  stopped being true in v0.94.439.
+
+### Fixed
 - **Load forecasts for circuits that sit idle are right again: idle time is
   training data, not an outage**
   ([#1556](https://github.com/code-imstillalive/nimbus/issues/1556)). Home
