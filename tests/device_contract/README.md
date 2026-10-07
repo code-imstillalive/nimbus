@@ -13,6 +13,8 @@ DC-001 onward land, there is an independent target to check them against.
 | `fixtures/Fnn_*/manifest.json` | one per fixture with a started oracle: identity, origin, data semantics, expected result, tolerances, execution status, privacy. |
 | `test_traceability.py` | the gate: every P0 requirement mapped, every reference resolved, every status explicit, no production pass claimed. |
 | `test_reference_oracles.py` | F07, the exact-once BESS + DC EV + AC EV accounting oracle and its variants. |
+| `inventory/8a9f503.json` | DC-000 step 2: the producer/consumer/write-boundary inventory **measured** at the baseline by `scripts/device_contract_baseline.py` (parses the code; never hand-written). |
+| `test_inventory.py` | the inventory matches the baseline, is byte-identical across runs, and every equipment-operating service call lives in `solver_dispatch/` (DC-R15). |
 | `test_nonvacuity.py` | negative controls: a double count, a W/kW mix-up and broken identities must fail or be rejected. |
 
 Status changes and expected results change only through a reviewed PR, never
