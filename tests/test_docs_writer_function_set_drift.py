@@ -699,6 +699,12 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # tail extension. Same reason: the docs copy has no generic branch.
         "extend_generic_price_tails",
         "price_unit_scale_of_history",
+        # nimbus issue #1583 -- an OpenADR 3 VEN price sensor's rows come
+        # from its get_forecast action. The docs copy has no provider
+        # adapters at all (no price_intervals, no generic coverage reader
+        # for AEMO/PD7DAY/Amber either, #1578-#1581), so there is nothing
+        # there yet for this to feed.
+        "_openadr_forecast_rows",
         # nimbus issue #1537 -- the P2P volume cap's default from the
         # household's own configured blocks, when no settlement history is
         # configured. The docs copy has no P2P block settings at all (it

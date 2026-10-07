@@ -1258,6 +1258,15 @@ class LPProblem:
             self._cost[name] = cost
         return name
 
+    def upper_bound(self, name: str) -> float:
+        """The upper bound `name` was registered with (nimbus issue #238:
+        direction binaries use each variable's own per-period bound as
+        their big-M, so a gated or pinned period needs no binary at all)."""
+        if name not in self._var_index:
+            msg = f"Unknown variable {name!r}"
+            raise KeyError(msg)
+        return self._ub[self._var_index[name]]
+
     def set_cost(self, name: str, cost: float) -> None:
         """Add to (not replace) this variable's objective coefficient --
         multiple cost contributions (e.g. a discharge cost AND a shadow

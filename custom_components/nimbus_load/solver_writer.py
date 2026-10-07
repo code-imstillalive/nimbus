@@ -4552,6 +4552,21 @@ def price_now(entity_id: str, fallback: float = 0.0) -> float:
         return safe_num(entity_id, fallback=fallback / scale) * scale
 
 
+def _openadr_forecast_rows(entity_id: str) -> list | None:
+    """nimbus #1583: an OpenADR 3 VEN price sensor's full forecast rows, from
+    its `openadr3_ven.get_forecast` action (the sensor publishes only a
+    summary). None on any failure -- the caller then treats the sensor as
+    having no forecast, as for any other unavailable source."""
+    return price_intervals.openadr_rows_from_response(
+        # A literal domain, so the DC-R15 inventory can see this is the
+        # read-only OpenADR forecast lookup, not an equipment command.
+        ha_call_service_with_response(
+            "openadr3_ven", "get_forecast", {"entity_id": entity_id}
+        ),
+        entity_id,
+    )
+
+
 def resample_generic_price_forecast_with_coverage(
     entity_id: str, grid_times: list[datetime]
 ) -> tuple[list[float], list[bool]] | None:
@@ -4604,7 +4619,9 @@ def _resample_generic_price_forecast_raw(
         return None
     attrs = state.get("attributes") or {}
     if price_intervals.is_provider_shape(attrs):  # nimbus #1550 adapters
-        return price_intervals.provider_forecast_on_grid(attrs, grid_times)
+        return price_intervals.provider_forecast_on_grid(
+            attrs, grid_times, lambda: _openadr_forecast_rows(entity_id)
+        )
     forecast = attrs.get("forecast")
     if not forecast:
         return None
