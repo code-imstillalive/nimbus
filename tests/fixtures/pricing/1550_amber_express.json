@@ -1,0 +1,113 @@
+{
+  "source": "nimbus #1550, Mark Purcell's live MCP capture, 6 Oct 2026 ~13:15-13:20 AEST, read-only (comment 6008674744). Selected real rows, extracted programmatically from the published comment.",
+  "integration": "amber_express 2.0.1 (hass-energy/amber-express)",
+  "samples": {
+    "amber_express_general_simple": {
+      "sample_alias": "amber_express_general_simple",
+      "native_path": "attributes.forecast",
+      "unit": "$/kWh",
+      "parent_metadata": {
+        "interpolation_mode": "previous",
+        "selected_mode": "advanced_price_predicted",
+        "options": [
+          "advanced_price_predicted",
+          "per_kwh"
+        ]
+      },
+      "selected_native_rows": [
+        {
+          "time": "2026-10-06T13:15:00+10:00",
+          "value": 0.0848
+        },
+        {
+          "time": "2026-10-06T13:20:00+10:00",
+          "value": 0.0613
+        },
+        {
+          "time": "2026-10-06T13:55:00+10:00",
+          "value": 0.0632
+        },
+        {
+          "time": "2026-10-06T14:00:00+10:00",
+          "value": 0.067
+        },
+        {
+          "time": "2026-10-06T14:30:00+10:00",
+          "value": 0.0721
+        },
+        {
+          "time": "2026-10-07T12:30:00+10:00",
+          "value": 0.0345
+        }
+      ]
+    },
+    "amber_express_general_detail": {
+      "sample_alias": "amber_express_general_detail",
+      "native_path": "attributes.detailedForecast",
+      "unit": "$/kWh",
+      "parent_metadata": {},
+      "selected_native_rows": [
+        {
+          "per_kwh": 0.0847823,
+          "duration": 5,
+          "start_time": "2026-10-06T03:15:01+00:00",
+          "end_time": "2026-10-06T03:20:00+00:00",
+          "estimate": false,
+          "demand_window": null
+        },
+        {
+          "per_kwh": 0.0612866,
+          "duration": 5,
+          "start_time": "2026-10-06T03:20:01+00:00",
+          "end_time": "2026-10-06T03:25:00+00:00",
+          "estimate": true,
+          "advanced_price_predicted": {
+            "low": 0.0518475,
+            "predicted": 0.0612866,
+            "high": 0.0716606
+          },
+          "demand_window": null
+        },
+        {
+          "per_kwh": 0.0632156,
+          "duration": 5,
+          "start_time": "2026-10-06T03:55:01+00:00",
+          "end_time": "2026-10-06T04:00:00+00:00",
+          "estimate": true,
+          "advanced_price_predicted": {
+            "low": 0.0482653,
+            "predicted": 0.0632156,
+            "high": 0.076103
+          },
+          "demand_window": null
+        },
+        {
+          "per_kwh": 0.0669665,
+          "duration": 30,
+          "start_time": "2026-10-06T04:00:01+00:00",
+          "end_time": "2026-10-06T04:30:00+00:00",
+          "estimate": true,
+          "advanced_price_predicted": {
+            "low": 0.0465944,
+            "predicted": 0.0669665,
+            "high": 0.08608
+          },
+          "demand_window": null
+        },
+        {
+          "per_kwh": 0.0345142,
+          "duration": 30,
+          "start_time": "2026-10-07T02:30:01+00:00",
+          "end_time": "2026-10-07T03:00:00+00:00",
+          "estimate": true,
+          "advanced_price_predicted": {
+            "low": 0.0229704,
+            "predicted": 0.0345142,
+            "high": 0.0618519
+          },
+          "demand_window": null
+        }
+      ]
+    }
+  }
+}

@@ -165,6 +165,79 @@ def _ordered(parsed: list[PriceInterval]) -> list[PriceInterval]:
     return out
 
 
+# --- Amber Express (nimbus #1580) -------------------------------------------
+#
+# hass-energy/amber-express, domain `amber_express`. Each price sensor
+# (unique_id `<site>_general_price` / `<site>_feed_in_price`) publishes:
+#
+# * `forecast: [{time, value}]` -- `value` is ALREADY the household's selected
+#   pricing basis (`advanced_price_predicted`, falling back to `per_kwh` when
+#   absent; or `per_kwh`), ALREADY sign-flipped for feed-in (positive =
+#   earnings) and ALREADY carries the demand-window charge on the general
+#   channel. `time` is the interval start, floored to the minute.
+# * `detailedForecast` (case-sensitive) -- Amber's own rows with
+#   `start_time` one second past the boundary (`03:20:01Z`), `end_time` on it
+#   (`03:25:00Z`) and a nominal `duration` (5 or 30).
+#
+# Nimbus reads the price from `forecast[].value` exactly as published (never
+# negating feed-in again, never re-adding the demand window, never choosing
+# a different basis) and takes only the interval BOUNDARIES from
+# `detailedForecast`: canonical start = end - duration, accepted only when
+# Amber's own start sits inside the first minute of it. A simple row with no
+# detailed counterpart ends where the next row starts (Amber's own
+# `interpolation_mode: previous`) when that is at most 30 minutes away;
+# otherwise, like a final row with none, it is not counted as coverage.
+# `select.<..>_pricing_mode` is read-only to Nimbus: it is never operated.
+
+AMBER_EXPRESS_DOMAIN = "amber_express"
+AMBER_EXPRESS_DETAILED_KEY = "detailedForecast"
+_AMBER_MAX_INTERVAL = timedelta(minutes=30)
+
+
+def amber_express_intervals(forecast: Any, detailed: Any) -> list[PriceInterval] | None:
+    """Amber Express `forecast` prices on `detailedForecast` boundaries, or
+    None when either attribute is not a list (the caller keeps its own
+    `{time, value}` handling)."""
+    if not isinstance(forecast, list) or not isinstance(detailed, list):
+        return None
+    ends: dict[datetime, datetime] = {}
+    for d in detailed:
+        if not isinstance(d, dict):
+            continue
+        try:
+            end = parse_iso(d["end_time"])
+            minutes = int(d["duration"])
+            amber_start = parse_iso(d["start_time"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        start = end - timedelta(minutes=minutes)
+        if minutes > 0 and start <= amber_start < start + timedelta(minutes=1):
+            ends[start] = end
+    points: list[tuple[datetime, float]] = []
+    for row in forecast:
+        if not isinstance(row, dict):
+            continue
+        try:
+            when = parse_iso(row["time"])
+            value = float(row["value"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if math.isfinite(value):
+            points.append((when, value))
+    points.sort(key=lambda p: p[0])
+    parsed: list[PriceInterval] = []
+    for k, (start, value) in enumerate(points):
+        end = ends.get(start)
+        if end is None and k + 1 < len(points):
+            # Only across a gap no longer than Amber's longest interval: a
+            # row hours before the next is not hours of coverage.
+            nxt = points[k + 1][0]
+            end = nxt if nxt - start <= _AMBER_MAX_INTERVAL else None
+        if end is not None and end > start:
+            parsed.append(PriceInterval(start, end, value))
+    return _ordered(parsed)
+
+
 def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
     """Intervals for a provider shape this module knows, else None (the
     caller keeps its own `{time, value}` handling)."""
@@ -178,7 +251,15 @@ def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
 def _provider_intervals(attrs: Any) -> list[PriceInterval] | None:
     if not isinstance(attrs, dict):
         return None
-    return intervals_from_rows(attrs.get("forecast"))
+    found = intervals_from_rows(attrs.get("forecast"))
+    if found is None and AMBER_EXPRESS_DETAILED_KEY in attrs:
+        # nimbus #1580: Amber Express. `forecast[].value` as published (basis,
+        # feed-in sign and demand window already applied upstream), on the
+        # interval boundaries of its `detailedForecast`.
+        found = amber_express_intervals(
+            attrs.get("forecast"), attrs[AMBER_EXPRESS_DETAILED_KEY]
+        )
+    return found
 
 
 def is_provider_shape(attrs: Any) -> bool:

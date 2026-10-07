@@ -35,6 +35,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **Amber Express prices are read on their real interval boundaries, and
+  Nimbus offers its general and feed-in sensors as the import and export price
+  when those are empty**
+  ([#1580](https://github.com/code-imstillalive/nimbus/issues/1580), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Price read as published:** Amber Express's own forecast value is
+    already in the pricing mode you chose there, already positive for
+    feed-in, and already includes the demand-window charge. Nimbus uses it as
+    is: it never flips feed-in again, never adds the demand window again, and
+    never picks a different price. A price of zero is kept; a blank one is
+    missing, not zero.
+  - **Real boundaries:** interval ends come from Amber Express's detailed
+    forecast (5- and 30-minute intervals mixed), whose starts sit one second
+    past the boundary. Coverage now runs to the real end of the last interval
+    (13:00 in the 6 Oct capture) rather than its start. A row hours before
+    the next is not treated as hours of coverage.
+  - **Offered, never overwritten:** with one Amber Express site and an empty
+    import or export price, Nimbus pre-fills them and says so at startup.
+    Several sites propose nothing. A detected LocalVolts v2 profile comes
+    first. Nimbus never changes Amber Express's pricing mode.
+
 - **NEM PD7DAY's forecasts are read correctly in every price field, offered
   first as the regional spot forecast, and network fees counted twice on a
   PD7DAY tariff are flagged**
