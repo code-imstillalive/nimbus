@@ -35,6 +35,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **OpenADR 3 VEN prices are read as a real forecast when chosen as the
+  import or export price, and Nimbus says when it finds an OpenADR price
+  program** ([#1583](https://github.com/code-imstillalive/nimbus/issues/1583),
+  part of [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Before:** an OpenADR price sensor only publishes a summary. Its full
+    forecast is available only from the `openadr3_ven.get_forecast` action,
+    so as an import or export price Nimbus found no forecast and held the
+    current value flat for the whole plan.
+  - **Now:** Nimbus calls that action for the chosen sensor during the solve
+    (the same way it already reads weather forecasts) and prices each row
+    over its own length: 5, 15, 30 or 60 minutes, mixed in one forecast, with
+    60 minutes when a row gives none, as the integration itself does.
+    Coverage is measured from the rows, so a day with no rows (seen in the
+    6 Oct capture) is not counted as covered. The sensor's own
+    `forecast_end` is ignored: it is the last row's start, not its end.
+  - **Only prices:** `PRICE` and `EXPORT_PRICE` are read; carbon (`GHG`) or
+    any other payload type never is.
+  - **Found, never filled in:** OpenADR doesn't state whether a price is the
+    full tariff or an incentive on top of it, or its currency, so Nimbus
+    never pre-fills one. With an import or export price still empty, a
+    startup notice lists the OpenADR price sensors it found. Nothing is
+    changed.
+
 - **Home Assistant's own Amber Electric forecast sensors now give Nimbus a
   real price forecast, and are offered as the import and export price when
   those are empty**

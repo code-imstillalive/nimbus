@@ -34,7 +34,7 @@ whether a household's own tariff passes spot through is theirs to say.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import pairwise
@@ -298,6 +298,82 @@ def amber_core_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
     return _ordered(parsed)
 
 
+# --- OpenADR 3 VEN (nimbus #1583) -------------------------------------------
+#
+# grid-coordination/openadr3-ven-hass, domain `openadr3_ven`. One sensor per
+# (program, payload type), unique_id `<entry>_<program id>_<payload type>`.
+# The sensor's attributes carry only a summary (`payload_type`,
+# `forecast_rows`, `forecast_start`, `forecast_end`, ...): the full forecast
+# exists only in the entity action `openadr3_ven.get_forecast`, which returns
+# `{entity_id: {payload_type, unit, forecast: [{datetime, value,
+# interval_minutes}]}}` from the integration's own cached data.
+#
+# * Only `PRICE` and `EXPORT_PRICE` are prices; `GHG` and any other payload
+#   type are never read as one.
+# * Each row is [datetime, datetime + interval_minutes). A row with no usable
+#   length is 60 minutes, the integration's own default (`sensor.py`). #1550's
+#   capture had 5-, 15- and 30-minute rows in one response, and an hourly
+#   program with no rows for a whole day inside a seven-day span.
+# * `forecast_end` is the LAST ROW'S START, not the end of coverage; it is not
+#   used. Coverage is measured from the rows.
+# * OpenADR states neither currency nor whether a value is a full tariff or an
+#   incentive added to one; the `$` in the unit establishes neither. Nimbus
+#   therefore never proposes an OpenADR price for a field: it reads one
+#   correctly when the household chooses it, and says what it found.
+
+OPENADR_DOMAIN = "openadr3_ven"
+OPENADR_PRICE_PAYLOADS = frozenset({"PRICE", "EXPORT_PRICE"})
+_OPENADR_DEFAULT_MINUTES = 60
+
+
+def is_openadr_price_attrs(attrs: Any) -> bool:
+    """True for an OpenADR 3 VEN price sensor's summary attributes."""
+    return (
+        isinstance(attrs, dict)
+        and "forecast_rows" in attrs
+        and attrs.get("payload_type") in OPENADR_PRICE_PAYLOADS
+    )
+
+
+def openadr_rows_from_response(response: Any, entity_id: str) -> list[Any] | None:
+    """The forecast rows for `entity_id` from an `openadr3_ven.get_forecast`
+    response, or None when the response is missing, for another entity, or
+    not a price payload."""
+    if not isinstance(response, dict):
+        return None
+    block = response.get(entity_id)
+    if not isinstance(block, dict):
+        return None
+    if block.get("payload_type") not in OPENADR_PRICE_PAYLOADS:
+        return None
+    rows = block.get("forecast")
+    return rows if isinstance(rows, list) else None
+
+
+def openadr_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
+    """OpenADR forecast rows -> ordered, non-overlapping intervals."""
+    parsed: list[PriceInterval] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            start = parse_iso(row["datetime"])
+            value = float(row["value"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        try:
+            minutes = int(row.get("interval_minutes") or 0)
+        except (TypeError, ValueError):
+            minutes = 0
+        if minutes <= 0:
+            minutes = _OPENADR_DEFAULT_MINUTES
+        if math.isfinite(value):
+            parsed.append(
+                PriceInterval(start, start + timedelta(minutes=minutes), value)
+            )
+    return _ordered(parsed)
+
+
 def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
     """Intervals for a provider shape this module knows, else None (the
     caller keeps its own `{time, value}` handling)."""
@@ -334,19 +410,27 @@ def _provider_intervals(attrs: Any) -> list[PriceInterval] | None:
 def is_provider_shape(attrs: Any) -> bool:
     """True when a price sensor's attributes are a provider shape this module
     reads (so the solver's generic `{time, value}` reader hands it here)."""
-    return _provider_intervals(attrs) is not None
+    return is_openadr_price_attrs(attrs) or _provider_intervals(attrs) is not None
 
 
 def provider_forecast_on_grid(
-    attrs: dict[str, Any], grid_times: list[datetime]
+    attrs: dict[str, Any],
+    grid_times: list[datetime],
+    fetch_rows: Callable[[], Any] | None = None,
 ) -> tuple[list[float], list[bool]] | None:
     """(value, real) per grid time for a provider shape, or None when no row
     is usable. The import/export price reader's path for these providers
     (nimbus #1578, Mark Purcell: AEMO spot is often used as a feed-in price,
     and with network tariff as a buy price -- the configured network/flat
     fees are added to the import price downstream; nimbus #1581: PD7DAY's
-    published value, on its own `nemtime` interval ends)."""
-    intervals = _provider_intervals(attrs)
+    published value, on its own `nemtime` interval ends). `fetch_rows`
+    supplies an action-only provider's rows (nimbus #1583, OpenADR); it is
+    called only for such a sensor."""
+    if is_openadr_price_attrs(attrs):
+        rows = fetch_rows() if fetch_rows is not None else None
+        intervals = openadr_intervals(rows) if rows else []
+    else:
+        intervals = _provider_intervals(attrs) or []
     if not intervals:
         return None
     return on_grid(intervals, grid_times)
