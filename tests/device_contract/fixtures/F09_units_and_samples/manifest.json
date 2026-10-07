@@ -174,8 +174,9 @@
   },
   "execution_status": {
     "reference_oracle": "verified",
-    "legacy_characterised": "not_started",
-    "production_obligation": "pending (DC-002, DC-005, DC-006)"
+    "legacy_characterised": "recorded",
+    "production_obligation": "pending (DC-002, DC-005, DC-006)",
+    "legacy_evidence": "snapshots/legacy/F09_power_units.json: power-unit conversion only; samples and counters not yet characterised"
   },
   "privacy": {
     "publication": "synthetic; no household data"
