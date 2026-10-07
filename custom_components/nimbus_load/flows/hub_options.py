@@ -89,6 +89,7 @@ from ..const import (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
@@ -656,6 +657,16 @@ def _solver_sources_schema(
                     )
                 },
             ): _entity(),
+            # nimbus #1537: an optional second matched-rate source, merged
+            # per period with the first (see const.py).
+            vol.Optional(
+                CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2
+                    )
+                },
+            ): _entity(),
             # nimbus issue #567: an ADDITIONAL/alternative price-spike
             # trigger for a household with a real named alert product
             # (e.g. Amber's own Spike) -- see const.py's own comment on
@@ -1195,6 +1206,7 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
     # nimbus issue #1213: carried through the wizard's own merge like
