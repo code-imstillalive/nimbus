@@ -18,6 +18,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   is fine and that they deploy after midnight, outside 17:00-24:00 ("cutting
   and releasing or tagging is fine... i will not update until after
   midnight"). The fix is #1610 (merged to `main` as 7e6860c4).
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at ec2a52f**,
+  installed untagged via HACS from the `release/0.94.442` branch (its head
+  is ec2a52f) and restarted 22:27 AEST 7 Oct. Devhub's own entities stamp
+  `0.94.442` (2 of them; the 122 at 0.94.439 are production's mirrored
+  rows). With Nimbus at debug, a solve at 22:30:34 came back `optimal`,
+  batteries `['home', 'Test EV']`. No `Traceback`, no `solve cycle failed`,
+  no new ERROR beyond the boot-time "does not generate unique IDs" rows from
+  devhub's mirrored registry (161, the same kind as 0.94.441's check). Two
+  "previous cycle still in progress" skips at 22:30:30 were a `solve_now`
+  landing on the first post-restart cycle; the next solve was optimal.
+  **Not observable on devhub:** the P2P behaviour itself, because devhub's
+  solver outputs share entity_ids with production's mirror (#1396). It was
+  verified instead by a read-only replay of production's live solve with
+  this exact tree (every non-GET request refused, state writes captured
+  locally), 22:32 AEST with the household's block temporarily at 13 kW:
+  `optimal`, battery 14.5 kW = 13 + the house, grid import 0, net 13 to the
+  grid; at 21:57 with the block at 12 the same change gave battery 13.2 kW,
+  import 0, net 12, against 12.0 kW and 1.1 kW import without it.
+- Consumer check: during a P2P block the battery delivers the block rate to
+  the grid plus whatever the house is using, so the meter shows the full
+  block as net export. A household that raised its block rate to compensate
+  for the old behaviour should set it back, or it will now export that
+  higher rate net. Outside a block nothing changes.
 
 ### Fixed
 - **A P2P block is now net export at the meter: the house is covered on top**
