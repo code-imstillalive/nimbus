@@ -64,6 +64,10 @@ try:
     from ..solver import elements
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
+try:
+    from ..solver import meter_reconciliation as mr
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver import meter_reconciliation as mr  # type: ignore[no-redef]
 
 
 # nimbus issue #1248: how the currently-published quality report read back.
@@ -1194,6 +1198,40 @@ def _compute_report_for_window(
         day_start=day_start,
         day_end=day_end,
     )
+    # nimbus #1465: does the reconstructed grid exchange this day was
+    # priced on match the grid meter? See solver/meter_reconciliation.py
+    # for the declared tolerance and why both meter signs are tried. The
+    # meter is a binding the household already has: the switchboard's grid
+    # meter (Topology) or, failing that, the Forecaster's grid sensor.
+    meter_sensor = cfg.get("switchboard_grid_meter_sensor") or cfg.get("grid_sensor")
+    metered_kw = None
+    stale_pct = None
+    if meter_sensor:
+        meter_hist = sw.fetch_entity_history_range(meter_sensor, day_start, day_end)
+        if meter_hist:
+            meter_scale = sw._kw_scale_factor(meter_sensor)
+            metered_kw = [
+                v * meter_scale
+                for v in sw.resample_history_mean(meter_hist, grid_times, period_hours)
+            ]
+            meter_cov = sw._power_history_coverage(meter_hist, grid_times, period_hours)
+            stale_pct = meter_cov.get("stale_periods_pct") if meter_cov else None
+    achieved_energy = report.energy_decomposition.get("achieved", {})
+    meter_reconciliation = mr.reconcile(
+        meter_sensor=meter_sensor,
+        metered_kw=metered_kw,
+        period_hours=list(period_hours_arr) if metered_kw is not None else None,
+        stale_periods_pct=stale_pct,
+        reconstructed_import_kwh=float(achieved_energy.get("grid_import_kwh", 0.0)),
+        reconstructed_export_kwh=float(achieved_energy.get("grid_export_kwh", 0.0)),
+    )
+    # #1162's invariant: a false `epr_reliable` always names a cause. The
+    # stronger findings above keep the field when they already set it.
+    if (
+        meter_reconciliation["status"] == mr.DISAGREES
+        and achieved_feasibility.get("epr_reason") is None
+    ):
+        achieved_feasibility["epr_reason"] = "grid_meter_disagrees"
     return {
         **nowcast_skill_attrs,
         **forecast_regret_attrs,
@@ -1452,6 +1490,9 @@ def _compute_report_for_window(
         # is why a day whose whole regret was one over-charge could not
         # be read off it without summing the hourly rows by hand.
         "energy_decomposition": report.energy_decomposition,
+        # nimbus #1465: the achieved row's grid figures checked against the
+        # grid meter (solver/meter_reconciliation.py).
+        "meter_reconciliation": meter_reconciliation,
         "achieved_energy_in_kwh": round(
             float(np.sum(actual_charge_kw * period_hours_arr)), 3
         ),
@@ -1557,6 +1598,7 @@ def _compute_report_for_window(
             soc_discrepancy["soc_discrepancy_reliable"],
             achieved_feasibility["regret_reliable"],
             epr_denominator_reason,
+            meter_reconciliation["status"],
         ),
         **achieved_feasibility,
     }
@@ -2330,13 +2372,15 @@ _QUALITY_HOLD_WARNED: set[str] = set()
 #
 #   1  every report published before the stamp existed (absent = 1)
 #   2  #1480's j_star_path_delta_explained / _unexplained, plus the stamp
+#   3  #1465's meter_reconciliation (the reconstructed grid checked against
+#      the grid meter; a disagreement makes epr_reliable false)
 #
 # Why it is needed: the "already scored" fast path below re-pushes a day's
 # published attributes verbatim on every later cycle. Measured on a real
 # install (Mark Purcell, #1496): 30 Sep was scored before v0.94.433 reached it,
 # and after the upgrade its sensor still read j_star_path_delta_explained=None
 # while a fresh compute_quality_report for the identical window returned 1.2357.
-QUALITY_REPORT_SCHEMA = 2
+QUALITY_REPORT_SCHEMA = 3
 
 # When each day was last re-scored for an older schema, as time.monotonic().
 # A failed re-score is RETRIED, but no more often than
