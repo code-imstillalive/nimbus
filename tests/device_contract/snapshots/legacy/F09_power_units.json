@@ -1,0 +1,142 @@
+{
+ "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+ "cases": [
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1e-06,
+   "unit": "mW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 0.001,
+   "unit": "W"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1.0,
+   "unit": "kW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1000.0,
+   "unit": "MW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1000000.0,
+   "unit": "GW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1000000000.0,
+   "unit": "TW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 0.00029307107,
+   "unit": "BTU/h"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 0.001,
+   "unit": "w"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1.0,
+   "unit": "kw"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1.0,
+   "unit": "KW"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1.0,
+   "unit": "Kw"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1000.0,
+   "unit": "mw"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": true,
+   "scale_to_kw": 1.0,
+   "unit": " kW "
+  },
+  {
+   "is_energy_unit": true,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "kWh"
+  },
+  {
+   "is_energy_unit": true,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "Wh"
+  },
+  {
+   "is_energy_unit": true,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "MWh"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "kVA"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "A"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": ""
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": "furlong"
+  },
+  {
+   "is_energy_unit": false,
+   "is_power_unit": false,
+   "scale_to_kw": 1.0,
+   "unit": null
+  }
+ ],
+ "fixture": "F09",
+ "functions": [
+  "power_units.is_power_unit",
+  "power_units.power_scale_to_kw",
+  "power_input_check.is_energy_unit"
+ ],
+ "kind": "legacy_characterisation",
+ "source_sha256": {
+  "power_input_check.py": "8f830736e9e523ebf7ea96fe5b4e9ee3bf2b8a90b487539bf9c72a1aeb70ff5c",
+  "power_units.py": "73fac228a1f23c3e00ae53ccf44b419cec3dfd36ebb9971b3a7df05fc8537d82"
+ }
+}

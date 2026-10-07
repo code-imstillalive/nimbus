@@ -1,0 +1,84 @@
+{
+  "identity": {
+    "fixture": "F05",
+    "revision": 1,
+    "requirements": [
+      "DC-R07",
+      "DC-R08"
+    ],
+    "owner": "DC-003",
+    "purpose": "A whole-house total includes a circuit, which includes a pool. Displaying children leaves demand unchanged; decomposition counts each load once; a schedule replaces its baseline once; cyclic and conflicting trees are rejected."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "units": "kW",
+    "nodes": [
+      {
+        "name": "house",
+        "kw": 14.0
+      },
+      {
+        "name": "circuit",
+        "kw": 6.0,
+        "inside": "house"
+      },
+      {
+        "name": "pool",
+        "kw": 2.0,
+        "inside": "circuit"
+      }
+    ]
+  },
+  "cases": {
+    "pool_schedule_kw": 5.0,
+    "cyclic": [
+      {
+        "name": "a",
+        "kw": 1.0,
+        "inside": "b"
+      },
+      {
+        "name": "b",
+        "kw": 1.0,
+        "inside": "a"
+      }
+    ],
+    "conflicting": [
+      {
+        "name": "circuit",
+        "kw": 6.0
+      },
+      {
+        "name": "pool",
+        "kw": 7.0,
+        "inside": "circuit"
+      }
+    ]
+  },
+  "expected": {
+    "inclusive_demand_kw": 14.0,
+    "residuals_kw": {
+      "house": 8.0,
+      "circuit": 4.0,
+      "pool": 2.0
+    },
+    "demand_with_pool_schedule_kw": 17.0,
+    "invalid_flat_sum_kw": 22.0
+  },
+  "comparison": {
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-003, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}

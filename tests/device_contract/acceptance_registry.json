@@ -242,7 +242,7 @@
         "DC-007"
       ],
       "status": {
-        "reference_oracle": "not_started",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }
@@ -280,7 +280,7 @@
         "DC-006"
       ],
       "status": {
-        "reference_oracle": "not_started",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }
@@ -292,7 +292,7 @@
         "DC-006"
       ],
       "status": {
-        "reference_oracle": "not_started",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }
@@ -342,8 +342,8 @@
         "DC-006"
       ],
       "status": {
-        "reference_oracle": "not_started",
-        "legacy_characterised": "not_started",
+        "reference_oracle": "verified",
+        "legacy_characterised": "recorded",
         "production_obligation": "pending"
       }
     },
@@ -366,7 +366,7 @@
         "DC-006"
       ],
       "status": {
-        "reference_oracle": "not_started",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }

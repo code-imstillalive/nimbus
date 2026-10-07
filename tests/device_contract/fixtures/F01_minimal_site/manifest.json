@@ -1,0 +1,145 @@
+{
+  "identity": {
+    "fixture": "F01",
+    "revision": 1,
+    "requirements": [
+      "DC-R01",
+      "DC-R14",
+      "DC-R18"
+    ],
+    "owner": "DC-001",
+    "purpose": "A site of Grid plus an inclusive whole-house Load is valid and observable without Solar, Battery or battery-only fields; unresolved grid power is reported as unresolved, not zero."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "units": "kW",
+    "signs": "Grid +import, Battery +discharge, Solar +generation, Load +consumption"
+  },
+  "cases": {
+    "minimal": {
+      "devices": [
+        {
+          "id": "grid",
+          "role": "grid"
+        },
+        {
+          "id": "house",
+          "role": "load"
+        }
+      ],
+      "grid_measured_kw": 1.5,
+      "flows": [
+        [
+          "load",
+          1.5
+        ]
+      ]
+    },
+    "unresolved_grid": {
+      "devices": [
+        {
+          "id": "grid",
+          "role": "grid"
+        },
+        {
+          "id": "house",
+          "role": "load"
+        },
+        {
+          "id": "pv",
+          "role": "solar"
+        }
+      ],
+      "grid_measured_kw": null,
+      "flows": [
+        [
+          "load",
+          2.0
+        ],
+        [
+          "solar",
+          null
+        ]
+      ]
+    },
+    "balanced_without_meter": {
+      "grid_measured_kw": null,
+      "flows": [
+        [
+          "load",
+          2.0
+        ],
+        [
+          "solar",
+          3.5
+        ]
+      ]
+    },
+    "no_load": {
+      "devices": [
+        {
+          "id": "grid",
+          "role": "grid"
+        }
+      ]
+    },
+    "battery_field_on_load": {
+      "devices": [
+        {
+          "id": "grid",
+          "role": "grid"
+        },
+        {
+          "id": "house",
+          "role": "load",
+          "fields": {
+            "capacity_kwh": 10
+          }
+        }
+      ]
+    }
+  },
+  "expected": {
+    "minimal": {
+      "problems": [],
+      "grid_kw": 1.5
+    },
+    "unresolved_grid": {
+      "problems": [],
+      "grid_kw": null
+    },
+    "balanced_without_meter": {
+      "grid_kw": -1.5
+    },
+    "no_load": {
+      "problems": [
+        "missing required load"
+      ]
+    },
+    "battery_field_on_load": {
+      "problems": [
+        "house: battery-only fields ['capacity_kwh']"
+      ]
+    }
+  },
+  "comparison": {
+    "exact": [
+      "problems",
+      "grid_kw is null"
+    ],
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-001, DC-006, DC-007)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}

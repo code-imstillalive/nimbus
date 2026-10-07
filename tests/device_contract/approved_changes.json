@@ -1,0 +1,4 @@
+{
+ "_doc": "Spec DC-000: an approved behaviour-change manifest. Each entry names one legacy case and field that is allowed to differ from the recorded baseline, with its requirement, the old and new values and the reviewer. No wildcards.",
+ "changes": []
+}

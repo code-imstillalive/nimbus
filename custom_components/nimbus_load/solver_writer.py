@@ -4528,6 +4528,31 @@ def resample_generic_price_forecast(
     return r[0] if r is not None else None
 
 
+def _price_scale_of_state(state: dict) -> float:
+    """nimbus #1537: the factor taking a price sensor's values to $/kWh, from
+    the `unit_of_measurement` of a state already read (see
+    price_intervals.price_unit_scale)."""
+    attrs = state.get("attributes") if isinstance(state, dict) else None
+    return price_intervals.price_unit_scale((attrs or {}).get("unit_of_measurement"))
+
+
+def price_now(entity_id: str, fallback: float = 0.0) -> float:
+    """A price sensor's current state in $/kWh, scaled by its own unit (nimbus
+    #1537 -- a c/kWh sensor used to be read 100x too high). One read of the
+    entity, as safe_num() makes; an unreadable state goes through safe_num()
+    for its warning and fallback (`fallback` is in $/kWh)."""
+    try:
+        state = ha_get(entity_id)
+    except Exception as err:  # noqa: BLE001 -- safe_num() decides, as it always has
+        _LOGGER.debug("price_now(%s): read failed (%s); via safe_num()", entity_id, err)
+        return safe_num(entity_id, fallback=fallback)
+    scale = _price_scale_of_state(state)
+    try:
+        return float(state["state"]) * scale
+    except (KeyError, TypeError, ValueError):
+        return safe_num(entity_id, fallback=fallback / scale) * scale
+
+
 def _openadr_forecast_rows(entity_id: str) -> list | None:
     """nimbus #1583: an OpenADR 3 VEN price sensor's full forecast rows, from
     its `openadr3_ven.get_forecast` action (the sensor publishes only a
@@ -4545,6 +4570,27 @@ def _openadr_forecast_rows(entity_id: str) -> list | None:
 
 def resample_generic_price_forecast_with_coverage(
     entity_id: str, grid_times: list[datetime]
+) -> tuple[list[float], list[bool]] | None:
+    """`_resample_generic_price_forecast_raw()` in $/kWh: its values scaled by
+    the sensor's own `unit_of_measurement` (nimbus #1537), from the same single
+    read of the entity. See that function's docstring for the resampling."""
+    try:
+        state = ha_get(entity_id)
+    except Exception as err:  # noqa: BLE001 -- the raw reader logs and returns None
+        _LOGGER.debug(
+            "price forecast %s: read failed (%s); raw reader retries", entity_id, err
+        )
+        return _resample_generic_price_forecast_raw(entity_id, grid_times)
+    r = _resample_generic_price_forecast_raw(entity_id, grid_times, state)
+    scale = _price_scale_of_state(state)
+    if r is None or scale == 1.0:
+        return r
+    values, real = r
+    return [v * scale for v in values], real
+
+
+def _resample_generic_price_forecast_raw(
+    entity_id: str, grid_times: list[datetime], state: dict | None = None
 ) -> tuple[list[float], list[bool]] | None:
     """Same resampling as resample_generic_price_forecast() (see that
     function's own docstring for the full "why a generic {time,value}
@@ -4565,7 +4611,7 @@ def resample_generic_price_forecast_with_coverage(
     mask, unchanged for every other existing caller.
     """
     try:
-        state = ha_get(entity_id)
+        state = ha_get(entity_id) if state is None else state
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): fallback
         # stays, breadcrumb added.
@@ -4834,6 +4880,73 @@ def fetch_aemo_forecast(
         ),
         key=lambda x: x[0],
     )
+
+
+def extend_generic_price_tails(
+    cfg: dict,
+    grid_times: list[datetime],
+    import_side: tuple[list[float], list[bool], bool],
+    export_side: tuple[list[float], list[bool], bool],
+) -> tuple[list[float], list[float]]:
+    """nimbus #1537 item 4: the generic price branch's tail past each
+    source's own last real point, priced as regional wholesale forecast plus
+    that source's learned 5-minute-of-day retail markup -- the extension the
+    price-array branch has had since 2026-08-16 (see compute_5min_offset()).
+
+    Each side is (values, real_mask, has_forecast). Only periods AFTER the
+    side's last real period change; a gap inside the coverage is left as
+    the reader held it. Returns both value lists, unchanged unless the
+    regional spot forecast sensor, the regional current-price sensor and
+    that side's own recorded history all exist -- an install without them
+    keeps today's flat hold. A markup bucket with no history uses the mean
+    markup. History is scaled by the sensor's own unit (#1537 item 1)."""
+    regional = cfg.get("solver_regional_spot_forecast_sensor")
+    current = cfg.get("solver_regional_spot_current_price_sensor")
+    if not regional or not current:
+        return import_side[0], export_side[0]
+    aemo = fetch_aemo_forecast(regional)
+    if not aemo:
+        return import_side[0], export_side[0]
+    out = []
+    for key, (values, real, has_fc) in (
+        ("solver_import_price_sensor", import_side),
+        ("solver_export_price_sensor", export_side),
+    ):
+        last = max((i for i, r in enumerate(real) if r), default=None)
+        if not has_fc or last is None or last >= len(values) - 1:
+            out.append(values)
+            continue
+        scale = price_unit_scale_of_history(cfg[key])
+        history = [(t, v * scale) for t, v in fetch_price_history(cfg[key])]
+        offset = compute_5min_offset(history, regional_spot_sensor=current)
+        if not offset:
+            out.append(values)
+            continue
+        mean = sum(offset.values()) / len(offset)
+        extended = list(values)
+        for i in range(last + 1, len(values)):
+            wholesale = None
+            for t, v in aemo:
+                if t <= grid_times[i]:
+                    wholesale = v
+                else:
+                    break
+            if wholesale is None:
+                continue
+            bucket = _local(grid_times[i]).hour * 12 + _local(grid_times[i]).minute // 5
+            extended[i] = float(wholesale + offset.get(bucket, mean))
+        out.append(extended)
+    return out[0], out[1]
+
+
+def price_unit_scale_of_history(entity_id: str) -> float:
+    """The unit factor for `entity_id`'s recorded history (nimbus #1537):
+    the sensor's current unit, as HA records the state in it."""
+    try:
+        return _price_scale_of_state(ha_get(entity_id))
+    except Exception as err:  # noqa: BLE001 -- unknown unit reads as before, x1
+        _LOGGER.debug("price history unit %s: read failed (%s); x1", entity_id, err)
+        return 1.0
 
 
 def compute_5min_offset(
@@ -8758,8 +8871,10 @@ def main() -> None:
     # simplification, not just a hardcode removal.
     settled_import_sensor = cfg["solver_import_price_sensor"]
     settled_export_sensor = cfg["solver_export_price_sensor"]
-    _settled_import_value = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
-    _settled_export_value = safe_num(settled_export_sensor, fallback=spot_export[0])
+    _settled_import_value = price_now(
+        settled_import_sensor, fallback=spot_import_raw[0]
+    )
+    _settled_export_value = price_now(settled_export_sensor, fallback=spot_export[0])
     for _i in range(n_settled_periods):
         spot_import_raw[_i] = _settled_import_value
         spot_export[_i] = _settled_export_value
