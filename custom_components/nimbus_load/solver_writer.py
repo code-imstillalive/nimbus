@@ -4543,7 +4543,8 @@ def price_now(entity_id: str, fallback: float = 0.0) -> float:
     for its warning and fallback (`fallback` is in $/kWh)."""
     try:
         state = ha_get(entity_id)
-    except Exception:  # noqa: BLE001 -- safe_num() decides, as it always has
+    except Exception as err:  # noqa: BLE001 -- safe_num() decides, as it always has
+        _LOGGER.debug("price_now(%s): read failed (%s); via safe_num()", entity_id, err)
         return safe_num(entity_id, fallback=fallback)
     scale = _price_scale_of_state(state)
     try:
@@ -4575,7 +4576,10 @@ def resample_generic_price_forecast_with_coverage(
     read of the entity. See that function's docstring for the resampling."""
     try:
         state = ha_get(entity_id)
-    except Exception:  # noqa: BLE001 -- the raw reader logs and returns None
+    except Exception as err:  # noqa: BLE001 -- the raw reader logs and returns None
+        _LOGGER.debug(
+            "price forecast %s: read failed (%s); raw reader retries", entity_id, err
+        )
         return _resample_generic_price_forecast_raw(entity_id, grid_times)
     r = _resample_generic_price_forecast_raw(entity_id, grid_times, state)
     scale = _price_scale_of_state(state)

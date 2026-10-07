@@ -1,0 +1,112 @@
+{
+  "identity": {
+    "fixture": "F04",
+    "revision": 1,
+    "requirements": [
+      "DC-R03",
+      "DC-R04",
+      "DC-R05",
+      "DC-R06",
+      "DC-R14",
+      "DC-R17"
+    ],
+    "owner": "DC-005",
+    "purpose": "Prices read on their published intervals: 5- and 30-minute overlap, offset and UTC timestamps, negative prices kept, gaps reported, a missing direction left missing, fees added once."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "units": "$/kWh",
+    "intervals": "half-open [start, end), timezone-aware",
+    "timezone": "Australia/Brisbane (+10:00); one interval in UTC to prove instant equality"
+  },
+  "cases": {
+    "thirty_min_window_over_5_min": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T17:30:00+10:00"
+      ],
+      "intervals": [
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:05:00+10:00",
+          0.3
+        ],
+        [
+          "2026-10-05T17:05:00+10:00",
+          "2026-10-05T17:10:00+10:00",
+          0.3
+        ],
+        [
+          "2026-10-05T07:10:00Z",
+          "2026-10-05T07:15:00Z",
+          -0.06
+        ],
+        [
+          "2026-10-05T17:15:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          0.12
+        ]
+      ]
+    },
+    "gap": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T18:00:00+10:00"
+      ],
+      "intervals": [
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          0.2
+        ]
+      ]
+    },
+    "nothing_published": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T17:30:00+10:00"
+      ],
+      "intervals": []
+    },
+    "fees": {
+      "spot": 0.1,
+      "fees": 0.12
+    }
+  },
+  "expected": {
+    "thirty_min_window_over_5_min": {
+      "price": 0.15,
+      "coverage": 1.0
+    },
+    "gap": {
+      "price": 0.2,
+      "coverage": 0.5
+    },
+    "nothing_published": {
+      "price": null,
+      "coverage": 0.0
+    },
+    "fees": {
+      "fees_not_included": 0.22,
+      "fees_included": 0.1,
+      "missing_direction": null
+    }
+  },
+  "comparison": {
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0,
+    "note": "coverage below 1 is reported, never filled"
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-002, DC-005, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}
