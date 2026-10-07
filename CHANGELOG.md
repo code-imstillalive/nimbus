@@ -9,6 +9,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **Plans are one-way: no grid import with export, and no battery charging
+  with discharging, in the same period**
+  ([#238](https://github.com/code-imstillalive/nimbus/issues/238),
+  [#1535](https://github.com/code-imstillalive/nimbus/issues/1535)). When
+  export paid more than import, the plan could buy and sell in the same
+  five minutes, or charge and discharge one battery at once, counting
+  revenue from flows a single grid connection and a single battery cannot
+  carry. #1535's reduced case showed it in 24 of 24 grid periods and 23 of
+  24 battery periods.
+  - Nimbus solves exactly as before. Only if that plan has such a period
+    does it solve again, forcing one direction in just those periods (and,
+    if needed, once more in every period). Each battery is handled on its
+    own, so one battery charging while another discharges is still allowed.
+    A plan that was already one-way is unchanged.
+  - The penalised emergency import that keeps a plan when the battery can
+    deliver a P2P block but not the house as well (0.94.442) is not counted;
+    it stays a reported last resort.
+  - Cost: none on an ordinary day (measured: 0.14 s, no second solve). With
+    export above import in 10-50% of periods, about 1-2 s. With export above
+    import in every period of a 96-hour plan, 8 s with one battery and 26 s
+    with a home battery and an EV.
+  - The reference household's own plan replays identically. Mark Purcell's
+    #1535 reproduction now passes with `--assert-exclusive`.
+
 - **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
   ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
   [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
