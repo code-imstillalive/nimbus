@@ -294,3 +294,52 @@ def test_startup_notice_only_when_empty_and_used():
     set_already = {**ARRAY, CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "sensor.x"}
     assert aemo not in _notified(_hass([_reg(QLD_UID)]), set_already)
     assert aemo not in _notified(_hass([_reg(QLD_UID)]), {})
+
+
+# --- AEMO as an import or export price (Mark Purcell, #1578) ---------------
+
+
+def _generic(rows, grid):
+    with patch.object(
+        solver_writer, "ha_get", return_value={"attributes": {"forecast": rows}}
+    ):
+        return solver_writer.resample_generic_price_forecast_with_coverage(
+            "sensor.aemo_nem_qld1_current_30min_forecast", grid
+        )
+
+
+def test_aemo_reads_as_a_feed_in_or_buy_price():
+    """The generic import/export path reads AEMO's rows as published; the
+    configured network/flat fees are added to the import price downstream,
+    so this is all a spot-plus-tariff buy price needs."""
+    grid = [
+        _t("2026-10-06T13:00:00+10:00"),
+        _t("2026-10-06T13:45:00+10:00"),
+        _t("2026-10-08T03:45:00+10:00"),
+    ]
+    values, real = _generic(AEMO["selected_native_rows"], grid)
+    assert values == [0.0297, 0.0267, 0.1176]
+    assert real == [True, True, True]
+
+
+def test_a_hole_between_aemo_rows_is_not_real_coverage():
+    grid = [_t("2026-10-07T12:00:00+10:00"), _t("2026-10-08T04:00:00+10:00")]
+    values, real = _generic(AEMO["selected_native_rows"], grid)
+    assert real == [False, False]  # inside the hole; at the final END
+    assert values == [0.0267, 0.1176]  # held, as every generic source is
+
+
+def test_a_negative_aemo_feed_in_price_stays_negative():
+    rows = [_row("2026-10-06T11:00:00+10:00", 30, -0.0412)]
+    values, real = _generic(rows, [_t("2026-10-06T11:10:00+10:00")])
+    assert values == [-0.0412] and real == [True]
+
+
+def test_aemo_rows_with_no_usable_price_give_no_forecast():
+    assert (
+        _generic(
+            [_row("2026-10-06T11:00:00+10:00", 30, None)],
+            [_t("2026-10-06T11:10:00+10:00")],
+        )
+        is None
+    )

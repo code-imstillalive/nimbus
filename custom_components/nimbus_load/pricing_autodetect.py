@@ -36,10 +36,12 @@ notified about, and never needed to finish setup.
 
 AEMO NEM Data (nimbus #1578)
 ----------------------------
-`aemo_nem`'s regional 30-minute forecast is a WHOLESALE price, so it is
-proposed for one field only: the regional spot forecast, which extends a
-retail feed past its own horizon. It is never proposed as an import or export
-price. Same rules as above: detected by config entry and the entity's
+`aemo_nem`'s regional 30-minute forecast is a WHOLESALE price. Nimbus reads
+it in any price field (it is often a feed-in price, and with network fees a
+buy price), but proposes it for one field only: the regional spot forecast,
+which extends a retail feed past its own horizon. Whether a household's own
+tariff passes spot through is not something Nimbus can see, so it never
+pre-fills the import or export price with it. Same rules as above: detected by config entry and the entity's
 built-in unique_id (`sensor.aemo_nem_<region>_current_30min_forecast`, set
 once at creation, so a renamed entity is still found), pre-filled only where
 the field is empty, never overwritten, and only when a price forecast array
@@ -289,7 +291,7 @@ async def async_notify_pricing_setup(
             "Solver settings: "
             f"`{aemo[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is pre-filled "
             "there for you to check and save. It is the wholesale price, used "
-            "only to extend your retail prices, never as your tariff. Nothing "
+            "here to extend your retail prices past their own forecast. Nothing "
             "has been changed.",
         )
     if (

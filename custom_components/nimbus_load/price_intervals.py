@@ -15,10 +15,13 @@ AEMO NEM Data (nimbus #1578)
 `cabberley/HA_AemoNemData`, domain `aemo_nem`. The regional
 `current_30min_forecast` sensor's `forecast` attribute holds rows
 `{start_time, end_time, price}`: 30-minute intervals, `price` already in
-$/kWh. It is AEMO's WHOLESALE regional price, not anyone's retail import
-tariff or feed-in payment, so Nimbus uses it only where a wholesale forecast
-belongs (the regional spot forecast that extends a retail feed past its own
-horizon), never as an import or export price.
+$/kWh. It is AEMO's WHOLESALE regional price. Nimbus reads it in two places:
+the regional spot forecast (which extends a retail feed past its own
+horizon), and any import or export price field the household points at it --
+it is often used directly as a feed-in price, and, with the configured
+network/flat fees Nimbus adds to the import price, as a buy price (Mark
+Purcell, #1578). Nimbus only ever PROPOSES it for the regional spot forecast:
+whether a household's own tariff passes spot through is theirs to say.
 
 * `price` is read as published. It is never divided by 1,000 again.
 * Negative and zero prices are real and kept. A missing, non-numeric or
