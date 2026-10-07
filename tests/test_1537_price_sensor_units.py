@@ -124,3 +124,31 @@ def test_one_read_per_sensor_and_an_unreadable_one_is_no_forecast():
             )
             is None
         )
+
+
+@pytest.mark.parametrize("unit", ["$/MWh", "c/kWh", "$/kWh", None])
+def test_a_provider_shaped_forecast_is_not_scaled_again(unit):
+    """nimbus #1623 (Mark Purcell, IV&V #1622): the provider adapters (#1550)
+    read each row's own $/kWh field, whatever the entity's unit says about
+    its current state. AEMO's QLD fixture under a "$/MWh" unit used to come
+    out 1000x low (2.97e-05 for 0.0297)."""
+    import json
+    from pathlib import Path
+
+    aemo = json.loads(
+        (
+            Path(__file__).parent / "fixtures" / "pricing" / "1550_aemo_nem_qld.json"
+        ).read_text()
+    )
+    attrs = {"forecast": aemo["selected_native_rows"]}
+    if unit is not None:
+        attrs["unit_of_measurement"] = unit
+    grid = [_t("2026-10-06T13:00:00+10:00"), _t("2026-10-06T13:45:00+10:00")]
+    with patch.object(
+        solver_writer, "ha_get", return_value={"state": "29.7", "attributes": attrs}
+    ):
+        values, real = solver_writer.resample_generic_price_forecast_with_coverage(
+            "sensor.aemo_nem_qld1_current_30min_forecast", grid
+        )
+    assert values == [0.0297, 0.0267]
+    assert real == [True, True]

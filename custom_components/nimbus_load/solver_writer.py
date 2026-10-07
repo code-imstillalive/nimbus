@@ -4585,6 +4585,11 @@ def resample_generic_price_forecast_with_coverage(
     scale = _price_scale_of_state(state)
     if r is None or scale == 1.0:
         return r
+    attrs = state.get("attributes") if isinstance(state, dict) else None
+    if price_intervals.is_provider_shape(attrs or {}):
+        # nimbus #1623: the provider adapters read each row's own $/kWh field
+        # (#1550), whatever the entity's unit says about its current state.
+        return r
     values, real = r
     return [v * scale for v in values], real
 

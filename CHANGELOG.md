@@ -9,6 +9,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **A provider-shaped price sensor's forecast is no longer scaled a second
+  time by the entity's unit** ([#1623](https://github.com/code-imstillalive/nimbus/issues/1623),
+  found by Mark Purcell's IV&V pass #1622). The AEMO, NEM PD7DAY, Amber and
+  OpenADR adapters read each row's own $/kWh field. #1615's unit scaling then
+  also applied the entity's `unit_of_measurement`, so an AEMO sensor declaring
+  `$/MWh` for its current state had its forecast read 1000x low. The unit now
+  scales only the generic `{time, value}` shape it describes. Latent: every
+  captured provider declares `$/kWh`.
 - **On a generic install, prices past the retailer's own forecast follow
   the regional wholesale forecast instead of staying flat**
   ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537) item 4).
