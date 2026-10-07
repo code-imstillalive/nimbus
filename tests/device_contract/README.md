@@ -19,6 +19,7 @@ DC-001 onward land, there is an independent target to check them against.
 | `inventory/8a9f503.json` | DC-000 step 2: the producer/consumer/write-boundary inventory **measured** at the baseline by `scripts/device_contract_baseline.py` (parses the code; never hand-written). |
 | `test_inventory.py` | the inventory matches the baseline, is byte-identical across runs, and every equipment-operating service call lives in `solver_dispatch/` (DC-R15). |
 | `test_nonvacuity.py` | negative controls: a double count, a W/kW mix-up and broken identities must fail or be rejected. |
+| `test_repeatability.py` | the whole suite in three fresh interpreters and once in reversed order, per-test outcomes compared; a test that passes only on warm module state fails it. Its negative control runs an order-dependent pair and must see them differ. |
 
 Status changes and expected results change only through a reviewed PR, never
 by regenerating a snapshot.
