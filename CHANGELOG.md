@@ -8,6 +8,38 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.443] - 2026-10-08
+
+Intermediate release: v0.94.442 plus #1603 only, so the Forecaster charts
+stop constantly reloading without waiting for the larger release (0.94.444).
+No solver, pricing or dispatch code changes.
+
+### Fixed
+- **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
+  ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
+  [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
+  - **First load:** Home Assistant swaps its card registry for its own shortly
+    after a page starts. A Nimbus card that registered before that swap was
+    invisible to HA ("Custom element doesn't exist") until a refresh. Each
+    bundled card now checks again once the page has settled and registers where
+    HA looks. Measured on the reference household's production Forecaster tab:
+    on a cold load, the card registered 61 ms in, the swap came about 500 ms in,
+    and the tab showed an error. With the fix there are no error cards on the
+    first load.
+  - **Constant reloading:** the two Forecaster charts refreshed on every state
+    change of any of their roughly 60 series. Those include the live measured
+    sensors, so they re-fetched 54 h of history about 285 times a minute. They
+    now refresh once a minute (25 requests a minute, measured).
+
+- **Energy Dashboard suggestions work again on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
+  Assistant 2026.3 changed how a grid source is stored: there is now one source
+  per import/export connection, with its fields flat, instead of `flow_from` /
+  `flow_to` lists. The Solver's import/export price suggestions and the
+  switchboard's grid energy and price suggestions read only the old lists, so
+  they silently found nothing. Both forms are read now, each field mapped back
+  exactly as Home Assistant's own migration mapped it forward.
+
 ## [0.94.442] - 2026-10-07
 
 - **Release cut from v0.94.441 plus only this fix, by household decision.**
