@@ -169,6 +169,42 @@ def grid_export_bounds(
     return 0.0, export_limit_kw
 
 
+def grid_import_ub(
+    t: int, grid: GridConfig, import_limit_kw: float, override_p2p: bool = False
+) -> float:
+    """grid_import[t]'s upper bound: 0 inside a P2P-pinned period, else the
+    normal import limit.
+
+    A household's P2P block is a commitment to NET export at the meter --
+    the reference household's rule, stated 2026-10-07: "12 kW to the grid,
+    the house on top". The pin on grid_export[t] alone is gross export, and
+    with grid_import[t] free in the same period the LP could buy the house
+    load from the grid while still counting the full pinned export. A
+    single net meter sees export minus import, so the household delivered
+    10.6-10.9 kW, not 12, every interval the import price fell below what
+    the LP valued stored battery energy at. Measured on production
+    2026-10-07 21:11 AEST onward (buy price 18.4c); a replay of that solve
+    with import capped at 0 in pinned periods put the battery back at
+    13.2 kW, grid import 0, net export 12.
+
+    Feasibility is unchanged: `grid_import_excess[t]` (#390) still exists
+    and is unbounded at a heavy penalty, so a block the battery genuinely
+    cannot sustain yields a plan that plans ahead to keep enough energy,
+    and as a last resort imports at that penalty -- never no plan.
+
+    `override_p2p` (#694, price-spike override at period 0) leaves the
+    normal limit: the spike path already pins discharge high, and its own
+    floor-not-pin semantics should not be tightened here. No commitment
+    (fixed_export_kw None/NaN) is unaffected."""
+    if (
+        not override_p2p
+        and grid.fixed_export_kw is not None
+        and not np.isnan(grid.fixed_export_kw[t])
+    ):
+        return 0.0
+    return import_limit_kw
+
+
 def has_export_bonus(grid: GridConfig) -> bool:
     """Whether the two-tier export bonus mechanism is configured at all --
     both export_bonus_price and export_bonus_volume_kwh must be given

@@ -296,6 +296,14 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-10-07](docs/worklog/2026-10-07.md): **A P2P block was gross, not net**: from
+  21:11 the reference household's 12 kW block delivered 10.6 kW. Root-caused by
+  replaying the live solve read-only (not 439, not the LocalVolts v2 sensors), fixed in
+  #1610, released as **v0.94.442** (v0.94.441 + #1610, household's same-night call).
+  Also merged: #1587, #1590, #1592, #1593, #1595, #1596, #1603, #1606.
+- [2026-10-06](docs/worklog/2026-10-06.md): **v0.94.439, 440 and 441**: P2P follows the
+  configured blocks, LocalVolts v2 autodetect, setup gaps as Repairs, one power-unit
+  converter. Written on 7 Oct from the merged record.
 - [2026-10-05](docs/worklog/2026-10-05.md): Afternoon: **v0.94.437 and v0.94.438**.
   The Forecaster became the reference household's own two ApexCharts charts,
   auto-detected, added automatically as a dashboard tab (#1542; per-view memory
