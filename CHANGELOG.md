@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Energy Dashboard suggestions work again on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
+  Assistant 2026.3 changed how a grid source is stored: there is now one source
+  per import/export connection, with its fields flat, instead of `flow_from` /
+  `flow_to` lists. The Solver's import/export price suggestions and the
+  switchboard's grid energy and price suggestions read only the old lists, so
+  they silently found nothing. Both forms are read now, each field mapped back
+  exactly as Home Assistant's own migration mapped it forward.
+
 ### Added
 - **Setup offers to fill the Solver's missing inputs from sensors you already
   chose, one click each** ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574),
@@ -30,6 +40,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     Solver's sensors on every render, so its history line appears without
     editing the card.
 
+- **A device resolver for the two-step setup**
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
+  what the Energy Dashboard already states: each source's power sensor in Home
+  Assistant's own sign convention, the battery's state of charge, and which
+  device's total contains which. Where a source names no power sensor, it finds
+  candidates by matching each one's history, hour by hour, against the source's
+  energy counter. That works on hybrid inverters with many power sensors on one
+  device. Every result is a candidate or hypothesis, never applied by itself:
+  - **Ties are never broken by order.** Exact and near ties are reported as
+    `ambiguous`, so you are asked rather than guessed for.
+  - **Missing data is never read as zero.** Gaps, too little history, or counters
+    that barely moved give `insufficient_evidence`, and so does a direction that
+    cannot be told apart.
+  - **The energy balance check** (grid ≈ load − solar − battery) lists every
+    single change that would close it, and says `ambiguous` when more than one
+    fits.
+  - **Grid sources are kept as Home Assistant keeps them**, and older
+    import/export lists are never paired by their position.
+
+  It's groundwork only; nothing uses it yet.
+
 - **Setup problems are Home Assistant Repairs that clear themselves**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 2 of
   the two-step setup). Settings → Repairs now says, in plain words, when:
@@ -42,6 +73,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   notification cannot do. The energy-sensor and doubled-fee notifications are
   replaced by these Repairs, and dismissed if still showing.
 
+### Fixed
+- **Forecaster card: a milliwatt power history line was scaled as if it were
+  megawatt** ([#1597](https://github.com/code-imstillalive/nimbus/issues/1597),
+  found by the daily IV&V pass). `nimbus-forecast-card.js`'s `_history()`
+  lowercased the unit string before calling the shared `powerScaleToKw()`,
+  defeating its deliberate exact-case `mW`-vs-`MW` disambiguation (the
+  dispatch and topology cards already passed the raw-case unit and were
+  unaffected). Real-world impact is low — a milliwatt household power sensor
+  essentially never occurs — but the error was a genuine 1e9x on the
+  history line's scale factor had one existed.
+
 ### Changed
 - **The tracking-fidelity docs say it carries no information.** `tracking_fidelity`
   reads 1.0 and `tracking_cost` 0 on every day and install, because the quality
@@ -50,6 +92,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   imply it measures anything, or that a 1.0 is worth investigating
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
+- **The period-0 pin instrument now says WHY a pin was infeasible**
+  ([#1577](https://github.com/code-imstillalive/nimbus/issues/1577), parent
+  [#1417](https://github.com/code-imstillalive/nimbus/issues/1417)).
+  **Diagnostic only.** When #1417's re-solve with `period[0]` pinned to the
+  previous plan's value comes back `infeasible`, its DEBUG line now ends with
+  `blocked_by(<battery>)=` naming the participant (`batteries[0]` only, by
+  solver name) and each period-0 constraint the pin violates -- battery
+  max charge/discharge, a power curve, SoC capacity headroom, the #328
+  discharge reserve, a shared charger, the grid export limit, or a fixed P2P
+  export commitment (charge gate or floor) -- or `unexplained_at_period0`
+  for a multi-period coupling. This is the reading guide's missing third row:
+  **the previous setpoint is infeasible under the current model; the listed
+  checks explain sufficient period-0 violations where available, and do not
+  establish that the observed direction reversal was the only feasible
+  alternative.** `unexplained_at_period0` is not evidence that a device is
+  safe to control or that a limit should be relaxed, and nothing reads these
+  fields -- no Repair, no limit change, no dispatch input. Computed by arithmetic over the configs the pinned
+  re-solve was built from (`solver/pin_blockers.py`), with no extra solve and
+  only on the already-infeasible branch, inside its own `except Exception`.
+  Each check is a sufficient condition, so it can under-report but never
+  blames a constraint the LP did not hit; the free solve, the published plan
+  and dispatch are unchanged, and a feasible pin's log line is byte-identical.
+  Still off unless `custom_components.nimbus_load.solver_plan.period0_pin` is
+  at DEBUG.
 
 ## [0.94.441] - 2026-10-06
 
