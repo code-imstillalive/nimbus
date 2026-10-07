@@ -150,6 +150,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Still off unless `custom_components.nimbus_load.solver_plan.period0_pin` is
   at DEBUG.
 
+### Fixed
+- **A deterministic load publishes its forecast straight away**
+  ([#1575](https://github.com/code-imstillalive/nimbus/issues/1575)). A load
+  with an expected kW and a schedule window is meant to forecast exactly that
+  kW inside the window and 0 outside it, without the ML model. It still waited
+  for a model to train first, so a mostly-idle load that could not train
+  published no forecast at all. It now publishes the configured schedule from
+  the first update, trained or not, and counts as ready. Settings → Repairs
+  and the status sensor no longer report it as "still learning".
+  - Each forecast sensor now says where its forecast comes from:
+    `forecast_origin` is `configured_rule` or `learned`, and
+    `forecast_readiness` is `ready`, `incomplete_rule` or `not_trained`.
+  - A configured rule's exact band describes the rule, not certainty about
+    the appliance.
+  - An expected power set without both schedule hours is reported as an
+    incomplete rule, not as missing history.
+- **A forecast is never trained on its own source sensor**
+  ([#1540](https://github.com/code-imstillalive/nimbus/issues/1540)). A
+  temperature or humidity signal whose source was also the hub's temperature
+  or humidity sensor was given its own value as an input. It learned to copy
+  it, and reported an accuracy it did not have (0.03 °C four hours ahead). The
+  hub's temperature, temperature forecast, humidity and curtailment sensors
+  are now left out for a signal or load whose own source they are, the same
+  rule the battery, grid and solar inputs already followed. A model saved
+  before this fix that learned from its own source retrains once at startup,
+  so expect such a signal's reported accuracy to drop to a believable figure.
+
 ## [0.94.441] - 2026-10-06
 
 - **Same-day release, by household decision.** #1571 changes an LP input (the
