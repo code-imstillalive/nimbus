@@ -313,6 +313,40 @@ def test_an_untouched_panel_tab_from_an_earlier_release_becomes_sections(ha) -> 
     assert dash.saves == saves  # already sections: nothing more to do
 
 
+def test_an_already_handled_install_still_converts_its_old_panel_tab(ha) -> None:
+    """IV&V 2026-10-06: faa52f5 removed the `if not pending: continue`
+    short-circuit specifically so the panel->sections conversion still runs
+    on a dashboard this Store already marks done (every real upgrade of an
+    already-running install hits this path, since "forecaster" was recorded
+    handled the first time the tab was added, releases ago). The shipped
+    test above only covers a FRESH Store, where "forecaster" is still
+    pending -- that passes even if the short-circuit were still there, since
+    `pending` is non-empty either way. This drives the realistic case: the
+    Store pre-populated as already-handled, same as every install that
+    upgrades through this release actually is."""
+    mod = _load_module()
+    old = copy.deepcopy(NIMBUS_DASH)
+    old["views"].append(
+        {
+            "title": "Forecaster Charts",
+            "path": "forecaster",
+            "type": "panel",
+            "cards": [{"type": "custom:nimbus-forecast-card"}],
+        }
+    )
+    dash = ha.dashboards["dashboard-nimbus"]
+    dash.config = old
+    _FakeStore.data = {
+        "nimbus_load.forecaster_view": {"handled": {"dashboard-nimbus": ["forecaster"]}}
+    }
+    _run(mod, ha.hass)
+    view = dash.config["views"][-1]
+    assert view["title"] == "Forecaster Charts"
+    assert view["path"] == "forecaster"
+    _assert_forecaster_sections_view(view)
+    assert dash.saves == 1
+
+
 def test_an_edited_panel_tab_is_left_alone(ha) -> None:
     mod = _load_module()
     edited = copy.deepcopy(NIMBUS_DASH)

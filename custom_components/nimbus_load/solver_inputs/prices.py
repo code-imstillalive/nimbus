@@ -173,10 +173,13 @@ def build_price_arrays(
         )
         # nimbus #1537 item 5: the matched rate counts inside the household's
         # own configured blocks, not a fixed 17:00-24:00.
+        # nimbus #1537 item 3: an optional second matched-rate source, used
+        # per period where the first shows no match.
         p2p_export = sw.resample_real_p2p_rate(
             grid_times,
             cfg.get("solver_p2p_matched_rate_forecast_sensor"),
             sw.fetch_p2p_fixed_export_kw(cfg, grid_times),
+            fallback_sensor_id=cfg.get("solver_p2p_matched_rate_forecast_sensor_2"),
         )
 
         # nimbus issue #452: current-interval AEMO P5MIN cross-check.
