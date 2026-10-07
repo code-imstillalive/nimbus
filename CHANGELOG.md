@@ -58,6 +58,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     startup notice lists the OpenADR price sensors it found. Nothing is
     changed.
 
+- **The daily score is checked against the grid meter before it is trusted**
+  ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465), step 3 of
+  Mark Purcell's recommendation).
+  - **The problem:** the quality report never measures grid import and export.
+    It rebuilds them from load, battery and solar, and prices that. When a
+    transfer is counted twice, the rebuilt day still balances on its own terms.
+    On 5 Oct, Mark's install rebuilt 71.6 kWh of import against 32.7 kWh on its
+    meter.
+  - **The check:** the rebuilt import and export are now compared with the grid
+    meter you already set up (Topology's switchboard grid meter, or the
+    Forecaster's grid sensor). The result is published as `meter_reconciliation`.
+    A disagreement makes `epr_reliable` false, with `epr_reason`
+    `grid_meter_disagrees`.
+  - **Tolerance, declared in advance:** 10 % of the metered import + export,
+    never less than 2 kWh.
+  - **What it changes:** no number. With no meter configured, or too little meter
+    history, the check says so and changes nothing.
+  - **Re-scoring:** the report schema moves to 3, so days already scored are
+    re-scored once with the check.
+
+### Added
 - **Home Assistant's own Amber Electric forecast sensors now give Nimbus a
   real price forecast, and are offered as the import and export price when
   those are empty**
