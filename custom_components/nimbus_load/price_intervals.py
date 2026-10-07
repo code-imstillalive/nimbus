@@ -85,6 +85,77 @@ def aemo_nem_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
         if not math.isfinite(value) or end <= start:
             continue
         parsed.append(PriceInterval(start, end, value))
+    return _ordered(parsed)
+
+
+# --- NEM PD7DAY (nimbus #1581) ---------------------------------------------
+#
+# purcell-lab/nem_pd7day, domain `nem_pd7day`. Every forecast row carries
+# `time` (interval START) and `nemtime` (interval END, AEMO's convention),
+# 30 minutes apart. Three different PRICE BASES share that shape:
+#
+# * wholesale, `sensor.<..>_nem_spot_price_forecast` (unique_id
+#   `nem_pd7day_<region>_forecast`): `raw_value` (AEMO's own PD7DAY price),
+#   `calibrated` (spike-calibrated) and `value` (the selected, calibrated
+#   price);
+# * an import TARIFF (unique_id `<entry>_<region>_<distributor>_<code>_tariff`):
+#   `value` = calibrated spot PLUS that tariff's network component, with
+#   `spot`, `spot_raw`, `period` and `network_rate` alongside;
+# * an export tariff (`..._export_tariff`): `value` = the feed-in price.
+#
+# Nimbus reads the published `value` (falling back to `calibrated` only when a
+# row has no `value` key at all, as the generic reader always has). It never
+# re-applies calibration or network charges, and a row whose `value` is null
+# (the integration's own "could not calibrate this interval") is missing --
+# never filled from `raw_value` or `spot`.
+#
+# The day 2-7 "continuation" sensors (`..._days27`) start after Amber
+# Express's own horizon. Nimbus never stitches one onto another source by
+# itself: #1550's capture found the naive join leaves a 30-minute hole.
+
+PD7DAY_DOMAIN = "nem_pd7day"
+BASIS_WHOLESALE = "wholesale"
+BASIS_TARIFF = "tariff"
+
+
+def is_pd7day_rows(rows: Any) -> bool:
+    """True for NEM PD7DAY's forecast shape: rows carrying `time` and
+    `nemtime`."""
+    if not isinstance(rows, list) or not rows:
+        return False
+    return any(isinstance(r, dict) and "time" in r and "nemtime" in r for r in rows)
+
+
+def pd7day_basis(rows: Iterable[Any]) -> str:
+    """`tariff` when the rows carry a network component (`network_rate` or a
+    separate `spot`), else `wholesale`."""
+    for r in rows or []:
+        if isinstance(r, dict) and ("network_rate" in r or "spot" in r):
+            return BASIS_TARIFF
+    return BASIS_WHOLESALE
+
+
+def pd7day_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
+    """NEM PD7DAY `forecast` rows -> ordered, non-overlapping intervals of
+    the published price."""
+    parsed: list[PriceInterval] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        raw = row["value"] if "value" in row else row.get("calibrated")
+        try:
+            start = parse_iso(row["time"])
+            end = parse_iso(row["nemtime"])
+            value = float(raw)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if not math.isfinite(value) or end <= start:
+            continue
+        parsed.append(PriceInterval(start, end, value))
+    return _ordered(parsed)
+
+
+def _ordered(parsed: list[PriceInterval]) -> list[PriceInterval]:
     parsed.sort(key=lambda i: i.start)
     out: list[PriceInterval] = []
     for interval in parsed:
@@ -94,10 +165,26 @@ def aemo_nem_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
     return out
 
 
+def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
+    """Intervals for a provider shape this module knows, else None (the
+    caller keeps its own `{time, value}` handling)."""
+    if is_aemo_nem_rows(rows):
+        return aemo_nem_intervals(rows)
+    if is_pd7day_rows(rows):
+        return pd7day_intervals(rows)
+    return None
+
+
+def _provider_intervals(attrs: Any) -> list[PriceInterval] | None:
+    if not isinstance(attrs, dict):
+        return None
+    return intervals_from_rows(attrs.get("forecast"))
+
+
 def is_provider_shape(attrs: Any) -> bool:
     """True when a price sensor's attributes are a provider shape this module
     reads (so the solver's generic `{time, value}` reader hands it here)."""
-    return isinstance(attrs, dict) and is_aemo_nem_rows(attrs.get("forecast"))
+    return _provider_intervals(attrs) is not None
 
 
 def provider_forecast_on_grid(
@@ -107,8 +194,9 @@ def provider_forecast_on_grid(
     is usable. The import/export price reader's path for these providers
     (nimbus #1578, Mark Purcell: AEMO spot is often used as a feed-in price,
     and with network tariff as a buy price -- the configured network/flat
-    fees are added to the import price downstream)."""
-    intervals = aemo_nem_intervals(attrs.get("forecast") or [])
+    fees are added to the import price downstream; nimbus #1581: PD7DAY's
+    published value, on its own `nemtime` interval ends)."""
+    intervals = _provider_intervals(attrs)
     if not intervals:
         return None
     return on_grid(intervals, grid_times)

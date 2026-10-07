@@ -53,6 +53,7 @@ if that does not single one out, nothing is.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -73,7 +74,7 @@ from .const import (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
 )
-from .price_intervals import AEMO_NEM_DOMAIN, AEMO_NEM_FORECAST_KEY
+from .price_intervals import AEMO_NEM_DOMAIN, AEMO_NEM_FORECAST_KEY, PD7DAY_DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,28 +151,29 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     return found
 
 
-def detect_aemo_nem_forecast(hass: HomeAssistant) -> dict[str, str]:
-    """{CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} for the AEMO
-    NEM Data regional 30-minute forecast this install should use, or {}.
-
-    Candidates are the enabled `current_30min_forecast` sensors of every
-    loaded `aemo_nem` entry, found through the entity registry by their
-    built-in unique_id. One candidate is proposed as is. Several (one per
-    configured region) are narrowed to the home's NEM region; anything
-    still not unique proposes nothing rather than a guessed region."""
+def _registry_candidates(
+    hass: HomeAssistant, domain: str, matches: Any
+) -> dict[str, str]:
+    """unique_id -> entity_id for the enabled sensors of every loaded
+    `domain` entry whose built-in unique_id satisfies `matches`."""
     registry = er.async_get(hass)
-    candidates: dict[str, str] = {}  # region-bearing unique_id -> entity_id
-    for entry in hass.config_entries.async_entries(AEMO_NEM_DOMAIN):
+    found: dict[str, str] = {}
+    for entry in hass.config_entries.async_entries(domain):
         if getattr(entry.state, "value", entry.state) != "loaded":
             continue
         for reg in er.async_entries_for_config_entry(registry, entry.entry_id):
             uid = str(reg.unique_id or "")
-            if (
-                reg.domain == "sensor"
-                and uid.endswith(f"_{AEMO_NEM_FORECAST_KEY}")
-                and reg.disabled_by is None
-            ):
-                candidates[uid] = reg.entity_id
+            if reg.domain == "sensor" and matches(uid) and reg.disabled_by is None:
+                found[uid] = reg.entity_id
+    return found
+
+
+def _one_for_home_region(
+    hass: HomeAssistant, candidates: dict[str, str], label: str
+) -> str | None:
+    """The single candidate, or with several (one per configured region) the
+    one whose unique_id names the home's NEM region; else None rather than
+    a guessed region."""
     if len(candidates) > 1:
         region, _ = sensor_discovery.resolve_geocoded_region_and_prefix(
             hass.states.async_all("sensor")
@@ -182,12 +184,72 @@ def detect_aemo_nem_forecast(hass: HomeAssistant) -> dict[str, str]:
     if len(candidates) != 1:
         if candidates:
             _LOGGER.debug(
-                "Nimbus: %d AEMO NEM Data regional forecasts and no single "
-                "home region; not proposing one",
+                "Nimbus: %d %s regional forecasts and no single home region; "
+                "not proposing one",
                 len(candidates),
+                label,
             )
-        return {}
-    return {CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: next(iter(candidates.values()))}
+        return None
+    return next(iter(candidates.values()))
+
+
+def detect_aemo_nem_forecast(hass: HomeAssistant) -> dict[str, str]:
+    """{CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} for the AEMO
+    NEM Data regional 30-minute forecast this install should use, or {}.
+
+    Candidates are the enabled `current_30min_forecast` sensors of every
+    loaded `aemo_nem` entry, found through the entity registry by their
+    built-in unique_id. One candidate is proposed as is. Several (one per
+    configured region) are narrowed to the home's NEM region; anything
+    still not unique proposes nothing rather than a guessed region."""
+    entity_id = _one_for_home_region(
+        hass,
+        _registry_candidates(
+            hass,
+            AEMO_NEM_DOMAIN,
+            lambda uid: uid.endswith(f"_{AEMO_NEM_FORECAST_KEY}"),
+        ),
+        "AEMO NEM Data",
+    )
+    return {CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} if entity_id else {}
+
+
+# NEM PD7DAY's days 1-7 regional spot forecast, `nem_pd7day_<region>_forecast`
+# (sensor.py, PD7DayForecastSensor). Not the `_forecast_days27` continuation,
+# and not a tariff sensor: those are a different horizon and a different basis.
+_PD7DAY_FORECAST_UID = re.compile(r"nem_pd7day_[a-z]+\d_forecast")
+
+
+def detect_pd7day_forecast(hass: HomeAssistant) -> dict[str, str]:
+    """{CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} for NEM
+    PD7DAY's days 1-7 regional spot forecast, or {}. Same rules as AEMO NEM
+    Data: registry unique_id, enabled, loaded, home region when several."""
+    entity_id = _one_for_home_region(
+        hass,
+        _registry_candidates(
+            hass,
+            PD7DAY_DOMAIN,
+            lambda uid: _PD7DAY_FORECAST_UID.fullmatch(uid) is not None,
+        ),
+        "NEM PD7DAY",
+    )
+    return {CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} if entity_id else {}
+
+
+def detect_regional_spot_forecast(
+    hass: HomeAssistant,
+) -> tuple[dict[str, str], str | None]:
+    """The regional spot forecast to propose, and the integration it came
+    from. NEM PD7DAY first: its forecast runs about seven days and is
+    spike-calibrated, against AEMO NEM Data's ~39 hours (#1550's capture).
+    AEMO NEM Data otherwise."""
+    pd7 = detect_pd7day_forecast(hass)
+    if pd7:
+        return pd7, "NEM PD7DAY"
+    aemo = detect_aemo_nem_forecast(hass)
+    if aemo:
+        return aemo, "AEMO NEM Data"
+    return {}, None
 
 
 def missing_profile_entities(
@@ -224,7 +286,7 @@ def with_detected_profile(
     # set -- that is the one path that reads this field. Whatever is already
     # set there (a PD7DAY forecast, another region, anything) stays.
     if out.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
-        for field, entity_id in detect_aemo_nem_forecast(hass).items():
+        for field, entity_id in detect_regional_spot_forecast(hass)[0].items():
             if not out.get(field):
                 out[field] = entity_id
     return out
@@ -276,20 +338,20 @@ async def async_notify_pricing_setup(
             "LocalVolts v2 sensors are pre-filled there for you to check and "
             "save. Nothing has been changed.",
         )
-    aemo = (
-        detect_aemo_nem_forecast(hass)
+    spot, spot_source = (
+        detect_regional_spot_forecast(hass)
         if options.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR)
-        else {}
+        else ({}, None)
     )
-    if aemo and not options.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR):
+    if spot and not options.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR):
         await _notify(
             hass,
             NOTIFY_AEMO_DETECTED_ID,
-            "Nimbus found AEMO NEM Data",
+            f"Nimbus found {spot_source}",
             "Nimbus's regional spot forecast is empty, so prices past the end "
             "of your price forecast array are held at its last value. Open Nimbus → Configure → "
             "Solver settings: "
-            f"`{aemo[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is pre-filled "
+            f"`{spot[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is pre-filled "
             "there for you to check and save. It is the wholesale price, used "
             "here to extend your retail prices past their own forecast. Nothing "
             "has been changed.",
@@ -359,6 +421,38 @@ def detect_fees_doubled(
     if not set_fees:
         return None
     return flex_up, ", ".join(f"`{k}` = {v:g}" for k, v in set_fees.items())
+
+
+def detect_fees_on_pd7day_tariff(
+    hass: HomeAssistant, options: dict[str, Any]
+) -> tuple[str, str] | None:
+    """(tariff entity, listed fees) when the import price is a NEM PD7DAY
+    import TARIFF sensor and any network/flat fee is non-zero, else None
+    (nimbus #1581).
+
+    A PD7DAY tariff's `value` is spot PLUS that tariff's own network
+    component (its rows carry `network_rate`), and Nimbus adds its own
+    network/flat fees on top of the import price, so with both the network
+    charge is counted twice -- the same trap as LocalVolts' Flex Up (#1564).
+    Identified by integration and built-in unique_id
+    (`<entry>_<region>_<distributor>_<code>_tariff`); an export tariff is
+    not an import price and fees are not added to export."""
+    entity_id = options.get(CONF_SOLVER_IMPORT_PRICE_SENSOR)
+    if not isinstance(entity_id, str) or not entity_id:
+        return None
+    reg = er.async_get(hass).async_get(entity_id)
+    uid = str(getattr(reg, "unique_id", "") or "")
+    if (
+        reg is None
+        or getattr(reg, "platform", None) != PD7DAY_DOMAIN
+        or not uid.endswith("_tariff")
+        or uid.endswith("_export_tariff")
+    ):
+        return None
+    set_fees = {k: v for k in _FEE_RATE_KEYS if (v := _as_float(options.get(k))) > 0}
+    if not set_fees:
+        return None
+    return entity_id, ", ".join(f"`{k}` = {v:g}" for k, v in set_fees.items())
 
 
 async def _dismiss(hass: HomeAssistant, notification_id: str) -> None:

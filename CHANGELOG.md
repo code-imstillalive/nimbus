@@ -35,6 +35,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **NEM PD7DAY's forecasts are read correctly in every price field, offered
+  first as the regional spot forecast, and network fees counted twice on a
+  PD7DAY tariff are flagged**
+  ([#1581](https://github.com/code-imstillalive/nimbus/issues/1581), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Read as published:** a PD7DAY tariff's price already includes its network
+    charge, and the wholesale forecast's price is already spike-calibrated.
+    Nimbus reads that published price as is. It never rebuilds it from the
+    raw or spot fields. An interval PD7DAY could not calibrate (a blank
+    price) stays missing and is never filled from the raw price.
+  - **Coverage is per interval:** each PD7DAY row's own end time is used, so
+    the last interval counts as covered and a gap between rows does not. The
+    day 2 to 7 forecast is never stitched onto another source automatically
+    (the 6 Oct capture showed that join leaves a 30-minute hole).
+  - **Offered first:** when both PD7DAY and AEMO NEM Data are installed and the
+    regional spot forecast is empty, Nimbus offers PD7DAY's days 1 to 7
+    forecast (about seven days, spike-calibrated) ahead of AEMO's (about 39
+    hours). Never the day 2 to 7 or tariff sensors, and never over a value
+    already set.
+  - **Fees counted twice:** if the import price is a PD7DAY tariff sensor and
+    network or flat fees are also set in Solver settings, a Repair now says
+    the network charge is being counted twice, as it already does for
+    LocalVolts' Buy Flex Up.
+  - The reference household's own setup reads PD7DAY's regional forecast
+    exactly as before.
+
 - **AEMO NEM Data's regional forecast now works in Nimbus's price fields, and
   Nimbus offers it as the regional spot forecast when that field is empty**
   ([#1578](https://github.com/code-imstillalive/nimbus/issues/1578), part of
