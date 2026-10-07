@@ -4572,6 +4572,15 @@ def resample_generic_price_forecast_with_coverage(
     # not covered. PD7DAY's published `value` is read as is (a null value is
     # missing, never filled from raw_value/spot).
     intervals = price_intervals.intervals_from_rows(forecast)
+    if intervals is None and price_intervals.AMBER_EXPRESS_DETAILED_KEY in (
+        state.get("attributes") or {}
+    ):
+        # nimbus #1580: Amber Express. `forecast[].value` as published (basis,
+        # feed-in sign and demand window already applied upstream), on the
+        # interval boundaries of its `detailedForecast`.
+        intervals = price_intervals.amber_express_intervals(
+            forecast, state["attributes"][price_intervals.AMBER_EXPRESS_DETAILED_KEY]
+        )
     if intervals is not None:
         if not intervals:
             return None

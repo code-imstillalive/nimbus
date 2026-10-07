@@ -74,7 +74,12 @@ from .const import (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
 )
-from .price_intervals import AEMO_NEM_DOMAIN, AEMO_NEM_FORECAST_KEY, PD7DAY_DOMAIN
+from .price_intervals import (
+    AEMO_NEM_DOMAIN,
+    AEMO_NEM_FORECAST_KEY,
+    AMBER_EXPRESS_DOMAIN,
+    PD7DAY_DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,6 +104,7 @@ LV_V2_OPTIONAL_PROFILE: dict[str, str] = {
 
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
 NOTIFY_AEMO_DETECTED_ID = "nimbus_aemo_nem_detected"
+NOTIFY_AMBER_EXPRESS_DETECTED_ID = "nimbus_amber_express_detected"
 NOTIFY_P2P_TRAP_ID = "nimbus_p2p_matched_rate_without_price_array"
 NOTIFY_MISSING_ID = "nimbus_pricing_entity_missing"
 NOTIFY_FEES_DOUBLED_ID = "nimbus_fees_on_top_of_flex_up"
@@ -236,6 +242,42 @@ def detect_pd7day_forecast(hass: HomeAssistant) -> dict[str, str]:
     return {CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} if entity_id else {}
 
 
+def detect_amber_express_profile(hass: HomeAssistant) -> dict[str, str]:
+    """{import field: general price, export field: feed-in price} from a
+    single Amber Express site, or {} (nimbus #1580).
+
+    These are the household's own retail prices, so unlike a wholesale
+    forecast they are proposed for the import and export price fields --
+    only where empty, like every proposal here. Found by integration and
+    built-in unique_id (`<site>_general_price`, `<site>_feed_in_price`).
+    More than one site is ambiguous: nothing is proposed. A field whose
+    sensor is missing or disabled is simply absent from the result."""
+    found = _registry_candidates(
+        hass,
+        AMBER_EXPRESS_DOMAIN,
+        lambda uid: uid.endswith(("_general_price", "_feed_in_price")),
+    )
+    sites = {
+        uid.removesuffix(suffix)
+        for uid in found
+        for suffix in ("_general_price", "_feed_in_price")
+        if uid.endswith(suffix)
+    }
+    if len(sites) != 1:
+        if len(sites) > 1:
+            _LOGGER.debug(
+                "Nimbus: %d Amber Express sites; not proposing prices", len(sites)
+            )
+        return {}
+    site = next(iter(sites))
+    out: dict[str, str] = {}
+    if f"{site}_general_price" in found:
+        out[CONF_SOLVER_IMPORT_PRICE_SENSOR] = found[f"{site}_general_price"]
+    if f"{site}_feed_in_price" in found:
+        out[CONF_SOLVER_EXPORT_PRICE_SENSOR] = found[f"{site}_feed_in_price"]
+    return out
+
+
 def detect_regional_spot_forecast(
     hass: HomeAssistant,
 ) -> tuple[dict[str, str], str | None]:
@@ -281,6 +323,11 @@ def with_detected_profile(
     missing = missing_profile_entities(hass, out)
     for field, entity_id in detect_localvolts_v2_profile(hass).items():
         if not out.get(field) or field in missing:
+            out[field] = entity_id
+    # nimbus #1580: Amber Express's own retail prices, only where still empty
+    # (a detected LocalVolts v2 profile, filled just above, comes first).
+    for field, entity_id in detect_amber_express_profile(hass).items():
+        if not out.get(field):
             out[field] = entity_id
     # nimbus #1578: only where empty, and only with a price forecast array
     # set -- that is the one path that reads this field. Whatever is already
@@ -337,6 +384,21 @@ async def async_notify_pricing_setup(
             "fields are empty. Open Nimbus → Configure → Solver settings: the "
             "LocalVolts v2 sensors are pre-filled there for you to check and "
             "save. Nothing has been changed.",
+        )
+    amber = {} if detected else detect_amber_express_profile(hass)
+    amber_empty = [f for f in amber if not options.get(f)]
+    if amber_empty:
+        await _notify(
+            hass,
+            NOTIFY_AMBER_EXPRESS_DETECTED_ID,
+            "Nimbus found Amber Express",
+            f"{len(amber_empty)} of Nimbus's import/export price fields "
+            + ("is" if len(amber_empty) == 1 else "are")
+            + " empty. Open Nimbus → Configure → Solver settings: your Amber "
+            "Express general and feed-in price sensors are pre-filled there "
+            "for you to check and save. Nimbus reads their prices exactly as "
+            "Amber Express publishes them, in the pricing mode you chose "
+            "there. Nothing has been changed.",
         )
     spot, spot_source = (
         detect_regional_spot_forecast(hass)
