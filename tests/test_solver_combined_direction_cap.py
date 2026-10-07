@@ -20,8 +20,8 @@ bounds the degeneracy budget.
 IMPORTANT correction to issue #245's own claim: the issue asserts "no
 incentive exists in the objective for charge > 0 AND discharge > 0" and
 that the linear cap is therefore "sufficient in practice." Testing this
-directly (test_profitable_roundtrip_window_still_shows_partial_wash_trade
-below) disproves that in general -- whenever a period's export_price
+directly (what is now test_profitable_roundtrip_window_is_now_exclusive
+below) disproved that in general -- whenever a period's export_price
 genuinely exceeds its import_price by more than the round-trip loss (the
 SAME condition #236 itself notes is a real, legitimate P2P pattern, not a
 data artefact: "a REAL household's genuine P2P sale price legitimately,
@@ -46,10 +46,9 @@ asserting exclusivity outright:
     same-period arbitrage available) -- here the objective's own
     disincentive genuinely does keep charge/discharge exclusive, matching
     what #245 expected.
-  - test_profitable_roundtrip_window_still_shows_partial_wash_trade:
-    documents the residual gap above -- the cap bounds it, but does not
-    eliminate it, when export_price meaningfully exceeds import_price
-    within one period.
+  - test_profitable_roundtrip_window_is_now_exclusive: the residual gap
+    above, which the cap alone bounded but did not eliminate, is now closed
+    by nimbus #238's direction binaries; the published plan is one-way.
 """
 
 from __future__ import annotations
@@ -171,18 +170,14 @@ class TestCombinedDirectionCap(unittest.TestCase):
                 "nonzero with no round-trip arbitrage available",
             )
 
-    def test_profitable_roundtrip_window_still_shows_partial_wash_trade(self):
-        """Documents the residual gap: with export_price genuinely above
-        import_price by more than the round-trip loss (the real, legitimate
-        P2P-window shape #236 found live -- NOT a data artefact), importing
-        to charge and discharging to export in the SAME period is an
-        actually-profitable round trip, and the LP takes it. The combined-
-        direction cap bounds how much (never more than max(max_charge_kw,
-        max_discharge_kw) together), but does not zero it out. Full
-        elimination needs #238's MILP complementarity -- this test exists
-        so a future change either fixes this properly (and this assertion
-        starts failing, prompting an update) or the gap is at least never
-        silently forgotten.
+    def test_profitable_roundtrip_window_is_now_exclusive(self):
+        """Was `..._still_shows_partial_wash_trade`, documenting the residual
+        gap: with export_price above import_price by more than the round-trip
+        loss, the linear cap bounded but did not zero same-period charge and
+        discharge. nimbus #238 closes it: `build_plan()` re-solves with a
+        direction binary per period when the first plan has opposing flows,
+        so the published plan never charges and discharges one battery in
+        the same period. The cap still holds too.
         """
         periods, grid, battery, solar, loads = _scenario(
             charge_cost=0.005, discharge_cost=0.01, roundtrip_profitable=True
@@ -192,20 +187,11 @@ class TestCombinedDirectionCap(unittest.TestCase):
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.battery_charge_kw + plan.battery_discharge_kw
-        # The cap always holds...
         self.assertTrue((combined <= _COMBINED_CAP + 1e-6).all())
-        # ...but at least one period still shows real simultaneous
-        # nonzero charge+discharge -- the residual gap, not full exclusivity.
         both_nonzero = [
             (c, d)
             for c, d in zip(plan.battery_charge_kw, plan.battery_discharge_kw)
-            if min(c, d) > 1e-3
+            if min(c, d) > 1e-6
         ]
-        self.assertTrue(
-            both_nonzero,
-            "expected the profitable-round-trip scenario to still show a "
-            "wash trade under the linear-only fix -- if this now passes "
-            "cleanly, #245's linear cap may have become fully sufficient "
-            "(or the scenario needs revisiting) and this test's own "
-            "docstring should be updated",
-        )
+        self.assertEqual(both_nonzero, [])
+        self.assertTrue(plan.direction_exclusivity_enforced)

@@ -57,6 +57,17 @@ def _battery(**overrides) -> BatteryConfig:
     return BatteryConfig(**defaults)
 
 
+def _starting_soc(plan, eta_c: float = 0.95, eta_d: float = 0.95) -> float:
+    """The SoC a plan started from, from its own period-0 balance (the
+    `_battery()` defaults' efficiencies)."""
+    h = float(plan.periods.hours[0])
+    return float(
+        plan.battery_soc_kwh[0]
+        - plan.battery_charge_kw[0] * eta_c * h
+        + plan.battery_discharge_kw[0] * h / eta_d
+    )
+
+
 def _grid(n: int, **overrides) -> GridConfig:
     defaults = {
         "import_price": np.full(n, 0.30),
@@ -238,11 +249,16 @@ def test_soc_continuity_second_tick_starts_from_first_ticks_real_dispatched_soc(
     assert result.dispatch_soc_kwh[0] != pytest.approx(10.0)
 
     # The actual point of the test: tick 2 solved from tick 1's real
-    # ending SoC, not from the provider's own unchanging 10.0.
-    assert result.ticks[1].plan.battery_soc_kwh[0] == pytest.approx(
+    # ending SoC, not from the provider's own unchanging 10.0. The SoC a
+    # tick STARTED from is backed out of its period-0 balance (soc[0] =
+    # start + charge*eta_c*h - discharge*h/eta_d). Reading soc[0] alone
+    # used to work only because, with export (0.50) above import (0.30),
+    # period 0 charged and discharged at once and netted to zero; nimbus
+    # #238 makes each period one-way, so period 0 now genuinely moves.
+    assert _starting_soc(result.ticks[1].plan) == pytest.approx(
         result.ticks[0].dispatched_soc_kwh
     )
-    assert result.ticks[2].plan.battery_soc_kwh[0] == pytest.approx(
+    assert _starting_soc(result.ticks[2].plan) == pytest.approx(
         result.ticks[1].dispatched_soc_kwh
     )
 
