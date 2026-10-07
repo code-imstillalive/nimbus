@@ -81,6 +81,7 @@ class TestTheSchemaIsPinnedToTheFieldSet(unittest.TestCase):
 #: schema -> hash of the literal key set. See the class above.
 _EXPECTED_HASHES = {
     2: "0bddf26959893096070fcb8208c89ca885835b611bbaa6c7bee2e9817747149b",
+    3: "11f0ea93fda61d94b545172f6035e39af40a9edf38e1cf3dd26e33fe4488a64d",
 }
 
 

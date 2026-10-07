@@ -87,6 +87,7 @@ from .const import (
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_DEFERRABLE_DONE_ENTITY,
     CONF_DEFERRABLE_DONE_WHEN,
+    CONF_GRID_SENSOR,
     CONF_HOUSEHOLD_MODE,
     CONF_LOAD_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
@@ -2449,6 +2450,12 @@ class NimbusSolverConfigSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         attrs = {key: self._resolve(key) for key in _SOLVER_ALL_KEYS}
+        # nimbus #1465: the grid meter bindings the household already set
+        # elsewhere (Topology's switchboard meter, the Forecaster's grid
+        # sensor), so the quality report can check its reconstructed grid
+        # exchange against a meter. Read-only here; nothing new to configure.
+        for key in (CONF_SWITCHBOARD_GRID_METER_SENSOR, CONF_GRID_SENSOR):
+            attrs[key] = self._entry.options.get(key)
         # Issue #85 diagnostic (2026-08-23): also expose which required
         # keys are unresolved RIGHT NOW, so a caller reading this sensor
         # over REST can see exactly why native_value is "unconfigured"

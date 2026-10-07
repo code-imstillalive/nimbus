@@ -529,6 +529,9 @@ class NimbusRegretCard extends HTMLElement {
         + "which means the comparison itself is invalid";
     } else if (code === "d") {
       why = "EPR's denominator is not a positive quantity";
+    } else if (code === "m") {
+      // nimbus #1465
+      why = "the grid import and export it was priced on do not match the grid meter";
     } else {
       // An unrecognised code still has to surface. A newer writer with a
       // cause this card has no sentence for must not read as a clean day.
@@ -555,6 +558,10 @@ class NimbusRegretCard extends HTMLElement {
           + "which means the comparison itself is invalid";
       } else if (attrs.epr_denominator_reason) {
         why = `EPR's denominator is not a positive quantity (${attrs.epr_denominator_reason})`;
+      } else if (attrs.meter_reconciliation && attrs.meter_reconciliation.status === "disagrees") {
+        // nimbus #1465
+        why = "the grid import and export it was priced on do not match the grid meter ("
+          + (attrs.meter_reconciliation.reason || "outside the allowed difference") + ")";
       } else {
         why = reason || "the report did not say why";
       }
