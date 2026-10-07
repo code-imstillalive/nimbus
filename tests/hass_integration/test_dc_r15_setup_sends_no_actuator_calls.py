@@ -15,6 +15,9 @@ proves the trap can fire.
 
 from __future__ import annotations
 
+import importlib.util
+from pathlib import Path
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
@@ -26,25 +29,49 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.nimbus_load.const import DOMAIN
 from custom_components.nimbus_load.setup_builder import async_refresh_setup_fills
 
-# Services that change equipment state. Read-only actions (forecast lookups)
-# are deliberately not here: DC-R15 is about commands.
-EQUIPMENT_SERVICES = (
-    ("switch", "turn_on"),
-    ("switch", "turn_off"),
-    ("switch", "toggle"),
-    ("water_heater", "set_operation_mode"),
-    ("water_heater", "set_temperature"),
-    ("number", "set_value"),
-    ("select", "select_option"),
-    ("climate", "set_hvac_mode"),
-    ("climate", "set_temperature"),
-    ("input_number", "set_value"),
-    ("input_select", "select_option"),
-    ("input_boolean", "turn_on"),
-    ("input_boolean", "turn_off"),
-    ("script", "turn_on"),
-    ("modbus", "write_register"),
+# The equipment domains are the static scanner's own CONTROL_DOMAINS
+# (scripts/device_contract_baseline.py), so the runtime trap and the
+# inventory gate cannot drift apart (nimbus #1624 follow-up, IV&V #1622).
+_spec = importlib.util.spec_from_file_location(
+    "_dc_baseline_trap",
+    Path(__file__).resolve().parents[2] / "scripts" / "device_contract_baseline.py",
 )
+_baseline = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_baseline)
+CONTROL_DOMAINS: set[str] = _baseline.CONTROL_DOMAINS
+
+# Services that change equipment state, for every control domain. Read-only
+# actions (forecast lookups) are deliberately not here: DC-R15 is about
+# commands.
+SERVICES_BY_DOMAIN: dict[str, tuple[str, ...]] = {
+    "switch": ("turn_on", "turn_off", "toggle"),
+    "number": ("set_value",),
+    "select": ("select_option",),
+    "script": ("turn_on", "turn_off", "toggle"),
+    "climate": ("set_hvac_mode", "set_temperature", "turn_on", "turn_off"),
+    "input_number": ("set_value",),
+    "input_select": ("select_option",),
+    "input_boolean": ("turn_on", "turn_off", "toggle"),
+    "button": ("press",),
+    "water_heater": ("set_operation_mode", "set_temperature", "turn_on", "turn_off"),
+    "light": ("turn_on", "turn_off", "toggle"),
+    "fan": ("turn_on", "turn_off", "toggle", "set_percentage"),
+    "cover": ("open_cover", "close_cover", "stop_cover", "set_cover_position"),
+    "lock": ("lock", "unlock", "open"),
+    "modbus": ("write_register", "write_coil"),
+}
+EQUIPMENT_SERVICES = tuple(
+    (domain, service)
+    for domain, services in sorted(SERVICES_BY_DOMAIN.items())
+    for service in services
+)
+
+
+def test_the_trap_covers_exactly_the_scanners_control_domains():
+    """One concept, one list: a domain added to CONTROL_DOMAINS must be
+    trapped here too, and nothing is trapped that the scanner ignores."""
+    assert set(SERVICES_BY_DOMAIN) == CONTROL_DOMAINS
+
 
 # Actuators of the kinds Nimbus discovers or controls, so discovery has
 # something it could mistakenly operate.
