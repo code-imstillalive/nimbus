@@ -1,0 +1,77 @@
+{
+  "identity": {
+    "fixture": "F07",
+    "revision": 1,
+    "requirements": [
+      "DC-R07",
+      "DC-R08",
+      "DC-R09",
+      "DC-R10"
+    ],
+    "owner": "DC-003",
+    "purpose": "Exact-once accounting of a BESS, a DC EV outside the house total and an AC EV inside it."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7F07 (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "interval": {
+      "start": "2026-10-05T10:00:00+10:00",
+      "end": "2026-10-05T11:00:00+10:00",
+      "half_open": true
+    },
+    "boundary": "single AC site boundary; no losses, no curtailment, no other flows, compatible timestamps",
+    "units": "kW",
+    "signs": "Grid +import, Battery +discharge, Solar +generation, Load +consumption",
+    "flows": [
+      {
+        "name": "pv",
+        "role": "solar",
+        "kw": 16.0
+      },
+      {
+        "name": "house",
+        "role": "load",
+        "kw": 14.0,
+        "note": "whole-house measured consumption"
+      },
+      {
+        "name": "ev_ac",
+        "role": "battery",
+        "kw": -10.0,
+        "included_in": "house",
+        "note": "AC EV charging, inside the house total"
+      },
+      {
+        "name": "ev_dc",
+        "role": "battery",
+        "kw": -2.0,
+        "note": "DC EV charging, outside the house total"
+      },
+      {
+        "name": "bess",
+        "role": "battery",
+        "kw": 0.0
+      }
+    ]
+  },
+  "expected": {
+    "grid_import_kw": 0.0,
+    "invalid_double_count_grid_kw": 10.0,
+    "decomposed_house_residual_kw": 4.0
+  },
+  "comparison": {
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-003, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}
