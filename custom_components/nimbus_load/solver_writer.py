@@ -4566,19 +4566,16 @@ def resample_generic_price_forecast_with_coverage(
     # nimbus #1578 (Mark Purcell): AEMO NEM Data's regional forecast is often
     # used directly as a feed-in price, and with network tariff as a buy
     # price (the configured network/flat fees are added to the import price
-    # downstream). Its rows carry explicit start/end, so a period is real
-    # only inside an interval -- a hole between rows is not covered.
-    if price_intervals.is_aemo_nem_rows(forecast):
-        intervals = price_intervals.aemo_nem_intervals(forecast)
+    # downstream). nimbus #1581: NEM PD7DAY rows carry their own interval
+    # end (`nemtime`) too. For both, a period is real only inside an
+    # interval -- a hole between rows, or anything past the final END, is
+    # not covered. PD7DAY's published `value` is read as is (a null value is
+    # missing, never filled from raw_value/spot).
+    intervals = price_intervals.intervals_from_rows(forecast)
+    if intervals is not None:
         if not intervals:
             return None
-        values: list[float] = []
-        covered: list[bool] = []
-        for gt in grid_times:
-            held = [i for i in intervals if i.start <= gt]
-            values.append(held[-1].value if held else intervals[0].value)
-            covered.append(any(i.start <= gt < i.end for i in intervals))
-        return values, covered
+        return price_intervals.on_grid(intervals, grid_times)
     points: list[tuple[datetime, float]] = []
     for f in forecast:
         try:
