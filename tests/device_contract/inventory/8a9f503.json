@@ -1,0 +1,2851 @@
+{
+ "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+ "summary": {
+  "config_keys": 180,
+  "config_keys_read_by_more_than_one_family": 132,
+  "config_keys_never_read": 0,
+  "write_boundaries": 32,
+  "service_calls": 13,
+  "control_capable_service_calls": 3,
+  "dynamic_domain_service_calls": 0,
+  "modules_with_standalone_fallback": 20
+ },
+ "config": {
+  "CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY": {
+   "key": "battery_participant_available_entity",
+   "read_by": [
+    "diagnostics.py",
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_CAPACITY_KWH": {
+   "key": "battery_participant_capacity_kwh",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "sensor.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY": {
+   "key": "battery_participant_charge_limit_entity",
+   "read_by": [
+    "diagnostics.py",
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH": {
+   "key": "battery_participant_degradation_cost_per_kwh",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR": {
+   "key": "battery_participant_departure_hour",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT": {
+   "key": "battery_participant_efficiency_percent",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_KWH_PER_100KM": {
+   "key": "battery_participant_kwh_per_100km",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW": {
+   "key": "battery_participant_max_charge_kw",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW": {
+   "key": "battery_participant_max_discharge_kw",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT": {
+   "key": "battery_participant_max_soc_percent",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT": {
+   "key": "battery_participant_min_soc_percent",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT": {
+   "key": "battery_participant_must_have_soc_by_departure_percent",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_NAME": {
+   "key": "battery_participant_name",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "sensor.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY": {
+   "key": "battery_participant_odometer_entity",
+   "read_by": [
+    "flows/battery_participant_subentry.py"
+   ],
+   "families": [
+    "setup"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE": {
+   "key": "battery_participant_power_positive_is_charge",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_POWER_SENSOR": {
+   "key": "battery_participant_power_sensor",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "sensor.py",
+    "solver_inputs/battery_participants.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE": {
+   "key": "battery_participant_salvage_value",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP": {
+   "key": "battery_participant_shared_charger_group",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "sensor.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW": {
+   "key": "battery_participant_shared_charger_max_kw",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_SOC_SENSOR": {
+   "key": "battery_participant_soc_sensor",
+   "read_by": [
+    "diagnostics.py",
+    "flows/battery_participant_subentry.py",
+    "sensor.py",
+    "solver_inputs/battery_participants.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY": {
+   "key": "battery_participant_trip_calendar_entity",
+   "read_by": [
+    "flows/battery_participant_subentry.py",
+    "solver_inputs/extra_batteries.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_BATTERY_SENSOR": {
+   "key": "battery_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py",
+    "power_input_check.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_BATTERY_TOWER_POWER_SOURCE": {
+   "key": "battery_tower_power_source",
+   "read_by": [
+    "flows/battery_tower_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_BATTERY_TOWER_SOC_SENSOR": {
+   "key": "battery_tower_soc_sensor",
+   "read_by": [
+    "flows/battery_tower_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_BATTERY_TOWER_SOH_SENSOR": {
+   "key": "battery_tower_soh_sensor",
+   "read_by": [
+    "flows/battery_tower_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_BATTERY_TOWER_TEMPERATURE_SENSOR": {
+   "key": "battery_tower_temperature_sensor",
+   "read_by": [
+    "flows/battery_tower_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_BATTERY_TOWER_VOLTAGE_SENSOR": {
+   "key": "battery_tower_voltage_sensor",
+   "read_by": [
+    "flows/battery_tower_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE": {
+   "key": "controllable_load_climate_on_hvac_mode",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "sensor.py",
+    "solver_dispatch/guard.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY": {
+   "key": "controllable_load_device_entity",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "sensor.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_KIND": {
+   "key": "controllable_load_kind",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "number.py",
+    "sensor.py",
+    "services.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY": {
+   "key": "controllable_load_max_activations_per_day",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "number.py",
+    "sensor.py",
+    "solver_dispatch/guard.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES": {
+   "key": "controllable_load_min_hold_minutes",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "number.py",
+    "sensor.py",
+    "solver_dispatch/guard.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_NAME": {
+   "key": "controllable_load_name",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "services.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_POWER_SENSOR": {
+   "key": "controllable_load_power_sensor",
+   "read_by": [
+    "services.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES": {
+   "key": "controllable_load_reaffirm_after_minutes",
+   "read_by": [
+    "flows/controllable_load_subentry.py"
+   ],
+   "families": [
+    "setup"
+   ]
+  },
+  "CONF_CURTAILMENT_SENSOR": {
+   "key": "curtailment_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_DEFERRABLE_DEADLINE_HOUR": {
+   "key": "deferrable_deadline_hour",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "number.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_DONE_ENTITY": {
+   "key": "deferrable_done_entity",
+   "read_by": [
+    "sensor.py",
+    "services.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_DONE_WHEN": {
+   "key": "deferrable_done_when",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "sensor.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_EARLIEST_HOUR": {
+   "key": "deferrable_earliest_hour",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "number.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_MAX_KWH_PER_DAY": {
+   "key": "deferrable_max_kwh_per_day",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_MAX_POWER_KW": {
+   "key": "deferrable_max_power_kw",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "number.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS": {
+   "key": "deferrable_min_deferral_saving_dollars",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_SHORTFALL_PRICE": {
+   "key": "deferrable_shortfall_price",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "number.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_TARGET_KWH": {
+   "key": "deferrable_target_kwh",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "number.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_VALUE_PER_KWH": {
+   "key": "deferrable_value_per_kwh",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY": {
+   "key": "deferrable_value_per_kwh_entity",
+   "read_by": [
+    "services.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_EXPECTED_LOAD_KW": {
+   "key": "expected_load_kw",
+   "read_by": [
+    "coordinator.py",
+    "flows/load_subentry.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_FORECAST_HORIZON_HOURS": {
+   "key": "forecast_horizon_hours",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_GRID_SENSOR": {
+   "key": "grid_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py",
+    "power_input_check.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_HOUSEHOLD_MODE": {
+   "key": "household_mode",
+   "read_by": [
+    "select.py",
+    "sensor.py",
+    "solver_publish.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_HUMIDITY_SENSOR": {
+   "key": "humidity_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_HYBRID_RECENT_DAYS": {
+   "key": "hybrid_recent_days",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_LOAD_SENSOR": {
+   "key": "load_sensor",
+   "read_by": [
+    "__init__.py",
+    "coordinator.py",
+    "flows/__init__.py",
+    "flows/load_subentry.py",
+    "flows/signal_subentry.py",
+    "power_input_check.py",
+    "sensor.py"
+   ],
+   "families": [
+    "forecaster",
+    "platform",
+    "setup"
+   ]
+  },
+  "CONF_POWER_SOURCE_BATTERY_SENSOR": {
+   "key": "power_source_battery_sensor",
+   "read_by": [
+    "flows/power_source_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_POWER_SOURCE_DC_SENSOR": {
+   "key": "power_source_dc_sensor",
+   "read_by": [
+    "flows/power_source_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_POWER_SOURCE_NAME": {
+   "key": "power_source_name",
+   "read_by": [
+    "flows/power_source_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_PV_STRING_ENTITY": {
+   "key": "pv_string_entity",
+   "read_by": [
+    "flows/pv_string_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_PV_STRING_LABEL": {
+   "key": "pv_string_label",
+   "read_by": [
+    "flows/pv_string_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_PV_STRING_POWER_SOURCE": {
+   "key": "pv_string_power_source",
+   "read_by": [
+    "flows/pv_string_subentry.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_RETRAIN_HOUR_LOCAL": {
+   "key": "retrain_hour_local",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_SCHEDULE_END_HOUR": {
+   "key": "schedule_end_hour",
+   "read_by": [
+    "coordinator.py",
+    "flows/load_subentry.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_SCHEDULE_START_HOUR": {
+   "key": "schedule_start_hour",
+   "read_by": [
+    "coordinator.py",
+    "flows/load_subentry.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_SHEDDABLE_MIN_FRACTION": {
+   "key": "sheddable_min_fraction",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SHEDDABLE_NOMINAL_KW": {
+   "key": "sheddable_nominal_kw",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SHEDDABLE_SHED_COST": {
+   "key": "sheddable_shed_cost",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_inputs/controllable_load_history.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SIGNAL_ROLE": {
+   "key": "signal_role",
+   "read_by": [
+    "coordinator.py",
+    "flows/signal_subentry.py",
+    "frontend/nimbus-forecast-card.js",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py",
+    "solver_publish.py"
+   ],
+   "families": [
+    "cards",
+    "forecaster",
+    "platform",
+    "setup",
+    "solver",
+    "topology"
+   ]
+  },
+  "CONF_SOLAR_SENSOR": {
+   "key": "solar_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py",
+    "power_input_check.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS": {
+   "key": "solver_aemo_p5min_disagreement_threshold_dollars",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_inputs/prices.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR": {
+   "key": "solver_auto_include_known_solar",
+   "read_by": [
+    "sensor.py",
+    "solver_inputs/solar.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_CAPACITY_KWH": {
+   "key": "solver_battery_capacity_kwh",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_publish.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW": {
+   "key": "solver_battery_charge_earliness_budget_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py",
+    "solver_reports/counterfactual.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_MAX_SOC_PERCENT": {
+   "key": "solver_battery_max_soc_percent",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_MIN_SOC_PERCENT": {
+   "key": "solver_battery_min_soc_percent",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE": {
+   "key": "solver_battery_power_positive_is_charge",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-dispatch-card-v4.js",
+    "sensor.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "cards",
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_POWER_SENSOR": {
+   "key": "solver_battery_power_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-dispatch-card-v4.js",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "cards",
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_SOC_SENSOR": {
+   "key": "solver_battery_soc_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-dispatch-card-v4.js",
+    "sensor.py",
+    "setup_health.py",
+    "solver_publish.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "cards",
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_BATTERY_SOH_PERCENT": {
+   "key": "solver_battery_soh_percent",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_publish.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED": {
+   "key": "solver_calibrated_objective_enabled",
+   "read_by": [
+    "sensor.py",
+    "solver_plan.py",
+    "solver_reports/counterfactual.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_CHARGE_COST": {
+   "key": "solver_charge_cost",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_DEGRADATION_COST_PER_KWH": {
+   "key": "solver_degradation_cost_per_kwh",
+   "read_by": [
+    "household_modes.py",
+    "number.py",
+    "sensor.py",
+    "solver_plan.py",
+    "solver_publish.py",
+    "solver_reports/quality.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_DISCHARGE_COST": {
+   "key": "solver_discharge_cost",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_DISPATCH_DRY_RUN": {
+   "key": "solver_dispatch_dry_run",
+   "read_by": [
+    "switch.py"
+   ],
+   "families": [
+    "platform"
+   ]
+  },
+  "CONF_SOLVER_EFFICIENCY_PERCENT": {
+   "key": "solver_efficiency_percent",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_inputs/battery_soc.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY": {
+   "key": "solver_envelope_export_limit_entity",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY": {
+   "key": "solver_envelope_import_limit_entity",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION": {
+   "key": "solver_export_price_risk_aversion",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR": {
+   "key": "solver_export_price_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "setup_health.py",
+    "solver_inputs/prices.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "setup",
+    "solver",
+    "topology"
+   ]
+  },
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR_2": {
+   "key": "solver_export_price_sensor_2",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR_3": {
+   "key": "solver_export_price_sensor_3",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_FIXED_DAILY_CHARGE": {
+   "key": "solver_fixed_daily_charge",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_publish.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_FLAT_FEE_RATE": {
+   "key": "solver_flat_fee_rate",
+   "read_by": [
+    "number.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_reports/counterfactual.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_FLEX_SIGNALS_ENABLED": {
+   "key": "solver_flex_signals_enabled",
+   "read_by": [
+    "sensor.py",
+    "solver_plan.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_GRID_MAX_EXPORT_KW": {
+   "key": "solver_grid_max_export_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_GRID_MAX_IMPORT_KW": {
+   "key": "solver_grid_max_import_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION": {
+   "key": "solver_import_price_risk_aversion",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR": {
+   "key": "solver_import_price_sensor",
+   "read_by": [
+    "__init__.py",
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "setup_health.py",
+    "solver_inputs/prices.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "setup",
+    "solver",
+    "topology"
+   ]
+  },
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR_2": {
+   "key": "solver_import_price_sensor_2",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR_3": {
+   "key": "solver_import_price_sensor_3",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW": {
+   "key": "solver_intraplan_smoothness_weight_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py",
+    "solver_reports/counterfactual.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW": {
+   "key": "solver_inverter_self_consumption_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_inputs/load.py",
+    "solver_publish.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_LOAD_FORECAST_ENTITIES": {
+   "key": "solver_load_forecast_entities",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/load.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_LOAD_FORECAST_SENSOR": {
+   "key": "solver_load_forecast_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-forecast-card.js",
+    "sensor.py",
+    "setup_health.py",
+    "solver_inputs/load.py",
+    "solver_publish.py"
+   ],
+   "families": [
+    "cards",
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY": {
+   "key": "solver_load_forecast_source_policy",
+   "read_by": [
+    "select.py",
+    "sensor.py",
+    "solver_inputs/load.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_MAX_CHARGE_KW": {
+   "key": "solver_max_charge_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_MAX_DISCHARGE_KW": {
+   "key": "solver_max_discharge_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY": {
+   "key": "solver_max_discharge_live_entity",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_1_END_HOUR": {
+   "key": "solver_network_fee_1_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_1_RATE": {
+   "key": "solver_network_fee_1_rate",
+   "read_by": [
+    "number.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_1_START_HOUR": {
+   "key": "solver_network_fee_1_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_2_END_HOUR": {
+   "key": "solver_network_fee_2_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_2_RATE": {
+   "key": "solver_network_fee_2_rate",
+   "read_by": [
+    "number.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_2_START_HOUR": {
+   "key": "solver_network_fee_2_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_3_END_HOUR": {
+   "key": "solver_network_fee_3_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_3_RATE": {
+   "key": "solver_network_fee_3_rate",
+   "read_by": [
+    "number.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_3_START_HOUR": {
+   "key": "solver_network_fee_3_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE": {
+   "key": "solver_network_fee_default_rate",
+   "read_by": [
+    "number.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED": {
+   "key": "solver_nowcast_measurement_enabled",
+   "read_by": [
+    "sensor.py",
+    "solver_inputs/solar.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_OFFER_CURVE_ENABLED": {
+   "key": "solver_offer_curve_enabled",
+   "read_by": [
+    "sensor.py",
+    "solver_plan.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_1_END_HOUR": {
+   "key": "solver_p2p_block_1_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_1_RATE_KW": {
+   "key": "solver_p2p_block_1_rate_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/counterfactual.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_1_START_HOUR": {
+   "key": "solver_p2p_block_1_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/counterfactual.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_2_END_HOUR": {
+   "key": "solver_p2p_block_2_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_2_RATE_KW": {
+   "key": "solver_p2p_block_2_rate_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_2_START_HOUR": {
+   "key": "solver_p2p_block_2_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_3_END_HOUR": {
+   "key": "solver_p2p_block_3_end_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_3_RATE_KW": {
+   "key": "solver_p2p_block_3_rate_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_3_START_HOUR": {
+   "key": "solver_p2p_block_3_start_hour",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES": {
+   "key": "solver_p2p_block_lead_time_minutes",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BONUS_PRICE": {
+   "key": "solver_p2p_bonus_price",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_inputs/prices.py",
+    "solver_reports/counterfactual.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_BONUS_VOLUME_KWH": {
+   "key": "solver_p2p_bonus_volume_kwh",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_inputs/prices.py",
+    "solver_reports/counterfactual.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR": {
+   "key": "solver_p2p_matched_rate_forecast_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_inputs/prices.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR": {
+   "key": "solver_p2p_settlement_history_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_inputs/prices.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS": {
+   "key": "solver_post_window_self_consume_hours",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_shared.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_EVENT_ENABLED": {
+   "key": "solver_price_event_enabled",
+   "read_by": [
+    "solver_writer.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_EVENT_SENSOR": {
+   "key": "solver_price_event_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR": {
+   "key": "solver_price_forecast_array_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "pricing_autodetect.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY": {
+   "key": "solver_price_spike_alert_entity",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW": {
+   "key": "solver_price_spike_discharge_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED": {
+   "key": "solver_price_spike_override_armed",
+   "read_by": [
+    "sensor.py",
+    "solver_writer.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PRICE_SPIKE_THRESHOLD": {
+   "key": "solver_price_spike_threshold",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_PROXIMAL_WEIGHT_KW": {
+   "key": "solver_proximal_weight_kw",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR": {
+   "key": "solver_regional_spot_current_price_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/prices.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR": {
+   "key": "solver_regional_spot_forecast_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/prices.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_RISK_AVERSION": {
+   "key": "solver_risk_aversion",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_plan.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_SALVAGE_VALUE": {
+   "key": "solver_salvage_value",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "scoring",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED": {
+   "key": "solver_score_controllable_loads_enabled",
+   "read_by": [
+    "sensor.py",
+    "solver_reports/quality.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform",
+    "scoring"
+   ]
+  },
+  "CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT": {
+   "key": "solver_soc_discrepancy_max_threshold_pct",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/quality.py"
+   ],
+   "families": [
+    "platform",
+    "scoring"
+   ]
+  },
+  "CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT": {
+   "key": "solver_soc_discrepancy_mean_threshold_pct",
+   "read_by": [
+    "number.py",
+    "sensor.py",
+    "solver_reports/quality.py"
+   ],
+   "families": [
+    "platform",
+    "scoring"
+   ]
+  },
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR": {
+   "key": "solver_solar_forecast_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "setup_health.py",
+    "solver_inputs/solar.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR_2": {
+   "key": "solver_solar_forecast_sensor_2",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/solar.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR_3": {
+   "key": "solver_solar_forecast_sensor_3",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/solar.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_SOLAR_POWER_SENSOR": {
+   "key": "solver_solar_power_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-dispatch-card-v4.js",
+    "sensor.py",
+    "solver_inputs/solar.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "cards",
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_WEATHER_FORECAST_SENSOR": {
+   "key": "solver_weather_forecast_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_dispatch/guard.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR": {
+   "key": "solver_whole_house_cross_check_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py",
+    "sensor.py",
+    "solver_inputs/load.py",
+    "solver_reports/backtest.py",
+    "solver_reports/counterfactual.py",
+    "solver_reports/flex.py",
+    "solver_reports/quality.py",
+    "solver_writer.py"
+   ],
+   "families": [
+    "forecaster",
+    "platform",
+    "scoring",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_SOLVE_ON_PRICE_CHANGE": {
+   "key": "solve_on_price_change",
+   "read_by": [
+    "__init__.py",
+    "sensor.py",
+    "switch.py"
+   ],
+   "families": [
+    "platform"
+   ]
+  },
+  "CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S": {
+   "key": "solve_on_price_change_debounce_s",
+   "read_by": [
+    "__init__.py",
+    "number.py",
+    "sensor.py"
+   ],
+   "families": [
+    "platform"
+   ]
+  },
+  "CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR": {
+   "key": "switchboard_battery_charge_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR": {
+   "key": "switchboard_battery_discharge_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_BATTERY_POWER_SENSOR": {
+   "key": "switchboard_battery_power_sensor",
+   "read_by": [
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR": {
+   "key": "switchboard_export_energy_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR": {
+   "key": "switchboard_export_price_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_GRID_METER_SENSOR": {
+   "key": "switchboard_grid_meter_sensor",
+   "read_by": [
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR": {
+   "key": "switchboard_house_load_energy_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR": {
+   "key": "switchboard_import_energy_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR": {
+   "key": "switchboard_import_price_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR": {
+   "key": "switchboard_solar_energy_daily_sensor",
+   "read_by": [
+    "flows/hub_options.py",
+    "frontend/nimbus-topology-card.js",
+    "sensor.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "topology"
+   ]
+  },
+  "CONF_TEMPERATURE_FORECAST_SENSOR": {
+   "key": "temperature_forecast_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_TEMPERATURE_SENSOR": {
+   "key": "temperature_sensor",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_THERMAL_COMFORT_FLOOR_C": {
+   "key": "thermal_comfort_floor_c",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_COMFORT_FLOOR_COST": {
+   "key": "thermal_comfort_floor_cost",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_DEADLINE_HOUR": {
+   "key": "thermal_deadline_hour",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_EARLIEST_HOUR": {
+   "key": "thermal_earliest_hour",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_dispatch/guard.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_HEATING_RATE_C_PER_KWH": {
+   "key": "thermal_heating_rate_c_per_kwh",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "load_run_state.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_IDLE_DECAY_C_PER_HOUR": {
+   "key": "thermal_idle_decay_c_per_hour",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "load_run_state.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_MAX_POWER_KW": {
+   "key": "thermal_max_power_kw",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_TARGET_TEMPERATURE_C": {
+   "key": "thermal_target_temperature_c",
+   "read_by": [
+    "flows/controllable_load_subentry.py",
+    "household_modes.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "setup",
+    "solver"
+   ]
+  },
+  "CONF_THERMAL_TEMPERATURE_ENTITY": {
+   "key": "thermal_temperature_entity",
+   "read_by": [
+    "services.py",
+    "solver_inputs/controllable_loads.py"
+   ],
+   "families": [
+    "platform",
+    "solver"
+   ]
+  },
+  "CONF_TRAINING_SOURCE": {
+   "key": "training_source",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  },
+  "CONF_TRAIN_DAYS": {
+   "key": "train_days",
+   "read_by": [
+    "coordinator.py",
+    "flows/hub_options.py"
+   ],
+   "families": [
+    "forecaster",
+    "setup"
+   ]
+  }
+ },
+ "shared_across_families": [
+  "CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY",
+  "CONF_BATTERY_PARTICIPANT_CAPACITY_KWH",
+  "CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY",
+  "CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH",
+  "CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR",
+  "CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT",
+  "CONF_BATTERY_PARTICIPANT_KWH_PER_100KM",
+  "CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW",
+  "CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW",
+  "CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT",
+  "CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT",
+  "CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT",
+  "CONF_BATTERY_PARTICIPANT_NAME",
+  "CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE",
+  "CONF_BATTERY_PARTICIPANT_POWER_SENSOR",
+  "CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE",
+  "CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP",
+  "CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW",
+  "CONF_BATTERY_PARTICIPANT_SOC_SENSOR",
+  "CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY",
+  "CONF_BATTERY_SENSOR",
+  "CONF_BATTERY_TOWER_POWER_SOURCE",
+  "CONF_BATTERY_TOWER_SOC_SENSOR",
+  "CONF_BATTERY_TOWER_SOH_SENSOR",
+  "CONF_BATTERY_TOWER_TEMPERATURE_SENSOR",
+  "CONF_BATTERY_TOWER_VOLTAGE_SENSOR",
+  "CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE",
+  "CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY",
+  "CONF_CONTROLLABLE_LOAD_KIND",
+  "CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY",
+  "CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES",
+  "CONF_CONTROLLABLE_LOAD_NAME",
+  "CONF_CURTAILMENT_SENSOR",
+  "CONF_DEFERRABLE_DEADLINE_HOUR",
+  "CONF_DEFERRABLE_DONE_WHEN",
+  "CONF_DEFERRABLE_EARLIEST_HOUR",
+  "CONF_DEFERRABLE_MAX_KWH_PER_DAY",
+  "CONF_DEFERRABLE_MAX_POWER_KW",
+  "CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS",
+  "CONF_DEFERRABLE_SHORTFALL_PRICE",
+  "CONF_DEFERRABLE_TARGET_KWH",
+  "CONF_DEFERRABLE_VALUE_PER_KWH",
+  "CONF_EXPECTED_LOAD_KW",
+  "CONF_FORECAST_HORIZON_HOURS",
+  "CONF_GRID_SENSOR",
+  "CONF_HUMIDITY_SENSOR",
+  "CONF_HYBRID_RECENT_DAYS",
+  "CONF_LOAD_SENSOR",
+  "CONF_POWER_SOURCE_BATTERY_SENSOR",
+  "CONF_POWER_SOURCE_DC_SENSOR",
+  "CONF_POWER_SOURCE_NAME",
+  "CONF_PV_STRING_ENTITY",
+  "CONF_PV_STRING_LABEL",
+  "CONF_PV_STRING_POWER_SOURCE",
+  "CONF_RETRAIN_HOUR_LOCAL",
+  "CONF_SCHEDULE_END_HOUR",
+  "CONF_SCHEDULE_START_HOUR",
+  "CONF_SHEDDABLE_MIN_FRACTION",
+  "CONF_SHEDDABLE_NOMINAL_KW",
+  "CONF_SHEDDABLE_SHED_COST",
+  "CONF_SIGNAL_ROLE",
+  "CONF_SOLAR_SENSOR",
+  "CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW",
+  "CONF_SOLVER_BATTERY_MAX_SOC_PERCENT",
+  "CONF_SOLVER_BATTERY_MIN_SOC_PERCENT",
+  "CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE",
+  "CONF_SOLVER_BATTERY_POWER_SENSOR",
+  "CONF_SOLVER_BATTERY_SOC_SENSOR",
+  "CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED",
+  "CONF_SOLVER_CHARGE_COST",
+  "CONF_SOLVER_DEGRADATION_COST_PER_KWH",
+  "CONF_SOLVER_DISCHARGE_COST",
+  "CONF_SOLVER_EFFICIENCY_PERCENT",
+  "CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY",
+  "CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY",
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR",
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR_2",
+  "CONF_SOLVER_EXPORT_PRICE_SENSOR_3",
+  "CONF_SOLVER_FLAT_FEE_RATE",
+  "CONF_SOLVER_GRID_MAX_EXPORT_KW",
+  "CONF_SOLVER_GRID_MAX_IMPORT_KW",
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR",
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR_2",
+  "CONF_SOLVER_IMPORT_PRICE_SENSOR_3",
+  "CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW",
+  "CONF_SOLVER_LOAD_FORECAST_ENTITIES",
+  "CONF_SOLVER_LOAD_FORECAST_SENSOR",
+  "CONF_SOLVER_MAX_CHARGE_KW",
+  "CONF_SOLVER_MAX_DISCHARGE_KW",
+  "CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY",
+  "CONF_SOLVER_NETWORK_FEE_1_RATE",
+  "CONF_SOLVER_NETWORK_FEE_2_RATE",
+  "CONF_SOLVER_NETWORK_FEE_3_RATE",
+  "CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE",
+  "CONF_SOLVER_P2P_BLOCK_1_RATE_KW",
+  "CONF_SOLVER_P2P_BLOCK_1_START_HOUR",
+  "CONF_SOLVER_P2P_BONUS_PRICE",
+  "CONF_SOLVER_P2P_BONUS_VOLUME_KWH",
+  "CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR",
+  "CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR",
+  "CONF_SOLVER_PRICE_EVENT_SENSOR",
+  "CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR",
+  "CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY",
+  "CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR",
+  "CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR",
+  "CONF_SOLVER_SALVAGE_VALUE",
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR",
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR_2",
+  "CONF_SOLVER_SOLAR_FORECAST_SENSOR_3",
+  "CONF_SOLVER_SOLAR_POWER_SENSOR",
+  "CONF_SOLVER_WEATHER_FORECAST_SENSOR",
+  "CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR",
+  "CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR",
+  "CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR",
+  "CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR",
+  "CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR",
+  "CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR",
+  "CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR",
+  "CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR",
+  "CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR",
+  "CONF_TEMPERATURE_FORECAST_SENSOR",
+  "CONF_TEMPERATURE_SENSOR",
+  "CONF_THERMAL_COMFORT_FLOOR_C",
+  "CONF_THERMAL_COMFORT_FLOOR_COST",
+  "CONF_THERMAL_DEADLINE_HOUR",
+  "CONF_THERMAL_EARLIEST_HOUR",
+  "CONF_THERMAL_HEATING_RATE_C_PER_KWH",
+  "CONF_THERMAL_IDLE_DECAY_C_PER_HOUR",
+  "CONF_THERMAL_MAX_POWER_KW",
+  "CONF_THERMAL_TARGET_TEMPERATURE_C",
+  "CONF_TRAINING_SOURCE",
+  "CONF_TRAIN_DAYS"
+ ],
+ "never_read": [],
+ "writes": [
+  {
+   "module": "forecast_snapshot_store.py",
+   "line": 140,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "forecaster_dashboard.py",
+   "line": 225,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "forecaster_dashboard.py",
+   "line": 229,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "load_run_state.py",
+   "line": 1416,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "number.py",
+   "line": 252,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "quality_history_store.py",
+   "line": 205,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "select.py",
+   "line": 101,
+   "call": "async_save",
+   "kind": "storage_write"
+  },
+  {
+   "module": "services.py",
+   "line": 697,
+   "call": "async_update_subentry",
+   "kind": "subentry_write"
+  },
+  {
+   "module": "services.py",
+   "line": 710,
+   "call": "async_add_subentry",
+   "kind": "subentry_write"
+  },
+  {
+   "module": "setup_health.py",
+   "line": 196,
+   "call": "async_create_issue",
+   "kind": "repair_issue"
+  },
+  {
+   "module": "setup_health.py",
+   "line": 206,
+   "call": "async_delete_issue",
+   "kind": "repair_issue"
+  },
+  {
+   "module": "solver_publish.py",
+   "line": 125,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_publish.py",
+   "line": 323,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_publish.py",
+   "line": 353,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_publish.py",
+   "line": 2220,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_reports/quality.py",
+   "line": 2295,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_reports/quality.py",
+   "line": 2563,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_reports/quality.py",
+   "line": 2615,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_reports/quality.py",
+   "line": 2756,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_runtime.py",
+   "line": 671,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 1883,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 1895,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 1958,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 2122,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 2193,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 5592,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 5606,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 7126,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 7133,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 7184,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 7193,
+   "call": "ha_post_state",
+   "kind": "state_publish"
+  },
+  {
+   "module": "switch.py",
+   "line": 127,
+   "call": "async_save",
+   "kind": "storage_write"
+  }
+ ],
+ "service_calls": [
+  {
+   "module": "__init__.py",
+   "line": 484,
+   "domain": "persistent_notification",
+   "service": "dismiss",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "__init__.py",
+   "line": 534,
+   "domain": "persistent_notification",
+   "service": "create",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "config_flow.py",
+   "line": 82,
+   "domain": "persistent_notification",
+   "service": "create",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "coordinator.py",
+   "line": 1585,
+   "domain": "weather",
+   "service": "get_forecasts",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "flows/hub_options.py",
+   "line": 1648,
+   "domain": "persistent_notification",
+   "service": "dismiss",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "power_input_check.py",
+   "line": 188,
+   "domain": "persistent_notification",
+   "service": "dismiss",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "pricing_autodetect.py",
+   "line": 258,
+   "domain": "persistent_notification",
+   "service": "dismiss",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "pricing_autodetect.py",
+   "line": 278,
+   "domain": "persistent_notification",
+   "service": "create",
+   "control_capable": false,
+   "via": null
+  },
+  {
+   "module": "solver_dispatch/guard.py",
+   "line": 153,
+   "domain": "switch",
+   "service": "<dynamic>",
+   "control_capable": true,
+   "via": null
+  },
+  {
+   "module": "solver_dispatch/guard.py",
+   "line": 158,
+   "domain": "water_heater",
+   "service": "set_operation_mode",
+   "control_capable": true,
+   "via": null
+  },
+  {
+   "module": "solver_dispatch/guard.py",
+   "line": 179,
+   "domain": "climate",
+   "service": "set_hvac_mode",
+   "control_capable": true,
+   "via": null
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 1808,
+   "domain": "weather",
+   "service": "get_forecasts",
+   "control_capable": false,
+   "via": "ha_call_service_with_response"
+  },
+  {
+   "module": "solver_writer.py",
+   "line": 7755,
+   "domain": "calendar",
+   "service": "get_events",
+   "control_capable": false,
+   "via": "ha_call_service_with_response"
+  }
+ ],
+ "standalone_fallback_modules": [
+  "power_input_check.py",
+  "sensor_discovery.py",
+  "setup_health.py",
+  "solver_dispatch/guard.py",
+  "solver_inputs/battery_participants.py",
+  "solver_inputs/battery_soc.py",
+  "solver_inputs/controllable_load_history.py",
+  "solver_inputs/controllable_loads.py",
+  "solver_inputs/extra_batteries.py",
+  "solver_inputs/load.py",
+  "solver_inputs/prices.py",
+  "solver_inputs/solar.py",
+  "solver_plan.py",
+  "solver_publish.py",
+  "solver_reports/backtest.py",
+  "solver_reports/counterfactual.py",
+  "solver_reports/flex.py",
+  "solver_reports/quality.py",
+  "solver_shared.py",
+  "solver_writer.py"
+ ]
+}
