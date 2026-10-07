@@ -40,13 +40,10 @@ issue #238) -- this linear cap only bounds the degeneracy budget.
   - test_ordinary_scenario_without_arbitrage_stays_single_direction: the
     common case (export_price <= import_price throughout) -- no residual
     incentive exists, so grid_import and grid_export stay exclusive.
-  - test_profitable_configuration_still_shows_partial_grid_direction_violation:
-    documents the residual gap directly, using a minimal synthetic
-    reproduction of the real fixtures' own shape (solar-heavy midday,
-    zero load, near-full battery, a real spread between import and
-    export price) -- if this ever starts passing cleanly, the cap may
-    have become fully sufficient (or the scenario needs revisiting) and
-    this test's own docstring should be updated, not silently deleted.
+  - test_profitable_configuration_is_now_grid_exclusive: the residual gap
+    this file used to document (solar-heavy midday, zero load, near-full
+    battery, a real spread between import and export price), now closed by
+    nimbus #238's direction binaries.
 """
 
 from __future__ import annotations
@@ -162,16 +159,14 @@ class TestGridDirectionCap(unittest.TestCase):
                 "both nonzero with no arbitrage available",
             )
 
-    def test_profitable_configuration_still_shows_partial_grid_direction_violation(
-        self,
-    ):
-        """Documents the residual gap: cheap import + high export + a
-        near-full battery + real solar makes it genuinely worth both
-        continuing to import (to keep charging) and discharging existing,
-        already-accumulated SoC to export -- in the SAME period. The
-        combined cap bounds it (never more than
-        max(import_limit_kw, export_limit_kw) together) but does not
-        zero it out. Full elimination needs #238's MILP complementarity.
+    def test_profitable_configuration_is_now_grid_exclusive(self):
+        """Was `..._still_shows_partial_grid_direction_violation`: cheap
+        import + high export + a near-full battery + real solar made it
+        worth importing and exporting in the SAME period, and the combined
+        cap only bounded it. nimbus #238 closes it: `build_plan()` re-solves
+        with a direction binary where the first plan was two-way, so the
+        published plan never imports and exports in one period. The cap
+        still holds too.
         """
         n = 6
         hours = np.array([1.0] * n)
@@ -188,20 +183,11 @@ class TestGridDirectionCap(unittest.TestCase):
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.grid_import_kw + plan.grid_export_kw
-        # The cap always holds...
         self.assertTrue((combined <= _COMBINED_CAP + 1e-6).all())
-        # ...but at least one period still shows real simultaneous
-        # nonzero import+export -- the residual gap, not full exclusivity.
         both_nonzero = [
             (gi, ge)
             for gi, ge in zip(plan.grid_import_kw, plan.grid_export_kw)
-            if min(gi, ge) > 1e-3
+            if min(gi, ge) > 1e-6
         ]
-        self.assertTrue(
-            both_nonzero,
-            "expected this profitable configuration to still show a "
-            "simultaneous grid import+export under the linear-only fix -- "
-            "if this now passes cleanly, #266's linear cap may have "
-            "become fully sufficient (or the scenario needs revisiting) "
-            "and this test's own docstring should be updated",
-        )
+        self.assertEqual(both_nonzero, [])
+        self.assertTrue(plan.direction_exclusivity_enforced)

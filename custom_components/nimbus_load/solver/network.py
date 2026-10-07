@@ -893,6 +893,10 @@ class Plan:
     grid_import_excess_kw: NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0)
     )
+    # nimbus issue #238 / #1535: True when the first solve had opposing grid
+    # or battery flows in one period and this plan is the re-solve with a
+    # direction binary per period per participant (see `build_plan()`).
+    direction_exclusivity_enforced: bool = False
     # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit
     # leaking into terminal_value_credit that #781's own soc_penalty fix
     # didn't touch). Root cause: grid_import_excess[t]'s own LP cost is
@@ -1346,6 +1350,18 @@ def _add_intraplan_smoothness_penalty(
         )
 
 
+def _add_direction_binary(p: LPProblem, name: str, forward: str, reverse: str) -> None:
+    """At most one of `forward` / `reverse` is non-zero (nimbus issue #238):
+    forward <= ub_f * y, reverse <= ub_r * (1 - y), y binary. Adds nothing
+    when either variable is already fixed at 0 by its own upper bound."""
+    ub_f, ub_r = p.upper_bound(forward), p.upper_bound(reverse)
+    if ub_f <= 0.0 or ub_r <= 0.0:
+        return
+    y = p.add_variable(name, binary=True)
+    p.add_ub_constraint({forward: 1.0, y: -ub_f}, 0.0)
+    p.add_ub_constraint({reverse: 1.0, y: ub_r}, ub_r)
+
+
 def _add_rate_limit(
     p: LPProblem,
     var_names: list[str],
@@ -1694,6 +1710,7 @@ def _build_plan_once(
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     solve_options: SolveOptions | None = None,
     thermal_hard_deadline: bool = True,
+    direction_binaries: frozenset[str] = frozenset(),
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -3771,6 +3788,23 @@ def _build_plan_once(
                 {charge_vars[b.name][t]: 1.0, discharge_vars[b.name][t]: 1.0},
                 max(b.max_charge_kw, b.max_discharge_kw),
             )
+            # (3b) True direction exclusivity (nimbus issue #238, #1535):
+            # the linear cap above bounds the combined magnitude but a
+            # profitable spread (export price above import price) still
+            # buys charge and discharge in the same period -- #1535's
+            # reduced case had 23 of 24 such periods. One binary per
+            # battery per period: charge <= cub * y, discharge <= dub *
+            # (1 - y). Per participant, never pooled: one battery charging
+            # while another discharges is real. Each side's own per-period
+            # upper bound is the big-M, and a period where either side is
+            # already 0 (gated, spike-pinned, P2P charge gate) needs none.
+            if f"battery_dir_{b.name}_{t}" in direction_binaries:
+                _add_direction_binary(
+                    p,
+                    f"battery_dir_{b.name}_{t}",
+                    charge_vars[b.name][t],
+                    discharge_vars[b.name][t],
+                )
         # (4) Two-tier export bonus (see elements.py's own GridConfig
         # docstring): export_bonus[t] can never exceed that SAME period's
         # real total export[t] -- can't claim bonus volume for export
@@ -3816,6 +3850,16 @@ def _build_plan_once(
             {grid_import[t]: 1.0, grid_export[t]: 1.0},
             max(float(import_limit_arr[t]), float(export_limit_arr[t])),
         )
+        # (5b) True grid direction exclusivity (nimbus issue #238, #1535):
+        # one connection carries current one way, so ordinary import and
+        # export never share a period. #390's penalised grid_import_excess
+        # stays OUTSIDE this on purpose: it is the last-resort valve that
+        # keeps a plan when the battery can deliver a pinned P2P block but
+        # not the house as well (#1610), reported as a breach rather than
+        # as fictitious net delivery. A P2P-pinned period already has
+        # import ub 0 and needs no binary.
+        if f"grid_dir_{t}" in direction_binaries:
+            _add_direction_binary(p, f"grid_dir_{t}", grid_import[t], grid_export[t])
 
     # ---- SoC-dependent power curves (see BatteryConfig's own
     # charge_power_curve/discharge_power_curve docstring for the full
@@ -4603,7 +4647,7 @@ def _build_plan_once(
     )
 
 
-def build_plan(
+def _build_plan_thermal_fallback(
     *,
     periods: PeriodGrid,
     grid: GridConfig,
@@ -4628,6 +4672,7 @@ def build_plan(
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     solve_options: SolveOptions | None = None,
+    direction_binaries: frozenset[str] = frozenset(),
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs -- the real
     public entry point every caller should use (see `_build_plan_once()`'s
@@ -4680,6 +4725,7 @@ def build_plan(
         battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
         solve_options=solve_options,
         thermal_hard_deadline=True,
+        direction_binaries=direction_binaries,
     )
     if plan.status == "optimal" or not thermal_loads:
         return plan
@@ -4718,6 +4764,7 @@ def build_plan(
         battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
         solve_options=solve_options,
         thermal_hard_deadline=False,
+        direction_binaries=direction_binaries,
     )
     if fallback_plan.status != "optimal":
         # Genuinely infeasible for reasons unrelated to the thermal
@@ -4726,3 +4773,150 @@ def build_plan(
         # itself fixed anything.
         return fallback_plan
     return replace(fallback_plan, thermal_guarantee_relaxed=relaxed_names)
+
+
+def build_plan(
+    *,
+    periods: PeriodGrid,
+    grid: GridConfig,
+    batteries: list[BatteryConfig],
+    solar: SolarConfig,
+    loads: list[LoadConfig] | None = None,
+    sheddable_loads: list[SheddableLoadConfig] | None = None,
+    adequacy_loads: list[AdequacyLoadConfig] | None = None,
+    thermal_loads: list[ThermalLoadConfig] | None = None,
+    shared_circuits: list[SharedCircuitConfig] | None = None,
+    previous_plan: Plan | None = None,
+    proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
+    max_rate_kw: float | None = None,
+    smoothness_weight: float = 0.0,
+    risk_aversion: float = 0.0,
+    import_price_risk_aversion: float = 0.0,
+    export_price_risk_aversion: float = 0.0,
+    soft_soc_penalty_per_kwh: float | None = None,
+    compute_signals: bool = False,
+    compute_offer_curve: bool = False,
+    adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
+    adequacy_semi_continuous: bool = True,
+    battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+    solve_options: SolveOptions | None = None,
+) -> Plan:
+    """Build and solve the plan -- the public entry point every caller uses.
+
+    nimbus issue #238 / #1535: a single grid connection carries current one
+    way, and a battery has one current direction. The LP's linear caps bound
+    opposing flows but do not forbid them, so a profitable spread (export
+    price above import price) could still plan import with export, or charge
+    with discharge, in the same period.
+
+    This solves exactly as before. Only when that plan has an opposing pair
+    -- ordinary grid import with export (#390's penalised emergency import is
+    not counted), or one battery charging and discharging -- does it
+    re-solve with a direction binary on exactly those periods and
+    participants; if that still leaves a period two-way, or most of the plan
+    was two-way, once more with a binary on every period. It returns that
+    plan with `direction_exclusivity_enforced` set. A plan that
+    is already one-way is returned unchanged, byte for byte: the binaries
+    change which of several equally good answers a MIP solver settles on,
+    so they are not applied where they are not needed. See
+    `_build_plan_thermal_fallback()` for the thermal-deadline retry this
+    wraps.
+    """
+    kwargs = {
+        "periods": periods,
+        "grid": grid,
+        "batteries": batteries,
+        "solar": solar,
+        "loads": loads,
+        "sheddable_loads": sheddable_loads,
+        "adequacy_loads": adequacy_loads,
+        "thermal_loads": thermal_loads,
+        "shared_circuits": shared_circuits,
+        "previous_plan": previous_plan,
+        "proximal_weight": proximal_weight,
+        "max_rate_kw": max_rate_kw,
+        "smoothness_weight": smoothness_weight,
+        "risk_aversion": risk_aversion,
+        "import_price_risk_aversion": import_price_risk_aversion,
+        "export_price_risk_aversion": export_price_risk_aversion,
+        "soft_soc_penalty_per_kwh": soft_soc_penalty_per_kwh,
+        "compute_signals": compute_signals,
+        "compute_offer_curve": compute_offer_curve,
+        "adequacy_earliness_budget_kw": adequacy_earliness_budget_kw,
+        "adequacy_semi_continuous": adequacy_semi_continuous,
+        "battery_charge_earliness_budget_kw": battery_charge_earliness_budget_kw,
+        "solve_options": solve_options,
+    }
+    plan = _build_plan_thermal_fallback(**kwargs)
+    if plan.status != "optimal":
+        return plan
+    opposing = _opposing_flow_binaries(plan)
+    if not opposing:
+        return plan
+    n_periods = len(plan.grid_export_kw)
+    # Targeted first: binaries only where the plan was two-way. If that
+    # leaves any period two-way (fixing one period can move the spread into
+    # its neighbour), or most of the plan was two-way to begin with, one
+    # solve with a binary on every period that can carry both directions,
+    # which always comes back one-way. Measured on a 206-period plan:
+    # export above import in ~30% of periods (home + EV) is clean after one
+    # targeted round in 0.8 s; export above import throughout needs the
+    # full round (8 s one battery, 26 s home + EV), which targeted rounds
+    # alone did not finish.
+    rounds: list[frozenset[str] | None] = (
+        [None] if len(opposing) > n_periods // 3 else [opposing, None]
+    )
+    for binaries in rounds:
+        _LOGGER.info(
+            "Nimbus network.py: %d direction pair(s) two-way -- re-solving "
+            "with direction exclusivity on %s (nimbus issue #238)",
+            len(opposing),
+            "those periods" if binaries is not None else "every period",
+        )
+        strict = _build_plan_thermal_fallback(
+            **kwargs,
+            direction_binaries=binaries if binaries is not None else _ALL_DIRECTIONS,
+        )
+        if strict.status != "optimal":
+            _LOGGER.warning(
+                "Nimbus network.py: direction-exclusive re-solve came back %s; "
+                "keeping the previous plan (nimbus issue #238)",
+                strict.status,
+            )
+            return plan
+        plan = replace(strict, direction_exclusivity_enforced=True)
+        opposing = _opposing_flow_binaries(plan)
+        if not opposing:
+            break
+    return plan
+
+
+class _AllDirections(frozenset):
+    """Contains every direction-binary name (nimbus issue #238)."""
+
+    def __contains__(self, item: object) -> bool:
+        return True
+
+
+_ALL_DIRECTIONS: frozenset[str] = _AllDirections()
+_OPPOSING_TOLERANCE_KW = 1e-6
+
+
+def _opposing_flow_binaries(plan: Plan) -> frozenset[str]:
+    """The direction-binary names for every period where ordinary grid import
+    AND export, or one battery's charge AND discharge, are both above a
+    solver tolerance. #390's penalised emergency import is not ordinary
+    import and is not counted."""
+    names: set[str] = set()
+    excess = plan.grid_import_excess_kw
+    ordinary = plan.grid_import_kw - excess if excess.size else plan.grid_import_kw
+    for t in np.flatnonzero(
+        np.minimum(ordinary, plan.grid_export_kw) > _OPPOSING_TOLERANCE_KW
+    ):
+        names.add(f"grid_dir_{t}")
+    for b in plan.batteries:
+        for t in np.flatnonzero(
+            np.minimum(b.charge_kw, b.discharge_kw) > _OPPOSING_TOLERANCE_KW
+        ):
+            names.add(f"battery_dir_{b.name}_{t}")
+    return frozenset(names)
