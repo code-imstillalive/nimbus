@@ -1,0 +1,183 @@
+{
+  "identity": {
+    "fixture": "F09",
+    "revision": 1,
+    "requirements": [
+      "DC-R03",
+      "DC-R04",
+      "DC-R13",
+      "DC-R14"
+    ],
+    "owner": "DC-002",
+    "purpose": "Power units converted case-sensitively, energy refused as power, held values measured, missing distinct from zero, counter resets and interval edges counted once, and no rating inferred from a historical peak."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "units": "kW for power, kWh for energy",
+    "recorder": "HA writes a state only when it changes; a held value is a measurement",
+    "intervals": "half-open [start, end); a reading exactly at end belongs to that interval"
+  },
+  "cases": {
+    "units": [
+      [
+        2500,
+        "W",
+        2.5
+      ],
+      [
+        2.5,
+        "kW",
+        2.5
+      ],
+      [
+        0.0025,
+        "MW",
+        2.5
+      ],
+      [
+        2500000,
+        "mW",
+        2.5
+      ]
+    ],
+    "refused_units": [
+      "kWh",
+      "Wh",
+      "kw",
+      "KW",
+      "w"
+    ],
+    "held_counter": {
+      "rows": [
+        [
+          "2026-10-05T09:58:00+10:00",
+          "100.0"
+        ]
+      ],
+      "window": [
+        "2026-10-05T10:00:00+10:00",
+        "2026-10-05T11:00:00+10:00"
+      ]
+    },
+    "edge_reading": {
+      "rows": [
+        [
+          "2026-10-05T09:00:00+10:00",
+          "100.0"
+        ],
+        [
+          "2026-10-05T10:00:00+10:00",
+          "103.0"
+        ],
+        [
+          "2026-10-05T10:30:00+10:00",
+          "104.5"
+        ]
+      ]
+    },
+    "reset": {
+      "rows": [
+        [
+          "2026-10-05T09:59:00+10:00",
+          "50.0"
+        ],
+        [
+          "2026-10-05T10:20:00+10:00",
+          "52.0"
+        ],
+        [
+          "2026-10-05T10:21:00+10:00",
+          "0.5"
+        ],
+        [
+          "2026-10-05T10:50:00+10:00",
+          "1.5"
+        ]
+      ],
+      "window": [
+        "2026-10-05T10:00:00+10:00",
+        "2026-10-05T11:00:00+10:00"
+      ]
+    },
+    "gap_in_window": {
+      "rows": [
+        [
+          "2026-10-05T09:59:00+10:00",
+          "50.0"
+        ],
+        [
+          "2026-10-05T10:20:00+10:00",
+          "unavailable"
+        ],
+        [
+          "2026-10-05T10:40:00+10:00",
+          "51.0"
+        ]
+      ],
+      "window": [
+        "2026-10-05T10:00:00+10:00",
+        "2026-10-05T11:00:00+10:00"
+      ]
+    },
+    "states": [
+      [
+        "0",
+        "0.0"
+      ],
+      [
+        "unavailable",
+        null
+      ],
+      [
+        "unknown",
+        null
+      ],
+      [
+        "nan",
+        null
+      ],
+      [
+        "inf",
+        null
+      ]
+    ],
+    "rating": {
+      "declared": null,
+      "history_kw": [
+        3.1,
+        7.4,
+        6.9
+      ]
+    }
+  },
+  "expected": {
+    "held_counter_kwh": 0.0,
+    "edge_reading_kwh": {
+      "09-10": 3.0,
+      "10-11": 1.5
+    },
+    "reset_kwh": 3.5,
+    "gap_in_window_kwh": null,
+    "rating_kw": null
+  },
+  "comparison": {
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0,
+    "exact": [
+      "refused units",
+      "missing is null, zero is 0.0"
+    ]
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-002, DC-005, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}

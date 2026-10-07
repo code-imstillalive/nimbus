@@ -71,3 +71,13 @@ def test_known_defects_point_at_real_fixtures_and_claim_no_fix() -> None:
         assert set(d["requirements"]) <= ROADMAP_P0, d["id"]
         assert d["corrected_epr"] == "unresolved"
         assert d["root_cause"].startswith("unresolved")
+
+
+def test_a_manifest_names_every_requirement_the_registry_gives_it() -> None:
+    for path in sorted((HERE / "fixtures").glob("F*/manifest.json")):
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        fid = manifest["identity"]["fixture"]
+        assigned = {r["id"] for r in REG["requirements"] if fid in r["fixtures"]}
+        named = set(manifest["identity"]["requirements"])
+        assert assigned <= named, (fid, sorted(assigned - named))
+        assert named <= {r["id"] for r in REG["requirements"]}, fid
