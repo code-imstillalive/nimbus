@@ -174,6 +174,8 @@ def test_current_humidity_no_sensor_configured_returns_fallback():
 def test_current_humidity_sensor_state_missing_returns_fallback():
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_HUMIDITY_SENSOR: "sensor.missing"})
+    # #1540: the feature accessor compares against the own load sensor.
+    coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = None
     assert coord._current_humidity() == DEFAULT_FALLBACK_HUMIDITY_PCT
@@ -182,6 +184,8 @@ def test_current_humidity_sensor_state_missing_returns_fallback():
 def test_current_humidity_unparseable_state_returns_fallback_not_raises():
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_HUMIDITY_SENSOR: "sensor.humidity"})
+    # #1540: the feature accessor compares against the own load sensor.
+    coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = MagicMock(state="unavailable")
     assert coord._current_humidity() == DEFAULT_FALLBACK_HUMIDITY_PCT
@@ -190,6 +194,8 @@ def test_current_humidity_unparseable_state_returns_fallback_not_raises():
 def test_current_humidity_real_reading_is_parsed_and_returned():
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_HUMIDITY_SENSOR: "sensor.humidity"})
+    # #1540: the feature accessor compares against the own load sensor.
+    coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = MagicMock(state="63.5")
     assert coord._current_humidity() == 63.5

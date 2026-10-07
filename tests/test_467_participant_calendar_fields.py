@@ -296,9 +296,11 @@ class TestTheHubWizardDidNotGrow(unittest.TestCase):
             + len(hub_options._FORECASTER_SCHEMA_KEYS)
             + len(hub_options._SWITCHBOARD_SCHEMA_KEYS)
         )
+        # 47 -> 48: nimbus #1537 item 3 added one optional Sources field (the
+        # second P2P matched-rate source), not this feature.
         self.assertEqual(
             total,
-            47,
+            48,
             "the hub wizard grew; #448 is about exactly this number and it was "
             "47 before this change -- if it moved for another reason, update "
             "this and say why",

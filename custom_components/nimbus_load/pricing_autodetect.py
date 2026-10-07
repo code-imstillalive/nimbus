@@ -24,7 +24,15 @@ What this does
   is proposed, rather than guessing which site the Solver should plan.
 
 The profile is the one the reference household and the LV v2 maintainer
-agreed on #1550 (6 Oct 2026): five fields, each a distinct role.
+agreed on #1550 (6 Oct 2026): five fields, each a distinct role. That is the
+whole Basic contract.
+
+#1537 adds one TRANSITIONAL binding outside it (`LV_V2_OPTIONAL_PROFILE`): the
+second P2P matched-rate source, pre-filled with LV v2's Sell P2P Matched Cost
+(`haeo_feed.py` key `sell_matched_cost`). It is a legacy binding for one Grid
+pricing role, kept until the provider profile (#1574, PR #1585) carries both
+projections of the matched rate itself. It is never counted as missing, never
+notified about, and never needed to finish setup.
 """
 
 from __future__ import annotations
@@ -44,6 +52,7 @@ from .const import (
     CONF_SOLVER_NETWORK_FEE_3_RATE,
     CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
 )
@@ -60,6 +69,13 @@ LV_V2_PROFILE: dict[str, str] = {
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: "flex_up_forecast",
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "current_sell_rate",
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: "p2p_settlement_history",
+}
+
+# nimbus #1537: transitional, optional bindings. Pre-filled where empty like
+# the profile above, but outside the Basic contract: not counted in the
+# startup "fields are empty" notification, so an install never has to set one.
+LV_V2_OPTIONAL_PROFILE: dict[str, str] = {
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "sell_matched_cost",
 }
 
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
@@ -82,7 +98,8 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     LocalVolts v2 actually provides, or {} if there is no single loaded
     LocalVolts v2 entry. A sensor an older LV v2 release does not have
     (Flex Up Forecast arrived in 2.8.0, Sell Flex Up in 2.9.0) is simply
-    absent from the result; a disabled entity is skipped."""
+    absent from the result; a disabled entity is skipped. Includes the
+    transitional LV_V2_OPTIONAL_PROFILE bindings, for pre-fill only."""
     entries = [
         e
         for e in hass.config_entries.async_entries(LV_V2_DOMAIN)
@@ -101,7 +118,7 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     entry_id = entries[0].entry_id
     registry = er.async_get(hass)
     found: dict[str, str] = {}
-    for field, key in LV_V2_PROFILE.items():
+    for field, key in {**LV_V2_PROFILE, **LV_V2_OPTIONAL_PROFILE}.items():
         entity_id = registry.async_get_entity_id(
             "sensor", LV_V2_DOMAIN, f"{entry_id}_{key}"
         )
@@ -124,7 +141,7 @@ def missing_profile_entities(
     reads as empty without a word."""
     return {
         field: value
-        for field in LV_V2_PROFILE
+        for field in (*LV_V2_PROFILE, *LV_V2_OPTIONAL_PROFILE)
         if isinstance(value := options.get(field), str)
         and value
         and hass.states.get(value) is None
@@ -176,7 +193,13 @@ async def async_notify_pricing_setup(
                 else " and choose your own sensors."
             ),
         )
-    empty = [f for f in detected if not options.get(f) and f not in missing]
+    # Only the Basic profile counts: an empty transitional binding
+    # (LV_V2_OPTIONAL_PROFILE) is never reported as something to fill in.
+    empty = [
+        f
+        for f in detected
+        if f in LV_V2_PROFILE and not options.get(f) and f not in missing
+    ]
     if empty:
         await _notify(
             hass,
@@ -187,9 +210,10 @@ async def async_notify_pricing_setup(
             "LocalVolts v2 sensors are pre-filled there for you to check and "
             "save. Nothing has been changed.",
         )
-    if options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR) and not options.get(
-        CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR
-    ):
+    if (
+        options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR)
+        or options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2)
+    ) and not options.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
         _LOGGER.warning(
             "Nimbus Solver: a P2P matched-rate sensor is set but no price "
             "forecast array, so the matched rate is not read and P2P is not "

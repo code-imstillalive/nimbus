@@ -763,6 +763,17 @@ ATTR_TRAINING_POINTS: Final = "training_points"
 # entities are which -- config drives this attribute, nothing downstream
 # should ever hardcode a list of entity names to get the same answer.
 ATTR_MODE: Final = "mode"
+# nimbus issue #1575 (Mark's review of #1593): where a forecast came from,
+# and whether it is usable. A configured rule is not a learned forecast, and
+# its exact band is not measured certainty; an incomplete rule is not missing
+# history. See coordinator.forecast_provenance().
+ATTR_FORECAST_ORIGIN: Final = "forecast_origin"
+ATTR_FORECAST_READINESS: Final = "forecast_readiness"
+FORECAST_ORIGIN_RULE: Final = "configured_rule"
+FORECAST_ORIGIN_LEARNED: Final = "learned"
+FORECAST_READY: Final = "ready"
+FORECAST_INCOMPLETE_RULE: Final = "incomplete_rule"
+FORECAST_NOT_TRAINED: Final = "not_trained"
 # Model validation diagnostics (2026-08-15) -- raw MAE and its scale-
 # independent MASE counterpart, both dicts keyed by candidate name
 # ("knn"/"gbrt"/"naive"), exposed on every ML-path load's own forecast
@@ -1277,6 +1288,25 @@ CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
 # blank forever, same as CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR.
 CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: Final = (
     "solver_p2p_matched_rate_forecast_sensor"
+)
+# nimbus #1537 item 3: an optional SECOND matched-rate source. TRANSITIONAL:
+# a legacy binding for one Grid pricing role (the P2P matched rate), kept
+# until the provider profile (#1574 / PR #1585) carries both of LocalVolts
+# v2's projections of that rate itself; migrate it there, do not build on
+# it. Never required, never part of the Basic setup, and it never creates a
+# commitment or changes P2P volume -- the blocks and settlement history are
+# unchanged by it.
+#
+# Either field may hold either row shape (the raw triple above, or
+# `{time, value}` rows with a per-kWh unit and a known interval), detected
+# from the rows, never the entity name. Conflict and expiry rules (Mark
+# Purcell's review of PR #1592): per interval, of the sources that ANSWER it
+# (an explicit no-match or a rate, $0 included), the newest snapshot decides;
+# a source older than solver_writer.P2P_RATE_SOURCE_MAX_AGE answers nothing.
+# See solver_writer._resolve_p2p_observations. Blank (the default): the
+# single-source behaviour, unchanged.
+CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: Final = (
+    "solver_p2p_matched_rate_forecast_sensor_2"
 )
 # Real forward temperature/humidity mirror for the dashboard's own
 # Forecaster chart (2026-08-25) -- points at a weather.* entity (Nimbus

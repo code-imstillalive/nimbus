@@ -85,8 +85,29 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._adoptSolverSensors();
     this._maybeFetchHistory();
     this._render();
+  }
+
+  // nimbus #1574 stage 1: a field left blank in the card's YAML follows the
+  // Solver's own sensor on every render, not only when the card is first
+  // added (getStubConfig). A tester's card was created before his Solver
+  // had a battery power sensor, so it stayed blank forever: no "Actual"
+  // history line, no live battery reading. An explicit YAML value always
+  // wins; only blank fields adopt.
+  _adoptSolverSensors() {
+    const cfg = this._hass && this._hass.states && this._hass.states["sensor.nimbus_solver_config"];
+    const attrs = (cfg && cfg.attributes) || {};
+    const pick = (own, solverKey) => own || attrs[solverKey] || "";
+    const batt = pick(this.config.battery_power_entity, "solver_battery_power_sensor");
+    if (batt !== this._battEntity) {
+      this._battEntity = batt;
+      this._historyFetchedAt = 0;  // a newly adopted sensor needs its history
+      this._actualHistory = [];
+    }
+    this._socEntity = pick(this.config.battery_soc_entity, "solver_battery_soc_sensor");
+    this._solarEntity = pick(this.config.solar_power_entity, "solver_solar_power_sensor");
   }
 
   // Clears the render throttle so the very next hass update (arriving once
@@ -1452,6 +1473,34 @@ class NimbusDispatchCardV4 extends HTMLElement {
     });
   }
 }
-customElements.define('nimbus-dispatch-card-v4', NimbusDispatchCardV4);
+// nimbus #1601: Home Assistant replaces window.customElements with its scoped
+// custom-element-registry polyfill shortly after the page starts. A card that
+// registers before that swap lands in the browser's native registry, which HA
+// no longer reads, so it shows "Custom element doesn't exist" until a refresh
+// happens to change the timing (measured: this card at 61 ms, the swap at
+// ~500 ms). Register now, then check again once the page has settled and
+// register on whichever registry HA uses by then -- as a subclass, because a
+// registry refuses a constructor it has already seen. HA's own card waits on
+// that registry's whenDefined() and rebuilds the moment this lands.
+function nimbusRegisterCard(name, cls) {
+  const ensure = () => {
+    const registry = window.customElements;
+    if (!registry || registry.get(name)) return;
+    try {
+      registry.define(name, class extends cls {});
+    } catch (_e) {
+      // registered meanwhile by another copy of this card: nothing to do
+    }
+  };
+  try {
+    customElements.define(name, cls);
+  } catch (_e) {
+    // already registered (an older copy of this card loaded first)
+  }
+  for (const ms of [0, 100, 500, 1500, 5000, 15000]) setTimeout(ensure, ms);
+  window.addEventListener("load", ensure, { once: true });
+}
+
+nimbusRegisterCard('nimbus-dispatch-card-v4', NimbusDispatchCardV4);
 window.customCards = window.customCards || [];
 window.customCards.push({ type: 'nimbus-dispatch-card-v4', name: 'Nimbus Dispatch Card v4', description: 'Unified Nimbus mode control, live decision gauge, dispatch timeline, and tuning stats' });

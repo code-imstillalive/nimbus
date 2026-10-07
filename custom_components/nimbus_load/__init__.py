@@ -958,14 +958,23 @@ async def _async_setup_entry_impl(
     from homeassistant.helpers.event import async_track_time_interval
 
     from .power_input_check import async_notify_energy_unit_inputs
+    from .setup_builder import async_refresh_setup_fills
     from .setup_health import REFRESH_INTERVAL, async_refresh_health
 
     async def _energy_unit_check(_event: object = None) -> None:
+        # nimbus #1574 stage 1: offer, as one-click Repairs, to fill the
+        # Solver's empty battery/solar power and whole-house cross-check from
+        # sensors the user already confirmed elsewhere. Writes nothing until
+        # the household submits (Mark's review of #1587). No Power Signals are
+        # created. Same "once HA has started" timing as the unit check below:
+        # units must be known.
+        await async_refresh_setup_fills(hass, entry)
         await async_notify_energy_unit_inputs(hass, entry)
         # nimbus #1574 stage 2: setup gaps as Repairs that clear themselves.
         await async_refresh_health(hass, entry)
 
     async def _health_tick(_now: object = None) -> None:
+        await async_refresh_setup_fills(hass, entry)
         await async_refresh_health(hass, entry)
 
     entry.async_on_unload(
