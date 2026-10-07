@@ -1,0 +1,46 @@
+{
+  "identity": {
+    "fixture": "F08",
+    "revision": 1,
+    "requirements": [
+      "DC-R10",
+      "DC-R08"
+    ],
+    "owner": "DC-003, DC-006",
+    "purpose": "Reproduce the #1465 5 October reconciliation failure as observed evidence; no invented ground truth."
+  },
+  "origin": {
+    "kind": "captured_aggregate",
+    "window": {
+      "start": "2026-10-05T00:00:00+10:00",
+      "end": "2026-10-06T00:00:00+10:00"
+    },
+    "timezone": "Australia/Brisbane",
+    "report_nimbus_version": "0.94.438",
+    "report_schema": 2,
+    "source": "https://github.com/code-imstillalive/nimbus/issues/1465#issuecomment-6016381858",
+    "note": "Public aggregates only, as published on the issue by the installation owner. No raw samples, no historical configuration."
+  },
+  "data_semantics": {
+    "resolution": "hourly means of five-minute statistics; daily counter deltas",
+    "units": "kW and kWh",
+    "pack_vs_charger": "EV pack power and DC charger energy are different measurement boundaries and are not compared as equal"
+  },
+  "expected": {
+    "reproduces": "reconstructed site exchange disagrees with the meter; scoring must be marked unreliable or reconcile",
+    "corrected_epr": "unresolved",
+    "root_cause": "unresolved",
+    "known_defect": "KD-1465-2026-10-05"
+  },
+  "comparison": {
+    "rounded_fields": "within half the last displayed decimal (rounding only, not physical agreement)"
+  },
+  "execution_status": {
+    "reference_oracle": "evidence_recorded",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-003, DC-006)"
+  },
+  "privacy": {
+    "publication": "public aggregates already on the issue; richer capture deferred pending the owner's approval"
+  }
+}

@@ -1,0 +1,389 @@
+{
+  "_doc": "Device-contract acceptance registry (Spec DC-000, docs/specs/device-contract/). Statuses are evidence, not intentions: nothing is 'passed' because its code is absent. Edited only by a reviewed PR.",
+  "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+  "requirements": [
+    {
+      "id": "DC-R01",
+      "priority": "P0",
+      "requirement": "Valid minimum Grid + aggregate Load; Solar/Battery optional",
+      "owning_specs": [
+        "DC-001",
+        "DC-007"
+      ],
+      "fixtures": [
+        "F01"
+      ]
+    },
+    {
+      "id": "DC-R02",
+      "priority": "P0",
+      "requirement": "Logical identity survives rename, reorder and rediscovery",
+      "owning_specs": [
+        "DC-001",
+        "DC-004",
+        "DC-005"
+      ],
+      "fixtures": [
+        "F02",
+        "F06"
+      ]
+    },
+    {
+      "id": "DC-R03",
+      "priority": "P0",
+      "requirement": "Typed sources with unit, native/canonical sign, boundary and provenance",
+      "owning_specs": [
+        "DC-002"
+      ],
+      "fixtures": [
+        "F02",
+        "F03",
+        "F04",
+        "F09"
+      ]
+    },
+    {
+      "id": "DC-R04",
+      "priority": "P0",
+      "requirement": "Missing, zero, unavailable and stale remain distinct",
+      "owning_specs": [
+        "DC-002",
+        "DC-006"
+      ],
+      "fixtures": [
+        "F04",
+        "F09"
+      ]
+    },
+    {
+      "id": "DC-R05",
+      "priority": "P0",
+      "requirement": "Tariff is a Grid provider; directions, fees and settlement are distinct",
+      "owning_specs": [
+        "DC-002",
+        "DC-005"
+      ],
+      "fixtures": [
+        "F03",
+        "F04"
+      ]
+    },
+    {
+      "id": "DC-R06",
+      "priority": "P0",
+      "requirement": "Time-aware intervals preserve coverage and quantity semantics",
+      "owning_specs": [
+        "DC-002"
+      ],
+      "fixtures": [
+        "F04"
+      ]
+    },
+    {
+      "id": "DC-R07",
+      "priority": "P0",
+      "requirement": "Measurement inclusion differs from electrical topology and equipment sharing",
+      "owning_specs": [
+        "DC-003"
+      ],
+      "fixtures": [
+        "F05",
+        "F07"
+      ]
+    },
+    {
+      "id": "DC-R08",
+      "priority": "P0",
+      "requirement": "Inclusive totals and residual-plus-children do not double-count",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "fixtures": [
+        "F05",
+        "F07"
+      ]
+    },
+    {
+      "id": "DC-R09",
+      "priority": "P0",
+      "requirement": "Shared limits constrain the declared combined quantity once",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "fixtures": [
+        "F02",
+        "F07"
+      ]
+    },
+    {
+      "id": "DC-R10",
+      "priority": "P0",
+      "requirement": "Measured/reconstructed site exchange and scoring evidence reconcile or visibly fail",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "fixtures": [
+        "F07",
+        "F08"
+      ]
+    },
+    {
+      "id": "DC-R11",
+      "priority": "P0",
+      "requirement": "Basic, Advanced and supported consumers use one revisioned authority",
+      "owning_specs": [
+        "DC-004",
+        "DC-006",
+        "DC-007"
+      ],
+      "fixtures": [
+        "F10",
+        "F11"
+      ]
+    },
+    {
+      "id": "DC-R12",
+      "priority": "P0",
+      "requirement": "Migration preserves intent, history links and existing control authorisation",
+      "owning_specs": [
+        "DC-004"
+      ],
+      "fixtures": [
+        "F10",
+        "F12"
+      ]
+    },
+    {
+      "id": "DC-R13",
+      "priority": "P0",
+      "requirement": "Discovery proposes; ambiguous evidence is never silently activated",
+      "owning_specs": [
+        "DC-005"
+      ],
+      "fixtures": [
+        "F06",
+        "F09"
+      ]
+    },
+    {
+      "id": "DC-R14",
+      "priority": "P0",
+      "requirement": "Readiness is per function; unsupported combinations are explicit",
+      "owning_specs": [
+        "DC-006"
+      ],
+      "fixtures": [
+        "F01",
+        "F04",
+        "F09",
+        "F11"
+      ]
+    },
+    {
+      "id": "DC-R15",
+      "priority": "P0",
+      "requirement": "Setup/migration/discovery send no actuator commands",
+      "owning_specs": [
+        "DC-004",
+        "DC-005",
+        "DC-007"
+      ],
+      "fixtures": [
+        "F12"
+      ]
+    },
+    {
+      "id": "DC-R16",
+      "priority": "P0",
+      "requirement": "Derived/model dependencies are acyclic and not self-referential",
+      "owning_specs": [
+        "DC-001",
+        "DC-002",
+        "DC-006"
+      ],
+      "fixtures": [
+        "F11"
+      ]
+    },
+    {
+      "id": "DC-R17",
+      "priority": "P1",
+      "requirement": "Expand provider and equipment profiles after the adapter contract is proven",
+      "owning_specs": [
+        "DC-005"
+      ],
+      "fixtures": [
+        "F03",
+        "F04"
+      ]
+    },
+    {
+      "id": "DC-R18",
+      "priority": "P1",
+      "requirement": "Refine novice task time and guidance using recorded walkthrough results",
+      "owning_specs": [
+        "DC-007",
+        "DC-008"
+      ],
+      "fixtures": [
+        "F01"
+      ]
+    }
+  ],
+  "fixtures": {
+    "F01": {
+      "case": "Grid + inclusive whole-house Load; no Solar/Battery; variant with unresolved grid power",
+      "owning_specs": [
+        "DC-001",
+        "DC-006",
+        "DC-007"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F02": {
+      "case": "One integration exposes Grid/Solar/Battery; two inverters and string/total variants",
+      "owning_specs": [
+        "DC-001",
+        "DC-002",
+        "DC-003"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F03": {
+      "case": "Power, energy, prices and forecasts from different providers; attribute and read-only action sources",
+      "owning_specs": [
+        "DC-002",
+        "DC-005"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F04": {
+      "case": "5/30-minute and multi-day prices; timestamp formats; negative prices; gaps; direction-only; fees and settlement",
+      "owning_specs": [
+        "DC-002",
+        "DC-005",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F05": {
+      "case": "Whole-house total includes circuit; circuit includes pool; cyclic and conflicting variants",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F06": {
+      "case": "Entity rename, dashboard reorder, repeated discovery, equal candidates and replaced equipment",
+      "owning_specs": [
+        "DC-001",
+        "DC-004",
+        "DC-005"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F07": {
+      "case": "Synthetic BESS + DC EV + AC EV embedded in load; trip/reconnection and shared charger variants",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "verified",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F08": {
+      "case": "Sanitised #1465 5 October report and available measured aggregates",
+      "owning_specs": [
+        "DC-003",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "evidence_recorded",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F09": {
+      "case": "W/kW/MW/mW, wrong dimension, sign ambiguity, held zero, missing/nonfinite samples, resets and rollover",
+      "owning_specs": [
+        "DC-002",
+        "DC-005",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F10": {
+      "case": "Fully configured legacy site, empty fields, conflicting mappings, interrupted commit, revision race and restart",
+      "owning_specs": [
+        "DC-004"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F11": {
+      "case": "Derived/model dependency graph; consumer revisions; external/deterministic forecasts; unsupported multi-grid planner",
+      "owning_specs": [
+        "DC-001",
+        "DC-002",
+        "DC-006"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    },
+    "F12": {
+      "case": "Discovered actuators, disabled control, existing authorised control, normal training and actionable faults",
+      "owning_specs": [
+        "DC-004",
+        "DC-005",
+        "DC-006",
+        "DC-007"
+      ],
+      "status": {
+        "reference_oracle": "not_started",
+        "legacy_characterised": "not_started",
+        "production_obligation": "pending"
+      }
+    }
+  }
+}

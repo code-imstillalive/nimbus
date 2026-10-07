@@ -1,0 +1,41 @@
+{
+  "_doc": "Known-defect ledger (Spec DC-000). Each entry keeps the defective observation and why it is wrong; it never asserts a corrected value or a root cause that has not been established.",
+  "defects": [
+    {
+      "id": "KD-1465-2026-10-05",
+      "issue": 1465,
+      "fixture": "F08",
+      "requirements": [
+        "DC-R08",
+        "DC-R10"
+      ],
+      "observed": {
+        "source": "https://github.com/code-imstillalive/nimbus/issues/1465#issuecomment-6016381858",
+        "nimbus_version": "0.94.438",
+        "report_schema": 2,
+        "day": "2026-10-05",
+        "timezone": "Australia/Brisbane",
+        "epr_pct": 9.89,
+        "epr_reliable": false,
+        "epr_reason": "achieved_soc_unreliable:disagreement",
+        "grid_import_kwh": {
+          "meter_counter_delta": 32.74,
+          "reconstructed": 71.579
+        },
+        "grid_export_kwh": {
+          "meter_counter_delta": 69.53,
+          "reconstructed": 88.642
+        },
+        "hour_10_aest_grid_kw": {
+          "meter_mean": 0.0041,
+          "reconstructed": 10.1479
+        },
+        "resolution": "hourly means of five-minute statistics; counters as recorded deltas"
+      },
+      "why_wrong": "Reconstructed site exchange does not reconcile with the physical grid meter (import +38.839 kWh, export +19.112 kWh).",
+      "intended": "Site exchange reconstructed for scoring reconciles with the declared meter within a declared uncertainty budget, or scoring is visibly marked unreliable for that reason.",
+      "root_cause": "unresolved (hypothesis: AC EV charging already inside house load is added again via vehicle pack power)",
+      "corrected_epr": "unresolved"
+    }
+  ]
+}
