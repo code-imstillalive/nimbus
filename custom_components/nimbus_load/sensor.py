@@ -53,6 +53,8 @@ from . import (
 )
 from .const import (
     ATTR_FORECAST,
+    ATTR_FORECAST_ORIGIN,
+    ATTR_FORECAST_READINESS,
     ATTR_MASE_SCALE_POINTS,
     ATTR_MODE,
     ATTR_MODEL_AGE_DAYS,
@@ -160,6 +162,7 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
@@ -318,6 +321,7 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
@@ -1554,6 +1558,10 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         return {
             ATTR_FORECAST: data.get("forecast", []),
             ATTR_MODE: data.get("mode", "unscheduled"),
+            # nimbus #1575: a configured rule, a learned model, or not ready
+            # yet (and why) -- see coordinator.forecast_provenance().
+            ATTR_FORECAST_ORIGIN: data.get("forecast_origin"),
+            ATTR_FORECAST_READINESS: data.get("forecast_readiness"),
             ATTR_MODEL_TRAINED_AT: data.get("trained_at"),
             # nimbus issue #1556
             ATTR_MODEL_AGE_DAYS: data.get("model_age_days"),
@@ -2900,6 +2908,8 @@ class NimbusHealthReportSensor(SensorEntity):
                 "mode": data.get("mode", "unscheduled"),
                 "training_points": data.get("training_points", 0),
                 "model_trained_at": data.get("trained_at"),
+                "forecast_origin": data.get("forecast_origin"),
+                "forecast_readiness": data.get("forecast_readiness"),
                 "forecast_point_count": len(data.get("forecast", [])),
                 # 2026-08-25, nimbus issue #187 (Mark Purcell, real-
                 # install ask): a positive "am I watching, what's my
@@ -2908,7 +2918,14 @@ class NimbusHealthReportSensor(SensorEntity):
                 "residual_drift_status": data.get("residual_drift_status"),
             }
             subentry_status.append(status)
-            if status["model_trained_at"] is None:
+            # nimbus #1575: a deterministic Load forecasts from its
+            # configured rule with no model, so it is ready, not "never
+            # trained" -- the status sensor would otherwise say "Learning"
+            # about a Load that needs no learning at all.
+            if (
+                status["model_trained_at"] is None
+                and status["forecast_readiness"] != "ready"
+            ):
                 never_trained.append(
                     {"subentry_id": subentry.subentry_id, "title": subentry.title}
                 )

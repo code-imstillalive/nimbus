@@ -58,7 +58,10 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import CONF_TEMPERATURE_FORECAST_SENSOR
+from custom_components.nimbus_load.const import (
+    CONF_LOAD_SENSOR,
+    CONF_TEMPERATURE_FORECAST_SENSOR,
+)
 from custom_components.nimbus_load.coordinator import NimbusCoordinator
 
 WEATHER = "weather.home"
@@ -168,6 +171,8 @@ class TestTheCallersDiagnosticSurvives:
         coord.entry = MagicMock(
             options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.typo"}
         )
+        # #1540: the feature accessor compares against the own load sensor.
+        coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
         coord.hass = MagicMock()
         # Never exists, on any cycle -- a typo, not a startup race.
         coord.hass.states.get.return_value = None

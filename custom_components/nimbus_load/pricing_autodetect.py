@@ -24,7 +24,30 @@ What this does
   is proposed, rather than guessing which site the Solver should plan.
 
 The profile is the one the reference household and the LV v2 maintainer
-agreed on #1550 (6 Oct 2026): five fields, each a distinct role.
+agreed on #1550 (6 Oct 2026): five fields, each a distinct role. That is the
+whole Basic contract.
+
+#1537 adds one TRANSITIONAL binding outside it (`LV_V2_OPTIONAL_PROFILE`): the
+second P2P matched-rate source, pre-filled with LV v2's Sell P2P Matched Cost
+(`haeo_feed.py` key `sell_matched_cost`). It is a legacy binding for one Grid
+pricing role, kept until the provider profile (#1574, PR #1585) carries both
+projections of the matched rate itself. It is never counted as missing, never
+notified about, and never needed to finish setup.
+
+AEMO NEM Data (nimbus #1578)
+----------------------------
+`aemo_nem`'s regional 30-minute forecast is a WHOLESALE price. Nimbus reads
+it in any price field (it is often a feed-in price, and with network fees a
+buy price), but proposes it for one field only: the regional spot forecast,
+which extends a retail feed past its own horizon. Whether a household's own
+tariff passes spot through is not something Nimbus can see, so it never
+pre-fills the import or export price with it. Same rules as above: detected by config entry and the entity's
+built-in unique_id (`sensor.aemo_nem_<region>_current_30min_forecast`, set
+once at creation, so a renamed entity is still found), pre-filled only where
+the field is empty, never overwritten, and only when a price forecast array
+is set (the one path that reads the field). With several regions configured, the
+one matching the home's NEM region (the Companion App geocode) is proposed;
+if that does not single one out, nothing is.
 """
 
 from __future__ import annotations
@@ -35,6 +58,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from . import sensor_discovery
 from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_FLAT_FEE_RATE,
@@ -44,9 +68,12 @@ from .const import (
     CONF_SOLVER_NETWORK_FEE_3_RATE,
     CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
 )
+from .price_intervals import AEMO_NEM_DOMAIN, AEMO_NEM_FORECAST_KEY
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +89,15 @@ LV_V2_PROFILE: dict[str, str] = {
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: "p2p_settlement_history",
 }
 
+# nimbus #1537: transitional, optional bindings. Pre-filled where empty like
+# the profile above, but outside the Basic contract: not counted in the
+# startup "fields are empty" notification, so an install never has to set one.
+LV_V2_OPTIONAL_PROFILE: dict[str, str] = {
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "sell_matched_cost",
+}
+
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
+NOTIFY_AEMO_DETECTED_ID = "nimbus_aemo_nem_detected"
 NOTIFY_P2P_TRAP_ID = "nimbus_p2p_matched_rate_without_price_array"
 NOTIFY_MISSING_ID = "nimbus_pricing_entity_missing"
 NOTIFY_FEES_DOUBLED_ID = "nimbus_fees_on_top_of_flex_up"
@@ -82,7 +117,8 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     LocalVolts v2 actually provides, or {} if there is no single loaded
     LocalVolts v2 entry. A sensor an older LV v2 release does not have
     (Flex Up Forecast arrived in 2.8.0, Sell Flex Up in 2.9.0) is simply
-    absent from the result; a disabled entity is skipped."""
+    absent from the result; a disabled entity is skipped. Includes the
+    transitional LV_V2_OPTIONAL_PROFILE bindings, for pre-fill only."""
     entries = [
         e
         for e in hass.config_entries.async_entries(LV_V2_DOMAIN)
@@ -101,7 +137,7 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     entry_id = entries[0].entry_id
     registry = er.async_get(hass)
     found: dict[str, str] = {}
-    for field, key in LV_V2_PROFILE.items():
+    for field, key in {**LV_V2_PROFILE, **LV_V2_OPTIONAL_PROFILE}.items():
         entity_id = registry.async_get_entity_id(
             "sensor", LV_V2_DOMAIN, f"{entry_id}_{key}"
         )
@@ -114,6 +150,46 @@ def detect_localvolts_v2_profile(hass: HomeAssistant) -> dict[str, str]:
     return found
 
 
+def detect_aemo_nem_forecast(hass: HomeAssistant) -> dict[str, str]:
+    """{CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: entity_id} for the AEMO
+    NEM Data regional 30-minute forecast this install should use, or {}.
+
+    Candidates are the enabled `current_30min_forecast` sensors of every
+    loaded `aemo_nem` entry, found through the entity registry by their
+    built-in unique_id. One candidate is proposed as is. Several (one per
+    configured region) are narrowed to the home's NEM region; anything
+    still not unique proposes nothing rather than a guessed region."""
+    registry = er.async_get(hass)
+    candidates: dict[str, str] = {}  # region-bearing unique_id -> entity_id
+    for entry in hass.config_entries.async_entries(AEMO_NEM_DOMAIN):
+        if getattr(entry.state, "value", entry.state) != "loaded":
+            continue
+        for reg in er.async_entries_for_config_entry(registry, entry.entry_id):
+            uid = str(reg.unique_id or "")
+            if (
+                reg.domain == "sensor"
+                and uid.endswith(f"_{AEMO_NEM_FORECAST_KEY}")
+                and reg.disabled_by is None
+            ):
+                candidates[uid] = reg.entity_id
+    if len(candidates) > 1:
+        region, _ = sensor_discovery.resolve_geocoded_region_and_prefix(
+            hass.states.async_all("sensor")
+        )
+        if region:
+            tag = f"_{region.lower()}_"
+            candidates = {u: e for u, e in candidates.items() if tag in u.lower()}
+    if len(candidates) != 1:
+        if candidates:
+            _LOGGER.debug(
+                "Nimbus: %d AEMO NEM Data regional forecasts and no single "
+                "home region; not proposing one",
+                len(candidates),
+            )
+        return {}
+    return {CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: next(iter(candidates.values()))}
+
+
 def missing_profile_entities(
     hass: HomeAssistant, options: dict[str, Any]
 ) -> dict[str, str]:
@@ -124,7 +200,7 @@ def missing_profile_entities(
     reads as empty without a word."""
     return {
         field: value
-        for field in LV_V2_PROFILE
+        for field in (*LV_V2_PROFILE, *LV_V2_OPTIONAL_PROFILE)
         if isinstance(value := options.get(field), str)
         and value
         and hass.states.get(value) is None
@@ -144,6 +220,13 @@ def with_detected_profile(
     for field, entity_id in detect_localvolts_v2_profile(hass).items():
         if not out.get(field) or field in missing:
             out[field] = entity_id
+    # nimbus #1578: only where empty, and only with a price forecast array
+    # set -- that is the one path that reads this field. Whatever is already
+    # set there (a PD7DAY forecast, another region, anything) stays.
+    if out.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
+        for field, entity_id in detect_aemo_nem_forecast(hass).items():
+            if not out.get(field):
+                out[field] = entity_id
     return out
 
 
@@ -176,7 +259,13 @@ async def async_notify_pricing_setup(
                 else " and choose your own sensors."
             ),
         )
-    empty = [f for f in detected if not options.get(f) and f not in missing]
+    # Only the Basic profile counts: an empty transitional binding
+    # (LV_V2_OPTIONAL_PROFILE) is never reported as something to fill in.
+    empty = [
+        f
+        for f in detected
+        if f in LV_V2_PROFILE and not options.get(f) and f not in missing
+    ]
     if empty:
         await _notify(
             hass,
@@ -187,9 +276,28 @@ async def async_notify_pricing_setup(
             "LocalVolts v2 sensors are pre-filled there for you to check and "
             "save. Nothing has been changed.",
         )
-    if options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR) and not options.get(
-        CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR
-    ):
+    aemo = (
+        detect_aemo_nem_forecast(hass)
+        if options.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR)
+        else {}
+    )
+    if aemo and not options.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR):
+        await _notify(
+            hass,
+            NOTIFY_AEMO_DETECTED_ID,
+            "Nimbus found AEMO NEM Data",
+            "Nimbus's regional spot forecast is empty, so prices past the end "
+            "of your price forecast array are held at its last value. Open Nimbus → Configure → "
+            "Solver settings: "
+            f"`{aemo[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is pre-filled "
+            "there for you to check and save. It is the wholesale price, used "
+            "here to extend your retail prices past their own forecast. Nothing "
+            "has been changed.",
+        )
+    if (
+        options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR)
+        or options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2)
+    ) and not options.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
         _LOGGER.warning(
             "Nimbus Solver: a P2P matched-rate sensor is set but no price "
             "forecast array, so the matched rate is not read and P2P is not "

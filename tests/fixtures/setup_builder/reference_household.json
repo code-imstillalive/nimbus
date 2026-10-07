@@ -1,0 +1,192 @@
+{
+ "_note": "Reference household, nimbus_load diagnostics 2026-10-06 ~21:3x AEST (read-only REST download). Only setting names, subentry types and sensor ids are kept.",
+ "options": {
+  "battery_sensor": "sensor.logger_battery_power",
+  "grid_sensor": "sensor.logger_meter_total_active_power",
+  "solar_sensor": "sensor.combined_total_dc_power",
+  "solver_battery_power_sensor": "sensor.logger_battery_power",
+  "solver_solar_power_sensor": "sensor.combined_total_dc_power",
+  "solver_whole_house_cross_check_sensor": "sensor.cb_total_combined_power_adjusted_kw",
+  "solver_load_forecast_sensor": "sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast",
+  "solver_battery_soc_sensor": "sensor.logger_battery_level_soc"
+ },
+ "subentries": [
+  {
+   "subentry_type": "load",
+   "title": "CB-PW HWS L1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_hws_l1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW HWS L3 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_hws_l3_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW POOL1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_pool1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW POOL 2 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_pool_2_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW COMMS Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_comms_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW LDRY Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_ldry_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW B1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_b1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW L1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_l1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-LT L1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_lt_l1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-LT L2 Power",
+   "data": {
+    "load_sensor": "sensor.cb_lt_l2_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW L2 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_l2_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW AC L1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_ac_l1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW AC L2 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_ac_l2_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW AC B1 Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_ac_b1_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW CTP Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_ctp_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW OVEN Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_oven_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW LOUNGE Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_lounge_power"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "CB-PW HEATER Power",
+   "data": {
+    "load_sensor": "sensor.cb_pw_heater_power"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Logger Battery power",
+   "data": {
+    "load_sensor": "sensor.logger_battery_power"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Combined Total DC Power",
+   "data": {
+    "load_sensor": "sensor.combined_total_dc_power"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Logger Meter total active power",
+   "data": {
+    "load_sensor": "sensor.logger_meter_total_active_power"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "CB Total Combined Power Adjusted (kW)",
+   "data": {
+    "load_sensor": "sensor.cb_total_combined_power_adjusted_kw"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "charger Power Active Import",
+   "data": {
+    "load_sensor": "sensor.garage_charger_power_active_import"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Archerfield Temp",
+   "data": {
+    "load_sensor": "sensor.archerfield_temp",
+    "signal_role": "temperature"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Archerfield Humidity",
+   "data": {
+    "load_sensor": "sensor.archerfield_humidity",
+    "signal_role": "humidity"
+   }
+  }
+ ]
+}

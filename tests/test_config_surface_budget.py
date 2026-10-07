@@ -83,7 +83,14 @@ EXPECTED_KEY_COUNTS = {
     # datetimes for one window) would cost MORE config surface and
     # support fewer window shapes than the step-point sensor #1213 asks
     # for.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 27,
+    # nimbus #1537 item 3: 27 -> 28, one OPTIONAL field,
+    # `solver_p2p_matched_rate_forecast_sensor_2`. #449's question: it names
+    # an ENTITY, so it cannot be a device config entity; where it CAN be
+    # discovered it is -- on LocalVolts v2 it is pre-filled from Sell P2P
+    # Matched Cost by unique_id (pricing_autodetect.LV_V2_PROFILE). Reusing
+    # the first field for both sources would need a multi-entity selector
+    # and change that field's saved shape on every install.
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 28,
 }
 
 # (required, optional) per schema builder. `_switchboard_schema` reads as
@@ -96,7 +103,8 @@ EXPECTED_SPLIT = {
     # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
     # are unchanged, which is the property this row exists to watch.
     "_solver_grid_schema": (2, 7),
-    "_solver_sources_schema": (2, 14),
+    # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
+    "_solver_sources_schema": (2, 15),
     "_switchboard_schema": (0, 1),
 }
 

@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
+  ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
+  [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
+  - **First load:** Home Assistant swaps its card registry for its own shortly
+    after a page starts. A Nimbus card that registered before that swap was
+    invisible to HA ("Custom element doesn't exist") until a refresh. Each
+    bundled card now checks again once the page has settled and registers where
+    HA looks. Measured on the reference household's production Forecaster tab:
+    on a cold load, the card registered 61 ms in, the swap came about 500 ms in,
+    and the tab showed an error. With the fix there are no error cards on the
+    first load.
+  - **Constant reloading:** the two Forecaster charts refreshed on every state
+    change of any of their roughly 60 series. Those include the live measured
+    sensors, so they re-fetched 54 h of history about 285 times a minute. They
+    now refresh once a minute (25 requests a minute, measured).
+
+- **Energy Dashboard suggestions work again on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
+  Assistant 2026.3 changed how a grid source is stored: there is now one source
+  per import/export connection, with its fields flat, instead of `flow_from` /
+  `flow_to` lists. The Solver's import/export price suggestions and the
+  switchboard's grid energy and price suggestions read only the old lists, so
+  they silently found nothing. Both forms are read now, each field mapped back
+  exactly as Home Assistant's own migration mapped it forward.
+
 ### Added
 - **The daily score is checked against the grid meter before it is trusted**
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465), step 3 of
@@ -30,6 +56,77 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     re-scored once with the check.
 
 ### Added
+- **AEMO NEM Data's regional forecast now works in Nimbus's price fields, and
+  Nimbus offers it as the regional spot forecast when that field is empty**
+  ([#1578](https://github.com/code-imstillalive/nimbus/issues/1578), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Read:** AEMO NEM Data (`aemo_nem`) publishes `{start_time, end_time,
+    price}` rows in $/kWh. Nimbus's regional spot forecast only understood
+    NEM PD7DAY's rows, so with AEMO NEM Data's sensor in that field the
+    extrapolation past the end of the price forecast array silently did not
+    run, and the last price was held flat instead. AEMO's rows are now read as
+    published (never divided by 1,000 again). Negative and zero prices are
+    kept, and a row with no usable price is dropped, never read as zero.
+    PD7DAY is read exactly as before.
+  - **As a feed-in or buy price:** AEMO spot is often used directly as the
+    feed-in price, and, with network tariff, as the buy price (Mark Purcell).
+    Pointing Nimbus's export or import price at the AEMO sensor now reads its
+    forecast too, instead of holding the current price flat for the whole
+    horizon. The network and flat fees set in Solver settings are added to the
+    import price as before, which is the "spot plus network tariff" buy price.
+    A hole between AEMO's intervals is not counted as covered.
+  - **Offered, never overwritten:** with a price forecast array set (the only
+    path that reads this field) and the regional spot forecast empty, Nimbus
+    pre-fills AEMO NEM Data's regional forecast in Solver settings and says so
+    at startup. The sensor is found by integration and built-in unique_id, so
+    a renamed sensor is still found. With several regions configured, the
+    home's NEM region is chosen; otherwise nothing is offered. It is never
+    pre-filled as the import or export price: whether a household's tariff
+    passes spot through is theirs to choose.
+  - Tested against Mark Purcell's live capture from #1550 (6 Oct 2026),
+    through the real solver code.
+- **The Nimbus dashboard keeps its standard tabs, and nothing of yours is
+  touched** ([#1543](https://github.com/code-imstillalive/nimbus/issues/1543)).
+  The rules were agreed by the household and Mark Purcell on 6 Oct 2026:
+  - An install with no Nimbus dashboard gets one, **Nimbus**, with **Forecaster,
+    Topology, Control Panel, Regret**. It is created once, so if you delete it,
+    it stays deleted.
+  - A missing standard tab is added.
+  - A tab Nimbus added that you have not changed is updated in place when a
+    release changes it.
+  - A tab you changed or built yourself is never touched. The new version goes
+    beside it, under the same title, so you can compare.
+  - Only a real design change does any of this. A restart or deploy on its own
+    adds nothing.
+  - A tab you deleted comes back once, and only on a design change.
+  - Nimbus never deletes, edits or reorders your tabs.
+  - **Contained:** Nimbus writes only to its own dashboard. Your Home dashboard
+    and every other one are never written, whatever Nimbus cards they hold.
+  - Every tab has a title and no icon, and no tab title contains "Nimbus".
+  - The old `switchboard-topology-card` name counts as the Topology tab, so it is
+    never duplicated.
+
+- **Setup offers to fill the Solver's missing inputs from sensors you already
+  chose, one click each** ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574),
+  stage 1 of the two-step setup). When the Solver's battery power, solar power
+  or whole-house cross-check is empty and you already named that sensor in
+  Forecaster settings, Settings → Repairs offers it. The offer shows the sensor's
+  current reading and, for the battery, the sign the Solver will apply. **Nothing
+  changes until you press Submit**, and Submit sets only that one field.
+  - An energy total (Wh/kWh) or a unit-less sensor is not offered. Instead a
+    Repair says why, and clears itself once fixed.
+  - A sensor that does not exist yet gets 30 minutes to appear before it is
+    reported.
+  - Only a whole-house Power Signal's source is offered as the cross-check, never
+    a single circuit's.
+  - Sign settings are never changed.
+  - A field you clear later is not offered again.
+  - No forecasts are created: per Mark's device contract, battery and grid
+    power is telemetry, not something to train a forecast on.
+  - The Control Panel card's blank battery, SoC and solar fields now follow the
+    Solver's sensors on every render, so its history line appears without
+    editing the card.
+
 - **A device resolver for the two-step setup**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
   what the Energy Dashboard already states: each source's power sensor in Home
@@ -82,6 +179,95 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   imply it measures anything, or that a 1.0 is worth investigating
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
+- **`{time, value}` P2P matched-rate sensors, and an optional, transitional
+  second matched-rate source**
+  ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537), item 3).
+  Mark Purcell found live on 6 Oct 2026 that LocalVolts v2's Current Sell Rate
+  read `proportionP2P` 0 and `matchedCost` 0 on all 287 forecast rows, while its
+  sibling Sell P2P Matched Cost, built from the same coordinator data, still
+  showed about $0.50/kWh for 45 intervals (18:15-23:55).
+  - The P2P matched-rate field now also reads `{time, value}` rows, whose value
+    is the matched rate per kWh stamped at the interval start. They are accepted
+    only with a per-kWh money unit (a currency symbol, the household's ISO code,
+    or `c/kWh`; anything else, or no unit, means the source is not used) and a
+    known interval: each row covers only its own
+    interval, from an explicit `end` or from the provider's contract. LocalVolts
+    v2's Sell P2P Matched Cost is 5 minutes, and an omitted row inside its horizon
+    is that provider's explicit no-match. The shape is detected from the rows,
+    never the entity name.
+  - New Solver setting `solver_p2p_matched_rate_forecast_sensor_2` (Sources
+    screen, Advanced). It is a transitional binding for the Grid pricing role,
+    to move into the provider profile (#1574). It is not part of the Basic setup,
+    not counted as missing, and never needed to finish setup. LocalVolts v2
+    detection pre-fills it with Sell P2P Matched Cost (unique_id
+    `<entry_id>_sell_matched_cost`).
+  - Each interval keeps its own state: unavailable source, uncovered interval,
+    explicit no-match, valid $0 match, or a valid positive or negative rate. Of
+    the sources that answer an interval (no-match or a rate), the newest snapshot
+    decides. That is the provider's `lastUpdate` where published, otherwise the
+    entity's `last_updated`. A source more than
+    `P2P_RATE_SOURCE_MAX_AGE` (1 hour) old answers nothing. So on Mark's 6 Oct
+    data, the fresh "no match" stands against the 40-minute-old matches, and the
+    fallback fills only intervals the primary does not cover.
+  - Unchanged: blocks gate P2P as in #1560. Uncovered intervals inside a block
+    take the median of valid matched rates ($0 matches included, no-matches
+    excluded); without blocks they are 0. Fixed-export commitments, P2P volume
+    and settlement history are not changed by either source. With one
+    raw-triple source the rate is exactly what it was, checked against the
+    previous algorithm on 200 generated cases.
+  - Impact: this changes the prices the LP sees only when the new setting is
+    set or the configured sensor publishes `{time, value}` rows.
+- **The period-0 pin instrument now says WHY a pin was infeasible**
+  ([#1577](https://github.com/code-imstillalive/nimbus/issues/1577), parent
+  [#1417](https://github.com/code-imstillalive/nimbus/issues/1417)).
+  **Diagnostic only.** When #1417's re-solve with `period[0]` pinned to the
+  previous plan's value comes back `infeasible`, its DEBUG line now ends with
+  `blocked_by(<battery>)=` naming the participant (`batteries[0]` only, by
+  solver name) and each period-0 constraint the pin violates -- battery
+  max charge/discharge, a power curve, SoC capacity headroom, the #328
+  discharge reserve, a shared charger, the grid export limit, or a fixed P2P
+  export commitment (charge gate or floor) -- or `unexplained_at_period0`
+  for a multi-period coupling. This is the reading guide's missing third row:
+  **the previous setpoint is infeasible under the current model; the listed
+  checks explain sufficient period-0 violations where available, and do not
+  establish that the observed direction reversal was the only feasible
+  alternative.** `unexplained_at_period0` is not evidence that a device is
+  safe to control or that a limit should be relaxed, and nothing reads these
+  fields -- no Repair, no limit change, no dispatch input. Computed by arithmetic over the configs the pinned
+  re-solve was built from (`solver/pin_blockers.py`), with no extra solve and
+  only on the already-infeasible branch, inside its own `except Exception`.
+  Each check is a sufficient condition, so it can under-report but never
+  blames a constraint the LP did not hit; the free solve, the published plan
+  and dispatch are unchanged, and a feasible pin's log line is byte-identical.
+  Still off unless `custom_components.nimbus_load.solver_plan.period0_pin` is
+  at DEBUG.
+
+### Fixed
+- **A deterministic load publishes its forecast straight away**
+  ([#1575](https://github.com/code-imstillalive/nimbus/issues/1575)). A load
+  with an expected kW and a schedule window is meant to forecast exactly that
+  kW inside the window and 0 outside it, without the ML model. It still waited
+  for a model to train first, so a mostly-idle load that could not train
+  published no forecast at all. It now publishes the configured schedule from
+  the first update, trained or not, and counts as ready. Settings → Repairs
+  and the status sensor no longer report it as "still learning".
+  - Each forecast sensor now says where its forecast comes from:
+    `forecast_origin` is `configured_rule` or `learned`, and
+    `forecast_readiness` is `ready`, `incomplete_rule` or `not_trained`.
+  - A configured rule's exact band describes the rule, not certainty about
+    the appliance.
+  - An expected power set without both schedule hours is reported as an
+    incomplete rule, not as missing history.
+- **A forecast is never trained on its own source sensor**
+  ([#1540](https://github.com/code-imstillalive/nimbus/issues/1540)). A
+  temperature or humidity signal whose source was also the hub's temperature
+  or humidity sensor was given its own value as an input. It learned to copy
+  it, and reported an accuracy it did not have (0.03 °C four hours ahead). The
+  hub's temperature, temperature forecast, humidity and curtailment sensors
+  are now left out for a signal or load whose own source they are, the same
+  rule the battery, grid and solar inputs already followed. A model saved
+  before this fix that learned from its own source retrains once at startup,
+  so expect such a signal's reported accuracy to drop to a believable figure.
 
 ## [0.94.441] - 2026-10-06
 
