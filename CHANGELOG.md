@@ -9,6 +9,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **A price sensor in cents (or per MWh) is no longer read 100x (or 1,000x)
+  too high** ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)
+  item 1). Nimbus read every import and export price sensor as $/kWh, so a
+  sensor reporting c/kWh, such as LocalVolts v2's Current Buy/Sell Rate,
+  turned 26.5 c/kWh into $26.50/kWh without a word. The forecast, the flat
+  current-price fallback and the current settlement block are now scaled by
+  the sensor's own unit: c/kWh and ¢/kWh by 0.01, $/MWh by 0.001. A sensor
+  in $/kWh, or with no unit at all, is read exactly as before. The unit
+  comes from the same read as the price, so Nimbus makes no extra requests.
+
 - **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
   ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
   [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
