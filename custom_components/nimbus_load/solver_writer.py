@@ -4946,7 +4946,8 @@ def price_unit_scale_of_history(entity_id: str) -> float:
     the sensor's current unit, as HA records the state in it."""
     try:
         return _price_scale_of_state(ha_get(entity_id))
-    except Exception:  # noqa: BLE001 -- unknown unit reads as before, x1
+    except Exception as err:  # noqa: BLE001 -- unknown unit reads as before, x1
+        _LOGGER.debug("price history unit %s: read failed (%s); x1", entity_id, err)
         return 1.0
 
 
