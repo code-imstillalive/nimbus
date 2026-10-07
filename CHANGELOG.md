@@ -35,6 +35,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **AEMO NEM Data's regional forecast now works as the regional spot forecast,
+  and Nimbus offers it when that field is empty**
+  ([#1578](https://github.com/code-imstillalive/nimbus/issues/1578), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Read:** AEMO NEM Data (`aemo_nem`) publishes `{start_time, end_time,
+    price}` rows in $/kWh. Nimbus's regional spot forecast only understood
+    NEM PD7DAY's rows, so with AEMO NEM Data's sensor in that field the
+    extrapolation past the end of the price forecast array silently did not
+    run, and the last price was held flat instead. AEMO's rows are now read as
+    published (never divided by 1,000 again). Negative and zero prices are
+    kept, and a row with no usable price is dropped, never read as zero.
+    PD7DAY is read exactly as before.
+  - **Offered, never overwritten:** with a price forecast array set (the only
+    path that reads this field) and the regional spot forecast empty, Nimbus
+    pre-fills AEMO NEM Data's regional forecast in Solver settings and says so
+    at startup. The sensor is found by integration and built-in unique_id, so
+    a renamed sensor is still found. With several regions configured, the
+    home's NEM region is chosen; otherwise nothing is offered. It is a
+    wholesale price, so it is never offered as an import or export price.
+  - Tested against Mark Purcell's live capture from #1550 (6 Oct 2026),
+    through the real solver code.
+
 - **A device resolver for the two-step setup**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
   what the Energy Dashboard already states: each source's power sensor in Home

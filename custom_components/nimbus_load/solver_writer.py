@@ -202,6 +202,10 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from power_units import power_scale_to_kw  # type: ignore[no-redef]
 try:
+    from . import price_intervals
+except ImportError:  # pragma: no cover - standalone/cron path
+    import price_intervals  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
@@ -4792,6 +4796,14 @@ def fetch_aemo_forecast(
     real 5-min-of-day structure comes from compute_5min_offset() below,
     layered on top of this coarser forward anchor. Returns [] (caller
     falls back further) if unavailable -- must never crash the writer.
+
+    nimbus #1578: also reads AEMO NEM Data's own regional forecast
+    (`cabberley/HA_AemoNemData`, rows `{start_time, end_time, price}` in
+    $/kWh) -- the same wholesale role, a different shape. Before this, that
+    sensor in this field parsed to nothing and the extrapolation silently
+    did not run. `price` is used as published (never divided by 1,000), and
+    a row with no usable price is dropped, never read as zero; see
+    price_intervals.aemo_nem_intervals().
     """
     if not sensor_id:
         return []
@@ -4799,6 +4811,8 @@ def fetch_aemo_forecast(
         fc = ha_get(sensor_id)["attributes"]["forecast"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
+    if price_intervals.is_aemo_nem_rows(fc):
+        return price_intervals.as_step_points(price_intervals.aemo_nem_intervals(fc))
     return sorted(
         (
             (parse_iso(p["time"]), p["calibrated"])
