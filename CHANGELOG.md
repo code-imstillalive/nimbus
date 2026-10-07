@@ -8,6 +8,41 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.442] - 2026-10-07
+
+- **Release cut from v0.94.441 plus only this fix, by household decision.**
+  The reference household asked for v0.94.441 (released, not yet deployed
+  there) with the P2P fix and nothing else from `main`. The fix changes LP
+  dispatch, which `docs/release-process.md` holds overnight before tagging;
+  the household decided on 7 Oct 2026 that cutting and tagging the same night
+  is fine and that they deploy after midnight, outside 17:00-24:00 ("cutting
+  and releasing or tagging is fine... i will not update until after
+  midnight"). The fix is #1610 (merged to `main` as 7e6860c4).
+
+### Fixed
+- **A P2P block is now net export at the meter: the house is covered on top**
+  (household rule, 2026-10-07: whatever rate is set in any block is net to
+  the grid). Nimbus pinned the block's grid export but still let the plan
+  buy power from the grid in the same interval. Whenever buying the house
+  load was cheaper than the value Nimbus put on stored battery energy, it
+  ran the battery at only the block rate and "bought" the house load, while
+  still counting the full block as exported. One net meter sees export minus
+  import, so the grid got less than the block.
+  - Measured on the reference household on 7 Oct from 21:11 AEST (buy 18.4c):
+    battery 12.0 kW, house 1.1 kW bought from the grid, meter -10.6 kW
+    instead of -12. A read-only replay of that solve gave the same plan with
+    v0.94.435's code and with the household's earlier LocalVolts sensors, so
+    it was neither a recent release nor the sensor switch.
+  - Now, inside a block, ordinary grid import is 0, so the battery covers
+    the block plus the house. Replaying that same solve with this change:
+    battery 13.2 kW, import 0, 12 kW net to the grid until midnight.
+  - The plan is never lost because of this. When the battery can deliver
+    the block but not the house as well, the existing penalised emergency
+    import covers the shortfall and shows it as a breach. A battery that
+    cannot deliver the block itself was already infeasible before this
+    change and still is.
+  - The price-spike override at period 0 keeps its own behaviour.
+
 ## [0.94.441] - 2026-10-06
 
 - **Same-day release, by household decision.** #1571 changes an LP input (the
