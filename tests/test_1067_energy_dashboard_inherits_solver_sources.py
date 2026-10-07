@@ -141,6 +141,25 @@ class TestTheThingsItCanHonestlyInherit(unittest.TestCase):
         self.assertEqual(out[CONF_SOLVER_IMPORT_PRICE_SENSOR], "sensor.buy_price")
         self.assertEqual(out[CONF_SOLVER_EXPORT_PRICE_SENSOR], "sensor.sell_price")
 
+    def test_import_and_export_price_on_the_current_flat_grid_schema(self):
+        """nimbus #1589: current Home Assistant (2026.7, read live from the
+        reference household) stores a grid source flat, with no flow_from /
+        flow_to lists. This found nothing before the fix."""
+        out = _suggest(
+            [
+                {
+                    "type": "grid",
+                    "stat_energy_from": "sensor.import_kwh",
+                    "stat_energy_to": "sensor.export_kwh",
+                    "entity_energy_price": "sensor.buy_price",
+                    "entity_energy_price_export": "sensor.sell_price",
+                }
+            ],
+            {"sensor.buy_price": _PRICE, "sensor.sell_price": _PRICE},
+        )
+        self.assertEqual(out[CONF_SOLVER_IMPORT_PRICE_SENSOR], "sensor.buy_price")
+        self.assertEqual(out[CONF_SOLVER_EXPORT_PRICE_SENSOR], "sensor.sell_price")
+
     def test_a_price_sensor_with_no_device_class_is_still_accepted(self):
         """The deliberate divergence from the switchboard sibling. Amber,
         LocalVolts and most tariff integrations publish a bare numeric sensor
