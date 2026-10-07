@@ -94,6 +94,42 @@ def aemo_nem_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
     return out
 
 
+def is_provider_shape(attrs: Any) -> bool:
+    """True when a price sensor's attributes are a provider shape this module
+    reads (so the solver's generic `{time, value}` reader hands it here)."""
+    return isinstance(attrs, dict) and is_aemo_nem_rows(attrs.get("forecast"))
+
+
+def provider_forecast_on_grid(
+    attrs: dict[str, Any], grid_times: list[datetime]
+) -> tuple[list[float], list[bool]] | None:
+    """(value, real) per grid time for a provider shape, or None when no row
+    is usable. The import/export price reader's path for these providers
+    (nimbus #1578, Mark Purcell: AEMO spot is often used as a feed-in price,
+    and with network tariff as a buy price -- the configured network/flat
+    fees are added to the import price downstream)."""
+    intervals = aemo_nem_intervals(attrs.get("forecast") or [])
+    if not intervals:
+        return None
+    return on_grid(intervals, grid_times)
+
+
+def on_grid(
+    intervals: list[PriceInterval], grid_times: list[datetime]
+) -> tuple[list[float], list[bool]]:
+    """(value, real) per grid time. The value holds the latest interval that
+    started at or before it (the first interval's before any), as every
+    generic price source does; `real` is True only inside an interval, so a
+    hole or anything past the final END is not coverage."""
+    values: list[float] = []
+    covered: list[bool] = []
+    for gt in grid_times:
+        held = [i for i in intervals if i.start <= gt]
+        values.append(held[-1].value if held else intervals[0].value)
+        covered.append(any(i.start <= gt < i.end for i in intervals))
+    return values, covered
+
+
 @dataclass(frozen=True)
 class Coverage:
     """What a set of intervals actually covers."""
