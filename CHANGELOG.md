@@ -9,6 +9,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **On a generic install, prices past the retailer's own forecast follow
+  the regional wholesale forecast instead of staying flat**
+  ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537) item 4).
+  The price-array (LocalVolts) path has extended prices past its source's
+  horizon with the regional spot forecast plus a learned retail markup since
+  August; the generic path held the last price flat for the rest of the
+  plan. On #1535's capture 117 of 133 opposing-flow periods sat in that flat
+  tail. Now, with both a regional spot forecast sensor and a regional
+  current-price sensor set, the generic path does the same: wholesale
+  forecast plus the markup learned per 5-minute slot of the day from the
+  price sensor's own recorded history. Without both sensors, or without that
+  history, nothing changes.
+
 - **A price sensor in cents (or per MWh) is no longer read 100x (or 1,000x)
   too high** ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)
   item 1). Nimbus read every import and export price sensor as $/kWh, so a

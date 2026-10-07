@@ -4882,6 +4882,73 @@ def fetch_aemo_forecast(
     )
 
 
+def extend_generic_price_tails(
+    cfg: dict,
+    grid_times: list[datetime],
+    import_side: tuple[list[float], list[bool], bool],
+    export_side: tuple[list[float], list[bool], bool],
+) -> tuple[list[float], list[float]]:
+    """nimbus #1537 item 4: the generic price branch's tail past each
+    source's own last real point, priced as regional wholesale forecast plus
+    that source's learned 5-minute-of-day retail markup -- the extension the
+    price-array branch has had since 2026-08-16 (see compute_5min_offset()).
+
+    Each side is (values, real_mask, has_forecast). Only periods AFTER the
+    side's last real period change; a gap inside the coverage is left as
+    the reader held it. Returns both value lists, unchanged unless the
+    regional spot forecast sensor, the regional current-price sensor and
+    that side's own recorded history all exist -- an install without them
+    keeps today's flat hold. A markup bucket with no history uses the mean
+    markup. History is scaled by the sensor's own unit (#1537 item 1)."""
+    regional = cfg.get("solver_regional_spot_forecast_sensor")
+    current = cfg.get("solver_regional_spot_current_price_sensor")
+    if not regional or not current:
+        return import_side[0], export_side[0]
+    aemo = fetch_aemo_forecast(regional)
+    if not aemo:
+        return import_side[0], export_side[0]
+    out = []
+    for key, (values, real, has_fc) in (
+        ("solver_import_price_sensor", import_side),
+        ("solver_export_price_sensor", export_side),
+    ):
+        last = max((i for i, r in enumerate(real) if r), default=None)
+        if not has_fc or last is None or last >= len(values) - 1:
+            out.append(values)
+            continue
+        scale = price_unit_scale_of_history(cfg[key])
+        history = [(t, v * scale) for t, v in fetch_price_history(cfg[key])]
+        offset = compute_5min_offset(history, regional_spot_sensor=current)
+        if not offset:
+            out.append(values)
+            continue
+        mean = sum(offset.values()) / len(offset)
+        extended = list(values)
+        for i in range(last + 1, len(values)):
+            wholesale = None
+            for t, v in aemo:
+                if t <= grid_times[i]:
+                    wholesale = v
+                else:
+                    break
+            if wholesale is None:
+                continue
+            bucket = _local(grid_times[i]).hour * 12 + _local(grid_times[i]).minute // 5
+            extended[i] = float(wholesale + offset.get(bucket, mean))
+        out.append(extended)
+    return out[0], out[1]
+
+
+def price_unit_scale_of_history(entity_id: str) -> float:
+    """The unit factor for `entity_id`'s recorded history (nimbus #1537):
+    the sensor's current unit, as HA records the state in it."""
+    try:
+        return _price_scale_of_state(ha_get(entity_id))
+    except Exception as err:  # noqa: BLE001 -- unknown unit reads as before, x1
+        _LOGGER.debug("price history unit %s: read failed (%s); x1", entity_id, err)
+        return 1.0
+
+
 def compute_5min_offset(
     real_history: list[tuple[datetime, float]],
     days: int = 5,

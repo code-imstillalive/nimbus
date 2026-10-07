@@ -695,6 +695,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_price_scale_of_state",
         "price_now",
         "_resample_generic_price_forecast_raw",
+        # nimbus issue #1537 item 4 -- the generic branch's regional-spot
+        # tail extension. Same reason: the docs copy has no generic branch.
+        "extend_generic_price_tails",
+        "price_unit_scale_of_history",
         # nimbus issue #1583 -- an OpenADR 3 VEN price sensor's rows come
         # from its get_forecast action. The docs copy has no provider
         # adapters at all (no price_intervals, no generic coverage reader
