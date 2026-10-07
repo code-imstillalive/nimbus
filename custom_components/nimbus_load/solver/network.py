@@ -273,6 +273,7 @@ import logging
 import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -4822,7 +4823,7 @@ def build_plan(
     `_build_plan_thermal_fallback()` for the thermal-deadline retry this
     wraps.
     """
-    kwargs = {
+    kwargs: dict[str, Any] = {
         "periods": periods,
         "grid": grid,
         "batteries": batteries,
