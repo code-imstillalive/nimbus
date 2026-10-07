@@ -17,8 +17,19 @@ from dataclasses import dataclass
 from datetime import datetime
 
 # Power units to kW. Case-sensitive on purpose: "mW" (milliwatt) and "MW"
-# (megawatt) differ by 10^9, so a case-folding lookup is a real defect.
-POWER_TO_KW = {"mW": 1e-6, "W": 1e-3, "kW": 1.0, "MW": 1e3, "GW": 1e6}
+# (megawatt) differ by 10^9, so a lookup that folds them together is a real
+# defect.
+# The set is Home Assistant's UnitOfPower, so an HA power sensor always has
+# one of these exact spellings.
+POWER_TO_KW = {
+    "mW": 1e-6,
+    "W": 1e-3,
+    "kW": 1.0,
+    "MW": 1e3,
+    "GW": 1e6,
+    "TW": 1e9,
+    "BTU/h": 0.00029307107,
+}
 ENERGY_UNITS = {"mWh", "Wh", "kWh", "MWh", "GWh"}
 
 

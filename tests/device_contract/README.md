@@ -19,6 +19,10 @@ DC-001 onward land, there is an independent target to check them against.
 | `inventory/8a9f503.json` | DC-000 step 2: the producer/consumer/write-boundary inventory **measured** at the baseline by `scripts/device_contract_baseline.py` (parses the code; never hand-written). |
 | `test_inventory.py` | the inventory matches the baseline, is byte-identical across runs, and every equipment-operating service call lives in `solver_dispatch/` (DC-R15). |
 | `test_nonvacuity.py` | negative controls: a double count, a W/kW mix-up and broken identities must fail or be rejected. |
+| `snapshots/legacy/F09_power_units.json` | DC-000 step 4: what the production power-unit code did at the baseline for 21 unit spellings, written only by `scripts/device_contract_legacy.py <ref>` (reads that commit's source with `git show`; byte-identical on re-run). |
+| `contract_divergences.json` | where that legacy behaviour differs from the oracle, each with an owner and a class: `open_decision` or `candidate_defect`. |
+| `approved_changes.json` | the behaviour-change manifest: a legacy output may change only when listed here. Starts empty. |
+| `test_legacy_characterisation.py` | legacy parity (today's code matches the record or an approved change) and the divergence ledger (every divergence declared, every declared one still real). |
 | `test_repeatability.py` | the whole suite in three fresh interpreters and once in reversed order, per-test outcomes compared; a test that passes only on warm module state fails it. Its negative control runs an order-dependent pair and must see them differ. |
 
 Status changes and expected results change only through a reviewed PR, never

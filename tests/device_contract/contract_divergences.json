@@ -1,0 +1,104 @@
+{
+ "_doc": "Spec DC-000: where recorded legacy behaviour differs from the independent contract oracle. Each entry is evidence for the owning spec to decide, not a fix. Changed only by a reviewed PR; test_legacy_characterisation.py fails if the computed set of divergences differs from this list in either direction.",
+ "divergences": [
+  {
+   "fixture": "F09",
+   "case": "w",
+   "legacy": 0.001,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+  },
+  {
+   "fixture": "F09",
+   "case": "kw",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+  },
+  {
+   "fixture": "F09",
+   "case": "KW",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+  },
+  {
+   "fixture": "F09",
+   "case": "Kw",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+  },
+  {
+   "fixture": "F09",
+   "case": " kW ",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+  },
+  {
+   "fixture": "F09",
+   "case": "mw",
+   "legacy": 1000.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Legacy reads lowercase 'mw' as megawatt, a documented choice in power_units.py (a milliwatt house sensor does not occur in practice). The contract refuses it as neither exact mW nor MW."
+  },
+  {
+   "fixture": "F09",
+   "case": "kVA",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "candidate_defect",
+   "owner": "DC-002",
+   "note": "Apparent power, not real power: is_power_unit is False and is_energy_unit is False, yet power_scale_to_kw returns 1.0, so a caller that does not gate on is_power_unit reads it as kW. The Forecaster (coordinator.py) gates on is_power_unit and is safe; the Solver paths do not (solver_writer.py:3401, :5700, :5731; solver_inputs/controllable_loads.py:256; solver_dispatch/guard.py:571), measured on main at 07db4529."
+  },
+  {
+   "fixture": "F09",
+   "case": "A",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "candidate_defect",
+   "owner": "DC-002",
+   "note": "Current, a different dimension: not caught by the #1562 energy-unit check, and power_scale_to_kw returns 1.0, so an ungated caller reads amps as kW. The Forecaster (coordinator.py) gates on is_power_unit and is safe; the Solver paths do not (solver_writer.py:3401, :5700, :5731; solver_inputs/controllable_loads.py:256; solver_dispatch/guard.py:571), measured on main at 07db4529."
+  },
+  {
+   "fixture": "F09",
+   "case": "",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "No unit: read as kW by design ('kW was always the assumption'). The contract treats a missing unit as unresolved rather than assumed."
+  },
+  {
+   "fixture": "F09",
+   "case": "furlong",
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "candidate_defect",
+   "owner": "DC-002",
+   "note": "Unknown unit: read as kW (1.0). The contract refuses an unknown unit."
+  },
+  {
+   "fixture": "F09",
+   "case": null,
+   "legacy": 1.0,
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "No unit attribute: read as kW by design. The contract treats a missing unit as unresolved rather than assumed."
+  }
+ ]
+}

@@ -343,7 +343,7 @@
       ],
       "status": {
         "reference_oracle": "verified",
-        "legacy_characterised": "not_started",
+        "legacy_characterised": "recorded",
         "production_obligation": "pending"
       }
     },
