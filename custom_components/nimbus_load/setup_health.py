@@ -60,6 +60,7 @@ REFRESH_INTERVAL = timedelta(minutes=15)
 KIND_NOT_TRAINED = "forecast_not_trained"
 KIND_ENERGY_UNIT = "energy_unit_power_input"
 KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
+KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 
 # Required Solver inputs and the name the household sees for each.
@@ -88,22 +89,36 @@ def evaluate_health(
     hub_up_for: timedelta,
     energy_unit_inputs: Iterable[tuple[str, str, str]] = (),
     fees_doubled: tuple[str, str] | None = None,
+    fees_on_tariff: tuple[str, str] | None = None,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
     `forecasts` is (subentry_id, title, coordinator data or None) for each Load
     and Power Signal. `energy_unit_inputs` is power_input_check's
     (setting, entity_id, unit) list. `fees_doubled` is (flex_up entity, listed
-    fees) from pricing_autodetect, or None.
+    fees) from pricing_autodetect, or None; `fees_on_tariff` the same for a
+    NEM PD7DAY import tariff (#1581).
     """
     issues: list[HealthIssue] = []
 
     if hub_up_for >= TRAIN_GRACE:
         for subentry_id, title, data in forecasts:
             data = data or {}
-            if data.get("trained_at") or data.get("forecast"):
+            if (
+                data.get("trained_at")
+                or data.get("forecast")
+                or data.get("forecast_readiness") == "ready"
+            ):
                 continue  # trained, or a deterministic load that needs no model
             reason = data.get("last_retrain_error")
+            if not reason and data.get("forecast_readiness") == "incomplete_rule":
+                # nimbus #1575: an expected power without both schedule hours
+                # is a configuration gap, not missing history.
+                reason = (
+                    "it has an expected power but not both schedule hours, so "
+                    "its fixed-hours rule cannot run; set the start and end "
+                    "hours, or remove the expected power to let it learn"
+                )
             issues.append(
                 HealthIssue(
                     key=f"{KIND_NOT_TRAINED}_{subentry_id}",
@@ -142,6 +157,16 @@ def evaluate_health(
             )
         )
 
+    if fees_on_tariff is not None:
+        tariff, listed = fees_on_tariff
+        issues.append(
+            HealthIssue(
+                key=KIND_FEES_ON_TARIFF,
+                kind=KIND_FEES_ON_TARIFF,
+                placeholders={"tariff": tariff, "fees": listed},
+            )
+        )
+
     missing = [label for key, label in _REQUIRED_SOLVER_INPUTS if not options.get(key)]
     if missing:
         issues.append(
@@ -166,7 +191,10 @@ async def async_refresh_health(
         from homeassistant.helpers import issue_registry as ir
 
         from .power_input_check import find_energy_unit_inputs
-        from .pricing_autodetect import detect_fees_doubled
+        from .pricing_autodetect import (
+            detect_fees_doubled,
+            detect_fees_on_pd7day_tariff,
+        )
 
         store = hass.data.setdefault(DOMAIN, {}).setdefault("setup_health", {})
         state = store.setdefault(
@@ -187,6 +215,7 @@ async def async_refresh_health(
             hub_up_for=up_for,
             energy_unit_inputs=find_energy_unit_inputs(hass, entry),
             fees_doubled=detect_fees_doubled(hass, dict(entry.options)),
+            fees_on_tariff=detect_fees_on_pd7day_tariff(hass, dict(entry.options)),
         )
 
         current = set()
