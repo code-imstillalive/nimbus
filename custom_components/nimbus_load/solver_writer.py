@@ -6329,12 +6329,14 @@ def _epr_reliability(
     soc_discrepancy_reliable: object,
     regret_reliable: object,
     epr_denominator_reason: object = None,
+    meter_reconciliation_status: object = None,
 ) -> bool | None:
     """Whether the published EPR/regret pair can be read as a
     measurement (nimbus issues #533, #956, #1089).
 
-    Three independent signals, combined so that a definite "no" always
-    wins over an "unknown":
+    Four independent signals, combined so that a definite "no" always
+    wins over an "unknown" (the fourth, the grid-meter reconciliation of
+    nimbus #1465, is described at its own check in the body):
 
     - `soc_discrepancy_reliable` -- #533's original test. `None` means
       it could not be computed at all (no real SoC history), which is
@@ -6367,6 +6369,12 @@ def _epr_reliability(
     if not regret_reliable:
         return False
     if epr_denominator_reason is not None:
+        return False
+    # nimbus #1465: the reconstructed grid exchange the day was priced on
+    # does not match the grid meter (solver/meter_reconciliation.py). Only
+    # a definite disagreement counts; "not_checked" and
+    # "insufficient_coverage" are not evidence either way.
+    if meter_reconciliation_status == "disagrees":
         return False
     if soc_discrepancy_reliable is None:
         return None
@@ -6647,6 +6655,7 @@ _RELIABILITY_UNKNOWN = "u"  # epr_reliable None -- the SoC half could not be com
 _RELIABILITY_SOC = "s"  # the reconstructed SoC disagrees with the sensor
 _RELIABILITY_ORACLE = "o"  # regret < 0: oracle "beaten", comparison void
 _RELIABILITY_DENOMINATOR = "d"  # EPR's denominator is not a positive quantity
+_RELIABILITY_METER = "m"  # reconstructed grid exchange disagrees with the meter (#1465)
 _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 
 
@@ -6807,7 +6816,7 @@ def read_day_ahead_value_add_history() -> dict[str, float]:
 def _epr_reliability_code(day_entry: dict) -> str | None:
     """One character naming this day's EPR verdict, for the history row.
 
-    Derived from the SAME three signals as `_epr_reliability()` and in
+    Derived from the SAME four signals as `_epr_reliability()` and in
     the SAME precedence order, so the code and the boolean can never
     disagree about whether the day was reliable -- only about how much
     detail they carry. `TestTheCodeNeverContradictsTheBoolean` drives
@@ -6841,6 +6850,11 @@ def _epr_reliability_code(day_entry: dict) -> str | None:
         return _RELIABILITY_SOC
     if day_entry.get("soc_discrepancy_reliable") is False:
         return _RELIABILITY_SOC
+    meter = day_entry.get("meter_reconciliation")
+    if reason == "grid_meter_disagrees" or (
+        isinstance(meter, dict) and meter.get("status") == "disagrees"
+    ):
+        return _RELIABILITY_METER
     return _RELIABILITY_UNSTATED
 
 

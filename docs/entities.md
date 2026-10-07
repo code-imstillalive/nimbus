@@ -65,6 +65,7 @@ EPR is a ratio of reconstructed quantities, and the reconstruction can be wrong.
 | `epr_denominator_reason` | #1089's: EPR's denominator is not a positive quantity, so the ratio is not a percentage of anything. Kept as its own field rather than folded into `epr_reason`, because a day can hit both and a reader needs to see both. |
 | `soc_discrepancy_reliable` / `soc_discrepancy_reason` | Whether the reconstructed SoC trajectory agrees with the real SoC sensor, and why not. `disagreement` means it exceeded `number.nimbus_solver_soc_discrepancy_max_threshold_pct` or the mean equivalent; `out_of_range` means the reconstruction left `[0, 100]`. |
 | `regret_reliable` | `false` when `regret_dollars < 0` — achieved priced out cheaper than perfect foresight, which is not a result but proof the comparison was invalid. |
+| `meter_reconciliation` | #1465's: the achieved day's reconstructed grid import and export (`energy_decomposition.achieved`) checked against the grid meter the household already configured (Topology's switchboard grid meter, or the Forecaster's grid sensor). `status` is one of `agrees`, `disagrees`, `not_checked` (no meter configured), or `insufficient_coverage` (the meter has no fresh reading in more than 10 % of the day's periods). The record carries the metered and reconstructed kWh, both residuals, the sign it read the meter with, and the allowed difference. **Tolerance, declared in advance:** each direction may differ by 10 % of the metered import + export, and never less than 2 kWh. Only `disagrees` makes `epr_reliable` false; the other statuses are not evidence either way. |
 
 `epr_reason` values:
 
@@ -75,6 +76,7 @@ EPR is a ratio of reconstructed quantities, and the reconstruction can be wrong.
 | `achieved_soc_unverifiable` | The SoC comparison could not be made — no real SoC history. Distinct from the above on purpose: "we checked and it disagrees" is not "we could not check". |
 | `oracle_beaten` | Negative regret with the achieved trajectory inside the LP's SoC envelope. |
 | `oracle_beaten_achieved_outside_lp_soc_bounds` | Negative regret with the trajectory outside it — sensor or unit trouble rather than a modelling gap. |
+| `grid_meter_disagrees` | The grid import and export the day was priced on do not match the grid meter (see `meter_reconciliation`). Set only when no stronger finding above already named the day. |
 
 **The invariant**: `epr_reliable` not being `true` implies at least one of `epr_reason` / `epr_denominator_reason` is non-null. Before #1162 the SoC half could fire with every one of them reading `null`, so a household was told not to trust the number and given nothing to act on.
 
