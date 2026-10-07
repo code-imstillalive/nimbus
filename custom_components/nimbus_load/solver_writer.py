@@ -4933,10 +4933,8 @@ def extend_generic_price_tails(
                     break
             if wholesale is None:
                 continue
-            local = _local(grid_times[i])
-            extended[i] = float(
-                wholesale + offset.get(local.hour * 12 + local.minute // 5, mean)
-            )
+            bucket = _local(grid_times[i]).hour * 12 + _local(grid_times[i]).minute // 5
+            extended[i] = float(wholesale + offset.get(bucket, mean))
         out.append(extended)
     return out[0], out[1]
 
