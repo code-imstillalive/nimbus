@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.443] - 2026-10-08
+
 ### Fixed
 - **A provider-shaped price sensor (AEMO NEM Data, NEM PD7DAY, Amber Electric,
   Amber Express, OpenADR 3) could be read up to 1,000x off, latently**
