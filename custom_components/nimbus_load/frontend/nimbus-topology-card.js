@@ -1413,13 +1413,41 @@ class TopologyCard extends HTMLElement {
   }
 }
 
-customElements.define("nimbus-topology-card", TopologyCard);
+// nimbus #1601: Home Assistant replaces window.customElements with its scoped
+// custom-element-registry polyfill shortly after the page starts. A card that
+// registers before that swap lands in the browser's native registry, which HA
+// no longer reads, so it shows "Custom element doesn't exist" until a refresh
+// happens to change the timing (measured: this card at 61 ms, the swap at
+// ~500 ms). Register now, then check again once the page has settled and
+// register on whichever registry HA uses by then -- as a subclass, because a
+// registry refuses a constructor it has already seen. HA's own card waits on
+// that registry's whenDefined() and rebuilds the moment this lands.
+function nimbusRegisterCard(name, cls) {
+  const ensure = () => {
+    const registry = window.customElements;
+    if (!registry || registry.get(name)) return;
+    try {
+      registry.define(name, class extends cls {});
+    } catch (_e) {
+      // registered meanwhile by another copy of this card: nothing to do
+    }
+  };
+  try {
+    customElements.define(name, cls);
+  } catch (_e) {
+    // already registered (an older copy of this card loaded first)
+  }
+  for (const ms of [0, 100, 500, 1500, 5000, 15000]) setTimeout(ensure, ms);
+  window.addEventListener("load", ensure, { once: true });
+}
+
+nimbusRegisterCard("nimbus-topology-card", TopologyCard);
 // nimbus issue #519: kept as a back-compat alias for one or two releases
 // -- a dashboard already using `type: custom:switchboard-topology-card`
 // (the card's original registered name) must keep rendering after this
 // rename. Custom elements can't register the same class under a second
 // tag name directly, hence the trivial subclass.
-customElements.define("switchboard-topology-card", class extends TopologyCard {});
+nimbusRegisterCard("switchboard-topology-card", class extends TopologyCard {});
 
 window.customCards = window.customCards || [];
 window.customCards.push({
