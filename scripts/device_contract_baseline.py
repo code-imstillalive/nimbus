@@ -144,6 +144,22 @@ def _wrappers(root: Path) -> set[str]:
     return names
 
 
+def _calls_enclosed_by_wrappers(tree: ast.AST, wrappers: set[str]) -> set[int]:
+    """`id()` of every `ast.Call` node lexically inside a function named in
+    `wrappers` (nimbus #1624, IV&V pass). Scoped per function, not "anywhere
+    a wrapper exists anywhere in the codebase" -- the pass-through exclusion
+    below is only ever correct for a call site that is actually inside one of
+    these functions."""
+    ids: set[int] = set()
+    for fn in ast.walk(tree):
+        if (
+            isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef)
+            and fn.name in wrappers
+        ):
+            ids.update(id(n) for n in ast.walk(fn) if isinstance(n, ast.Call))
+    return ids
+
+
 def scan_python(root: Path, keys: dict[str, str]):
     by_value = {v: k for k, v in keys.items()}
     readers: dict[str, set[str]] = defaultdict(set)
@@ -156,6 +172,7 @@ def scan_python(root: Path, keys: dict[str, str]):
         if rel == "const.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        enclosed_by_wrapper = _calls_enclosed_by_wrappers(tree, wrappers)
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and node.id in keys:
                 readers[node.id].add(rel)
@@ -182,7 +199,7 @@ def scan_python(root: Path, keys: dict[str, str]):
                     if (
                         name in ("async_call", "call_service")
                         and isinstance(first, ast.Name)
-                        and wrappers
+                        and id(node) in enclosed_by_wrapper
                     ):
                         # The wrapper's own pass-through call: its call
                         # sites carry the real domains (recorded there).

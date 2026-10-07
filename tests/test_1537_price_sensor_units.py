@@ -124,3 +124,46 @@ def test_one_read_per_sensor_and_an_unreadable_one_is_no_forecast():
             )
             is None
         )
+
+
+# --- nimbus #1623 (IV&V pass): provider-shape sensors never get this scale ---
+#
+# A provider adapter (AEMO/PD7DAY/Amber/OpenADR, nimbus #1550) already returns
+# $/kWh from its own forecast row field, independent of `unit_of_measurement`.
+# Scaling by that unit on top -- as every other generic `{time, value}` shape
+# correctly does -- would silently corrupt an already-correct price.
+
+_AEMO_ROWS = [
+    {
+        "start_time": "2026-10-06T13:20:00+10:00",
+        "end_time": "2026-10-06T13:25:00+10:00",
+        "price": 0.0297,
+    },
+    {
+        "start_time": "2026-10-06T13:25:00+10:00",
+        "end_time": "2026-10-06T13:30:00+10:00",
+        "price": 0.0301,
+    },
+]
+_AEMO_GRID = [_t("2026-10-06T13:20:00+10:00"), _t("2026-10-06T13:25:00+10:00")]
+
+
+def _aemo_state(unit):
+    attrs = {"forecast": _AEMO_ROWS, "unit_of_measurement": unit}
+    if unit is None:
+        del attrs["unit_of_measurement"]
+    return {"state": "29.7", "attributes": attrs}
+
+
+@pytest.mark.parametrize("unit", ["$/MWh", "c/kWh", "$/kWh", None])
+def test_a_provider_shape_sensor_is_never_rescaled(unit):
+    """AEMO's real fixture price (0.0297 $/kWh) must come back unchanged no
+    matter what unit_of_measurement the wrapping entity happens to declare --
+    that unit describes the entity's own *current-state* basis (AEMO's native
+    wholesale price is genuinely $/MWh), not the already-$/kWh forecast rows
+    the provider adapter reads directly. Before the #1623 fix, a "$/MWh"
+    unit here corrupted 0.0297 into 2.97e-05 -- a 1000x understatement feeding
+    straight into the LP."""
+    values, real = _read(_aemo_state(unit))
+    assert values == pytest.approx([0.0297, 0.0301])
+    assert real == [True, True]

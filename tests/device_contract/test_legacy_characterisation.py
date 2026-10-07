@@ -78,6 +78,24 @@ def test_todays_code_matches_the_legacy_record_or_an_approved_change() -> None:
             )
 
 
+def test_every_approved_change_carries_its_own_accountability() -> None:
+    """nimbus #1625 (IV&V pass): `approved_changes.json`'s own `_doc` string
+    says each entry names "its requirement, the old and new values and the
+    reviewer" -- but nothing checked that before this test. Reproduced:
+    `{"fixture": "F09", "case": "GW", "field": "scale_to_kw", "new": 100000.0}`,
+    with no `old`/`requirement`/`reviewer`, passed every other test in this
+    file even with a real 10x regression injected into power_units.py's own
+    gigawatt scale factor. The divergence ledger a few lines below already
+    gets this right (`test_every_declared_divergence_is_owned_and_classified`);
+    this is the same bar for the other half of this framework's real-code
+    escape valve."""
+    for c in APPROVED["changes"]:
+        assert c.get("requirement"), c
+        assert c.get("reviewer"), c
+        assert "old" in c, c
+        assert c["old"] != c["new"], c  # a no-op "change" is not a change
+
+
 def test_every_divergence_from_the_contract_is_declared_and_still_real() -> None:
     computed = {
         json.dumps(c["unit"]): _effective(c)
