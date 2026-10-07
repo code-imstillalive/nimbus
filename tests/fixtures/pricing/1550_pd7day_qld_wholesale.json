@@ -1,0 +1,11 @@
+{
+  "source": "nimbus #1550, Mark Purcell's live MCP capture, 6 Oct 2026, read-only (comment 6008674744). Selected real rows of 367, copied as published.",
+  "integration": "nem_pd7day 3.19.2",
+  "sample_alias": "pd7_wholesale",
+  "native_path": "attributes.forecast",
+  "unit": "$/kWh",
+  "selected_native_rows": [
+    {"nemtime": "2026-10-06T13:00:00+10:00", "time": "2026-10-06T12:30:00+10:00", "raw_value": 0.02465, "calibrated": 0.043006, "value": 0.043006},
+    {"nemtime": "2026-10-14T04:00:00+10:00", "time": "2026-10-14T03:30:00+10:00", "raw_value": 0.13069, "calibrated": 0.081885, "value": 0.081885}
+  ]
+}
