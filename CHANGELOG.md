@@ -59,6 +59,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **The solve diagnostics count cycles attempted and cycles failed since
+  Home Assistant started** ([#1360](https://github.com/code-imstillalive/nimbus/issues/1360)).
+  `sensor.nimbus_solver_solve_seconds` gains `solves_attempted` and
+  `solver_failures`. A failed cycle publishes nothing, and its warning is lost
+  from the log at the next restart. Since the solver moved to a one-minute
+  cadence, a missing history row no longer means a missing solve either. The
+  next healthy row after a failure now shows how many cycles failed in
+  between, and the recorder keeps it. Diagnostics only: the solve and dispatch
+  are unchanged.
 - **OpenADR 3 VEN prices are read as a real forecast when chosen as the
   import or export price, and Nimbus says when it finds an OpenADR price
   program** ([#1583](https://github.com/code-imstillalive/nimbus/issues/1583),

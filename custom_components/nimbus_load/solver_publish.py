@@ -377,6 +377,17 @@ ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 
 _PIN_MATCH_TOLERANCE_KW = 0.01
 
+# nimbus #1360: cycles since this process started, carried forward on every
+# healthy cycle's `solve_diagnostics`. A failed cycle publishes nothing and
+# its warning lives only in a log that is lost at the next restart, and since
+# the one-minute cadence a missing history row no longer means a missing
+# solve (HA records only changes). The next healthy row after an episode
+# therefore shows how many cycles failed in between, whatever the cadence.
+# Counts only cycles that reach publish_plan(): an exception earlier in the
+# cycle is logged by solver_runtime as "solve cycle failed" and not counted.
+# On the standalone path each run is a new process, so both read 1/0 there.
+_CYCLE_COUNTS = {"solves_attempted": 0, "solver_failures": 0}
+
 _LOAD_FORECAST_SOURCE_KEYS = (
     "load_forecast_source_policy",
     "load_forecast_source_selected",
@@ -1546,9 +1557,11 @@ def publish_plan(
     """
     sw = _solver_writer()
     solve_seconds = time.monotonic() - solve_started
+    _CYCLE_COUNTS["solves_attempted"] += 1
     if plan.status == "optimal":
         save_plan_state(plan, period_hours_arr, grid_times[0])
     elif plan.solver_failed:
+        _CYCLE_COUNTS["solver_failures"] += 1
         # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
         # thing as a real infeasible model -- HiGHS gave up/hit a limit
         # without ever determining feasibility either way (see network.py's
@@ -2617,6 +2630,11 @@ def publish_plan(
                 # field. Read it against this install's own recorded history,
                 # never against a number written here.
                 "simplex_iterations": plan.iterations,
+                # nimbus #1360: see _CYCLE_COUNTS. Monotonic per process, so
+                # a jump in solver_failures between two healthy rows is the
+                # episode, readable from recorder history after a restart.
+                "solves_attempted": _CYCLE_COUNTS["solves_attempted"],
+                "solver_failures": _CYCLE_COUNTS["solver_failures"],
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
