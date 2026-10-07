@@ -362,6 +362,19 @@ def build_price_arrays(
         else:
             spot_export = [sw.price_now(cfg["solver_export_price_sensor"])] * n_periods
             export_real_mask = [True] * n_periods
+        # nimbus #1537 item 4: past the source's own last real point the
+        # generic branch held the last price flat (on #1535's capture, 117 of
+        # 133 opposing-flow periods sat in that tail). With a regional spot
+        # forecast AND a regional current-price sensor configured, extend the
+        # tail as the price-array branch does: wholesale forecast plus the
+        # learned 5-minute-of-day retail markup. Without both, unchanged.
+        if _import_fc is not None or _export_fc is not None:
+            spot_import_raw, spot_export = sw.extend_generic_price_tails(
+                cfg,
+                grid_times,
+                (spot_import_raw, import_real_mask, _import_fc is not None),
+                (spot_export, export_real_mask, _export_fc is not None),
+            )
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
