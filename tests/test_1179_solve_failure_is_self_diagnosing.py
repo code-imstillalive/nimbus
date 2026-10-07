@@ -513,6 +513,27 @@ class TestTheHealthyCycleBaseRateIsPublished(unittest.TestCase):
         self.assertIn("simplex_iterations", self.keys)
         self.assertEqual(self.pairs["simplex_iterations"], "plan.iterations")
 
+    def test_the_cycle_counters_are_published(self):
+        """nimbus #1360: a failed cycle publishes nothing and its warning is
+        lost at the next restart, and since the one-minute cadence a
+        missing history row no longer means a missing solve. The counters
+        carried on every healthy row are what make an episode readable."""
+        self.assertEqual(
+            self.pairs["solves_attempted"], "_CYCLE_COUNTS['solves_attempted']"
+        )
+        self.assertEqual(
+            self.pairs["solver_failures"], "_CYCLE_COUNTS['solver_failures']"
+        )
+
+    def test_a_failed_cycle_is_counted_before_it_returns(self):
+        src = (_SRC_DIR / "solver_publish.py").read_text(encoding="utf-8")
+        body = src[src.index("def publish_plan(") :]
+        branch = body.index("elif plan.solver_failed:")
+        counted = body.index('_CYCLE_COUNTS["solver_failures"] += 1')
+        returned = body.index("        return\n", branch)
+        self.assertLess(branch, counted)
+        self.assertLess(counted, returned)
+
     def test_the_key_name_matches_the_one_the_failure_line_prints(self):
         """Read side by side, so no translation step stands between the
         failing value and its baseline."""
