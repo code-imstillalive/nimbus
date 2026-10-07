@@ -283,7 +283,7 @@ Following the contract's own sequence:
 
 | stage | delivers | status |
 |---|---|---|
-| **0. Agree the device contract** | Mark's schema on #1574; his roadmap and DC-000 evidence gates (#1600) | #1600 (draft); DC-000's first part is #1604 (open) |
+| **0. Agree the device contract** | Mark's schema on #1574; his roadmap and DC-000 evidence gates (#1600) | #1600 (draft); DC-000's first part is #1604 |
 | **1. Repair existing gaps** | offer the Solver's empty inputs from confirmed mappings as one-click Repairs, with the card following the Solver's sensors (no forecasts created) | #1587 (merged 7 Oct) |
 | **2. Gaps as Repairs** | the first readiness surface: untrained forecasts, energy-unit inputs, doubled fees, missing Solver inputs | #1588 (merged) |
 | **2a. Discovery evidence** | `device_resolver.py`: Energy Dashboard bindings, power↔energy pairing, the balance check | #1590 (merged); the schema fix is #1596 (merged 7 Oct) |
