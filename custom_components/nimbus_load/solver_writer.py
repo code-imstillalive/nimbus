@@ -4560,22 +4560,12 @@ def resample_generic_price_forecast_with_coverage(
             exc_info=True,
         )
         return None
-    forecast = state.get("attributes", {}).get("forecast")
+    attrs = state.get("attributes") or {}
+    if price_intervals.is_provider_shape(attrs):  # nimbus #1550 adapters
+        return price_intervals.provider_forecast_on_grid(attrs, grid_times)
+    forecast = attrs.get("forecast")
     if not forecast:
         return None
-    # nimbus #1578 (Mark Purcell): AEMO NEM Data's regional forecast is often
-    # used directly as a feed-in price, and with network tariff as a buy
-    # price (the configured network/flat fees are added to the import price
-    # downstream). nimbus #1581: NEM PD7DAY rows carry their own interval
-    # end (`nemtime`) too. For both, a period is real only inside an
-    # interval -- a hole between rows, or anything past the final END, is
-    # not covered. PD7DAY's published `value` is read as is (a null value is
-    # missing, never filled from raw_value/spot).
-    intervals = price_intervals.intervals_from_rows(forecast)
-    if intervals is not None:
-        if not intervals:
-            return None
-        return price_intervals.on_grid(intervals, grid_times)
     points: list[tuple[datetime, float]] = []
     for f in forecast:
         try:
@@ -4809,14 +4799,7 @@ def fetch_aemo_forecast(
     real 5-min-of-day structure comes from compute_5min_offset() below,
     layered on top of this coarser forward anchor. Returns [] (caller
     falls back further) if unavailable -- must never crash the writer.
-
-    nimbus #1578: also reads AEMO NEM Data's own regional forecast
-    (`cabberley/HA_AemoNemData`, rows `{start_time, end_time, price}` in
-    $/kWh) -- the same wholesale role, a different shape. Before this, that
-    sensor in this field parsed to nothing and the extrapolation silently
-    did not run. `price` is used as published (never divided by 1,000), and
-    a row with no usable price is dropped, never read as zero; see
-    price_intervals.aemo_nem_intervals().
+    nimbus #1578: AEMO NEM Data rows too, see price_intervals.
     """
     if not sensor_id:
         return []
