@@ -4573,7 +4573,21 @@ def resample_generic_price_forecast_with_coverage(
 ) -> tuple[list[float], list[bool]] | None:
     """`_resample_generic_price_forecast_raw()` in $/kWh: its values scaled by
     the sensor's own `unit_of_measurement` (nimbus #1537), from the same single
-    read of the entity. See that function's docstring for the resampling."""
+    read of the entity. See that function's docstring for the resampling.
+
+    nimbus #1623 (IV&V pass): a provider-shape sensor (`price_intervals.
+    is_provider_shape()` -- AEMO/PD7DAY/Amber/OpenADR, nimbus #1550) is read by
+    `_resample_generic_price_forecast_raw()`'s own provider-adapter branch,
+    which already returns $/kWh -- each adapter (`aemo_nem_intervals()`,
+    `pd7day_intervals()`, `amber_core_intervals()`, `amber_express_intervals()`,
+    `openadr_intervals()`) reads the provider's own forecast row field directly
+    as the $/kWh value, with no reference to `unit_of_measurement` at all.
+    Applying `_price_scale_of_state()` on top of that -- derived purely from
+    the entity's declared `unit_of_measurement`, which for a provider sensor
+    describes its own *current-state* basis (AEMO's native wholesale price is
+    genuinely quoted in $/MWh) and has no bearing on the already-$/kWh
+    forecast rows -- would silently corrupt an already-correct price by up to
+    1000x. So a provider-shape sensor skips this scale entirely."""
     try:
         state = ha_get(entity_id)
     except Exception as err:  # noqa: BLE001 -- the raw reader logs and returns None
@@ -4582,8 +4596,11 @@ def resample_generic_price_forecast_with_coverage(
         )
         return _resample_generic_price_forecast_raw(entity_id, grid_times)
     r = _resample_generic_price_forecast_raw(entity_id, grid_times, state)
+    attrs = state.get("attributes") or {}
+    if r is None or price_intervals.is_provider_shape(attrs):
+        return r
     scale = _price_scale_of_state(state)
-    if r is None or scale == 1.0:
+    if scale == 1.0:
         return r
     values, real = r
     return [v * scale for v in values], real
@@ -7295,17 +7312,21 @@ def read_day_ahead_value_add_history() -> dict[str, float]:
 def _epr_reliability_code(day_entry: dict) -> str | None:
     """One character naming this day's EPR verdict, for the history row.
 
-    Derived from the SAME four signals as `_epr_reliability()` and in
-    the SAME precedence order, so the code and the boolean can never
-    disagree about whether the day was reliable -- only about how much
-    detail they carry. `TestTheCodeNeverContradictsTheBoolean` drives
-    every combination of the three and pins that.
+    Derived from the SAME four signals as `_epr_reliability()`, so the
+    code and the boolean can never disagree about WHETHER the day was
+    reliable -- only about how much detail they carry.
+    `TestTheCodeNeverContradictsTheBoolean` drives every combination of
+    the three and pins that agreement, not an identical order.
 
-    Precedence matters for which cause gets named on a day that trips
-    more than one: `_epr_reliability()` tests regret first, then the
-    denominator, then SoC, and a household reading "oracle beaten" on a
-    day that ALSO has a denominator problem is being pointed at the one
-    that decided the verdict.
+    nimbus #1625 (IV&V pass): this used to claim the "SAME precedence
+    order" as `_epr_reliability()`. It never was -- the boolean checks
+    regret, then the denominator, then meter reconciliation, then SoC;
+    this function checks regret, then the denominator, then SoC, then
+    meter. Neither order can flip the True/False verdict (that's what
+    the test above pins), only which single cause gets named here when
+    a day trips more than one -- SoC is deliberately named first in
+    THIS function (`test_a_soc_failure_on_the_same_day_is_named_first`),
+    which the boolean's own order plays no part in deciding.
 
     Returns None when the entry carries no verdict at all, so the caller
     writes no key rather than inventing one -- see the field's own note

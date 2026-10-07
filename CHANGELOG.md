@@ -9,6 +9,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **A provider-shaped price sensor (AEMO NEM Data, NEM PD7DAY, Amber Electric,
+  Amber Express, OpenADR 3) could be read up to 1,000x off, latently**
+  ([#1623](https://github.com/code-imstillalive/nimbus/issues/1623), IV&V
+  pass). These adapters already read each provider's forecast rows directly
+  as $/kWh, independent of the sensor's own `unit_of_measurement`. The
+  generic unit-scaling fix for [#1537](https://github.com/code-imstillalive/nimbus/issues/1537)
+  item 1 applied on top of that regardless, so a provider sensor declaring
+  anything other than `$/kWh`/no unit (AEMO's own wholesale price is
+  genuinely `$/MWh`) would have its already-correct forecast silently
+  re-scaled. Never observed live — every captured install's provider sensor
+  happened to declare `$/kWh` — but reproducible and now fixed: a
+  provider-shaped sensor's values are never re-scaled by `unit_of_measurement`.
 - **On a generic install, prices past the retailer's own forecast follow
   the regional wholesale forecast instead of staying flat**
   ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537) item 4).
