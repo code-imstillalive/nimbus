@@ -56,6 +56,53 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     re-scored once with the check.
 
 ### Added
+- **Amber Express prices are read on their real interval boundaries, and
+  Nimbus offers its general and feed-in sensors as the import and export price
+  when those are empty**
+  ([#1580](https://github.com/code-imstillalive/nimbus/issues/1580), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Price read as published:** Amber Express's own forecast value is
+    already in the pricing mode you chose there, already positive for
+    feed-in, and already includes the demand-window charge. Nimbus uses it as
+    is: it never flips feed-in again, never adds the demand window again, and
+    never picks a different price. A price of zero is kept; a blank one is
+    missing, not zero.
+  - **Real boundaries:** interval ends come from Amber Express's detailed
+    forecast (5- and 30-minute intervals mixed), whose starts sit one second
+    past the boundary. Coverage now runs to the real end of the last interval
+    (13:00 in the 6 Oct capture) rather than its start. A row hours before
+    the next is not treated as hours of coverage.
+  - **Offered, never overwritten:** with one Amber Express site and an empty
+    import or export price, Nimbus pre-fills them and says so at startup.
+    Several sites propose nothing. A detected LocalVolts v2 profile comes
+    first. Nimbus never changes Amber Express's pricing mode.
+
+- **NEM PD7DAY's forecasts are read correctly in every price field, offered
+  first as the regional spot forecast, and network fees counted twice on a
+  PD7DAY tariff are flagged**
+  ([#1581](https://github.com/code-imstillalive/nimbus/issues/1581), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Read as published:** a PD7DAY tariff's price already includes its network
+    charge, and the wholesale forecast's price is already spike-calibrated.
+    Nimbus reads that published price as is. It never rebuilds it from the
+    raw or spot fields. An interval PD7DAY could not calibrate (a blank
+    price) stays missing and is never filled from the raw price.
+  - **Coverage is per interval:** each PD7DAY row's own end time is used, so
+    the last interval counts as covered and a gap between rows does not. The
+    day 2 to 7 forecast is never stitched onto another source automatically
+    (the 6 Oct capture showed that join leaves a 30-minute hole).
+  - **Offered first:** when both PD7DAY and AEMO NEM Data are installed and the
+    regional spot forecast is empty, Nimbus offers PD7DAY's days 1 to 7
+    forecast (about seven days, spike-calibrated) ahead of AEMO's (about 39
+    hours). Never the day 2 to 7 or tariff sensors, and never over a value
+    already set.
+  - **Fees counted twice:** if the import price is a PD7DAY tariff sensor and
+    network or flat fees are also set in Solver settings, a Repair now says
+    the network charge is being counted twice, as it already does for
+    LocalVolts' Buy Flex Up.
+  - The reference household's own setup reads PD7DAY's regional forecast
+    exactly as before.
+
 - **AEMO NEM Data's regional forecast now works in Nimbus's price fields, and
   Nimbus offers it as the regional spot forecast when that field is empty**
   ([#1578](https://github.com/code-imstillalive/nimbus/issues/1578), part of
@@ -268,6 +315,64 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   rule the battery, grid and solar inputs already followed. A model saved
   before this fix that learned from its own source retrains once at startup,
   so expect such a signal's reported accuracy to drop to a believable figure.
+
+## [0.94.442] - 2026-10-07
+
+- **Release cut from v0.94.441 plus only this fix, by household decision.**
+  The reference household asked for v0.94.441 (released, not yet deployed
+  there) with the P2P fix and nothing else from `main`. The fix changes LP
+  dispatch, which `docs/release-process.md` holds overnight before tagging;
+  the household decided on 7 Oct 2026 that cutting and tagging the same night
+  is fine and that they deploy after midnight, outside 17:00-24:00 ("cutting
+  and releasing or tagging is fine... i will not update until after
+  midnight"). The fix is #1610 (merged to `main` as 7e6860c4).
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at ec2a52f**,
+  installed untagged via HACS from the `release/0.94.442` branch (its head
+  is ec2a52f) and restarted 22:27 AEST 7 Oct. Devhub's own entities stamp
+  `0.94.442` (2 of them; the 122 at 0.94.439 are production's mirrored
+  rows). With Nimbus at debug, a solve at 22:30:34 came back `optimal`,
+  batteries `['home', 'Test EV']`. No `Traceback`, no `solve cycle failed`,
+  no new ERROR beyond the boot-time "does not generate unique IDs" rows from
+  devhub's mirrored registry (161, the same kind as 0.94.441's check). Two
+  "previous cycle still in progress" skips at 22:30:30 were a `solve_now`
+  landing on the first post-restart cycle; the next solve was optimal.
+  **Not observable on devhub:** the P2P behaviour itself, because devhub's
+  solver outputs share entity_ids with production's mirror (#1396). It was
+  verified instead by a read-only replay of production's live solve with
+  this exact tree (every non-GET request refused, state writes captured
+  locally), 22:32 AEST with the household's block temporarily at 13 kW:
+  `optimal`, battery 14.5 kW = 13 + the house, grid import 0, net 13 to the
+  grid; at 21:57 with the block at 12 the same change gave battery 13.2 kW,
+  import 0, net 12, against 12.0 kW and 1.1 kW import without it.
+- Consumer check: during a P2P block the battery delivers the block rate to
+  the grid plus whatever the house is using, so the meter shows the full
+  block as net export. A household that raised its block rate to compensate
+  for the old behaviour should set it back, or it will now export that
+  higher rate net. Outside a block nothing changes.
+
+### Fixed
+- **A P2P block is now net export at the meter: the house is covered on top**
+  (household rule, 2026-10-07: whatever rate is set in any block is net to
+  the grid). Nimbus pinned the block's grid export but still let the plan
+  buy power from the grid in the same interval. Whenever buying the house
+  load was cheaper than the value Nimbus put on stored battery energy, it
+  ran the battery at only the block rate and "bought" the house load, while
+  still counting the full block as exported. One net meter sees export minus
+  import, so the grid got less than the block.
+  - Measured on the reference household on 7 Oct from 21:11 AEST (buy 18.4c):
+    battery 12.0 kW, house 1.1 kW bought from the grid, meter -10.6 kW
+    instead of -12. A read-only replay of that solve gave the same plan with
+    v0.94.435's code and with the household's earlier LocalVolts sensors, so
+    it was neither a recent release nor the sensor switch.
+  - Now, inside a block, ordinary grid import is 0, so the battery covers
+    the block plus the house. Replaying that same solve with this change:
+    battery 13.2 kW, import 0, 12 kW net to the grid until midnight.
+  - The plan is never lost because of this. When the battery can deliver
+    the block but not the house as well, the existing penalised emergency
+    import covers the shortfall and shows it as a breach. A battery that
+    cannot deliver the block itself was already infeasible before this
+    change and still is.
+  - The price-spike override at period 0 keeps its own behaviour.
 
 ## [0.94.441] - 2026-10-06
 

@@ -536,6 +536,10 @@
       "title": "Nimbus: network fees are counted twice",
       "description": "Your import price is `{flex_up}` (LocalVolts v2 Buy Flex Up), which already includes your network and flat fees. Nimbus also adds its own fees on top ({fees}), so the plan sees grid energy as dearer than it is and imports less than it should. Set those fee rates to 0 on the Solver dashboard, or in Configure → Solver settings. This message clears itself once they are 0."
     },
+    "fees_on_top_of_pd7day_tariff": {
+      "title": "Nimbus: network fees are counted twice",
+      "description": "Your import price is `{tariff}`, a NEM PD7DAY tariff sensor, whose price already includes that tariff's network charge. Nimbus also adds its own fees on top ({fees}), so the plan sees grid energy as dearer than it is and imports less than it should. Set those fee rates to 0 on the Solver dashboard, or in Configure → Solver settings, or point the import price at the plain spot forecast instead. This message clears itself once fixed."
+    },
     "solver_input_missing": {
       "title": "Nimbus: the Solver is missing an input",
       "description": "The Solver cannot plan properly without: **{inputs}**. Set them in Nimbus → Configure → Solver settings. This message clears itself once they are set."
