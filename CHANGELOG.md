@@ -18,6 +18,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the sensor's own unit: c/kWh and ¢/kWh by 0.01, $/MWh by 0.001. A sensor
   in $/kWh, or with no unit at all, is read exactly as before. The unit
   comes from the same read as the price, so Nimbus makes no extra requests.
+- **Plans are one-way: no grid import with export, and no battery charging
+  with discharging, in the same period**
+  ([#238](https://github.com/code-imstillalive/nimbus/issues/238),
+  [#1535](https://github.com/code-imstillalive/nimbus/issues/1535)). When
+  export paid more than import, the plan could buy and sell in the same
+  five minutes, or charge and discharge one battery at once, counting
+  revenue from flows a single grid connection and a single battery cannot
+  carry. #1535's reduced case showed it in 24 of 24 grid periods and 23 of
+  24 battery periods.
+  - Nimbus solves exactly as before. Only if that plan has such a period
+    does it solve again, forcing one direction in just those periods (and,
+    if needed, once more in every period). Each battery is handled on its
+    own, so one battery charging while another discharges is still allowed.
+    A plan that was already one-way is unchanged.
+  - The penalised emergency import that keeps a plan when the battery can
+    deliver a P2P block but not the house as well (0.94.442) is not counted;
+    it stays a reported last resort.
+  - Cost: none on an ordinary day (measured: 0.14 s, no second solve). With
+    export above import in 10-50% of periods, about 1-2 s. With export above
+    import in every period of a 96-hour plan, 8 s with one battery and 26 s
+    with a home battery and an EV.
+  - The reference household's own plan replays identically. Mark Purcell's
+    #1535 reproduction now passes with `--assert-exclusive`.
 
 - **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
   ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
@@ -45,6 +68,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **OpenADR 3 VEN prices are read as a real forecast when chosen as the
+  import or export price, and Nimbus says when it finds an OpenADR price
+  program** ([#1583](https://github.com/code-imstillalive/nimbus/issues/1583),
+  part of [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Before:** an OpenADR price sensor only publishes a summary. Its full
+    forecast is available only from the `openadr3_ven.get_forecast` action,
+    so as an import or export price Nimbus found no forecast and held the
+    current value flat for the whole plan.
+  - **Now:** Nimbus calls that action for the chosen sensor during the solve
+    (the same way it already reads weather forecasts) and prices each row
+    over its own length: 5, 15, 30 or 60 minutes, mixed in one forecast, with
+    60 minutes when a row gives none, as the integration itself does.
+    Coverage is measured from the rows, so a day with no rows (seen in the
+    6 Oct capture) is not counted as covered. The sensor's own
+    `forecast_end` is ignored: it is the last row's start, not its end.
+  - **Only prices:** `PRICE` and `EXPORT_PRICE` are read; carbon (`GHG`) or
+    any other payload type never is.
+  - **Found, never filled in:** OpenADR doesn't state whether a price is the
+    full tariff or an incentive on top of it, or its currency, so Nimbus
+    never pre-fills one. With an import or export price still empty, a
+    startup notice lists the OpenADR price sensors it found. Nothing is
+    changed.
+
 - **The daily score is checked against the grid meter before it is trusted**
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465), step 3 of
   Mark Purcell's recommendation).

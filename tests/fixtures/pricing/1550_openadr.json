@@ -1,0 +1,101 @@
+{
+  "source": "nimbus #1550, Mark Purcell's live MCP capture, 6 Oct 2026 ~13:15-13:20 AEST, read-only (comment 6008674744). Selected real rows from openadr3_ven.get_forecast responses, extracted programmatically from the published comment. Full arrays: import/export 338 rows each (1x5, 1x15, 336x30 min, 6 Oct 13:10 -> 13 Oct 13:30); second program 144 hourly rows with no rows 10 Oct 17:00 -> 11 Oct 17:00 AEST.",
+  "integration": "openadr3_ven 0.4.8 (grid-coordination/openadr3-ven-hass)",
+  "samples": {
+    "openadr_import": {
+      "sample_alias": "openadr_import",
+      "native_path": "service_response.<entity>.forecast",
+      "unit": "$/kWh",
+      "parent_metadata": {
+        "payload_type": "PRICE"
+      },
+      "selected_native_rows": [
+        {
+          "datetime": "2026-10-06T13:10:00+10:00",
+          "value": 0.062571,
+          "interval_minutes": 5
+        },
+        {
+          "datetime": "2026-10-06T13:15:00+10:00",
+          "value": 0.081069,
+          "interval_minutes": 15
+        },
+        {
+          "datetime": "2026-10-06T13:30:00+10:00",
+          "value": 0.053818,
+          "interval_minutes": 30
+        },
+        {
+          "datetime": "2026-10-13T13:00:00+10:00",
+          "value": 0.044853,
+          "interval_minutes": 30
+        }
+      ]
+    },
+    "openadr_export": {
+      "sample_alias": "openadr_export",
+      "native_path": "service_response.<entity>.forecast",
+      "unit": "$/kWh",
+      "parent_metadata": {
+        "payload_type": "EXPORT_PRICE"
+      },
+      "selected_native_rows": [
+        {
+          "datetime": "2026-10-06T13:10:00+10:00",
+          "value": 0.027605,
+          "interval_minutes": 5
+        },
+        {
+          "datetime": "2026-10-06T13:15:00+10:00",
+          "value": 0.043006,
+          "interval_minutes": 15
+        },
+        {
+          "datetime": "2026-10-06T13:30:00+10:00",
+          "value": 0.020318,
+          "interval_minutes": 30
+        },
+        {
+          "datetime": "2026-10-13T13:00:00+10:00",
+          "value": 0.012854,
+          "interval_minutes": 30
+        }
+      ]
+    },
+    "openadr_second_program": {
+      "sample_alias": "openadr_second_program",
+      "native_path": "service_response.<entity>.forecast",
+      "unit": "$/kWh",
+      "parent_metadata": {
+        "payload_type": "PRICE"
+      },
+      "selected_native_rows": [
+        {
+          "datetime": "2026-10-05T17:00:00+10:00",
+          "value": 0.070773,
+          "interval_minutes": 60
+        },
+        {
+          "datetime": "2026-10-05T18:00:00+10:00",
+          "value": 0.066871,
+          "interval_minutes": 60
+        },
+        {
+          "datetime": "2026-10-10T16:00:00+10:00",
+          "value": 0.071302,
+          "interval_minutes": 60
+        },
+        {
+          "datetime": "2026-10-11T17:00:00+10:00",
+          "value": 0.05521,
+          "interval_minutes": 60
+        },
+        {
+          "datetime": "2026-10-12T16:00:00+10:00",
+          "value": 0.051103,
+          "interval_minutes": 60
+        }
+      ]
+    }
+  }
+}
