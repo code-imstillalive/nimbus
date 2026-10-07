@@ -71,6 +71,44 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   imply it measures anything, or that a 1.0 is worth investigating
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
+- **`{time, value}` P2P matched-rate sensors, and an optional, transitional
+  second matched-rate source**
+  ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537), item 3).
+  Mark Purcell found live on 6 Oct 2026 that LocalVolts v2's Current Sell Rate
+  read `proportionP2P` 0 and `matchedCost` 0 on all 287 forecast rows, while its
+  sibling Sell P2P Matched Cost, built from the same coordinator data, still
+  showed about $0.50/kWh for 45 intervals (18:15-23:55).
+  - The P2P matched-rate field now also reads `{time, value}` rows, whose value
+    is the matched rate per kWh stamped at the interval start. They are accepted
+    only with a per-kWh money unit (a currency symbol, the household's ISO code,
+    or `c/kWh`; anything else, or no unit, means the source is not used) and a
+    known interval: each row covers only its own
+    interval, from an explicit `end` or from the provider's contract. LocalVolts
+    v2's Sell P2P Matched Cost is 5 minutes, and an omitted row inside its horizon
+    is that provider's explicit no-match. The shape is detected from the rows,
+    never the entity name.
+  - New Solver setting `solver_p2p_matched_rate_forecast_sensor_2` (Sources
+    screen, Advanced). It is a transitional binding for the Grid pricing role,
+    to move into the provider profile (#1574). It is not part of the Basic setup,
+    not counted as missing, and never needed to finish setup. LocalVolts v2
+    detection pre-fills it with Sell P2P Matched Cost (unique_id
+    `<entry_id>_sell_matched_cost`).
+  - Each interval keeps its own state: unavailable source, uncovered interval,
+    explicit no-match, valid $0 match, or a valid positive or negative rate. Of
+    the sources that answer an interval (no-match or a rate), the newest snapshot
+    decides. That is the provider's `lastUpdate` where published, otherwise the
+    entity's `last_updated`. A source more than
+    `P2P_RATE_SOURCE_MAX_AGE` (1 hour) old answers nothing. So on Mark's 6 Oct
+    data, the fresh "no match" stands against the 40-minute-old matches, and the
+    fallback fills only intervals the primary does not cover.
+  - Unchanged: blocks gate P2P as in #1560. Uncovered intervals inside a block
+    take the median of valid matched rates ($0 matches included, no-matches
+    excluded); without blocks they are 0. Fixed-export commitments, P2P volume
+    and settlement history are not changed by either source. With one
+    raw-triple source the rate is exactly what it was, checked against the
+    previous algorithm on 200 generated cases.
+  - Impact: this changes the prices the LP sees only when the new setting is
+    set or the configured sensor publishes `{time, value}` rows.
 - **The period-0 pin instrument now says WHY a pin was infeasible**
   ([#1577](https://github.com/code-imstillalive/nimbus/issues/1577), parent
   [#1417](https://github.com/code-imstillalive/nimbus/issues/1417)).

@@ -213,7 +213,9 @@ class TestTheWizardDidNotGrow(unittest.TestCase):
             + len(ho._FORECASTER_SCHEMA_KEYS)
             + len(ho._SWITCHBOARD_SCHEMA_KEYS)
         )
-        self.assertEqual(total, 47)
+        # 47 -> 48: nimbus #1537 item 3 added one optional Sources field,
+        # the second P2P matched-rate source (see test_config_surface_budget).
+        self.assertEqual(total, 48)
 
 
 class TestTheTranslationsExist(unittest.TestCase):
