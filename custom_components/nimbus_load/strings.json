@@ -539,6 +539,52 @@
     "solver_input_missing": {
       "title": "Nimbus: the Solver is missing an input",
       "description": "The Solver cannot plan properly without: **{inputs}**. Set them in Nimbus → Configure → Solver settings. This message clears itself once they are set."
+    },
+    "setup_fill_battery_power": {
+      "title": "Nimbus: use {sensor} for the Solver's battery power?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's battery power?",
+            "description": "The Solver's **battery power** sensor is empty. You already chose `{sensor}` as the battery sensor in Forecaster settings, so Nimbus can use the same sensor here.\n\nIt reads **{reading}** right now.\n\n{sign}\n\nSubmit sets this one field and nothing else. Nothing is sent to any device. To change it later, use Nimbus → Configure → Solver settings; Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_solar_power": {
+      "title": "Nimbus: use {sensor} for the Solver's solar power?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's solar power?",
+            "description": "The Solver's **solar power** sensor is empty. You already chose `{sensor}` as the solar sensor in Forecaster settings, so Nimbus can use the same sensor here.\n\nIt reads **{reading}** right now. It must be your **total** solar output, every inverter included. If it covers only one inverter, do not submit: set the total in Nimbus → Configure → Solver settings instead.\n\nSubmit sets this one field and nothing else. Nothing is sent to any device, and Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_cross_check": {
+      "title": "Nimbus: use {sensor} for the Solver's whole-house cross-check?",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Nimbus: use {sensor} for the Solver's whole-house cross-check?",
+            "description": "The Solver's **whole-house cross-check** is empty. Your household load forecast is trained on `{sensor}`, so Nimbus can cross-check against the same sensor.\n\nIt reads **{reading}** right now.\n\nSubmit sets this one field and nothing else. Nothing is sent to any device, and Nimbus will not offer it again."
+          }
+        },
+        "abort": {
+          "no_longer_applies": "Nothing was changed: that field is already set, or the sensor is no longer a power sensor. This message will update itself."
+        }
+      }
+    },
+    "setup_fill_blocked": {
+      "title": "Nimbus: {field} cannot be filled from {sensor}",
+      "description": "Nimbus could fill the **{field}** from `{sensor}`, which you already chose elsewhere, but {reason}.\n\nPick a power sensor (W or kW) in Nimbus → Configure, or set the {field} yourself in Solver settings. This message clears itself once that is fixed."
     }
   }
 }

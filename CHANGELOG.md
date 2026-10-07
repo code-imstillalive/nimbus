@@ -35,6 +35,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **Setup offers to fill the Solver's missing inputs from sensors you already
+  chose, one click each** ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574),
+  stage 1 of the two-step setup). When the Solver's battery power, solar power
+  or whole-house cross-check is empty and you already named that sensor in
+  Forecaster settings, Settings → Repairs offers it. The offer shows the sensor's
+  current reading and, for the battery, the sign the Solver will apply. **Nothing
+  changes until you press Submit**, and Submit sets only that one field.
+  - An energy total (Wh/kWh) or a unit-less sensor is not offered. Instead a
+    Repair says why, and clears itself once fixed.
+  - A sensor that does not exist yet gets 30 minutes to appear before it is
+    reported.
+  - Only a whole-house Power Signal's source is offered as the cross-check, never
+    a single circuit's.
+  - Sign settings are never changed.
+  - A field you clear later is not offered again.
+  - No forecasts are created: per Mark's device contract, battery and grid
+    power is telemetry, not something to train a forecast on.
+  - The Control Panel card's blank battery, SoC and solar fields now follow the
+    Solver's sensors on every render, so its history line appears without
+    editing the card.
+
 - **A device resolver for the two-step setup**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
   what the Energy Dashboard already states: each source's power sensor in Home
