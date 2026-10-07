@@ -1,0 +1,118 @@
+{
+  "identity": {
+    "fixture": "F11",
+    "revision": 1,
+    "requirements": [
+      "DC-R11",
+      "DC-R14",
+      "DC-R16"
+    ],
+    "owner": "DC-006",
+    "purpose": "Derived and model signals form an acyclic graph over declared signals; every consumer reads one configuration revision; readiness follows forecast capability, not a trained-model flag; several grid connections are explicitly unsupported by the planner."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 \u00a7Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md)"
+  },
+  "data_semantics": {
+    "graph": "name -> set of names it depends on"
+  },
+  "cases": {
+    "valid": {
+      "house_forecast": [
+        "house"
+      ],
+      "net_load": [
+        "house_forecast",
+        "pv_forecast"
+      ],
+      "house": [],
+      "pv_forecast": []
+    },
+    "self": {
+      "a": [
+        "a"
+      ]
+    },
+    "cycle": {
+      "a": [
+        "b"
+      ],
+      "b": [
+        "c"
+      ],
+      "c": [
+        "a"
+      ]
+    },
+    "undeclared": {
+      "a": [
+        "ghost"
+      ]
+    },
+    "revisions_ok": {
+      "forecaster": 7,
+      "solver": 7,
+      "scoring": 7,
+      "topology": 7
+    },
+    "revisions_split": {
+      "forecaster": 7,
+      "solver": 6,
+      "scoring": 7
+    },
+    "readiness": [
+      [
+        "external",
+        false,
+        true
+      ],
+      [
+        "deterministic",
+        false,
+        true
+      ],
+      [
+        "learned",
+        false,
+        false
+      ],
+      [
+        "learned",
+        true,
+        true
+      ]
+    ],
+    "grid_connections": [
+      [
+        1,
+        true
+      ],
+      [
+        2,
+        false
+      ]
+    ]
+  },
+  "expected": {
+    "valid": [],
+    "revisions_split": [
+      "solver on revision 6, others on 7"
+    ]
+  },
+  "comparison": {
+    "exact": [
+      "problem lists",
+      "readiness booleans"
+    ]
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-001, DC-002, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}
