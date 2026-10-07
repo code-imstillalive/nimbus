@@ -4534,8 +4534,10 @@ def _openadr_forecast_rows(entity_id: str) -> list | None:
     summary). None on any failure -- the caller then treats the sensor as
     having no forecast, as for any other unavailable source."""
     return price_intervals.openadr_rows_from_response(
+        # A literal domain, so the DC-R15 inventory can see this is the
+        # read-only OpenADR forecast lookup, not an equipment command.
         ha_call_service_with_response(
-            price_intervals.OPENADR_DOMAIN, "get_forecast", {"entity_id": entity_id}
+            "openadr3_ven", "get_forecast", {"entity_id": entity_id}
         ),
         entity_id,
     )
