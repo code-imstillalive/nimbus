@@ -46,7 +46,9 @@ def test_card_is_registered_with_a_matching_tag() -> None:
         '_CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card")' in frontend_py
     )
     src = _card()
-    assert 'customElements.define("nimbus-forecast-card"' in src
+    assert (
+        'nimbusRegisterCard("nimbus-forecast-card", NimbusForecastCard)' in src
+    )  # nimbus #1601
     assert 'type: "nimbus-forecast-card"' in src
 
 
@@ -148,3 +150,20 @@ def test_sizes_itself_full_width_in_a_sections_view() -> None:
     assert 'columns: "full"' in body
     assert 'rows: "auto"' in body
     assert ":host{display:block;width:100%}" in src
+
+
+def test_charts_refresh_once_a_minute_not_on_every_state_change() -> None:
+    """nimbus #1602: with no update_interval, apexcharts-card refreshes on
+    every state change of any series entity. These charts carry the live
+    measured sensor behind each forecast, so on the reference household
+    both charts re-fetched 54 h of history 285 times a minute and never
+    stopped spinning. Every generated chart comes from _base(), which sets
+    1 minute (household decision, 7 Oct 2026)."""
+    src = _card()
+    base = src[src.index("_base(title, height) {") :]
+    base = base[: base.index("\n  }\n")]
+    assert 'update_interval: "1min"' in base
+    # Both charts are built from _base(): nothing builds a chart config
+    # that could skip it.
+    assert src.count('type: "custom:apexcharts-card"') == 1
+    assert src.count("this._base(") >= 2

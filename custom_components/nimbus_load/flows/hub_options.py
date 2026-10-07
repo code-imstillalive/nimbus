@@ -89,6 +89,7 @@ from ..const import (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
@@ -126,6 +127,7 @@ from ..const import (
     SUBENTRY_TYPE_SIGNAL,
     TRAINING_SOURCE_CHOICES,
 )
+from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
 from ..pricing_autodetect import with_detected_profile
 
@@ -655,6 +657,16 @@ def _solver_sources_schema(
                     )
                 },
             ): _entity(),
+            # nimbus #1537: an optional second matched-rate source, merged
+            # per period with the first (see const.py).
+            vol.Optional(
+                CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2
+                    )
+                },
+            ): _entity(),
             # nimbus issue #567: an ADDITIONAL/alternative price-spike
             # trigger for a household with a real named alert product
             # (e.g. Amber's own Spike) -- see const.py's own comment on
@@ -874,7 +886,10 @@ async def _energy_dashboard_solver_source_suggestions(hass: Any) -> dict[str, st
         from homeassistant.components.energy.data import async_get_manager
 
         manager = await async_get_manager(hass)
-        sources = (manager.data or {}).get("energy_sources") or []
+        # nimbus #1589: HA 2026.3+ stores a grid source flat (one connection
+        # per source), not as flow_from / flow_to lists; normalised so the
+        # loop below reads both.
+        sources = energy_sources(manager.data)
     except Exception:  # noqa: BLE001 -- see docstring: no Energy Dashboard, an older HA, or any unexpected shape must mean "an unfilled form", never a broken wizard step
         return {}
 
@@ -1004,7 +1019,7 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
         from homeassistant.components.energy.data import async_get_manager
 
         manager = await async_get_manager(hass)
-        sources = (manager.data or {}).get("energy_sources", [])
+        sources = energy_sources(manager.data)  # nimbus #1589, see above
 
         def _ok(entity_id: str | None) -> str | None:
             if not entity_id:
@@ -1191,6 +1206,7 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
     # nimbus issue #1213: carried through the wizard's own merge like

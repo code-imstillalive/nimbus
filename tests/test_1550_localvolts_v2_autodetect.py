@@ -30,6 +30,7 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
 )
@@ -41,6 +42,8 @@ FULL = {
     "flex_up_forecast": "sensor.localvolts_v2_flex_up_forecast",
     "current_sell_rate": "sensor.localvolts_v2_current_sell_rate",
     "p2p_settlement_history": "sensor.localvolts_v2_p2p_settlement_history",
+    # nimbus #1537: the second matched-rate source (haeo_feed.py key).
+    "sell_matched_cost": "sensor.localvolts_v2_sell_p2p_matched_cost",
 }
 
 
@@ -79,13 +82,14 @@ def _detect(hass, keys=FULL, disabled=()):
         return pa.detect_localvolts_v2_profile(hass)
 
 
-def test_full_lv_v2_install_gives_the_five_field_profile():
+def test_full_lv_v2_install_proposes_the_profile_and_the_transitional_binding():
     assert _detect(_hass()) == {
         CONF_SOLVER_IMPORT_PRICE_SENSOR: FULL["buy_flex_up"],
         CONF_SOLVER_EXPORT_PRICE_SENSOR: FULL["sell_flex_up"],
         CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: FULL["flex_up_forecast"],
         CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: FULL["current_sell_rate"],
         CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: FULL["p2p_settlement_history"],
+        CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: FULL["sell_matched_cost"],
     }
 
 
@@ -102,11 +106,14 @@ def test_matching_is_by_unique_id_not_entity_id():
 
 def test_an_older_lv_v2_omits_what_it_does_not_have():
     older = {
-        k: v for k, v in FULL.items() if k not in ("sell_flex_up", "flex_up_forecast")
+        k: v
+        for k, v in FULL.items()
+        if k not in ("sell_flex_up", "flex_up_forecast", "sell_matched_cost")
     }
     found = _detect(_hass(), older)
     assert CONF_SOLVER_EXPORT_PRICE_SENSOR not in found
     assert CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR not in found
+    assert CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2 not in found
     assert len(found) == 3
 
 
@@ -156,6 +163,28 @@ def test_startup_notifies_when_lv_v2_is_installed_and_fields_are_empty():
     notes = _notifications(hass)
     assert pa.NOTIFY_DETECTED_ID in notes
     assert "5 of Nimbus's 5" in notes[pa.NOTIFY_DETECTED_ID]
+
+
+def test_the_transitional_p2p_binding_is_not_part_of_the_basic_contract():
+    """nimbus #1537 (Mark Purcell's review of PR #1592): the second matched-
+    rate source is a transitional binding, not a sixth Basic sensor. An
+    install with the five profile fields set and it EMPTY is complete: no
+    "fields are empty" notification."""
+    hass = _hass()
+    five = {f: FULL[k] for f, k in pa.LV_V2_PROFILE.items()}
+    assert CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2 not in five
+    assert len(five) == 5
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        asyncio.run(pa.async_notify_pricing_setup(hass, five))
+    assert pa.NOTIFY_DETECTED_ID not in _notifications(hass)
+
+
+def test_the_second_p2p_source_is_prefilled_when_empty():
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        out = pa.with_detected_profile(_hass(), {})
+    assert (
+        out[CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2] == FULL["sell_matched_cost"]
+    )
 
 
 def test_startup_is_quiet_once_the_profile_is_set():
@@ -235,11 +264,17 @@ def test_fees_set_alongside_buy_flex_up_are_flagged():
         asyncio.run(
             pa.async_notify_pricing_setup(hass, {**_complete(), **REFERENCE_FEES})
         )
-    notes = _notifications(hass)
-    assert list(notes) == [pa.NOTIFY_FEES_DOUBLED_ID]
-    msg = notes[pa.NOTIFY_FEES_DOUBLED_ID]
-    assert "sensor.localvolts_v2_buy_flex_up" in msg
-    assert "solver_flat_fee_rate" in msg and "solver_network_fee_3_rate" not in msg
+    # nimbus #1574 stage 2: reported as a Repair (setup_health), not a
+    # notification; the startup check only dismisses the old notification.
+    assert _notifications(hass) == {}
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        doubled = pa.detect_fees_doubled(hass, {**_complete(), **REFERENCE_FEES})
+    assert doubled is not None
+    flex_up, listed = doubled
+    assert flex_up == "sensor.localvolts_v2_buy_flex_up"
+    assert (
+        "solver_flat_fee_rate" in listed and "solver_network_fee_3_rate" not in listed
+    )
 
 
 def test_zero_fees_with_buy_flex_up_are_quiet():

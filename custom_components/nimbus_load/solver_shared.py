@@ -520,11 +520,17 @@ def ha_get(entity_id: str) -> dict:
         state = NATIVE.hass.states.get(entity_id)
         if state is None:
             raise _native_http_error(entity_id, 404, f"Entity {entity_id} not found")
-        return {
+        out = {
             "entity_id": state.entity_id,
             "state": state.state,
             "attributes": dict(state.attributes),
         }
+        # nimbus #1537: the REST path already returns last_updated; the
+        # P2P matched-rate merge compares two sources' freshness by it.
+        updated = getattr(state, "last_updated", None)
+        if isinstance(updated, datetime):
+            out["last_updated"] = updated.isoformat()
+        return out
     req = urllib.request.Request(
         f"{sw.HA_BASE}/api/states/{entity_id}",
         headers={"Authorization": f"Bearer {sw._load_token()}"},

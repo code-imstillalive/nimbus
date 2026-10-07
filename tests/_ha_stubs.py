@@ -651,6 +651,9 @@ def install_ha_stubs() -> None:
         # registry, so a device genuinely has no sibling entities, and
         # discovery correctly returns None rather than a guessed sensor.
         async_entries_for_device=MagicMock(return_value=[]),
+        # nimbus #1578: AEMO NEM Data detection lists an entry's entities.
+        # `[]` for the same reason as above: no registry is populated.
+        async_entries_for_config_entry=MagicMock(return_value=[]),
     )
     module(
         "homeassistant.helpers.device_registry",

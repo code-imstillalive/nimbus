@@ -1,0 +1,99 @@
+{
+  "source": "nimbus #1550, Mark Purcell's live MCP capture, 6 Oct 2026, read-only (comment 6008674744). Selected real rows of 367, copied as published.",
+  "integration": "nem_pd7day 3.19.2",
+  "sample_alias": "pd7_wholesale",
+  "native_path": "attributes.forecast",
+  "unit": "$/kWh",
+  "selected_native_rows": [
+    {
+      "nemtime": "2026-10-06T13:00:00+10:00",
+      "time": "2026-10-06T12:30:00+10:00",
+      "raw_value": 0.02465,
+      "calibrated": 0.043006,
+      "value": 0.043006
+    },
+    {
+      "nemtime": "2026-10-14T04:00:00+10:00",
+      "time": "2026-10-14T03:30:00+10:00",
+      "raw_value": 0.13069,
+      "calibrated": 0.081885,
+      "value": 0.081885
+    }
+  ],
+  "tariff_samples": [
+    {
+      "sample_alias": "pd7_import",
+      "native_path": "attributes.forecast",
+      "unit": "$/kWh",
+      "selected_native_rows": [
+        {
+          "time": "2026-10-06T12:30:00+10:00",
+          "nemtime": "2026-10-06T13:00:00+10:00",
+          "spot_raw": 0.02465,
+          "spot": 0.043006,
+          "value": 0.081069,
+          "period": "Day",
+          "network_rate": 0.00434
+        },
+        {
+          "time": "2026-10-14T03:30:00+10:00",
+          "nemtime": "2026-10-14T04:00:00+10:00",
+          "spot_raw": 0.13069,
+          "spot": 0.081885,
+          "value": 0.189752,
+          "period": "Overnight",
+          "network_rate": 0.06069
+        }
+      ]
+    },
+    {
+      "sample_alias": "pd7_export",
+      "native_path": "attributes.forecast",
+      "unit": "$/kWh",
+      "selected_native_rows": [
+        {
+          "time": "2026-10-06T12:30:00+10:00",
+          "nemtime": "2026-10-06T13:00:00+10:00",
+          "spot_raw": 0.02465,
+          "spot": 0.043006,
+          "value": 0.024859,
+          "period": null,
+          "network_rate": null
+        },
+        {
+          "time": "2026-10-14T03:30:00+10:00",
+          "nemtime": "2026-10-14T04:00:00+10:00",
+          "spot_raw": 0.13069,
+          "spot": 0.081885,
+          "value": 0.089412,
+          "period": null,
+          "network_rate": null
+        }
+      ]
+    },
+    {
+      "sample_alias": "pd7_continuation",
+      "native_path": "attributes.forecast",
+      "unit": "$/kWh",
+      "parent_metadata": {
+        "interval_minutes": 30
+      },
+      "selected_native_rows": [
+        {
+          "nemtime": "2026-10-07T14:00:00+10:00",
+          "time": "2026-10-07T13:30:00+10:00",
+          "raw_value": -0.010995,
+          "calibrated": 0.015555,
+          "value": 0.015555
+        },
+        {
+          "nemtime": "2026-10-14T04:00:00+10:00",
+          "time": "2026-10-14T03:30:00+10:00",
+          "raw_value": 0.13069,
+          "calibrated": 0.081885,
+          "value": 0.081885
+        }
+      ]
+    }
+  ]
+}

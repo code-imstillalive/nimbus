@@ -1,0 +1,87 @@
+{
+ "_note": "Tester install (#1526), diagnostics 2026-10-06 15:54 AEST, before he changed his solar sensor. Only setting names, subentry types and sensor ids are kept.",
+ "options": {
+  "battery_sensor": "sensor.battery_power_1_2",
+  "grid_sensor": "sensor.smappee_grid_realtime",
+  "solar_sensor": "sensor.solar_production_total",
+  "solver_battery_power_sensor": null,
+  "solver_solar_power_sensor": null,
+  "solver_whole_house_cross_check_sensor": null,
+  "solver_load_forecast_sensor": "sensor.nimbus_smappee_consumption_realtime_forecast",
+  "solver_battery_soc_sensor": "sensor.battery_soc_average"
+ },
+ "subentries": [
+  {
+   "subentry_type": "power_signal",
+   "title": "Whole House",
+   "data": {
+    "load_sensor": "sensor.smappee_consumption_realtime",
+    "signal_role": "other"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Pool Pump",
+   "data": {
+    "load_sensor": "sensor.pool_pump_current_consumption"
+   }
+  },
+  {
+   "subentry_type": "power_signal",
+   "title": "Smappee Grid Realtime",
+   "data": {
+    "load_sensor": "sensor.smappee_grid_realtime",
+    "signal_role": "grid"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Circuit - Lights 1",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_light_circuit_1_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Circuit - Lights 2",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_light_circuit_2_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Circuit - Power 2",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_power_circuit_2_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Circuit - Power 1",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_power_circuit_1_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Oven",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_oven_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Circuit - Power 3",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_power_circuit_3_realtime"
+   }
+  },
+  {
+   "subentry_type": "load",
+   "title": "Hot Water",
+   "data": {
+    "load_sensor": "sensor.smappee_mqtt_hot_water_realtime"
+   }
+  }
+ ]
+}

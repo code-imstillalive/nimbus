@@ -212,3 +212,34 @@ def test_attribute_keys_are_pinned_so_a_comment_elsewhere_cannot_go_stale():
         "subentry_status",
         "generated_at",
     }
+
+
+def test_a_deterministic_load_with_no_model_is_not_flagged_as_never_trained():
+    """nimbus #1575 (Mark's review of #1593): a fixed-hours Load forecasts
+    from its configured rule with no model, so it is ready -- otherwise the
+    status sensor says "Learning" about a Load that needs no learning."""
+    subentries = {
+        "pool": _fake_subentry("pool", SUBENTRY_TYPE_LOAD, "Pool pump"),
+        "oven": _fake_subentry("oven", SUBENTRY_TYPE_LOAD, "Oven"),
+    }
+    runtime_data = {
+        "pool": _fake_coordinator(
+            {
+                "trained_at": None,
+                "training_points": 0,
+                "forecast_origin": "configured_rule",
+                "forecast_readiness": "ready",
+                "forecast": [{"time": "t", "value": 1.3}],
+            }
+        ),
+        "oven": _fake_coordinator(
+            {"trained_at": None, "forecast_readiness": "not_trained"}
+        ),
+    }
+    attrs = sensor.NimbusHealthReportSensor(
+        _fake_entry(subentries, runtime_data), "1.0.0"
+    ).extra_state_attributes
+    assert [n["subentry_id"] for n in attrs["never_trained"]] == ["oven"]
+    status = {s["subentry_id"]: s for s in attrs["subentry_status"]}
+    assert status["pool"]["forecast_origin"] == "configured_rule"
+    assert status["pool"]["forecast_readiness"] == "ready"
