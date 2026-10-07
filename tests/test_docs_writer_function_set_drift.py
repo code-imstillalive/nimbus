@@ -688,6 +688,13 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #1537 item 1 -- price sensors read in their own unit
+        # (c/kWh, $/MWh). The docs copy has no generic price reader at all
+        # (it reads the reference household's own $/kWh sensors), so there
+        # is nothing there yet for these to scale.
+        "_price_scale_of_state",
+        "price_now",
+        "_resample_generic_price_forecast_raw",
         # nimbus issue #1583 -- an OpenADR 3 VEN price sensor's rows come
         # from its get_forecast action. The docs copy has no provider
         # adapters at all (no price_intervals, no generic coverage reader

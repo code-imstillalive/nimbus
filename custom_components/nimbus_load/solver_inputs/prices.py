@@ -351,7 +351,7 @@ def build_price_arrays(
             spot_import_raw, import_real_mask = _import_fc
         else:
             spot_import_raw = [
-                sw.safe_num(cfg["solver_import_price_sensor"])
+                sw.price_now(cfg["solver_import_price_sensor"])
             ] * n_periods
             import_real_mask = [True] * n_periods
         _export_fc = sw.resample_generic_price_forecast_with_coverage(
@@ -360,7 +360,7 @@ def build_price_arrays(
         if _export_fc is not None:
             spot_export, export_real_mask = _export_fc
         else:
-            spot_export = [sw.safe_num(cfg["solver_export_price_sensor"])] * n_periods
+            spot_export = [sw.price_now(cfg["solver_export_price_sensor"])] * n_periods
             export_real_mask = [True] * n_periods
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional

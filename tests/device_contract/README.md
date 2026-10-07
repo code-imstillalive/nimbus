@@ -23,6 +23,7 @@ DC-001 onward land, there is an independent target to check them against.
 | `contract_divergences.json` | where that legacy behaviour differs from the oracle, each with an owner and a class: `open_decision` or `candidate_defect`. |
 | `approved_changes.json` | the behaviour-change manifest: a legacy output may change only when listed here. Starts empty. |
 | `test_legacy_characterisation.py` | legacy parity (today's code matches the record or an approved change) and the divergence ledger (every divergence declared, every declared one still real). |
+| `test_repeatability.py` | the whole suite in three fresh interpreters and once in reversed order, per-test outcomes compared; a test that passes only on warm module state fails it. Its negative control runs an order-dependent pair and must see them differ. |
 
 Status changes and expected results change only through a reviewed PR, never
 by regenerating a snapshot.

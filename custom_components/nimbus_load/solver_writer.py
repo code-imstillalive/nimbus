@@ -4528,6 +4528,31 @@ def resample_generic_price_forecast(
     return r[0] if r is not None else None
 
 
+def _price_scale_of_state(state: dict) -> float:
+    """nimbus #1537: the factor taking a price sensor's values to $/kWh, from
+    the `unit_of_measurement` of a state already read (see
+    price_intervals.price_unit_scale)."""
+    attrs = state.get("attributes") if isinstance(state, dict) else None
+    return price_intervals.price_unit_scale((attrs or {}).get("unit_of_measurement"))
+
+
+def price_now(entity_id: str, fallback: float = 0.0) -> float:
+    """A price sensor's current state in $/kWh, scaled by its own unit (nimbus
+    #1537 -- a c/kWh sensor used to be read 100x too high). One read of the
+    entity, as safe_num() makes; an unreadable state goes through safe_num()
+    for its warning and fallback (`fallback` is in $/kWh)."""
+    try:
+        state = ha_get(entity_id)
+    except Exception as err:  # noqa: BLE001 -- safe_num() decides, as it always has
+        _LOGGER.debug("price_now(%s): read failed (%s); via safe_num()", entity_id, err)
+        return safe_num(entity_id, fallback=fallback)
+    scale = _price_scale_of_state(state)
+    try:
+        return float(state["state"]) * scale
+    except (KeyError, TypeError, ValueError):
+        return safe_num(entity_id, fallback=fallback / scale) * scale
+
+
 def _openadr_forecast_rows(entity_id: str) -> list | None:
     """nimbus #1583: an OpenADR 3 VEN price sensor's full forecast rows, from
     its `openadr3_ven.get_forecast` action (the sensor publishes only a
@@ -4545,6 +4570,27 @@ def _openadr_forecast_rows(entity_id: str) -> list | None:
 
 def resample_generic_price_forecast_with_coverage(
     entity_id: str, grid_times: list[datetime]
+) -> tuple[list[float], list[bool]] | None:
+    """`_resample_generic_price_forecast_raw()` in $/kWh: its values scaled by
+    the sensor's own `unit_of_measurement` (nimbus #1537), from the same single
+    read of the entity. See that function's docstring for the resampling."""
+    try:
+        state = ha_get(entity_id)
+    except Exception as err:  # noqa: BLE001 -- the raw reader logs and returns None
+        _LOGGER.debug(
+            "price forecast %s: read failed (%s); raw reader retries", entity_id, err
+        )
+        return _resample_generic_price_forecast_raw(entity_id, grid_times)
+    r = _resample_generic_price_forecast_raw(entity_id, grid_times, state)
+    scale = _price_scale_of_state(state)
+    if r is None or scale == 1.0:
+        return r
+    values, real = r
+    return [v * scale for v in values], real
+
+
+def _resample_generic_price_forecast_raw(
+    entity_id: str, grid_times: list[datetime], state: dict | None = None
 ) -> tuple[list[float], list[bool]] | None:
     """Same resampling as resample_generic_price_forecast() (see that
     function's own docstring for the full "why a generic {time,value}
@@ -4565,7 +4611,7 @@ def resample_generic_price_forecast_with_coverage(
     mask, unchanged for every other existing caller.
     """
     try:
-        state = ha_get(entity_id)
+        state = ha_get(entity_id) if state is None else state
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         # nimbus issue #363 (Mark Purcell, codebase review): fallback
         # stays, breadcrumb added.
@@ -8758,8 +8804,10 @@ def main() -> None:
     # simplification, not just a hardcode removal.
     settled_import_sensor = cfg["solver_import_price_sensor"]
     settled_export_sensor = cfg["solver_export_price_sensor"]
-    _settled_import_value = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
-    _settled_export_value = safe_num(settled_export_sensor, fallback=spot_export[0])
+    _settled_import_value = price_now(
+        settled_import_sensor, fallback=spot_import_raw[0]
+    )
+    _settled_export_value = price_now(settled_export_sensor, fallback=spot_export[0])
     for _i in range(n_settled_periods):
         spot_import_raw[_i] = _settled_import_value
         spot_export[_i] = _settled_export_value
