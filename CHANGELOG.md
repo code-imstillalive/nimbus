@@ -9,6 +9,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **A device resolver for the two-step setup**
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
+  what the Energy Dashboard already states: each source's power sensor in Home
+  Assistant's own sign convention, the battery's state of charge, and which
+  device's total contains which. Where a source names no power sensor, it finds
+  candidates by matching each one's history, hour by hour, against the source's
+  energy counter. That works on hybrid inverters with many power sensors on one
+  device. Every result is a candidate or hypothesis, never applied by itself:
+  - **Ties are never broken by order.** Exact and near ties are reported as
+    `ambiguous`, so you are asked rather than guessed for.
+  - **Missing data is never read as zero.** Gaps, too little history, or counters
+    that barely moved give `insufficient_evidence`, and so does a direction that
+    cannot be told apart.
+  - **The energy balance check** (grid ≈ load − solar − battery) lists every
+    single change that would close it, and says `ambiguous` when more than one
+    fits.
+  - **Grid sources are kept as Home Assistant keeps them**, and older
+    import/export lists are never paired by their position.
+
+  It's groundwork only; nothing uses it yet.
+
 - **Setup problems are Home Assistant Repairs that clear themselves**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574), stage 2 of
   the two-step setup). Settings → Repairs now says, in plain words, when:
