@@ -507,6 +507,15 @@ class TestMainGoldenOutput:
         }
         actual_non_time.pop("forecast")
         actual_non_time.pop("batteries")
+        # nimbus #1360: cycles since the process started, so their values
+        # depend on how many solves this test process has already run.
+        # Pinned by shape here; their values by the isolated golden master.
+        diag = dict(actual_non_time["solve_diagnostics"])
+        attempted = diag.pop("solves_attempted")
+        failures = diag.pop("solver_failures")
+        assert isinstance(attempted, int) and attempted >= 1
+        assert isinstance(failures, int) and 0 <= failures <= attempted
+        actual_non_time["solve_diagnostics"] = diag
         assert actual_non_time == expected_non_time, (
             "main()'s pushed attributes (excluding forecast/generated_at/"
             "solve_seconds) no longer match the golden output -- if this "
