@@ -202,6 +202,10 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from power_units import power_scale_to_kw  # type: ignore[no-redef]
 try:
+    from . import price_intervals
+except ImportError:  # pragma: no cover - standalone/cron path
+    import price_intervals  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
@@ -4556,7 +4560,10 @@ def resample_generic_price_forecast_with_coverage(
             exc_info=True,
         )
         return None
-    forecast = state.get("attributes", {}).get("forecast")
+    attrs = state.get("attributes") or {}
+    if price_intervals.is_provider_shape(attrs):  # nimbus #1550 adapters
+        return price_intervals.provider_forecast_on_grid(attrs, grid_times)
+    forecast = attrs.get("forecast")
     if not forecast:
         return None
     points: list[tuple[datetime, float]] = []
@@ -4792,6 +4799,7 @@ def fetch_aemo_forecast(
     real 5-min-of-day structure comes from compute_5min_offset() below,
     layered on top of this coarser forward anchor. Returns [] (caller
     falls back further) if unavailable -- must never crash the writer.
+    nimbus #1578: AEMO NEM Data rows too, see price_intervals.
     """
     if not sensor_id:
         return []
@@ -4799,6 +4807,8 @@ def fetch_aemo_forecast(
         fc = ha_get(sensor_id)["attributes"]["forecast"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
+    if price_intervals.is_aemo_nem_rows(fc):
+        return price_intervals.as_step_points(price_intervals.aemo_nem_intervals(fc))
     return sorted(
         (
             (parse_iso(p["time"]), p["calibrated"])
