@@ -248,6 +248,41 @@ def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
     return None
 
 
+def _provider_intervals(attrs: Any) -> list[PriceInterval] | None:
+    if not isinstance(attrs, dict):
+        return None
+    found = intervals_from_rows(attrs.get("forecast"))
+    if found is None and AMBER_EXPRESS_DETAILED_KEY in attrs:
+        # nimbus #1580: Amber Express. `forecast[].value` as published (basis,
+        # feed-in sign and demand window already applied upstream), on the
+        # interval boundaries of its `detailedForecast`.
+        found = amber_express_intervals(
+            attrs.get("forecast"), attrs[AMBER_EXPRESS_DETAILED_KEY]
+        )
+    return found
+
+
+def is_provider_shape(attrs: Any) -> bool:
+    """True when a price sensor's attributes are a provider shape this module
+    reads (so the solver's generic `{time, value}` reader hands it here)."""
+    return _provider_intervals(attrs) is not None
+
+
+def provider_forecast_on_grid(
+    attrs: dict[str, Any], grid_times: list[datetime]
+) -> tuple[list[float], list[bool]] | None:
+    """(value, real) per grid time for a provider shape, or None when no row
+    is usable. The import/export price reader's path for these providers
+    (nimbus #1578, Mark Purcell: AEMO spot is often used as a feed-in price,
+    and with network tariff as a buy price -- the configured network/flat
+    fees are added to the import price downstream; nimbus #1581: PD7DAY's
+    published value, on its own `nemtime` interval ends)."""
+    intervals = _provider_intervals(attrs)
+    if not intervals:
+        return None
+    return on_grid(intervals, grid_times)
+
+
 def on_grid(
     intervals: list[PriceInterval], grid_times: list[datetime]
 ) -> tuple[list[float], list[bool]]:
