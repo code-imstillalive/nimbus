@@ -763,6 +763,17 @@ ATTR_TRAINING_POINTS: Final = "training_points"
 # entities are which -- config drives this attribute, nothing downstream
 # should ever hardcode a list of entity names to get the same answer.
 ATTR_MODE: Final = "mode"
+# nimbus issue #1575 (Mark's review of #1593): where a forecast came from,
+# and whether it is usable. A configured rule is not a learned forecast, and
+# its exact band is not measured certainty; an incomplete rule is not missing
+# history. See coordinator.forecast_provenance().
+ATTR_FORECAST_ORIGIN: Final = "forecast_origin"
+ATTR_FORECAST_READINESS: Final = "forecast_readiness"
+FORECAST_ORIGIN_RULE: Final = "configured_rule"
+FORECAST_ORIGIN_LEARNED: Final = "learned"
+FORECAST_READY: Final = "ready"
+FORECAST_INCOMPLETE_RULE: Final = "incomplete_rule"
+FORECAST_NOT_TRAINED: Final = "not_trained"
 # Model validation diagnostics (2026-08-15) -- raw MAE and its scale-
 # independent MASE counterpart, both dicts keyed by candidate name
 # ("knn"/"gbrt"/"naive"), exposed on every ML-path load's own forecast

@@ -219,3 +219,29 @@ def test_refresh_creates_then_clears_a_repair():
 def test_refresh_never_raises():
     hass = SimpleNamespace(data=None)  # setdefault on None raises inside
     asyncio.run(sh.async_refresh_health(hass, _entry(FULL_SOLVER, {})))
+
+
+def test_an_incomplete_fixed_hours_rule_is_reported_as_configuration_not_history():
+    """nimbus #1575 (Mark's review of #1593): an incomplete rule and missing
+    history stay distinguishable, here too."""
+    issues = sh.evaluate_health(
+        options=FULL_SOLVER,
+        forecasts=[
+            (
+                "pool",
+                "Pool",
+                {"trained_at": None, "forecast_readiness": "incomplete_rule"},
+            ),
+            ("oven", "Oven", {"trained_at": None, "forecast_readiness": "not_trained"}),
+            ("hws", "HWS", {"trained_at": None, "forecast_readiness": "ready"}),
+        ],
+        hub_up_for=sh.TRAIN_GRACE,
+    )
+    reasons = {
+        i.placeholders["name"]: i.placeholders["reason"]
+        for i in issues
+        if i.kind == sh.KIND_NOT_TRAINED
+    }
+    assert set(reasons) == {"Pool", "Oven"}
+    assert "schedule hours" in reasons["Pool"]
+    assert "history" in reasons["Oven"]

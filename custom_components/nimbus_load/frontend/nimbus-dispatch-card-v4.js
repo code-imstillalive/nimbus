@@ -85,8 +85,29 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
+    this._adoptSolverSensors();
     this._maybeFetchHistory();
     this._render();
+  }
+
+  // nimbus #1574 stage 1: a field left blank in the card's YAML follows the
+  // Solver's own sensor on every render, not only when the card is first
+  // added (getStubConfig). A tester's card was created before his Solver
+  // had a battery power sensor, so it stayed blank forever: no "Actual"
+  // history line, no live battery reading. An explicit YAML value always
+  // wins; only blank fields adopt.
+  _adoptSolverSensors() {
+    const cfg = this._hass && this._hass.states && this._hass.states["sensor.nimbus_solver_config"];
+    const attrs = (cfg && cfg.attributes) || {};
+    const pick = (own, solverKey) => own || attrs[solverKey] || "";
+    const batt = pick(this.config.battery_power_entity, "solver_battery_power_sensor");
+    if (batt !== this._battEntity) {
+      this._battEntity = batt;
+      this._historyFetchedAt = 0;  // a newly adopted sensor needs its history
+      this._actualHistory = [];
+    }
+    this._socEntity = pick(this.config.battery_soc_entity, "solver_battery_soc_sensor");
+    this._solarEntity = pick(this.config.solar_power_entity, "solver_solar_power_sensor");
   }
 
   // Clears the render throttle so the very next hass update (arriving once

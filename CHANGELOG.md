@@ -56,6 +56,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     wholesale price, so it is never offered as an import or export price.
   - Tested against Mark Purcell's live capture from #1550 (6 Oct 2026),
     through the real solver code.
+- **Setup offers to fill the Solver's missing inputs from sensors you already
+  chose, one click each** ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574),
+  stage 1 of the two-step setup). When the Solver's battery power, solar power
+  or whole-house cross-check is empty and you already named that sensor in
+  Forecaster settings, Settings → Repairs offers it. The offer shows the sensor's
+  current reading and, for the battery, the sign the Solver will apply. **Nothing
+  changes until you press Submit**, and Submit sets only that one field.
+  - An energy total (Wh/kWh) or a unit-less sensor is not offered. Instead a
+    Repair says why, and clears itself once fixed.
+  - A sensor that does not exist yet gets 30 minutes to appear before it is
+    reported.
+  - Only a whole-house Power Signal's source is offered as the cross-check, never
+    a single circuit's.
+  - Sign settings are never changed.
+  - A field you clear later is not offered again.
+  - No forecasts are created: per Mark's device contract, battery and grid
+    power is telemetry, not something to train a forecast on.
+  - The Control Panel card's blank battery, SoC and solar fields now follow the
+    Solver's sensors on every render, so its history line appears without
+    editing the card.
 
 - **A device resolver for the two-step setup**
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). It reads
@@ -171,6 +191,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   and dispatch are unchanged, and a feasible pin's log line is byte-identical.
   Still off unless `custom_components.nimbus_load.solver_plan.period0_pin` is
   at DEBUG.
+
+### Fixed
+- **A deterministic load publishes its forecast straight away**
+  ([#1575](https://github.com/code-imstillalive/nimbus/issues/1575)). A load
+  with an expected kW and a schedule window is meant to forecast exactly that
+  kW inside the window and 0 outside it, without the ML model. It still waited
+  for a model to train first, so a mostly-idle load that could not train
+  published no forecast at all. It now publishes the configured schedule from
+  the first update, trained or not, and counts as ready. Settings → Repairs
+  and the status sensor no longer report it as "still learning".
+  - Each forecast sensor now says where its forecast comes from:
+    `forecast_origin` is `configured_rule` or `learned`, and
+    `forecast_readiness` is `ready`, `incomplete_rule` or `not_trained`.
+  - A configured rule's exact band describes the rule, not certainty about
+    the appliance.
+  - An expected power set without both schedule hours is reported as an
+    incomplete rule, not as missing history.
+- **A forecast is never trained on its own source sensor**
+  ([#1540](https://github.com/code-imstillalive/nimbus/issues/1540)). A
+  temperature or humidity signal whose source was also the hub's temperature
+  or humidity sensor was given its own value as an input. It learned to copy
+  it, and reported an accuracy it did not have (0.03 °C four hours ahead). The
+  hub's temperature, temperature forecast, humidity and curtailment sensors
+  are now left out for a signal or load whose own source they are, the same
+  rule the battery, grid and solar inputs already followed. A model saved
+  before this fix that learned from its own source retrains once at startup,
+  so expect such a signal's reported accuracy to drop to a believable figure.
 
 ## [0.94.441] - 2026-10-06
 

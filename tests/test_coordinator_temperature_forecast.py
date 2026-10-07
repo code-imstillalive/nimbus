@@ -63,7 +63,10 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import coordinator
-from custom_components.nimbus_load.const import CONF_TEMPERATURE_FORECAST_SENSOR
+from custom_components.nimbus_load.const import (
+    CONF_LOAD_SENSOR,
+    CONF_TEMPERATURE_FORECAST_SENSOR,
+)
 from custom_components.nimbus_load.coordinator import (
     NimbusCoordinator,
     _normalize_forecast_timestamp,
@@ -98,6 +101,9 @@ _AEST = timezone(timedelta(hours=10))
 
 def _make_bare_coordinator() -> NimbusCoordinator:
     coord = NimbusCoordinator.__new__(NimbusCoordinator)
+    # #1540: the feature accessors compare against this subentry's own load
+    # sensor, which none of these tests' sources are.
+    coord.subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.some_load"})
     # #269 state -- see coordinator.py's own __init__ for what each means.
     coord._temp_forecast_cache = []
     coord._temp_forecast_cache_entity = None
