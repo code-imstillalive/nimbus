@@ -452,6 +452,21 @@ def on_grid(
     return values, covered
 
 
+def price_unit_scale(unit: Any) -> float:
+    """The factor taking a price sensor's values to $/kWh, from its
+    `unit_of_measurement` (nimbus #1537). `c/kWh` and `¢/kWh` are cents
+    (x 0.01); a `/MWh` unit is per megawatt-hour (x 0.001, x 0.00001 for
+    cents). Anything else, including no unit, is taken as already $/kWh
+    (x 1): that is how every price sensor has always been read, so an install
+    whose sensor declares no unit is unchanged."""
+    text = str(unit or "").strip().lower().replace(" ", "")
+    for per, factor in (("/kwh", 1.0), ("/mwh", 0.001)):
+        if text.endswith(per):
+            prefix = text[: -len(per)]
+            return factor * (0.01 if prefix in ("c", "¢") else 1.0)
+    return 1.0
+
+
 @dataclass(frozen=True)
 class Coverage:
     """What a set of intervals actually covers."""
