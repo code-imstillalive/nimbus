@@ -1,6 +1,6 @@
 # Two-step setup: Nimbus finds your site, you confirm it
 
-**Status:** proposal for review ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). Nothing here is built yet.
+**Status:** proposal for review ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). Stages 1, 2 and 2a have been built ahead of this approval (see §12); stage 3 onward is not.
 
 **The bar, in the household's words (2026-10-06):**
 
@@ -283,10 +283,10 @@ Following the contract's own sequence:
 
 | stage | delivers | status |
 |---|---|---|
-| **0. Agree the device contract** | Mark's schema on #1574; his roadmap and DC-000 evidence gates (#1600) | #1600; DC-000 implementation started |
-| **1. Repair existing gaps** | offer the Solver's empty inputs from confirmed mappings as one-click Repairs, with the card following the Solver's sensors (no forecasts created) | #1587 (open) |
+| **0. Agree the device contract** | Mark's schema on #1574; his roadmap and DC-000 evidence gates (#1600) | #1600 (draft); DC-000's first part is #1604 (open) |
+| **1. Repair existing gaps** | offer the Solver's empty inputs from confirmed mappings as one-click Repairs, with the card following the Solver's sensors (no forecasts created) | #1587 (merged 7 Oct) |
 | **2. Gaps as Repairs** | the first readiness surface: untrained forecasts, energy-unit inputs, doubled fees, missing Solver inputs | #1588 (merged) |
-| **2a. Discovery evidence** | `device_resolver.py`: Energy Dashboard bindings, power↔energy pairing, the balance check | #1590 (open); the schema fix is #1596 (open) |
+| **2a. Discovery evidence** | `device_resolver.py`: Energy Dashboard bindings, power↔energy pairing, the balance check | #1590 (merged); the schema fix is #1596 (merged 7 Oct) |
 | **3. Device definitions** | the contract's types in storage; migration from today's settings, with conflicts surfaced; today's settings generated from them | next |
 | **4. Device-first Basic** | discover → "here is your site" → confirm, starting with Grid + whole-house Load, then optional Solar and Battery | after 3 |
 | **5. Expand progressively** | flexible loads, several batteries/EVs, several connections, advanced constraints, without duplicating definitions | after 4 |
@@ -294,7 +294,7 @@ Following the contract's own sequence:
 
 Each stage is released and validated on devhub.
 
-**Implementation is running ahead of the evidence gate, and that is known, not hidden** (Mark's review of #1600). #1587, #1590, #1592 and #1593 were written before DC-000's fixtures and gates existed. Each is held to DC-000's acceptance once its fixtures do. The registry in `tests/device_contract/` lists their requirements as `pending`, not passed. Approving this document does not authorise or excuse any of them; each still stands on its own review and tests.
+**Implementation is running ahead of the evidence gate, and that is known, not hidden** (Mark's review of #1600). #1587, #1590, #1592 and #1593 were written before DC-000's fixtures and gates existed, and all four merged on 7 Oct. Each is held to DC-000's acceptance once its fixtures do. The registry in `tests/device_contract/` lists their requirements as `pending`, not passed. Approving this document does not authorise or excuse any of them; each still stands on its own review and tests.
 
 ---
 
