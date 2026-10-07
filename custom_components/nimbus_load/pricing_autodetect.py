@@ -79,6 +79,7 @@ from .price_intervals import (
     AEMO_NEM_FORECAST_KEY,
     AMBER_CORE_DOMAIN,
     AMBER_EXPRESS_DOMAIN,
+    OPENADR_DOMAIN,
     PD7DAY_DOMAIN,
 )
 
@@ -107,6 +108,7 @@ NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
 NOTIFY_AEMO_DETECTED_ID = "nimbus_aemo_nem_detected"
 NOTIFY_AMBER_EXPRESS_DETECTED_ID = "nimbus_amber_express_detected"
 NOTIFY_AMBER_CORE_DETECTED_ID = "nimbus_amber_electric_detected"
+NOTIFY_OPENADR_DETECTED_ID = "nimbus_openadr_detected"
 NOTIFY_P2P_TRAP_ID = "nimbus_p2p_matched_rate_without_price_array"
 NOTIFY_MISSING_ID = "nimbus_pricing_entity_missing"
 NOTIFY_FEES_DOUBLED_ID = "nimbus_fees_on_top_of_flex_up"
@@ -310,6 +312,21 @@ def detect_amber_core_profile(hass: HomeAssistant) -> dict[str, str]:
     return out
 
 
+def detect_openadr_price_sensors(hass: HomeAssistant) -> dict[str, list[str]]:
+    """{"import": [...], "export": [...]} entity_ids of every enabled OpenADR
+    3 VEN price sensor (nimbus #1583), by integration and built-in unique_id
+    (`<entry>_<program>_price` / `..._export_price`). Reported, never
+    pre-filled: OpenADR states neither currency nor whether a price is a full
+    tariff or an incentive added to one."""
+    found = _registry_candidates(
+        hass, OPENADR_DOMAIN, lambda uid: uid.endswith("_price")
+    )
+    out: dict[str, list[str]] = {"import": [], "export": []}
+    for uid, entity_id in sorted(found.items()):
+        out["export" if uid.endswith("_export_price") else "import"].append(entity_id)
+    return out
+
+
 def detect_regional_spot_forecast(
     hass: HomeAssistant,
 ) -> tuple[dict[str, str], str | None]:
@@ -426,6 +443,31 @@ async def async_notify_pricing_setup(
     amber_empty = [f for f in amber if not options.get(f)]
     core = {} if detected or amber else detect_amber_core_profile(hass)
     core_empty = [f for f in core if not options.get(f)]
+    adr = detect_openadr_price_sensors(hass)
+    adr_empty = [
+        (label, adr[side])
+        for side, field, label in (
+            ("import", CONF_SOLVER_IMPORT_PRICE_SENSOR, "import"),
+            ("export", CONF_SOLVER_EXPORT_PRICE_SENSOR, "export"),
+        )
+        if adr[side] and not options.get(field)
+    ]
+    if adr_empty:
+        listed = "; ".join(
+            f"{label}: " + ", ".join(f"`{e}`" for e in eids)
+            for label, eids in adr_empty
+        )
+        await _notify(
+            hass,
+            NOTIFY_OPENADR_DETECTED_ID,
+            "Nimbus found OpenADR price programs",
+            f"OpenADR price sensors ({listed}) can be read as your import or "
+            "export price: choose one in Nimbus → Configure → Solver settings "
+            "if it is your full tariff price. OpenADR does not say whether a "
+            "price is the full tariff or an incentive on top of it, or what "
+            "currency it is in, so Nimbus does not pick one for you. Nothing "
+            "has been changed.",
+        )
     if core_empty:
         await _notify(
             hass,
