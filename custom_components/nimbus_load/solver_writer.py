@@ -4562,7 +4562,12 @@ def resample_generic_price_forecast_with_coverage(
         return None
     forecast = state.get("attributes", {}).get("forecast")
     if not forecast:
-        return None
+        # nimbus #1579: HA core Amber Electric's forecast sensors publish the
+        # PLURAL `forecasts`. Before, they read as no forecast at all and the
+        # current price was held flat across the whole horizon.
+        forecast = state.get("attributes", {}).get(price_intervals.AMBER_CORE_ROWS_KEY)
+        if not price_intervals.is_amber_core_rows(forecast):
+            return None
     # nimbus #1578 (Mark Purcell): AEMO NEM Data's regional forecast is often
     # used directly as a feed-in price, and with network tariff as a buy
     # price (the configured network/flat fees are added to the import price

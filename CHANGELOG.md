@@ -35,6 +35,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   exactly as Home Assistant's own migration mapped it forward.
 
 ### Added
+- **Home Assistant's own Amber Electric forecast sensors now give Nimbus a
+  real price forecast, and are offered as the import and export price when
+  those are empty**
+  ([#1579](https://github.com/code-imstillalive/nimbus/issues/1579), part of
+  [#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+  - **Before:** these sensors publish their forecast as `forecasts` (plural),
+    and Nimbus only looked for `forecast`. With one set as the import or
+    export price, Nimbus found no forecast and held the current price flat
+    for the whole plan.
+  - **Now:** Nimbus reads each interval's `per_kwh` on its real start and end
+    (5- and 30-minute intervals, Amber's one-second start convention). The
+    wholesale `spot_per_kwh` is never used in its place. Home Assistant has
+    already made feed-in positive for earnings, and a negative feed-in price
+    stays negative.
+  - **Offered, never overwritten:** the general and feed-in forecast sensors
+    of a single Amber site are pre-filled where empty, after LocalVolts v2
+    and Amber Express. Controlled load is never offered.
+  - Amber's advanced price prediction is only in the `get_forecasts` action,
+    not on the sensor, so it is not read yet.
+
 - **Amber Express prices are read on their real interval boundaries, and
   Nimbus offers its general and feed-in sensors as the import and export price
   when those are empty**

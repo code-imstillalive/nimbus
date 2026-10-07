@@ -77,6 +77,7 @@ from .const import (
 from .price_intervals import (
     AEMO_NEM_DOMAIN,
     AEMO_NEM_FORECAST_KEY,
+    AMBER_CORE_DOMAIN,
     AMBER_EXPRESS_DOMAIN,
     PD7DAY_DOMAIN,
 )
@@ -105,6 +106,7 @@ LV_V2_OPTIONAL_PROFILE: dict[str, str] = {
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
 NOTIFY_AEMO_DETECTED_ID = "nimbus_aemo_nem_detected"
 NOTIFY_AMBER_EXPRESS_DETECTED_ID = "nimbus_amber_express_detected"
+NOTIFY_AMBER_CORE_DETECTED_ID = "nimbus_amber_electric_detected"
 NOTIFY_P2P_TRAP_ID = "nimbus_p2p_matched_rate_without_price_array"
 NOTIFY_MISSING_ID = "nimbus_pricing_entity_missing"
 NOTIFY_FEES_DOUBLED_ID = "nimbus_fees_on_top_of_flex_up"
@@ -278,6 +280,36 @@ def detect_amber_express_profile(hass: HomeAssistant) -> dict[str, str]:
     return out
 
 
+def detect_amber_core_profile(hass: HomeAssistant) -> dict[str, str]:
+    """{import field: general forecast, export field: feed-in forecast} from
+    a single Home Assistant core Amber Electric site, or {} (nimbus #1579).
+
+    Found by integration and built-in unique_id
+    (`<site>-forecasts-general`, `<site>-forecasts-feed_in`): the FORECAST
+    sensors, whose `forecasts` rows Nimbus reads, not the current-price
+    ones. Controlled load is not an import price for the whole site and is
+    never proposed. More than one site proposes nothing."""
+    found = _registry_candidates(
+        hass,
+        AMBER_CORE_DOMAIN,
+        lambda uid: uid.endswith(("-forecasts-general", "-forecasts-feed_in")),
+    )
+    sites = {uid.rsplit("-forecasts-", 1)[0] for uid in found}
+    if len(sites) != 1:
+        if len(sites) > 1:
+            _LOGGER.debug(
+                "Nimbus: %d Amber Electric sites; not proposing prices", len(sites)
+            )
+        return {}
+    site = next(iter(sites))
+    out: dict[str, str] = {}
+    if f"{site}-forecasts-general" in found:
+        out[CONF_SOLVER_IMPORT_PRICE_SENSOR] = found[f"{site}-forecasts-general"]
+    if f"{site}-forecasts-feed_in" in found:
+        out[CONF_SOLVER_EXPORT_PRICE_SENSOR] = found[f"{site}-forecasts-feed_in"]
+    return out
+
+
 def detect_regional_spot_forecast(
     hass: HomeAssistant,
 ) -> tuple[dict[str, str], str | None]:
@@ -327,6 +359,11 @@ def with_detected_profile(
     # nimbus #1580: Amber Express's own retail prices, only where still empty
     # (a detected LocalVolts v2 profile, filled just above, comes first).
     for field, entity_id in detect_amber_express_profile(hass).items():
+        if not out.get(field):
+            out[field] = entity_id
+    # nimbus #1579: Home Assistant core Amber Electric, last of the retail
+    # sources (Amber Express carries the richer advanced price).
+    for field, entity_id in detect_amber_core_profile(hass).items():
         if not out.get(field):
             out[field] = entity_id
     # nimbus #1578: only where empty, and only with a price forecast array
@@ -387,6 +424,20 @@ async def async_notify_pricing_setup(
         )
     amber = {} if detected else detect_amber_express_profile(hass)
     amber_empty = [f for f in amber if not options.get(f)]
+    core = {} if detected or amber else detect_amber_core_profile(hass)
+    core_empty = [f for f in core if not options.get(f)]
+    if core_empty:
+        await _notify(
+            hass,
+            NOTIFY_AMBER_CORE_DETECTED_ID,
+            "Nimbus found Amber Electric",
+            f"{len(core_empty)} of Nimbus's import/export price fields "
+            + ("is" if len(core_empty) == 1 else "are")
+            + " empty. Open Nimbus → Configure → Solver settings: your Amber "
+            "Electric general and feed-in forecast sensors are pre-filled there "
+            "for you to check and save. Nimbus reads their forecast price "
+            "(per kWh) as Home Assistant publishes it. Nothing has been changed.",
+        )
     if amber_empty:
         await _notify(
             hass,

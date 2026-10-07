@@ -238,6 +238,66 @@ def amber_express_intervals(forecast: Any, detailed: Any) -> list[PriceInterval]
     return _ordered(parsed)
 
 
+# --- Amber Electric, Home Assistant core (nimbus #1579) ---------------------
+#
+# homeassistant/components/amberelectric. The forecast sensors (unique_id
+# `<site>-forecasts-<channel>`, channel `general`, `feed_in` or
+# `controlled_load`) publish the PLURAL attribute `forecasts`: rows of
+# `start_time` (one second past the boundary, as Amber's API gives it),
+# `end_time`, `duration`, `per_kwh`, `spot_per_kwh`, ... in $/kWh.
+#
+# `per_kwh` is the price, already sign-normalised for feed-in by HA
+# (`AmberForecastSensor`: `per_kwh * -1` on the feed-in channel), so positive
+# feed-in is earnings. `spot_per_kwh` is the wholesale component and is
+# never substituted for it. The advanced price prediction exists only in the
+# `amberelectric.get_forecasts` action response, not on the sensor, so it is
+# not read here.
+
+AMBER_CORE_DOMAIN = "amberelectric"
+AMBER_CORE_ROWS_KEY = "forecasts"
+
+
+def is_amber_core_rows(rows: Any) -> bool:
+    """True for HA core Amber's `forecasts` shape: rows carrying
+    `start_time`, `end_time` and `per_kwh`."""
+    if not isinstance(rows, list) or not rows:
+        return False
+    return any(
+        isinstance(r, dict) and "per_kwh" in r and "end_time" in r and "start_time" in r
+        for r in rows
+    )
+
+
+def amber_core_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
+    """HA core Amber `forecasts` rows -> intervals of `per_kwh`, on canonical
+    boundaries (start = end - duration when Amber's own start is inside its
+    first minute, else Amber's start as given)."""
+    parsed: list[PriceInterval] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            end = parse_iso(row["end_time"])
+            amber_start = parse_iso(row["start_time"])
+            value = float(row["per_kwh"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if not math.isfinite(value):
+            continue
+        start = amber_start
+        try:
+            nominal = end - timedelta(minutes=int(row["duration"]))
+        except (KeyError, TypeError, ValueError):
+            nominal = None
+        if nominal is not None and nominal <= amber_start < nominal + timedelta(
+            minutes=1
+        ):
+            start = nominal
+        if end > start:
+            parsed.append(PriceInterval(start, end, value))
+    return _ordered(parsed)
+
+
 def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
     """Intervals for a provider shape this module knows, else None (the
     caller keeps its own `{time, value}` handling)."""
@@ -245,6 +305,8 @@ def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
         return aemo_nem_intervals(rows)
     if is_pd7day_rows(rows):
         return pd7day_intervals(rows)
+    if is_amber_core_rows(rows):
+        return amber_core_intervals(rows)
     return None
 
 
