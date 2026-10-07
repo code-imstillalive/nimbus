@@ -66,6 +66,11 @@ The parts of the contract the setup experience depends on, by name only:
 - **Readiness is per function** (`observation`, `forecasting`, `planning`, `scoring`, `control`), each with its status and reason codes. Setup is observation-only.
 - **Configure once, use everywhere.** Basic and Advanced edit the same device definitions. Forecaster, Solver, Topology, cards and Regret read them; today's settings become generated compatibility views, not independently editable copies.
 
+**Where the normative contract lives (Mark's review, 7 Oct).** A GitHub comment can be edited silently, and approving this document must not approve something outside its diff. So:
+- **This document approves only the setup experience.** It does not approve the schema.
+- **Until DC-001 lands,** the schema is the #1574 comment as it read on 6 Oct 2026.
+- **From DC-001 on,** the schema is the versioned, in-repo contract: DC-001 in Mark's roadmap (#1600), which also maps the #1574 proposal into the repo. Once it merges, this section links to it instead of the comment.
+
 Nimbus identities must not be HA entity IDs, device IDs or Energy Dashboard list positions. Preserve registry/config-entry references where available; if a rename or equipment replacement cannot be resolved unambiguously, ask rather than silently rebinding.
 
 The model's ability to represent several devices does not imply that every consumer already supports them. Unsupported multi-device planning must have a readiness reason, not silently collapse several batteries or sum overlapping generation.
@@ -122,6 +127,8 @@ Data retrieval actions must be known read-only adapter operations. Discovery mus
 **Freshness** uses each source's own update semantics, not just the age of the last state change: a change-only sensor that is idle is not stale (the #1556 lesson).
 
 Distinguish missing, disabled, unavailable and valid zero states. Keep a stale or unavailable source mapped while blocking only functions that need its current data. A statistic without a resolvable current-state entity remains an energy binding, not a failed attempt to manufacture a power sensor.
+
+**No tolerance is fixed here (Mark's review, 7 Oct).** Following DC-000 (#1600), each reconciliation tolerance is declared per boundary **before** evaluation. It is justified by resolution, timing, meter accuracy and conversion boundaries, never chosen after seeing the errors. `check_energy_balance()` (#1590) takes it as a parameter. Its 0.5 kW default is a placeholder for synthetic tests, not a production budget. Where no defensible budget exists, the residual is reported and the result stays unresolved; it is never called agreement.
 
 For power/energy checks, handle counter resets, gaps, directional flows and conversion boundaries before interpreting a mismatch. Agreement is corroboration, not independent proof when both values share a derivation. Show discrepancies without inventing calibration factors.
 
@@ -276,16 +283,18 @@ Following the contract's own sequence:
 
 | stage | delivers | status |
 |---|---|---|
-| **0. Agree the device contract** | Mark's schema on #1574 | proposed; this document builds on it |
-| **1. Repair existing gaps** | fill the Solver's empty inputs from confirmed mappings, with the card falling back to the Solver's sensors (no forecasts created) | #1587 |
-| **2. Gaps as Repairs** | the first readiness surface: untrained forecasts, energy-unit inputs, doubled fees, missing Solver inputs | #1588 |
-| **2a. Discovery evidence** | `device_resolver.py`: both Energy Dashboard schemas (#1589), power↔energy pairing, the balance check | #1590 |
+| **0. Agree the device contract** | Mark's schema on #1574; his roadmap and DC-000 evidence gates (#1600) | #1600; DC-000 implementation started |
+| **1. Repair existing gaps** | offer the Solver's empty inputs from confirmed mappings as one-click Repairs, with the card following the Solver's sensors (no forecasts created) | #1587 (open) |
+| **2. Gaps as Repairs** | the first readiness surface: untrained forecasts, energy-unit inputs, doubled fees, missing Solver inputs | #1588 (merged) |
+| **2a. Discovery evidence** | `device_resolver.py`: Energy Dashboard bindings, power↔energy pairing, the balance check | #1590 (open); the schema fix is #1596 (open) |
 | **3. Device definitions** | the contract's types in storage; migration from today's settings, with conflicts surfaced; today's settings generated from them | next |
 | **4. Device-first Basic** | discover → "here is your site" → confirm, starting with Grid + whole-house Load, then optional Solar and Battery | after 3 |
 | **5. Expand progressively** | flexible loads, several batteries/EVs, several connections, advanced constraints, without duplicating definitions | after 4 |
 | **6. Verify the novice path** | a real tester's first install | last |
 
 Each stage is released and validated on devhub.
+
+**Implementation is running ahead of the evidence gate, and that is known, not hidden** (Mark's review of #1600). #1587, #1590, #1592 and #1593 were written before DC-000's fixtures and gates existed. Each is held to DC-000's acceptance once its fixtures do. The registry in `tests/device_contract/` lists their requirements as `pending`, not passed. Approving this document does not authorise or excuse any of them; each still stands on its own review and tests.
 
 ---
 
@@ -299,6 +308,7 @@ Mark answered the first six on #1574 (the answers are folded in above):
 - remove repeated entry, compulsory solar/battery fields and manual Power Signal steps;
 - parent/child as relationships separate from accounting.
 
-Two remain open:
-1. **Repairs or notifications** for setup gaps (stage 2 ships Repairs).
-2. **Which integration profiles first.** Proposed: the ones testers run (Sungrow, GoodWe, Fronius, Smappee, SigEnergy), one per PR, each with a captured fixture.
+Settled since: setup gaps are **Repairs**, not notifications (stage 2, #1588, merged).
+
+One remains open:
+1. **Which integration profiles first.** Proposed: the ones testers run (Sungrow, GoodWe, Fronius, Smappee, SigEnergy), one per PR, each with a captured fixture.
