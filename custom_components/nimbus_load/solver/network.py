@@ -2288,8 +2288,19 @@ def _build_plan_once(
             # applies identically per-battery here.
             p.set_cost(underfill_vars[b.name][t], soft_soc_penalty_per_kwh)
             p.set_cost(overfill_vars[b.name][t], soft_soc_penalty_per_kwh)
+    # A P2P-pinned period's export is NET export: no ordinary grid import
+    # alongside it (see p2p_export.grid_import_ub's docstring).
     grid_import = [
-        p.add_variable(f"grid_import_{t}", lb=0.0, ub=float(import_limit_arr[t]))
+        p.add_variable(
+            f"grid_import_{t}",
+            lb=0.0,
+            ub=p2p_export.grid_import_ub(
+                t,
+                grid,
+                float(import_limit_arr[t]),
+                override_p2p=(t == 0 and spike_overrides_p2p_at_t0),
+            ),
+        )
         for t in range(n)
     ]
     # nimbus issue #390 (Mark Purcell): grid_import[t]'s hard ub above has no
