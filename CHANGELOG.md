@@ -14,6 +14,26 @@ Intermediate release: v0.94.442 plus #1603 only, so the Forecaster charts
 stop constantly reloading without waiting for the larger release (0.94.444).
 No solver, pricing or dispatch code changes.
 
+- Devhub validation: confirmed live on devhub at 40051e3d (HACS install of
+  `release/0.94.443`, restart 09:43 AEST 8 Oct): HACS reports
+  `installed_version: release/0.94.443`, devhub's own entities stamp
+  `0.94.443`, the `nimbus_load` config entry is `loaded`, and the system log
+  since the pre-install baseline (09:42:22) shows no new Nimbus error. The
+  unique-ID collisions it does show are devhub's known mirror condition and
+  appear in its 0.94.439 restart log too. devhub's web port is not reachable
+  from the validating PC, so the served card files were not fetched there;
+  the card behaviour itself was measured for #1603 on production's own
+  Forecaster tab with these exact files served in place (0 error cards on a
+  cold load, 25 history fetches a minute against 285), and is re-measured on
+  production after deploy. `custom_components/` differs from v0.94.442 only in
+  the four bundled card files and the manifest version.
+- Consumer check: the Forecaster tab's two charts redraw once a minute
+  instead of every couple of seconds, so the spinner stops and hover pop-ups
+  stay up; the Forecaster, Regret, Topology and dispatch cards appear on a
+  page's first load instead of sometimes showing "Custom element doesn't
+  exist" until a refresh. A browser hard refresh may be needed once to load
+  the new card files. Nothing changes in forecasting, solving or dispatch.
+
 ### Fixed
 - **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
   ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
