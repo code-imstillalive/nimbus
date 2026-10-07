@@ -305,9 +305,10 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                     )
         self.assertEqual(
             calls,
-            5,
+            6,
             "expected the span's two #757 diagnostics, #489's "
-            "deferred-ranging DEBUG line and #1417's two diagnostic-failure lines",
+            "deferred-ranging DEBUG line, #1417's two diagnostic-failure lines "
+            "and #1577's blocker-explanation failure line",
         )
         self.assertIsNotNone(solver_shared._LOGGER)
 

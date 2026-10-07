@@ -61,6 +61,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   imply it measures anything, or that a 1.0 is worth investigating
   ([#1465](https://github.com/code-imstillalive/nimbus/issues/1465)).
 - **Setup guide §16 (topology diagram) rewritten as a walkthrough** ([#1527](https://github.com/code-imstillalive/nimbus/issues/1527), and the documentation half of [#1528](https://github.com/code-imstillalive/nimbus/issues/1528)): which entry draws which part of the diagram, what a Part 1 install shows (the #575 stand-in inverter or the #553 empty-state banner), what is and is not pre-filled from the Energy dashboard, and step-by-step setup to a diagram with solar, battery, house, grid and a Load. Cross-linked from §5, §9 and §12; the card reference in `docs/dashboards.md` now documents Power Signal roles and the `whole_house` block. Documentation only.
+- **The period-0 pin instrument now says WHY a pin was infeasible**
+  ([#1577](https://github.com/code-imstillalive/nimbus/issues/1577), parent
+  [#1417](https://github.com/code-imstillalive/nimbus/issues/1417)).
+  **Diagnostic only.** When #1417's re-solve with `period[0]` pinned to the
+  previous plan's value comes back `infeasible`, its DEBUG line now ends with
+  `blocked_by(<battery>)=` naming the participant (`batteries[0]` only, by
+  solver name) and each period-0 constraint the pin violates -- battery
+  max charge/discharge, a power curve, SoC capacity headroom, the #328
+  discharge reserve, a shared charger, the grid export limit, or a fixed P2P
+  export commitment (charge gate or floor) -- or `unexplained_at_period0`
+  for a multi-period coupling. This is the reading guide's missing third row:
+  **the previous setpoint is infeasible under the current model; the listed
+  checks explain sufficient period-0 violations where available, and do not
+  establish that the observed direction reversal was the only feasible
+  alternative.** `unexplained_at_period0` is not evidence that a device is
+  safe to control or that a limit should be relaxed, and nothing reads these
+  fields -- no Repair, no limit change, no dispatch input. Computed by arithmetic over the configs the pinned
+  re-solve was built from (`solver/pin_blockers.py`), with no extra solve and
+  only on the already-infeasible branch, inside its own `except Exception`.
+  Each check is a sufficient condition, so it can under-report but never
+  blames a constraint the LP did not hit; the free solve, the published plan
+  and dispatch are unchanged, and a feasible pin's log line is byte-identical.
+  Still off unless `custom_components.nimbus_load.solver_plan.period0_pin` is
+  at DEBUG.
 
 ## [0.94.441] - 2026-10-06
 
