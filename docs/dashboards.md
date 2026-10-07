@@ -17,6 +17,27 @@ sections below (one per card) are the field reference; the full
 copy-paste dashboard right here is the fastest path to actually seeing
 all four cards on screen.
 
+## The Nimbus dashboard on a new install (issue #1543)
+
+**A new install needs none of the YAML below.** The first time Nimbus starts
+on an install with no Nimbus card on any dashboard, it creates a **Nimbus**
+dashboard in the sidebar with four tabs, in this order:
+
+| Tab | Card | What it shows |
+|---|---|---|
+| **Forecaster** | `custom:nimbus-forecast-card` ×2 | Power Signals and Load Forecasts (needs ApexCharts Card) |
+| **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
+| **Control Panel** | `custom:nimbus-dispatch-card-v4` | the plan and live dispatch; battery and solar follow the Solver settings |
+| **Regret** | `custom:nimbus-regret-card` | each day's dispatch against the best possible plan |
+
+Every tab has a title and no icon, and is a 4-column **sections** view, so you
+can add your own sections and cards. The dashboard is created **once**: delete
+it and it stays deleted. **An install that already has a dashboard with a
+Nimbus card on it is never changed**: when a release adds a new standard tab,
+its YAML is in the release notes for you to add if you want it. A Solver tab
+will join, between Forecaster and Topology, once its contents are agreed
+(issue #1594).
+
 <a id="full-three-view-nimbus-dashboard-copy-paste"></a>
 
 ## Full four-view "Nimbus" dashboard (copy-paste)
@@ -233,17 +254,11 @@ The Forecaster's own charts (issue #1529): **"Nimbus Power Signals"** and
 built automatically for any install. Needs **ApexCharts Card**
 (`apexcharts-card`, from HACS → Frontend); without it the card says so.
 
-**You do not have to add it.** On startup Nimbus adds a **Forecaster** tab
-to your Nimbus dashboard (any dashboard already holding a Nimbus card), next
-to Control Panel, Topology and Regret. It appends that one view and changes
-nothing else. The tab is a **sections** view (4 columns) with one full-width
-section holding two cards, Power Signals and Load Forecasts, so you can add
-your own sections and cards beside them. It is never a panel view, which
-would hold one card and nothing else. If you already have your own view called "Forecaster", that
-view is left alone and the new tab is called **Nimbus Forecaster**. A
-dashboard that already shows this card is skipped. The tab is added once per
-dashboard (delete it and it stays deleted), and YAML-mode dashboards are left
-alone.
+**A new install gets it without doing anything** — see "The Nimbus
+dashboard on a new install" above. On an install that already had a Nimbus
+dashboard, add it yourself: a **sections** view (4 columns) with one
+full-width section holding the two cards, `chart: signals` and
+`chart: loads`, each with `grid_options: {columns: full, rows: auto}`.
 
 Nothing is configured: every series is discovered from this install's own
 entities each time the dashboard loads, so a new Load appears by itself.
