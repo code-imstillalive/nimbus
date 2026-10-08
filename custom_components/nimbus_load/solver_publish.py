@@ -318,6 +318,7 @@ def publish_flex_telemetry_record(
     export_limit_kw: float,
     period_hours: float,
     hold_last: bool = False,
+    house_load_kw: float | None = None,
 ) -> None:
     """Pushes `sensor.nimbus_flex_telemetry` (#495) -- a no-op, reason
     logged at DEBUG, when no valid record can be built.
@@ -350,6 +351,7 @@ def publish_flex_telemetry_record(
             import_limit_kw=import_limit_kw,
             export_limit_kw=export_limit_kw,
             period_hours=period_hours,
+            house_load_kw=house_load_kw,
         )
     except Exception as e:  # noqa: BLE001 - never take the solve down
         solver_shared._LOGGER.warning(

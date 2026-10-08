@@ -9,6 +9,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
+  Mark Purcell's review of #1640: the record publishes data Nimbus already
+  generates). Its four site figures now come from the solve itself:
+  `house_load_kw` is the solve's period-0 load (the live whole-house reading),
+  `solar_kw` the plan's period-0 solar (the live solar reading),
+  `net_import_kw` the plan's period-0 grid import minus export, and
+  `naive_baseline_kw` house minus solar. No recorder query and no extra state
+  read, and no power sensor has to be configured for a record. They are the
+  solve's snapshot at publish time, against the last complete interval.
+  When the solve has no house load the sensor reads `no_record` with
+  `no_measurement`, replacing `no_history`.
 - **A power setting that points at amps, kVA or an unknown unit is now
   reported** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
   DC-000's F09 finding, ruled a defect by Mark Purcell on #1600).
@@ -62,7 +73,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634), step 2).
   It used to sit at `unknown`, with the reason logged only at DEBUG. When no
   record can be built it now reads `no_record`, with `reason_code`
-  (`ranging_off`, `no_history`, `region_unresolved`, `postcode_unresolved`,
+  (`no_measurement`, `region_unresolved`, `postcode_unresolved`,
   `field_not_finite`), the full `reason`, and `last_record_interval`. It is
   written once per change of reason, not every solve. The
   `nimbus_load.flex_telemetry_record` service returns the same reason. A
