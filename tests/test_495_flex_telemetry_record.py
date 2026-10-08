@@ -43,7 +43,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jsonschema
 import numpy as np
@@ -489,85 +489,74 @@ def _history(value: float, start: datetime):
 class TestARealSyntheticSolveValidates:
     """#495 acceptance criterion 1."""
 
-    def _record(self, now: datetime, cfg=None, *, solar=0.0, battery=1.0, house=3.0):
+    def _record(self, now: datetime, cfg=None, *, house=3.0):
         plan, batteries = _real_synthetic_plan()
         assert plan.status == "optimal"
         assert plan.grid_signals is not None
 
-        def _fetch(entity_id, start, end):
-            return _history(
-                {
-                    "sensor.solar": solar,
-                    "sensor.battery": battery,
-                    "sensor.house": house,
-                }[entity_id],
-                start,
-            )
-
-        with (
-            patch.object(solver_writer, "fetch_entity_history_range", _fetch),
-            patch.object(solver_writer, "_kw_scale_factor", lambda _e: 1.0),
-        ):
-            return solver_writer.build_flex_telemetry_record(
-                dict(cfg or _CFG),
-                plan,
-                now,
-                batteries=batteries,
-                import_price=0.30,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-            )
+        return solver_writer.build_flex_telemetry_record(
+            dict(cfg or _CFG),
+            plan,
+            now,
+            batteries=batteries,
+            import_price=0.30,
+            export_price=0.09,
+            import_limit_kw=20.0,
+            export_limit_kw=15.0,
+            period_hours=1.0,
+            house_load_kw=house,
+        ), plan
 
     def test_the_record_validates_against_the_vendored_schema(self):
-        build = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
+        build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
         assert build.record is not None, build.reason
         _validate(build.record)
 
     def test_it_carries_one_asset_per_battery_the_lp_planned(self):
-        build = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
+        build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
         assert build.record is not None
         assert [a["asset_id"] for a in build.record["assets"]] == ["home_battery"]
         asset = build.record["assets"][0]
         assert asset["capacity_kwh"] == 20.0
         assert 0.0 <= asset["soc_pct"] <= 100.0
 
-    def test_the_measured_fields_are_the_energy_balance_identity(self):
-        # positive battery power == discharge under this cfg, so 1.0 kW of
-        # measured battery power is 1 kW of discharge.
-        build = self._record(
-            datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
-            solar=4.0,
-            battery=1.0,
-            house=3.0,
+    def test_the_site_figures_are_the_solves_own_period_0(self):
+        """nimbus #1634 (Mark Purcell, 8 Oct 2026): the record publishes what
+        Nimbus already holds, with no history reads. House load is the
+        solve's period-0 load (the live reading), solar the plan's period-0
+        solar, net import the plan's period-0 exchange."""
+        build, plan = self._record(
+            datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC), house=3.0
         )
         assert build.record is not None
-        assert build.record["solar_kw"] == 4.0
+        solar = float(plan.solar_used_kw[0]) + float(plan.solar_curtailed_kw[0])
+        net = float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0])
         assert build.record["house_load_kw"] == 3.0
-        assert build.record["net_import_kw"] == -2.0  # 3 - 4 - 1
-        assert build.record["naive_baseline_kw"] == -1.0  # 3 - 4
+        assert build.record["solar_kw"] == round(solar, 3)
+        assert build.record["net_import_kw"] == round(net, 3)
+        assert build.record["naive_baseline_kw"] == round(3.0 - solar, 3)
 
-    def test_the_battery_sign_convention_is_honoured(self):
-        cfg = dict(_CFG, solver_battery_power_positive_is_charge=True)
-        build = self._record(
-            datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
-            cfg,
-            solar=4.0,
-            battery=1.0,
-            house=3.0,
-        )
+    def test_building_a_record_reads_no_history(self):
+        """#1647: no recorder query at all. A mock rather than a raising
+        stub, so a read is reported as a count, not swallowed by the
+        builder's own error handling."""
+        reads = MagicMock(return_value=[])
+        with patch.object(solver_writer, "fetch_entity_history_range", reads):
+            build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
         assert build.record is not None
-        # Same 1.0 kW reading, now meaning CHARGE: net import rises rather
-        # than falls, and the baseline is untouched by the battery either way.
-        assert build.record["net_import_kw"] == 0.0  # 3 - 4 + 1
-        assert build.record["naive_baseline_kw"] == -1.0
+        assert reads.call_count == 0
+
+    def test_no_power_sensor_needs_to_be_configured(self):
+        cfg = {"region": "QLD1", "postcode_prefix": "456"}
+        build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC), cfg)
+        assert build.record is not None, build.reason
+        _validate(build.record)
 
     def test_the_envelope_shadows_come_from_the_grid_signals(self):
         plan, _ = _real_synthetic_plan()
         gs = plan.grid_signals
         assert gs is not None
-        build = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
+        build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
         assert build.record is not None
         assert build.record["shadow_envelope_import_price"] == round(
             float(gs.forced_import_cost[0]), 4
@@ -587,25 +576,18 @@ class TestNoRecordRatherThanAnInvalidOne:
         plan, batteries = _real_synthetic_plan(compute_signals=False)
         assert plan.grid_signals is None
 
-        def _fetch(entity_id, start, end):
-            v = {"sensor.solar": 0.0, "sensor.battery": 1.0, "sensor.house": 3.0}
-            return _history(v[entity_id], start)
-
-        with (
-            patch.object(solver_writer, "fetch_entity_history_range", _fetch),
-            patch.object(solver_writer, "_kw_scale_factor", lambda _e: 1.0),
-        ):
-            build = solver_writer.build_flex_telemetry_record(
-                dict(_CFG),
-                plan,
-                datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
-                batteries=batteries,
-                import_price=0.30,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-            )
+        build = solver_writer.build_flex_telemetry_record(
+            dict(_CFG),
+            plan,
+            datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
+            batteries=batteries,
+            import_price=0.30,
+            export_price=0.09,
+            import_limit_kw=20.0,
+            export_limit_kw=15.0,
+            period_hours=1.0,
+            house_load_kw=3.0,
+        )
         assert build.record is not None, build.reason
         _validate(build.record)
         rec = build.record
@@ -622,34 +604,10 @@ class TestNoRecordRatherThanAnInvalidOne:
         # basis-change figure (#1634 finding 1) is not what is reported.
         assert rec["flex_available_up_kw"] + rec["flex_available_down_kw"] > 1.0
 
-    def test_no_history_means_no_record_and_a_reason_naming_the_window(self):
+    def test_no_house_load_means_no_record_and_says_so(self):
         plan, batteries = _real_synthetic_plan()
-        with (
-            patch.object(
-                solver_writer, "fetch_entity_history_range", lambda *_a, **_k: []
-            ),
-            patch.object(solver_writer, "_kw_scale_factor", lambda _e: 1.0),
-        ):
-            build = solver_writer.build_flex_telemetry_record(
-                dict(_CFG),
-                plan,
-                datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
-                batteries=batteries,
-                import_price=0.3,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-            )
-        assert build.record is None
-        assert "2026-09-27T14:30:00" in (build.reason or "")
-
-    def test_an_unconfigured_sensor_means_no_record(self):
-        plan, batteries = _real_synthetic_plan()
-        cfg = dict(_CFG)
-        del cfg["solver_battery_power_sensor"]
         build = solver_writer.build_flex_telemetry_record(
-            cfg,
+            dict(_CFG),
             plan,
             datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
             batteries=batteries,
@@ -658,9 +616,10 @@ class TestNoRecordRatherThanAnInvalidOne:
             import_limit_kw=20.0,
             export_limit_kw=15.0,
             period_hours=1.0,
+            house_load_kw=None,
         )
         assert build.record is None
-        assert "unconfigured" in (build.reason or "")
+        assert build.reason_code == "no_measurement"
 
 
 class TestThePublishedSensor:
@@ -668,17 +627,10 @@ class TestThePublishedSensor:
         plan, batteries = _real_synthetic_plan()
         posted: list[tuple] = []
 
-        def _fetch(entity_id, start, end):
-            return _history(1.0, start)
-
-        with (
-            patch.object(solver_writer, "fetch_entity_history_range", _fetch),
-            patch.object(solver_writer, "_kw_scale_factor", lambda _e: 1.0),
-            patch.object(
-                solver_writer,
-                "ha_post_state",
-                lambda e, s, a: posted.append((e, s, a)),
-            ),
+        with patch.object(
+            solver_writer,
+            "ha_post_state",
+            lambda e, s, a: posted.append((e, s, a)),
         ):
             solver_writer.publish_flex_telemetry_record(
                 dict(cfg or _CFG),
@@ -690,6 +642,7 @@ class TestThePublishedSensor:
                 import_limit_kw=20.0,
                 export_limit_kw=15.0,
                 period_hours=1.0,
+                house_load_kw=1.0,
             )
         return posted
 

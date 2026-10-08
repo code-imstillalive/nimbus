@@ -2206,60 +2206,36 @@ FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
 # constants so the reasons are one grep away from the entity that goes
 # `unknown` because of them, and so build_flex_telemetry_record() stays
 # inside the #1301 size gate (tests/gates/size_ratchet.py).
-_FLEX_TELEMETRY_NO_HISTORY = (
-    "no real recorder history for [{start}, {end}) on the solar/battery/"
-    "whole-house sensors, or one of them is unconfigured under Solver settings "
-    "-- the same three compute_daily_quality_report() already requires"
+_FLEX_TELEMETRY_NO_MEASUREMENT = (
+    "this solve had no house load for period 0, so there is no site figure to publish"
 )
 
 
-def _flex_telemetry_measured(
-    cfg: dict, interval_start: datetime, interval_end: datetime
-) -> dict | None:
-    """The four measured kW figures for ONE complete NEM 5-minute
-    interval, as genuine period means -- `None` when the three sensors
-    `compute_daily_quality_report()` already requires are unconfigured, or
-    when the recorder holds no sample for any of them in the window.
+def _flex_telemetry_measured(plan, house_load_kw: float | None) -> dict | None:
+    """The record's four site figures, from what this solve already holds
+    (nimbus #1634, Mark Purcell: the record publishes data Nimbus already
+    generates and needs no history reads). `None` when the solve had no
+    house load.
 
-    Deliberately the same three sensors, the same `_kw_scale_factor()`
-    scaling, the same `solver_battery_power_positive_is_charge` sign
-    resolution and the same energy-balance identity as
-    `_compute_flex_report_for_window()` -- a second, independently-derived
-    net-import formula is exactly how two Nimbus surfaces end up
-    disagreeing about the same interval (#116's class).
+    - `house_load_kw`: the solve's period-0 load, which is the live
+      whole-house reading when that sensor is configured
+      (`solver_inputs/load.py` overwrites period 0 with it);
+    - `solar_kw`: the plan's period-0 solar, used plus curtailed, which is
+      the live solar reading the same way (`solver_inputs/solar.py`);
+    - `net_import_kw`: the plan's period-0 grid import minus export;
+    - `naive_baseline_kw`: house load minus solar, flex_telemetry.py's own
+      decision 2.
     """
-    solar_sensor = cfg.get("solver_solar_power_sensor")
-    battery_sensor = cfg.get("solver_battery_power_sensor")
-    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
-    if not solar_sensor or not battery_sensor or not load_sensor:
+    if house_load_kw is None:
         return None
-    solar_hist = fetch_entity_history_range(solar_sensor, interval_start, interval_end)
-    load_hist = fetch_entity_history_range(load_sensor, interval_start, interval_end)
-    battery_hist = fetch_entity_history_range(
-        battery_sensor, interval_start, interval_end
+    load_kw = max(0.0, float(house_load_kw))
+    solar_kw = max(
+        0.0, float(plan.solar_used_kw[0]) + float(plan.solar_curtailed_kw[0])
     )
-    if not solar_hist or not load_hist or not battery_hist:
-        return None
-    grid_times = [interval_start]
-    period_hours = flex_telemetry.INTERVAL_SECONDS / 3600.0
-
-    def _mean(hist, entity_id: str) -> float:
-        return resample_history_mean(hist, grid_times, period_hours)[
-            0
-        ] * _kw_scale_factor(entity_id)
-
-    battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
-    solar_kw = max(0.0, _mean(solar_hist, solar_sensor))
-    load_kw = max(0.0, _mean(load_hist, load_sensor))
-    net_battery_kw = _mean(battery_hist, battery_sensor) * battery_sign
-    charge_kw = max(0.0, -net_battery_kw)
-    discharge_kw = max(0.0, net_battery_kw)
     return {
         "solar_kw": solar_kw,
         "house_load_kw": load_kw,
-        "net_import_kw": load_kw - solar_kw - discharge_kw + charge_kw,
-        # `subtraction`: the same identity with the battery terms removed.
-        # See flex_telemetry.py's own decision 2.
+        "net_import_kw": float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0]),
         "naive_baseline_kw": load_kw - solar_kw,
     }
 
@@ -2336,16 +2312,6 @@ def _no_flex_record(code: str, reason: str) -> flex_telemetry.RecordBuild:
     return flex_telemetry.RecordBuild(reason=reason, reason_code=code)
 
 
-def _no_flex_history_record(
-    start: datetime, end: datetime
-) -> flex_telemetry.RecordBuild:
-    """No record: no measured history for the interval (#1634 reason code)."""
-    return _no_flex_record(
-        "no_history",
-        _FLEX_TELEMETRY_NO_HISTORY.format(start=start.isoformat(), end=end.isoformat()),
-    )
-
-
 def build_flex_telemetry_record(
     cfg: dict,
     plan,
@@ -2357,19 +2323,19 @@ def build_flex_telemetry_record(
     import_limit_kw: float,
     export_limit_kw: float,
     period_hours: float,
+    house_load_kw: float | None = None,
 ):
     """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute
     interval (#495) -- `.record` None with a `.reason` when no VALID
     record is possible. Never raises. Every measurement and contract
     decision lives in `flex_telemetry.py`'s own docstring."""
     bad = flex_telemetry.location_problem(cfg.get("region"), cfg.get("postcode_prefix"))
-    if bad is not None:  # nimbus #1634: no history read for a record that cannot exist
+    if bad is not None:  # nimbus #1634: no work for a record that cannot exist
         return bad
     interval_start = flex_telemetry.last_complete_interval_start(now)
-    interval_end = interval_start + timedelta(seconds=flex_telemetry.INTERVAL_SECONDS)
-    measured = _flex_telemetry_measured(cfg, interval_start, interval_end)
+    measured = _flex_telemetry_measured(plan, house_load_kw)
     if measured is None:
-        return _no_flex_history_record(interval_start, interval_end)
+        return _no_flex_record("no_measurement", _FLEX_TELEMETRY_NO_MEASUREMENT)
     gs = plan.grid_signals
     hours = period_hours if period_hours > 0 else 1.0
     household_lambda = plan.duals.get("power_balance_t0", 0.0) / hours
@@ -9366,6 +9332,7 @@ def main() -> None:
         export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
         period_hours=float(period_hours_arr[0]),
         hold_last=_assembly.flex_ranging_deferred,
+        house_load_kw=float(load_kw[0]),
     )
 
 
