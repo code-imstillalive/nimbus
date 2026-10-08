@@ -43,11 +43,17 @@ async def test_a_new_install_gets_the_nimbus_dashboard(
     config = await dashboard.async_load(False)
     assert [v["title"] for v in config["views"]] == [
         "Forecaster",
+        "Solver",
         "Topology",
         "Control Panel",
         "Regret",
     ]
     assert all("icon" not in v for v in config["views"])
+    # nimbus #1594: the Solver tab is written with this install's entity_ids,
+    # never with the template's `@key` placeholders.
+    import json
+
+    assert '"@' not in json.dumps(config["views"][1])
 
     # Listed where the UI lists dashboards: created through HA's own collection.
     client = await hass_ws_client(hass)
@@ -115,9 +121,16 @@ async def test_untouched_and_edited_survive_a_real_storage_round_trip(
     await _reload_from_storage(hass, url)
     views = (await hass.data[LOVELACE_DATA].dashboards[url].async_load(False))["views"]
     titles = [v["title"] for v in views]
-    assert titles == ["Forecaster", "Topology", "Topology", "Control Panel", "Regret"]
-    edited = views[1]
+    assert titles == [
+        "Forecaster",
+        "Solver",
+        "Topology",
+        "Topology",
+        "Control Panel",
+        "Regret",
+    ]
+    edited = views[2]
     assert edited["sections"][0]["cards"][-1] == {"type": "markdown", "content": "mine"}
-    assert views[2]["path"] == "topology-2"
-    assert views[2]["sections"][0]["cards"][0]["redesigned"] is True
-    assert views[4]["sections"][0]["cards"][0]["redesigned"] is True
+    assert views[3]["path"] == "topology-2"
+    assert views[3]["sections"][0]["cards"][0]["redesigned"] is True
+    assert views[5]["sections"][0]["cards"][0]["redesigned"] is True

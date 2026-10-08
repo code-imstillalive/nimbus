@@ -21,22 +21,23 @@ all four cards on screen.
 
 **A new install needs none of the YAML below.** The first time Nimbus starts
 on an install with no Nimbus card on any dashboard, it creates a **Nimbus**
-dashboard in the sidebar with four tabs, in this order:
+dashboard in the sidebar with five tabs, in this order:
 
 | Tab | Card | What it shows |
 |---|---|---|
 | **Forecaster** | `custom:nimbus-forecast-card` ×2 | Power Signals and Load Forecasts (needs ApexCharts Card) |
+| **Solver** | standard Home Assistant cards | solve status, plan against the measured battery, money, EPR and regret, the risk sliders, and every Solver setting grouped into **Basic settings**, **P2P (optional)** and **Advanced settings** (issue #1594) |
 | **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
 | **Control Panel** | `custom:nimbus-dispatch-card-v4` | the plan and live dispatch; battery and solar follow the Solver settings |
 | **Regret** | `custom:nimbus-regret-card` | each day's dispatch against the best possible plan |
 
 Every tab has a title and no icon, and is a 4-column **sections** view, so you
 can add your own sections and cards. The dashboard is created **once**: delete
-it and it stays deleted. **An install that already has a dashboard with a
-Nimbus card on it is never changed**: when a release adds a new standard tab,
-its YAML is in the release notes for you to add if you want it. A Solver tab
-will join, between Forecaster and Topology, once its contents are agreed
-(issue #1594).
+it and it stays deleted. On an existing Nimbus dashboard, a **missing**
+standard tab is added: beside a tab of yours with the same title (so you can
+compare them), otherwise at the end. A tab you built or changed is never
+touched, and Nimbus only ever writes to its own dashboard. The full rules are
+at the top of `custom_components/nimbus_load/forecaster_dashboard.py`.
 
 <a id="full-three-view-nimbus-dashboard-copy-paste"></a>
 

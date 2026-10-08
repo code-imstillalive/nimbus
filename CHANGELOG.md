@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **A standard Solver tab on the Nimbus dashboard**
+  ([#1594](https://github.com/code-imstillalive/nimbus/issues/1594)).
+  - **Sections:** headline (solve status and time, dispatch direction,
+    battery kW and SoC, and whether dispatch is live), the battery plan
+    against the measured battery, money (plan cost, cost band and breakdown,
+    prices now), how well it did (EPR, regret, the Nimbus-only
+    counterfactual, cycles), the risk sliders with what each is doing now,
+    and every Solver setting.
+  - **Settings are grouped and labelled** **Basic settings**, **P2P
+    (optional)** and **Advanced settings** (household, 8 Oct 2026).
+  - **Ordinary Home Assistant cards**, so any of them can be moved or
+    removed.
+  - **Entities resolved from Nimbus's own registry**, so a renamed or
+    suffixed entity is still found; one that does not exist is left out
+    rather than shown blank.
+  - **Placement:** second on a new install. On an existing dashboard that
+    already has a household-built "Solver" tab, it goes beside that tab
+    under the same title, and the household's own tab is never touched.
+
 ### Fixed
 - **The Forecaster charts no longer show a loading spinner each time they
   refresh.** v0.94.443 cut the refresh to once a minute, but apexcharts-card

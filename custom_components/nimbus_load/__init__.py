@@ -660,7 +660,7 @@ async def _async_setup_entry_impl(
         )
 
     # nimbus #1529/#1543: a new install gets a Nimbus dashboard with the
-    # standard tabs (Forecaster, Topology, Control Panel, Regret), once.
+    # standard tabs (Forecaster, Solver, Topology, Control Panel, Regret), once.
     # An existing install's dashboards are never given a new tab -- see
     # forecaster_dashboard.py. Non-fatal.
     try:

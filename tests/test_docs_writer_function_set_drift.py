@@ -1258,7 +1258,9 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
         # into the union would let a genuinely docs-only entry look
         # present in the integration, which is the opposite of what this
         # file is for.
-        deliberately_outside = {"solver_runtime.py"}
+        # `solver_tab.py` (#1594) is the Solver DASHBOARD tab's layout, not
+        # solve logic: the standalone script has no dashboard to lay out.
+        deliberately_outside = {"solver_runtime.py", "solver_tab.py"}
 
         registered = {os.path.basename(p) for p in _integration_paths()}
         found = {

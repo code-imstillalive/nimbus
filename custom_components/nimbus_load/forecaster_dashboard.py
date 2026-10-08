@@ -4,17 +4,20 @@ Registering a card is not the same as it reaching a screen (#550/#552): a
 tester updated, restarted and found nothing new to look at. So Nimbus keeps
 the standard tabs on the install's Nimbus dashboard, in this order:
 
-    Forecaster, Topology, Control Panel, Regret
+    Forecaster, Solver, Topology, Control Panel, Regret
 
-(a Solver tab joins between Forecaster and Topology once its contents are
-agreed, nimbus #1594). Every card discovers its own entities -- the Control
-Panel's blank fields follow the Solver config -- so nobody configures
-anything.
+Every card discovers its own entities -- the Control Panel's blank fields
+follow the Solver config, and the Solver tab (nimbus #1594, `solver_tab.py`)
+is resolved from Nimbus's own entity registry -- so nobody configures
+anything. An existing dashboard that already has a household-built tab titled
+**Solver** gets Nimbus's Solver tab **beside** it, under the same title, for
+comparison (rule 4; household, 8 Oct 2026: "install itself at the end or
+next to it"); the household's own tab is never touched.
 
 The rules, agreed by the household and Mark Purcell on 6 Oct 2026
 ------------------------------------------------------------------
 1. **An install with no Nimbus dashboard** gets one, "Nimbus", holding the
-   four tabs. It is created once: delete it and it stays deleted.
+   five tabs. It is created once: delete it and it stays deleted.
 2. **A missing tab is added**, at the end of the tab row.
 3. **A tab Nimbus added and nobody has changed is updated in place** when a
    release changes its design ("Happy for it to replace if it hasn't been
@@ -79,6 +82,11 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+try:
+    from . import solver_tab
+except ImportError:  # pragma: no cover - loaded as a top-level module in tests
+    import solver_tab  # type: ignore[no-redef]
+
 _LOGGER = logging.getLogger(__name__)
 
 STORE_KEY = "nimbus_load.forecaster_view"
@@ -101,6 +109,15 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
             {"chart": "signals"},
             {"chart": "loads"},
         ),
+    },
+    {
+        "key": "solver",
+        "title": "Solver",
+        "path": "solver",
+        # Standard HA cards built from solver_tab.template(), not one Nimbus
+        # card: `match` is the one entity the tab always shows.
+        "sections_template": True,
+        "match": ("sensor.nimbus_solver_lp_status",),
     },
     {
         "key": "topology",
@@ -131,6 +148,14 @@ VIEW_TITLE = STANDARD_VIEWS[0]["title"]
 
 
 def _view_for(spec: dict[str, Any], path: str | None = None) -> dict[str, Any]:
+    if spec.get("sections_template"):
+        return {
+            "title": spec["title"],
+            "path": path or spec["path"],
+            "type": "sections",
+            "max_columns": 4,
+            "sections": solver_tab.template(),
+        }
     return {
         "title": spec["title"],
         "path": path or spec["path"],
@@ -180,7 +205,11 @@ def _upgraded_panel_view(view: Any) -> dict[str, Any] | None:
     if not isinstance(view, dict) or view.get("type") != "panel":
         return None
     for spec in STANDARD_VIEWS:
-        if view.get("cards") == [{"type": spec["card"]}] and "sections" not in view:
+        if (
+            "card" in spec
+            and view.get("cards") == [{"type": spec["card"]}]
+            and "sections" not in view
+        ):
             upgraded = _view_for(spec)
             upgraded["title"] = view.get("title", upgraded["title"])
             if "path" in view:
@@ -198,7 +227,7 @@ def _nimbus_card_count(config: Any) -> int:
 
 def _holds_card(view: Any, spec: dict[str, Any]) -> bool:
     text = json.dumps(view)
-    return any(f'"{card}"' in text for card in spec.get("match", (spec["card"],)))
+    return any(f'"{card}"' in text for card in spec.get("match") or (spec["card"],))
 
 
 def _free_path(spec: dict[str, Any], views: list[Any]) -> str:
@@ -230,13 +259,31 @@ def _pick_nimbus_dashboard(
 
 
 def _sync_views(
-    views: list[Any], mem: dict[str, Any], legacy: list[str]
+    views: list[Any],
+    mem: dict[str, Any],
+    legacy: list[str],
+    *,
+    created: bool = False,
+    resolve: Any = None,
 ) -> tuple[list[Any], list[str]]:
     """Apply the rules in the module doc to one dashboard's views. Returns the
     new views and what was done; updates `mem` in place."""
     views = [_upgraded_panel_view(v) or v for v in views]
     done: list[str] = []
+
+    def build(spec: dict[str, Any], path: str) -> dict[str, Any]:
+        # A templated tab (the Solver tab) is written with this install's
+        # entity_ids; its DESIGN stays the template, the same everywhere.
+        view = _view_for(spec, path)
+        if resolve is not None and spec.get("sections_template"):
+            view = resolve(view)
+        return view
+
     for spec in STANDARD_VIEWS:
+        if spec.get("sections_template") and resolve is None:
+            # Nothing to resolve the template's entities against: never
+            # write `@key` placeholders onto a dashboard.
+            continue
         key, design = spec["key"], design_of(spec)
         rec = mem.get(key)
         if rec is None and key in legacy:
@@ -250,8 +297,18 @@ def _sync_views(
                 # changes.
                 mem[key] = {"design": design, "path": None, "written": None}
                 continue
-            view = _view_for(spec, _free_path(spec, views))
-            views.append(view)
+            view = build(spec, _free_path(spec, views))
+            # A household tab with this title (their own Solver tab) gets the
+            # new one beside it, for comparison (rule 4); otherwise the end.
+            same_title = [
+                i
+                for i, v in enumerate(views)
+                if isinstance(v, dict) and v.get("title") == spec["title"]
+            ]
+            if same_title:
+                views.insert(same_title[-1] + 1, view)
+            else:
+                views.append(view)
             mem[key] = {
                 "design": design,
                 "path": view["path"],
@@ -273,7 +330,7 @@ def _sync_views(
         )
         if idx is not None and rec.get("written") == _fingerprint(views[idx]):
             # Rule 3: untouched since Nimbus wrote it -- update in place.
-            view = _view_for(spec, views[idx]["path"])
+            view = build(spec, views[idx]["path"])
             views[idx] = view
             done.append(f"updated:{key}")
         else:
@@ -282,7 +339,7 @@ def _sync_views(
             if idx is None:
                 holding = [i for i, v in enumerate(views) if _holds_card(v, spec)]
                 idx = holding[-1] if holding else None
-            view = _view_for(spec, _free_path(spec, views))
+            view = build(spec, _free_path(spec, views))
             views.insert(len(views) if idx is None else idx + 1, view)
             done.append(f"beside:{key}")
         mem[key] = {
@@ -324,7 +381,7 @@ async def _async_create_dashboard(hass: HomeAssistant, data: Any) -> Any:
         _LOGGER.warning(
             "Nimbus: could not find Home Assistant's dashboards collection, so "
             "the Nimbus dashboard was not created. Build it by hand from "
-            "docs/dashboards.md (Forecaster, Topology, Control Panel, Regret)"
+            "docs/dashboards.md (Forecaster, Solver, Topology, Control Panel, Regret)"
         )
         return None
     await collection.async_create_item(
@@ -342,6 +399,31 @@ async def _async_create_dashboard(hass: HomeAssistant, data: Any) -> Any:
             "register it; build its tabs by hand from docs/dashboards.md"
         )
     return dashboard
+
+
+def _solver_resolver(hass: HomeAssistant) -> Any:
+    """`solver_tab.resolve` bound to this install: `@<key>` is the entity
+    whose unique id is `<nimbus entry id>_<key>`, `@option:<name>` the
+    hub's option. None when there is no Nimbus entry to resolve against."""
+    from homeassistant.helpers import entity_registry as er
+
+    config_entries = getattr(hass, "config_entries", None)
+    entries = config_entries.async_entries("nimbus_load") if config_entries else []
+    if not entries:
+        return None
+    entry = entries[0]
+    by_uid = {
+        e.unique_id: e.entity_id
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    }
+
+    def lookup(key: str) -> str | None:
+        if key.startswith("option:"):
+            value = entry.options.get(key.split(":", 1)[1])
+            return value if isinstance(value, str) and value else None
+        return by_uid.get(f"{entry.entry_id}_{key}")
+
+    return lambda view: solver_tab.resolve(view, lookup)
 
 
 async def async_ensure_nimbus_dashboard(hass: HomeAssistant) -> list[str]:
@@ -392,6 +474,8 @@ async def async_ensure_nimbus_dashboard(hass: HomeAssistant) -> list[str]:
         list(config.get("views") or []),
         memory.setdefault(key, {}),
         list(legacy.get(key) or []),
+        created=bool(done),
+        resolve=_solver_resolver(hass),
     )
     if views != config.get("views") or done:
         new_config = dict(config)
