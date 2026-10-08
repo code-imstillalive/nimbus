@@ -274,6 +274,37 @@ except ImportError:  # pragma: no cover - standalone/cron path
 # `unavailable` in the ~300 s between two ranging solves.
 _LAST_FLEX_TELEMETRY_POST: dict = {}
 
+# nimbus #1634 step 2: the reason last published for "no record". The state
+# is written only when the reason CHANGES, so a long "ranging off" stretch
+# costs one recorder row, not one per solve.
+_LAST_FLEX_TELEMETRY_NO_RECORD: dict = {}
+
+FLEX_TELEMETRY_NO_RECORD_STATE = "no_record"
+
+
+def _post_no_record_reason(sw, build) -> None:
+    """Publish WHY there is no record, so a consumer can tell "ranging off",
+    "no history" and "region not resolved" apart without DEBUG logging.
+    `record` is absent from these attributes on purpose: its absence is how
+    a consumer already recognises "nothing to push"."""
+    code = getattr(build, "reason_code", None) or "unknown"
+    if _LAST_FLEX_TELEMETRY_NO_RECORD.get("reason_code") == code:
+        return
+    last = _LAST_FLEX_TELEMETRY_POST.get("state")
+    sw.ha_post_state(
+        sw.FLEX_TELEMETRY_ENTITY_ID,
+        FLEX_TELEMETRY_NO_RECORD_STATE,
+        {
+            "friendly_name": "Nimbus Flex Telemetry",
+            "reason_code": code,
+            "reason": build.reason,
+            "last_record_interval": last,
+            "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
+        },
+    )
+    _LAST_FLEX_TELEMETRY_NO_RECORD.clear()
+    _LAST_FLEX_TELEMETRY_NO_RECORD["reason_code"] = code
+
 
 def publish_flex_telemetry_record(
     cfg: dict,
@@ -329,6 +360,7 @@ def publish_flex_telemetry_record(
         solver_shared._LOGGER.debug(
             "Nimbus flex telemetry: no record this cycle -- %s", build.reason
         )
+        _post_no_record_reason(sw, build)
         return
     if build.clamped_fields:
         solver_shared._LOGGER.warning(
@@ -353,6 +385,7 @@ def publish_flex_telemetry_record(
     sw.ha_post_state(sw.FLEX_TELEMETRY_ENTITY_ID, state, attributes)
     _LAST_FLEX_TELEMETRY_POST.clear()
     _LAST_FLEX_TELEMETRY_POST.update(state=state, attributes=dict(attributes))
+    _LAST_FLEX_TELEMETRY_NO_RECORD.clear()
 
 
 # --------------------------------------------------------------------

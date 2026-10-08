@@ -28,6 +28,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     already has a household-built "Solver" tab, it goes beside that tab
     under the same title, and the household's own tab is never touched.
 
+- **`sensor.nimbus_flex_telemetry` says why there is no record**
+  ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634), step 2).
+  It used to sit at `unknown`, with the reason logged only at DEBUG. When no
+  record can be built it now reads `no_record`, with `reason_code`
+  (`ranging_off`, `no_history`, `region_unresolved`, `postcode_unresolved`,
+  `field_not_finite`), the full `reason`, and `last_record_interval`. It is
+  written once per change of reason, not every solve. The
+  `nimbus_load.flex_telemetry_record` service returns the same reason. A
+  consumer still recognises "nothing to push" by the absence of
+  `attributes.record`.
+
 ### Fixed
 - **The Forecaster charts no longer show a loading spinner each time they
   refresh.** v0.94.443 cut the refresh to once a minute, but apexcharts-card

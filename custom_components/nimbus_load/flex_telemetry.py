@@ -143,6 +143,9 @@ class RecordBuild:
 
     record: dict[str, Any] | None = None
     reason: str | None = None
+    # nimbus #1634: a stable short code for `reason`, published on the
+    # sensor so a consumer can tell the causes apart without DEBUG logs.
+    reason_code: str | None = None
     clamped_fields: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -306,6 +309,7 @@ def build_record(
     """
     if region not in VALID_REGIONS:
         return RecordBuild(
+            reason_code="region_unresolved",
             reason=(
                 f"region {region!r} is not one of {sorted(VALID_REGIONS)} -- "
                 "Nimbus resolves it from the Companion App's own "
@@ -313,14 +317,15 @@ def build_record(
                 "sensor_discovery.resolve_geocoded_region_and_prefix for "
                 "the exact naming rule); exactly one usable such sensor "
                 "is needed"
-            )
+            ),
         )
     if not (postcode_prefix and _POSTCODE_PREFIX_RE.match(postcode_prefix)):
         return RecordBuild(
+            reason_code="postcode_unresolved",
             reason=(
                 f"postcode_prefix {postcode_prefix!r} is not three digits -- "
                 "same geocoded-location source as region above"
-            )
+            ),
         )
     # Seeded, not started fresh: `build_asset()` clamps each asset's own
     # `shadow_power_balance_price` against the same `[-2, 20]` range and
@@ -387,6 +392,7 @@ def build_record(
     for key in ("price_signal_seen", "price_export_seen"):
         if record[key] is None:
             return RecordBuild(
+                reason_code="field_not_finite",
                 reason=(
                     f"{key} is not a finite number -- the schema requires a "
                     "number here and Nimbus will not emit a record it knows "
