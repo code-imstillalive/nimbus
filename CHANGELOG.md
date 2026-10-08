@@ -68,6 +68,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `nimbus_load.flex_telemetry_record` service returns the same reason. A
   consumer still recognises "nothing to push" by the absence of
   `attributes.record`.
+### Changed
+- **Period 0 is anchored to the setpoint actually dispatched one solve ago**
+  ([#1576](https://github.com/code-imstillalive/nimbus/issues/1576), agreed by
+  Mark Purcell). Before, its plan-stability anchor pointed at whichever old
+  period contained its start, which a solve ~15 s past a minute boundary made
+  the old plan's next (often 5- or 30-minute) period. On devhub that was
+  11 of 18 dispatch crossings, a median 3.19 kW away from the live command,
+  with holding the dispatched value free. Every other period keeps the
+  time-aligned rule, and an older previous plan keeps it for period 0 too.
 
 ### Fixed
 - **The Forecaster charts no longer show a loading spinner each time they
