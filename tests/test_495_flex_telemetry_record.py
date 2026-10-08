@@ -43,7 +43,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jsonschema
 import numpy as np
@@ -494,22 +494,18 @@ class TestARealSyntheticSolveValidates:
         assert plan.status == "optimal"
         assert plan.grid_signals is not None
 
-        def _no_history(*_a, **_k):
-            raise AssertionError("the record must not read history (#1634)")
-
-        with patch.object(solver_writer, "fetch_entity_history_range", _no_history):
-            return solver_writer.build_flex_telemetry_record(
-                dict(cfg or _CFG),
-                plan,
-                now,
-                batteries=batteries,
-                import_price=0.30,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-                house_load_kw=house,
-            ), plan
+        return solver_writer.build_flex_telemetry_record(
+            dict(cfg or _CFG),
+            plan,
+            now,
+            batteries=batteries,
+            import_price=0.30,
+            export_price=0.09,
+            import_limit_kw=20.0,
+            export_limit_kw=15.0,
+            period_hours=1.0,
+            house_load_kw=house,
+        ), plan
 
     def test_the_record_validates_against_the_vendored_schema(self):
         build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
@@ -539,6 +535,16 @@ class TestARealSyntheticSolveValidates:
         assert build.record["solar_kw"] == round(solar, 3)
         assert build.record["net_import_kw"] == round(net, 3)
         assert build.record["naive_baseline_kw"] == round(3.0 - solar, 3)
+
+    def test_building_a_record_reads_no_history(self):
+        """#1647: no recorder query at all. A mock rather than a raising
+        stub, so a read is reported as a count, not swallowed by the
+        builder's own error handling."""
+        reads = MagicMock(return_value=[])
+        with patch.object(solver_writer, "fetch_entity_history_range", reads):
+            build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
+        assert build.record is not None
+        assert reads.call_count == 0
 
     def test_no_power_sensor_needs_to_be_configured(self):
         cfg = {"region": "QLD1", "postcode_prefix": "456"}
