@@ -5,16 +5,17 @@
 # exists so that review of the areas below stops depending on someone
 # remembering to ask.
 #
-# @purcell-lab is listed alongside the maintainer on the solver core and
-# the LP for a plain reason: that is where his findings have repeatedly
-# landed. The overlap guard that never guarded (#757), the W-vs-kW
+# @purcell-lab is co-owner of the whole repository. The solver core and
+# the LP were where he was first listed, for a plain reason: that is where
+# his findings have repeatedly landed. The overlap guard that never guarded (#757), the W-vs-kW
 # sampling transient (#843), the semi-continuous linking constraint
 # (#616), the availability mask the oracle never saw (#467), the P2P
 # export-commitment chain (#921-#926), and the 48-hour IV&V pass (#950)
 # all came out of reading this code.
 
-# Default owner for anything not matched below.
-*                                               @code-imstillalive
+# Code owners of the whole repository: the maintainer and @purcell-lab,
+# co-owner of the Nimbus code (household decision, 8 Oct 2026).
+*                                               @code-imstillalive @purcell-lab
 
 # Solver core: the LP formulation, the network/plan construction, the
 # scoring and regret machinery.
