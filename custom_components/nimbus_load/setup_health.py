@@ -19,6 +19,8 @@ Conditions (stage 2):
   is not reported while it is still being trained). The reason comes from the
   coordinator's own `last_retrain_error` when it has one.
 - **energy sensor on a power input:** from `power_input_check` (#1562).
+- **a non-power unit (A, kVA, ...) on a power input:** from `power_input_check`
+  (#1643).
 - **fees counted twice on top of LocalVolts Flex Up:** from
   `pricing_autodetect` (#1564).
 - **a required Solver input is empty:** battery SoC, load forecast, solar
@@ -59,6 +61,7 @@ REFRESH_INTERVAL = timedelta(minutes=15)
 
 KIND_NOT_TRAINED = "forecast_not_trained"
 KIND_ENERGY_UNIT = "energy_unit_power_input"
+KIND_NON_POWER_UNIT = "non_power_unit_power_input"
 KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
@@ -88,6 +91,7 @@ def evaluate_health(
     forecasts: Iterable[tuple[str, str, Mapping[str, Any] | None]],
     hub_up_for: timedelta,
     energy_unit_inputs: Iterable[tuple[str, str, str]] = (),
+    non_power_unit_inputs: Iterable[tuple[str, str, str]] = (),
     fees_doubled: tuple[str, str] | None = None,
     fees_on_tariff: tuple[str, str] | None = None,
 ) -> list[HealthIssue]:
@@ -131,6 +135,21 @@ def evaluate_health(
                     },
                 )
             )
+
+    non_power = list(non_power_unit_inputs)
+    if non_power:
+        issues.append(
+            HealthIssue(
+                key=KIND_NON_POWER_UNIT,
+                kind=KIND_NON_POWER_UNIT,
+                placeholders={
+                    "inputs": "\n".join(
+                        f"- {label}: `{eid}` reports {unit}"
+                        for label, eid, unit in non_power
+                    )
+                },
+            )
+        )
 
     energy = list(energy_unit_inputs)
     if energy:
@@ -190,7 +209,10 @@ async def async_refresh_health(
     try:
         from homeassistant.helpers import issue_registry as ir
 
-        from .power_input_check import find_energy_unit_inputs
+        from .power_input_check import (
+            find_energy_unit_inputs,
+            find_non_power_unit_inputs,
+        )
         from .pricing_autodetect import (
             detect_fees_doubled,
             detect_fees_on_pd7day_tariff,
@@ -214,6 +236,7 @@ async def async_refresh_health(
             forecasts=forecasts,
             hub_up_for=up_for,
             energy_unit_inputs=find_energy_unit_inputs(hass, entry),
+            non_power_unit_inputs=find_non_power_unit_inputs(hass, entry),
             fees_doubled=detect_fees_doubled(hass, dict(entry.options)),
             fees_on_tariff=detect_fees_on_pd7day_tariff(hass, dict(entry.options)),
         )

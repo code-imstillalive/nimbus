@@ -528,6 +528,10 @@
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
     },
+    "non_power_unit_power_input": {
+      "title": "Nimbus: a power setting points at a sensor that is not in W or kW",
+      "description": "These settings need a power sensor (W or kW), but the sensor reports another unit, so Nimbus is reading its number as kW, which is wrong:\n\n{inputs}\n\nAmps (A) are current, not power, and kVA is apparent power. Pick the matching power sensor in Nimbus → Configure, or reconfigure the controllable load, battery, Load or Power Signal. This message clears itself once fixed."
+    },
     "energy_unit_power_input": {
       "title": "Nimbus: an energy total is set where a power sensor is needed",
       "description": "These settings point at an energy counter (Wh/kWh), but Nimbus needs a power sensor (W or kW):\n\n{inputs}\n\nPick the matching power sensor (most inverters and meters expose both) in Nimbus → Configure, or reconfigure the Load / Power Signal. This message clears itself once fixed."
