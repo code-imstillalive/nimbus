@@ -387,6 +387,9 @@ def publish_flex_telemetry_record(
         # dict and the record are different objects with different
         # contracts. `schema_version` lives in the record alone.
         "clamped_fields": list(build.clamped_fields),
+        # nimbus #1634: `grid_meter` or `energy_balance`, see
+        # solver_writer._flex_telemetry_measured.
+        "net_import_source": getattr(build, "net_import_source", None),
         "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
     }
     state = build.record["interval_start_utc"]

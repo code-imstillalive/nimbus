@@ -957,6 +957,9 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_no_flex_history_record",
         "_flex_available_physical",
         "_post_no_record_reason",
+        # nimbus #1634: the grid meter's reconciled sign, same family.
+        "_grid_meter_sign",
+        "_metered_net_import_kw",
     }
 )
 KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(

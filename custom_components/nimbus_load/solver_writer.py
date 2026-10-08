@@ -2213,6 +2213,50 @@ _FLEX_TELEMETRY_NO_HISTORY = (
 )
 
 
+def _grid_meter_sign(meter_sensor: str) -> float | None:
+    """+1.0 when `meter_sensor` reads positive = import, -1.0 when positive =
+    export, None when not established (nimbus #1634).
+
+    Nimbus has no setting for a grid meter's sign. The daily quality
+    report's meter reconciliation (#1465) fits it from a whole day against
+    the reconstructed exchange, and a day that AGREES on that same sensor
+    is the only evidence used here: one 5-minute interval near zero cannot
+    tell the two signs apart."""
+    try:
+        attrs = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes")
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+        _LOGGER.debug(
+            "Nimbus flex telemetry: quality report unreadable, grid meter sign "
+            "not established",
+            exc_info=True,
+        )
+        return None
+    rec = (attrs or {}).get("meter_reconciliation") or {}
+    if rec.get("status") != "agrees" or rec.get("meter_sensor") != meter_sensor:
+        return None
+    return {"positive_is_import": 1.0, "positive_is_export": -1.0}.get(
+        rec.get("meter_sign")
+    )
+
+
+def _metered_net_import_kw(
+    cfg: dict, interval_start, interval_end, mean
+) -> float | None:
+    """The grid meter's mean net import (kW, + = import) over the interval
+    (nimbus #1634). The energy-balance identity misses anything its three
+    sensors do not see, such as an EV charger outside the house-load sensor.
+    None when there is no meter, its sign is not established
+    (`_grid_meter_sign`), or it has no history in the window. `mean` is the
+    caller's period-mean, so the meter is averaged exactly like the other
+    three sensors."""
+    meter_sensor = cfg.get("switchboard_grid_meter_sensor") or cfg.get("grid_sensor")
+    sign = _grid_meter_sign(meter_sensor) if meter_sensor else None
+    if sign is None:
+        return None
+    hist = fetch_entity_history_range(meter_sensor, interval_start, interval_end)
+    return mean(hist, meter_sensor) * sign if hist else None
+
+
 def _flex_telemetry_measured(
     cfg: dict, interval_start: datetime, interval_end: datetime
 ) -> dict | None:
@@ -2227,6 +2271,8 @@ def _flex_telemetry_measured(
     `_compute_flex_report_for_window()` -- a second, independently-derived
     net-import formula is exactly how two Nimbus surfaces end up
     disagreeing about the same interval (#116's class).
+    Except `net_import_kw`, which comes from the grid meter when it can be
+    trusted (#1634, `_metered_net_import_kw`).
     """
     solar_sensor = cfg.get("solver_solar_power_sensor")
     battery_sensor = cfg.get("solver_battery_power_sensor")
@@ -2254,10 +2300,16 @@ def _flex_telemetry_measured(
     net_battery_kw = _mean(battery_hist, battery_sensor) * battery_sign
     charge_kw = max(0.0, -net_battery_kw)
     discharge_kw = max(0.0, net_battery_kw)
+    metered = _metered_net_import_kw(cfg, interval_start, interval_end, _mean)
     return {
         "solar_kw": solar_kw,
         "house_load_kw": load_kw,
-        "net_import_kw": load_kw - solar_kw - discharge_kw + charge_kw,
+        "net_import_kw": (
+            metered
+            if metered is not None
+            else load_kw - solar_kw - discharge_kw + charge_kw
+        ),
+        "net_import_source": "grid_meter" if metered is not None else "energy_balance",
         # `subtraction`: the same identity with the battery terms removed.
         # See flex_telemetry.py's own decision 2.
         "naive_baseline_kw": load_kw - solar_kw,
@@ -2358,10 +2410,9 @@ def build_flex_telemetry_record(
     export_limit_kw: float,
     period_hours: float,
 ):
-    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute
-    interval (#495) -- `.record` None with a `.reason` when no VALID
-    record is possible. Never raises. Every measurement and contract
-    decision lives in `flex_telemetry.py`'s own docstring."""
+    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute interval
+    (#495), `.record` None with a `.reason` when no valid record is possible.
+    Never raises. Contract decisions: `flex_telemetry.py`'s docstring."""
     bad = flex_telemetry.location_problem(cfg.get("region"), cfg.get("postcode_prefix"))
     if bad is not None:  # nimbus #1634: no history read for a record that cannot exist
         return bad
@@ -2405,6 +2456,7 @@ def build_flex_telemetry_record(
         ),
         assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
         clamped_in=clamped,
+        net_import_source=measured["net_import_source"],
     )
 
 

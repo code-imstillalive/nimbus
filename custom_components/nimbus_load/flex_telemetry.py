@@ -147,6 +147,10 @@ class RecordBuild:
     # sensor so a consumer can tell the causes apart without DEBUG logs.
     reason_code: str | None = None
     clamped_fields: tuple[str, ...] = field(default_factory=tuple)
+    # nimbus #1634: where `net_import_kw` came from, `grid_meter` or
+    # `energy_balance`. Published beside the record, not in it: the schema
+    # has no such field.
+    net_import_source: str | None = None
 
 
 def floor_to_interval(ts: datetime) -> datetime:
@@ -328,6 +332,7 @@ def build_record(
     assets: list[dict[str, Any]],
     deferrable_loads: list[dict[str, Any]] | None = None,
     clamped_in: list[str] | None = None,
+    net_import_source: str | None = None,
 ) -> RecordBuild:
     """One schema-v2.0 record, or a `reason` it could not be built.
 
@@ -413,4 +418,8 @@ def build_record(
                 ),
                 clamped_fields=tuple(clamped),
             )
-    return RecordBuild(record=record, clamped_fields=tuple(clamped))
+    return RecordBuild(
+        record=record,
+        clamped_fields=tuple(clamped),
+        net_import_source=net_import_source,
+    )

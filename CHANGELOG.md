@@ -9,6 +9,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **The flex telemetry record's net import comes from the grid meter
+  where it can be trusted** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634)).
+  `net_import_kw` was always worked out as house − solar − battery, so it
+  missed anything those three sensors do not see, such as an EV charger
+  outside the house-load sensor. Mark Purcell's trial found it 0.077 kW off
+  his meter, with the opposite sign, near zero.
+  - **When the meter is used:** the grid meter (Topology's switchboard
+    meter, else the Forecaster's grid sensor) is read when the daily meter
+    reconciliation (#1465) last **agreed** with that same meter. That
+    reconciliation also establishes which way the meter is signed, which
+    Nimbus has no setting for and one 5-minute interval cannot tell.
+  - **Otherwise** the energy-balance figure stays, exactly as before.
+  - **Which was used** is published as `net_import_source` (`grid_meter` or
+    `energy_balance`) beside the record, not in it, since the schema has no
+    such field.
 - **A power setting that points at amps, kVA or an unknown unit is now
   reported** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
   DC-000's F09 finding, ruled a defect by Mark Purcell on #1600).
