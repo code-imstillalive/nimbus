@@ -167,6 +167,134 @@ def find_energy_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, str]]
     return found
 
 
+# nimbus #1643: the Solver's own power inputs. power_units.power_scale_to_kw()
+# reads any unit it does not know as kW, so a current (A), apparent-power (kVA)
+# or unknown unit on one of these is used as kW, silently. The Forecaster gates
+# on `is_power_unit`; these did not. Labels are what the household sees.
+_SOLVER_POWER_FIELDS: tuple[tuple[str, str], ...] = (
+    ("solver_solar_power_sensor", "Solver settings: solar power sensor"),
+    ("solver_battery_power_sensor", "Solver settings: battery power sensor"),
+    (
+        "solver_whole_house_cross_check_sensor",
+        "Solver settings: whole-house load sensor",
+    ),
+    ("solver_load_forecast_sensor", "Solver settings: household load forecast"),
+    ("switchboard_grid_meter_sensor", "Topology: grid meter"),
+    ("switchboard_battery_power_sensor", "Topology: battery power sensor"),
+)
+# Subentry power fields: (subentry type, field, label prefix).
+_SUBENTRY_POWER_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("controllable_load", "controllable_load_power_sensor", "Controllable load"),
+    ("battery_participant", "battery_participant_power_sensor", "Battery"),
+)
+
+# One WARNING per entity per process, for the runtime read (`warn_non_power_once`).
+_WARNED_NON_POWER: set[str] = set()
+
+
+def is_non_power_unit(unit: object) -> bool:
+    """True when `unit` is stated but is neither a power nor an energy unit:
+    `A`, `kVA`, `%`, or anything unknown. No unit at all is not: it is read as
+    kW by design (DC-000 F09, `open_decision`). Energy units have their own
+    check (#1562) and are not reported twice."""
+    try:
+        from .power_units import is_power_unit
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from power_units import is_power_unit  # type: ignore[no-redef]
+    if not isinstance(unit, str) or not unit.strip():
+        return False
+    return not is_power_unit(unit) and not is_energy_unit(unit)
+
+
+def _unit_of(hass: Any, entity_id: str | None) -> object:
+    if not entity_id:
+        return None
+    try:
+        state = hass.states.get(entity_id)
+        return state.attributes.get("unit_of_measurement") if state else None
+    except Exception:  # noqa: BLE001 -- a lookup failure must never break setup
+        return None
+
+
+def warn_non_power_once(entity_id: str, unit: object) -> None:
+    """Log, once per entity, that a power input's unit is not a power unit and
+    its value is being read as kW (nimbus #1643)."""
+    if entity_id in _WARNED_NON_POWER:
+        return
+    _WARNED_NON_POWER.add(entity_id)
+    _LOGGER.warning(
+        "Nimbus: power sensor %s reports '%s', which is not a power unit (W or "
+        "kW), so its value is being read as kW. Point the setting at a power "
+        "sensor (nimbus #1643).",
+        entity_id,
+        unit,
+    )
+
+
+def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, str]]:
+    """`(setting, entity_id, unit)` for every configured power input whose
+    unit is stated but is not a power unit (`is_non_power_unit`): the
+    Solver's and Topology's power sensors, the Forecaster's Battery/Grid/Solar
+    sensors, and each Load, Power Signal, controllable load and battery's own
+    power sensor. An ENERGY unit on the Solver/Topology fields is listed too,
+    since #1562's check does not cover them."""
+    try:
+        from .const import (
+            CONF_BATTERY_SENSOR,
+            CONF_GRID_SENSOR,
+            CONF_LOAD_SENSOR,
+            CONF_SOLAR_SENSOR,
+            SUBENTRY_TYPE_LOAD,
+            SUBENTRY_TYPE_SIGNAL,
+        )
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from const import (  # type: ignore[no-redef]
+            CONF_BATTERY_SENSOR,
+            CONF_GRID_SENSOR,
+            CONF_LOAD_SENSOR,
+            CONF_SOLAR_SENSOR,
+            SUBENTRY_TYPE_LOAD,
+            SUBENTRY_TYPE_SIGNAL,
+        )
+
+    found: list[tuple[str, str, str]] = []
+    options = dict(getattr(entry, "options", {}) or {})
+    for key, label in _SOLVER_POWER_FIELDS:
+        eid = options.get(key)
+        unit = _unit_of(hass, eid)
+        if is_non_power_unit(unit) or is_energy_unit(unit):
+            found.append((label, eid, str(unit)))
+    for key, label in (
+        (CONF_BATTERY_SENSOR, "Forecaster: battery sensor"),
+        (CONF_GRID_SENSOR, "Forecaster: grid sensor"),
+        (CONF_SOLAR_SENSOR, "Forecaster: solar sensor"),
+    ):
+        eid = options.get(key)
+        unit = _unit_of(hass, eid)
+        if is_non_power_unit(unit):
+            found.append((label, eid, str(unit)))
+    fields = [(t, f, p) for t, f, p in _SUBENTRY_POWER_FIELDS]
+    fields += [(SUBENTRY_TYPE_LOAD, CONF_LOAD_SENSOR, "Load")]
+    fields += [(SUBENTRY_TYPE_SIGNAL, CONF_LOAD_SENSOR, "Power Signal")]
+    for subentry in (getattr(entry, "subentries", {}) or {}).values():
+        data = getattr(subentry, "data", None) or {}
+        for sub_type, field, prefix in fields:
+            if getattr(subentry, "subentry_type", None) != sub_type:
+                continue
+            eid = data.get(field)
+            unit = _unit_of(hass, eid)
+            energy_reported_elsewhere = sub_type in (
+                SUBENTRY_TYPE_LOAD,
+                SUBENTRY_TYPE_SIGNAL,
+            )
+            if is_non_power_unit(unit) or (
+                is_energy_unit(unit) and not energy_reported_elsewhere
+            ):
+                title = getattr(subentry, "title", "")
+                found.append((f"{prefix} '{title}'", eid, str(unit)))
+    return found
+
+
 async def async_notify_energy_unit_inputs(hass: Any, entry: Any) -> None:
     """Log each energy-unit power input, and dismiss the notification earlier
     releases raised for it. Never raises.

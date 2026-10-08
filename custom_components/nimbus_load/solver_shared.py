@@ -125,8 +125,13 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 try:
+    from .power_input_check import is_non_power_unit, warn_non_power_once
     from .power_units import power_scale_to_kw
 except ImportError:  # pragma: no cover - standalone/cron path
+    from power_input_check import (  # type: ignore[no-redef]
+        is_non_power_unit,
+        warn_non_power_once,
+    )
     from power_units import power_scale_to_kw  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger(__name__)
@@ -1531,6 +1536,10 @@ def _kw_scale_factor(entity_id: str) -> float:
         unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         return 1.0
+    # nimbus #1643: a stated unit that is not power (A, kVA, ...) is still
+    # read as kW here, but no longer silently; setup_health raises a Repair.
+    if is_non_power_unit(unit):
+        warn_non_power_once(entity_id, unit)
     # nimbus #1570: the shared converter (W/kW/MW/GW, any case).
     return power_scale_to_kw(unit)
 

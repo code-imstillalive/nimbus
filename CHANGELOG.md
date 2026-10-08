@@ -9,6 +9,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **A power setting that points at amps, kVA or an unknown unit is now
+  reported** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
+  DC-000's F09 finding, ruled a defect by Mark Purcell on #1600).
+  - **The defect:** Nimbus reads any unit it does not recognise as kW, so a
+    current clamp's `A` or an inverter's `kVA` on a Solver power input was used
+    as kW without a word. The Forecaster already ignored such a sensor; the
+    Solver's reads did not.
+  - **Now:** a Repair, *"a power setting points at a sensor that is not in W
+    or kW"*, lists each such setting: the Solver's solar, battery, whole-house
+    and load-forecast sensors, Topology's grid meter and battery sensor, the
+    Forecaster's battery/grid/solar sensors, and every Load, Power Signal,
+    controllable load and battery's own power sensor. An energy unit (kWh) on
+    a Solver or Topology field is listed too, which #1562's check did not
+    cover. The Solver's shared power read also logs it once per sensor.
+  - **What it does not change:** the number is still read as before, so no
+    plan changes on any install; the household fixes the setting. A sensor
+    with no unit at all is still read as kW, by design.
 - **A standard Solver tab on the Nimbus dashboard**
   ([#1594](https://github.com/code-imstillalive/nimbus/issues/1594)).
   - **Sections:** headline (solve status and time, dispatch direction,
