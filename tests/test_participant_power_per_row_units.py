@@ -113,11 +113,16 @@ class TestUnitHandling(unittest.TestCase):
         ((_t, v),) = _fetch([_row(9, 7.5, None)])
         self.assertEqual(v, 7.5)
 
-    def test_an_unrecognised_unit_is_taken_as_kw(self):
-        # Only the one real, confirmed mismatch (W) is corrected; this
-        # does not guess at every unit HA's power device class allows.
-        ((_t, v),) = _fetch([_row(9, 7.5, "kWh")])
-        self.assertEqual(v, 7.5)
+    def test_a_stated_non_power_unit_is_refused_not_taken_as_kw(self):
+        # nimbus #1643 (Mark Purcell, 8 Oct 2026): a row in kWh, A, kVA or
+        # an unknown unit is no reading. This used to be
+        # `test_an_unrecognised_unit_is_taken_as_kw`, which pinned the
+        # defect DC-000's F09 ledger recorded.
+        self.assertEqual(_fetch([_row(9, 7.5, "kWh")]), [])
+        self.assertEqual(_fetch([_row(9, 7.5, "A")]), [])
+        # The power rows around it are still read.
+        got = _fetch([_row(9, 7.5, "kVA"), _row(10, 2.0, "kW")])
+        self.assertEqual([v for _t, v in got], [2.0])
 
     def test_negative_w_values_scale_correctly(self):
         ((_t, v),) = _fetch([_row(9, -774.818, "W")])
