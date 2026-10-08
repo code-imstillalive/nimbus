@@ -8,16 +8,50 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.444] - 2026-10-09
+
+Everything on `main` since 0.94.441 that was not in 0.94.442/0.94.443, plus
+#1637. Held overnight because it changes the LP (#1614, one-way flows).
+
+- Devhub validation: confirmed live on devhub (HA 2026.9.3) at 5c1ab5c,
+  installed untagged via HACS (`installed_version` 5c1ab5c) and restarted
+  13:26 AEST 8 Oct. Devhub's own entities stamp `0.94.444` (3; the 118 at
+  0.94.443 are production's mirrored rows), and the `nimbus_load` config entry
+  is `loaded`. Its log since the restart shows no `Traceback` or `solve cycle
+  failed`. It does show three slow `phase2_secondary` solves (35-39 s,
+  1,480 binaries) and 25 self-healed tick overlaps. That is devhub's own test
+  EV and controllable loads; the same 35.7 s / 1,412-binary solve is recorded
+  on devhub on 25 Sep, long before this release. **Not observable on devhub:**
+  dispatch itself, because devhub's solver outputs share entity_ids with
+  production's mirror (#1396). It was checked instead by read-only replays of
+  production's live solve on this exact tree, against v0.94.443 (every
+  non-GET request refused, state writes captured locally):
+  - 16:1x AEST, two runs each: 5.6-5.7 s wall time against 4.9-5.5 s for
+    0.94.443, history fetches included, all `optimal`;
+  - 17:35 AEST, inside the P2P block: battery 12.915 kW against 12.914,
+    grid import 0 and export 12.0 in both. Production on 0.94.443 read battery
+    12.9 kW and meter -11.7 kW with the house at 1.13 kW;
+  - 21:30 AEST, inside the block: battery 13.514 kW against 13.513,
+    grid import 0 and export 12.0 in both. Production on 0.94.443 read
+    battery 13.6 kW and meter −11.8 kW with the house at 1.52 kW. Tonight's
+    buy price stayed at or above 23.3¢, so the 7 Oct trigger (18.4¢ from
+    21:11) did not recur live. #1610's behaviour at that price was replayed
+    on 7 Oct and is unchanged here;
+  `custom_components/` is byte-identical between 5c1ab5c and this tag.
+- Consumer check: Forecaster charts no longer show a loading spinner each
+  minute (#1637). On setups that use them, provider price sensors and LocalVolts v2 sensors are read
+  in the right units and past the retailer's horizon (#1615, #1616, #1626).
+  The Nimbus dashboard gains its standard tabs beside the household's own
+  (#1595). Plans no longer import and export, or charge and discharge, in the
+  same period (#1614). On the reference household the dispatch is otherwise
+  unchanged: 0.001 kW at 17:35 in the block.
+
 ### Fixed
 - **The Forecaster charts no longer show a loading spinner each time they
   refresh.** v0.94.443 cut the refresh to once a minute, but apexcharts-card
   still drew its spinner over the chart for every refresh, so the household
   still saw it come and go. The charts now keep their lines on screen while
   they refresh (`show.loading: false`); the data still updates once a minute.
-
-## [0.94.444] - 2026-10-09
-
-### Fixed
 - **A provider-shaped price sensor (AEMO NEM Data, NEM PD7DAY, Amber Electric,
   Amber Express, OpenADR 3) could be read up to 1,000x off, latently**
   ([#1623](https://github.com/code-imstillalive/nimbus/issues/1623), IV&V
