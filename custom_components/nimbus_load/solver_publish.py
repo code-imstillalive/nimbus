@@ -331,6 +331,14 @@ def publish_flex_telemetry_record(
     is `attributes.record`, whole. A deliberate, stated departure from
     #495's own "attributes = the full record" wording."""
     sw = _solver_writer()
+    # nimbus #1634 step 3: one record per completed 5-minute interval. The
+    # solver runs about once a minute; the interval this cycle would build
+    # is already published, so there is nothing new to read or post.
+    interval = flex_telemetry.format_interval_start(
+        flex_telemetry.last_complete_interval_start(now)
+    )
+    if _LAST_FLEX_TELEMETRY_POST.get("state") == interval:
+        return
     try:
         build = sw.build_flex_telemetry_record(
             cfg,

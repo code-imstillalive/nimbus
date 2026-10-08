@@ -12920,8 +12920,8 @@
       "friendly_name": "Nimbus Flex Telemetry",
       "generated_at": "2026-07-31T02:31:00+10:00",
       "last_record_interval": null,
-      "reason": "no ranging signals this cycle -- switch.nimbus_solver_flex_signals_enabled is off, which is the default, and it costs ~9x solve time when on (measured on a real install: median 1.16 s -> 10.3 s). The schema's own flex_available_up_kw/_down_kw are required, non-nullable numbers and come from ranging, so there is no valid partial record to emit instead.",
-      "reason_code": "ranging_off"
+      "reason": "region None is not one of ['NSW1', 'QLD1', 'SA1', 'TAS1', 'VIC1'] -- Nimbus resolves it from the Companion App's own geocoded-location sensor (see sensor_discovery.resolve_geocoded_region_and_prefix for the exact naming rule); exactly one usable such sensor is needed",
+      "reason_code": "region_unresolved"
      },
      "entity_id": "sensor.nimbus_flex_telemetry",
      "state": "no_record"

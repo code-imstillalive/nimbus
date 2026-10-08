@@ -97,14 +97,14 @@ def test_it_returns_the_record_from_the_entity_unchanged():
 
 
 def test_a_missing_entity_returns_a_reason_not_a_raise():
-    # Flex signals off is the DEFAULT state of this integration, not a
-    # caller error -- a ServiceValidationError would make an ordinary
-    # configuration read look like a fault.
+    # No record yet is an ordinary state, not a caller error -- a
+    # ServiceValidationError would make a configuration read look like a
+    # fault. nimbus #1634: the record no longer needs flex signals, so the
+    # reason names what it does need.
     result = _call(None)
     assert result["record"] is None
-    assert "flex_signals_enabled" in result["reason"]
-    # The real measured cost belongs where a household reads it.
-    assert "9x" in result["reason"]
+    assert "region" in result["reason"]
+    assert "flex_signals_enabled" not in result["reason"]
 
 
 def test_an_entity_with_no_record_attribute_returns_a_reason():

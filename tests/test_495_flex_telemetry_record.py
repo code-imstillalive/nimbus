@@ -47,6 +47,7 @@ from unittest.mock import patch
 
 import jsonschema
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -414,9 +415,9 @@ def _period_grid(n: int):
     return solver_writer.elements.PeriodGrid(hours=np.full(n, 1.0), start=None)
 
 
-def _real_synthetic_plan():
-    """A genuine `build_plan(..., compute_signals=True)` solve -- real
-    HiGHS, real ranging, real duals and reduced costs."""
+def _real_synthetic_plan(compute_signals: bool = True):
+    """A genuine `build_plan(...)` solve -- real HiGHS, real duals and
+    reduced costs, and real ranging when `compute_signals`."""
     n = 4
     battery = solver_writer.elements.BatteryConfig(
         name="home",
@@ -451,10 +452,24 @@ def _real_synthetic_plan():
                     name="house", forecast_kw=np.full(n, 3.0)
                 )
             ],
-            compute_signals=True,
+            compute_signals=compute_signals,
         ),
         [battery],
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_publisher_memory():
+    """The publisher remembers the last interval it posted (#1634 step 3)
+    and the last no-record reason. Module state, so cleared for every test
+    through the function that actually runs, whichever import path loaded
+    it."""
+    module = solver_writer.publish_flex_telemetry_record.__globals__
+    module["_LAST_FLEX_TELEMETRY_POST"].clear()
+    module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
+    yield
+    module["_LAST_FLEX_TELEMETRY_POST"].clear()
+    module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
 
 
 _CFG = {
@@ -563,23 +578,49 @@ class TestARealSyntheticSolveValidates:
 
 
 class TestNoRecordRatherThanAnInvalidOne:
-    def test_no_ranging_means_no_record_and_a_reason_naming_the_switch(self):
-        plan = SimpleNamespace(grid_signals=None)
-        build = solver_writer.build_flex_telemetry_record(
-            dict(_CFG),
-            plan,
-            datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
-            batteries=[],
-            import_price=0.3,
-            export_price=0.09,
-            import_limit_kw=20.0,
-            export_limit_kw=15.0,
-            period_hours=1.0,
+    def test_no_ranging_still_builds_a_valid_record_with_physical_flex(self):
+        """nimbus #1634 step 1 (Mark Purcell, 8 Oct 2026): ranging stays off
+        by default, and the record no longer needs it. `flex_available_*`
+        is physical availability (sum of battery hardware headroom, capped
+        by the envelope at the planned exchange); the two envelope shadow
+        prices, which only ranging produces, are null."""
+        plan, batteries = _real_synthetic_plan(compute_signals=False)
+        assert plan.grid_signals is None
+
+        def _fetch(entity_id, start, end):
+            v = {"sensor.solar": 0.0, "sensor.battery": 1.0, "sensor.house": 3.0}
+            return _history(v[entity_id], start)
+
+        with (
+            patch.object(solver_writer, "fetch_entity_history_range", _fetch),
+            patch.object(solver_writer, "_kw_scale_factor", lambda _e: 1.0),
+        ):
+            build = solver_writer.build_flex_telemetry_record(
+                dict(_CFG),
+                plan,
+                datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
+                batteries=batteries,
+                import_price=0.30,
+                export_price=0.09,
+                import_limit_kw=20.0,
+                export_limit_kw=15.0,
+                period_hours=1.0,
+            )
+        assert build.record is not None, build.reason
+        _validate(build.record)
+        rec = build.record
+        assert rec["shadow_envelope_import_price"] is None
+        assert rec["shadow_envelope_export_price"] is None
+        net = float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0])
+        up = sum(float(b.available_up_kw[0]) for b in plan.battery_signals)
+        down = sum(float(b.available_down_kw[0]) for b in plan.battery_signals)
+        assert rec["flex_available_up_kw"] == round(max(0.0, min(up, 20.0 - net)), 3)
+        assert rec["flex_available_down_kw"] == round(
+            max(0.0, min(down, 15.0 + net)), 3
         )
-        assert build.record is None
-        assert "flex_signals_enabled" in (build.reason or "")
-        # The cost belongs in the reason a household reads, not only in a PR.
-        assert "9x" in (build.reason or "")
+        # A 5 kW battery has kilowatts of headroom; ranging's sub-kW
+        # basis-change figure (#1634 finding 1) is not what is reported.
+        assert rec["flex_available_up_kw"] + rec["flex_available_down_kw"] > 1.0
 
     def test_no_history_means_no_record_and_a_reason_naming_the_window(self):
         plan, batteries = _real_synthetic_plan()
@@ -690,8 +731,18 @@ class TestThePublishedSensor:
             "export_limit_kw": 15.0,
             "period_hours": 1.0,
         }
-        with patch.object(
-            solver_writer, "ha_post_state", lambda e, s, a: posted.append((e, s, a))
+        no_record = solver_writer.flex_telemetry.RecordBuild(
+            reason="no measured history for the interval", reason_code="no_history"
+        )
+        with (
+            patch.object(
+                solver_writer, "ha_post_state", lambda e, s, a: posted.append((e, s, a))
+            ),
+            patch.object(
+                solver_writer,
+                "build_flex_telemetry_record",
+                lambda *_a, **_k: no_record,
+            ),
         ):
             for _ in range(3):
                 solver_writer.publish_flex_telemetry_record(
@@ -704,8 +755,8 @@ class TestThePublishedSensor:
         entity, state, attrs = posted[0]
         assert entity == solver_writer.FLEX_TELEMETRY_ENTITY_ID
         assert state == "no_record"
-        assert attrs["reason_code"] == "ranging_off"
-        assert "flex_signals_enabled" in attrs["reason"]
+        assert attrs["reason_code"] == "no_history"
+        assert attrs["reason"] == "no measured history for the interval"
         assert "record" not in attrs
         assert attrs["last_record_interval"] is None
         module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
@@ -734,3 +785,70 @@ class TestThePublishedSensor:
                 period_hours=1.0,
             )
         assert posted == []
+
+
+class TestNoWorkWithoutANewRecord:
+    """nimbus #1634: ranging no longer gates the record, so the work is
+    gated instead -- no history read when no record can exist, and one
+    record per completed interval however often the solver runs."""
+
+    def test_an_unresolved_region_reads_no_history(self):
+        plan, batteries = _real_synthetic_plan(compute_signals=False)
+        reads: list[str] = []
+
+        def _fetch(entity_id, *_a):
+            reads.append(entity_id)
+            return []
+
+        with patch.object(solver_writer, "fetch_entity_history_range", _fetch):
+            build = solver_writer.build_flex_telemetry_record(
+                dict(_CFG, region=None),
+                plan,
+                datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
+                batteries=batteries,
+                import_price=0.30,
+                export_price=0.09,
+                import_limit_kw=20.0,
+                export_limit_kw=15.0,
+                period_hours=1.0,
+            )
+        assert build.record is None
+        assert build.reason_code == "region_unresolved"
+        assert reads == []
+
+    def test_a_second_solve_in_the_same_interval_builds_nothing(self):
+        plan, batteries = _real_synthetic_plan(compute_signals=False)
+        builds: list[int] = []
+        record = {"interval_start_utc": "2026-09-27T04:30:00Z"}
+        built = solver_writer.flex_telemetry.RecordBuild(record=record)
+
+        def _build(*_a, **_k):
+            builds.append(1)
+            return built
+
+        posted: list[tuple] = []
+        call = {
+            "batteries": batteries,
+            "import_price": 0.3,
+            "export_price": 0.09,
+            "import_limit_kw": 20.0,
+            "export_limit_kw": 15.0,
+            "period_hours": 1.0,
+        }
+        with (
+            patch.object(solver_writer, "build_flex_telemetry_record", _build),
+            patch.object(
+                solver_writer, "ha_post_state", lambda e, s, a: posted.append((e, s, a))
+            ),
+        ):
+            # 04:37:12, 04:38:40 and 04:39:55 UTC all have 04:30-04:35Z as
+            # their last complete interval: one record, built once.
+            for minute, second in ((37, 12), (38, 40), (39, 55)):
+                solver_writer.publish_flex_telemetry_record(
+                    dict(_CFG),
+                    plan,
+                    datetime(2026, 9, 27, 4, minute, second, tzinfo=UTC),
+                    **call,
+                )
+        assert len(builds) == 1
+        assert len(posted) == 1

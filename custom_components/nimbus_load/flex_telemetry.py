@@ -275,6 +275,36 @@ def _round_or_none(value: float | None, digits: int) -> float | None:
     return None if value is None else round(value, digits)
 
 
+def location_problem(
+    region: str | None, postcode_prefix: str | None
+) -> RecordBuild | None:
+    """The no-record build for an unusable region or postcode prefix, else
+    None. Separate so a caller can check it BEFORE reading any history
+    (nimbus #1634): an install that cannot produce a record should do no
+    work for one."""
+    if region not in VALID_REGIONS:
+        return RecordBuild(
+            reason_code="region_unresolved",
+            reason=(
+                f"region {region!r} is not one of {sorted(VALID_REGIONS)} -- "
+                "Nimbus resolves it from the Companion App's own "
+                "geocoded-location sensor (see "
+                "sensor_discovery.resolve_geocoded_region_and_prefix for "
+                "the exact naming rule); exactly one usable such sensor "
+                "is needed"
+            ),
+        )
+    if not (postcode_prefix and _POSTCODE_PREFIX_RE.match(postcode_prefix)):
+        return RecordBuild(
+            reason_code="postcode_unresolved",
+            reason=(
+                f"postcode_prefix {postcode_prefix!r} is not three digits -- "
+                "same geocoded-location source as region above"
+            ),
+        )
+    return None
+
+
 def build_record(
     *,
     interval_start: datetime,
@@ -307,26 +337,9 @@ def build_record(
     `shadow_energy_price` for it, which is precisely the duplication
     decision 3 rejects.
     """
-    if region not in VALID_REGIONS:
-        return RecordBuild(
-            reason_code="region_unresolved",
-            reason=(
-                f"region {region!r} is not one of {sorted(VALID_REGIONS)} -- "
-                "Nimbus resolves it from the Companion App's own "
-                "geocoded-location sensor (see "
-                "sensor_discovery.resolve_geocoded_region_and_prefix for "
-                "the exact naming rule); exactly one usable such sensor "
-                "is needed"
-            ),
-        )
-    if not (postcode_prefix and _POSTCODE_PREFIX_RE.match(postcode_prefix)):
-        return RecordBuild(
-            reason_code="postcode_unresolved",
-            reason=(
-                f"postcode_prefix {postcode_prefix!r} is not three digits -- "
-                "same geocoded-location source as region above"
-            ),
-        )
+    bad_location = location_problem(region, postcode_prefix)
+    if bad_location is not None:
+        return bad_location
     # Seeded, not started fresh: `build_asset()` clamps each asset's own
     # `shadow_power_balance_price` against the same `[-2, 20]` range and
     # runs BEFORE this call, so dropping its findings here would report a
