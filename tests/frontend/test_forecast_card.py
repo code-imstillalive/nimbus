@@ -167,3 +167,14 @@ def test_charts_refresh_once_a_minute_not_on_every_state_change() -> None:
     # that could skip it.
     assert src.count('type: "custom:apexcharts-card"') == 1
     assert src.count("this._base(") >= 2
+
+
+def test_no_loading_spinner_on_each_refresh() -> None:
+    """The household still saw the spinner on every one-minute refresh with
+    v0.94.443: apexcharts-card draws it while `show.loading` (default on)
+    and a refresh is running. Off, the chart stays drawn while it
+    refreshes; the data still updates once a minute."""
+    src = _card()
+    base = src[src.index("_base(title, height) {") :]
+    base = base[: base.index("\n  }\n")]
+    assert "show: { loading: false }" in base

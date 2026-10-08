@@ -236,6 +236,11 @@ class NimbusForecastCard extends HTMLElement {
       // and never stopped spinning. The forecasts change at most about once
       // a minute (household decision, 7 Oct 2026: 1 minute).
       update_interval: "1min",
+      // The household still saw the spinner on every one-minute refresh
+      // (8 Oct 2026, v0.94.443): apexcharts-card draws it whenever
+      // show.loading is on, which is its default, and a refresh is in
+      // flight. Off, the chart stays drawn while it refreshes.
+      show: { loading: false },
       graph_span: "54h",
       span: { offset: "+48h" },
       now: { show: true, label: "now", color: "#E91E63" },

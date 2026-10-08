@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The Forecaster charts no longer show a loading spinner each time they
+  refresh.** v0.94.443 cut the refresh to once a minute, but apexcharts-card
+  still drew its spinner over the chart for every refresh, so the household
+  still saw it come and go. The charts now keep their lines on screen while
+  they refresh (`show.loading: false`); the data still updates once a minute.
+
 ## [0.94.444] - 2026-10-09
 
 ### Fixed
