@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **A power sensor in amps, kVA, kWh or an unknown unit is now ignored, not
+  read as kW** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
+  the runtime half Mark Purcell approved on that issue). #1644 only reported
+  these; the number was still used as kW.
+  - **Solar, battery, whole-house, grid-meter and Topology power inputs:**
+    treated as not configured, the same as a blank field.
+  - **A controllable load's or battery's power reading:** no measurement, the
+    same as an unavailable sensor.
+  - **The load forecast:** not read, so the solve takes its existing
+    missing-forecast path with a reason naming the unit.
+  - **Not silent:** the Repair from #1644 still names each one, and the log
+    says it is ignored, once per sensor.
+  - **Unchanged:** a sensor with no unit at all is still read as kW, by
+    design. Every power input on the reference household declares W or kW
+    (read live 8 Oct), so nothing changes there.
+  - DC-000's F09 ledger drops its three `candidate_defect` entries (A, kVA,
+    unknown); the Solver now refuses them as the contract does.
+
 ### Added
 - **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   Mark Purcell's review of #1640: the record publishes data Nimbus already
