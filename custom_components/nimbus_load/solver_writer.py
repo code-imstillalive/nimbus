@@ -2211,7 +2211,49 @@ _FLEX_TELEMETRY_NO_MEASUREMENT = (
 )
 
 
-def _flex_telemetry_measured(plan, house_load_kw: float | None) -> dict | None:
+def _grid_meter_sign(meter_sensor: str) -> float | None:
+    """+1.0 when `meter_sensor` reads positive = import, -1.0 when positive =
+    export, None when not established (nimbus #1634).
+
+    Nimbus has no setting for a grid meter's sign. The daily quality
+    report's meter reconciliation (#1465) fits it from a whole day, and only
+    a day that AGREED on this same sensor is used: one reading near zero
+    cannot tell the two signs apart."""
+    try:
+        attrs = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes")
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+        _LOGGER.debug("Nimbus flex telemetry: meter sign unreadable", exc_info=True)
+        return None
+    rec = (attrs or {}).get("meter_reconciliation") or {}
+    if rec.get("status") != "agrees" or rec.get("meter_sensor") != meter_sensor:
+        return None
+    return {"positive_is_import": 1.0, "positive_is_export": -1.0}.get(
+        rec.get("meter_sign")
+    )
+
+
+def _live_grid_meter_kw(cfg: dict) -> float | None:
+    """The grid meter's live net import (kW, + = import): ONE state read, no
+    history (nimbus #1634, Mark Purcell). None when no meter is configured,
+    its sign is not established (`_grid_meter_sign`), or its state or unit
+    is unusable."""
+    meter = cfg.get("switchboard_grid_meter_sensor") or cfg.get("grid_sensor")
+    sign = _grid_meter_sign(meter) if meter else None
+    if sign is None:
+        return None
+    try:
+        state = ha_get(meter)
+        unit = (state.get("attributes") or {}).get("unit_of_measurement")
+        value = float(state["state"]) * power_scale_to_kw(unit)
+    except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+        _LOGGER.debug("Nimbus flex telemetry: %s unreadable", meter, exc_info=True)
+        return None
+    return value * sign if math.isfinite(value) else None
+
+
+def _flex_telemetry_measured(
+    plan, house_load_kw: float | None, cfg: dict | None = None
+) -> dict | None:
     """The record's four site figures, from what this solve already holds
     (nimbus #1634, Mark Purcell: the record publishes data Nimbus already
     generates and needs no history reads). `None` when the solve had no
@@ -2222,7 +2264,9 @@ def _flex_telemetry_measured(plan, house_load_kw: float | None) -> dict | None:
       (`solver_inputs/load.py` overwrites period 0 with it);
     - `solar_kw`: the plan's period-0 solar, used plus curtailed, which is
       the live solar reading the same way (`solver_inputs/solar.py`);
-    - `net_import_kw`: the plan's period-0 grid import minus export;
+    - `net_import_kw`: the grid meter's live reading when its sign is
+      established (`_live_grid_meter_kw`), else the plan's period-0 grid
+      import minus export; `net_import_source` says which;
     - `naive_baseline_kw`: house load minus solar, flex_telemetry.py's own
       decision 2.
     """
@@ -2232,10 +2276,13 @@ def _flex_telemetry_measured(plan, house_load_kw: float | None) -> dict | None:
     solar_kw = max(
         0.0, float(plan.solar_used_kw[0]) + float(plan.solar_curtailed_kw[0])
     )
+    metered = _live_grid_meter_kw(cfg or {})
+    planned = float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0])
     return {
         "solar_kw": solar_kw,
         "house_load_kw": load_kw,
-        "net_import_kw": float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0]),
+        "net_import_kw": planned if metered is None else metered,
+        "net_import_source": "plan" if metered is None else "grid_meter",
         "naive_baseline_kw": load_kw - solar_kw,
     }
 
@@ -2325,15 +2372,14 @@ def build_flex_telemetry_record(
     period_hours: float,
     house_load_kw: float | None = None,
 ):
-    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute
-    interval (#495) -- `.record` None with a `.reason` when no VALID
-    record is possible. Never raises. Every measurement and contract
-    decision lives in `flex_telemetry.py`'s own docstring."""
+    """One schema-v2.0 `RecordBuild` for the last COMPLETE 5-minute interval
+    (#495), `.record` None with a `.reason` when no valid record is possible.
+    Never raises. Contract decisions: `flex_telemetry.py`'s docstring."""
     bad = flex_telemetry.location_problem(cfg.get("region"), cfg.get("postcode_prefix"))
     if bad is not None:  # nimbus #1634: no work for a record that cannot exist
         return bad
     interval_start = flex_telemetry.last_complete_interval_start(now)
-    measured = _flex_telemetry_measured(plan, house_load_kw)
+    measured = _flex_telemetry_measured(plan, house_load_kw, cfg)
     if measured is None:
         return _no_flex_record("no_measurement", _FLEX_TELEMETRY_NO_MEASUREMENT)
     gs = plan.grid_signals
@@ -2371,6 +2417,7 @@ def build_flex_telemetry_record(
         ),
         assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
         clamped_in=clamped,
+        net_import_source=measured["net_import_source"],
     )
 
 
