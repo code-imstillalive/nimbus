@@ -432,7 +432,13 @@ async def _async_handle_flex_telemetry_record(
         return {"record": None, "reason": _FLEX_TELEMETRY_NOT_PUBLISHED}
     record = state.attributes.get("record")
     if not isinstance(record, dict):
-        return {"record": None, "reason": _FLEX_TELEMETRY_NOT_PUBLISHED}
+        # nimbus #1634: the publisher now says why there is no record.
+        return {
+            "record": None,
+            "reason": state.attributes.get("reason") or _FLEX_TELEMETRY_NOT_PUBLISHED,
+            "reason_code": state.attributes.get("reason_code"),
+            "last_record_interval": state.attributes.get("last_record_interval"),
+        }
     return {
         "record": record,
         "interval_start_utc": record.get("interval_start_utc"),

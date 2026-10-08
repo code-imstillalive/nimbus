@@ -144,6 +144,9 @@ class TestTheHold(_Reset):
         held.assert_not_called()
 
     def test_the_telemetry_record_is_held_the_same_way(self):
+        solver_publish.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         record = {"interval_start_utc": "2026-09-28T02:00:00Z"}
         built = SimpleNamespace(record=record, reason="", clamped_fields=())
         none = SimpleNamespace(record=None, reason="no ranging", clamped_fields=())
@@ -178,7 +181,13 @@ class TestTheHold(_Reset):
                 if expect_post:
                     self.assertEqual(post.call_args[0], first.call_args[0])
                 else:
-                    post.assert_not_called()
+                    # nimbus #1634: not held -- the reason is published,
+                    # never the stale record.
+                    self.assertEqual(post.call_args[0][1], "no_record")
+                    self.assertEqual(
+                        post.call_args[0][2]["last_record_interval"],
+                        record["interval_start_utc"],
+                    )
 
 
 class TestMainWiresTheFlag(unittest.TestCase):

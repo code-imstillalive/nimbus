@@ -2316,6 +2316,22 @@ def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[d
     return assets
 
 
+def _no_flex_record(code: str, reason: str) -> flex_telemetry.RecordBuild:
+    """No record this cycle, with its #1634 reason code (kept out of
+    build_flex_telemetry_record so it stays inside the #1301 size gate)."""
+    return flex_telemetry.RecordBuild(reason=reason, reason_code=code)
+
+
+def _no_flex_history_record(
+    start: datetime, end: datetime
+) -> flex_telemetry.RecordBuild:
+    """No record: no measured history for the interval (#1634 reason code)."""
+    return _no_flex_record(
+        "no_history",
+        _FLEX_TELEMETRY_NO_HISTORY.format(start=start.isoformat(), end=end.isoformat()),
+    )
+
+
 def build_flex_telemetry_record(
     cfg: dict,
     plan,
@@ -2333,16 +2349,12 @@ def build_flex_telemetry_record(
     record is possible. Never raises. Every measurement and contract
     decision lives in `flex_telemetry.py`'s own docstring."""
     if plan.grid_signals is None:
-        return flex_telemetry.RecordBuild(reason=_FLEX_TELEMETRY_RANGING_OFF)
+        return _no_flex_record("ranging_off", _FLEX_TELEMETRY_RANGING_OFF)
     interval_start = flex_telemetry.last_complete_interval_start(now)
     interval_end = interval_start + timedelta(seconds=flex_telemetry.INTERVAL_SECONDS)
     measured = _flex_telemetry_measured(cfg, interval_start, interval_end)
     if measured is None:
-        return flex_telemetry.RecordBuild(
-            reason=_FLEX_TELEMETRY_NO_HISTORY.format(
-                start=interval_start.isoformat(), end=interval_end.isoformat()
-            )
-        )
+        return _no_flex_history_record(interval_start, interval_end)
     gs = plan.grid_signals
     hours = period_hours if period_hours > 0 else 1.0
     household_lambda = plan.duals.get("power_balance_t0", 0.0) / hours

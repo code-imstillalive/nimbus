@@ -673,23 +673,42 @@ class TestThePublishedSensor:
         # validating if anyone tried to POST the attributes wholesale.
         assert not (set(attrs) - {"record"}) & set(attrs["record"])
 
-    def test_it_posts_nothing_when_no_record_can_be_built(self):
+    def test_no_record_publishes_its_reason_once(self):
+        """nimbus #1634 step 2: a consumer can tell WHY there is no record
+        without DEBUG logging, and an unchanged reason is not re-posted
+        every solve."""
+        # The module that actually runs, whichever import path loaded it.
+        module = solver_writer.publish_flex_telemetry_record.__globals__
+        module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
+        module["_LAST_FLEX_TELEMETRY_POST"].clear()
         posted: list[tuple] = []
+        call = {
+            "batteries": [],
+            "import_price": 0.3,
+            "export_price": 0.09,
+            "import_limit_kw": 20.0,
+            "export_limit_kw": 15.0,
+            "period_hours": 1.0,
+        }
         with patch.object(
             solver_writer, "ha_post_state", lambda e, s, a: posted.append((e, s, a))
         ):
-            solver_writer.publish_flex_telemetry_record(
-                dict(_CFG),
-                SimpleNamespace(grid_signals=None),
-                datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
-                batteries=[],
-                import_price=0.3,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-            )
-        assert posted == []
+            for _ in range(3):
+                solver_writer.publish_flex_telemetry_record(
+                    dict(_CFG),
+                    SimpleNamespace(grid_signals=None),
+                    datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
+                    **call,
+                )
+        assert len(posted) == 1
+        entity, state, attrs = posted[0]
+        assert entity == solver_writer.FLEX_TELEMETRY_ENTITY_ID
+        assert state == "no_record"
+        assert attrs["reason_code"] == "ranging_off"
+        assert "flex_signals_enabled" in attrs["reason"]
+        assert "record" not in attrs
+        assert attrs["last_record_interval"] is None
+        module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
 
     def test_a_build_failure_never_takes_the_solve_down(self):
         posted: list[tuple] = []
