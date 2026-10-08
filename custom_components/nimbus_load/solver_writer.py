@@ -2206,13 +2206,6 @@ FLEX_TELEMETRY_ENTITY_ID = "sensor.nimbus_flex_telemetry"
 # constants so the reasons are one grep away from the entity that goes
 # `unknown` because of them, and so build_flex_telemetry_record() stays
 # inside the #1301 size gate (tests/gates/size_ratchet.py).
-_FLEX_TELEMETRY_RANGING_OFF = (
-    "no ranging signals this cycle -- switch.nimbus_solver_flex_signals_enabled "
-    "is off, which is the default, and it costs ~9x solve time when on (measured "
-    "on a real install: median 1.16 s -> 10.3 s). The schema's own flex_available_"
-    "up_kw/_down_kw are required, non-nullable numbers and come from ranging, so "
-    "there is no valid partial record to emit instead."
-)
 _FLEX_TELEMETRY_NO_HISTORY = (
     "no real recorder history for [{start}, {end}) on the solar/battery/"
     "whole-house sensors, or one of them is unconfigured under Solver settings "
@@ -2316,6 +2309,27 @@ def _flex_telemetry_assets(plan, batteries, household_lambda, clamped) -> list[d
     return assets
 
 
+def _flex_available_physical(
+    plan, import_limit_kw: float, export_limit_kw: float
+) -> dict[str, float]:
+    """Household `flex_available_up_kw`/`_down_kw` as PHYSICAL availability
+    (nimbus #1634 step 1, option (b); #1639): the sum of every battery's own
+    hardware headroom in period 0, capped by what the grid envelope still
+    allows at the planned exchange. Up = more consumption (charge more /
+    discharge less, so more import); down = the reverse. Pure arithmetic --
+    no HiGHS ranging, so the record no longer depends on the 9-11x flex
+    signals switch. The LP's ranging headroom stays on
+    `sensor.nimbus_flex_signals`, where it means what it says."""
+    signals = list(plan.battery_signals or [])
+    up = sum(float(b.available_up_kw[0]) for b in signals)
+    down = sum(float(b.available_down_kw[0]) for b in signals)
+    net_import = float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0])
+    return {
+        "flex_available_up_kw": max(0.0, min(up, import_limit_kw - net_import)),
+        "flex_available_down_kw": max(0.0, min(down, export_limit_kw + net_import)),
+    }
+
+
 def _no_flex_record(code: str, reason: str) -> flex_telemetry.RecordBuild:
     """No record this cycle, with its #1634 reason code (kept out of
     build_flex_telemetry_record so it stays inside the #1301 size gate)."""
@@ -2348,8 +2362,9 @@ def build_flex_telemetry_record(
     interval (#495) -- `.record` None with a `.reason` when no VALID
     record is possible. Never raises. Every measurement and contract
     decision lives in `flex_telemetry.py`'s own docstring."""
-    if plan.grid_signals is None:
-        return _no_flex_record("ranging_off", _FLEX_TELEMETRY_RANGING_OFF)
+    bad = flex_telemetry.location_problem(cfg.get("region"), cfg.get("postcode_prefix"))
+    if bad is not None:  # nimbus #1634: no history read for a record that cannot exist
+        return bad
     interval_start = flex_telemetry.last_complete_interval_start(now)
     interval_end = interval_start + timedelta(seconds=flex_telemetry.INTERVAL_SECONDS)
     measured = _flex_telemetry_measured(cfg, interval_start, interval_end)
@@ -2378,13 +2393,16 @@ def build_flex_telemetry_record(
         price_export_seen=export_price,
         envelope_import_limit_kw=import_limit_kw,
         envelope_export_limit_kw=export_limit_kw,
-        flex_available_up_kw=float(gs.flex_available_up_kw[0]),
-        flex_available_down_kw=float(gs.flex_available_down_kw[0]),
+        **_flex_available_physical(plan, import_limit_kw, export_limit_kw),
         shadow_energy_price=household_lambda,
         shadow_solar_forecast_price=solar_shadow,
         # GridSignals' own docstring: these two ARE #493's envelope shadows.
-        shadow_envelope_import_price=float(gs.forced_import_cost[0]),
-        shadow_envelope_export_price=float(gs.forced_export_cost[0]),
+        shadow_envelope_import_price=(
+            float(gs.forced_import_cost[0]) if gs is not None else None
+        ),
+        shadow_envelope_export_price=(
+            float(gs.forced_export_cost[0]) if gs is not None else None
+        ),
         assets=_flex_telemetry_assets(plan, batteries, household_lambda, clamped),
         clamped_in=clamped,
     )

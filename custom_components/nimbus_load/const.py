@@ -1035,11 +1035,9 @@ DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
 # puts a cycle past the tick interval is not, and #773 is why the
 # difference matters on a big enough problem.
 #
-# The same cost is inherited by anything that NEEDS ranging, which as of
-# nimbus issue #495 includes the nem-flex-telemetry record: the schema's
-# required, non-nullable flex_available_up_kw/_down_kw come from
-# GridSignals, so sensor.nimbus_flex_telemetry is silent while this switch
-# is off and there is no cheaper partial record to emit instead.
+# The nem-flex-telemetry record does NOT need it (nimbus #1634, 8 Oct
+# 2026): its flex_available_up_kw/_down_kw are physical availability, pure
+# arithmetic, and the two envelope shadow prices it would add are nullable.
 CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
 # nimbus issue #1213 (Mark Purcell): an additive price-event test sensor,
 # for simulating a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh --

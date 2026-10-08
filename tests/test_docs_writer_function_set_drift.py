@@ -955,6 +955,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # nimbus #1634 step 2: the no-record reason, same family as above.
         "_no_flex_record",
         "_no_flex_history_record",
+        "_flex_available_physical",
         "_post_no_record_reason",
     }
 )

@@ -44,7 +44,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - **Placement:** second on a new install. On an existing dashboard that
     already has a household-built "Solver" tab, it goes beside that tab
     under the same title, and the household's own tab is never touched.
-
+- **The flex telemetry record no longer needs the expensive flex-signals
+  switch** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
+  step 1 decided by Mark Purcell; [#1639](https://github.com/code-imstillalive/nimbus/issues/1639)).
+  - `flex_available_up_kw` / `_down_kw` are now **physical availability**:
+    the sum of every battery's hardware headroom, capped by what the grid
+    envelope still allows at the planned exchange. They used to be the LP's
+    ranging headroom, which a trial measured at under 1 kW against 30+ kW
+    of real headroom, and which needed the 9-11x-solve-time switch.
+  - The two envelope shadow prices, which only ranging produces, are null
+    when it is off.
+  - The ranging figures stay on `sensor.nimbus_flex_signals`.
+  - **No wasted work:** at most one record per completed 5-minute interval,
+    and no history is read on an install whose region or postcode prefix
+    does not resolve.
 - **`sensor.nimbus_flex_telemetry` says why there is no record**
   ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634), step 2).
   It used to sit at `unknown`, with the reason logged only at DEBUG. When no

@@ -401,14 +401,11 @@ async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> Non
 
 
 _FLEX_TELEMETRY_NOT_PUBLISHED = (
-    "sensor.nimbus_flex_telemetry has not published a record yet. It is "
-    "written once per solve and only while "
-    "switch.nimbus_solver_flex_signals_enabled is on -- that switch is off "
-    "by default and costs ~9x solve time when on (measured on a real "
-    "install: median 1.16 s -> 10.3 s), because the schema's required "
-    "flex_available_up_kw/_down_kw come from HiGHS ranging. Turn it on, wait "
-    "one solve, and call again. Home Assistant's own log carries the exact "
-    "reason at DEBUG if it is on and still producing nothing."
+    "sensor.nimbus_flex_telemetry has not published a record yet. One is "
+    "built per completed 5-minute interval once the region and postcode "
+    "prefix resolve (from the Companion App's geocoded location) and the "
+    "Solver's solar, battery and whole-house sensors are set. The sensor's "
+    "own reason attribute says which is missing."
 )
 
 
