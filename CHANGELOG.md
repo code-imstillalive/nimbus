@@ -69,22 +69,6 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - The reference household's own plan replays identically. Mark Purcell's
     #1535 reproduction now passes with `--assert-exclusive`.
 
-- **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
-  ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
-  [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
-  - **First load:** Home Assistant swaps its card registry for its own shortly
-    after a page starts. A Nimbus card that registered before that swap was
-    invisible to HA ("Custom element doesn't exist") until a refresh. Each
-    bundled card now checks again once the page has settled and registers where
-    HA looks. Measured on the reference household's production Forecaster tab:
-    on a cold load, the card registered 61 ms in, the swap came about 500 ms in,
-    and the tab showed an error. With the fix there are no error cards on the
-    first load.
-  - **Constant reloading:** the two Forecaster charts refreshed on every state
-    change of any of their roughly 60 series. Those include the live measured
-    sensors, so they re-fetched 54 h of history about 285 times a minute. They
-    now refresh once a minute (25 requests a minute, measured).
-
 - **Energy Dashboard suggestions work again on current Home Assistant**
   ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
   Assistant 2026.3 changed how a grid source is stored: there is now one source
@@ -427,6 +411,58 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   rule the battery, grid and solar inputs already followed. A model saved
   before this fix that learned from its own source retrains once at startup,
   so expect such a signal's reported accuracy to drop to a believable figure.
+
+## [0.94.443] - 2026-10-08
+
+Intermediate release: v0.94.442 plus #1603 only, so the Forecaster charts
+stop constantly reloading without waiting for the larger release (0.94.444).
+No solver, pricing or dispatch code changes.
+
+- Devhub validation: confirmed live on devhub at 40051e3d (HACS install of
+  `release/0.94.443`, restart 09:43 AEST 8 Oct): HACS reports
+  `installed_version: release/0.94.443`, devhub's own entities stamp
+  `0.94.443`, the `nimbus_load` config entry is `loaded`, and the system log
+  since the pre-install baseline (09:42:22) shows no new Nimbus error. The
+  unique-ID collisions it does show are devhub's known mirror condition and
+  appear in its 0.94.439 restart log too. devhub's web port is not reachable
+  from the validating PC, so the served card files were not fetched there;
+  the card behaviour itself was measured for #1603 on production's own
+  Forecaster tab with these exact files served in place (0 error cards on a
+  cold load, 25 history fetches a minute against 285), and is re-measured on
+  production after deploy. `custom_components/` differs from v0.94.442 only in
+  the four bundled card files and the manifest version.
+- Consumer check: the Forecaster tab's two charts redraw once a minute
+  instead of every couple of seconds, so the spinner stops and hover pop-ups
+  stay up; the Forecaster, Regret, Topology and dispatch cards appear on a
+  page's first load instead of sometimes showing "Custom element doesn't
+  exist" until a refresh. A browser hard refresh may be needed once to load
+  the new card files. Nothing changes in forecasting, solving or dispatch.
+
+### Fixed
+- **The Forecaster tab loads on the first visit, and its charts stop constantly reloading**
+  ([#1601](https://github.com/code-imstillalive/nimbus/issues/1601),
+  [#1602](https://github.com/code-imstillalive/nimbus/issues/1602)).
+  - **First load:** Home Assistant swaps its card registry for its own shortly
+    after a page starts. A Nimbus card that registered before that swap was
+    invisible to HA ("Custom element doesn't exist") until a refresh. Each
+    bundled card now checks again once the page has settled and registers where
+    HA looks. Measured on the reference household's production Forecaster tab:
+    on a cold load, the card registered 61 ms in, the swap came about 500 ms in,
+    and the tab showed an error. With the fix there are no error cards on the
+    first load.
+  - **Constant reloading:** the two Forecaster charts refreshed on every state
+    change of any of their roughly 60 series. Those include the live measured
+    sensors, so they re-fetched 54 h of history about 285 times a minute. They
+    now refresh once a minute (25 requests a minute, measured).
+
+- **Energy Dashboard suggestions work again on current Home Assistant**
+  ([#1589](https://github.com/code-imstillalive/nimbus/issues/1589)). Home
+  Assistant 2026.3 changed how a grid source is stored: there is now one source
+  per import/export connection, with its fields flat, instead of `flow_from` /
+  `flow_to` lists. The Solver's import/export price suggestions and the
+  switchboard's grid energy and price suggestions read only the old lists, so
+  they silently found nothing. Both forms are read now, each field mapped back
+  exactly as Home Assistant's own migration mapped it forward.
 
 ## [0.94.442] - 2026-10-07
 
