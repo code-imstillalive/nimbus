@@ -8,7 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-## [0.94.443] - 2026-10-08
+## [0.94.444] - 2026-10-09
 
 ### Fixed
 - **A provider-shaped price sensor (AEMO NEM Data, NEM PD7DAY, Amber Electric,
