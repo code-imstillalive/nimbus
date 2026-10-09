@@ -56,6 +56,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     unknown); the Solver now refuses them as the contract does.
 
 ### Added
+- **The price entities carry the full resolved price series, live**
+  ([#1657](https://github.com/code-imstillalive/nimbus/issues/1657), gate 1,
+  Mark Purcell; the Amber Express #82 pattern).
+  `sensor.nimbus_solver_current_import_price` and `_export_price` keep their
+  numeric state and gain `detailedForecast`: one row per plan period.
+  - **Each row:** `start` and `end` (half-open), the resolved `value` the LP
+    used, the provider's `value_raw` where the plan recorded it, and its
+    `source`.
+  - **Gaps and signs:** a period with no price stays `None`, never zero, and
+    negative prices are kept.
+  - **Excluded from Recorder**, however long the horizon. A small recorded
+    `detailed_forecast_meta` (direction, periods, first start, horizon end,
+    solve status) says which plan a recorded price belonged to.
+  - **One plan publish:** the state and the rows come from the same publish,
+    so they cannot be from different solves.
+  - **Not replay:** this is live exposure only. Capturing the inputs at
+    decision time is #1657's second gate.
 - **A price setting pointed at a frozen rate is refused and reported**
   ([#1661](https://github.com/code-imstillalive/nimbus/issues/1661), Mark
   Purcell). LocalVolts' Rate All Var (and the `amountVar`/`amountAll` fields
