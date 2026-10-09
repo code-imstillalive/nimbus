@@ -21,6 +21,19 @@ box, Supervisor, `code-imstillalive/nimbus` shows `installed: true` under
 with the same care as any live-dispatch install, but it updates through HACS,
 not git+docker.
 
+**This "tell" isn't unique to one install.** `ha_get_hacs_info` showing
+`installed: true` is equally true of **devhub** (the 116KAT test box,
+HACS-managed, reached through a different MCP connection in
+`116KAT-HA-AI` sessions) — these steps apply there too. What does NOT carry
+over is the live-dispatch framing above: devhub itself dispatches nothing.
+Its own real hazard is different and this skill's steps don't protect
+against it: devhub's `nimbus_*` entity_ids are shared with production
+(#1396's mirror), so a write devhub makes can reach production's own
+entities. Nothing here writes beyond download+restart, so that's not
+triggered by these steps — but it's exactly the trap a session reaching for
+"the HA I can reach via MCP" walks into on devhub specifically. Know which
+install you're on before you start, not just that this skill applies.
+
 **The mistake this corrects:** a session assumed "the live HA install this
 session can reach" meant "NUC1, therefore git+docker, therefore I can't do
 this myself" and said so to the household — who then had to correct it
@@ -95,6 +108,12 @@ applies, not that one.
      `sensor.nimbus_solver_lp_status`, `sensor.nimbus_flex_telemetry`) — all
      should agree on the new version. A stale one that hasn't republished yet
      is a timing artifact, not a failed deploy, as long as the others agree.
+     **On a mirrored install (devhub), most rows will NOT agree** — the
+     majority carry production's version, not the one just installed here
+     (CLAUDE.md's #1396 lesson, confirmed again on devhub's own 0.94.445
+     check: 2 rows read 0.94.445, 120 mirrored rows still read 0.94.444).
+     Read the histogram for the expected minority stamp there, not a
+     majority vote.
    - `ha_get_integration(domain="nimbus_load")`: `state == "loaded"`.
    - `ha_get_logs(source="system", hours_back=1)`: no new ERROR/Traceback
      tied to `nimbus_load` since the restart.
