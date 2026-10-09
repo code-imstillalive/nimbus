@@ -1199,6 +1199,28 @@ def _risk_adjusted_one_sided(
     return forecast - risk_aversion * np.maximum(0.0, forecast - bound)
 
 
+def _anchor_source(new_idx: int, old_idx: int) -> int:
+    """Which previous-plan period anchors new period `new_idx` (nimbus #1576).
+
+    Every period anchors to the old period whose interval CONTAINS its start
+    (`_align_previous_periods`, #635) -- the old plan's statement about that
+    moment. Except period 0, which is the only period that becomes a live
+    command: it anchors to the old plan's period 0, the setpoint actually
+    DISPATCHED one solve ago. A solve lands ~15 s after the previous one, so
+    once a minute boundary has passed, containment pointed period 0 at old
+    period 1 -- in the tiered grid often a 5- or 30-minute period with a very
+    different value. Measured on devhub, 2 Oct 2026 (#1417): the anchor
+    targeted old[1] in 11 of 18 dispatch crossings, a median 3.19 kW and up
+    to 37.72 kW away from what was dispatched, while holding the dispatched
+    value was free (objective change 0.0) at the worst crossing.
+
+    Only while the previous solve is recent (period 0 still inside old
+    period 0 or 1): an older plan's period 0 is long past and no longer what
+    the hardware is doing, so containment stays the rule there.
+    """
+    return 0 if new_idx == 0 and old_idx <= 1 else old_idx
+
+
 def _add_proximal_penalty(
     p: LPProblem,
     var_names: list[str],
@@ -1230,7 +1252,7 @@ def _add_proximal_penalty(
     if proximal_weight <= 0.0 or not alignment or previous_values is None:
         return
     for new_idx, old_idx in alignment.items():
-        prev_value = float(previous_values[old_idx])
+        prev_value = float(previous_values[_anchor_source(new_idx, old_idx)])
         # nimbus #1406: NOT scaled by hours[new_idx], deliberately, and this
         # is the one line the issue is about.
         #

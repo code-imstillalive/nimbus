@@ -467,9 +467,9 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     ),
     # nimbus issue #348 (Mark Purcell): this used to be a hardcoded module
     # constant in solver_writer.py, applied to every install with no way
-    # to change it. Default (1.95) is this repo's own reference
-    # household's real, already-live value -- byte-identical behaviour
-    # for every existing install until this field is explicitly changed.
+    # to change it. Its default was 1.95, the reference household's own
+    # charge; since 9 Oct 2026 it is 0 ("not set") for a new install, and an
+    # existing install keeps its stored value.
     _SolverNumberDescription(
         CONF_SOLVER_FIXED_DAILY_CHARGE,
         "Fixed Daily Charge",

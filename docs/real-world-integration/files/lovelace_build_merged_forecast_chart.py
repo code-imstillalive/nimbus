@@ -345,6 +345,7 @@ for s in sorted(load_forecasts, key=lambda s: s["entity_id"]):
         "entity": real_entity,
         "name": f"{name} (history)",
         "extend_to": False,
+        "curve": "stepline",  # a held state, not a ramp (9 Oct 2026)
         "color": color,
         "stroke_width": 3 if standout else 1.5,
         "yaxis_id": "load",
@@ -395,6 +396,7 @@ for s in sorted(signal_forecasts, key=lambda s: s["entity_id"]):
         "entity": real_entity,
         "name": f"{name} (history)",
         "extend_to": False,
+        "curve": "stepline",  # a held state, not a ramp (9 Oct 2026)
         "color": band_color,
         "stroke_width": 2,
         "yaxis_id": "power",
@@ -518,6 +520,7 @@ if any(s["entity_id"] == WHOLE_HOUSE_FORECAST_ENTITY for s in all_states):
             "entity": _real_entity_for(WHOLE_HOUSE_FORECAST_ENTITY),
             "name": "Whole House Load (history)",
             "extend_to": False,
+            "curve": "stepline",
             "color": "#E0E0E0",
             "stroke_width": 3,
             "yaxis_id": "load",

@@ -85,6 +85,9 @@ _SOLVER_CONFIG_ATTRS = {
     "solver_solar_forecast_sensor": "",
     "solver_load_forecast_sensor": _LOAD_SENSOR,
     "solver_load_forecast_entities": [],
+    # The golden values were taken with the old 1.95 fallback (9 Oct 2026:
+    # the default is now 0); stated so total_cost_with_fixed_costs holds.
+    "solver_fixed_daily_charge": 1.95,
 }
 
 _HEALTHY_LOAD_STATE = {
