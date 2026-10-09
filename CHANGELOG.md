@@ -9,6 +9,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **A price setting pointed at a frozen rate is refused and reported**
+  ([#1661](https://github.com/code-imstillalive/nimbus/issues/1661), Mark
+  Purcell). LocalVolts' Rate All Var (and the `amountVar`/`amountAll` fields
+  behind it) is fixed when the forecast for an interval is built and does not
+  follow the settled price. On 9 Oct 2026 it stayed near 13c while Flex Up
+  followed a $1.32/kWh spike, so a plan built on it never sees the spike.
+  - **The Grid step refuses** such a sensor in any import/export price field.
+  - **A Repair** names one that is already configured, including in the price
+    forecast array.
+  - **Recognised by evidence, not guessed:** the sensor's `source_field`
+    attribute (`rateAllVar`, `amountVar`, `amountAll`), or a unique ID or
+    entity ID ending `_rate_all_var`.
+  - **A test fails** if any Nimbus code reads those fields as a price.
+  - The setup guide says to use Flex Up, and why.
+  - No Nimbus price input ever used these fields. On the reference household
+    the import price, export price and price array are all Flex Up (read live
+    9 Oct), so nothing changes there.
 - **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   Mark Purcell's review of #1640: the record publishes data Nimbus already
   generates). Its four site figures now come from the solve itself:

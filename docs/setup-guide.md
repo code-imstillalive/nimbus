@@ -396,6 +396,15 @@ without a price forecast array (without the array the matched rate is not
 read, so the plan shows no P2P), and if a price setting names an entity this
 install does not have.
 
+**Use Flex Up for prices, never Rate All Var.** LocalVolts v2 also offers "Rate
+All Var" sensors. Their figure is fixed when LocalVolts builds the forecast for
+an interval and is not revised when the price settles, so it does not follow a
+spike: on 9 Oct 2026 Sell Rate All Var stayed near 13c while Sell Flex Up and
+the wholesale price reached about $1.04. A plan built on it never sees the
+spike. Nimbus refuses a Rate All Var sensor in the price fields, and warns at
+startup (a Repair) if one is already set
+([#1661](https://github.com/code-imstillalive/nimbus/issues/1661)).
+
 **Leave the network and flat fee rates at 0 with LocalVolts.** Buy Flex Up
 already includes your network charges and LocalVolts' fees (its own sensor
 describes it as spot plus the network layer), so a fee set in Nimbus is counted
@@ -409,8 +418,8 @@ Leave the remaining fields blank initially.
 
 | Field | What to put |
 |---|---|
-| **🔴 Live import (buy) price sensor ($/kWh)** | What you pay to import, right now. |
-| **🔴 Live export (sell) price sensor ($/kWh)** | What you are paid to export, right now. |
+| **🔴 Live import (buy) price sensor ($/kWh)** | What you pay to import, right now. It must follow the live price; on LocalVolts, Buy Flex Up, not Buy Rate All Var. |
+| **🔴 Live export (sell) price sensor ($/kWh)** | What you are paid to export, right now. It must follow the live price; on LocalVolts, Sell Flex Up, not Sell Rate All Var. |
 | Everything else (2nd/3rd price sources, price-event simulation, DNSP envelopes) | **Leave blank.** [§18](#18-optional-inputs) |
 
 ![Solver Grid Prices, screen 2 of 3, with the two required price sensors set](images/setup/solver-wizard-2-prices.png)
