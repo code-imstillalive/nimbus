@@ -195,11 +195,19 @@ def grid_import_ub(
     `override_p2p` (#694, price-spike override at period 0) leaves the
     normal limit: the spike path already pins discharge high, and its own
     floor-not-pin semantics should not be tightened here. No commitment
-    (fixed_export_kw None/NaN) is unaffected."""
+    (fixed_export_kw None/NaN) is unaffected.
+
+    Only a positive pin is a commitment. The post-window self-consume hours
+    are pinned to 0.0 kW (no export after the block), and the inverter in
+    Self-Consume still imports when the battery cannot carry the house.
+    Forbidding import there made the plan hoard battery for 00:00-04:00 and
+    book penalised import inside the block instead, on evenings the battery
+    could not cover both (reference household, 0.94.444 plan for 12 Oct)."""
     if (
         not override_p2p
         and grid.fixed_export_kw is not None
         and not np.isnan(grid.fixed_export_kw[t])
+        and grid.fixed_export_kw[t] > 0.0
     ):
         return 0.0
     return import_limit_kw
