@@ -30,6 +30,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `curve: stepline`; forecast lines are unchanged.
 
 ### Changed
+- **A broken load forecast no longer reaches flex telemetry as a real 0 kW
+  house load** ([#1665](https://github.com/code-imstillalive/nimbus/issues/1665),
+  Mark Purcell's IV&V). When the load forecast has fallen back to zero
+  (#370/#416) and no live whole-house reading replaced period 0, the record
+  is withheld with reason `no_measurement` instead of publishing
+  `house_load_kw: 0.0`. Dispatch is unchanged: the solve still runs on the
+  same zero fallback.
 - **"Fixed Daily Charge" no longer defaults to one household's retailer charge.**
   It defaulted to $1.95/day, the reference household's own LocalVolts supply
   charge, so every new install inherited it whatever its retailer. A new
