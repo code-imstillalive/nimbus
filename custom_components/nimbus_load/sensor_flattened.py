@@ -61,7 +61,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -166,6 +166,12 @@ class FlattenedAttrSpec:
     # data lives on sensor.nimbus_solver_battery_forecast for forensic
     # audit).
     attrs_source_key: str | None = None
+    # nimbus #1657 (Mark Purcell): when set, the per-period price key on the
+    # parent's `forecast` rows ("import_price" / "export_price") this entity
+    # also publishes in full as `detailedForecast` -- the resolved series the
+    # solve used, live, and excluded from Recorder. See
+    # _detailed_price_forecast().
+    detailed_forecast_of: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -857,6 +863,56 @@ FLATTENED_ATTRS_P2P: tuple[FlattenedAttrSpec, ...] = (
 # ---------------------------------------------------------------------------
 
 
+def _detailed_price_forecast(attributes: dict, price_key: str) -> dict | None:
+    """`detailedForecast` + `detailed_forecast_meta` for one price direction,
+    from the plan's own `forecast` rows (nimbus #1657, Mark Purcell, the
+    Amber Express #82 pattern).
+
+    Each row is one plan period, half-open `[start, end)` in local time:
+    `value` is the resolved price the LP used, `value_raw` the provider's
+    price before Nimbus's blending/fees where the plan recorded it, and
+    `source` which input it came from. A period with no price is kept with
+    `value: None` -- never dropped, never zero. None when the parent carried
+    no rows (the previous attributes stay, like the scalar contract above).
+    """
+    rows = attributes.get("forecast")
+    if not isinstance(rows, list) or not rows:
+        return None
+    detailed = []
+    for row in rows:
+        if not isinstance(row, dict) or "time" not in row:
+            continue
+        try:
+            start = datetime.fromisoformat(row["time"])
+            end = start + timedelta(hours=float(row["hours"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        detailed.append(
+            {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "value": row.get(price_key),
+                "value_raw": row.get(f"{price_key}_raw"),
+                "source": row.get(f"{price_key}_source"),
+            }
+        )
+    if not detailed:
+        return None
+    return {
+        "detailedForecast": detailed,
+        # Small and recorded: what the rows are, so a reader of history can
+        # tell which plan a recorded state belonged to.
+        "detailed_forecast_meta": {
+            "direction": price_key.removesuffix("_price"),
+            "periods": len(detailed),
+            "period_0_start": detailed[0]["start"],
+            "horizon_end": detailed[-1]["end"],
+            "solve_status": attributes.get("status"),
+            "resolved_by": "nimbus_solver_plan",
+        },
+    }
+
+
 class _FlattenedAttributeSensor(SensorEntity):
     """One SensorEntity per FLATTENED_ATTRS row -- a filtered projection
     of sensor.nimbus_solver_battery_forecast's own attribute dict.
@@ -906,7 +962,14 @@ class _FlattenedAttributeSensor(SensorEntity):
     # no-op for them -- honest default, one place to add more attribute
     # names later without touching the recorder plumbing.
     _unrecorded_attributes = frozenset(
-        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            # nimbus #1657: the full resolved price series, live only.
+            "detailedForecast",
+        }
     )
 
     def __init__(self, entry, sw_version: str | None, spec: FlattenedAttrSpec) -> None:
@@ -1069,6 +1132,13 @@ class _FlattenedAttributeSensor(SensorEntity):
             extra = attributes.get(attrs_key)
             if isinstance(extra, dict):
                 self._extra_attrs = extra
+        # nimbus #1657: from the SAME parent publish as the state above, so
+        # the state and the detailed rows cannot come from different solves.
+        price_key = self._spec.detailed_forecast_of
+        if price_key is not None:
+            detailed = _detailed_price_forecast(attributes, price_key)
+            if detailed is not None:
+                self._extra_attrs = {**(self._extra_attrs or {}), **detailed}
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -2419,6 +2489,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         source_key="import_price",
         name="Solver Current Import Price",
         entity_id_suffix="current_import_price",
+        detailed_forecast_of="import_price",
         entity_category=None,
         # HA core requires state_class='total' for MONETARY -- MEASUREMENT
         # is invalid. This is a per-current-period point-in-time value
@@ -2434,6 +2505,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         source_key="export_price",
         name="Solver Current Export Price",
         entity_id_suffix="current_export_price",
+        detailed_forecast_of="export_price",
         entity_category=None,
         # HA core requires state_class='total' for MONETARY -- MEASUREMENT
         # is invalid. This is a per-current-period point-in-time value
