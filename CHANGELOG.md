@@ -9,6 +9,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **A soft battery reserve: the bottom of the battery is only sold above a
+  price you set** ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
+  from the 9 Oct spike, #1658).
+  - **The problem:** on 9 Oct the reference household's plan sold its last
+    ~9% at 28.6c at 04:25, with no forecast of the $1.04-1.08 spike thirty
+    minutes later, and was empty through it.
+  - **Two new Solver settings:** **Battery Reserve** (% of capacity) and
+    **Battery Reserve Release Price** ($/kWh). The plan values energy in the
+    reserve at the release price, so it is only sold when the price beats it.
+  - **No forced refill:** refilling the reserve costs nothing, and a battery
+    already below it is never made to charge up to it.
+  - **Off by default** (0 / 0), with no change to any plan until both are set.
+  - **Dispatch change:** held overnight before release.
 - **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   Mark Purcell's review of #1640: the record publishes data Nimbus already
   generates). Its four site figures now come from the solve itself:

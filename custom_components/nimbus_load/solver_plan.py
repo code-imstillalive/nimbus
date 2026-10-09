@@ -565,6 +565,13 @@ def assemble_and_solve_plan(
         # (unconfigured, the default) is a genuine no-op -- see
         # BatteryConfig's own degradation_cost_per_kwh docstring.
         degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
+        # nimbus issue #1654: the soft reserve; 0 / 0 = off.
+        reserve_kwh=capacity_kwh
+        * _cfg_num(cfg, "solver_battery_reserve_percent", 0.0)
+        / 100.0,
+        reserve_release_price=_cfg_num(
+            cfg, "solver_battery_reserve_release_price", 0.0
+        ),
         spike_override_discharge_kw=spike_override_kw,
     )
     fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
