@@ -1,6 +1,6 @@
 # Nimbus Device Contract Spec DC-001: canonical device model, identity, versioning and structural validation
 
-Status: Draft for review, revision 0.1. Prepared 8 October 2026, Australia/Brisbane. Drafted at Mark Purcell's request on [#1574](https://github.com/code-imstillalive/nimbus/issues/1574) ("you draft, I sign off").
+Status: Draft for review, revision 0.2 (9 October 2026: Mark Purcell's review of revision 0.1 on #1651). Prepared 8 October 2026, Australia/Brisbane. Drafted at Mark Purcell's request on [#1574](https://github.com/code-imstillalive/nimbus/issues/1574) ("you draft, I sign off").
 
 Parent: [Device Contract roadmap](ROADMAP.md). Path: `docs/specs/device-contract/001-canonical-device-model.md`. Depends on [DC-000](000-baseline-fixtures-and-gates.md).
 
@@ -81,6 +81,8 @@ shared_constraints: [...]
 
 - **Battery capacity states its basis** (`nominal` or `usable`); a capacity without one is a structural error. This is #1574's "explicit nominal/usable basis", and F02's.
 - **Paired versus net:** `grid` may have `power`, or `import_power` + `export_power`, or both. Whether a pair and a net agree is DC-002/DC-003, not structure.
+- **Constraint keys are policed like roles.** A constraint key the kind does not accept (a `battery` with `fixed_hours`, a `load` with `soc_min`) is a structural error, `constraint_key_not_allowed_for_kind`.
+- **Two inverters versus one inverter's strings (F02).** Two inverters are two `solar` devices, each with its own `boundary` and its own total binding. One inverter's strings are **not** separate peers of its total: each string is a `solar` device that is the `child` of an `included_in_measurement` relationship whose `parent` is the inverter's total device, `quantity: generation`. Declared that way, the total is never counted twice, because DC-003 decomposes inclusion rather than summing peers.
 
 ### Binding
 
@@ -173,12 +175,17 @@ A pure function, `validate(document) -> list[Problem]`. It reads no sensors and 
 | `sign_not_canonical` | `normalization.positive_direction` is not the role's canonical direction |
 | `source_fields_missing` | a source variant lacks a required field |
 | `capacity_basis_missing` | battery capacity without `nominal`/`usable` |
+| `constraint_key_not_allowed_for_kind` | a constraint key the device's kind does not accept (the table's last column) |
+| `binding_source_duplicate` | the same source (same `registry_id`, else same `entity_id` + `attribute_path`, else same `statistic_id`) bound under the same role on two different devices. This catches the same total sensor bound to two `solar` devices |
+| `soc_bounds_inverted` | a battery's `soc_min` is greater than its `soc_max` when both are literal values (checkable without reading a sensor) |
 | `relationship_self`, `inclusion_cycle` | `child == parent`; a cycle in `included_in_measurement` |
 | `dependency_cycle` | a `derived`/`model_output` dependency reaches itself (DC-R16) |
 | `accounting_kind_mismatch` | the accounting root or a separate ID is not a `load` |
 | `grid_missing` | no `grid` device. #1574: the logical Grid exists even when its measurement does not, so the device is required and its `power` binding is not |
 
 What it deliberately does **not** report: an absent binding (that's a capability gap for readiness); a sensor that is stale, unavailable or in the wrong unit (DC-002); and a sum that doesn't close (DC-003).
+
+**String-plus-total duplication through two *different* sensors is deferred to DC-003, with this reason.** A string sensor and a total sensor on the same inverter are two distinct, valid sources with two distinct boundary IDs; nothing structural says one contains the other. Structure can catch the same source bound twice (`binding_source_duplicate`) and can carry the declaration that a string is inside a total (`included_in_measurement`, above). Whether an *undeclared* pair overlaps is a value question: it is answered by the two series tracking each other, which needs readings, so it is DC-003's overlap and energy-balance check, which F02 also lists as an owner. DC-003 must own this as a named case, not a general one.
 
 ## Serialisation
 
@@ -210,7 +217,13 @@ Tests live under `tests/device_contract/`, next to DC-000's. Each test reference
   - reordering `devices` changes neither IDs nor validation;
   - the canonical form of a reordered document differs only in list order.
 - **DC-R16 / F11:** a self-dependency and a 3-cycle each give `dependency_cycle`; an acyclic chain validates.
-- **F02 (structure):** one integration's entities bound to three devices (`grid`, `solar`, `battery`) validates. A shared inverter limit in `shared_constraints` validates, and a battery without a capacity basis gives `capacity_basis_missing`.
+- **#1574 "Shared hardware":** one integration's entities bound to three devices (`grid`, `solar`, `battery`) validates, and gives three logical devices, not three copies of the equipment.
+- **F02 (structure, DC-001's slice):**
+  - two inverters as two `solar` devices with distinct boundaries and distinct total bindings validates;
+  - one inverter's two strings declared as `children` of its total via `included_in_measurement` validates;
+  - the same total sensor bound to two `solar` devices gives `binding_source_duplicate`;
+  - a shared inverter limit in `shared_constraints` validates, and a battery without a capacity basis gives `capacity_basis_missing`;
+  - an undeclared string-plus-total pair through two different sensors **validates here** and is pinned as a DC-003 case (see the deferral under "Structural validation"), so the test records the hand-off rather than silently passing.
 - **Each problem code has one negative test**, so the table above cannot be dead text (the DC-000 non-vacuity rule).
 - **Round-trip** on every fixture document.
 - **No consumer reads this model yet.** A test pins that no module under `custom_components/` imports it until DC-006.
@@ -221,13 +234,15 @@ DC-001 adds a schema, validators and tests, and no consumer reads them. Rolling 
 
 ## Decisions for review
 
-| decision | proposed | owner |
-|---|---|---|
-| ID format | readable `^[a-z][a-z0-9_]{0,62}$`, not ULIDs | Mark + household |
-| Unknown fields | preserved on round-trip, ignored on read | Mark |
-| `control_policy` values | `observation_only`, `authorised` only | Mark |
-| Several grid connections | representable, readiness-limited | Mark |
-| Where the schema lives in code | a pure, HA-free module (like `flex_telemetry.py`), so the standalone path can validate too | Mark |
-| `phases` | `all` or a list of `L1`–`L3` | Mark |
+All six were signed off as written by Mark Purcell in his review of revision 0.1 (#1651, 9 October 2026). The ID format also names the household as an owner and is open there.
 
-This draft authorises no implementation. Its next step is Mark's review.
+| decision | settled | owner |
+|---|---|---|
+| ID format | readable `^[a-z][a-z0-9_]{0,62}$`, not ULIDs | Mark (agreed) + household |
+| Unknown fields | preserved on round-trip, ignored on read | Mark (agreed) |
+| `control_policy` values | `observation_only`, `authorised` only | Mark (agreed) |
+| Several grid connections | representable, readiness-limited | Mark (agreed) |
+| Where the schema lives in code | a pure, HA-free module (like `flex_telemetry.py`), so the standalone path can validate too | Mark (agreed) |
+| `phases` | `all` or a list of `L1`–`L3` | Mark (agreed) |
+
+This draft authorises no implementation. Its next step is Mark's review of revision 0.2.
