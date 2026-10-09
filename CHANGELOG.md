@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.445] - 2026-10-10
+
+- **Release cut from v0.94.444 plus only this fix**, on Mark Purcell's review
+  of #1674 (9 Oct): *"go minimal, same as #1610/v0.94.442. This is a
+  live-dispatch fix on a real deadline (Sunday's block)."* Nothing else from
+  `main` is in it. The fix is #1674.
+
+### Fixed
+- **The hours after a P2P block can import again, so the block stays net**
+  ([#1674](https://github.com/code-imstillalive/nimbus/pull/1674)). #1610
+  (v0.94.442) forbade ordinary grid import in every period with a pinned
+  export, which included the post-window self-consume hours pinned to 0 kW.
+  Self-Consume still imports when the battery cannot carry the house, so the
+  plan hoarded battery for 00:00-04:00 and, on evenings the battery could not
+  cover both, booked penalised import inside the block. Measured on the
+  reference household's live v0.94.444 plan: Sunday 12 Oct 21:00-24:00
+  imported 3.3-3.4 kW with the battery held at 12.0 kW ($55-64 of penalty in
+  the plan), which on the night would deliver about 8.6 kW net, not 12. Now
+  only a positive pin forbids import. Replaying the live solve with this tree:
+  0 import in the block, battery 15.3-15.4 kW (12 plus the house), $0
+  penalty, and ordinary import after midnight once the battery reaches its
+  floor. Tonight's and other evenings the battery covers are unchanged.
+
 ## [0.94.444] - 2026-10-09
 
 Everything on `main` since 0.94.441 that was not in 0.94.442/0.94.443, plus
