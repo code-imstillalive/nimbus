@@ -366,23 +366,32 @@ def serialize_battery_config(cfg) -> dict:
     commit, so the reference cannot carry it. Neither function under
     characterization may ever set it -- it belongs on a diagnostic re-solve,
     never on a published solve's batteries -- so it must read None here, and a
-    regression that set it would still fail this comparison."""
+    regression that set it would still fail this comparison. nimbus #1654's
+    `reserve_kwh`/`reserve_release_price` are handled the same way: added after
+    the reference, and required to read 0.0 (off) here."""
     out = {}
     for f in dataclasses.fields(cfg):
         value = getattr(cfg, f.name)
         if f.name in _ADDED_AFTER_REFERENCE:
-            assert value is None, (
-                f"{f.name} must never be set by the functions under "
-                f"characterization, got {value!r} (nimbus #1417)"
+            required = _ADDED_AFTER_REFERENCE[f.name]
+            assert value == required, (
+                f"{f.name} must stay {required!r} on what the functions under "
+                f"characterization build, got {value!r}"
             )
             continue
         out[f.name] = _json_safe(value)
     return out
 
 
-#: BatteryConfig fields added after the reference commit 0d0d553a, which must
-#: be None on everything these two functions build (see above).
-_ADDED_AFTER_REFERENCE = frozenset({"period0_pin_net_kw"})
+#: BatteryConfig fields added after the reference commit 0d0d553a, with the
+#: value each must hold on everything these two functions build (see above).
+#: nimbus #1654's soft reserve is set only on the primary battery, by
+#: solver_plan, so an extra battery's must stay off.
+_ADDED_AFTER_REFERENCE = {
+    "period0_pin_net_kw": None,
+    "reserve_kwh": 0.0,
+    "reserve_release_price": 0.0,
+}
 
 
 def serialize_build_extra_batteries(batteries: list) -> list:

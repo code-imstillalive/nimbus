@@ -107,6 +107,8 @@ from .const import (
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
+    CONF_SOLVER_BATTERY_RESERVE_PERCENT,
+    CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
@@ -562,6 +564,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # nimbus issue #452: same live-number-entity resolve path as every
     # field above, for the AEMO P5MIN disagreement threshold.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+    # nimbus #1654: the soft reserve's two dashboard numbers. Without these
+    # the sliders would be read from entry.options and do nothing (#538/#837).
+    CONF_SOLVER_BATTERY_RESERVE_PERCENT,
+    CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as

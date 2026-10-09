@@ -2328,6 +2328,7 @@ def _build_plan_once(
             # applies identically per-battery here.
             p.set_cost(underfill_vars[b.name][t], soft_soc_penalty_per_kwh)
             p.set_cost(overfill_vars[b.name][t], soft_soc_penalty_per_kwh)
+        _add_soft_reserve(p, b, soc_vars[b.name], n)
     # A P2P-pinned period's export is NET export: no ordinary grid import
     # alongside it (see p2p_export.grid_import_ub's docstring).
     grid_import = [
@@ -4796,6 +4797,40 @@ def _build_plan_thermal_fallback(
         # itself fixed anything.
         return fallback_plan
     return replace(fallback_plan, thermal_guarantee_relaxed=relaxed_names)
+
+
+def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
+    """nimbus issue #1654: the battery's bottom `reserve_kwh` sells only above
+    `reserve_release_price`.
+
+    held[t] in [0, reserve_kwh] and held[t] <= soc[t]: energy counted as
+    reserve. drawn[t] >= held[t-1] - held[t] (held[-1] = min(initial SoC,
+    reserve)), costed at the release price per kWh. Refilling is free, so the
+    LP never raises `held` only to pay to lower it again; it lowers `held`
+    only when SoC would otherwise go below it, which is exactly selling into
+    the reserve. Off (no variables at all) unless both settings are positive.
+    """
+    reserve = min(float(b.reserve_kwh), float(b.capacity_kwh))
+    price = float(b.reserve_release_price)
+    if reserve <= 0.0 or price <= 0.0:
+        return
+    held = [
+        p.add_variable(f"battery_reserve_held_{b.name}_{t}", lb=0.0, ub=reserve)
+        for t in range(n)
+    ]
+    drawn = [
+        p.add_variable(f"battery_reserve_drawn_{b.name}_{t}", lb=0.0) for t in range(n)
+    ]
+    initial = min(max(float(b.initial_soc_kwh), 0.0), reserve)
+    for t in range(n):
+        # held[t] - soc[t] <= 0
+        p.add_ub_constraint({held[t]: 1.0, soc_vars[t]: -1.0}, 0.0)
+        # held[t-1] - held[t] - drawn[t] <= 0
+        if t == 0:
+            p.add_ub_constraint({held[0]: -1.0, drawn[0]: -1.0}, -initial)
+        else:
+            p.add_ub_constraint({held[t - 1]: 1.0, held[t]: -1.0, drawn[t]: -1.0}, 0.0)
+        p.set_cost(drawn[t], price)
 
 
 def build_plan(
