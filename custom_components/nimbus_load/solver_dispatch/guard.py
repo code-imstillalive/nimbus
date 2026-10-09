@@ -568,9 +568,12 @@ def apply_commanded_state_guard(
                     v = float(s.state)
                 except (TypeError, ValueError):
                     continue
-                v *= solver_shared.power_scale_to_kw(  # nimbus #1570
+                scale = solver_shared.power_scale_or_none(  # nimbus #1570, #1643
                     s.attributes.get("unit_of_measurement")
                 )
+                if scale is None:
+                    continue  # not a power unit: no reading, not kW
+                v *= scale
                 power_points.append((s.last_changed.astimezone(sw.LOCAL_TZ), v))
             power_points.sort(key=lambda x: x[0])
             power_resampled = sw.resample_history_nearest(

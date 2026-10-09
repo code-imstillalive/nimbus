@@ -21,6 +21,8 @@ Conditions (stage 2):
 - **energy sensor on a power input:** from `power_input_check` (#1562).
 - **a non-power unit (A, kVA, ...) on a power input:** from `power_input_check`
   (#1643).
+- **a price input frozen at forecast build** (LocalVolts Rate All Var): from
+  `price_input_check` (#1661).
 - **fees counted twice on top of LocalVolts Flex Up:** from
   `pricing_autodetect` (#1564).
 - **a required Solver input is empty:** battery SoC, load forecast, solar
@@ -62,6 +64,7 @@ REFRESH_INTERVAL = timedelta(minutes=15)
 KIND_NOT_TRAINED = "forecast_not_trained"
 KIND_ENERGY_UNIT = "energy_unit_power_input"
 KIND_NON_POWER_UNIT = "non_power_unit_power_input"
+KIND_FROZEN_PRICE = "frozen_price_input"
 KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
@@ -92,6 +95,7 @@ def evaluate_health(
     hub_up_for: timedelta,
     energy_unit_inputs: Iterable[tuple[str, str, str]] = (),
     non_power_unit_inputs: Iterable[tuple[str, str, str]] = (),
+    frozen_price_inputs: Iterable[tuple[str, str, str]] = (),
     fees_doubled: tuple[str, str] | None = None,
     fees_on_tariff: tuple[str, str] | None = None,
 ) -> list[HealthIssue]:
@@ -135,6 +139,20 @@ def evaluate_health(
                     },
                 )
             )
+
+    frozen = list(frozen_price_inputs)
+    if frozen:
+        issues.append(
+            HealthIssue(
+                key=KIND_FROZEN_PRICE,
+                kind=KIND_FROZEN_PRICE,
+                placeholders={
+                    "inputs": "\n".join(
+                        f"- {label}: `{eid}` ({why})" for label, eid, why in frozen
+                    )
+                },
+            )
+        )
 
     non_power = list(non_power_unit_inputs)
     if non_power:
@@ -213,6 +231,7 @@ async def async_refresh_health(
             find_energy_unit_inputs,
             find_non_power_unit_inputs,
         )
+        from .price_input_check import find_frozen_price_inputs
         from .pricing_autodetect import (
             detect_fees_doubled,
             detect_fees_on_pd7day_tariff,
@@ -237,6 +256,7 @@ async def async_refresh_health(
             hub_up_for=up_for,
             energy_unit_inputs=find_energy_unit_inputs(hass, entry),
             non_power_unit_inputs=find_non_power_unit_inputs(hass, entry),
+            frozen_price_inputs=find_frozen_price_inputs(hass, dict(entry.options)),
             fees_doubled=detect_fees_doubled(hass, dict(entry.options)),
             fees_on_tariff=detect_fees_on_pd7day_tariff(hass, dict(entry.options)),
         )
