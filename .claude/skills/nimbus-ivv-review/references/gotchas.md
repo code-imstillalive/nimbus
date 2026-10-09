@@ -1,3 +1,9 @@
+> **Superseded by a standing rule, 2026-10-09: never run the suite or `ruff` locally at
+> all.** Both worked examples below are the evidence *for* that rule — read them for why
+> it exists, not as instructions to reproduce the local run yourself. Where the old advice
+> said "install the pinned version and re-run locally," the current rule is: read the real
+> GitHub Actions conclusion for the commit instead, every time, with no local run first.
+
 # Worked example: chasing a false alarm properly
 
 From the same-day IV&V pass (#996, 2026-09-16). Included in full because the shape of the

@@ -129,6 +129,12 @@ from ..const import (
 )
 from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
+from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
+
+# nimbus #1661: the two price fields the Grid step shows outside "Advanced".
+_GRID_VISIBLE_PRICE_FIELDS = frozenset(
+    {"solver_import_price_sensor", "solver_export_price_sensor"}
+)
 from ..pricing_autodetect import with_detected_profile
 
 
@@ -1600,9 +1606,27 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 _collapse_optionals_into_advanced(_solver_grid_schema({})),
                 user_input,
             )
-            return await self.async_step_solver_sources()
+            # nimbus #1661: a price that is frozen at forecast build (LocalVolts
+            # Rate All Var) would hide a spike from the plan. Refused here; an
+            # existing install is told by a Repair (setup_health).
+            errors = frozen_price_field_errors(
+                self.hass,
+                self._solver_data,
+                [key for key, _label in PRICE_FIELDS],
+            )
+            # The second/third sources sit inside the collapsed "Advanced"
+            # section, where a per-field error has nowhere to show.
+            errors = {
+                (k if k in _GRID_VISIBLE_PRICE_FIELDS else "base"): v
+                for k, v in errors.items()
+            }
+            if not errors:
+                return await self.async_step_solver_sources()
+        else:
+            errors = {}
         return self.async_show_form(
             step_id="solver_grid",
+            errors=errors,
             # nimbus #1067/#448: 2 required grid fields stay visible, the 7
             # optional ones collapse. 9 -> 2 on screen, nothing removed.
             data_schema=_collapse_optionals_into_advanced(
@@ -1623,6 +1647,8 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                                 )
                             ),
                             **dict(self.config_entry.options),
+                            # A refused submission keeps what was entered.
+                            **(self._solver_data if errors else {}),
                         },
                     )
                 )

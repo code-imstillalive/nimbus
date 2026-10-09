@@ -125,10 +125,15 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 try:
-    from .power_input_check import is_non_power_unit, warn_non_power_once
+    from .power_input_check import (
+        is_energy_unit,
+        is_non_power_unit,
+        warn_non_power_once,
+    )
     from .power_units import power_scale_to_kw
 except ImportError:  # pragma: no cover - standalone/cron path
     from power_input_check import (  # type: ignore[no-redef]
+        is_energy_unit,
         is_non_power_unit,
         warn_non_power_once,
     )
@@ -1541,6 +1546,16 @@ def _kw_scale_factor(entity_id: str) -> float:
     if is_non_power_unit(unit):
         warn_non_power_once(entity_id, unit)
     # nimbus #1570: the shared converter (W/kW/MW/GW, any case).
+    return power_scale_to_kw(unit)
+
+
+def power_scale_or_none(unit: object) -> float | None:
+    """The multiplier to kW, or None when `unit` is stated but is not a
+    power unit -- current (A), apparent power (kVA), energy (kWh) or
+    unknown (nimbus #1643). The caller treats None as no reading, never as
+    kW. No unit at all is still kW, by design."""
+    if is_non_power_unit(unit) or is_energy_unit(unit):
+        return None
     return power_scale_to_kw(unit)
 
 

@@ -231,6 +231,24 @@ def warn_non_power_once(entity_id: str, unit: object) -> None:
     )
 
 
+_WARNED_REFUSED: set[str] = set()
+
+
+def warn_refused_input_once(entity_id: str, unit: object) -> None:
+    """Log, once per entity, that a power input is ignored because its unit
+    is not a power unit (nimbus #1643)."""
+    if entity_id in _WARNED_REFUSED:
+        return
+    _WARNED_REFUSED.add(entity_id)
+    _LOGGER.warning(
+        "Nimbus: power sensor %s reports '%s', which is not a power unit (W or "
+        "kW), so it is ignored, the same as not configured. Point the setting "
+        "at a power sensor (nimbus #1643).",
+        entity_id,
+        unit,
+    )
+
+
 def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, str]]:
     """`(setting, entity_id, unit)` for every configured power input whose
     unit is stated but is not a power unit (`is_non_power_unit`): the
