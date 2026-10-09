@@ -195,6 +195,11 @@ class NimbusForecastCard extends HTMLElement {
       entity: src,
       name: name + NIMBUS_FC_HIST_SUFFIX,
       extend_to: false,
+      // A recorded state holds until the next change. apexcharts-card's
+      // default smooth curve bent a long-held 0 into a ramp up to the next
+      // reading, drawing hot water as rising for hours before it switched
+      // on (household, 9 Oct 2026). A step draws what was recorded.
+      curve: "stepline",
       color,
       stroke_width: width,
       yaxis_id: yaxis,

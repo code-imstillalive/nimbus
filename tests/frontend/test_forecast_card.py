@@ -178,3 +178,20 @@ def test_no_loading_spinner_on_each_refresh() -> None:
     base = src[src.index("_base(title, height) {") :]
     base = base[: base.index("\n  }\n")]
     assert "show: { loading: false }" in base
+
+
+def test_history_lines_are_steps_not_smoothed() -> None:
+    """Household, 9 Oct 2026: hot water history was drawn as a smooth ramp
+    rising for hours before it switched on, while the recorded state was 0
+    until 11:01 and then ~3.8 kW. A recorded state holds until the next
+    change; apexcharts-card's default smooth curve interpolates between two
+    far-apart states instead. Every measured (history) series is a step."""
+    src = _card()
+    hist = src[src.index("  _history(s, name, color, yaxis, width) {") :]
+    hist = hist[: hist.index("\n  }\n")]
+    assert 'curve: "stepline"' in hist
+    script = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "docs/real-world-integration/files/lovelace_build_merged_forecast_chart.py"
+    ).read_text(encoding="utf-8")
+    assert script.count('"curve": "stepline"') == script.count('(history)",')
