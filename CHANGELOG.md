@@ -41,6 +41,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - **12 Oct block:** up to 3.57 kW import (12.1 kWh of penalised import) on
     v0.94.444; 0 here, battery 14.87-15.64 kW;
   - penalised import in the plan: $85.55 on v0.94.444, $0 here.
+  - **re-checked 22:50 AEST, inside the block, after the household changed block 1 to 11.5 kW:** period 0 battery 13.264 kW against 13.275, export 11.5 in both, import 0; v0.94.444 still imports up to 2.93 kW in the 12 Oct block (penalised $13.99) and is clean on 10-11 Oct at this rate; this tree imports 0 in all three blocks, battery 13.7-14.5 kW on 12 Oct, $0 penalty;
   `custom_components/` differs from v0.94.444 only in `solver/p2p_export.py`
   (#1674) and the manifest version.
 - Consumer check: a P2P block's net export no longer falls short on evenings
