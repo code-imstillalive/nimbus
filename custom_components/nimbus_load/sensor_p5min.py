@@ -144,7 +144,10 @@ class NimbusP5MinForecastSensor(SensorEntity):
             self._error = f"no {self._region} rows in {name}"
         else:
             self._error = None
-            if self._run is not None and self._run["run_datetime"] != run["run_datetime"]:
+            if (
+                self._run is not None
+                and self._run["run_datetime"] != run["run_datetime"]
+            ):
                 self._previous = self._run
             self._run = run
             self._update_signal(p5min.published_at(name))
@@ -158,7 +161,9 @@ class NimbusP5MinForecastSensor(SensorEntity):
             published is None or published - self._signal_since > p5min.SIGNAL_MAX_AGE
         ):
             self._signal_since = self._signal_peak = None
-        if self._signal_since is None and p5min.spike_confirmed(self._run, self._previous):
+        if self._signal_since is None and p5min.spike_confirmed(
+            self._run, self._previous
+        ):
             self._signal_since = published
             self._signal_peak = p5min.future_peak(self._run)
 

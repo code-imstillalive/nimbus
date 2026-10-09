@@ -171,7 +171,9 @@ def _replay():
     s = _sensor()
     seen = []
     for path in OCT9:
-        s.apply(path.stem + ".zip", p5min.parse_region_solution(path.read_text(), "QLD1"))
+        s.apply(
+            path.stem + ".zip", p5min.parse_region_solution(path.read_text(), "QLD1")
+        )
         a = s.extra_state_attributes
         seen.append((a["run_datetime"][11:16], a["readiness_signal"], a))
     return seen
@@ -217,6 +219,10 @@ def test_the_signal_is_held_at_most_sixty_minutes_and_not_extended():
 
 def test_a_missed_run_breaks_the_pair():
     s = _sensor()
-    s.apply(OCT9[5].stem + ".zip", p5min.parse_region_solution(OCT9[5].read_text(), "QLD1"))
-    s.apply(OCT9[7].stem + ".zip", p5min.parse_region_solution(OCT9[7].read_text(), "QLD1"))
+    s.apply(
+        OCT9[5].stem + ".zip", p5min.parse_region_solution(OCT9[5].read_text(), "QLD1")
+    )
+    s.apply(
+        OCT9[7].stem + ".zip", p5min.parse_region_solution(OCT9[7].read_text(), "QLD1")
+    )
     assert s.extra_state_attributes["readiness_signal"] is False
