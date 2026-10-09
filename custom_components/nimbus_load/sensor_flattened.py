@@ -1101,7 +1101,9 @@ class _FlattenedAttributeSensor(SensorEntity):
         return {**self._extra_attrs, "nimbus_version": self._sw_version}
 
     @callback
-    def update_from_parent(self, attributes: dict) -> None:
+    def update_from_parent(
+        self, attributes: dict, parent_attributes: dict | None = None
+    ) -> None:
         """Called by dispatch_to_flattened() below on every parent push.
 
         Pulls this entity's own slice out of `attributes` -- either a
@@ -1136,7 +1138,10 @@ class _FlattenedAttributeSensor(SensorEntity):
         # the state and the detailed rows cannot come from different solves.
         price_key = self._spec.detailed_forecast_of
         if price_key is not None:
-            detailed = _detailed_price_forecast(attributes, price_key)
+            # A Family-B child receives forecast[0] as `attributes`; the
+            # whole plan arrives as `parent_attributes` (real HA path).
+            source = parent_attributes if parent_attributes is not None else attributes
+            detailed = _detailed_price_forecast(source, price_key)
             if detailed is not None:
                 self._extra_attrs = {**(self._extra_attrs or {}), **detailed}
         if self.hass is not None:
@@ -2759,4 +2764,5 @@ def dispatch_to_flattened_current(
     if not isinstance(current_row, dict):
         return
     for entity in entities:
-        entity.update_from_parent(current_row)
+        # nimbus #1657: the whole plan too, for detailedForecast.
+        entity.update_from_parent(current_row, parent_attributes=attributes)

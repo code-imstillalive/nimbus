@@ -57,7 +57,7 @@ ROWS = [
 
 
 def _publish(ents, rows=ROWS):
-    sf.dispatch_to_flattened(
+    sf.dispatch_to_flattened_current(
         list(ents.values()),
         {
             "forecast": rows,
@@ -136,7 +136,7 @@ def test_state_and_rows_come_from_the_same_publish():
     ents = _entities()
     _publish(ents)
     later = [dict(ROWS[0], time="2026-10-09T04:27:00+10:00", import_price=0.41)]
-    sf.dispatch_to_flattened(
+    sf.dispatch_to_flattened_current(
         list(ents.values()),
         {
             "forecast": later,
@@ -156,7 +156,7 @@ def test_state_and_rows_come_from_the_same_publish():
 def test_a_publish_without_rows_keeps_the_previous_series():
     ents = _entities()
     _publish(ents)
-    sf.dispatch_to_flattened(list(ents.values()), {"status": "optimal"})
+    sf.dispatch_to_flattened_current(list(ents.values()), {"status": "optimal"})
     rows = ents["sensor.nimbus_solver_current_import_price"].extra_state_attributes[
         "detailedForecast"
     ]
