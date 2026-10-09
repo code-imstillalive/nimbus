@@ -120,6 +120,36 @@ Anything not named above, including but not limited to:
   `price_blend_algorithm`, and similar) — genuinely useful today, not yet
   promoted because they haven't had a full release cycle of real-world use
   to confirm their final shape.
+- `detailedForecast` on the two price entities (#1657 gate 1, #1671) — schema
+  below. Live only: excluded from Recorder by design.
+
+### `detailedForecast` (not yet stable)
+
+Carried by `sensor.nimbus_solver_current_import_price` and
+`sensor.nimbus_solver_current_export_price`, beside their compact `forecast`.
+It is the resolved price series the LP used, one row per plan period, taken
+from the same `sensor.nimbus_solver_battery_forecast` publish as the entity's
+state, so the two cannot come from different solves. Pattern: Amber Express
+#82.
+
+| Field | Type | Notes |
+|---|---|---|
+| `start` | ISO 8601 datetime, with offset | Period start: the plan row's own `time`, offset preserved. |
+| `end` | ISO 8601 datetime, with offset | `start + hours` as an instant, written in `start`'s offset. Across a DST change that is the same instant as the next row's `start`, but the wall-clock text differs (e.g. `02:00+10:00` then `03:00+11:00`). Compare as instants, not strings. Rows are half-open `[start, end)` and contiguous. |
+| `value` | float or `null`, $/kWh | The landed price the LP optimised against (`import_price`/`export_price`). `null` means no price for that period; it is never zero-filled and the row is never dropped. Negative prices are passed through. |
+| `value_raw` | float or `null`, $/kWh | The source sensor's own value before blending, as `*_price_raw` above. |
+| `source` | string or `null` | Which configured input supplied it (`*_price_source`, e.g. `primary`). |
+
+The horizon is tiered (see `hours` above), so rows are not equal length. `detailed_forecast_meta` is recorded and small: `direction`
+(`import`/`export`), `periods`, `period_0_start`, `horizon_end`,
+`solve_status`, `resolved_by` (`nimbus_solver_plan`). A publish with no plan
+rows leaves the previous series in place, the same as the scalar state.
+
+Tested: `tests/test_1657_detailed_forecast.py`;
+`tests/test_1657_detailed_forecast_offsets.py` (spring-forward, the repeated
+fall-back hour, and mixed period lengths across the change); and
+`tests/hass_integration/test_1657_detailed_forecast_unrecorded.py`, which
+reads back through the real Recorder.
 
 A field moving from this list into the stable subset above is a MINOR bump,
 announced in `CHANGELOG.md`.
