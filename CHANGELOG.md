@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Forecaster charts draw measured history as steps, not a smoothed curve.**
+  A sensor's state holds until it changes, but apexcharts-card's default
+  smooth curve bent a long-held 0 into a ramp up to the next reading. On the
+  reference household on 9 Oct, hot water drew as rising for hours before it
+  switched on, while the recorded state was 0 until 11:01 and then ~3.8 kW.
+  The Forecaster card's history lines and the merged-chart script's now use
+  `curve: stepline`; forecast lines are unchanged.
+
 ### Changed
 - **"Fixed Daily Charge" no longer defaults to one household's retailer charge.**
   It defaulted to $1.95/day, the reference household's own LocalVolts supply
