@@ -245,7 +245,8 @@ def test_async_register_services_registers_both_load_and_signal():
     """Every service gets registered on a fresh setup: retrain (issue
     #195), solve_now (issue #232), compute_quality_report (issue #316),
     set_controllable_load (issue #809), rescore_history (issue #1120) and
-    flex_telemetry_record (issue #495). The idempotency guard is exercised
+    flex_telemetry_record (issue #495), export_decision_inputs (issue
+    #1657). The idempotency guard is exercised
     by the sibling _is_idempotent_on_reload test.
     """
     hass = MagicMock()
@@ -253,7 +254,7 @@ def test_async_register_services_registers_both_load_and_signal():
 
     services.async_register_services(hass)
 
-    assert hass.services.async_register.call_count == 6
+    assert hass.services.async_register.call_count == 7
     registered_names = {
         call.args[1] for call in hass.services.async_register.call_args_list
     }
@@ -264,6 +265,7 @@ def test_async_register_services_registers_both_load_and_signal():
         services.SERVICE_SET_CONTROLLABLE_LOAD,
         services.SERVICE_RESCORE_HISTORY,
         services.SERVICE_FLEX_TELEMETRY_RECORD,
+        services.SERVICE_EXPORT_DECISION_INPUTS,
     }
     for call in hass.services.async_register.call_args_list:
         assert call.args[0] == services.DOMAIN
@@ -313,6 +315,7 @@ def test_async_unregister_services_removes_every_registered_service():
         services.SERVICE_SET_CONTROLLABLE_LOAD,
         services.SERVICE_FLEX_TELEMETRY_RECORD,
         services.SERVICE_RESCORE_HISTORY,
+        services.SERVICE_EXPORT_DECISION_INPUTS,
     }
     for call in hass.services.async_remove.call_args_list:
         assert call.args[0] == services.DOMAIN

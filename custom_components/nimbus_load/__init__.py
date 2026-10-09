@@ -1328,6 +1328,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     # against a still-fully-set-up entry instead of racing it.
     await solver_runtime.wait_for_in_flight_solve()
 
+    # nimbus issue #1657 gate 2: write the decision inputs still held in
+    # memory (up to five minutes of them) before the entry goes. Never raises.
+    from .decision_inputs_store import async_flush as _flush_decision_inputs
+
+    await _flush_decision_inputs(hass, entry.entry_id)
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         for coordinator in entry.runtime_data.values():

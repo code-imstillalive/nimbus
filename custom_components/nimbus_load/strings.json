@@ -522,6 +522,24 @@
     "flex_telemetry_record": {
       "name": "Flex telemetry record",
       "description": "Return the current nem-flex-telemetry schema v2.0 record for the last complete NEM 5-minute interval, built entirely from Nimbus's own entities and last solve. Reads what sensor.nimbus_flex_telemetry already published rather than rebuilding it, so a caller and a dashboard can never disagree about the same interval. Needs switch.nimbus_solver_flex_signals_enabled on: it is off by default and costs roughly 9x solve time when on, because the schema's required flexibility fields come from HiGHS ranging."
+    },
+    "export_decision_inputs": {
+      "name": "Export decision inputs",
+      "description": "Returns what the Solver decided on in a past window: each solve's first two hours of rows (prices with their source, load, solar, battery, SoC, grid), the full horizon every 30 minutes and whenever the dispatch direction changed, the resolved settings, and the price and forecast sources' state at the time. Kept 48 hours (heads) and 7 days (full horizons). Read-only; at most 24 hours per call.",
+      "fields": {
+        "start": {
+          "name": "Start",
+          "description": "Window start (inclusive)."
+        },
+        "end": {
+          "name": "End",
+          "description": "Window end (exclusive). At most 24 hours after start."
+        },
+        "kinds": {
+          "name": "Kinds",
+          "description": "'head' (every solve, first two hours) and/or 'horizon' (full plans only). Default: both."
+        }
+      }
     }
   },
   "issues": {

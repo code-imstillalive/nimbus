@@ -405,6 +405,11 @@ def reset_module_state() -> None:
 
     reset_quality_history_cache()
 
+    # nimbus issue #1657 gate 2: per-entry decision-input buffers, same reason.
+    from .decision_inputs_store import reset_decision_inputs_cache
+
+    reset_decision_inputs_cache()
+
 
 def set_default_env_vars(hass: HomeAssistant) -> None:
     """The env vars solver_writer.py's own module-level code needs
@@ -1002,6 +1007,14 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
         from .quality_history_store import async_capture_quality_day
 
         await async_capture_quality_day(hass, entry_id)
+
+        # nimbus issue #1657 gate 2: keep what this solve decided on, so a
+        # past decision can be replayed. Reads the plan just published (the
+        # rows the LP returned) on the event loop; disk writes are batched in
+        # the executor. Swallowed by the helper itself.
+        from .decision_inputs_store import async_capture as _capture_decision_inputs
+
+        await _capture_decision_inputs(hass, entry_id)
     return ok
 
 

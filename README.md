@@ -618,6 +618,15 @@ Edit inline on the dashboard without touching the wizard:
   a full oracle solve, so it is deliberately explicit, capped, and never
   runs automatically or on upgrade. A day whose real history is too thin to
   score is skipped with its reason rather than failing the whole run.
+- `nimbus_load.export_decision_inputs` (`start`, `end`, optional `kinds`:
+  `head`, `horizon` or both). Returns what the Solver decided on in a past
+  window, so a decision can be replayed after the fact: every solve's first
+  two hours of rows (prices with their source, load, solar, battery, SoC,
+  grid), the full horizon every 30 minutes and whenever the plan's period-0
+  direction changed, the resolved settings, and the price and forecast
+  sources' own state at the time. Recorder does not keep the plan's rows, so
+  this is the only record of them. Kept 48 hours (heads) and 7 days (full
+  horizons) under `.storage/`; at most 24 hours per call. Read-only.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.
