@@ -170,7 +170,8 @@
       }
     },
     "error": {
-      "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both."
+      "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
+      "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up."
     }
   },
   "config_subentries": {
@@ -527,6 +528,10 @@
     "forecast_not_trained": {
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
+    },
+    "frozen_price_input": {
+      "title": "Nimbus: a price setting does not follow the live price",
+      "description": "These price settings point at a rate that is fixed when the forecast is built and never revised (LocalVolts Rate All Var). On 9 Oct 2026 such a rate stayed near 13c while the live price reached $1.32, so the plan never saw the spike:\n\n{inputs}\n\nPoint them at the live price instead: for LocalVolts, Buy Flex Up and Sell Flex Up, and Flex Up Forecast for the price array. This message clears itself once fixed."
     },
     "non_power_unit_power_input": {
       "title": "Nimbus: a power setting points at a sensor that is not in W or kW",

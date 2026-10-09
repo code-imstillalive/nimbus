@@ -198,9 +198,9 @@ except ImportError:
 # call time from the other side (see solver_inputs/__init__.py for the
 # full note on that import direction).
 try:
-    from .power_units import power_scale_to_kw
+    from .power_input_check import warn_refused_input_once
 except ImportError:  # pragma: no cover - standalone/cron path
-    from power_units import power_scale_to_kw  # type: ignore[no-redef]
+    from power_input_check import warn_refused_input_once  # type: ignore[no-redef]
 try:
     from . import price_intervals
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -405,6 +405,7 @@ try:
         p2p_blocks_daily_energy_kwh,
         p2p_bonus_price_by_period,
         parse_iso,
+        power_scale_or_none,
         resample_history_mean,
         resample_history_nearest,
         resolve_effective_capacity_kwh,
@@ -443,6 +444,7 @@ except ImportError:
         p2p_blocks_daily_energy_kwh,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/prices.py (#1537)
         p2p_bonus_price_by_period,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         parse_iso,
+        power_scale_or_none,
         resample_history_mean,
         resample_history_nearest,
         resolve_effective_capacity_kwh,
@@ -1668,7 +1670,41 @@ def fetch_solver_config() -> dict:
             "before running this writer."
         )
         raise RuntimeError(msg)
-    return state["attributes"]
+    return _refuse_non_power_inputs(dict(state["attributes"]))
+
+
+# nimbus #1643: optional power inputs whose sensor reports a unit that is not
+# power are treated as not configured, rather than read as kW. The load
+# forecast is required, so it is refused where it is parsed instead
+# (`_validate_and_parse_load_forecast_attrs`), which takes the existing
+# missing-forecast path.
+_OPTIONAL_POWER_INPUTS = (
+    "solver_solar_power_sensor",
+    "solver_battery_power_sensor",
+    "solver_whole_house_cross_check_sensor",
+    "switchboard_grid_meter_sensor",
+    "switchboard_battery_power_sensor",
+    "grid_sensor",
+)
+
+
+def _refuse_non_power_inputs(cfg: dict) -> dict:
+    """`cfg` with each optional power input blanked whose sensor reports a
+    stated non-power unit (A, kVA, kWh, unknown). The Repair names it
+    (setup_health, #1643); this logs it once per sensor."""
+    for key in _OPTIONAL_POWER_INPUTS:
+        entity_id = cfg.get(key)
+        if not entity_id:
+            continue
+        try:
+            unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
+        except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
+            _LOGGER.debug("Nimbus: unit of %s unreadable", entity_id, exc_info=True)
+            continue
+        if power_scale_or_none(unit) is None:
+            warn_refused_input_once(entity_id, unit)
+            cfg[key] = None
+    return cfg
 
 
 # nimbus issue #944: the recorder's own per-state attribute cap
@@ -2244,7 +2280,8 @@ def _live_grid_meter_kw(cfg: dict) -> float | None:
     try:
         state = ha_get(meter)
         unit = (state.get("attributes") or {}).get("unit_of_measurement")
-        value = float(state["state"]) * power_scale_to_kw(unit)
+        scale = power_scale_or_none(unit)  # nimbus #1643: amps etc. are no reading
+        value = float(state["state"]) * scale if scale is not None else math.nan
     except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
         _LOGGER.debug("Nimbus flex telemetry: %s unreadable", meter, exc_info=True)
         return None
@@ -3441,7 +3478,17 @@ def _validate_and_parse_load_forecast_attrs(
     # Nimbus's own canonical forecast entities are always already kW, so
     # this only ever fires on the alternate-shape path in practice, but
     # checked unconditionally rather than assumed.
-    scale = power_scale_to_kw(attrs.get("unit_of_measurement"))  # nimbus #1570
+    unit = attrs.get("unit_of_measurement")
+    scale = power_scale_or_none(unit)  # nimbus #1570, #1643
+    if scale is None:
+        return (
+            None,
+            False,
+            (
+                f"{entity_id} reports '{unit}', which is not a power unit "
+                "(W or kW), so it is not read as a load forecast (nimbus #1643)."
+            ),
+        )
 
     fc_dicts = []
     for point in parsed_points:
@@ -5826,7 +5873,7 @@ def fetch_entity_power_history_kw(
     have imposed the cost on every install to fix a wake transient on one
     sensor family.
 
-    Per-row conversion goes through `power_units.power_scale_to_kw()`, the
+    Per-row conversion goes through `solver_shared.power_scale_or_none()`, the
     one converter every Nimbus power reading shares (nimbus #1570), rather
     than a convention of its own. A row with no unit at all is taken as
     already-kW, matching `_kw_scale_factor()`'s own documented default for
@@ -5870,9 +5917,12 @@ def fetch_entity_power_history_kw(
                 v = float(s.state)
             except (TypeError, ValueError):
                 continue
-            v *= power_scale_to_kw(  # nimbus #1570
+            scale = power_scale_or_none(  # nimbus #1570, #1643
                 s.attributes.get("unit_of_measurement")
             )
+            if scale is None:
+                continue  # not a power unit: no reading, not kW
+            v *= scale
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
     # REST fallback: no `&minimal_response`, so each point keeps its own
@@ -5901,9 +5951,12 @@ def fetch_entity_power_history_kw(
             v = float(state)
         except (TypeError, ValueError):
             continue
-        v *= power_scale_to_kw(  # nimbus #1570
+        scale = power_scale_or_none(  # nimbus #1570, #1643
             (p.get("attributes") or {}).get("unit_of_measurement")
         )
+        if scale is None:
+            continue  # not a power unit: no reading, not kW
+        v *= scale
         out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
     return sorted(out, key=lambda x: x[0])
 

@@ -23,6 +23,7 @@ from typing import Any
 
 from power_input_check import is_energy_unit
 from power_units import is_power_unit, power_scale_to_kw
+from solver_shared import power_scale_or_none
 
 from tests.device_contract.oracles_signals import POWER_TO_KW
 
@@ -47,9 +48,13 @@ def _now(unit: Any) -> dict[str, Any]:
 
 
 def _effective(case: dict[str, Any]) -> float | str:
-    """What a reading in this unit becomes: an energy unit is refused (the
-    #1562 check), anything else is scaled."""
-    return "refused" if case["is_energy_unit"] else case["scale_to_kw"]
+    """What a reading in this unit becomes on the Solver's paths today: a
+    stated unit that is not power is refused (#1562 for energy, #1643 for
+    current, apparent power and unknown units, through
+    `solver_shared.power_scale_or_none`); anything else is scaled. No unit
+    at all is still read as kW, F09's open decision."""
+    scale = power_scale_or_none(case["unit"])
+    return "refused" if scale is None else scale
 
 
 def _contract(unit: Any) -> float | str:

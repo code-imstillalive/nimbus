@@ -8,7 +8,43 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **A power sensor in amps, kVA, kWh or an unknown unit is now ignored, not
+  read as kW** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
+  the runtime half Mark Purcell approved on that issue). #1644 only reported
+  these; the number was still used as kW.
+  - **Solar, battery, whole-house, grid-meter and Topology power inputs:**
+    treated as not configured, the same as a blank field.
+  - **A controllable load's or battery's power reading:** no measurement, the
+    same as an unavailable sensor.
+  - **The load forecast:** not read, so the solve takes its existing
+    missing-forecast path with a reason naming the unit.
+  - **Not silent:** the Repair from #1644 still names each one, and the log
+    says it is ignored, once per sensor.
+  - **Unchanged:** a sensor with no unit at all is still read as kW, by
+    design. Every power input on the reference household declares W or kW
+    (read live 8 Oct), so nothing changes there.
+  - DC-000's F09 ledger drops its three `candidate_defect` entries (A, kVA,
+    unknown); the Solver now refuses them as the contract does.
+
 ### Added
+- **A price setting pointed at a frozen rate is refused and reported**
+  ([#1661](https://github.com/code-imstillalive/nimbus/issues/1661), Mark
+  Purcell). LocalVolts' Rate All Var (and the `amountVar`/`amountAll` fields
+  behind it) is fixed when the forecast for an interval is built and does not
+  follow the settled price. On 9 Oct 2026 it stayed near 13c while Flex Up
+  followed a $1.32/kWh spike, so a plan built on it never sees the spike.
+  - **The Grid step refuses** such a sensor in any import/export price field.
+  - **A Repair** names one that is already configured, including in the price
+    forecast array.
+  - **Recognised by evidence, not guessed:** the sensor's `source_field`
+    attribute (`rateAllVar`, `amountVar`, `amountAll`), or a unique ID or
+    entity ID ending `_rate_all_var`.
+  - **A test fails** if any Nimbus code reads those fields as a price.
+  - The setup guide says to use Flex Up, and why.
+  - No Nimbus price input ever used these fields. On the reference household
+    the import price, export price and price array are all Flex Up (read live
+    9 Oct), so nothing changes there.
 - **The flex telemetry record's net import comes from the grid meter, read
   live** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   approved by Mark Purcell). One state read of the grid meter (Topology's

@@ -117,6 +117,19 @@ def test_an_unreadable_meter_falls_back_to_the_plan():
     assert build.net_import_source == "plan"
 
 
+def test_a_meter_in_a_non_power_unit_falls_back_to_the_plan():
+    """Mark's review note on #1659: amps or kWh are no reading, never kW."""
+    for unit in ("A", "kVA", "kWh"):
+        build, _r, _h, planned = _build(
+            dict(_CFG, switchboard_grid_meter_sensor=METER),
+            reconciliation=_agrees("positive_is_import"),
+            meter_state="12",
+            meter_unit=unit,
+        )
+        assert build.record["net_import_kw"] == round(planned, 3), unit
+        assert build.net_import_source == "plan", unit
+
+
 def test_no_meter_configured_reads_nothing_extra():
     build, reads, _h, _p = _build(dict(_CFG))
     assert build.net_import_source == "plan"
