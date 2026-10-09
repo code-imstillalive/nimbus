@@ -1620,7 +1620,11 @@ DEFAULT_SOLVER_EFFICIENCY_PERCENT: Final = 95.0
 DEFAULT_SOLVER_CHARGE_COST: Final = 0.01
 DEFAULT_SOLVER_DISCHARGE_COST: Final = 0.01
 DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
-DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 1.95
+# Household, 9 Oct 2026: 1.95 was the reference household's own LocalVolts
+# charge, and every new install inherited it whatever its retailer. 0 means
+# "not set". An existing install keeps its stored value (RestoreNumber, then
+# the shared Store), so only a fresh install sees this default.
+DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 0.0
 DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 4
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
