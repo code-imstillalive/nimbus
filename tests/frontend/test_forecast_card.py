@@ -194,4 +194,4 @@ def test_history_lines_are_steps_not_smoothed() -> None:
         pathlib.Path(__file__).resolve().parents[2]
         / "docs/real-world-integration/files/lovelace_build_merged_forecast_chart.py"
     ).read_text(encoding="utf-8")
-    assert script.count('"curve": "stepline"') == script.count("(history)\",")
+    assert script.count('"curve": "stepline"') == script.count('(history)",')
