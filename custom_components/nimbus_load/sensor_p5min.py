@@ -73,7 +73,9 @@ def _unzip_text(blob: bytes) -> str:
 class NimbusP5MinForecastSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "AEMO 5-Minute Pre-dispatch"
-    _attr_native_unit_of_measurement = "$/kWh"
+    _attr_native_unit_of_measurement = (
+        "AUD/kWh"  # NEM prices are AUD, whatever the install currency (#1293)
+    )
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 4
     _attr_should_poll = False
