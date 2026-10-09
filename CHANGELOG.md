@@ -15,6 +15,39 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   live-dispatch fix on a real deadline (Sunday's block)."* Nothing else from
   `main` is in it. The fix is #1674.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 47320cd8**,
+  installed untagged via HACS from the `release/0.94.445` branch
+  (`installed_version` release/0.94.445, head 47320cd8) and restarted 18:11
+  AEST 9 Oct. Devhub's own entities stamp `0.94.445` (2; the 120 at 0.94.444
+  are production's mirrored rows), and the `nimbus_load` config entry is
+  `loaded`. With Nimbus at debug, a solve at 18:20:35 came back `optimal`,
+  batteries `['home', 'Test EV']`, cycle 25.7 s (devhub's own test EV, as on
+  0.94.444's check). No `Traceback`, no `solve cycle failed`, no new ERROR
+  beyond the boot-time "does not generate unique IDs" rows from devhub's
+  mirrored registry (the same kind as every prior check). One self-healed
+  "previous cycle still in progress" skip at 18:15:31, the same overlap kind
+  devhub logged on 0.94.444 before the install.
+  **Not observable on devhub:** dispatch itself, because devhub's solver
+  outputs share entity_ids with production's mirror (#1396). It was checked
+  instead by a read-only replay of production's live solve on this exact
+  tree against v0.94.444 (every non-GET request refused, state writes
+  captured locally), 18:18 AEST inside tonight's block, both `optimal`, 4.1 s
+  against 4.2 s:
+  - **now (period 0):** battery 14.869 kW against 14.87, grid import 0 and
+    export 12.0 in both. Tonight's block is unchanged;
+  - **10 Oct block:** import up to 1.77 kW and battery down to 12.52 kW on
+    v0.94.444; 0 import and battery 13.87-14.68 kW here;
+  - **11 Oct block:** up to 2.67 kW import on v0.94.444; 0 here;
+  - **12 Oct block:** up to 3.57 kW import (12.1 kWh of penalised import) on
+    v0.94.444; 0 here, battery 14.87-15.64 kW;
+  - penalised import in the plan: $85.55 on v0.94.444, $0 here.
+  `custom_components/` differs from v0.94.444 only in `solver/p2p_export.py`
+  (#1674) and the manifest version.
+- Consumer check: a P2P block's net export no longer falls short on evenings
+  the battery cannot carry both the block and the hours after midnight; the
+  plan now imports after the block instead of inside it. Evenings the
+  battery already covered dispatch identically (0.001 kW at 18:18 in the
+  block). No settings change.
 ### Fixed
 - **The hours after a P2P block can import again, so the block stays net**
   ([#1674](https://github.com/code-imstillalive/nimbus/pull/1674)). #1610
@@ -29,7 +62,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   only a positive pin forbids import. Replaying the live solve with this tree:
   0 import in the block, battery 15.3-15.4 kW (12 plus the house), $0
   penalty, and ordinary import after midnight once the battery reaches its
-  floor. Tonight's and other evenings the battery covers are unchanged.
+  floor. Re-measured 18:18 AEST 9 Oct inside the block: v0.94.444's plan
+  also imports in Saturday 10 Oct's block (up to 1.77 kW) and 11 Oct's (up to
+  2.67 kW), not only Sunday's, so Saturday's block is the real deadline.
 
 ## [0.94.444] - 2026-10-09
 
