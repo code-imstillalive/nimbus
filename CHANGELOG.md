@@ -16,6 +16,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   is withheld with reason `no_measurement` instead of publishing
   `house_load_kw: 0.0`. Dispatch is unchanged: the solve still runs on the
   same zero fallback.
+- **"Fixed Daily Charge" no longer defaults to one household's retailer charge.**
+  It defaulted to $1.95/day, the reference household's own LocalVolts supply
+  charge, so every new install inherited it whatever its retailer. A new
+  install now starts at 0 ("not set"). **An existing install keeps its stored
+  value**: check it under the Nimbus device's Configuration section if you did
+  not set it yourself. Reporting only (`total_cost_with_fixed_costs`); the
+  battery plan never used it.
 - **A power sensor in amps, kVA, kWh or an unknown unit is now ignored, not
   read as kW** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
   the runtime half Mark Purcell approved on that issue). #1644 only reported
@@ -52,6 +59,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - No Nimbus price input ever used these fields. On the reference household
     the import price, export price and price array are all Flex Up (read live
     9 Oct), so nothing changes there.
+- **The flex telemetry record's net import comes from the grid meter, read
+  live** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
+  approved by Mark Purcell). One state read of the grid meter (Topology's
+  switchboard meter, else the Forecaster's grid sensor), no history. Its sign
+  is the one #1465's daily meter reconciliation last **agreed** on, for that
+  same meter, because Nimbus has no sign setting and one reading near zero
+  cannot tell. Otherwise the plan's period-0 exchange stays, as before.
+  `net_import_source` (`grid_meter` / `plan`) sits on
+  `sensor.nimbus_flex_telemetry` beside the record.
 - **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   Mark Purcell's review of #1640: the record publishes data Nimbus already
   generates). Its four site figures now come from the solve itself:

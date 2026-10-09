@@ -26,6 +26,9 @@ BASE_CONFIG = {
     "solver_solar_forecast_sensor": "",
     "solver_load_forecast_sensor": LOAD,
     "solver_load_forecast_entities": [],
+    # The snapshots were taken with the old 1.95 fallback; stated here so a
+    # change to the default does not move reporting-only golden output.
+    "solver_fixed_daily_charge": 1.95,
 }
 
 
