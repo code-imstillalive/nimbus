@@ -115,3 +115,39 @@ def parse_region_solution(text: str, region: str) -> dict | None:
 def peak(forecast: list[dict]) -> dict | None:
     """The highest-priced row of a parsed forecast, or None when empty."""
     return max(forecast, key=lambda row: row["value"]) if forecast else None
+
+
+# ---- #1660: the readiness signal, SHADOW ONLY -------------------------------
+# Mark Purcell's rule, locked before validation (#1660): two consecutive runs
+# whose FUTURE-ONLY maximum is at least $500/MWh, held for at most 60 minutes
+# from the confirming run. Published, never fed to the solve, until
+# multi-event evidence supports activating it.
+SIGNAL_THRESHOLD = 0.5  # $/kWh
+SIGNAL_MAX_AGE = timedelta(minutes=60)
+
+
+def published_at(file_name: str) -> datetime | None:
+    """When AEMO published a P5MIN file, from its own name."""
+    m = _FILE_RE.search(file_name or "")
+    if m is None:
+        return None
+    return datetime.strptime(m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=NEM_TIME)
+
+
+def future_peak(run: dict | None) -> dict | None:
+    """The highest row after the interval in progress, which is not a forecast."""
+    return peak(((run or {}).get("forecast") or [])[1:])
+
+
+def spike_confirmed(run: dict | None, previous: dict | None) -> bool:
+    """True when `run` and the run immediately before it both forecast a
+    future interval at or above SIGNAL_THRESHOLD."""
+    if not run or not previous:
+        return False
+    gap = datetime.fromisoformat(run["run_datetime"]) - datetime.fromisoformat(
+        previous["run_datetime"]
+    )
+    if gap != INTERVAL:
+        return False
+    peaks = (future_peak(run), future_peak(previous))
+    return all(p is not None and p["value"] >= SIGNAL_THRESHOLD for p in peaks)

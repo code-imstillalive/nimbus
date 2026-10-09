@@ -161,3 +161,62 @@ def test_series_are_excluded_from_recorder():
     assert sp.NimbusP5MinForecastSensor._unrecorded_attributes == frozenset(
         {"forecast", "previous_forecast"}
     )
+
+
+# ---- #1660's readiness rule, shadow only, on the real 9 Oct runs ----------
+OCT9 = sorted((FIXTURE.parent / "2026-10-09").glob("*.CSV"))
+
+
+def _replay():
+    s = _sensor()
+    seen = []
+    for path in OCT9:
+        s.apply(path.stem + ".zip", p5min.parse_region_solution(path.read_text(), "QLD1"))
+        a = s.extra_state_attributes
+        seen.append((a["run_datetime"][11:16], a["readiness_signal"], a))
+    return seen
+
+
+def test_the_fixture_is_the_real_event_mark_measured():
+    assert len(OCT9) == 20
+    peaks = {
+        p.stem[13:25]: p5min.future_peak(
+            p5min.parse_region_solution(p.read_text(), "QLD1")
+        )["value"]
+        for p in OCT9
+    }
+    # #1660: ~$500 at 04:20:52, $502 at 04:25:49, $528 at 04:30:54.
+    assert peaks["202610090425"] == 0.500019
+    assert peaks["202610090430"] == 0.502179
+    assert peaks["202610090435"] == 0.527514
+    assert peaks["202610090505"] == 22.563343  # the false extreme
+
+
+def test_the_signal_confirms_on_the_second_run_and_not_before():
+    seen = _replay()
+    first_on = next(i for i, (_, on, _a) in enumerate(seen) if on)
+    run, _on, attrs = seen[first_on]
+    assert run == "04:30"
+    assert attrs["readiness_signal_since"] == "2026-10-09T04:25:49+10:00"
+    assert attrs["readiness_signal_peak"]["value"] == 0.502179
+    assert attrs["readiness_signal_peak"]["start"] == "2026-10-09T05:20:00+10:00"
+    assert attrs["readiness_signal_mode"] == "shadow"
+    assert not any(on for _, on, _a in seen[:first_on])
+
+
+def test_the_signal_is_held_at_most_sixty_minutes_and_not_extended():
+    seen = _replay()
+    on = [run for run, active, _a in seen if active]
+    assert on[0] == "04:30" and on[-1] == "05:30"
+    # Repeat confirmations (04:55, 05:05 ...) do not move the start.
+    assert {a["readiness_signal_since"] for _, active, a in seen if active} == {
+        "2026-10-09T04:25:49+10:00"
+    }
+    assert seen[-1][0] == "05:35" and seen[-1][1] is False
+
+
+def test_a_missed_run_breaks_the_pair():
+    s = _sensor()
+    s.apply(OCT9[5].stem + ".zip", p5min.parse_region_solution(OCT9[5].read_text(), "QLD1"))
+    s.apply(OCT9[7].stem + ".zip", p5min.parse_region_solution(OCT9[7].read_text(), "QLD1"))
+    assert s.extra_state_attributes["readiness_signal"] is False

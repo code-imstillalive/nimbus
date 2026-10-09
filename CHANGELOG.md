@@ -44,8 +44,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     fetched.
   - **Cost:** about 330 KB per 5-minute run, ~95 MB a day. The directory
     listing is not read until the next run can have been published.
-  - **The solve does not use it yet.** How the plan should use it is
-    #1653's next step, reviewed separately.
+  - **`readiness_signal`, shadow only** ([#1660](https://github.com/code-imstillalive/nimbus/issues/1660)):
+    Mark Purcell's locked rule. It turns on when two consecutive runs forecast
+    a future interval at $500/MWh or more, and holds for at most 60 minutes.
+    On 9 Oct's real runs it turns on at 04:25:49 and off at 05:35. It is
+    published so it can be checked against event and quiet mornings.
+  - **The solve does not use the forecast or the signal yet.** Using either is
+    a separate, reviewed change.
 
 - **A price setting pointed at a frozen rate is refused and reported**
   ([#1661](https://github.com/code-imstillalive/nimbus/issues/1661), Mark

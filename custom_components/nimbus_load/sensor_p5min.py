@@ -14,6 +14,10 @@ Region: from the AEMO sensors already configured on the Solver
 State: the price of the interval in progress, $/kWh. `forecast` holds every
 row (about an hour) and is excluded from Recorder; so is the previous run's,
 kept so a consumer can ask whether two consecutive runs agree.
+
+`readiness_signal` is #1660's rule (two consecutive runs forecasting
+>= $500/MWh, held at most 60 minutes), in SHADOW: published so it can be
+checked against events and quiet mornings, never read by the solve.
 """
 
 from __future__ import annotations
@@ -91,6 +95,8 @@ class NimbusP5MinForecastSensor(SensorEntity):
         self._previous: dict | None = None
         self._fetched_at: str | None = None
         self._error: str | None = None
+        self._signal_since: datetime | None = None
+        self._signal_peak: dict | None = None
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -141,8 +147,20 @@ class NimbusP5MinForecastSensor(SensorEntity):
             if self._run is not None and self._run["run_datetime"] != run["run_datetime"]:
                 self._previous = self._run
             self._run = run
+            self._update_signal(p5min.published_at(name))
         if self.hass is not None:
             self.async_write_ha_state()
+
+    def _update_signal(self, published: datetime | None) -> None:
+        """#1660, shadow only. The age runs from the run that first confirmed
+        the episode; a repeat confirmation does not extend it."""
+        if self._signal_since is not None and (
+            published is None or published - self._signal_since > p5min.SIGNAL_MAX_AGE
+        ):
+            self._signal_since = self._signal_peak = None
+        if self._signal_since is None and p5min.spike_confirmed(self._run, self._previous):
+            self._signal_since = published
+            self._signal_peak = p5min.future_peak(self._run)
 
     @property
     def available(self) -> bool:
@@ -168,6 +186,12 @@ class NimbusP5MinForecastSensor(SensorEntity):
             "max_price_start": top["start"] if top else None,
             "previous_run_datetime": (self._previous or {}).get("run_datetime"),
             "previous_max_price": prev_top["value"] if prev_top else None,
+            "readiness_signal": self._signal_since is not None,
+            "readiness_signal_since": (
+                self._signal_since.isoformat() if self._signal_since else None
+            ),
+            "readiness_signal_peak": self._signal_peak,
+            "readiness_signal_mode": "shadow",
             "forecast": rows,
             "previous_forecast": prev,
         }
