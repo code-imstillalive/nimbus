@@ -949,6 +949,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # above is listed under. Tracked as its own issue rather than left
         # as a bare allowlist entry.
         "_flex_telemetry_measured",
+        "_measured_house_load_kw",  # nimbus #1665
         "_flex_telemetry_assets",
         "build_flex_telemetry_record",
         "publish_flex_telemetry_record",
@@ -960,6 +961,9 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # treated as not configured when the settings are loaded.
         "_refuse_non_power_inputs",
         "power_scale_or_none",  # solver_shared helper, imported by name
+        # nimbus #1634: the grid meter read live, signed by #1465.
+        "_grid_meter_sign",
+        "_live_grid_meter_kw",
     }
 )
 KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(

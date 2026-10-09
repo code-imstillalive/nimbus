@@ -389,6 +389,9 @@ def publish_flex_telemetry_record(
         # dict and the record are different objects with different
         # contracts. `schema_version` lives in the record alone.
         "clamped_fields": list(build.clamped_fields),
+        # nimbus #1634: `grid_meter` or `plan`, see
+        # solver_writer._flex_telemetry_measured.
+        "net_import_source": getattr(build, "net_import_source", None),
         "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
     }
     state = build.record["interval_start_utc"]
@@ -1802,7 +1805,9 @@ def publish_plan(
     # identical behaviour for every existing install until this field is
     # explicitly changed.
     horizon_days = sum(period_hours_arr) / 24.0
-    fixed_daily_charge = sw._cfg_num(cfg, "solver_fixed_daily_charge", 1.95)
+    # Household, 9 Oct 2026: the fallback is 0 ("not set"), matching
+    # DEFAULT_SOLVER_FIXED_DAILY_CHARGE, not one household's retailer charge.
+    fixed_daily_charge = sw._cfg_num(cfg, "solver_fixed_daily_charge", 0.0)
     total_cost_with_fixed_costs = (
         plan.total_cost or 0.0
     ) + horizon_days * fixed_daily_charge

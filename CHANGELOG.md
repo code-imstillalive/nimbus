@@ -8,7 +8,42 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The hours after a P2P block can import again, so the block stays net.**
+  #1610 (v0.94.442) forbade ordinary grid import in every period with a pinned
+  export, which included the post-window self-consume hours pinned to 0 kW.
+  Self-Consume still imports when the battery cannot carry the house, so the
+  plan hoarded battery for 00:00-04:00 and, on evenings the battery could not
+  cover both, booked penalised import inside the block. Measured on the
+  reference household's live 0.94.444 plan: Sunday 12 Oct 21:00-24:00 imported
+  3.3-3.4 kW (battery held at 12.0 kW, $64 of penalty), which on the night
+  would deliver ~8.6 kW net, not 12. Now only a positive pin forbids import:
+  the replayed solve has 0 import in the block (battery 15.3-15.4 kW), $0
+  penalty, and ordinary import after midnight once the battery reaches its
+  floor.
+- **Forecaster charts draw measured history as steps, not a smoothed curve.**
+  A sensor's state holds until it changes, but apexcharts-card's default
+  smooth curve bent a long-held 0 into a ramp up to the next reading. On the
+  reference household on 9 Oct, hot water drew as rising for hours before it
+  switched on, while the recorded state was 0 until 11:01 and then ~3.8 kW.
+  The Forecaster card's history lines and the merged-chart script's now use
+  `curve: stepline`; forecast lines are unchanged.
+
 ### Changed
+- **A broken load forecast no longer reaches flex telemetry as a real 0 kW
+  house load** ([#1665](https://github.com/code-imstillalive/nimbus/issues/1665),
+  Mark Purcell's IV&V). When the load forecast has fallen back to zero
+  (#370/#416) and no live whole-house reading replaced period 0, the record
+  is withheld with reason `no_measurement` instead of publishing
+  `house_load_kw: 0.0`. Dispatch is unchanged: the solve still runs on the
+  same zero fallback.
+- **"Fixed Daily Charge" no longer defaults to one household's retailer charge.**
+  It defaulted to $1.95/day, the reference household's own LocalVolts supply
+  charge, so every new install inherited it whatever its retailer. A new
+  install now starts at 0 ("not set"). **An existing install keeps its stored
+  value**: check it under the Nimbus device's Configuration section if you did
+  not set it yourself. Reporting only (`total_cost_with_fixed_costs`); the
+  battery plan never used it.
 - **A power sensor in amps, kVA, kWh or an unknown unit is now ignored, not
   read as kW** ([#1643](https://github.com/code-imstillalive/nimbus/issues/1643),
   the runtime half Mark Purcell approved on that issue). #1644 only reported
@@ -28,6 +63,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     unknown); the Solver now refuses them as the contract does.
 
 ### Added
+- **The price entities carry the full resolved price series, live**
+  ([#1657](https://github.com/code-imstillalive/nimbus/issues/1657), gate 1,
+  Mark Purcell; the Amber Express #82 pattern).
+  `sensor.nimbus_solver_current_import_price` and `_export_price` keep their
+  numeric state and gain `detailedForecast`: one row per plan period.
+  - **Each row:** `start` and `end` (half-open), the resolved `value` the LP
+    used, the provider's `value_raw` where the plan recorded it, and its
+    `source`.
+  - **Gaps and signs:** a period with no price stays `None`, never zero, and
+    negative prices are kept.
+  - **Excluded from Recorder**, however long the horizon. A small recorded
+    `detailed_forecast_meta` (direction, periods, first start, horizon end,
+    solve status) says which plan a recorded price belonged to.
+  - **One plan publish:** the state and the rows come from the same publish,
+    so they cannot be from different solves.
+  - **Not replay:** this is live exposure only. Capturing the inputs at
+    decision time is #1657's second gate.
 - **A soft battery reserve: the bottom of the battery is only sold above a
   price you set** ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
   from the 9 Oct spike, #1658).
@@ -58,6 +110,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - No Nimbus price input ever used these fields. On the reference household
     the import price, export price and price array are all Flex Up (read live
     9 Oct), so nothing changes there.
+- **The flex telemetry record's net import comes from the grid meter, read
+  live** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
+  approved by Mark Purcell). One state read of the grid meter (Topology's
+  switchboard meter, else the Forecaster's grid sensor), no history. Its sign
+  is the one #1465's daily meter reconciliation last **agreed** on, for that
+  same meter, because Nimbus has no sign setting and one reading near zero
+  cannot tell. Otherwise the plan's period-0 exchange stays, as before.
+  `net_import_source` (`grid_meter` / `plan`) sits on
+  `sensor.nimbus_flex_telemetry` beside the record.
 - **The flex telemetry record reads no history** ([#1634](https://github.com/code-imstillalive/nimbus/issues/1634),
   Mark Purcell's review of #1640: the record publishes data Nimbus already
   generates). Its four site figures now come from the solve itself:
@@ -128,6 +189,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `nimbus_load.flex_telemetry_record` service returns the same reason. A
   consumer still recognises "nothing to push" by the absence of
   `attributes.record`.
+### Changed
+- **Period 0 is anchored to the setpoint actually dispatched one solve ago**
+  ([#1576](https://github.com/code-imstillalive/nimbus/issues/1576), agreed by
+  Mark Purcell). Before, its plan-stability anchor pointed at whichever old
+  period contained its start, which a solve ~15 s past a minute boundary made
+  the old plan's next (often 5- or 30-minute) period. On devhub that was
+  11 of 18 dispatch crossings, a median 3.19 kW away from the live command,
+  with holding the dispatched value free. Every other period keeps the
+  time-aligned rule, and an older previous plan keeps it for period 0 too.
 
 ## [0.94.444] - 2026-10-09
 
