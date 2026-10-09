@@ -956,6 +956,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_no_flex_record",
         "_flex_available_physical",
         "_post_no_record_reason",
+        # nimbus #1643: optional power inputs in a non-power unit are
+        # treated as not configured when the settings are loaded.
+        "_refuse_non_power_inputs",
+        "power_scale_or_none",  # solver_shared helper, imported by name
     }
 )
 KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(

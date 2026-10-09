@@ -57,39 +57,12 @@
   },
   {
    "fixture": "F09",
-   "case": "kVA",
-   "legacy": 1.0,
-   "contract": "refused",
-   "class": "candidate_defect",
-   "owner": "DC-002",
-   "note": "Apparent power, not real power: is_power_unit is False and is_energy_unit is False, yet power_scale_to_kw returns 1.0, so a caller that does not gate on is_power_unit reads it as kW. The Forecaster (coordinator.py) gates on is_power_unit and is safe; the Solver paths do not (solver_writer.py:3401, :5700, :5731; solver_inputs/controllable_loads.py:256; solver_dispatch/guard.py:571), measured on main at 07db4529."
-  },
-  {
-   "fixture": "F09",
-   "case": "A",
-   "legacy": 1.0,
-   "contract": "refused",
-   "class": "candidate_defect",
-   "owner": "DC-002",
-   "note": "Current, a different dimension: not caught by the #1562 energy-unit check, and power_scale_to_kw returns 1.0, so an ungated caller reads amps as kW. The Forecaster (coordinator.py) gates on is_power_unit and is safe; the Solver paths do not (solver_writer.py:3401, :5700, :5731; solver_inputs/controllable_loads.py:256; solver_dispatch/guard.py:571), measured on main at 07db4529."
-  },
-  {
-   "fixture": "F09",
    "case": "",
    "legacy": 1.0,
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
    "note": "No unit: read as kW by design ('kW was always the assumption'). The contract treats a missing unit as unresolved rather than assumed."
-  },
-  {
-   "fixture": "F09",
-   "case": "furlong",
-   "legacy": 1.0,
-   "contract": "refused",
-   "class": "candidate_defect",
-   "owner": "DC-002",
-   "note": "Unknown unit: read as kW (1.0). The contract refuses an unknown unit."
   },
   {
    "fixture": "F09",

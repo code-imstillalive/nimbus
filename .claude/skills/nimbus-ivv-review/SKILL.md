@@ -58,9 +58,11 @@ For each group, launch a background `Agent` (general-purpose) whose prompt:
   (400-700 words is usually enough) so the report stays skimmable.
 
 Send all the groups' `Agent` calls in one message so they run concurrently. While they run,
-do the mechanical parts yourself: a full local test-suite baseline, `ruff check`/`ruff
-format --check`, and a skim of any commit whose message alone raises a question (a stale
-comment claim, a suspiciously round number, a "should work" instead of "confirmed").
+do the mechanical parts yourself: pull the **actual GitHub Actions conclusion** for the
+range's tip commit (every check run, not just whether the PR merged) and skim any commit
+whose message alone raises a question (a stale comment claim, a suspiciously round number,
+a "should work" instead of "confirmed"). **Never run the test suite or `ruff` locally for
+this** — see the standing rule after step 4.
 
 ## 3. Personally re-verify before trusting a report
 
@@ -73,36 +75,38 @@ accurate once the actual CHANGELOG entry (not just the git title) was read in fu
 soften a real finding to be polite, but don't file an agent's framing verbatim either —
 verify it holds up, and correct the framing if it's overstated or understated.
 
-## 4. Investigate a suspicious local failure properly before calling it a finding
+## 4. Never run the suite or the linter locally — read GitHub's own Actions results instead
 
-A local test failure during an IV&V pass is not automatically a real regression. Two things
-have produced false alarms on this repo already:
+**Standing rule, household instruction (2026-10-09): the test suite and `ruff` run as a
+GitHub Action on GitHub's own server, never in this sandbox.** This isn't a preference —
+running them locally has already cost real time and produced real false alarms on this
+exact repo:
 
-- **A tool-version mismatch between the sandbox and CI.** This session's local `ruff` was
-  `0.15.8`; CI pins `0.16.4` in `.github/workflows/ci.yml`, and the two versions disagree
-  about `E402` around this repo's own `sys.path.insert()`-then-import idiom (used
-  throughout `tests/` to reach `custom_components/nimbus_load` without a package install).
-  A "lint failure" that isn't reproducible against the actual pinned version isn't a
-  finding — `pip install "ruff==<the pinned version>"` into the working venv and re-check
-  before concluding anything.
+- **A tool-version mismatch between the sandbox and CI.** One session's local `ruff`
+  resolved to `0.15.8` from a stray second install, even though `pip show ruff` reported
+  the correct pinned `0.16.4` — `which ruff`/`ruff --version` told a different story than
+  `pip show`. That single mismatch produced 300+ spurious `E402` findings around this
+  repo's own `sys.path.insert()`-then-import idiom in `tests/`, none of them real.
+- **A background pytest run killed mid-flight** when the session was suspended and resumed,
+  silently losing the whole baseline with no error surfaced until checked.
 - **An environment gap already documented in CLAUDE.md.** This sandbox's Python tops out
-  at 3.13; this repo's real `requires-python` is `>=3.14.4`. A test that fails locally but
-  passes in CI on the real pinned Python is an environment artifact, not a regression.
+  at 3.13; this repo's real `requires-python` is `>=3.14.4`, and `tests/hass_integration/`
+  needs the real HA harness, which cannot build here at all.
 
-The general method, whichever the cause turns out to be: bisect via isolated `git worktree`
-checkouts (`git worktree add --detach <dir> <hash>`) across the commits in question plus
-their common parent, rather than repeatedly `git checkout`-ing the same working tree (which
-can leave stale `__pycache__`/venv state that muddies the result). Then, regardless of what
-the bisection shows, check the **actual GitHub Actions conclusion** for the current `main`
-HEAD — whatever GitHub access this session has (GitHub MCP tools, the `gh` CLI, a browser)
-works; the point is checking the real workflow run's own conclusion, not any specific
-mechanism for doing so — if CI is green on the exact commit and exact test file that fails
-locally, the local failure is an artifact of this environment, not of the code. If nothing
-available in the session can reach GitHub Actions at all, say that plainly in the head
-issue too rather than guessing, since it changes how much confidence the "ruled out" claim
-deserves. Say so explicitly in the head issue's "ruled out" section either way, with
-whatever evidence was gathered, rather than silently dropping it or silently filing it as a
-finding. See `references/gotchas.md` for the full worked example.
+Every one of these is avoided by never running the suite or the linter locally in the first
+place. Instead: read the **actual GitHub Actions conclusion** for the commit in question —
+whatever GitHub access this session has (GitHub MCP tools, the `gh` CLI, a browser) works;
+the point is reading the real workflow run's own per-check conclusions (`completed` and
+`success` on every job, per the repo's own NEVER CHEAT directive — `pending`/`in_progress`
+is not a pass), not reproducing them in this sandbox. CI already ran on every commit in the
+pass's range when its PR was open; there is normally nothing left to run. If a commit's own
+CI run genuinely isn't available (a rare gap, not the default case), say so plainly in the
+head issue's "ruled out" section rather than falling back to a local run to fill the gap.
+
+If a review agent reports a local test or lint failure anyway (agents may not carry this
+same restriction), treat it exactly as untrusted until the real Actions conclusion for that
+commit is checked — never file it as a finding on the strength of a local run alone. See
+`references/gotchas.md` for the full worked example of the ruff-version trap above.
 
 ## 5. Decide what's genuinely worth filing
 
@@ -185,9 +189,9 @@ Three shapes, depending on what the finding actually is:
   computed value, not a hand-picked constant. A null result stated honestly is worth more
   than a fabricated pass.
 
-Validate every new test against the **CI-pinned tool versions**, not whatever the sandbox
-happens to have (see step 4's gotcha) — `pip install "ruff==<pinned>"` and confirm
-`pytest`/`ruff check`/`ruff format --check` are clean before committing.
+Don't validate the new test locally (see step 4 — the sandbox is never the source of truth).
+Commit it and push; the real validation is the GitHub Actions run on that branch/PR, read
+after pushing, not a local `pytest`/`ruff` run before it.
 
 ## 8. Branch, commit, push, open the PR
 
@@ -197,11 +201,12 @@ read like the issue bodies: factual, cited, no padding. The PR body links every 
 it addresses and explains the `xfail(strict=True)` choice inline if any test uses it — a
 reviewer shouldn't have to open a second file to understand why a red test is expected.
 
-Run the full local suite one more time on the final branch state before pushing
-(`pytest tests/ --ignore=tests/hass_integration/ -p no:homeassistant -q`), confirm the
-xfail count matches the number of deliberately-red tests exactly, and confirm ruff is
-clean against the pinned version. Push, open the PR against `main`, link it back as a
-comment on the head issue.
+Push the final branch state straight away — no local suite or `ruff` run first (step 4's
+standing rule). Open the PR against `main`, link it back as a comment on the head issue,
+then read the real GitHub Actions conclusion on that PR before treating anything as
+validated: every check `completed` and `success`, and the xfail count in the real CI log
+matching the number of deliberately-red tests exactly — a `pending` or `in_progress` check
+is not a pass, per the repo's own NEVER CHEAT directive.
 
 ## 9. Watch it through
 
