@@ -46,17 +46,25 @@ def latest_file_name(listing: str) -> str | None:
     return max(names) if names else None
 
 
-def region_from_entity_ids(entity_ids: list[str | None]) -> str | None:
-    """The NEM region named in a configured AEMO sensor's entity_id.
+def regions_in_entity_ids(entity_ids: list[str | None]) -> set[str]:
+    """Every NEM region named in the configured AEMO sensors' entity_ids.
 
     `sensor.nem_pd7day_qld1_...` and `sensor.aemo_nem_qld1_...` both carry
-    the region. Refuses (None) when the ids name more than one region, rather
-    than picking one."""
+    the region. Empty means no evidence; more than one means the
+    configuration contradicts itself -- the caller must tell those apart
+    (DC-R13: ambiguous evidence is never silently activated)."""
     found = set()
     for eid in entity_ids:
         if eid:
             found.update(m.group(1) for m in _REGION_IN_ID_RE.finditer(eid.lower()))
-    return f"{found.pop().upper()}1" if len(found) == 1 else None
+    return {f"{r.upper()}1" for r in found}
+
+
+def region_from_entity_ids(entity_ids: list[str | None]) -> str | None:
+    """The single NEM region the entity_ids name, else None (none, or a
+    conflict -- use `regions_in_entity_ids` to tell which)."""
+    found = regions_in_entity_ids(entity_ids)
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _nem_time(value: str) -> datetime | None:

@@ -50,14 +50,27 @@ _TIMEOUT = aiohttp.ClientTimeout(total=20)
 
 
 def resolve_region(hass: HomeAssistant, entry) -> str | None:
+    """The configured AEMO sensors' region; the geocoded location only when
+    they name none. Sensors naming two regions is a contradiction, not an
+    absence of evidence: no region, no entity, and a warning -- never a
+    geocoded guess over the top of it (#1668 review, DC-R13)."""
     cfg = {**(entry.data or {}), **(entry.options or {})}
-    region = p5min.region_from_entity_ids(
+    named = p5min.regions_in_entity_ids(
         [
             cfg.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR),
             cfg.get(CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR),
         ]
     )
-    if region is None:
+    if len(named) > 1:
+        _LOGGER.warning(
+            "Nimbus P5MIN: the configured AEMO sensors name %s -- more than "
+            "one NEM region. Not fetching pre-dispatch until they agree.",
+            ", ".join(sorted(named)),
+        )
+        return None
+    if named:
+        region = next(iter(named))
+    else:
         region, _prefix = sensor_discovery.resolve_geocoded_region_and_prefix(
             hass.states.async_all("sensor")
         )

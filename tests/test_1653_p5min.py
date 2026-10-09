@@ -107,6 +107,43 @@ def test_region_comes_from_the_configured_aemo_sensor_ids():
     assert p5min.region_from_entity_ids([None, "sensor.localvolts_v2_buy"]) is None
 
 
+def _entry(forecast_id, current_id):
+    entry = MagicMock()
+    entry.data = {
+        sp.CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: forecast_id,
+        sp.CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: current_id,
+    }
+    entry.options = {}
+    return entry
+
+
+def test_resolve_region_refuses_a_conflict_and_never_geocodes_over_it(monkeypatch):
+    """#1668 review: two regions named must create no entity -- not fall
+    through to the geocoded location as if nothing were configured."""
+    geocode = MagicMock(return_value=("QLD1", "nem_pd7day_qld1"))
+    monkeypatch.setattr(
+        sp.sensor_discovery, "resolve_geocoded_region_and_prefix", geocode
+    )
+    hass = MagicMock()
+    conflict = _entry("sensor.nem_pd7day_qld1_forecast", "sensor.aemo_nem_vic1_price")
+    assert sp.resolve_region(hass, conflict) is None
+    geocode.assert_not_called()
+
+
+def test_resolve_region_geocodes_only_when_nothing_is_named(monkeypatch):
+    geocode = MagicMock(return_value=("NSW1", "nem_pd7day_nsw1"))
+    monkeypatch.setattr(
+        sp.sensor_discovery, "resolve_geocoded_region_and_prefix", geocode
+    )
+    hass = MagicMock()
+    assert sp.resolve_region(hass, _entry(None, "sensor.localvolts_v2_buy")) == "NSW1"
+    geocode.assert_called_once()
+    geocode.reset_mock()
+    named = _entry("sensor.nem_pd7day_sa1_forecast", None)
+    assert sp.resolve_region(hass, named) == "SA1"
+    geocode.assert_not_called()
+
+
 def _sensor():
     entry = MagicMock()
     entry.entry_id = "e1653"
