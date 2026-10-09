@@ -9,6 +9,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **The hours after a P2P block can import again, so the block stays net.**
+  #1610 (v0.94.442) forbade ordinary grid import in every period with a pinned
+  export, which included the post-window self-consume hours pinned to 0 kW.
+  Self-Consume still imports when the battery cannot carry the house, so the
+  plan hoarded battery for 00:00-04:00 and, on evenings the battery could not
+  cover both, booked penalised import inside the block. Measured on the
+  reference household's live 0.94.444 plan: Sunday 12 Oct 21:00-24:00 imported
+  3.3-3.4 kW (battery held at 12.0 kW, $64 of penalty), which on the night
+  would deliver ~8.6 kW net, not 12. Now only a positive pin forbids import:
+  the replayed solve has 0 import in the block (battery 15.3-15.4 kW), $0
+  penalty, and ordinary import after midnight once the battery reaches its
+  floor.
 - **Forecaster charts draw measured history as steps, not a smoothed curve.**
   A sensor's state holds until it changes, but apexcharts-card's default
   smooth curve bent a long-held 0 into a ramp up to the next reading. On the
@@ -18,6 +30,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `curve: stepline`; forecast lines are unchanged.
 
 ### Changed
+- **A broken load forecast no longer reaches flex telemetry as a real 0 kW
+  house load** ([#1665](https://github.com/code-imstillalive/nimbus/issues/1665),
+  Mark Purcell's IV&V). When the load forecast has fallen back to zero
+  (#370/#416) and no live whole-house reading replaced period 0, the record
+  is withheld with reason `no_measurement` instead of publishing
+  `house_load_kw: 0.0`. Dispatch is unchanged: the solve still runs on the
+  same zero fallback.
 - **"Fixed Daily Charge" no longer defaults to one household's retailer charge.**
   It defaulted to $1.95/day, the reference household's own LocalVolts supply
   charge, so every new install inherited it whatever its retailer. A new
@@ -44,6 +63,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     unknown); the Solver now refuses them as the contract does.
 
 ### Added
+- **The price entities carry the full resolved price series, live**
+  ([#1657](https://github.com/code-imstillalive/nimbus/issues/1657), gate 1,
+  Mark Purcell; the Amber Express #82 pattern).
+  `sensor.nimbus_solver_current_import_price` and `_export_price` keep their
+  numeric state and gain `detailedForecast`: one row per plan period.
+  - **Each row:** `start` and `end` (half-open), the resolved `value` the LP
+    used, the provider's `value_raw` where the plan recorded it, and its
+    `source`.
+  - **Gaps and signs:** a period with no price stays `None`, never zero, and
+    negative prices are kept.
+  - **Excluded from Recorder**, however long the horizon. A small recorded
+    `detailed_forecast_meta` (direction, periods, first start, horizon end,
+    solve status) says which plan a recorded price belonged to.
+  - **One plan publish:** the state and the rows come from the same publish,
+    so they cannot be from different solves.
+  - **Not replay:** this is live exposure only. Capturing the inputs at
+    decision time is #1657's second gate.
 - **What the Solver decided on is kept, so a past decision can be replayed**
   ([#1657](https://github.com/code-imstillalive/nimbus/issues/1657) gate 2,
   design approved by Mark Purcell). Recorder keeps the plan's state but not

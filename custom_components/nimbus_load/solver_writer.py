@@ -2247,6 +2247,17 @@ _FLEX_TELEMETRY_NO_MEASUREMENT = (
 )
 
 
+def _measured_house_load_kw(load_kw, load_forecast_error, live_load_kw) -> float | None:
+    """Period 0's load for the telemetry record, or None when it is only the
+    load forecast's zero-fallback (nimbus #1665, Mark Purcell). A broken
+    load forecast leaves `load_kw` at 0.0 by design (#370/#416); unless a live
+    whole-house reading replaced period 0, that zero is not a measurement and
+    the record must say `no_measurement`, not publish 0.0."""
+    if load_forecast_error is not None and live_load_kw is None:
+        return None
+    return float(load_kw[0])
+
+
 def _grid_meter_sign(meter_sensor: str) -> float | None:
     """+1.0 when `meter_sensor` reads positive = import, -1.0 when positive =
     export, None when not established (nimbus #1634).
@@ -9432,7 +9443,9 @@ def main() -> None:
         export_limit_kw=float(np.asarray(export_limit_kw).ravel()[0]),
         period_hours=float(period_hours_arr[0]),
         hold_last=_assembly.flex_ranging_deferred,
-        house_load_kw=float(load_kw[0]),
+        house_load_kw=_measured_house_load_kw(
+            load_kw, load_forecast_error, live_load_kw
+        ),
     )
 
 

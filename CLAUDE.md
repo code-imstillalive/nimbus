@@ -1335,14 +1335,23 @@ main, always follow up — and VALIDATE BEFORE TAGGING (nimbus #1447):**
 
 1. Add a `## [X.Y.Z]` section to `CHANGELOG.md`, bump `manifest.json`'s `version`,
    commit as its own "Release vX.Y.Z" PR, merge it. **No tag yet.**
-2. Install that `main` on devhub **without a tag**: HACS can install the default
-   branch (`ha_manage_hacs(action="download", repository_id="code-imstillalive/nimbus",
-   version="main")`), and `ha_get_hacs_info` then reports the short commit as
-   `installed_version`. Restart and run the RELEASE VALIDATION checklist below.
+2. **Pin it: cut `release/X.Y.Z` from that merge commit** and push the branch. `main`
+   keeps moving (other PRs merge while devhub validates); the release branch does not.
+   Install the release branch on devhub **without a tag** (`ha_manage_hacs(action=
+   "download", repository_id="code-imstillalive/nimbus", version="release/X.Y.Z")`),
+   restart, and run the RELEASE VALIDATION checklist below.
 3. Write the verdict into that version's section **after** the check —
    `Devhub validation: ... at <commit>` citing the commit HACS installed, plus a
-   `Consumer check:` line — as its own PR, and merge it.
-4. **Then** tag the merged verdict commit `vX.Y.Z` and push the tag.
+   `Consumer check:` line — as a PR **into `release/X.Y.Z`**, and merge it.
+4. **Then** tag the head of `release/X.Y.Z` (the verdict commit) `vX.Y.Z` and push
+   the tag. **Never tag `main`'s moving tip** (nimbus #1664): by the time the verdict
+   lands, `main` may carry code nobody validated. v0.94.444 was cut this way
+   (`release/0.94.444`, tag at `8b46100`, not an ancestor of `main`).
+5. **Deploy only a tag that has a published GitHub Release** (`gh release view vX.Y.Z`).
+   The gate below runs *after* the tag exists, so it can refuse the Release but cannot
+   un-push the tag, and a production deploy is `git checkout vX.Y.Z`, which a refused
+   tag would still satisfy. A Release exists only when the gate passed, so requiring it
+   closes that gap for every install, HACS or git.
 
 **Step 4 before step 3 no longer produces an installable release.** `release.yml` runs
 `.github/scripts/check_release_validated.py`, which refuses to publish the GitHub Release

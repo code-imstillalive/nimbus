@@ -949,6 +949,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # above is listed under. Tracked as its own issue rather than left
         # as a bare allowlist entry.
         "_flex_telemetry_measured",
+        "_measured_house_load_kw",  # nimbus #1665
         "_flex_telemetry_assets",
         "build_flex_telemetry_record",
         "publish_flex_telemetry_record",
