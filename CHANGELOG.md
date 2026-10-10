@@ -9,6 +9,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **Scoring with Controllable Loads now actually runs on a real install**
+  ([#1681](https://github.com/code-imstillalive/nimbus/issues/1681), found by
+  Mark Purcell). #1357's oracle wiring imported `solver.elements` without the
+  package prefix, which works under the test suite's import path and nowhere
+  in Home Assistant. Every scored day raised `ModuleNotFoundError`, was logged
+  as a warning, and fell back to scoring without the loads, so
+  `oracle_controllable_loads_scored`/`_skipped` stayed empty with the switch
+  on. It now imports relatively, like every sibling module, and a static test
+  fails on any bare import of a package module outside the standalone
+  fallback. Days scored before this release were scored without the loads;
+  `nimbus_load.rescore_history` re-scores them.
 - **The hours after a P2P block can import again, so the block stays net.**
   #1610 (v0.94.442) forbade ordinary grid import in every period with a pinned
   export, which included the post-window self-consume hours pinned to 0 kW.
@@ -103,7 +114,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     published so it can be checked against event and quiet mornings.
   - **The solve does not use the forecast or the signal yet.** Using either is
     a separate, reviewed change.
-
+- **A soft battery reserve: the bottom of the battery is only sold above a
+  price you set** ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
+  from the 9 Oct spike, #1658).
+  - **The problem:** on 9 Oct the reference household's plan sold its last
+    ~9% at 28.6c at 04:25, with no forecast of the $1.04-1.08 spike thirty
+    minutes later, and was empty through it.
+  - **Two new Solver settings:** **Battery Reserve** (% of capacity) and
+    **Battery Reserve Release Price** ($/kWh). The plan values energy in the
+    reserve at the release price, so it is only sold when the price beats it.
+  - **No forced refill:** refilling the reserve costs nothing, and a battery
+    already below it is never made to charge up to it.
+  - **Off by default** (0 / 0), with no change to any plan until both are set.
+  - **Dispatch change:** held overnight before release.
 - **A price setting pointed at a frozen rate is refused and reported**
   ([#1661](https://github.com/code-imstillalive/nimbus/issues/1661), Mark
   Purcell). LocalVolts' Rate All Var (and the `amountVar`/`amountAll` fields

@@ -956,6 +956,14 @@ class BatteryConfig:
     # is active (both already fix period 0 for a real reason). See
     # solver_plan.period0_crossing_delta().
     period0_pin_net_kw: float | None = None
+    # nimbus issue #1654 (9 Oct 2026 spike, #1658): a SOFT reserve. Energy
+    # held in the bottom `reserve_kwh` of the battery is only sold when the
+    # price beats `reserve_release_price` ($/kWh): drawing it down costs that
+    # much per kWh in the LP, refilling it is free, and the reserve held at
+    # period 0 is min(current SoC, reserve_kwh), so a battery already below
+    # the reserve is never forced to refill. 0 / 0 = off, unchanged plans.
+    reserve_kwh: float = 0.0
+    reserve_release_price: float = 0.0
 
     def __post_init__(self) -> None:
         # nimbus issue #467: accept any iterable of ints (a list

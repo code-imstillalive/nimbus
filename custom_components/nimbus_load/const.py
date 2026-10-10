@@ -1467,6 +1467,15 @@ CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = "solver_p2p_block_lead_time_min
 # surface for a real, possibly multi-hour spike event.
 CONF_SOLVER_PRICE_SPIKE_THRESHOLD: Final = "solver_price_spike_threshold"
 DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD: Final = 0.0
+# nimbus issue #1654: a soft battery reserve. The bottom `reserve` percent of
+# capacity is sold only when the price beats `release price` ($/kWh). Both 0
+# (the default) = off, plans unchanged.
+CONF_SOLVER_BATTERY_RESERVE_PERCENT: Final = "solver_battery_reserve_percent"
+DEFAULT_SOLVER_BATTERY_RESERVE_PERCENT: Final = 0.0
+CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
+    "solver_battery_reserve_release_price"
+)
+DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
 DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"

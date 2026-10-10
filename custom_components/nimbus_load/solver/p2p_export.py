@@ -1,39 +1,39 @@
-"""Shared, reusable P2P export-commitment mechanism -- extracted VERBATIM
-from network.py's own real, live-tested implementation, deliberately as a
-SEPARATE module rather than a network.py refactor (direct household
-constraint: network.py is real-money-adjacent production code, re-solved
-every 5 minutes on NUC1/NUC2; nothing here may touch it, even to share
-code, since any accidental behavior change there carries real production
-risk this feature does not need to take on).
+"""Shared P2P export-commitment mechanism: **the live solve path uses it**.
 
-Built specifically to let solver/stochastic.py (Track A2) genuinely reason
-about a P2P export commitment (a fixed, pre-committed nightly rate, see
-GridConfig.fixed_export_kw's own docstring in elements.py) the same way
-build_plan() already does -- both WITH and WITHOUT a P2P plan configured,
-per direct household instruction: "it should be smart to know how to
-balance it with p2p in play as well as without it there at all... there
-will be a variety of users... different plans different suppliers... the
-integration must handle and allow for variables and various scenarios."
-Every function here is a complete no-op whenever the relevant GridConfig
-field is None -- the exact same "off by default, on only when configured"
-convention every other optional mechanism in this codebase already uses.
+## Deployment scope -- LIVE on every real solve (corrected 10 Oct 2026, #1683)
 
-## Deployment scope -- devhub only, fully reversible
+`network.py` builds every plan through these functions, so a change here is a
+change to real dispatch on every install:
 
-This module has zero live callers in production. stochastic.py itself
-(the only thing that imports this module) has zero callers in
-nimbus_solver_forecast_writer.py or any other NUC1/NUC2-deployed script
-(confirmed by grep before this was built). The only way this code can
-ever run against real dispatch decisions is a caller EXPLICITLY choosing
-to import and call build_stochastic_plan() with a real P2P-configured
-GridConfig -- see 116KAT-HA-AI's own scripts/
-nimbus_stochastic_comparison_writer.py for the one real caller that
-exists, deliberately built to run ONLY against devhub's own HA instance
-(hardcoded HA_BASE, never the NUC1/NUC2 VIP), writing a shadow-mode
-comparison sensor only, never touching any real dispatch entity.
-Disabling this feature is a single action: stop or remove that one
-script's own cron entry -- network.py, build_plan(), and every real
-NUC1/NUC2 automation stay completely untouched regardless.
+- `charging_ub_during_fixed_window`, `grid_export_bounds`, `has_export_bonus`,
+  `add_export_bonus_variable`, `add_export_bonus_le_export_constraint`,
+  `set_export_bonus_cost`, `add_export_bonus_cumulative_caps`: called by
+  `network._build_plan_once` since 01e42f53 (4 Sep 2026, "Fix #355:
+  network.py now calls the shared p2p_export helpers");
+- `grid_import_ub`: called there since #1610 (v0.94.442, "a P2P block is
+  net export"), last changed by #1674 (v0.94.445);
+- `realized_export_bonus_credit`: used by `quality_report.py` and
+  `regret.py` to score what was actually earned.
+
+`stochastic.py` (Track A2) uses the same functions; only that two-stage
+planner is a devhub-side experiment.
+
+**This header used to say the opposite** ("zero live callers in production",
+"devhub only", "network.py ... nothing here may touch it"). That was true
+when the module was first extracted from `network.py` for `stochastic.py`,
+and stopped being true when #355 made `network.py` call it. A reviewer who
+trusted the old header could under-scrutinise a change that reaches every
+battery (Mark Purcell, #1683). Review changes here as dispatch changes.
+
+## Origin
+
+Extracted from `network.py`'s own live-tested P2P logic so that
+`solver/stochastic.py` could reason about a P2P export commitment (a fixed,
+pre-committed nightly rate; see `GridConfig.fixed_export_kw` in
+`elements.py`) the same way `build_plan()` does, both with and without a
+P2P plan configured. Every function here is a no-op whenever the relevant
+`GridConfig` field is None, the same "off by default, on only when
+configured" convention as every other optional mechanism.
 
 ## What's replicated here, and why each piece is needed together
 

@@ -404,13 +404,27 @@ def build_oracle_controllable_loads(
     partially-scored day cannot read as a wholly-scored one.
     """
     sw = _solver_writer()
-    from solver.elements import (
-        AdequacyLoadConfig,
-        SheddableLoadConfig,
-    )
-    from solver.quality_report import (
-        OracleControllableLoads,
-    )
+    # nimbus #1681: relative first, bare only as the standalone/cron fallback
+    # -- the same pattern as every sibling here. A bare `from solver...`
+    # resolves under the test suite's sys.path shim and nowhere in a real
+    # HA install, where it raised ModuleNotFoundError on every scored day
+    # and #1357 silently fell back to its pre-#1357 scoring.
+    try:
+        from ..solver.elements import (
+            AdequacyLoadConfig,
+            SheddableLoadConfig,
+        )
+        from ..solver.quality_report import (
+            OracleControllableLoads,
+        )
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from solver.elements import (  # type: ignore[no-redef]
+            AdequacyLoadConfig,
+            SheddableLoadConfig,
+        )
+        from solver.quality_report import (  # type: ignore[no-redef]
+            OracleControllableLoads,
+        )
 
     try:
         from ..const import (
