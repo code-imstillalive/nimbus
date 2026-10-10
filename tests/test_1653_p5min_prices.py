@@ -201,7 +201,7 @@ def test_outside_ha_there_is_no_overlay(monkeypatch):
 def test_no_p5min_entity_is_a_no_op(monkeypatch):
     monkeypatch.setattr(pp, "resolve_entity_id", lambda: None)
     imp, exp = [0.1] * 3, [0.05] * 3
-    out = pp.apply(_cfg(), _grid(3), T0, T0, (imp, [""] * 3), (exp, [""] * 3))
+    out = pp.apply(_cfg(), _grid(3), T0, T0, (imp, [""] * 3), (exp, [""] * 3), None)
     assert out == {"applied": False, "reason": "no_p5min_entity"}
     assert imp == [0.1] * 3 and exp == [0.05] * 3
 
@@ -210,7 +210,7 @@ def test_a_newer_run_withdrawing_the_spike_lowers_the_price(monkeypatch):
     """The household's 'if the spike fizzles, stop': every solve reads the
     latest run, so there is nothing to un-latch."""
     monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
-    monkeypatch.setattr(pp, "_offset", lambda retail, wholesale: {0: 0.0})
+    monkeypatch.setattr(pp, "_offset", lambda retail, wholesale, fn: {0: 0.0})
     grid = _grid(4)
 
     def solve_with(prices, run):
@@ -218,7 +218,9 @@ def test_a_newer_run_withdrawing_the_spike_lowers_the_price(monkeypatch):
             pp.solver_shared, "ha_get", lambda _e: _state(_rows(prices), run)
         )
         exp = [0.05] * 4
-        pp.apply(_cfg(), grid, grid[1], run, ([0.1] * 4, [""] * 4), (exp, [""] * 4))
+        pp.apply(
+            _cfg(), grid, grid[1], run, ([0.1] * 4, [""] * 4), (exp, [""] * 4), None
+        )
         return exp
 
     assert max(solve_with([0.08, 0.08, 0.85, 0.85], T0)) == 0.85
@@ -235,7 +237,7 @@ def test_a_failure_inside_never_reaches_the_solve(monkeypatch):
 
     monkeypatch.setattr(pp, "_offset", boom)
     imp = [0.1]
-    out = pp.apply(_cfg(), _grid(1), T0, T0, (imp, [""]), ([0.0], [""]))
+    out = pp.apply(_cfg(), _grid(1), T0, T0, (imp, [""]), ([0.0], [""]), None)
     assert out["reason"] == "error" and imp == [0.1]
 
 
@@ -298,3 +300,27 @@ def test_a_visible_spike_makes_the_lp_charge_ahead_of_it():
 
 def test_with_the_spike_withdrawn_the_lp_does_not_charge():
     assert _charge_kwh_before_the_spike([0.05] * 12) < 1e-6
+
+
+def test_the_markup_is_learned_against_the_regional_price_else_p5min_itself(
+    monkeypatch,
+):
+    monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
+    monkeypatch.setattr(pp.solver_shared, "ha_get", lambda _e: _state(_rows([0.9])))
+    monkeypatch.setattr(pp, "_offset_cache", {})
+    asked = []
+
+    def offset_for(retail, wholesale):
+        asked.append((retail, wholesale))
+        return {0: 0.0}
+
+    sides = (([0.1], [""]), ([0.0], [""]))
+    pp.apply(_cfg(), _grid(1), T0, T0, *sides, offset_for)
+    regional = {**_cfg(), "solver_regional_spot_current_price_sensor": "sensor.qld1"}
+    pp.apply(regional, _grid(1), T0, T0, *sides, offset_for)
+    assert asked == [
+        ("sensor.import", "sensor.p5"),
+        ("sensor.export", "sensor.p5"),
+        ("sensor.import", "sensor.qld1"),
+        ("sensor.export", "sensor.qld1"),
+    ]

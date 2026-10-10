@@ -9082,6 +9082,13 @@ def main() -> None:
         now,
         (spot_import_raw, import_price_source),
         (spot_export, export_price_source),
+        lambda retail, wholesale: compute_5min_offset(
+            [
+                (t, v * price_unit_scale_of_history(retail))
+                for t, v in fetch_price_history(retail)
+            ],
+            regional_spot_sensor=wholesale,
+        ),
     )
     export_bonus_price = p5min_prices.rebase_export_bonus(
         export_bonus_price, _export_before_p5min, spot_export

@@ -35,6 +35,7 @@ markup yet. Never raises into the solve.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 
 try:
@@ -51,15 +52,6 @@ SOURCE_LABEL = "p5min"
 _OFFSET_TTL_S = 1800.0
 _offset_cache: dict[tuple[str, str], tuple[float, dict[int, float]]] = {}
 _last_logged_run: str | None = None
-
-
-def _solver_writer():
-    """Late, by module -- see solver_inputs/prices.py."""
-    try:
-        from .. import solver_writer
-    except ImportError:  # pragma: no cover - standalone/cron path
-        import solver_writer
-    return solver_writer
 
 
 def resolve_entity_id() -> str | None:
@@ -145,15 +137,14 @@ def overlay(
     return changed
 
 
-def _offset(retail_entity: str, wholesale_entity: str) -> dict[int, float]:
+def _offset(
+    retail_entity: str, wholesale_entity: str, offset_for: Callable
+) -> dict[int, float]:
     key = (retail_entity, wholesale_entity)
     hit = _offset_cache.get(key)
     if hit is not None and time.monotonic() - hit[0] < _OFFSET_TTL_S:
         return hit[1]
-    sw = _solver_writer()
-    scale = sw.price_unit_scale_of_history(retail_entity)
-    history = [(t, v * scale) for t, v in sw.fetch_price_history(retail_entity)]
-    offset = sw.compute_5min_offset(history, regional_spot_sensor=wholesale_entity)
+    offset = offset_for(retail_entity, wholesale_entity)
     _offset_cache[key] = (time.monotonic(), offset)
     return offset
 
@@ -165,9 +156,14 @@ def apply(
     now: datetime,
     import_side: tuple[list[float], list[str]],
     export_side: tuple[list[float], list[str]],
+    offset_for: Callable,
 ) -> dict:
     """Overlay both sides in place. Returns what was done, for the log and
-    the published plan; `{"applied": False, ...}` on every no-op path."""
+    the published plan; `{"applied": False, ...}` on every no-op path.
+
+    `offset_for(retail_entity, wholesale_entity)` returns the learned
+    5-minute-of-day markup. It is passed in by solver_writer rather than
+    imported from it, so this module adds no seam back up the layer map."""
     try:
         entity = resolve_entity_id()
         if entity is None:
@@ -189,7 +185,7 @@ def apply(
             ("export", "solver_export_price_sensor", export_side),
         ):
             retail = cfg.get(key)
-            offset = _offset(retail, wholesale) if retail else {}
+            offset = _offset(retail, wholesale, offset_for) if retail else {}
             done[name] = len(
                 overlay(values, sources, rows, grid_times, not_before, offset)
             )
