@@ -91,6 +91,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     so they cannot be from different solves.
   - **Not replay:** this is live exposure only. Capturing the inputs at
     decision time is #1657's second gate.
+- **What the Solver decided on is kept, so a past decision can be replayed**
+  ([#1657](https://github.com/code-imstillalive/nimbus/issues/1657) gate 2,
+  design approved by Mark Purcell). Recorder keeps the plan's state but not
+  its rows, so "did Nimbus see the 9 Oct spike coming?" could not be answered
+  afterwards (#1652, #1658).
+  - **Every solve:** the plan's first two hours of rows: import/export price
+    with its raw value and source, load, solar, battery, SoC, grid, envelope,
+    shadow price.
+  - **The full horizon** every 30 minutes, and on any solve whose period-0
+    direction (charge / self-consume / discharge, the dispatch automation's
+    ±0.05 kW deadband) changed. So the decisions worth replaying always have
+    their whole plan.
+  - **With each record:** the resolved settings (stored once per change) and
+    each price and forecast source's own value, last update and forecast
+    span at the time.
+  - **Read back** with `nimbus_load.export_decision_inputs` (`start`, `end`,
+    optional `kinds`), at most 24 hours per call. Read-only.
+  - **Bounded:** hourly gzip files under `.storage/`, heads kept 48 hours and
+    full horizons 7 days. Written every 5 minutes, at the hour and on unload,
+    in the executor. A restart can lose up to 5 minutes of records. A write
+    failure never fails a solve.
+  - **Not kept:** provider rows before Nimbus resolves them (LocalVolts keeps
+    its own for about three days, AEMO's are on NEMWEB).
 - **`sensor.nimbus_p5min_forecast`: AEMO's 5-minute pre-dispatch for your NEM
   region** ([#1653](https://github.com/code-imstillalive/nimbus/issues/1653),
   [#1658](https://github.com/code-imstillalive/nimbus/issues/1658)). On 9 Oct

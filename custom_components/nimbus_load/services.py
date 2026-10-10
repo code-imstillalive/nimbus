@@ -105,6 +105,11 @@ SERVICE_COMPUTE_QUALITY_REPORT = "compute_quality_report"
 # than not offering it.
 SERVICE_RESCORE_HISTORY = "rescore_history"
 
+# nimbus issue #1657 gate 2: hands back what the Solver decided on in a past
+# window (see decision_inputs.py), so a replay can rebuild exactly what the LP
+# saw. Read-only; nothing is solved.
+SERVICE_EXPORT_DECISION_INPUTS = "export_decision_inputs"
+
 # nimbus issue #495 (Signals 6/7 of #489): hands a caller the current
 # `nem-flex-telemetry` schema-v2.0 record as a service RESPONSE, so a
 # provider in Mark Purcell's own `nem-flex-telemetry` repo can pull one
@@ -178,6 +183,25 @@ SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
         vol.Required("start"): _coerce_datetime,
         vol.Required("end"): _coerce_datetime,
         vol.Optional("allow_partial", default=True): bool,
+    }
+)
+
+
+def _coerce_kinds(value: object) -> list[str]:
+    """`head`, `horizon`, or both, as a string or a list. A plain function
+    for the same reason as `_coerce_datetime`: the test stubs' `cv` has no
+    `ensure_list`."""
+    items = [value] if isinstance(value, str) else list(value or [])  # type: ignore[call-overload]
+    if not items or any(i not in ("head", "horizon") for i in items):
+        raise vol.Invalid("kinds must be 'head', 'horizon', or both")
+    return list(dict.fromkeys(items))
+
+
+SERVICE_EXPORT_DECISION_INPUTS_SCHEMA = vol.Schema(
+    {
+        vol.Required("start"): _coerce_datetime,
+        vol.Required("end"): _coerce_datetime,
+        vol.Optional("kinds", default=["head", "horizon"]): _coerce_kinds,
     }
 )
 
@@ -623,6 +647,33 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
         ) from e
 
 
+async def _async_handle_export_decision_inputs(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus issue #1657 gate 2: the stored decision inputs in a window.
+
+    `kinds` of just `head` returns every solve trimmed to its first two hours
+    (a full-horizon record included, trimmed); just `horizon` returns only the
+    full-horizon records. A window longer than 24 hours is refused: it would
+    be a very large response, and a caller can page.
+    """
+    from .decision_inputs_store import async_export
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if len(entries) != 1:
+        raise ServiceValidationError(
+            "nimbus_load.export_decision_inputs: needs exactly one Nimbus hub"
+        )
+    start = dt_util.as_utc(call.data["start"])
+    end = dt_util.as_utc(call.data["end"])
+    try:
+        return await async_export(
+            hass, entries[0].entry_id, start, end, list(call.data["kinds"])
+        )
+    except ValueError as e:
+        raise ServiceValidationError(f"nimbus_load.export_decision_inputs: {e}") from e
+
+
 async def _async_handle_set_controllable_load(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -773,6 +824,19 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.OPTIONAL,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_EXPORT_DECISION_INPUTS):
+
+        async def _handle_export_decision_inputs(call: ServiceCall):
+            return await _async_handle_export_decision_inputs(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_EXPORT_DECISION_INPUTS,
+            _handle_export_decision_inputs,
+            schema=SERVICE_EXPORT_DECISION_INPUTS_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_FLEX_TELEMETRY_RECORD):
 
         async def _handle_flex_telemetry_record(call: ServiceCall):
@@ -837,6 +901,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         # so test_services_register_and_unregister_are_symmetric derives both
         # sets from this module's own source instead.
         SERVICE_RESCORE_HISTORY,
+        SERVICE_EXPORT_DECISION_INPUTS,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
