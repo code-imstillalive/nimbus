@@ -964,6 +964,12 @@ class BatteryConfig:
     # the reserve is never forced to refill. 0 / 0 = off, unchanged plans.
     reserve_kwh: float = 0.0
     reserve_release_price: float = 0.0
+    # nimbus #1654: the periods the reserve applies in. None = every period
+    # (the original all-day reserve). Outside these periods there is no
+    # reserve at all, so the energy it held can be sold freely the moment
+    # the window closes -- "hold 15% through the pre-dawn hours, then sell
+    # it before the morning price drop".
+    reserve_period_indices: frozenset[int] | None = None
 
     def __post_init__(self) -> None:
         # nimbus issue #467: accept any iterable of ints (a list
@@ -979,6 +985,14 @@ class BatteryConfig:
                 self,
                 "unavailable_period_indices",
                 frozenset(int(i) for i in self.unavailable_period_indices),
+            )
+        if self.reserve_period_indices is not None and not isinstance(
+            self.reserve_period_indices, frozenset
+        ):
+            object.__setattr__(
+                self,
+                "reserve_period_indices",
+                frozenset(int(i) for i in self.reserve_period_indices),
             )
         if self.stale_history_period_indices is not None and not isinstance(
             self.stale_history_period_indices, frozenset

@@ -203,8 +203,19 @@ AEMO's NEMWEB on a NEM install and does not feed the solve.
     ~9% at 28.6c at 04:25, with no forecast of the $1.04-1.08 spike thirty
     minutes later, and was empty through it.
   - **Two new Solver settings:** **Battery Reserve** (% of capacity) and
-    **Battery Reserve Release Price** ($/kWh). The plan values energy in the
-    reserve at the release price, so it is only sold when the price beats it.
+    **Battery Reserve Release Price** ($/kWh). Drawing energy out of the
+    reserve costs the release price in the plan, **on top of** what that
+    energy would otherwise fetch later. So the reserve is used only when the
+    price now beats the later value plus the release price -- a margin, not a
+    plain "sell above X" threshold. A release price above your import price
+    makes the house import rather than use the reserve.
+  - **A daily window (#1654):** **Battery Reserve From** / **Until** (local
+    hours). Inside the window the reserve applies; outside it there is none,
+    so the energy it held can be sold as the window closes -- e.g. hold 15%
+    from 00:00 to 05:30 against a pre-dawn spike, then sell it before the
+    morning price drop. From = Until (the default) keeps the all-day reserve.
+    The release price for this should cover the drop from the in-window price
+    to the after-window price, and stay below the overnight import price.
   - **No forced refill:** refilling the reserve costs nothing, and a battery
     already below it is never made to charge up to it.
   - **Off by default** (0 / 0), with no change to any plan until both are set.

@@ -4809,13 +4809,27 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
     LP never raises `held` only to pay to lower it again; it lowers `held`
     only when SoC would otherwise go below it, which is exactly selling into
     the reserve. Off (no variables at all) unless both settings are positive.
+
+    With `reserve_period_indices` set, the reserve exists only in those
+    periods: elsewhere held[t] is 0 and no drawn row is written, so leaving
+    the window releases the held energy at no cost (it can then be sold at any
+    price), and entering it refills `held` up to the SoC for free, exactly as
+    period 0 does. None = every period, the original all-day reserve.
     """
     reserve = min(float(b.reserve_kwh), float(b.capacity_kwh))
     price = float(b.reserve_release_price)
     if reserve <= 0.0 or price <= 0.0:
         return
+    window = b.reserve_period_indices
+    active = [window is None or t in window for t in range(n)]
+    if not any(active):
+        return
     held = [
-        p.add_variable(f"battery_reserve_held_{b.name}_{t}", lb=0.0, ub=reserve)
+        p.add_variable(
+            f"battery_reserve_held_{b.name}_{t}",
+            lb=0.0,
+            ub=reserve if active[t] else 0.0,
+        )
         for t in range(n)
     ]
     drawn = [
@@ -4825,6 +4839,8 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
     for t in range(n):
         # held[t] - soc[t] <= 0
         p.add_ub_constraint({held[t]: 1.0, soc_vars[t]: -1.0}, 0.0)
+        if not active[t]:
+            continue  # outside the window: no reserve, nothing to draw
         # held[t-1] - held[t] - drawn[t] <= 0
         if t == 0:
             p.add_ub_constraint({held[0]: -1.0, drawn[0]: -1.0}, -initial)
