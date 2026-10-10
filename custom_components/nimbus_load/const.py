@@ -1476,6 +1476,14 @@ CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
     "solver_battery_reserve_release_price"
 )
 DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
+# nimbus #1654: the hours of day (local time) the reserve applies in. Start ==
+# end (the default 0 / 0) = all day, the original behaviour. Start > end wraps
+# midnight (22 -> 5.5 = 22:00-05:30). Outside the window the reserve is
+# released, so a pre-dawn reserve can be sold before the morning price drop.
+CONF_SOLVER_BATTERY_RESERVE_START_HOUR: Final = "solver_battery_reserve_start_hour"
+DEFAULT_SOLVER_BATTERY_RESERVE_START_HOUR: Final = 0.0
+CONF_SOLVER_BATTERY_RESERVE_END_HOUR: Final = "solver_battery_reserve_end_hour"
+DEFAULT_SOLVER_BATTERY_RESERVE_END_HOUR: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
 DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"

@@ -391,6 +391,7 @@ _ADDED_AFTER_REFERENCE = {
     "period0_pin_net_kw": None,
     "reserve_kwh": 0.0,
     "reserve_release_price": 0.0,
+    "reserve_period_indices": None,
 }
 
 

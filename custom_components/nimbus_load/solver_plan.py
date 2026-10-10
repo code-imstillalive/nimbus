@@ -452,6 +452,28 @@ def period0_crossing_delta(
     return record
 
 
+def reserve_window_indices(
+    grid_times: list[datetime], start_hour: float, end_hour: float
+) -> frozenset[int] | None:
+    """nimbus #1654: the periods whose local start time falls in the daily
+    reserve window [start_hour, end_hour). Equal hours = None (all day, the
+    original reserve); start > end wraps midnight."""
+    if start_hour == end_hour:
+        return None
+    out = set()
+    for i, t in enumerate(grid_times):
+        local = _local(t)
+        h = local.hour + local.minute / 60.0
+        inside = (
+            start_hour <= h < end_hour
+            if start_hour < end_hour
+            else (h >= start_hour or h < end_hour)
+        )
+        if inside:
+            out.add(i)
+    return frozenset(out)
+
+
 @dataclass(frozen=True)
 class PlanAssembly:
     """What `assemble_and_solve_plan()` produces that the rest of `main()` still
@@ -571,6 +593,11 @@ def assemble_and_solve_plan(
         / 100.0,
         reserve_release_price=_cfg_num(
             cfg, "solver_battery_reserve_release_price", 0.0
+        ),
+        reserve_period_indices=reserve_window_indices(
+            grid_times,
+            _cfg_num(cfg, "solver_battery_reserve_start_hour", 0.0),
+            _cfg_num(cfg, "solver_battery_reserve_end_hour", 0.0),
         ),
         spike_override_discharge_kw=spike_override_kw,
     )
