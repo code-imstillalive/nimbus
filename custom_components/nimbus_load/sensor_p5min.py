@@ -4,8 +4,8 @@ install's NEM region, fetched by Nimbus itself every five minutes.
 nimbus #1653 / #1658. Nothing a NEM install normally has carries AEMO's
 5-minute pre-dispatch, and on 9 Oct 2026 it was the only published forecast
 that saw the 05:20 spike coming. This publishes it for every NEM install
-without a separate integration. It does NOT feed the solve: what the solver
-does with it is a separate, reviewed change (#1653).
+without a separate integration. The solve prices the coming hour from it
+(solver_inputs/p5min_prices.py, #1653).
 
 Region: from the AEMO sensors already configured on the Solver
 (`sensor.nem_pd7day_qld1_...`), else the Companion App's geocoded location
@@ -17,7 +17,8 @@ kept so a consumer can ask whether two consecutive runs agree.
 
 `readiness_signal` is #1660's rule (two consecutive runs forecasting
 >= $500/MWh, held at most 60 minutes), in SHADOW: published so it can be
-checked against events and quiet mornings, never read by the solve.
+checked against events and quiet mornings. The solve does not read it; it
+reads the prices themselves.
 """
 
 from __future__ import annotations

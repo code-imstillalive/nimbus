@@ -229,6 +229,10 @@ try:
     from .solver_inputs import prices as price_inputs
 except ImportError:
     from solver_inputs import prices as price_inputs  # type: ignore[no-redef]
+try:
+    from .solver_inputs import p5min_prices
+except ImportError:
+    from solver_inputs import p5min_prices  # type: ignore[no-redef]
 # nimbus issue #1303 (Phase 4 of #1298): the `extra_batteries as
 # extra_batteries_inputs` import that used to sit here is gone. main()'s
 # plan-assembly span was its only reader in this module, and that span now lives
@@ -9067,6 +9071,21 @@ def main() -> None:
         spot_export[_i] = spot_export_source[_i]
         import_price_source[_i] = "primary"
         export_price_source[_i] = "primary"
+    # nimbus #1653: AEMO's 5-minute pre-dispatch for the next hour, after
+    # the blend (a secondary source must not dilute a spike) and before
+    # fees, never inside the settled block. See solver_inputs/p5min_prices.py.
+    _export_before_p5min = list(spot_export)
+    p5min_prices.apply(
+        cfg,
+        grid_times,
+        _block_end,
+        now,
+        (spot_import_raw, import_price_source),
+        (spot_export, export_price_source),
+    )
+    export_bonus_price = p5min_prices.rebase_export_bonus(
+        export_bonus_price, _export_before_p5min, spot_export
+    )
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed

@@ -192,6 +192,17 @@ def _integration_paths() -> list[str]:
 # publish these reports TO outside of a real running HA instance.
 INTENTIONAL_NATIVE_ONLY = frozenset(
     {
+        # nimbus #1653: AEMO's 5-minute pre-dispatch priced into the solve.
+        # It reads sensor.nimbus_p5min_forecast, which only this integration
+        # creates, found by its unique_id in the entity registry. The
+        # standalone/cron copy has neither the sensor nor a registry, so
+        # resolve_entity_id() returns None there by design.
+        "resolve_entity_id",
+        "fresh_rows",
+        "overlay",
+        "_offset",
+        "apply",
+        "rebase_export_bonus",
         # nimbus issue #1357: builds the EPR oracle's re-timeable
         # controllable-load inputs, which it can only do by reading the
         # config entry's own `controllable_load` SUBENTRIES off

@@ -234,6 +234,13 @@ class _EntityRegistry:
                 return entry
         return None
 
+    def async_get_entity_id(
+        self, domain: str, platform: str, unique_id: str
+    ) -> str | None:
+        """No scenario registers an entity by unique_id, so none is found:
+        the same answer real HA gives an install without that entity."""
+        return None
+
 
 # ---------------------------------------------------------------------------
 # The hass object
