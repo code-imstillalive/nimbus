@@ -158,7 +158,6 @@ def _run_grid(flow, user_input):
             "_energy_dashboard_solver_source_suggestions",
             AsyncMock(return_value={}),
         ),
-        patch.object(ho, "with_detected_profile", lambda _h, d: d),
     ):
         return asyncio.run(flow.async_step_solver_grid(user_input))
 

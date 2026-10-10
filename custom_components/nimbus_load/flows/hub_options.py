@@ -56,6 +56,7 @@ every field they used to hold now lives on a dashboard instead.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -135,7 +136,9 @@ from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
 _GRID_VISIBLE_PRICE_FIELDS = frozenset(
     {"solver_import_price_sensor", "solver_export_price_sensor"}
 )
-from ..pricing_autodetect import with_detected_profile
+from ..pricing_autodetect import apply_pricing_suggestions, pricing_suggestions
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _at_least_solver_horizon(value: Any) -> int:
@@ -1394,10 +1397,93 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             if k in _SOLVER_WIZARD_SCHEMA_KEYS
         }
 
+    async def _pricing_suggestions(self) -> list[dict[str, Any]]:
+        """nimbus #1686: what "Review pricing suggestions" would change.
+        Computed fresh each time; never applied without confirmation."""
+        energy_dashboard = await _energy_dashboard_solver_source_suggestions(self.hass)
+        return pricing_suggestions(
+            self.hass,
+            dict(self.config_entry.options),
+            {
+                k: v
+                for k, v in energy_dashboard.items()
+                if k
+                in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR)
+            },
+        )
+
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
+        # nimbus #1686: the review step is offered only when it has something
+        # to show, so the menu never leads to an empty page.
+        if await self._pricing_suggestions():
+            return self.async_show_menu(
+                step_id="init",
+                menu_options=[
+                    "forecaster",
+                    "solver_battery",
+                    "switchboard",
+                    "pricing_suggestions",
+                ],
+            )
         return self.async_show_menu(
             step_id="init",
             menu_options=["forecaster", "solver_battery", "switchboard"],
+        )
+
+    async def async_step_pricing_suggestions(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """nimbus #1686 (Mark Purcell): the only place a detected price source
+        is ever written. Lists each change as field: current -> proposed, with
+        its source; Submit applies exactly those, to fields still empty at
+        that moment; closing the dialog changes nothing. Every applied change
+        is logged and summarised in a notification, so an unintended one can
+        be found and reversed."""
+        suggestions = await self._pricing_suggestions()
+        if not suggestions:
+            return self.async_abort(reason="no_pricing_suggestions")
+        if user_input is not None:
+            merged, applied = apply_pricing_suggestions(
+                dict(self.config_entry.options), suggestions
+            )
+            for item in applied:
+                _LOGGER.warning(
+                    "Nimbus pricing: %s (%s) set to %s from %s, confirmed in "
+                    "Review pricing suggestions (was empty)",
+                    item["label"],
+                    item["field"],
+                    item["proposed"],
+                    item["source"],
+                )
+            if applied:
+                try:
+                    await self.hass.services.async_call(
+                        "persistent_notification",
+                        "create",
+                        {
+                            "notification_id": "nimbus_pricing_suggestions_applied",
+                            "title": "Nimbus pricing updated",
+                            "message": "You confirmed these changes in Review "
+                            "pricing suggestions:\n"
+                            + "\n".join(
+                                f"- {i['label']}: (empty) -> `{i['proposed']}` "
+                                f"(from {i['source']})"
+                                for i in applied
+                            )
+                            + "\n\nTo undo one, clear it in Solver settings.",
+                        },
+                    )
+                except Exception:  # noqa: BLE001, S110 -- a notification must never block the save it describes
+                    pass
+            return self.async_create_entry(title="", data=merged)
+        listed = "\n".join(
+            f"- **{i['label']}**: (empty) -> `{i['proposed']}` (from {i['source']})"
+            for i in suggestions
+        )
+        return self.async_show_form(
+            step_id="pricing_suggestions",
+            data_schema=vol.Schema({}),
+            description_placeholders={"suggestions": listed},
         )
 
     async def async_step_forecaster(
@@ -1631,26 +1717,17 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # optional ones collapse. 9 -> 2 on screen, nothing removed.
             data_schema=_collapse_optionals_into_advanced(
                 _solver_grid_schema(
-                    # nimbus #1067. This step previously had no suggestion
-                    # mechanism at all, and it owns the two fields #1267's helper
-                    # was really built for -- the household's own import and
-                    # export price entities, read from HA's Energy Dashboard.
-                    # Saved values last, so they always win.
-                    # nimbus #1550: a detected LocalVolts v2 profile fills the
-                    # import/export price only where still empty.
-                    with_detected_profile(
-                        self.hass,
-                        {
-                            **(
-                                await _energy_dashboard_solver_source_suggestions(
-                                    self.hass
-                                )
-                            ),
-                            **dict(self.config_entry.options),
-                            # A refused submission keeps what was entered.
-                            **(self._solver_data if errors else {}),
-                        },
-                    )
+                    # nimbus #1686 (Mark Purcell): saved values only. This
+                    # step used to pre-fill empty price fields from the Energy
+                    # Dashboard (#1067) and detected integrations (#1550), so
+                    # submitting the wizard for ANY reason saved them. They are
+                    # now listed under Configure -> Review pricing suggestions
+                    # and applied only when confirmed there.
+                    {
+                        **dict(self.config_entry.options),
+                        # A refused submission keeps what was entered.
+                        **(self._solver_data if errors else {}),
+                    }
                 )
             ),
         )
@@ -1715,10 +1792,11 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # instead of sixteen to get a working Solver. Nothing is removed.
             data_schema=_collapse_optionals_into_advanced(
                 _solver_sources_schema(
-                    # nimbus #1550: the price forecast array, P2P matched rate
-                    # and settlement history from a detected LocalVolts v2,
-                    # only where still empty.
-                    with_detected_profile(self.hass, dict(self.config_entry.options)),
+                    # nimbus #1686: saved values only. Detected pricing
+                    # (#1550's price forecast array, P2P matched rate and
+                    # settlement history; #1578's regional forecast) is
+                    # proposed under Review pricing suggestions instead.
+                    dict(self.config_entry.options),
                     single_candidates,
                     summable_candidates,
                 )

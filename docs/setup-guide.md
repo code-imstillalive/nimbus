@@ -360,10 +360,13 @@ Pick **Solver settings**. It is a three-screen wizard.
 ### If you are on LocalVolts: install LocalVolts v2 first
 
 With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
-integration (2.9.0 or later) installed, the Solver settings screens below come
-pre-filled with its five sensors, and Nimbus says so in a notification at
-startup. Check them and save; nothing is changed until you do. A field you have
-already set to a real sensor is never replaced.
+integration (2.9.0 or later) installed, Nimbus proposes its five sensors for
+any of these fields that are empty, and says so in a notification at startup.
+Open **Nimbus → Configure → Review pricing suggestions**: each proposed change
+is listed there, and Submit applies exactly those. Nothing changes until you
+do, and saving the Solver settings screens never applies a suggestion. A field
+you have already set is never proposed for, even if its sensor is missing for a
+while ([#1686](https://github.com/code-imstillalive/nimbus/issues/1686)).
 
 | Solver setting | screen | LocalVolts v2 sensor |
 |---|---|---|
@@ -374,8 +377,8 @@ already set to a real sensor is never replaced.
 | P2P settlement history | 3 | P2P Settlement History |
 
 **A second P2P matched-rate source (optional, transitional).** Screen 3's
-advanced section also has a second P2P matched-rate field, pre-filled with Sell
-P2P Matched Cost when it is empty. You do not need it to finish setup, and
+advanced section also has a second P2P matched-rate field. Sell P2P Matched Cost
+is proposed for it, under Review pricing suggestions, when it is empty. You do not need it to finish setup, and
 Nimbus never reports it as missing. It is a temporary binding until the
 LocalVolts provider profile reads both of LocalVolts' matched-rate sensors itself
 ([#1537](https://github.com/code-imstillalive/nimbus/issues/1537)).
@@ -390,7 +393,7 @@ How the two are combined, for each 5-minute interval:
 - Your P2P blocks, P2P volume and settlement history are not changed by it.
 
 Sensors are matched by integration, not by name, so renamed entities are still
-found. With more than one LocalVolts v2 account nothing is pre-filled, since
+found. With more than one LocalVolts v2 account nothing is proposed, since
 the site would be a guess. Nimbus also warns if the P2P matched rate is set
 without a price forecast array (without the array the matched rate is not
 read, so the plan shows no P2P), and if a price setting names an entity this

@@ -304,15 +304,13 @@ class TestASavedValueAlwaysWins(unittest.TestCase):
             "saved options must be LAST so they win the merge",
         )
 
+        # nimbus #1686: the grid step no longer pre-fills prices at all; the
+        # Energy Dashboard's price entities are proposed under Review pricing
+        # suggestions, for empty fields only.
         grid = inspect.getsource(
             hub_options.NimbusHubOptionsFlow.async_step_solver_grid
         )
-        i = grid.index("_energy_dashboard_solver_source_suggestions")
-        self.assertIn(
-            "**dict(self.config_entry.options)",
-            grid[i : i + 400],
-            "saved options must be LAST so they win the merge",
-        )
+        self.assertNotIn("_energy_dashboard_solver_source_suggestions", grid)
 
 
 class TestItNeverBreaksTheWizard(unittest.TestCase):

@@ -14,9 +14,14 @@ What this does
   `<config entry id>_<key>` -- never by entity_id, which a household can
   rename (the reference household's own LV v2 sensors came up as
   `sensor.hallway_zone_...` after an area assignment and were renamed back).
-* **Proposes, never overwrites.** The Solver settings steps pre-fill a field
-  from this only when that field is empty. A field the household has set,
-  to anything, is left exactly as it is.
+* **Proposes, and applies only on confirmation** (nimbus #1686, Mark
+  Purcell). Proposals cover EMPTY fields only and are listed under Configure
+  -> Review pricing suggestions, as field: current -> proposed with their
+  source. Nothing is written until the household submits that step. The
+  Solver settings wizard shows saved values only, so saving it for an
+  unrelated reason can never commit a proposal. A field the household has
+  set, to anything, is never proposed for, even while its entity is missing
+  (startup, an integration reload): that is reported, not replaced.
 * **Tells the household** at startup when LocalVolts v2 is installed and a
   profile field is still empty, and when a matched-rate sensor is set without
   a price forecast array (the trap above). It changes no configuration.
@@ -28,7 +33,7 @@ agreed on #1550 (6 Oct 2026): five fields, each a distinct role. That is the
 whole Basic contract.
 
 #1537 adds one TRANSITIONAL binding outside it (`LV_V2_OPTIONAL_PROFILE`): the
-second P2P matched-rate source, pre-filled with LV v2's Sell P2P Matched Cost
+second P2P matched-rate source, proposed from LV v2's Sell P2P Matched Cost
 (`haeo_feed.py` key `sell_matched_cost`). It is a legacy binding for one Grid
 pricing role, kept until the provider profile (#1574, PR #1585) carries both
 projections of the matched rate itself. It is never counted as missing, never
@@ -43,7 +48,7 @@ which extends a retail feed past its own horizon. Whether a household's own
 tariff passes spot through is not something Nimbus can see, so it never
 pre-fills the import or export price with it. Same rules as above: detected by config entry and the entity's
 built-in unique_id (`sensor.aemo_nem_<region>_current_30min_forecast`, set
-once at creation, so a renamed entity is still found), pre-filled only where
+once at creation, so a renamed entity is still found), proposed only where
 the field is empty, never overwritten, and only when a price forecast array
 is set (the one path that reads the field). With several regions configured, the
 one matching the home's NEM region (the Companion App geocode) is proposed;
@@ -360,37 +365,119 @@ def missing_profile_entities(
     }
 
 
+#: Human labels for the pricing fields a suggestion can fill (#1686), as the
+#: Solver settings wizard names them.
+PRICING_FIELD_LABELS: dict[str, str] = {
+    CONF_SOLVER_IMPORT_PRICE_SENSOR: "Import price",
+    CONF_SOLVER_EXPORT_PRICE_SENSOR: "Export price",
+    CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: "Price forecast array",
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "P2P matched rate",
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "P2P matched rate (second source)",
+    CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: "P2P settlement history",
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "Regional spot forecast",
+}
+
+
+def _proposals(
+    hass: HomeAssistant, defaults: dict[str, Any]
+) -> list[tuple[str, str, str]]:
+    """(field, proposed entity_id, source) for each pricing field that is
+    EMPTY in `defaults` and that a detected integration can fill.
+
+    **A field that has a value is never proposed for**, even when its entity
+    has no state right now (nimbus #1686, Mark Purcell). An entity can be
+    absent for a while at startup or during an integration reload, and a
+    saved choice is the household's, so a missing one is reported
+    (`missing_profile_entities`, the startup notification), never replaced.
+
+    Precedence, unchanged from #1550/#1580/#1579/#1578: LocalVolts v2, then
+    Amber Express, then Home Assistant core Amber Electric; the regional spot
+    forecast only where a price forecast array is set (the one path that
+    reads it).
+    """
+    filled = dict(defaults)
+    out: list[tuple[str, str, str]] = []
+    for source, profile in (
+        ("LocalVolts v2", detect_localvolts_v2_profile(hass)),
+        ("Amber Express", detect_amber_express_profile(hass)),
+        ("Amber Electric", detect_amber_core_profile(hass)),
+    ):
+        for field, entity_id in profile.items():
+            if not filled.get(field):
+                filled[field] = entity_id
+                out.append((field, entity_id, source))
+    if filled.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
+        spot, spot_source = detect_regional_spot_forecast(hass)
+        for field, entity_id in spot.items():
+            if not filled.get(field):
+                filled[field] = entity_id
+                out.append((field, entity_id, spot_source or "regional forecast"))
+    return out
+
+
 def with_detected_profile(
     hass: HomeAssistant, defaults: dict[str, Any]
 ) -> dict[str, Any]:
-    """`defaults` with each profile field filled from the detected LocalVolts
-    v2 profile where it is EMPTY, or points at an entity that does not exist
-    on this install. A field set to a real entity, of any integration, is
-    untouched. This only pre-fills the form; nothing is saved until the
-    household submits it."""
+    """`defaults` with every EMPTY pricing field filled from a detected
+    integration. The detector the adapter tests exercise; no form default and
+    no save calls it (nimbus #1686): suggestions are applied only from the
+    "Review pricing suggestions" step, after the household confirms them."""
     out = dict(defaults)
-    missing = missing_profile_entities(hass, out)
-    for field, entity_id in detect_localvolts_v2_profile(hass).items():
-        if not out.get(field) or field in missing:
-            out[field] = entity_id
-    # nimbus #1580: Amber Express's own retail prices, only where still empty
-    # (a detected LocalVolts v2 profile, filled just above, comes first).
-    for field, entity_id in detect_amber_express_profile(hass).items():
-        if not out.get(field):
-            out[field] = entity_id
-    # nimbus #1579: Home Assistant core Amber Electric, last of the retail
-    # sources (Amber Express carries the richer advanced price).
-    for field, entity_id in detect_amber_core_profile(hass).items():
-        if not out.get(field):
-            out[field] = entity_id
-    # nimbus #1578: only where empty, and only with a price forecast array
-    # set -- that is the one path that reads this field. Whatever is already
-    # set there (a PD7DAY forecast, another region, anything) stays.
-    if out.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
-        for field, entity_id in detect_regional_spot_forecast(hass)[0].items():
-            if not out.get(field):
-                out[field] = entity_id
+    for field, entity_id, _source in _proposals(hass, defaults):
+        out[field] = entity_id
     return out
+
+
+def pricing_suggestions(
+    hass: HomeAssistant,
+    options: dict[str, Any],
+    energy_dashboard_prices: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Each change "Review pricing suggestions" would make, for the household
+    to confirm (nimbus #1686): `{"field", "label", "current", "proposed",
+    "source"}`. Empty fields only; a field with a value is never listed.
+
+    `energy_dashboard_prices` are the import/export price entities HA's
+    Energy Dashboard names (#1067). They come first, as they did when they
+    pre-filled the grid step, because they are the household's own choice.
+    """
+    seeded = dict(options)
+    out: list[dict[str, Any]] = []
+
+    def _add(field: str, entity_id: str, source: str) -> None:
+        out.append(
+            {
+                "field": field,
+                "label": PRICING_FIELD_LABELS.get(field, field),
+                "current": options.get(field) or None,
+                "proposed": entity_id,
+                "source": source,
+            }
+        )
+
+    for field in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
+        entity_id = (energy_dashboard_prices or {}).get(field)
+        if entity_id and not seeded.get(field):
+            seeded[field] = entity_id
+            _add(field, entity_id, "Energy Dashboard")
+    for field, entity_id, source in _proposals(hass, seeded):
+        _add(field, entity_id, source)
+    return out
+
+
+def apply_pricing_suggestions(
+    options: dict[str, Any], suggestions: list[dict[str, Any]]
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """`options` with each suggestion applied where its field is STILL empty,
+    and the list actually applied. Re-checked at apply time so a value set
+    since the list was shown is never overwritten."""
+    merged = dict(options)
+    applied = []
+    for item in suggestions:
+        if not merged.get(item["field"]):
+            merged[item["field"]] = item["proposed"]
+            applied.append(item)
+    return merged, applied
 
 
 async def async_notify_pricing_setup(
@@ -417,7 +504,8 @@ async def async_notify_pricing_setup(
             + ("it" if len(missing) == 1 else "them")
             + ". Open Nimbus → Configure → Solver settings"
             + (
-                "; the LocalVolts v2 sensors are pre-filled in their place."
+                " and choose the sensor you mean. Nimbus never replaces a saved "
+                "choice, even when its entity is missing (it may be reloading)."
                 if detected
                 else " and choose your own sensors."
             ),
@@ -435,9 +523,9 @@ async def async_notify_pricing_setup(
             NOTIFY_DETECTED_ID,
             "Nimbus found LocalVolts v2",
             f"{len(empty)} of Nimbus's {len(LV_V2_PROFILE)} LocalVolts price "
-            "fields are empty. Open Nimbus → Configure → Solver settings: the "
-            "LocalVolts v2 sensors are pre-filled there for you to check and "
-            "save. Nothing has been changed.",
+            "fields are empty. Open Nimbus → Configure → Review pricing "
+            "suggestions: each LocalVolts v2 sensor Nimbus proposes is listed "
+            "there, and nothing changes unless you confirm it.",
         )
     amber = {} if detected else detect_amber_express_profile(hass)
     amber_empty = [f for f in amber if not options.get(f)]
@@ -475,10 +563,10 @@ async def async_notify_pricing_setup(
             "Nimbus found Amber Electric",
             f"{len(core_empty)} of Nimbus's import/export price fields "
             + ("is" if len(core_empty) == 1 else "are")
-            + " empty. Open Nimbus → Configure → Solver settings: your Amber "
-            "Electric general and feed-in forecast sensors are pre-filled there "
-            "for you to check and save. Nimbus reads their forecast price "
-            "(per kWh) as Home Assistant publishes it. Nothing has been changed.",
+            + " empty. Open Nimbus → Configure → Review pricing suggestions: "
+            "your Amber Electric general and feed-in forecast sensors are "
+            "listed there, and nothing changes unless you confirm them. Nimbus "
+            "reads their forecast price (per kWh) as Home Assistant publishes it.",
         )
     if amber_empty:
         await _notify(
@@ -487,11 +575,11 @@ async def async_notify_pricing_setup(
             "Nimbus found Amber Express",
             f"{len(amber_empty)} of Nimbus's import/export price fields "
             + ("is" if len(amber_empty) == 1 else "are")
-            + " empty. Open Nimbus → Configure → Solver settings: your Amber "
-            "Express general and feed-in price sensors are pre-filled there "
-            "for you to check and save. Nimbus reads their prices exactly as "
-            "Amber Express publishes them, in the pricing mode you chose "
-            "there. Nothing has been changed.",
+            + " empty. Open Nimbus → Configure → Review pricing suggestions: "
+            "your Amber Express general and feed-in price sensors are listed "
+            "there, and nothing changes unless you confirm them. Nimbus reads "
+            "their prices exactly as Amber Express publishes them, in the "
+            "pricing mode you chose there.",
         )
     spot, spot_source = (
         detect_regional_spot_forecast(hass)
@@ -504,12 +592,12 @@ async def async_notify_pricing_setup(
             NOTIFY_AEMO_DETECTED_ID,
             f"Nimbus found {spot_source}",
             "Nimbus's regional spot forecast is empty, so prices past the end "
-            "of your price forecast array are held at its last value. Open Nimbus → Configure → "
-            "Solver settings: "
-            f"`{spot[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is pre-filled "
-            "there for you to check and save. It is the wholesale price, used "
-            "here to extend your retail prices past their own forecast. Nothing "
-            "has been changed.",
+            "of your price forecast array are held at its last value. Open "
+            "Nimbus → Configure → Review pricing suggestions: "
+            f"`{spot[CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR]}` is proposed "
+            "there, and nothing changes unless you confirm it. It is the "
+            "wholesale price, used only to extend your retail prices past the "
+            "end of their own forecast. A field you leave blank stays blank.",
         )
     if (
         options.get(CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR)

@@ -202,7 +202,13 @@ class TestEverySuggestedKeyReachesItsOwnForm(unittest.TestCase):
         reachable: set[str] = set()
         for step_name, builder in wired:
             reachable |= _schema_keys(builder)
-        for key in _suggestions():
+        # nimbus #1686: the import/export price suggestions no longer reach a
+        # wizard form at all; they are proposed under Review pricing
+        # suggestions (see TestPricingIsReviewedNotPrefilled below).
+        for key in set(_suggestions()) - {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR,
+            CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        }:
             with self.subTest(key=key, wired_to=[n for n, _ in wired]):
                 self.assertIn(
                     key,
@@ -236,11 +242,23 @@ class TestItIsWiredToTheRightSteps(unittest.TestCase):
         src = inspect.getsource(ho.NimbusHubOptionsFlow.async_step_solver_battery)
         self.assertIn("_energy_dashboard_solver_source_suggestions", src)
 
-    def test_the_grid_step_calls_it(self):
+    def test_the_grid_step_does_NOT_prefill_pricing(self):
+        """nimbus #1686 (Mark Purcell): pre-filling the grid step meant
+        submitting the wizard for any reason saved the suggestion."""
         import inspect
 
         src = inspect.getsource(ho.NimbusHubOptionsFlow.async_step_solver_grid)
+        self.assertNotIn("_energy_dashboard_solver_source_suggestions", src)
+        self.assertNotIn("with_detected_profile", src)
+        self.assertNotIn("pricing_suggestions", src)
+
+    def test_the_review_step_is_where_pricing_suggestions_come_from(self):
+        import inspect
+
+        src = inspect.getsource(ho.NimbusHubOptionsFlow._pricing_suggestions)
         self.assertIn("_energy_dashboard_solver_source_suggestions", src)
+        self.assertIn("CONF_SOLVER_IMPORT_PRICE_SENSOR", src)
+        self.assertIn("CONF_SOLVER_EXPORT_PRICE_SENSOR", src)
 
     def test_the_sources_step_does_NOT(self):
         import inspect
@@ -260,12 +278,14 @@ class TestASavedValueStillWins(unittest.TestCase):
         src = inspect.getsource(ho.NimbusHubOptionsFlow.async_step_solver_battery)
         self.assertIn("**energy_dashboard, **existing}", src)
 
-    def test_the_grid_step_puts_saved_options_last(self):
+    def test_the_grid_step_shows_saved_options_only(self):
+        """nimbus #1686: the form's defaults are the saved options (plus a
+        refused submission's own input), nothing proposed."""
         import inspect
 
         src = inspect.getsource(ho.NimbusHubOptionsFlow.async_step_solver_grid)
-        i = src.index("_energy_dashboard_solver_source_suggestions")
-        self.assertIn("**dict(self.config_entry.options)", src[i : i + 400])
+        i = src.index("_solver_grid_schema(", src.index("async_show_form"))
+        self.assertIn("**dict(self.config_entry.options)", src[i : i + 900])
 
 
 if __name__ == "__main__":
