@@ -5106,23 +5106,40 @@ def compute_5min_offset(
     if not real_history or not aemo_history:
         return {}
 
-    def nearest_before(pts: list[tuple[datetime, float]], gt: datetime) -> float | None:
-        val = pts[0][1]
-        for t, v in pts:
-            if t <= gt:
-                val = v
-            else:
-                break
-        return val
+    # nimbus #1694: each interval's SETTLED retail price against the SAME
+    # interval's wholesale (the old "at or before" pairing read the previous
+    # interval, provisional posts included), and each bucket's median over its
+    # last _OFFSET_RECENT_DAYS samples, so a tariff change is followed.
+    retail = _settled_by_interval(real_history)
+    wholesale = _settled_by_interval(aemo_history)
+    by_bucket: dict[int, list[tuple[datetime, float]]] = {}
+    for key in retail.keys() & wholesale.keys():
+        start, real_v = retail[key]
+        bucket = _local(start).hour * 12 + _local(start).minute // 5
+        by_bucket.setdefault(bucket, []).append((start, real_v - wholesale[key][1]))
+    return {
+        b: statistics.median(v for _, v in sorted(rows)[-_OFFSET_RECENT_DAYS:])
+        for b, rows in by_bucket.items()
+    }
 
-    by_bucket: dict[int, list[float]] = {}
-    for t, real_v in real_history:
-        aemo_v = nearest_before(aemo_history, t)
-        if aemo_v is None:
-            continue
-        bucket = _local(t).hour * 12 + _local(t).minute // 5
-        by_bucket.setdefault(bucket, []).append(real_v - aemo_v)
-    return {b: sum(vals) / len(vals) for b, vals in by_bucket.items()}
+
+# nimbus #1694: one sample per 5-minute-of-day bucket per day, so the median of
+# the last three days -- robust to one glitched interval, and a changed tariff
+# takes over after two days.
+_OFFSET_RECENT_DAYS = 3
+
+
+def _settled_by_interval(
+    history: list[tuple[datetime, float]],
+) -> dict[int, tuple[datetime, float]]:
+    """nimbus #1694: the LAST value recorded in each 5-minute interval, keyed
+    by interval, with the interval's start. A retailer's provisional first
+    post (LocalVolts, ~3 s in) gives way to the settled one (~20 s in)."""
+    out: dict[int, tuple[datetime, float]] = {}
+    for t, v in sorted(history, key=lambda p: p[0]):
+        key = int(t.timestamp()) // 300
+        out[key] = (datetime.fromtimestamp(key * 300, t.tzinfo), float(v))
+    return out
 
 
 def check_aemo_p5min_disagreement(
