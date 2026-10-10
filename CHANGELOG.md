@@ -132,6 +132,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     failure never fails a solve.
   - **Not kept:** provider rows before Nimbus resolves them (LocalVolts keeps
     its own for about three days, AEMO's are on NEMWEB).
+- **`sensor.nimbus_p5min_forecast`: AEMO's 5-minute pre-dispatch for your NEM
+  region** ([#1653](https://github.com/code-imstillalive/nimbus/issues/1653),
+  [#1658](https://github.com/code-imstillalive/nimbus/issues/1658)). On 9 Oct
+  2026 it was the only published forecast that saw a 05:20 QLD spike coming:
+  ~$500/MWh, 60 minutes ahead, while the 30-minute pre-dispatch said ~$270.
+  Nimbus now fetches it from AEMO's public NEMWEB site every five minutes.
+  - **State:** the price of the interval in progress, $/kWh. `forecast` holds
+    the next hour in 5-minute rows; `previous_forecast` holds the run before
+    it. Both are excluded from Recorder. `max_price`, `max_price_start` and
+    `previous_max_price` are recorded.
+  - **Region:** read from the AEMO sensors already set on the Solver
+    (`sensor.nem_pd7day_qld1_...`), else the Companion App's geocoded
+    location. Without a NEM region the sensor is not created and nothing is
+    fetched.
+  - **Cost:** about 330 KB per 5-minute run, ~95 MB a day. The directory
+    listing is not read until the next run can have been published.
+  - **`readiness_signal`, shadow only** ([#1660](https://github.com/code-imstillalive/nimbus/issues/1660)):
+    Mark Purcell's locked rule. It turns on when two consecutive runs forecast
+    a future interval at $500/MWh or more, and holds for at most 60 minutes.
+    On 9 Oct's real runs it turns on at 04:25:49 and off at 05:35. It is
+    published so it can be checked against event and quiet mornings.
+  - **The solve does not use the forecast or the signal yet.** Using either is
+    a separate, reviewed change.
 - **A soft battery reserve: the bottom of the battery is only sold above a
   price you set** ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
   from the 9 Oct spike, #1658).

@@ -965,6 +965,12 @@ async def async_setup_entry(
 
     solver_runtime.register_price_latency_sensor(price_latency_sensor)
 
+    # nimbus #1653: AEMO's 5-minute pre-dispatch, NEM installs only.
+    from .sensor_p5min import NimbusP5MinForecastSensor, resolve_region
+
+    if (p5_region := resolve_region(hass, entry)) is not None:
+        async_add_entities([NimbusP5MinForecastSensor(entry, p5_region, sw_version)])
+
     # Hub-level Solver-output entities (2026-08-23, issue #55) --
     # migrated off solver_writer.ha_post_state()'s raw states.async_set()
     # fallback onto real SensorEntity classes. The dispatch table over
