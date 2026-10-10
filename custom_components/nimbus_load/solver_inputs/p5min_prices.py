@@ -38,6 +38,7 @@ paired history to learn from. Never raises into the solve.
 
 from __future__ import annotations
 
+import logging
 import statistics
 import time
 from collections.abc import Callable
@@ -86,6 +87,9 @@ SLOPE_RANGE = (0.5, 2.0)
 RECENT_PER_BUCKET = 6
 _INTERVAL_S = 300
 _last_logged_run: str | None = None
+_last_reason: str | None = None
+# Its own logger, so `logger.set_level` can turn this module up alone.
+_LOGGER = logging.getLogger(__name__)
 
 
 def resolve_entity_id() -> str | None:
@@ -259,10 +263,22 @@ def _markup(
     hit = _markup_cache.get(key)
     if hit is not None and time.monotonic() - hit[0] < _MARKUP_TTL_S:
         return hit[1]
-    markup = fit_markup(history_for(retail_entity), history_for(wholesale_entity))
+    retail = history_for(retail_entity)
+    wholesale = history_for(wholesale_entity)
+    markup = fit_markup(retail, wholesale)
     _markup_cache[key] = (time.monotonic(), markup)
-    if markup is not None:
-        solver_shared._LOGGER.info(
+    if markup is None:
+        _LOGGER.info(
+            "Nimbus #1653: not enough history to learn %s from %s yet "
+            "(%d and %d samples; needs %d paired 5-minute intervals)",
+            retail_entity,
+            wholesale_entity,
+            len(retail),
+            len(wholesale),
+            MIN_PAIRS,
+        )
+    else:
+        _LOGGER.info(
             "Nimbus #1653: %s = %.4f x %s + %.4f..%.4f $/kWh (%d intervals)",
             retail_entity,
             markup.slope,
@@ -292,15 +308,15 @@ def apply(
     try:
         entity = resolve_entity_id()
         if entity is None:
-            return {"applied": False, "reason": "no_p5min_entity"}
+            return _inactive("no_p5min_entity")
         try:
             state = solver_shared.ha_get(entity)
         except Exception as err:  # noqa: BLE001 -- registered but no state yet
-            solver_shared._LOGGER.debug("Nimbus #1653: %s unreadable: %s", entity, err)
-            return {"applied": False, "reason": "no_p5min_state"}
+            _LOGGER.debug("Nimbus #1653: %s unreadable: %s", entity, err)
+            return _inactive("no_p5min_state", entity)
         rows = fresh_rows(state, now)
         if not rows:
-            return {"applied": False, "reason": "no_fresh_run"}
+            return _inactive("no_fresh_run", entity)
         # Learned against the configured regional current price where there
         # is one; otherwise against the P5MIN sensor's own recorded state
         # (the interval in progress, i.e. AEMO's own dispatch price).
@@ -316,10 +332,13 @@ def apply(
                 overlay(values, sources, rows, grid_times, not_before, markup)
             )
         run = (state.get("attributes") or {}).get("run_datetime")
+        if not any(done.values()):
+            return _inactive("no_markup", entity)
+        _report("applied")
         global _last_logged_run
         if any(done.values()) and run != _last_logged_run:
             _last_logged_run = run
-            solver_shared._LOGGER.info(
+            _LOGGER.info(
                 "Nimbus #1653: P5MIN run %s priced %d import / %d export periods",
                 run,
                 done["import"],
@@ -327,10 +346,37 @@ def apply(
             )
         return {"applied": any(done.values()), "periods": done, "run": run}
     except Exception as err:  # noqa: BLE001 -- must never break a real solve
-        solver_shared._LOGGER.warning(
-            "Nimbus #1653: P5MIN price overlay failed: %s", err
-        )
+        _LOGGER.warning("Nimbus #1653: P5MIN price overlay failed: %s", err)
         return {"applied": False, "reason": "error"}
+
+
+_WHY = {
+    "no_p5min_entity": "no P5MIN sensor on this install (non-NEM, or no region found)",
+    "no_p5min_state": "%s has no state yet",
+    "no_fresh_run": "%s has no run from the last 15 minutes; spikes are not visible",
+    "no_markup": "no wholesale-to-retail conversion learned yet for %s",
+}
+
+
+def _report(reason: str, entity: str | None = None) -> None:
+    """Log the overlay's state once each time it CHANGES, so an install can
+    tell from its own log why the next hour is or is not on P5MIN prices.
+    A stale feed on a NEM install is a warning: spikes are invisible then."""
+    global _last_reason
+    if reason == _last_reason:
+        return
+    _last_reason = reason
+    if reason == "applied":
+        _LOGGER.info("Nimbus #1653: pricing the next hour on AEMO P5MIN")
+        return
+    why = _WHY[reason] % entity if "%s" in _WHY[reason] else _WHY[reason]
+    level = logging.WARNING if reason == "no_fresh_run" else logging.INFO
+    _LOGGER.log(level, "Nimbus #1653: P5MIN overlay inactive: %s", why)
+
+
+def _inactive(reason: str, entity: str | None = None) -> dict:
+    _report(reason, entity)
+    return {"applied": False, "reason": reason}
 
 
 def rebase_export_bonus(

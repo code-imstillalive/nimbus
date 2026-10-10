@@ -431,3 +431,35 @@ def test_a_visible_spike_makes_the_lp_charge_ahead_of_it():
 
 def test_with_the_spike_withdrawn_the_lp_does_not_charge():
     assert _charge_kwh_before_the_spike([0.05] * 12) < 1e-6
+
+
+def test_why_it_is_inactive_is_logged_once_per_change(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(pp, "_last_reason", None)
+    monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
+    stale = _state(_rows([0.9]), T0 - timedelta(minutes=30))
+    monkeypatch.setattr(pp.solver_shared, "ha_get", lambda _e: stale)
+    sides = (([0.1], [""]), ([0.0], [""]))
+    with caplog.at_level(logging.INFO, logger=pp.__name__):
+        for _ in range(3):
+            pp.apply(_cfg(), _grid(1), T0, T0, *sides, None)
+        monkeypatch.setattr(pp, "resolve_entity_id", lambda: None)
+        pp.apply(_cfg(), _grid(1), T0, T0, *sides, None)
+    msgs = [(r.levelname, r.getMessage()) for r in caplog.records]
+    assert msgs == [
+        (
+            "WARNING",
+            (
+                "Nimbus #1653: P5MIN overlay inactive: sensor.p5 has no run from "
+                "the last 15 minutes; spikes are not visible"
+            ),
+        ),
+        (
+            "INFO",
+            (
+                "Nimbus #1653: P5MIN overlay inactive: no P5MIN sensor on this "
+                "install (non-NEM, or no region found)"
+            ),
+        ),
+    ]
