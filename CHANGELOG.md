@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **Nimbus now plans the next hour on AEMO's 5-minute forecast**
+  ([#1653](https://github.com/code-imstillalive/nimbus/issues/1653)). On a NEM
+  install, the plan's import and export prices for the coming hour come from
+  `sensor.nimbus_p5min_forecast` (AEMO's 5-minute pre-dispatch), converted to
+  your own retail price, instead of the 30-minute forecast. The conversion is
+  learned from your own recorded prices as retail = slope x wholesale + an
+  amount per half-hour of day, pairing each 5-minute interval's settled retail
+  price with the same interval's wholesale price; on LocalVolts it learns
+  1.06 x wholesale for export and 1.17 x wholesale + network for import, to
+  within 0.05 c/kWh. A tariff change is followed from the most recent day. On 9 Oct 2026 that
+  feed showed a $700-860/MWh spike nearly an hour ahead while the retail
+  forecast did not, so the battery sold early and was empty through it. There
+  is no new setting and no precharge rule: the solver sees the higher price and
+  decides for itself, and when a newer run drops the spike the next solve sees
+  that too. The current 5-minute block keeps its settled price, fees apply as
+  before, a stale feed (older than 15 minutes) is ignored, and non-NEM
+  installs are unchanged. Each period's `import_price_source` /
+  `export_price_source` reads `p5min` where it applied.
+
 ### Fixed
 - **The price tail past your retailer's forecast reads each interval's
   markup correctly** ([#1694](https://github.com/code-imstillalive/nimbus/issues/1694)).
