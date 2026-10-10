@@ -1394,7 +1394,6 @@ def test_solver_battery_step_never_overwrites_an_already_saved_soc_sensor():
 
 def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
     import asyncio
-
     from unittest.mock import AsyncMock, patch
 
     flow = _make_flow(options={})
