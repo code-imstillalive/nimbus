@@ -73,6 +73,18 @@ class TestAcknowledgement(unittest.TestCase):
             check.acknowledged_patterns("We no longer need docs/old.md."), []
         )
 
+    def test_a_dot_directory_path_keeps_its_leading_dot(self):
+        """#1691: deleting .github/workflows/x.yml could not be acknowledged,
+        because the leading "." was stripped as if it were punctuation."""
+        patterns = check.acknowledged_patterns(
+            "Deletes: `.github/workflows/nimbus-ivv-daily.yml`."
+        )
+        self.assertEqual(patterns, [".github/workflows/nimbus-ivv-daily.yml"])
+        self.assertEqual(
+            check.unacknowledged([".github/workflows/nimbus-ivv-daily.yml"], patterns),
+            [],
+        )
+
     def test_empty_body_acknowledges_nothing(self):
         self.assertEqual(check.acknowledged_patterns(""), [])
         self.assertEqual(check.acknowledged_patterns(None), [])
