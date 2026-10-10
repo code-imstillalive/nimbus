@@ -7,13 +7,22 @@ ahead; the retail forecast the solve reads did not. So the battery sold at
 04:30, ran empty and imported through the spike.
 
 Nothing here decides to charge. For each future period inside the P5MIN
-horizon (about an hour), the plan's import and export prices become
-P5MIN's wholesale price for that interval plus this install's own learned
-retail markup for that 5-minute-of-day -- the same conversion the price
-tail past the retail forecast has used since 2026-08-16
-(`compute_5min_offset()`). The LP sees the higher price and does whatever
-the arithmetic says. When a later run drops the spike, the next solve sees
-the lower price and stops.
+horizon (about an hour), the plan's import and export prices become this
+install's retail price for P5MIN's wholesale price in that interval. The LP
+sees the higher price and does whatever the arithmetic says. When a later
+run drops the spike, the next solve sees the lower price and stops.
+
+**Wholesale to retail** is learned per install, per side, from its own
+recorded history (`fit_markup()`): retail = slope x wholesale + an amount
+per half-hour of day. Measured on the reference install, 10 Oct 2026, paired
+by interval: export is 1.0605 x RRP to within 0.05 c/kWh, import 1.1666 x
+RRP + network. A flat markup (slope 1) understated the 9 Oct import price by
+about 14 c/kWh at the spike. And pairing each retail sample with the
+wholesale sample "at or before" it matched LocalVolts' price (posted ~15 s
+into an interval) with the PREVIOUS interval's AEMO price (posted ~78 s in),
+and kept LocalVolts' provisional first post. So both feeds are reduced to
+the LAST value recorded in each 5-minute interval and paired on the
+interval. A retailer with a pure margin fits slope ~1 and loses nothing.
 
 What is deliberately left alone:
 
@@ -22,20 +31,17 @@ What is deliberately left alone:
 - network and flat fees, which are added afterwards as for every source;
 - every period outside the P5MIN horizon.
 
-The markup is additive, learned at ordinary prices, so a retailer whose
-price scales with wholesale (e.g. LocalVolts sells at ~1.06 x RRP) is
-understated during a spike by that percentage. It errs toward doing less,
-not more, and is the same convention as the existing tail.
-
 No-op -- the plan's prices exactly as before -- when: there is no P5MIN
-entity (any non-NEM install), its run is stale, or a side has no learned
-markup yet. Never raises into the solve.
+entity (any non-NEM install), its run is stale, or a side has under a day of
+paired history to learn from. Never raises into the solve.
 """
 
 from __future__ import annotations
 
+import statistics
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 try:
@@ -44,13 +50,41 @@ except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
 
 _UNIQUE_ID_SUFFIX = "_p5min_forecast"
+
+
+def _half_hour(local: datetime) -> int:
+    return local.hour * 2 + local.minute // 30
+
+
+@dataclass(frozen=True)
+class Markup:
+    """retail = slope x wholesale + intercept[half-hour of day]."""
+
+    slope: float
+    intercept: dict[int, float]
+    n_pairs: int
+
+    def retail(self, wholesale: float, when: datetime) -> float:
+        default = statistics.fmean(self.intercept.values())
+        bucket = _half_hour(solver_shared._local(when))
+        return self.slope * wholesale + self.intercept.get(bucket, default)
+
+
+_markup_cache: dict[tuple[str, str], tuple[float, Markup | None]] = {}
 # AEMO publishes a run every 5 minutes. Three missed runs means the feed is
 # not current, and a stale spike must not move the battery.
 MAX_RUN_AGE = timedelta(minutes=15)
 SOURCE_LABEL = "p5min"
 # The markup moves over days, not seconds; the solve can run every 15 s.
-_OFFSET_TTL_S = 1800.0
-_offset_cache: dict[tuple[str, str], tuple[float, dict[int, float]]] = {}
+_MARKUP_TTL_S = 1800.0
+# Fit needs at least a day of paired 5-minute intervals.
+MIN_PAIRS = 288
+# Outside this the data is not telling us a slope, and slope 1 (a pure
+# margin) is the honest fallback.
+SLOPE_RANGE = (0.5, 2.0)
+# Six 5-minute intervals: the last half-hour of that time of day recorded.
+RECENT_PER_BUCKET = 6
+_INTERVAL_S = 300
 _last_logged_run: str | None = None
 
 
@@ -95,21 +129,104 @@ def fresh_rows(state: dict | None, now: datetime) -> list[dict]:
     return rows if age <= MAX_RUN_AGE else []
 
 
+def settled_by_interval(
+    history: list[tuple[datetime, float]],
+) -> dict[int, tuple[datetime, float]]:
+    """The LAST value recorded in each 5-minute interval, keyed by interval.
+
+    LocalVolts posts a provisional price at the start of an interval and the
+    real one seconds later (9 Oct 05:05: 0.182 at :03, then 0.912 at :50);
+    AEMO's own current-price sensor updates about 78 s in. The last value is
+    the one each feed settled on."""
+    out: dict[int, tuple[datetime, float]] = {}
+    for t, v in sorted(history, key=lambda p: p[0]):
+        key = int(t.timestamp()) // _INTERVAL_S
+        out[key] = (datetime.fromtimestamp(key * _INTERVAL_S, t.tzinfo), float(v))
+    return out
+
+
+def _slope(pairs: list[tuple[datetime, float, float]]) -> float:
+    """Least squares with a separate intercept per half-hour OF EACH DAY, so
+    the slope comes only from retail moving WITH wholesale inside the same
+    half-hour on the same day. Never from a time-of-day network step, and
+    never from a tariff that changed between days -- LocalVolts moved the
+    reference install from TOU network (22.3 c/kWh 16:00-21:00) to a flat
+    7.5 c/kWh on 9 Oct 2026, inside the learning window."""
+    groups: dict[tuple[object, int], list[tuple[float, float]]] = {}
+    for when, x, y in pairs:
+        local = solver_shared._local(when)
+        groups.setdefault((local.date(), _half_hour(local)), []).append((x, y))
+    sxx = sxy = 0.0
+    for rows in groups.values():
+        mx = statistics.fmean(x for x, _ in rows)
+        my = statistics.fmean(y for _, y in rows)
+        for x, y in rows:
+            sxx += (x - mx) ** 2
+            sxy += (x - mx) * (y - my)
+    slope = sxy / sxx if sxx > 1e-6 else 1.0
+    return slope if SLOPE_RANGE[0] <= slope <= SLOPE_RANGE[1] else 1.0
+
+
+def _intercepts(
+    pairs: list[tuple[datetime, float, float]], slope: float
+) -> dict[int, float]:
+    """Per half-hour of day, the median of (retail - slope x wholesale) over
+    that half-hour's most recent RECENT_PER_BUCKET intervals: the CURRENT
+    tariff, not a week's average of an old and a new one. Median, so one
+    glitched interval does not move it."""
+    by: dict[int, list[tuple[datetime, float]]] = {}
+    for when, x, y in pairs:
+        bucket = _half_hour(solver_shared._local(when))
+        by.setdefault(bucket, []).append((when, y - slope * x))
+    return {
+        b: statistics.median(v for _, v in sorted(rows)[-RECENT_PER_BUCKET:])
+        for b, rows in by.items()
+    }
+
+
+def fit_markup(
+    retail: list[tuple[datetime, float]], wholesale: list[tuple[datetime, float]]
+) -> Markup | None:
+    """retail = slope x wholesale + intercept[half-hour], from settled values
+    paired on the same 5-minute interval, or None under a day of pairs.
+
+    One refit of the slope after dropping pairs whose residual exceeds six
+    median absolute deviations (floor 2 c/kWh), so a feed glitch cannot tilt
+    it; on clean data it changes nothing."""
+    r, w = settled_by_interval(retail), settled_by_interval(wholesale)
+    pairs = [(r[k][0], w[k][1], r[k][1]) for k in sorted(r.keys() & w.keys())]
+    if len(pairs) < MIN_PAIRS:
+        return None
+    slope = _slope(pairs)
+    intercept = _intercepts(pairs, slope)
+    res = [
+        y - slope * x - intercept[_half_hour(solver_shared._local(t))]
+        for t, x, y in pairs
+    ]
+    med = statistics.median(res)
+    mad = statistics.median(abs(e - med) for e in res)
+    limit = max(0.02, 6 * mad)
+    keep = [p for p, e in zip(pairs, res, strict=True) if abs(e - med) <= limit]
+    if len(keep) >= MIN_PAIRS:
+        slope = _slope(keep)
+        intercept = _intercepts(pairs, slope)
+    return Markup(slope=slope, intercept=intercept, n_pairs=len(pairs))
+
+
 def overlay(
     values: list[float],
     sources: list[str],
     rows: list[dict],
     grid_times: list[datetime],
     not_before: datetime,
-    offset_by_5min: dict[int, float],
+    markup: Markup | None,
 ) -> list[int]:
     """Replace `values[i]` in place for every period starting at or after
-    `not_before` inside a P5MIN interval with that interval's wholesale
-    price plus the markup for the period's 5-minute-of-day. Returns the
-    indices changed. Pure apart from the two lists it is given."""
-    if not offset_by_5min:
+    `not_before` inside a P5MIN interval with this install's retail price
+    for that interval's wholesale price. Returns the indices changed. Pure
+    apart from the two lists it is given."""
+    if markup is None:
         return []
-    mean = sum(offset_by_5min.values()) / len(offset_by_5min)
     spans = []
     for row in rows:
         try:
@@ -128,25 +245,33 @@ def overlay(
             continue
         for start, end, wholesale in spans:
             if start <= t < end:
-                local = solver_shared._local(t)
-                bucket = local.hour * 12 + local.minute // 5
-                values[i] = float(wholesale + offset_by_5min.get(bucket, mean))
+                values[i] = float(markup.retail(wholesale, t))
                 sources[i] = SOURCE_LABEL
                 changed.append(i)
                 break
     return changed
 
 
-def _offset(
-    retail_entity: str, wholesale_entity: str, offset_for: Callable
-) -> dict[int, float]:
+def _markup(
+    retail_entity: str, wholesale_entity: str, history_for: Callable
+) -> Markup | None:
     key = (retail_entity, wholesale_entity)
-    hit = _offset_cache.get(key)
-    if hit is not None and time.monotonic() - hit[0] < _OFFSET_TTL_S:
+    hit = _markup_cache.get(key)
+    if hit is not None and time.monotonic() - hit[0] < _MARKUP_TTL_S:
         return hit[1]
-    offset = offset_for(retail_entity, wholesale_entity)
-    _offset_cache[key] = (time.monotonic(), offset)
-    return offset
+    markup = fit_markup(history_for(retail_entity), history_for(wholesale_entity))
+    _markup_cache[key] = (time.monotonic(), markup)
+    if markup is not None:
+        solver_shared._LOGGER.info(
+            "Nimbus #1653: %s = %.4f x %s + %.4f..%.4f $/kWh (%d intervals)",
+            retail_entity,
+            markup.slope,
+            wholesale_entity,
+            min(markup.intercept.values()),
+            max(markup.intercept.values()),
+            markup.n_pairs,
+        )
+    return markup
 
 
 def apply(
@@ -156,13 +281,13 @@ def apply(
     now: datetime,
     import_side: tuple[list[float], list[str]],
     export_side: tuple[list[float], list[str]],
-    offset_for: Callable,
+    history_for: Callable,
 ) -> dict:
     """Overlay both sides in place. Returns what was done, for the log and
     the published plan; `{"applied": False, ...}` on every no-op path.
 
-    `offset_for(retail_entity, wholesale_entity)` returns the learned
-    5-minute-of-day markup. It is passed in by solver_writer rather than
+    `history_for(entity_id)` returns that entity's recorded numeric history
+    as [(datetime, $/kWh)]. It is passed in by solver_writer rather than
     imported from it, so this module adds no seam back up the layer map."""
     try:
         entity = resolve_entity_id()
@@ -176,8 +301,9 @@ def apply(
         rows = fresh_rows(state, now)
         if not rows:
             return {"applied": False, "reason": "no_fresh_run"}
-        # The markup against the configured regional price where there is
-        # one; otherwise against the P5MIN sensor's own recorded state.
+        # Learned against the configured regional current price where there
+        # is one; otherwise against the P5MIN sensor's own recorded state
+        # (the interval in progress, i.e. AEMO's own dispatch price).
         wholesale = cfg.get("solver_regional_spot_current_price_sensor") or entity
         done = {}
         for name, key, (values, sources) in (
@@ -185,9 +311,9 @@ def apply(
             ("export", "solver_export_price_sensor", export_side),
         ):
             retail = cfg.get(key)
-            offset = _offset(retail, wholesale, offset_for) if retail else {}
+            markup = _markup(retail, wholesale, history_for) if retail else None
             done[name] = len(
-                overlay(values, sources, rows, grid_times, not_before, offset)
+                overlay(values, sources, rows, grid_times, not_before, markup)
             )
         run = (state.get("attributes") or {}).get("run_datetime")
         global _last_logged_run

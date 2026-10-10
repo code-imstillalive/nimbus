@@ -1,8 +1,8 @@
 """nimbus #1653: AEMO's 5-minute pre-dispatch priced into the solve.
 
 No precharge rule exists to test: the overlay changes prices and nothing
-else, and the last two tests show the LP itself charging ahead of a spike
-it can see and not charging once the spike is withdrawn.
+else, and two tests show the LP itself charging ahead of a spike it can see
+and not charging once the spike is withdrawn.
 """
 
 from __future__ import annotations
@@ -39,6 +39,8 @@ FIXTURE = (
     / "p5min"
     / "PUBLIC_P5MIN_202610091150_20261009114620.CSV"
 )
+# Wholesale passed straight through: slope 1, no margin.
+PASS = pp.Markup(slope=1.0, intercept={0: 0.0}, n_pairs=0)
 
 
 def _rows(prices, start=T0):
@@ -63,45 +65,45 @@ def _state(rows, run=T0):
 # ---- the overlay ------------------------------------------------------------
 
 
-def test_future_periods_take_wholesale_plus_their_own_bucket_markup():
+def test_future_periods_take_this_installs_retail_price_for_the_wholesale():
     grid = _grid(4)
     values, sources = [0.10] * 4, ["primary"] * 4
-    bucket = lambda t: t.hour * 12 + t.minute // 5
-    offset = {bucket(t): 0.01 * (k + 1) for k, t in enumerate(grid)}
+    # 04:30-04:59 is half-hour 9; LocalVolts' buy side, as measured.
+    markup = pp.Markup(slope=1.1666, intercept={9: 0.075}, n_pairs=288)
     changed = pp.overlay(
-        values, sources, _rows([0.08, 0.70, 0.86, 0.09]), grid, grid[1], offset
+        values, sources, _rows([0.08, 0.70, 0.86, 0.09]), grid, grid[1], markup
     )
     assert changed == [1, 2, 3]
-    assert values == [0.10, 0.72, 0.89, 0.13]
+    assert values[0] == 0.10
+    assert [round(v, 4) for v in values[1:]] == [0.8916, 1.0783, 0.18]
     assert sources == ["primary", "p5min", "p5min", "p5min"]
 
 
 def test_the_settled_block_is_never_touched():
     grid = _grid(3)
     values, sources = [0.10] * 3, ["primary"] * 3
-    pp.overlay(values, sources, _rows([0.9, 0.9, 0.9]), grid, grid[1], {0: 0.0})
+    pp.overlay(values, sources, _rows([0.9, 0.9, 0.9]), grid, grid[1], PASS)
     assert values[0] == 0.10 and sources[0] == "primary"
 
 
 def test_periods_beyond_the_p5min_horizon_keep_their_price():
     grid = _grid(6)
     values, sources = [0.10] * 6, ["primary"] * 6
-    pp.overlay(values, sources, _rows([0.5, 0.5]), grid, grid[0], {0: 0.0})
+    pp.overlay(values, sources, _rows([0.5, 0.5]), grid, grid[0], PASS)
     assert values[2:] == [0.10] * 4
 
 
 def test_a_one_minute_period_takes_the_interval_it_starts_in():
     grid = [T0 + timedelta(minutes=m) for m in (6, 7, 11)]
     values, sources = [0.0] * 3, [""] * 3
-    pp.overlay(values, sources, _rows([0.1, 0.6, 0.7]), grid, T0, {0: 0.0})
-    # every bucket missing -> the mean markup, 0.0
+    pp.overlay(values, sources, _rows([0.1, 0.6, 0.7]), grid, T0, PASS)
     assert values == [0.6, 0.6, 0.7]
 
 
 def test_no_learned_markup_means_no_change():
     grid = _grid(2)
     values, sources = [0.10, 0.10], ["primary"] * 2
-    assert pp.overlay(values, sources, _rows([0.9, 0.9]), grid, T0, {}) == []
+    assert pp.overlay(values, sources, _rows([0.9, 0.9]), grid, T0, None) == []
     assert values == [0.10, 0.10]
 
 
@@ -110,7 +112,7 @@ def test_the_real_aemo_file_overlays_cleanly():
     start = datetime.fromisoformat(run["forecast"][1]["start"])
     grid = _grid(11, start)
     values, sources = [0.0] * 11, [""] * 11
-    changed = pp.overlay(values, sources, run["forecast"], grid, start, {0: 0.0})
+    changed = pp.overlay(values, sources, run["forecast"], grid, start, PASS)
     assert changed == list(range(11))
     assert values == [r["value"] for r in run["forecast"][1:]]
 
@@ -128,7 +130,7 @@ def test_9_oct_the_0430_run_puts_the_spike_in_front_of_the_solve():
     rows = pp.fresh_rows(state, datetime(2026, 10, 9, 4, 31, tzinfo=AEST))
     grid = _grid(12, datetime(2026, 10, 9, 4, 30, tzinfo=AEST))
     values, sources = [0.25] * 12, ["primary"] * 12
-    pp.overlay(values, sources, rows, grid, grid[1], {0: 0.0})
+    pp.overlay(values, sources, rows, grid, grid[1], PASS)
     by_time = {t.strftime("%H:%M"): v for t, v in zip(grid, values, strict=True)}
     assert by_time["04:55"] > 0.39
     assert by_time["05:20"] > 0.50
@@ -210,7 +212,7 @@ def test_a_newer_run_withdrawing_the_spike_lowers_the_price(monkeypatch):
     """The household's 'if the spike fizzles, stop': every solve reads the
     latest run, so there is nothing to un-latch."""
     monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
-    monkeypatch.setattr(pp, "_offset", lambda retail, wholesale, fn: {0: 0.0})
+    monkeypatch.setattr(pp, "_markup", lambda retail, wholesale, fn: PASS)
     grid = _grid(4)
 
     def solve_with(prices, run):
@@ -235,10 +237,139 @@ def test_a_failure_inside_never_reaches_the_solve(monkeypatch):
     def boom(*_a):
         raise RuntimeError("recorder down")
 
-    monkeypatch.setattr(pp, "_offset", boom)
+    monkeypatch.setattr(pp, "_markup", boom)
     imp = [0.1]
     out = pp.apply(_cfg(), _grid(1), T0, T0, (imp, [""]), ([0.0], [""]), None)
     assert out["reason"] == "error" and imp == [0.1]
+
+
+def test_the_markup_is_learned_against_the_regional_price_else_p5min_itself(
+    monkeypatch,
+):
+    monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
+    monkeypatch.setattr(pp.solver_shared, "ha_get", lambda _e: _state(_rows([0.9])))
+    monkeypatch.setattr(pp, "_markup_cache", {})
+    asked = []
+
+    def history_for(entity):
+        asked.append(entity)
+        return []
+
+    sides = (([0.1], [""]), ([0.0], [""]))
+    pp.apply(_cfg(), _grid(1), T0, T0, *sides, history_for)
+    regional = {**_cfg(), "solver_regional_spot_current_price_sensor": "sensor.qld1"}
+    pp.apply(regional, _grid(1), T0, T0, *sides, history_for)
+    assert asked == [
+        "sensor.import",
+        "sensor.p5",
+        "sensor.export",
+        "sensor.p5",
+        "sensor.import",
+        "sensor.qld1",
+        "sensor.export",
+        "sensor.qld1",
+    ]
+
+
+# ---- learning wholesale -> retail -------------------------------------------
+#
+# Synthetic histories shaped like the reference install's real feeds,
+# measured 10 Oct 2026: LocalVolts posts a provisional price ~3 s into an
+# interval and the real one ~15-50 s in; AEMO's current-price sensor ~78 s in.
+
+DAY0 = datetime(2026, 10, 5, tzinfo=AEST)
+
+
+def _wholesale(days):
+    """Wholesale with real movement inside every half-hour, and a spike."""
+    out = []
+    for k in range(days * 288):
+        t = DAY0 + timedelta(minutes=5 * k)
+        spike = 0.6 if k % 97 == 0 else 0.0
+        out.append((t, 0.05 + 0.03 * ((k * 7) % 11) / 10 + spike))
+    return out
+
+
+def _network(t, evening_peak=True):
+    if evening_peak and 16 <= t.hour < 21:
+        return 0.2231
+    return 0.013 if 11 <= t.hour < 16 else 0.075
+
+
+def _feeds(days, slope, network=_network, provisional=0.182):
+    retail, wholesale = [], []
+    for t, x in _wholesale(days):
+        retail.append((t + timedelta(seconds=3), provisional))
+        retail.append((t + timedelta(seconds=20), slope * x + network(t)))
+        wholesale.append((t + timedelta(seconds=78), x))
+    return retail, wholesale
+
+
+def test_settled_takes_the_last_post_of_each_interval():
+    t = DAY0 + timedelta(hours=5, minutes=5)
+    got = pp.settled_by_interval(
+        [(t + timedelta(seconds=3), 0.182), (t + timedelta(seconds=50), 0.912)]
+    )
+    assert list(got.values()) == [(t, 0.912)]
+
+
+def test_a_retailer_that_scales_with_wholesale_is_learned_exactly():
+    m = pp.fit_markup(*_feeds(5, 1.1666))
+    assert abs(m.slope - 1.1666) < 1e-6
+    spike = DAY0 + timedelta(days=4, hours=5, minutes=5)
+    assert abs(m.retail(0.8601, spike) - 1.0783) < 1e-4
+    evening = DAY0 + timedelta(days=4, hours=18)
+    assert abs(m.retail(0.10, evening) - (0.11666 + 0.2231)) < 1e-6
+
+
+def test_a_pure_margin_retailer_fits_slope_one():
+    m = pp.fit_markup(*_feeds(3, 1.0, network=lambda t: 0.12))
+    assert abs(m.slope - 1.0) < 1e-6
+    assert abs(m.retail(0.9, DAY0 + timedelta(days=2, hours=3)) - 1.02) < 1e-6
+
+
+def test_pairing_on_the_interval_is_exact():
+    """The bug this replaces: retail posted at :20 paired with the wholesale
+    posted at :78 of the PREVIOUS interval, plus the provisional post.
+    Pairing settled values on the interval recovers the relation exactly."""
+    m = pp.fit_markup(*_feeds(2, 1.0605, network=lambda t: 0.0))
+    assert abs(m.slope - 1.0605) < 1e-6
+    assert max(abs(v) for v in m.intercept.values()) < 1e-9
+
+
+def test_a_tariff_change_between_days_moves_the_margin_not_the_slope():
+    """LocalVolts moved this install from TOU to flat 7.5 c network on 9 Oct
+    2026. A week's average would blend both; the fit follows the new one."""
+    cut = DAY0 + timedelta(days=4)
+
+    def network(t):
+        return _network(t, evening_peak=t < cut)
+
+    m = pp.fit_markup(*_feeds(5, 1.1666, network=network))
+    assert abs(m.slope - 1.1666) < 1e-6
+    assert abs(m.intercept[36] - 0.075) < 1e-9  # 18:00, now flat
+    assert abs(m.intercept[24] - 0.013) < 1e-9  # 12:00, unchanged
+
+
+def test_one_glitched_interval_does_not_tilt_the_slope():
+    retail, wholesale = _feeds(3, 1.0605, network=lambda t: 0.0)
+    t = DAY0 + timedelta(days=1, hours=10, minutes=5)
+    retail.append((t + timedelta(seconds=40), 5.0))
+    m = pp.fit_markup(retail, wholesale)
+    assert abs(m.slope - 1.0605) < 1e-4
+
+
+def test_under_a_day_of_pairs_learns_nothing():
+    retail, wholesale = _feeds(1, 1.0605)
+    assert pp.fit_markup(retail[:-4], wholesale[:-2]) is None
+
+
+def test_no_wholesale_movement_falls_back_to_a_pure_margin():
+    flat = [(DAY0 + timedelta(minutes=5 * k, seconds=78), 0.1) for k in range(400)]
+    retail = [(DAY0 + timedelta(minutes=5 * k, seconds=20), 0.2) for k in range(400)]
+    m = pp.fit_markup(retail, flat)
+    assert m.slope == 1.0
+    assert abs(m.retail(0.5, DAY0 + timedelta(hours=1)) - 0.6) < 1e-9
 
 
 # ---- the P2P premium --------------------------------------------------------
@@ -300,27 +431,3 @@ def test_a_visible_spike_makes_the_lp_charge_ahead_of_it():
 
 def test_with_the_spike_withdrawn_the_lp_does_not_charge():
     assert _charge_kwh_before_the_spike([0.05] * 12) < 1e-6
-
-
-def test_the_markup_is_learned_against_the_regional_price_else_p5min_itself(
-    monkeypatch,
-):
-    monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
-    monkeypatch.setattr(pp.solver_shared, "ha_get", lambda _e: _state(_rows([0.9])))
-    monkeypatch.setattr(pp, "_offset_cache", {})
-    asked = []
-
-    def offset_for(retail, wholesale):
-        asked.append((retail, wholesale))
-        return {0: 0.0}
-
-    sides = (([0.1], [""]), ([0.0], [""]))
-    pp.apply(_cfg(), _grid(1), T0, T0, *sides, offset_for)
-    regional = {**_cfg(), "solver_regional_spot_current_price_sensor": "sensor.qld1"}
-    pp.apply(regional, _grid(1), T0, T0, *sides, offset_for)
-    assert asked == [
-        ("sensor.import", "sensor.p5"),
-        ("sensor.export", "sensor.p5"),
-        ("sensor.import", "sensor.qld1"),
-        ("sensor.export", "sensor.qld1"),
-    ]
