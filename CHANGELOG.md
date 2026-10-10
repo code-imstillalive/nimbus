@@ -18,6 +18,30 @@ soft battery reserve (#1667) is **off** until both of its settings are set.
 The AEMO 5-minute sensor (#1668) adds about 95 MB a day of downloads from
 AEMO's NEMWEB on a NEM install and does not feed the solve.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 9179f38d**,
+  installed untagged via HACS from the `release/0.94.446` branch
+  (`installed_version` release/0.94.446) and restarted 15:44 AEST 10 Oct. The
+  `nimbus_load` config entry is `loaded`. Devhub's own entities stamp
+  `0.94.446` (2; the 118 at 0.94.445 are production's mirrored rows). Its own
+  `sensor.nimbus_p5min_forecast` was live with a fresh 15:50 run (12 rows).
+  `nimbus_load.solve_now` returned success; since the restart the log holds no
+  Nimbus solver error or traceback, only devhub's usual "previous cycle still
+  in progress" tick skips and the two pre-existing mirror classes (duplicate
+  unique_id 207, recorder 16 KB attributes 332). **Not observable on devhub:**
+  its own published plan status, because production's `remote_homeassistant`
+  mirror occupies the un-suffixed solver entity_ids and devhub's `_2` copies
+  have read `unavailable` all day, before this install; and the Forecaster
+  card's rendering, because devhub's web port does not answer from the
+  validating machine. The installed branch's `nimbus-forecast-card.js` sets
+  `curve: "stepline"` on every measured-history series (#1672).
+- Consumer check: on the Forecaster tab, measured history (hot water, pool,
+  battery, grid) draws as steps that hold until the next reading instead of
+  curves ramping between readings, the household's 9-10 Oct report. Devhub's
+  Nimbus dashboard gained the standard Solver tab beside its existing
+  "Solver" tab under the same title, existing tab untouched (#1638, the
+  household's 8 Oct placement rule). Nothing else is visible unless the soft
+  reserve's two settings are set.
+
 ### Fixed
 - **No more "Unable to remove unknown job listener" ERRORs on reload**
   ([#1688](https://github.com/code-imstillalive/nimbus/issues/1688), found by
