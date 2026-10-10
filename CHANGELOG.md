@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.446] - 2026-10-10
+
+Cut from `main` at `f1357f0d`. Everything since v0.94.444, which includes
+v0.94.445's one change (#1674, shipped there from a release branch). Two items
+change dispatch: **Period 0 anchors to the setpoint actually dispatched**
+(#1641, below) and #1674 (already live on any install running v0.94.445). The
+soft battery reserve (#1667) is **off** until both of its settings are set.
+The AEMO 5-minute sensor (#1668) adds about 95 MB a day of downloads from
+AEMO's NEMWEB on a NEM install and does not feed the solve.
+
 ### Fixed
 - **No more "Unable to remove unknown job listener" ERRORs on reload**
   ([#1688](https://github.com/code-imstillalive/nimbus/issues/1688), found by
