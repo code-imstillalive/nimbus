@@ -296,6 +296,12 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-10-10](docs/worklog/2026-10-10.md): **v0.94.446 released; P5MIN in the solve
+  parked on evidence; a windowed soft reserve (#1695) replayed against 9 Oct on the
+  forecasts Nimbus actually read.** Wholesale->retail is linear and the existing
+  learner pairs the previous interval (#1694). Two replays retracted.
+- [2026-10-09](docs/worklog/2026-10-09.md): v0.94.445 (v0.94.444 + #1674) tagged after
+  an in-block replay; fifteen PRs merged including #1672, #1641, #1667. Written 10 Oct.
 - [2026-10-07](docs/worklog/2026-10-07.md): **A P2P block was gross, not net**: from
   21:11 the reference household's 12 kW block delivered 10.6 kW. Root-caused by
   replaying the live solve read-only (not 439, not the LocalVolts v2 sensors), fixed in
