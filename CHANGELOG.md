@@ -9,6 +9,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **No more "Unable to remove unknown job listener" ERRORs on reload**
+  ([#1688](https://github.com/code-imstillalive/nimbus/issues/1688), found by
+  Mark Purcell). After a cold start, every later reload of the Nimbus entry
+  (any settings save) logged two of these, because the startup pricing and
+  energy-unit checks removed a one-time listener that had already removed
+  itself. Harmless but noisy; now the unload only cancels a check that has
+  not run yet.
 - **Scoring with Controllable Loads now actually runs on a real install**
   ([#1681](https://github.com/code-imstillalive/nimbus/issues/1681), found by
   Mark Purcell). #1357's oracle wiring imported `solver.elements` without the

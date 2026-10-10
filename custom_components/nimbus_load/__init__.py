@@ -565,6 +565,36 @@ async def _async_report_orphaned_forecast_entities(
         )
 
 
+def _run_once_started(hass: HomeAssistant, entry: NimbusConfigEntry, job) -> None:
+    """Run `job(event)` once, on HA's "homeassistant_started", with an unload
+    hook that is safe whether or not the event has fired (nimbus #1688).
+
+    `hass.bus.async_listen_once()` removes its own listener when the event
+    fires. Registering its unsub with `entry.async_on_unload()` as-is means a
+    later reload calls it a second time, and HA core logs "Unable to remove
+    unknown job listener" as an ERROR, once per listener, on every reload
+    after a cold start. The unload hook here only unsubscribes a listener
+    that has not fired yet.
+
+    "homeassistant_started" is homeassistant.const.EVENT_HOMEASSISTANT_STARTED,
+    spelled out so the unit-test stubs need no new constant.
+    """
+    fired = False
+
+    async def _run(event: object = None) -> None:
+        nonlocal fired
+        fired = True
+        await job(event)
+
+    unsub = hass.bus.async_listen_once("homeassistant_started", _run)
+
+    def _cancel_if_pending() -> None:
+        if not fired:
+            unsub()
+
+    entry.async_on_unload(_cancel_if_pending)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
     """Public entry point -- see _setup_tasks' own module-level comment for
     the full "why a re-entrancy guard, not just another backgrounded slow
@@ -688,11 +718,7 @@ async def _async_setup_entry_impl(
     if hass.is_running:
         await _pricing_check()
     else:
-        # "homeassistant_started" is homeassistant.const.EVENT_HOMEASSISTANT_STARTED,
-        # spelled out so the unit-test stubs need no new constant.
-        entry.async_on_unload(
-            hass.bus.async_listen_once("homeassistant_started", _pricing_check)
-        )
+        _run_once_started(hass, entry, _pricing_check)
 
     # Runs before anything else -- a rename must land BEFORE the sensor
     # platform tries to add NimbusForecastSensor with its own freshly-
@@ -984,9 +1010,7 @@ async def _async_setup_entry_impl(
     if getattr(hass, "is_running", False) is True:
         hass.async_create_task(_energy_unit_check())
     else:
-        entry.async_on_unload(
-            hass.bus.async_listen_once("homeassistant_started", _energy_unit_check)
-        )
+        _run_once_started(hass, entry, _energy_unit_check)
 
     startup_solve_task = hass.async_create_background_task(
         _async_run_solve_with_startup_retries(hass),
