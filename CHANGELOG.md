@@ -20,6 +20,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   fails on any bare import of a package module outside the standalone
   fallback. Days scored before this release were scored without the loads;
   `nimbus_load.rescore_history` re-scores them.
+- **Discovering a price integration no longer changes your pricing**
+  ([#1686](https://github.com/code-imstillalive/nimbus/issues/1686), reported
+  by Mark Purcell). Solver settings used to pre-fill empty price fields from
+  detected integrations (LocalVolts v2, Amber Express, Amber Electric, the
+  NEM PD7DAY / AEMO regional forecast) and from the Energy Dashboard, and to
+  replace a set field whose sensor was missing at that moment. So saving the
+  wizard for any reason, a battery number say, saved those suggestions, and
+  a sensor briefly missing during startup or a reload lost its binding,
+  while the startup notification said "Nothing has been changed".
+  - **The wizard now shows your saved values only.**
+  - **Suggestions are listed under Configure → Review pricing suggestions**
+    as field: (empty) → proposed sensor, with where each came from. Submit
+    applies exactly those; closing the dialog changes nothing. Each applied
+    change is logged and listed in a notification.
+  - **A field with a value is never proposed for**, even if its sensor is
+    missing right now. That is reported instead, as before.
+  - **A blank field stays blank** until you confirm a suggestion for it.
+  - The menu entry appears only when there is something to review.
 - **The hours after a P2P block can import again, so the block stays net.**
   #1610 (v0.94.442) forbade ordinary grid import in every period with a pinned
   export, which included the post-window self-consume hours pinned to 0 kW.

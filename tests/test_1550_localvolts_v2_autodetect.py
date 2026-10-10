@@ -213,9 +213,14 @@ def test_without_lv_v2_only_the_trap_check_runs():
     assert _notifications(hass) == {}
 
 
-def test_a_field_pointing_at_a_missing_entity_is_flagged_and_offered_lv_v2():
+def test_a_field_pointing_at_a_missing_entity_is_flagged_never_replaced():
     """The tester's suspected state: settings copied from the reference
-    household, naming its own writer sensors, which his install lacks."""
+    household, naming its own writer sensors, which his install lacks.
+
+    nimbus #1686 (Mark Purcell): it is REPORTED, never replaced. An entity
+    can be absent for a while at startup or during an integration reload,
+    and replacing the saved binding then is exactly the silent overwrite
+    #1686 reports. This test used to assert the replacement."""
     hass = _hass()
     ghost = "sensor.localvolts_price_forecast"
     hass.states.get = MagicMock(
@@ -228,9 +233,13 @@ def test_a_field_pointing_at_a_missing_entity_is_flagged_and_offered_lv_v2():
         }
         out = pa.with_detected_profile(hass, opts)
         asyncio.run(pa.async_notify_pricing_setup(hass, opts))
-    assert out[CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR] == FULL["flex_up_forecast"]
+    assert out[CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR] == ghost
+    with patch.object(pa.er, "async_get", return_value=_Registry(FULL)):
+        proposed = pa.pricing_suggestions(hass, opts)
+    assert CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR not in {s["field"] for s in proposed}
     notes = _notifications(hass)
     assert ghost in notes[pa.NOTIFY_MISSING_ID]
+    assert "never replaces" in notes[pa.NOTIFY_MISSING_ID]
 
 
 def test_a_real_entity_of_another_integration_is_never_replaced():

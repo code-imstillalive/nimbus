@@ -151,15 +151,12 @@ def _grid_flow(hass):
 
 
 def _run_grid(flow, user_input):
-    with (
-        patch.object(pic, "_unique_id", _no_registry),
-        patch.object(
-            ho,
-            "_energy_dashboard_solver_source_suggestions",
-            AsyncMock(return_value={}),
-        ),
-        patch.object(ho, "with_detected_profile", lambda _h, d: d),
-    ):
+    # nimbus #1686/#1687: the grid step's form defaults come from saved
+    # options only now -- it no longer calls the Energy-Dashboard
+    # suggestion source itself (that moved behind the explicit "Review
+    # pricing suggestions" step), so nothing here needs patching for this
+    # test to exercise the real refusal path.
+    with patch.object(pic, "_unique_id", _no_registry):
         return asyncio.run(flow.async_step_solver_grid(user_input))
 
 
