@@ -68,7 +68,10 @@ def acknowledged_patterns(body: str) -> list[str]:
     patterns: list[str] = []
     for match in _ACK_RE.finditer(body or ""):
         for token in re.split(r"[,\s]+", match.group(1).replace("`", " ")):
-            token = token.strip().strip(".;")
+            # Trailing punctuation only: a leading "." is part of a path
+            # (`.github/...`, `.claude/...`) and stripping it made every
+            # dot-directory deletion impossible to acknowledge (#1691).
+            token = token.strip().rstrip(".;")
             if token:
                 patterns.append(token)
     return patterns
