@@ -322,15 +322,16 @@ def apply(
         # (the interval in progress, i.e. AEMO's own dispatch price).
         wholesale = cfg.get("solver_regional_spot_current_price_sensor") or entity
         done = {}
+        peak: dict[str, float | None] = {}
         for name, key, (values, sources) in (
             ("import", "solver_import_price_sensor", import_side),
             ("export", "solver_export_price_sensor", export_side),
         ):
             retail = cfg.get(key)
             markup = _markup(retail, wholesale, history_for) if retail else None
-            done[name] = len(
-                overlay(values, sources, rows, grid_times, not_before, markup)
-            )
+            changed = overlay(values, sources, rows, grid_times, not_before, markup)
+            done[name] = len(changed)
+            peak[name] = max((values[i] for i in changed), default=None)
         run = (state.get("attributes") or {}).get("run_datetime")
         if not any(done.values()):
             return _inactive("no_markup", entity)
@@ -339,10 +340,13 @@ def apply(
         if any(done.values()) and run != _last_logged_run:
             _last_logged_run = run
             _LOGGER.info(
-                "Nimbus #1653: P5MIN run %s priced %d import / %d export periods",
+                "Nimbus #1653: P5MIN run %s priced %d import / %d export periods "
+                "(highest import %s, export %s $/kWh)",
                 run,
                 done["import"],
                 done["export"],
+                _fmt(peak.get("import")),
+                _fmt(peak.get("export")),
             )
         return {"applied": any(done.values()), "periods": done, "run": run}
     except Exception as err:  # noqa: BLE001 -- must never break a real solve
@@ -356,6 +360,10 @@ _WHY = {
     "no_fresh_run": "%s has no run from the last 15 minutes; spikes are not visible",
     "no_markup": "no wholesale-to-retail conversion learned yet for %s",
 }
+
+
+def _fmt(value: float | None) -> str:
+    return "-" if value is None else f"{value:.4f}"
 
 
 def _report(reason: str, entity: str | None = None) -> None:

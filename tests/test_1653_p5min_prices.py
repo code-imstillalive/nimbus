@@ -463,3 +463,22 @@ def test_why_it_is_inactive_is_logged_once_per_change(monkeypatch, caplog):
             ),
         ),
     ]
+
+
+def test_the_priced_line_names_the_highest_prices_it_set(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(pp, "_last_reason", None)
+    monkeypatch.setattr(pp, "_last_logged_run", None)
+    monkeypatch.setattr(pp, "resolve_entity_id", lambda: "sensor.p5")
+    monkeypatch.setattr(pp, "_markup", lambda retail, wholesale, fn: PASS)
+    rows = _rows([0.1, 0.25, 0.86])
+    monkeypatch.setattr(pp.solver_shared, "ha_get", lambda _e: _state(rows))
+    grid = _grid(3)
+    sides = (([0.1] * 3, [""] * 3), ([0.05] * 3, [""] * 3))
+    with caplog.at_level(logging.INFO, logger=pp.__name__):
+        pp.apply(_cfg(), grid, grid[1], T0, *sides, None)
+    assert caplog.records[-1].getMessage() == (
+        "Nimbus #1653: P5MIN run 2026-10-09T04:30:00+10:00 priced 2 import / "
+        "2 export periods (highest import 0.8600, export 0.8600 $/kWh)"
+    )

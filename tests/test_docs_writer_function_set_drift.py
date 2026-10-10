@@ -210,6 +210,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "apply",
         "rebase_export_bonus",
         "_report",
+        "_fmt",
         "_inactive",
         # nimbus issue #1357: builds the EPR oracle's re-timeable
         # controllable-load inputs, which it can only do by reading the
