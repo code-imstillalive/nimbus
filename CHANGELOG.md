@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The price tail past your retailer's forecast reads each interval's
+  markup correctly** ([#1694](https://github.com/code-imstillalive/nimbus/issues/1694)).
+  The learned 5-minute-of-day retail markup (`compute_5min_offset`, which
+  prices the plan beyond the retailer's own forecast and feeds the AEMO
+  disagreement check) paired each retail sample with the wholesale sample
+  "at or before" it. On LocalVolts that is the PREVIOUS interval's price
+  (LocalVolts posts ~15-50 s into an interval, after a provisional post at
+  ~3 s; AEMO's current-price sensor ~78 s in), with every provisional post
+  counted too. It now pairs each interval's settled retail price with the
+  same interval's wholesale price, and each 5-minute slot uses the median of
+  its last three days, so a retailer's tariff change is followed rather than
+  averaged in. Measured out of sample on the reference install's own history
+  (8-10 Oct): export markup error 0.68 -> 0.19c, 0.64 -> 0.32c, 0.68 -> 0.12c
+  (median); import 0.98 -> 0.49c and 1.17 -> 0.39c on days without a tariff
+  change. Ported to the standalone writer. The markup stays additive; the
+  linear relation a retailer like LocalVolts follows (1.06x / 1.17x
+  wholesale) matters mainly at spike prices the 7-day tail rarely shows.
+
 ## [0.94.446] - 2026-10-10
 
 Cut from `main` at `f1357f0d`. Everything since v0.94.444, which includes
