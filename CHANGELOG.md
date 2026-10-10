@@ -17,6 +17,30 @@ sensor: on the reference install its learned markup is off by ~0.1-0.5c/kWh
 synthetic histories move by at most 0.0001). #1695 changes nothing until its
 settings are set.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.9.3) at 851087ad**,
+  installed untagged via HACS from the `release/0.94.447` branch
+  (`installed_version` release/0.94.447) and restarted 20:32 AEST 10 Oct.
+  The `nimbus_load` config entry is `loaded`; devhub's own entities stamp
+  `0.94.447` (2; the 118 at 0.94.445 are production's mirrored rows). The
+  four reserve settings exist as `number.nimbus_solver_battery_reserve_percent`
+  / `_release_price` / `_start_hour` / `_end_hour` ("From" / "Until", 0-24
+  step 0.5). Set on devhub to 15 / 0.10 / 0 / 5.5 (none of these ids exists
+  on production, checked before each write) and read back exactly; two
+  `nimbus_load.solve_now` calls succeeded, and the log since the restart
+  holds no Nimbus error or traceback beyond the two pre-existing devhub mirror
+  classes. One WARNING, the existing #452 current-interval disagreement
+  check: devhub's 20:40 markup still carries LocalVolts' pre-9-Oct evening
+  network charge, which #1697's three-day median replaces once two of the
+  three days carry the new tariff; the 5-day mean before it was further off.
+  **Not observable on devhub:** the plan the reserve shapes, because
+  production's mirror occupies the solver entity_ids; the LP behaviour is
+  covered by `tests/test_1654_soft_reserve.py` (17 real HiGHS solves) and the
+  9 Oct replay on #1695.
+- Consumer check: four new settings on the Solver controls -- Battery
+  Reserve, Release Price, From, Until -- with nothing changed until they are
+  set. With a pre-dawn window the battery keeps its bottom X% through the
+  window unless a price beats the margin, and sells it as the window closes.
+
 ### Fixed
 - **The price tail past your retailer's forecast reads each interval's
   markup correctly** ([#1694](https://github.com/code-imstillalive/nimbus/issues/1694)).
