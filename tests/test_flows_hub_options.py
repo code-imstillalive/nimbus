@@ -1395,10 +1395,27 @@ def test_solver_battery_step_never_overwrites_an_already_saved_soc_sensor():
 def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
     import asyncio
 
+    from unittest.mock import AsyncMock, patch
+
     flow = _make_flow(options={})
-    result = asyncio.run(flow.async_step_init(None))
+    # nimbus #1686: "Review pricing suggestions" is offered only when there
+    # is something to review.
+    with patch.object(type(flow), "_pricing_suggestions", AsyncMock(return_value=[])):
+        result = asyncio.run(flow.async_step_init(None))
     assert result["type"] == "menu"
     assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
+    with patch.object(
+        type(flow),
+        "_pricing_suggestions",
+        AsyncMock(return_value=[{"field": "x", "proposed": "sensor.y"}]),
+    ):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result["menu_options"] == [
+        "forecaster",
+        "solver_battery",
+        "switchboard",
+        "pricing_suggestions",
+    ]
 
 
 # -- nimbus issue #340: include_entities IS enforced at validation, so a
