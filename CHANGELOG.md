@@ -9,6 +9,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **Scoring with Controllable Loads now actually runs on a real install**
+  ([#1681](https://github.com/code-imstillalive/nimbus/issues/1681), found by
+  Mark Purcell). #1357's oracle wiring imported `solver.elements` without the
+  package prefix, which works under the test suite's import path and nowhere
+  in Home Assistant. Every scored day raised `ModuleNotFoundError`, was logged
+  as a warning, and fell back to scoring without the loads, so
+  `oracle_controllable_loads_scored`/`_skipped` stayed empty with the switch
+  on. It now imports relatively, like every sibling module, and a static test
+  fails on any bare import of a package module outside the standalone
+  fallback. Days scored before this release were scored without the loads;
+  `nimbus_load.rescore_history` re-scores them.
 - **Discovering a price integration no longer changes your pricing**
   ([#1686](https://github.com/code-imstillalive/nimbus/issues/1686), reported
   by Mark Purcell). Solver settings used to pre-fill empty price fields from
