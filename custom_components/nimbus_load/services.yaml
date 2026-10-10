@@ -37,3 +37,25 @@ rescore_history:
         text:
 
 flex_telemetry_record:
+
+export_decision_inputs:
+  fields:
+    start:
+      required: true
+      selector:
+        datetime:
+    end:
+      required: true
+      selector:
+        datetime:
+    kinds:
+      required: false
+      default:
+        - head
+        - horizon
+      selector:
+        select:
+          multiple: true
+          options:
+            - head
+            - horizon
