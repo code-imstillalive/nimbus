@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.447] - 2026-10-11
+
+Everything in v0.94.446 plus #1695 and #1697. #1697 changes plan prices
+beyond the retailer's own forecast on every install with a regional price
+sensor: on the reference install its learned markup is off by ~0.1-0.5c/kWh
+(median) where the old one was off by ~0.7-1c (the golden scenarios'
+synthetic histories move by at most 0.0001). #1695 changes nothing until its
+settings are set.
+
 ### Fixed
 - **The price tail past your retailer's forecast reads each interval's
   markup correctly** ([#1694](https://github.com/code-imstillalive/nimbus/issues/1694)).
@@ -26,6 +35,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   change. Ported to the standalone writer. The markup stays additive; the
   linear relation a retailer like LocalVolts follows (1.06x / 1.17x
   wholesale) matters mainly at spike prices the 7-day tail rarely shows.
+
+### Added
+- **The soft battery reserve can be limited to a daily window**
+  ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654), #1695).
+  Two new Solver settings, **Battery Reserve From** / **Until** (local hours).
+  Inside the window the reserve applies; outside it there is none, so the
+  energy it held can be sold as the window closes -- e.g. hold 15% from 00:00
+  to 05:30 against a pre-dawn spike, then sell it before the morning price
+  drop. From = Until (the default) keeps the all-day reserve.
+  - **The release price is a margin, not a "sell above X" price** (this
+    corrects v0.94.446's wording for the reserve): drawing energy out of the
+    reserve costs the release price **on top of** what that energy would
+    fetch later. A release price above your import price makes the house
+    import rather than use the reserve; for a pre-dawn window it should cover
+    the drop from the in-window price to the after-window price and stay
+    below the overnight import price.
+  - **9 Oct 2026 replay** (reference household, LocalVolts' forecasts as
+    recorded): $5.74 without, $7.94 with 15% held 00:00-05:30.
 
 ## [0.94.446] - 2026-10-10
 
@@ -222,19 +249,8 @@ AEMO's NEMWEB on a NEM install and does not feed the solve.
     ~9% at 28.6c at 04:25, with no forecast of the $1.04-1.08 spike thirty
     minutes later, and was empty through it.
   - **Two new Solver settings:** **Battery Reserve** (% of capacity) and
-    **Battery Reserve Release Price** ($/kWh). Drawing energy out of the
-    reserve costs the release price in the plan, **on top of** what that
-    energy would otherwise fetch later. So the reserve is used only when the
-    price now beats the later value plus the release price -- a margin, not a
-    plain "sell above X" threshold. A release price above your import price
-    makes the house import rather than use the reserve.
-  - **A daily window (#1654):** **Battery Reserve From** / **Until** (local
-    hours). Inside the window the reserve applies; outside it there is none,
-    so the energy it held can be sold as the window closes -- e.g. hold 15%
-    from 00:00 to 05:30 against a pre-dawn spike, then sell it before the
-    morning price drop. From = Until (the default) keeps the all-day reserve.
-    The release price for this should cover the drop from the in-window price
-    to the after-window price, and stay below the overnight import price.
+    **Battery Reserve Release Price** ($/kWh). The plan values energy in the
+    reserve at the release price, so it is only sold when the price beats it.
   - **No forced refill:** refilling the reserve costs nothing, and a battery
     already below it is never made to charge up to it.
   - **Off by default** (0 / 0), with no change to any plan until both are set.
