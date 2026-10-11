@@ -314,6 +314,9 @@ class _CurrencyUnitMixin:
 #: issue #1293). Named to match sensor_flattened.py's own sentinels.
 _CURRENCY_PER_KWH = "__nimbus_currency_per_kwh__"
 _CURRENCY_PER_DAY = "__nimbus_currency_per_day__"
+# A time of day, as an hour (5.5 = 05:30): no unit. "h"/"hour" read as a
+# duration -- "Hold from 0 h" (household, 11 Oct 2026).
+_CLOCK_HOUR = None
 
 
 @dataclass(frozen=True)
@@ -415,7 +418,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         0.5,
-        "h",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
@@ -424,7 +427,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         0.5,
-        "h",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -530,8 +533,8 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # takes effect for a P2P block whose own end_hour reaches 24 (runs
     # through midnight) -- see fetch_p2p_fixed_export_kw()'s own
     # docstring for the full "why a hard pin, not just a soft nudge"
-    # reasoning. Default (4) matches this household's real, already-live
-    # value.
+    # reasoning. Default 0 (no restriction); the reference household sets
+    # its own 4.
     _SolverNumberDescription(
         CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
         "Post-Window Self-Consume Hours",
@@ -621,7 +624,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -631,7 +634,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -652,7 +655,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -662,7 +665,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -683,7 +686,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -693,7 +696,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     # nimbus issue #565: shared across all 3 blocks (not per-block --
@@ -757,7 +760,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_1_END_HOUR,
@@ -766,7 +769,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_2_RATE,
@@ -784,7 +787,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_2_END_HOUR,
@@ -793,7 +796,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_3_RATE,
@@ -811,7 +814,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_3_END_HOUR,
@@ -820,7 +823,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_FLAT_FEE_RATE,
