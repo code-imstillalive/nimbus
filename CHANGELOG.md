@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.449] - 2026-10-11
+
+Two fixes found by a tester on 0.94.448, released the same day. Neither is
+dispatch code: no plan changes.
+
 ### Fixed
 - **The Solver tab now installs on a dashboard that merely mentions the
   plan status.** 0.94.448 took any tab naming
