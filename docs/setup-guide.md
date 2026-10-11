@@ -943,6 +943,8 @@ Examples include hot water, a pool pump and an EV charger.
 | **🔴 Power sensor to learn from** | One real circuit/appliance power sensor |
 | Fixed schedule start / end hour | Only for a load on a real fixed timer. **24-hour decimal**: `12.5` = 12:30pm |
 | Expected power while running (kW) | Used with a schedule. Enter the equipment's actual power. |
+| Running above (kW) | For a load that runs in bursts: a washer, an oven, an AC, an EV charger. While it draws at least this much, the forecast holds its current draw for the hold below, then returns to its usual pattern. A run that keeps going keeps extending. Example: `0.6` for an AC or washer, `1.0` for an EV charger. |
+| Hold while running (hours) | How long a running load is forecast to keep going from its latest reading. Default `1`. |
 
 **Expected outcome:** `sensor.nimbus_<name>_forecast` per load, plus the whole-house
 roll-up `sensor.nimbus_household_load_total_forecast`. Each Load also gets its own

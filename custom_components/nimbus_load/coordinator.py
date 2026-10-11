@@ -49,6 +49,8 @@ from .const import (
     CONF_HYBRID_RECENT_DAYS,
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
+    CONF_RUN_HOLD_HOURS,
+    CONF_RUNNING_THRESHOLD_KW,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
     CONF_SIGNAL_ROLE,
@@ -63,6 +65,7 @@ from .const import (
     DEFAULT_FORECAST_HORIZON_HOURS,
     DEFAULT_HYBRID_RECENT_DAYS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
+    DEFAULT_RUN_HOLD_HOURS,
     DEFAULT_TRAIN_DAYS,
     DEFAULT_TRAINING_SOURCE,
     DOMAIN,
@@ -454,6 +457,21 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _expected_load_kw(self) -> float | None:
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
+
+    # nimbus #1703: the per-load "running" hold -- see const.py.
+    @property
+    def _running_threshold_kw(self) -> float | None:
+        value = self.subentry.data.get(CONF_RUNNING_THRESHOLD_KW)
+        return float(value) if value not in (None, "") else None
+
+    @property
+    def _run_hold_hours(self) -> float:
+        value = self.subentry.data.get(CONF_RUN_HOLD_HOURS)
+        try:
+            hours = float(value)
+        except (TypeError, ValueError):
+            return DEFAULT_RUN_HOLD_HOURS
+        return hours if hours > 0 else DEFAULT_RUN_HOLD_HOURS
 
     @property
     def _signal_role(self) -> str:
@@ -2018,6 +2036,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             solars_kw,
             self._allow_negative,
             self._seasonal_anchor,
+            self._running_threshold_kw,
+            self._run_hold_hours,
         )
         preds = result.values
         has_model_bounds = (

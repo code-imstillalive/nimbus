@@ -1715,6 +1715,8 @@ def predict(
     solars_kw: list[float] | None = None,
     allow_negative: bool = False,
     seasonal_anchor: bool = False,
+    running_threshold_kw: float | None = None,
+    run_hold_hours: float = 1.0,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -1789,6 +1791,54 @@ def predict(
                 timestamps, expected_load_kw, schedule_start_hour, schedule_end_hour
             )
         )
+
+    # nimbus #1703 (household, 11 Oct 2026): the household's own YAML rule
+    # for a washer, an oven or an AC -- "at or above 600 W, forecast what it
+    # draws now for the next hour, then 0", re-evaluated on every reading so
+    # a run that keeps going keeps extending. Without it, the recursive lag
+    # chain below carried a running AC's 0.9 kW across the whole horizon.
+    # While the latest real reading is at or above the threshold: hold it
+    # for `run_hold_hours` from that reading, then forecast the rest with
+    # the lags taken from the load's usual pattern (seasonal_anchor), never
+    # from the held run. Below the threshold, nothing changes.
+    if running_threshold_kw is not None and recent_load_values and timestamps:
+        last_t, last_v = max(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
+        if last_v >= running_threshold_kw:
+            hold_end = _dst_safe_key(last_t + timedelta(hours=run_hold_hours))
+            n_hold = sum(1 for t in timestamps if _dst_safe_key(t) < hold_end)
+            held = [float(last_v)] * n_hold
+            if n_hold == len(timestamps):
+                return PredictionResult(values=held)
+
+            def _tail(series: list[float] | None) -> list[float] | None:
+                return None if series is None else series[n_hold:]
+
+            rest = predict(
+                trained,
+                timestamps[n_hold:],
+                temps[n_hold:],
+                humidities[n_hold:],
+                recent_load_values,
+                resample_minutes,
+                _tail(curtailments),
+                schedule_start_hour,
+                schedule_end_hour,
+                expected_load_kw,
+                _tail(batteries_kw),
+                _tail(grids_kw),
+                _tail(solars_kw),
+                allow_negative,
+                True,
+            )
+            return PredictionResult(
+                values=held + rest.values,
+                model_lower=None
+                if rest.model_lower is None
+                else held + rest.model_lower,
+                model_upper=None
+                if rest.model_upper is None
+                else held + rest.model_upper,
+            )
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that
