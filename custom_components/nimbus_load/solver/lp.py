@@ -289,7 +289,12 @@ def _dump_failing_model(h: Any, label: str, *, issue: str = "773") -> str | None
         import tempfile
 
         base = os.environ.get(_LP_DUMP_DIR_ENV) or tempfile.gettempdir()
-        os.makedirs(base, exist_ok=True)
+        try:
+            os.makedirs(base, exist_ok=True)
+        except OSError:
+            # A configured folder that cannot be created (read-only config,
+            # a path from another host) must not lose the capture.
+            base = tempfile.gettempdir()
         # The label carries a phase name that reaches this from a
         # caller-supplied string; keep it to a filename-safe subset
         # rather than trusting it to be one.

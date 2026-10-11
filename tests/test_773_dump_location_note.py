@@ -240,3 +240,23 @@ class TestHomeAssistantDefaultsToTheConfigFolder(unittest.TestCase):
                 path = lp._dump_failing_model(_H(), "dir_test", issue="1179")
             self.assertEqual(path, os.path.join(target, "nimbus_1179_dir_test.mps"))
             self.assertTrue(os.path.isfile(path))
+
+    def test_an_uncreatable_folder_falls_back_to_temp(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = os.path.join(tmp, "a_file")
+            open(blocker, "w").close()  # a file where the folder should be
+
+            class _H:
+                def writeModel(self, path):
+                    open(path, "w").close()
+
+            with patch.dict(
+                os.environ, {lp._LP_DUMP_DIR_ENV: os.path.join(blocker, "sub")}
+            ):
+                lp._LP_DUMPED_PHASES.discard("fallback_test")
+                path = lp._dump_failing_model(_H(), "fallback_test", issue="1179")
+            self.assertIsNotNone(path)
+            self.assertTrue(path.startswith(tempfile.gettempdir()))
+            os.remove(path)
