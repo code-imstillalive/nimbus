@@ -212,3 +212,15 @@ def test_card_js_matches_python(card):
     got = json.loads(out.stdout)
     want = [pu.power_scale_to_kw(u) for u in units]
     assert got == pytest.approx(want)
+
+
+def test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in():
+    """A tester, 11 Oct 2026: a W source behind a kW forecast was drawn at
+    the right height (converted to kW) but its tooltip read "34.5 W". When
+    _history() rescales, the series must carry the forecast's unit too."""
+    src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
+    body = src[src.index("_history(s, name") :]
+    body = body[: body.index("\n  }\n")]
+    assert 'series.transform = "return x * " + k' in body
+    assert 'series.unit = fu || "kW"' in body
+    assert body.index("series.transform") < body.index("series.unit")

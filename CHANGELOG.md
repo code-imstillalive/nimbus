@@ -17,6 +17,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   wrongly marked gets the tab once, at its next restart, beside the tab that
   mentioned the sensor. A Solver tab the household deleted still stays
   deleted.
+- **Forecaster: a history line is labelled in the unit it is drawn in.** A
+  source sensor in W behind a kW forecast was drawn correctly (converted to
+  kW) but its tooltip read "34.5 W" for 34.5 kW (a tester, 11 Oct 2026).
 
 ## [0.94.448] - 2026-10-11
 
