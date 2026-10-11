@@ -87,7 +87,7 @@ Sign ambiguity, where a sensor's direction is not declared, is not resolved here
 
 | `source.kind` | read path | notes |
 |---|---|---|
-| `entity_state` | current state, plus `last_reported`/`last_changed` for freshness | HA's cached state JSON keeps an old `last_reported` on unchanged writes (#1705), so freshness for an unchanged value uses the live state object, not the serialised one |
+| `entity_state` | current state, plus `last_reported`/`last_changed` for freshness | On a write with the same state and attributes, HA core's `StateMachine.async_set` only sets `old_state.last_reported` and fires `state_reported`; the cached `State._as_dict` (an `under_cached_property`) is not cleared, so REST, websocket `get_states` and other serialised views keep the old `last_reported` (read in HA core 2025.1.4's `core.py`; measured on HA 2026.7.4, #1705). Freshness for an unchanged value therefore uses the live state object, not the serialised one |
 | `entity_attribute` | attribute path, through a **versioned adapter** | the adapter owns the provider's row shape: LocalVolts v2, AEMO NEM, NEM PD7DAY, Amber Express (`detailedForecast`, case-sensitive), Amber Electric (`forecasts`, plural), all already in `price_intervals.py` |
 | `action_response` | a **known read-only** action, through a versioned adapter | only actions on an allow-list of read-only response actions (`openadr3_ven.get_forecast`, `amberelectric.get_forecasts`); any other action is refused, never called (DC-R15) |
 | `recorder_statistic` | long-term statistics, per its `interval_semantics` | an energy statistic stays energy; a statistic with no current-state entity is still a valid energy binding |
