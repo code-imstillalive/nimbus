@@ -364,7 +364,9 @@ provider Nimbus finds (LocalVolts v2, Amber Express, Amber Electric) plus **Manu
 provider your saved prices match, or Manual when you set them yourself.
 Picking a provider changes import and export together, after checking that each of its sensors exists
 and is reporting. If one is not, nothing changes and the message names it. Only the price fields
-change; fees, P2P blocks and every other setting stay as they are. Picking Manual changes nothing
+change; fees, P2P blocks and every other setting stay as they are. Picking Manual changes nothing,
+so while your saved prices still match a provider, the select goes back to that provider's name
+within five minutes or at the next restart. It reads Manual once you edit a price field yourself
 ([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
 
 ### If you are on LocalVolts: install LocalVolts v2 first
