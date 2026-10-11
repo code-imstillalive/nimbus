@@ -820,7 +820,10 @@ FLATTENED_ATTRS_P2P: tuple[FlattenedAttrSpec, ...] = (
         entity_category=None,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_PERCENT,
+        # A 0-1 fraction (0.51 = 51% matched), so no "%": it read "0.5%"
+        # on the Solver tab (household, 11 Oct 2026). Unit dropped rather
+        # than the value rescaled, as tracking_fidelity (#283).
+        unit_of_measurement=None,
         suggested_display_precision=1,
     ),
     FlattenedAttrSpec(

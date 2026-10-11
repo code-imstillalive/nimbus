@@ -24,6 +24,7 @@ name is a module or package that lives in that directory must sit inside an
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 PKG = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
@@ -31,13 +32,18 @@ EXEMPT_DIRS = {"solver", "ml"}
 
 
 def _sibling_names() -> set[str]:
+    """Modules and packages in the integration directory. A sibling that
+    shares a STANDARD-LIBRARY name -- `time.py` and `select.py` are HA
+    platforms and must be named so -- is left out: a bare `import time` in
+    real HA is the standard library (the integration directory is not on
+    sys.path there), so it is not the #1681 bug class."""
     names = set()
     for p in PKG.iterdir():
         if p.is_dir() and (p / "__init__.py").exists():
             names.add(p.name)
         elif p.suffix == ".py" and p.stem != "__init__":
             names.add(p.stem)
-    return names
+    return names - set(sys.stdlib_module_names)
 
 
 def _violations() -> list[str]:

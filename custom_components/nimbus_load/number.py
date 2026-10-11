@@ -75,10 +75,8 @@ from .const import (
     CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
-    CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
-    CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_CHARGE_COST,
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
@@ -129,10 +127,8 @@ from .const import (
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DEFAULT_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
-    DEFAULT_SOLVER_BATTERY_RESERVE_END_HOUR,
     DEFAULT_SOLVER_BATTERY_RESERVE_PERCENT,
     DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
-    DEFAULT_SOLVER_BATTERY_RESERVE_START_HOUR,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
@@ -314,6 +310,9 @@ class _CurrencyUnitMixin:
 #: issue #1293). Named to match sensor_flattened.py's own sentinels.
 _CURRENCY_PER_KWH = "__nimbus_currency_per_kwh__"
 _CURRENCY_PER_DAY = "__nimbus_currency_per_day__"
+# A time of day, as an hour (5.5 = 05:30): no unit. "h"/"hour" read as a
+# duration -- "Hold from 0 h" (household, 11 Oct 2026).
+_CLOCK_HOUR = None
 
 
 @dataclass(frozen=True)
@@ -407,25 +406,8 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.01,
         _CURRENCY_PER_KWH,
     ),
-    # nimbus #1654: when the reserve applies (local hour). Equal = all day.
-    _SolverNumberDescription(
-        CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
-        "Battery Reserve From",
-        DEFAULT_SOLVER_BATTERY_RESERVE_START_HOUR,
-        0,
-        24,
-        0.5,
-        "h",
-    ),
-    _SolverNumberDescription(
-        CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
-        "Battery Reserve Until",
-        DEFAULT_SOLVER_BATTERY_RESERVE_END_HOUR,
-        0,
-        24,
-        0.5,
-        "h",
-    ),
+    # nimbus #1654: the reserve's window is a pair of TIME entities
+    # (time.py), shown as a clock time, not numbers here.
     _SolverNumberDescription(
         CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
         "Battery Max SoC",
@@ -530,8 +512,8 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # takes effect for a P2P block whose own end_hour reaches 24 (runs
     # through midnight) -- see fetch_p2p_fixed_export_kw()'s own
     # docstring for the full "why a hard pin, not just a soft nudge"
-    # reasoning. Default (4) matches this household's real, already-live
-    # value.
+    # reasoning. Default 0 (no restriction); the reference household sets
+    # its own 4.
     _SolverNumberDescription(
         CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
         "Post-Window Self-Consume Hours",
@@ -621,7 +603,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -631,7 +613,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -652,7 +634,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -662,7 +644,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -683,7 +665,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -693,7 +675,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
         sub_device="p2p",
     ),
     # nimbus issue #565: shared across all 3 blocks (not per-block --
@@ -757,7 +739,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_1_END_HOUR,
@@ -766,7 +748,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_2_RATE,
@@ -784,7 +766,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_2_END_HOUR,
@@ -793,7 +775,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_3_RATE,
@@ -811,7 +793,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         23,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_3_END_HOUR,
@@ -820,7 +802,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         24,
         1,
-        "hour",
+        _CLOCK_HOUR,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_FLAT_FEE_RATE,

@@ -412,10 +412,15 @@ def _solver_resolver(hass: HomeAssistant) -> Any:
     if not entries:
         return None
     entry = entries[0]
-    by_uid = {
-        e.unique_id: e.entity_id
-        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
-    }
+    # A setting that moved platform (the reserve's window, number -> time,
+    # 11 Oct 2026) can briefly have both registry rows under one unique id
+    # until time.py removes the number's: the time entity wins, or the tab
+    # is written against the entity about to be deleted ("Entity not found").
+    by_uid: dict[str, str] = {}
+    for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id):
+        if e.unique_id in by_uid and e.domain != "time":
+            continue
+        by_uid[e.unique_id] = e.entity_id
 
     def lookup(key: str) -> str | None:
         if key.startswith("option:"):
