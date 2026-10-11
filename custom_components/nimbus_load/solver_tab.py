@@ -6,10 +6,11 @@ sliders, and every Solver setting.
 
 Layout (household, 11 Oct 2026): four blocks, top to bottom --
 
-  Performance        the last scored day, the money ahead, the battery
-                     now, P2P matching
+  Performance        charts of the score by day and the plan cost; the
+                     last scored day and P2P matching, the money ahead,
+                     where it comes from, the battery now
   Plan               the battery chart (past and plan on one axis, a "now"
-                     line), where the cost comes from, the risk sliders
+                     line), the cost breakdown chart, the risk sliders
   Basic settings     battery and grid, fees, P2P, battery reserve
   Advanced settings  costs, stability, price events and scoring, features
 
@@ -308,9 +309,9 @@ _SCORING: _Card = (
 _BLOCKS: tuple[tuple[str, tuple[tuple[_Card, ...], ...]], ...] = (
     (
         "Performance",
-        ((_SCORED,), (_MONEY,), (_BATTERY_NOW,), (_P2P_NOW,)),
+        ((_SCORED, _P2P_NOW), (_MONEY,), (_BREAKDOWN,), (_BATTERY_NOW,)),
     ),
-    ("Plan", ((_BREAKDOWN,), (_RISK,))),
+    ("Plan", ((_RISK,),)),
     ("Basic settings", ((_BATTERY,), (_FEES,), (_P2P,), (_RESERVE,))),
     (
         "Advanced settings",
@@ -419,6 +420,128 @@ def _chart() -> dict[str, Any]:
     }
 
 
+def _apex(
+    title: str, graph_span: str, series: list[dict[str, Any]], **extra: Any
+) -> dict[str, Any]:
+    """A plain ApexCharts Card: a title, a time span ending now, a legend."""
+    return {
+        "type": "custom:apexcharts-card",
+        "header": {
+            "show": True,
+            "title": title,
+            "show_states": True,
+            "colorize_states": True,
+        },
+        "update_interval": "5min",
+        "graph_span": graph_span,
+        "apex_config": {"chart": {"height": 240}, "legend": {"show": True}},
+        "series": series,
+        **extra,
+    }
+
+
+def _score_chart() -> dict[str, Any]:
+    day = {"group_by": {"func": "last", "duration": "1d"}}
+    return _apex(
+        "Score by day",
+        "14d",
+        [
+            {
+                "entity": "@nimbus_quality_epr",
+                "name": "EPR",
+                "type": "column",
+                "color": "#4FC3C7",
+                "yaxis_id": "pct",
+                **day,
+            },
+            {
+                "entity": "@nimbus_quality_regret_dollars",
+                "name": "Regret",
+                "color": "#E8615F",
+                "stroke_width": 2,
+                "yaxis_id": "aud",
+                **day,
+            },
+        ],
+        span={"end": "day"},
+        yaxis=[
+            {"id": "pct", "min": 0, "max": 100, "decimals": 0},
+            {"id": "aud", "opposite": True, "min": 0, "decimals": 0},
+        ],
+    )
+
+
+def _cost_chart() -> dict[str, Any]:
+    hour = {"group_by": {"func": "last", "duration": "1h"}, "curve": "stepline"}
+    return _apex(
+        "Plan cost, last 7 days",
+        "7d",
+        [
+            {
+                "entity": "@nimbus_solver_total_cost",
+                "name": "Plan cost",
+                "color": "#3ddc84",
+                "stroke_width": 2,
+                **hour,
+            },
+            {
+                "entity": "@nimbus_solver_cost_band_lower",
+                "name": "Best case",
+                "color": "#9aa0ac",
+                "stroke_width": 1,
+                "stroke_dash": 4,
+                **hour,
+            },
+            {
+                "entity": "@nimbus_solver_cost_band_upper",
+                "name": "Worst case",
+                "color": "#9aa0ac",
+                "stroke_width": 1,
+                "stroke_dash": 4,
+                **hour,
+            },
+        ],
+        yaxis=[{"decimals": 0}],
+    )
+
+
+def _breakdown_chart() -> dict[str, Any]:
+    hour = {"group_by": {"func": "last", "duration": "1h"}, "type": "column"}
+    parts = (
+        ("nimbus_solver_cost_breakdown_grid_net", "Grid, net", "#4fa3ff"),
+        ("nimbus_solver_cost_breakdown_charge_fee", "Charging", "#ffb340"),
+        ("nimbus_solver_cost_breakdown_discharge_fee", "Discharging", "#ff4d8d"),
+        ("nimbus_solver_cost_breakdown_degradation", "Battery wear", "#E8615F"),
+        ("nimbus_solver_cost_breakdown_terminal_value_credit", "Value left", "#3ddc84"),
+    )
+    return _apex(
+        "Where the cost comes from, last 24 h",
+        "24h",
+        [{"entity": f"@{k}", "name": n, "color": c, **hour} for k, n, c in parts],
+        stacked=True,
+        yaxis=[{"decimals": 0}],
+    )
+
+
+_SCORE_NOTE = "Each day's EPR (bars) and regret in dollars (line), once settled."
+_COST_NOTE = (
+    "What each plan expected to cost, hour by hour, with the range forecast "
+    "error could take it. Lower is better; below zero it earns."
+)
+_BREAKDOWN_NOTE = (
+    "The plan cost split into its parts each hour. Bars below zero are earnings."
+)
+
+
+def _chart_section(chart: dict[str, Any], note: str) -> dict[str, Any]:
+    full = {"grid_options": {"columns": "full"}}
+    return {
+        "type": "grid",
+        "column_span": 2,
+        "cards": [{**chart, **full}, {**_note(note), **full}],
+    }
+
+
 def template() -> list[dict[str, Any]]:
     """The tab's sections with `@key` placeholders, before resolution. Also
     what the tab's design fingerprint is taken from, so it is the same on
@@ -435,7 +558,13 @@ def template() -> list[dict[str, Any]]:
                 {**_note(_CHART_NOTE), "grid_options": {"columns": "full"}},
             ]
         sections.append({"type": "grid", "column_span": 4, "cards": top})
-        span = 4 // len(columns)
+        if name == "Performance":
+            sections.append(_chart_section(_score_chart(), _SCORE_NOTE))
+            sections.append(_chart_section(_cost_chart(), _COST_NOTE))
+        if name == "Plan":
+            sections.append(_chart_section(_breakdown_chart(), _BREAKDOWN_NOTE))
+        # A lone column sits beside a chart, so it takes half the row.
+        span = 4 // len(columns) if len(columns) > 1 else 2
         for column in columns:
             sections.append(
                 {

@@ -77,25 +77,35 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         if cards[0]["type"] == "heading":
             assert section["column_span"] == 4
             layout.append([cards[0]["heading"]])
-        else:
-            layout[-1].append(
-                (
-                    section["column_span"],
-                    [c["title"] for c in cards if c["type"] == "entities"],
-                )
+            continue
+        types = [c["type"] for c in cards]
+        if types[0] == "custom:apexcharts-card":
+            assert types == ["custom:apexcharts-card", "markdown"]
+            layout[-1].append((section["column_span"], cards[0]["header"]["title"]))
+            continue
+        # Every card is followed by its note.
+        assert types == ["entities", "markdown"] * (len(types) // 2), types
+        layout[-1].append(
+            (
+                section["column_span"],
+                [c["title"] for c in cards if c["type"] == "entities"],
             )
-            # Every card is followed by its note.
-            types = [c["type"] for c in cards]
-            assert types == ["entities", "markdown"] * (len(types) // 2), types
+        )
     assert layout == [
         [
             "Performance",
-            (1, ["Last day, scored"]),
+            (2, "Score by day"),
+            (2, "Plan cost, last 7 days"),
+            (1, ["Last day, scored", "P2P matching"]),
             (1, ["Money, plan ahead"]),
+            (1, ["Where the cost comes from"]),
             (1, ["Battery, now"]),
-            (1, ["P2P matching"]),
         ],
-        ["Plan", (2, ["Where the cost comes from"]), (2, ["Risk sliders"])],
+        [
+            "Plan",
+            (2, "Where the cost comes from, last 24 h"),
+            (2, ["Risk sliders"]),
+        ],
         [
             "Basic settings",
             (1, ["Battery and grid"]),
@@ -111,6 +121,15 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, ["Features"]),
         ],
     ]
+
+
+def test_a_chart_with_two_axes_names_the_axis_on_every_series() -> None:
+    """apexcharts-card 2.2.3 drops the whole card once a second y-axis exists
+    and any series lacks `yaxis_id` (116KAT CLAUDE.md gotcha)."""
+    for section in solver_tab.template():
+        for card in section["cards"]:
+            if len(card.get("yaxis", [])) > 1:
+                assert all("yaxis_id" in s for s in card["series"]), card
 
 
 def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
@@ -240,7 +259,10 @@ def test_a_missing_entity_is_dropped_not_written_blank() -> None:
     assert "nimbus_quality_epr_2" not in text
     assert '"@' not in text
     chart = next(
-        c for s in view for c in s["cards"] if c["type"] == "custom:apexcharts-card"
+        c
+        for s in view
+        for c in s["cards"]
+        if c.get("header", {}).get("title") == "Battery: plan against measured"
     )
     assert [x["name"] for x in chart["series"]] == ["Plan, as published", "Plan ahead"]
 
