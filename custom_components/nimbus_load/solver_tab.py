@@ -559,7 +559,15 @@ def _breakdown_chart() -> dict[str, Any]:
     An earlier version charted their snapshots over 24 hours as if they were,
     and every figure on it misled (household, 11 Oct 2026). So: one moment,
     the latest, and the parts add up to the plan cost beside them."""
-    now = {"group_by": {"func": "last", "duration": "1h"}, "type": "column"}
+    # One column per part from its current value, placed mid-window. A
+    # group_by over the current clock hour left the window empty (household
+    # screenshot, 11 Oct 2026).
+    now = {
+        "type": "column",
+        "data_generator": (
+            "return [[Date.now() - 30 * 60 * 1000, parseFloat(entity.state)]];"
+        ),
+    }
     parts = (
         ("nimbus_solver_cost_breakdown_grid_net", "Grid, net", "#4fa3ff"),
         ("nimbus_solver_cost_breakdown_charge_fee", "Charging", "#ffb340"),
@@ -574,7 +582,6 @@ def _breakdown_chart() -> dict[str, Any]:
         "the plan cost. Above zero costs, below zero earns.",
         [{"entity": f"@{k}", "name": n, "color": c, **now} for k, n, c in parts],
         graph_span="1h",
-        span={"end": "hour"},
         yaxis=[{"decimals": 0}],
         apex_config={
             "xaxis": {"labels": {"show": False}},
@@ -617,7 +624,7 @@ def _chart() -> dict[str, Any]:
                 "name": "Plan",
                 "curve": "stepline",
                 "color": "#4FC3C7",
-                "stroke_width": 4.5,
+                "stroke_width": 1.5,
                 "yaxis_id": "kw",
                 **past,
             },
