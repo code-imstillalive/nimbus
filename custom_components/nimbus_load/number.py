@@ -512,8 +512,8 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # takes effect for a P2P block whose own end_hour reaches 24 (runs
     # through midnight) -- see fetch_p2p_fixed_export_kw()'s own
     # docstring for the full "why a hard pin, not just a soft nudge"
-    # reasoning. Default 0 (no restriction); the reference household sets
-    # its own 4.
+    # reasoning. Default (4) matches the reference household's own value;
+    # changing it to 0 (no restriction) is deferred (Mark, #1700).
     _SolverNumberDescription(
         CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
         "Post-Window Self-Consume Hours",

@@ -439,6 +439,55 @@ def test_an_existing_dashboard_gets_it_beside_the_households_own_solver_tab() ->
     assert "added:solver" in done
 
 
+def test_a_tab_that_only_mentions_the_plan_status_is_not_a_solver_tab() -> None:
+    """11 Oct 2026: a tester's own Entities tab listed
+    sensor.nimbus_solver_lp_status, and 0.94.448 took that for a Solver tab
+    and added none. Only the tab Nimbus wrote counts."""
+    entities_tab = {
+        "title": "Entities",
+        "path": "entities",
+        "cards": [{"type": "entities", "entities": ["sensor.nimbus_solver_lp_status"]}],
+    }
+    views, done = dash._sync_views([dict(entities_tab)], {}, [], resolve=_resolve)
+    assert "added:solver" in done
+    assert views[0] == entities_tab  # untouched
+    assert any(v.get("title") == "Solver" for v in views)
+
+
+def test_an_install_wrongly_marked_by_that_guess_gets_the_tab_once() -> None:
+    """The record 0.94.448 left on such an install -- the design, no path --
+    adds the tab on the next restart, and only once."""
+    entities_tab = {
+        "title": "Entities",
+        "path": "entities",
+        "cards": [{"type": "entities", "entities": ["sensor.nimbus_solver_lp_status"]}],
+    }
+    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
+    mem = {"solver": {"design": dash.design_of(spec), "path": None, "written": None}}
+    views, done = dash._sync_views([dict(entities_tab)], mem, [], resolve=_resolve)
+    assert [d for d in done if "solver" in d], done
+    assert sum(1 for v in views if v.get("title") == "Solver") == 1
+    assert mem["solver"]["path"] is not None
+    again, done2 = dash._sync_views(
+        json.loads(json.dumps(views)), mem, [], resolve=_resolve
+    )
+    assert [d for d in done2 if "solver" in d] == []
+    assert again == views
+
+
+def test_a_deleted_solver_tab_stays_deleted() -> None:
+    """The household's rule is unchanged: a tab Nimbus wrote and the household
+    deleted is not put back for the same design."""
+    mem: dict = {}
+    views, _ = dash._sync_views([], mem, [], created=True, resolve=_resolve)
+    without = [v for v in views if v.get("title") != "Solver"]
+    again, done = dash._sync_views(
+        json.loads(json.dumps(without)), mem, [], resolve=_resolve
+    )
+    assert [d for d in done if "solver" in d] == []
+    assert not any(v.get("title") == "Solver" for v in again)
+
+
 def test_without_a_matching_tab_it_goes_at_the_end() -> None:
     views, _ = dash._sync_views(
         [{"title": "Home", "path": "home", "cards": []}], {}, [], resolve=_resolve
