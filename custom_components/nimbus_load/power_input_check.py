@@ -261,7 +261,10 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
             CONF_BATTERY_SENSOR,
             CONF_GRID_SENSOR,
             CONF_LOAD_SENSOR,
+            CONF_SIGNAL_ROLE,
             CONF_SOLAR_SENSOR,
+            SIGNAL_ROLE_HUMIDITY,
+            SIGNAL_ROLE_TEMPERATURE,
             SUBENTRY_TYPE_LOAD,
             SUBENTRY_TYPE_SIGNAL,
         )
@@ -270,7 +273,10 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
             CONF_BATTERY_SENSOR,
             CONF_GRID_SENSOR,
             CONF_LOAD_SENSOR,
+            CONF_SIGNAL_ROLE,
             CONF_SOLAR_SENSOR,
+            SIGNAL_ROLE_HUMIDITY,
+            SIGNAL_ROLE_TEMPERATURE,
             SUBENTRY_TYPE_LOAD,
             SUBENTRY_TYPE_SIGNAL,
         )
@@ -302,9 +308,9 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
             # A temperature/humidity Power Signal is never read as power
             # (coordinator `_convert_power_for_target`), so its °C / % unit
             # is correct and not reported.
-            if sub_type == SUBENTRY_TYPE_SIGNAL and data.get("signal_role") in (
-                "temperature",
-                "humidity",
+            if sub_type == SUBENTRY_TYPE_SIGNAL and data.get(CONF_SIGNAL_ROLE) in (
+                SIGNAL_ROLE_TEMPERATURE,
+                SIGNAL_ROLE_HUMIDITY,
             ):
                 continue
             eid = data.get(field)
