@@ -199,12 +199,24 @@ _COSTS: _Card = (
         ("solver_discharge_cost", "Discharge cost"),
         ("solver_degradation_cost_per_kwh", "Battery wear cost"),
         ("solver_salvage_value", "Value left at end"),
+        (
+            "section",
+            "Charge, discharge, wear: cents per kWh; raise to cycle less.",
+        ),
+        (
+            "section",
+            "Value left: worth of a kWh still stored when the plan ends.",
+        ),
         ("solver_intraplan_smoothness_weight_kw", "Plan smoothness"),
         ("solver_proximal_weight_kw", "Stick to last plan"),
         ("solver_battery_charge_earliness_budget_kw", "Charge earliness"),
+        (
+            "section",
+            "These three only break ties; 0.005 suits most.",
+        ),
         ("solver_aemo_p5min_disagreement_threshold_dollars", "AEMO disagreement"),
     ],
-    "Stop cycling and jitter for no gain.",
+    "AEMO: warn when your price and AEMO's differ by more.",
 )
 
 _FEATURES: _Card = (
@@ -218,19 +230,12 @@ _FEATURES: _Card = (
         ("solver_flex_signals_enabled", "Flex signals (slower)"),
         ("solver_score_controllable_loads_enabled", "Score controllable loads"),
         ("solver_dispatch_dry_run", "Own dispatcher: dry run"),
-        (
-            "section",
-            "Dry run: Nimbus's own dispatcher sends nothing to the inverter.",
-        ),
-        (
-            "section",
-            "Flex signals: each solve ~9× slower.",
-        ),
-        (
-            "section",
-            "Calibrated: ties go to steadier plans.",
-        ),
-        ("section", "Offer curve: publishes price response."),
+        ("section", "Load forecast source: off = Nimbus's own forecast."),
+        ("section", "Auto-include solar: finds solar forecast integrations."),
+        ("section", "Nowcast: records how forecasts track reality."),
+        ("section", "Flex signals: each solve ~9× slower."),
+        ("section", "Calibrated: equal plans go to the steadier one."),
+        ("section", "Dry run: Nimbus's own dispatcher sends nothing."),
     ],
     "Defaults suit most installs.",
 )
@@ -250,6 +255,9 @@ _SCORING: _Card = (
             "section",
             "SoC gap: how far the battery's reported charge and the energy it measured drifted apart yesterday.",
         ),
+        ("section", "Limits: raise them only if good days keep going unscored."),
+        ("section", "Readings reliable: the battery's own SoC reports were usable."),
+        ("section", "Score reliable: the day had enough data to be scored."),
         (
             "section",
             "Nimbus-only SoC: where the battery would have been at 5 pm had Nimbus alone decided; real SoC is where it was.",
@@ -265,12 +273,19 @@ _RESERVE: _Card = (
         ("solver_battery_reserve_release_price", "Release margin"),
         ("solver_battery_reserve_start_hour", "Hold from"),
         ("solver_battery_reserve_end_hour", "Release at"),
-        ("section", "Times of day: 5.5 = 5:30 am."),
+        (
+            "section",
+            "Reserve: the bottom share kept back between these times. 0 = off.",
+        ),
         ("section", "Price spikes"),
         ("solver_price_event_enabled", "Price events"),
         ("solver_price_spike_threshold", "Spike threshold"),
         ("solver_price_spike_discharge_kw", "Spike discharge"),
         ("solver_price_spike_override_armed", "Spike override armed"),
+        (
+            "section",
+            "Above the threshold the battery may sell at the spike discharge power.",
+        ),
     ],
     "Insurance against a sudden high price.",
 )
@@ -382,6 +397,9 @@ def _card(card: _Card) -> dict[str, Any]:
     return {
         "type": "entities",
         "title": title,
+        # HA adds a header toggle to a card with several switches; one tap
+        # would flip them all (household screenshot, 11 Oct 2026).
+        "show_header_toggle": False,
         "entities": [*_rows(rows), {"type": "section", "label": note}],
     }
 
@@ -731,6 +749,13 @@ def _energy_chart() -> dict[str, Any]:
         ],
         height=360,
         chart_type="donut",
+        # The header already shows each figure; the legend repeated them.
+        # offsetY/customScale keep the ring clear of the note (household
+        # screenshot, 11 Oct 2026).
+        apex_config={
+            "legend": {"show": False},
+            "plotOptions": {"pie": {"offsetY": 18, "customScale": 0.92}},
+        },
     )
 
 

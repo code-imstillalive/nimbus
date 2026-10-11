@@ -159,11 +159,12 @@ def test_solve_now_calls_the_solver() -> None:
     }
 
 
-# Rendered row heights in px, measured off the household's screenshot of
-# devhub (11 Oct 2026): a number box is taller than a toggle or a reading,
-# so equal row COUNTS did not line up. A divider + line of text is ~20 px
-# plus ~20 px per wrapped line (about 40 characters at a quarter width).
-_NUMBER, _OTHER = 66, 44
+# Rendered heights in px, measured off the household's screenshots of devhub
+# (11 Oct 2026): a number or time box 67, a toggle or a reading 44, a select
+# 60, and a divider with a line of text 38 + 21 per wrapped line (about 62
+# characters at a quarter of the screen). The first estimate counted rows
+# only, and the cards visibly did not line up.
+_NUMBER, _OTHER, _SELECT = 67, 44, 60
 
 
 def _height(card) -> int:
@@ -172,9 +173,11 @@ def _height(card) -> int:
         if e.get("type") == "conditional":
             continue
         if e.get("type") == "section":
-            total += 20 + 20 * -(-len(e["label"]) // 40)
+            total += 38 + 21 * -(-len(e["label"]) // 62)
+        elif e["entity"].endswith("_policy"):
+            total += _SELECT
         elif e["entity"].startswith("@solver_") and not e["entity"].endswith(
-            ("_enabled", "_dry_run", "_known_solar", "_armed", "_policy")
+            ("_enabled", "_dry_run", "_known_solar", "_armed")
         ):
             total += _NUMBER
         else:
@@ -192,9 +195,10 @@ def test_cards_side_by_side_end_on_one_line() -> None:
             rows.append([])
         elif card["type"] == "entities" and rows:
             assert card["entities"][-1]["type"] == "section", card["title"]
+            assert card["show_header_toggle"] is False, card["title"]
             rows[-1].append(_height(card))
     for heights in (r for r in rows if r):
-        assert max(heights) - min(heights) <= 45, heights
+        assert max(heights) - min(heights) <= 30, heights
 
 
 def test_the_sliders_are_sliders() -> None:

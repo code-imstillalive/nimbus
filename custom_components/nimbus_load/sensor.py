@@ -570,6 +570,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # the sliders would be read from entry.options and do nothing (#538/#837).
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+)
+# Household, 11 Oct 2026: time-of-day settings live in time.py as clock
+# times; resolved to hours (05:30 -> 5.5) so the Solver reads them as before.
+_SOLVER_TIME_ENTITY_KEYS = (
     CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
 )
@@ -2370,6 +2374,15 @@ class NimbusSolverConfigSensor(SensorEntity):
                 return None
             try:
                 return float(state.state)
+            except ValueError:
+                return None
+        if key in _SOLVER_TIME_ENTITY_KEYS:
+            state = self.hass.states.get(self._entity_id_for("time", key))
+            if state is None or state.state in (None, "unknown", "unavailable"):
+                return None
+            hours, minutes = (state.state.split(":") + ["0"])[:2]
+            try:
+                return int(hours) + int(minutes) / 60
             except ValueError:
                 return None
         if key in _SOLVER_SWITCH_ENTITY_KEYS:

@@ -51,6 +51,9 @@ PLATFORMS: list[Platform] = [
     # hub-level mode entity. See select.py's own docstring for why
     # this is an entity rather than a wizard field.
     Platform.SELECT,
+    # Household, 11 Oct 2026: time-of-day settings (the reserve's window)
+    # as clock times. See time.py.
+    Platform.TIME,
 ]
 
 # Nimbus issue #244 (Mark Purcell, 2026-08-27): a plain 1-minute
