@@ -365,7 +365,15 @@ class NimbusForecastCard extends HTMLElement {
       { id: "temp", show: false, min: -pmax, max: pmax },
       { id: "humidity", show: true, opposite: false, min: 100, max: 0, decimals: 0, apex_config: { title: { text: "%" } } },
       { id: "load", show: false, min: -pmax, max: pmax },
-      { id: "soc", show: true, opposite: true, min: -100, max: 100, apex_config: { title: { text: "SoC %" } } },
+      // -100..100 so 0% sits on the 0 kW line; SoC is never below 0, so the
+      // negative half is unlabelled (household, 11 Oct 2026: "SoC shown -100").
+      {
+        id: "soc", show: true, opposite: true, min: -100, max: 100,
+        apex_config: {
+          title: { text: "SoC %" },
+          labels: { formatter: "EVAL:function(v){return v < 0 ? '' : Math.round(v) + '%';}" },
+        },
+      },
     ];
     cfg.series = series;
     return cfg;

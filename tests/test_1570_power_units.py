@@ -236,3 +236,11 @@ def test_the_solver_power_series_are_drawn_as_steps():
     for name in ("Battery", "Grid import", "Grid export"):
         at = block.index(f'"Solver {name} (proposed)"')
         assert "...step" in block[at - 120 : at], name
+
+
+def test_the_soc_axis_hides_its_negative_half():
+    """SoC is never below 0; its axis runs -100..100 only to line 0% up with
+    0 kW, so the negative labels are blank."""
+    src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
+    at = src.index('id: "soc", show: true')
+    assert "v < 0 ? ''" in src[at : at + 400]
