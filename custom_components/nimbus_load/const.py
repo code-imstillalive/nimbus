@@ -1642,10 +1642,7 @@ DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
 # "not set". An existing install keeps its stored value (RestoreNumber, then
 # the shared Store), so only a fresh install sees this default.
 DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 0.0
-# Household, 11 Oct 2026: 4 was the reference household's own after-block
-# window, inherited by every install. 0 = no restriction. Stored values are
-# kept, as for the fixed daily charge above.
-DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 0
+DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 4
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 # Every block defaults OFF (rate_kw=0) regardless of which block number --

@@ -2815,7 +2815,7 @@ def fetch_p2p_fixed_export_kw(
     runs_through_midnight = any(
         end_minute == 24 * 60 for _rate_kw, _start_minute, end_minute in blocks
     )
-    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 0)
+    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 4)
 
     result: list[float] = []
     for gt in grid_times:

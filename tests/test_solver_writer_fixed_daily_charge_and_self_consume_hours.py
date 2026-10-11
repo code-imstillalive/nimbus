@@ -53,16 +53,8 @@ class TestPostWindowSelfConsumeHoursIsConfigurable(unittest.TestCase):
             if gt.hour < 6 and rate == 0.0
         ]
 
-    def test_default_is_no_restriction(self):
-        """4 was the reference household's own window; a fresh install has
-        none (household, 11 Oct 2026)."""
+    def test_default_matches_the_historical_hardcoded_4_hours(self):
         result = solver_writer.fetch_p2p_fixed_export_kw(self.cfg_base, self.grid_times)
-        assert result is not None
-        self.assertEqual(self._hours_pinned_to_zero(result), [])
-
-    def test_four_hours_pins_midnight_to_four(self):
-        cfg = {**self.cfg_base, "solver_post_window_self_consume_hours": 4}
-        result = solver_writer.fetch_p2p_fixed_export_kw(cfg, self.grid_times)
         assert result is not None
         self.assertEqual(self._hours_pinned_to_zero(result), [0, 1, 2, 3])
 
