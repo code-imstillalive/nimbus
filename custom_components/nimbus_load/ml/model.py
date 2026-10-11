@@ -1722,6 +1722,7 @@ def predict(
     seasonal_anchor: bool = False,
     running_threshold_kw: float | None = None,
     run_hold_hours: float = 1.0,
+    learned_when_off: bool = False,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -1811,6 +1812,33 @@ def predict(
     # lasted RUN_OFF_GRACE_MINUTES: an AC compressor cycling around the
     # threshold stays held rather than flicking between an hour and nil on
     # every refresh. The hold runs from the latest reading at or above it.
+    def _learned_usual_runs(start: int) -> PredictionResult:
+        """nimbus #1703 (household, 11 Oct 2026, for the ACs): the learned
+        forecast from `start` on, its lags taken from the load's usual
+        weekday/time pattern rather than chained from a held run or a zero,
+        so runs it usually makes (a hot afternoon) are still forecast."""
+
+        def tail(series: list[float] | None) -> list[float] | None:
+            return None if series is None else series[start:]
+
+        return predict(
+            trained,
+            timestamps[start:],
+            temps[start:],
+            humidities[start:],
+            recent_load_values,
+            resample_minutes,
+            tail(curtailments),
+            schedule_start_hour,
+            schedule_end_hour,
+            expected_load_kw,
+            tail(batteries_kw),
+            tail(grids_kw),
+            tail(solars_kw),
+            allow_negative,
+            True,
+        )
+
     if running_threshold_kw is not None and timestamps:
         ordered = sorted(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
         above = [p for p in ordered if p[1] >= running_threshold_kw]
@@ -1824,13 +1852,17 @@ def predict(
                 hold_end = _dst_safe_key(
                     last_above[0] + timedelta(hours=run_hold_hours)
                 )
-                return PredictionResult(
-                    values=[
-                        float(last_above[1]) if _dst_safe_key(t) < hold_end else 0.0
-                        for t in timestamps
-                    ]
-                )
-        return PredictionResult(values=[0.0] * len(timestamps))
+                n_hold = sum(1 for t in timestamps if _dst_safe_key(t) < hold_end)
+                held = [float(last_above[1])] * n_hold
+                if not learned_when_off or n_hold == len(timestamps):
+                    return PredictionResult(
+                        values=held + [0.0] * (len(timestamps) - n_hold)
+                    )
+                rest = _learned_usual_runs(n_hold)
+                return PredictionResult(values=held + rest.values)
+        if not learned_when_off:
+            return PredictionResult(values=[0.0] * len(timestamps))
+        return _learned_usual_runs(0)
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that

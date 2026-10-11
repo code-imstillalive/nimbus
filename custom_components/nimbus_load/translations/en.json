@@ -200,7 +200,8 @@
             "schedule_end_hour": "Fixed schedule end hour (optional, 24hr decimal)",
             "expected_load_kw": "Expected power while running (optional, kW)",
             "running_threshold_kw": "Running above (optional, kW)",
-            "run_hold_hours": "Hold while running (optional, hours)"
+            "run_hold_hours": "Hold while running (optional, hours)",
+            "run_hold_learned_when_off": "While off, forecast its usual runs"
           },
           "data_description": {
             "load_sensor": "A real, measured power sensor for one specific circuit/appliance (kW or W) -- e.g. a smart circuit breaker on your hot water system, pool pump, or EV charger. Nimbus trains a dedicated model against this sensor's own Recorder history and publishes a matching forecast sensor once training completes.",
@@ -208,7 +209,8 @@
             "schedule_end_hour": "The matching end hour for the schedule window above -- same 24-hour decimal format. Only meaningful together with the start hour.",
             "expected_load_kw": "Optional, only meaningful alongside the schedule window above -- roughly how much power this load draws while actually running (e.g. 3.7 for a typical HWS element). Gives the model a sensible starting point for what 'on' looks like, refined further from real history as it retrains.",
             "running_threshold_kw": "For a load that runs in bursts -- a washer, an oven, an AC. While it draws at least this much (e.g. 0.6 for 600 W), the forecast holds its current draw for the hours below, then nothing. While it is below this, nothing is forecast for it. Checked every 2 minutes, so a run that keeps going keeps extending the hold and a switch-off clears it. Leave blank to forecast it from its learned pattern instead.",
-            "run_hold_hours": "How long a running load is forecast to keep going from its latest reading (default 1). Only used with the field above."
+            "run_hold_hours": "How long a running load is forecast to keep going from its latest reading (default 1). Only used with the field above.",
+            "run_hold_learned_when_off": "Only with 'Running above'. Off: nothing is forecast while the load is off. On: its usual runs, learned from its history, are forecast instead -- for a load with a regular pattern, such as an AC on hot afternoons."
           }
         }
       },

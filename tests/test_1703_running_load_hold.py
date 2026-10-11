@@ -147,3 +147,46 @@ class TestTheFieldsReachThePredictCall(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLearnedWhenOff(unittest.TestCase):
+    """For a load with a regular pattern (an AC on hot afternoons): while
+    off, and after a hold, its usual runs are forecast instead of nothing."""
+
+    @classmethod
+    def setUpClass(cls):
+        TestRunningHold.setUpClass()
+        cls.trained = TestRunningHold.trained
+
+    def _predict(self, now, live, **kw):
+        timestamps = [now + timedelta(minutes=15 * i) for i in range(48)]
+        recent = [(now - timedelta(minutes=15 * i), live) for i in range(0, 8)]
+        return ml_model.predict(
+            trained=self.trained,
+            timestamps=timestamps,
+            temps=[20.0] * len(timestamps),
+            humidities=[50.0] * len(timestamps),
+            recent_load_values=recent,
+            resample_minutes=15,
+            **kw,
+        )
+
+    def test_off_forecasts_the_usual_13_00_run(self):
+        now = START + timedelta(days=DAYS, hours=11)
+        nil = self._predict(now, 0.02, running_threshold_kw=0.6)
+        learned = self._predict(
+            now, 0.02, running_threshold_kw=0.6, learned_when_off=True
+        )
+        self.assertEqual(max(nil.values), 0.0)
+        # 13:00-14:00 is steps 8-11 from 11:00.
+        self.assertGreater(max(learned.values[8:12]), 0.5)
+
+    def test_running_holds_then_returns_to_the_usual_pattern(self):
+        now = START + timedelta(days=DAYS, hours=15)
+        result = self._predict(
+            now, 0.9, running_threshold_kw=0.6, learned_when_off=True
+        )
+        self.assertEqual(result.values[:4], [0.9] * 4)
+        # After the hold: the usual pattern for 16:00 onwards is idle, not the
+        # held 0.9 carried on.
+        self.assertLess(max(result.values[4:40]), 0.3)

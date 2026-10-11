@@ -29,6 +29,7 @@ from ..const import (
     CONF_EXPECTED_LOAD_KW,
     CONF_LOAD_SENSOR,
     CONF_RUN_HOLD_HOURS,
+    CONF_RUN_HOLD_LEARNED_WHEN_OFF,
     CONF_RUNNING_THRESHOLD_KW,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
@@ -141,6 +142,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             schema_dict[vol.Optional(key, default=current)] = sel
         else:
             schema_dict[vol.Optional(key)] = sel
+    schema_dict[
+        vol.Optional(
+            CONF_RUN_HOLD_LEARNED_WHEN_OFF,
+            default=bool(defaults.get(CONF_RUN_HOLD_LEARNED_WHEN_OFF, False)),
+        )
+    ] = selector.BooleanSelector()
 
     return vol.Schema(schema_dict)
 

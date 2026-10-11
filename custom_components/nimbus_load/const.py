@@ -668,6 +668,10 @@ CONF_EXPECTED_LOAD_KW: Final = "expected_load_kw"
 # load keeps its learned forecast exactly as before.
 CONF_RUNNING_THRESHOLD_KW: Final = "running_threshold_kw"
 CONF_RUN_HOLD_HOURS: Final = "run_hold_hours"
+# Off by default. On: while the load is off, and after a hold, forecast the
+# runs it usually makes (its learned pattern) instead of nothing -- for a load
+# with a regular pattern, such as an AC on hot afternoons.
+CONF_RUN_HOLD_LEARNED_WHEN_OFF: Final = "run_hold_learned_when_off"
 DEFAULT_RUN_HOLD_HOURS: Final = 1.0
 
 # nimbus issue #1566: the Forecaster must cover the Solver's whole plan.

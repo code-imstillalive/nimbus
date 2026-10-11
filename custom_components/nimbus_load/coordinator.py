@@ -50,6 +50,7 @@ from .const import (
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_RUN_HOLD_HOURS,
+    CONF_RUN_HOLD_LEARNED_WHEN_OFF,
     CONF_RUNNING_THRESHOLD_KW,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
@@ -472,6 +473,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return DEFAULT_RUN_HOLD_HOURS
         return hours if hours > 0 else DEFAULT_RUN_HOLD_HOURS
+
+    @property
+    def _run_hold_learned_when_off(self) -> bool:
+        return bool(self.subentry.data.get(CONF_RUN_HOLD_LEARNED_WHEN_OFF))
 
     @property
     def _signal_role(self) -> str:
@@ -2038,6 +2043,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._seasonal_anchor,
             self._running_threshold_kw,
             self._run_hold_hours,
+            self._run_hold_learned_when_off,
         )
         preds = result.values
         has_model_bounds = (
