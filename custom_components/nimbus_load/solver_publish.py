@@ -943,6 +943,7 @@ def compute_cost_band(
     salvage_value: float,
     import_limit_kw: float,
     export_limit_kw: float,
+    bonus_credit: float = 0.0,
 ) -> dict[str, float] | None:
     """Cost-band diagnostic (2026-08-25, nimbus issue #147: "the load
     forecast's own uncertainty band is up to 8x the total cost being
@@ -966,6 +967,17 @@ def compute_cost_band(
     band a real, honest LOWER BOUND on the true swing, not the full
     picture -- callers should surface that caveat alongside the field,
     not treat it as the complete answer.
+
+    nimbus #1704 (household, 11 Oct 2026): that left the band on a
+    different basis from the plan cost it is drawn around. On the reference
+    household's P2P plan the band read -35.42 .. -26.09 while the plan cost
+    was -82.26 -- about $47 of P2P bonus missing -- so the dashboard drew
+    the plan line below its own best case. `bonus_credit` is the plan's own
+    P2P bonus over the band's window (bonus price x committed bonus kW x
+    hours). The dispatch is held fixed, so that credit is the same at either
+    load bound and is subtracted from both: the band and the plan cost are
+    then on one basis. The bounds are also returned in order, since with a
+    negative import price more load can cost less.
 
     Returns {"lower", "upper", "width"} (all $, "width" = upper -
     lower), or None if the re-costing itself fails for any reason --
@@ -1011,6 +1023,9 @@ def compute_cost_band(
             "Nimbus Solver: compute_cost_band failed", exc_info=True
         )
         return None
+    lower_cost, upper_cost = sorted(
+        (lower_cost - bonus_credit, upper_cost - bonus_credit)
+    )
     return {
         "lower": round(lower_cost, 4),
         "upper": round(upper_cost, 4),
@@ -2168,6 +2183,14 @@ def publish_plan(
 
     # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see
     # compute_cost_band()'s own docstring for the full reasoning.
+    # nimbus #1704: the plan's own P2P bonus per period, so the band sits on
+    # the plan cost's basis.
+    _n_band = len(period_hours_arr)
+    _bonus_credit = (
+        np.asarray(export_bonus_price, dtype=float)[:_n_band]
+        * np.asarray(plan.export_bonus_kw, dtype=float)[:_n_band]
+        * np.asarray(period_hours_arr, dtype=float)
+    )
     cost_band = compute_cost_band(
         period_hours=period_hours_arr,
         load_lower_kw=np.array(load_lower_kw),
@@ -2189,6 +2212,7 @@ def publish_plan(
         # GridConfig itself now uses for the actual dispatch decision.
         import_limit_kw=static_import_limit_kw,
         export_limit_kw=static_export_limit_kw,
+        bonus_credit=float(_bonus_credit.sum()),
     )
     # nimbus issue #630 (Mark Purcell: "a band 75 times wider than the
     # day's bill tells a household nothing" -- the full 96h band is real
@@ -2218,6 +2242,7 @@ def publish_plan(
         salvage_value=salvage_value,
         import_limit_kw=static_import_limit_kw,
         export_limit_kw=static_export_limit_kw,
+        bonus_credit=float(_bonus_credit[:n_24h].sum()),
     )
     # nimbus issue #630's second ask ("say on the sensor whether any
     # risk-aversion term is active"): a plain, honest boolean -- true
