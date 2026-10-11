@@ -13,6 +13,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 Two fixes found by a tester on 0.94.448, released the same day. Neither is
 dispatch code: no plan changes.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 4a762c3b**,
+  installed untagged via HACS from `main` (`installed_version` 4a762c3) and
+  restarted ~17:45 AEST 11 Oct. `nimbus_load` is `loaded`; devhub's own
+  entities stamp `0.94.449`; **0 new Nimbus `ERROR`/`Traceback` lines**
+  against the pre-install baseline (the known duplicate-unique-id class
+  excluded). devhub's Nimbus-written Solver tab (`solver-2`, 32 sections) is
+  unchanged and **not duplicated**, which is the expected path for an install
+  where the tab is already tracked. **Not observed live:** the wrongly-marked
+  install path, because devhub was never wrongly marked; it is covered by
+  `test_an_install_wrongly_marked_by_that_guess_gets_the_tab_once`. Nor the
+  W-source tooltip, because devhub's history sources are already kW; it is
+  covered by `test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in`.
+- Consumer check: an install whose dashboard has a tab merely mentioning
+  `sensor.nimbus_solver_lp_status` now gets the Solver tab at its next
+  restart; a Forecaster history line from a W sensor reads kW in its
+  tooltip. Nothing else changes.
+
 ### Fixed
 - **The Solver tab now installs on a dashboard that merely mentions the
   plan status.** 0.94.448 took any tab naming
