@@ -220,8 +220,18 @@ def test_temperature_and_humidity_signals_are_not_reported():
     hass = _hass({"sensor.t": "°C", "sensor.h": "%", "sensor.x": "%"})
     entry = _entry(
         subentries=(
-            _sub("power_signal", "Temp", load_sensor="sensor.t", signal_role="temperature"),
-            _sub("power_signal", "Humidity", load_sensor="sensor.h", signal_role="humidity"),
+            _sub(
+                "power_signal",
+                "Temp",
+                load_sensor="sensor.t",
+                signal_role="temperature",
+            ),
+            _sub(
+                "power_signal",
+                "Humidity",
+                load_sensor="sensor.h",
+                signal_role="humidity",
+            ),
             _sub("power_signal", "Other", load_sensor="sensor.x", signal_role="other"),
         )
     )
