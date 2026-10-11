@@ -16,6 +16,27 @@ floor in forecast price-spike periods while the spike override is armed, and
 a sleeping EV is no longer planned as empty. Merged with Mark's review waived
 by the household ("it is fixes not discovery or design or logic").
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at ff5c898b**,
+  installed untagged via HACS from `main` (`installed_version` ff5c898) and
+  restarted 23:47 AEST 11 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.450`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** in the 14 minutes after the restart (the known duplicate-unique-id
+  class excluded). devhub's Solver tab references
+  `time.nimbus_solver_battery_reserve_start_hour` / `_end_hour` (#1726).
+  **Not claimed: a solve on devhub.** devhub's own Solver hub entities read
+  `unavailable` (its `sensor.nimbus_solver_config` is production's mirrored
+  row), so the three dispatch fixes are evidenced by tests and by a replay of
+  the reference household's published 12 Oct plan inputs through `build_plan`
+  (simplified: no smoothing or proximal terms), not observed live.
+- Consumer check: a household with a soft reserve set sees its plan hold the
+  reserve inside the hold window from the first solve, unless a sale beats
+  its release margin. A household with a P2P
+  block and the spike override armed sees a forecast spike inside the block
+  sold above the block rate, instead of the spare energy sold before the block
+  starts. A sleeping EV keeps its last SoC in the plan for up to 12 h. A plan that hit HiGHS
+  `Unknown` is retried once before the previous plan is kept. On the Forecaster
+  chart a P2P block is drawn to its real end.
+
 ### Fixed
 - **The soft battery reserve reaches the solve (#1727).** Its four settings
   (Reserve, Release margin, Hold from, Release at) were saved and shown, but
@@ -25,7 +46,7 @@ by the household ("it is fixes not discovery or design or logic").
   still sold to 2.8% at 05:00. **A reserve that is set now binds.** A new test
   fails if any live setting the solve reads is missing from the config sensor.
 - **A P2P block can sell into a forecast price spike (#1724).** A block pinned
-  export exactly, so with ~$21/kWh forecast for 12 Oct 17:30-20:30 the plan
+  export exactly, so with ~$21/kWh forecast for 12 Oct 17:30-20:00 the plan
   could sell no more than the block rate, and sold its spare energy at 16:30
   for 47c instead. While the spike override is armed, a block period whose
   forecast import price is at or above the spike threshold now keeps the block
