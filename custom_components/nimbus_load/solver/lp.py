@@ -2432,6 +2432,38 @@ def _solve_with_options(
     )
 
 
+_UNKNOWN_RETRY_NOTED: set[str] = set()
+
+
+def _note_unknown_retry(how: str) -> None:
+    """One WARNING per retry kind per process (nimbus #1360)."""
+    if how in _UNKNOWN_RETRY_NOTED:
+        return
+    _UNKNOWN_RETRY_NOTED.add(how)
+    _LOGGER.warning(
+        "Nimbus #1360: HiGHS returned Unknown; retrying with a %s before "
+        "keeping the previous plan (logged once)",
+        how,
+    )
+
+
+def _retry_unknown_with_ipm(h: Any) -> Any:
+    """Re-run `h` once with HiGHS's interior-point solver after an Unknown
+    status, and return the new model status (nimbus #1360). The options are
+    restored afterwards whatever the outcome, so a later solve on a reused
+    handle starts from the same settings as before."""
+    _note_unknown_retry("interior-point solve")
+    try:
+        h.setOptionValue("solver", "ipm")
+        h.setOptionValue("run_crossover", "on")
+        h.clearSolver()
+        with _timed_lp_call(h, "unknown_retry_ipm"):
+            h.run()
+        return h.getModelStatus()
+    finally:
+        h.setOptionValue("solver", "choose")
+
+
 def _solve_highs(
     problem: LPProblem,
     *,
@@ -2670,6 +2702,24 @@ def _solve_highs(
     _ranging_valid_on_non_optimal = False if ranging else None
 
     status = h.getModelStatus()
+    # nimbus #1360 (a tester's install, 11 Oct 2026): HiGHS returned
+    # "Unknown" 169 times in three hours -- about 100 simplex iterations, a
+    # few primal infeasibilities of up to ~7 left, objective ~-$888 with a
+    # $23/kWh price spike in the horizon against 1c fees. "Unknown" is
+    # HiGHS giving up, not a verdict on the model, and the plan froze for
+    # the whole spike. Before keeping the previous plan, try once more:
+    #   * a calibrated/lex solve falls back to the plain single-objective
+    #     solve (the #773 fallback), whose objective is its own;
+    #   * a plain solve is re-run once with the interior-point solver
+    #     (crossover on, so it still ends with a basis).
+    # A MIP is left alone: these remedies are for the LP simplex path.
+    if status == highspy.HighsModelStatus.kUnknown and not binary_cols:
+        if options is not None:
+            _note_unknown_retry("plain single-objective solve")
+            return _solve_highs(
+                problem, ranging=ranging, keep_basis=keep_basis, options=None
+            )
+        status = _retry_unknown_with_ipm(h)
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
         return LPResult(
