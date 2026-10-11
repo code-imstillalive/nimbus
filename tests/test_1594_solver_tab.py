@@ -68,12 +68,12 @@ def _resolve(view):
 
 
 def _block(card) -> str | None:
-    """A block's opening card: a coloured title band (an ha-alert in a
-    text-only markdown card) naming the block (household, 11 Oct 2026)."""
+    """A block's opening band: a markdown card holding a coloured ha-alert
+    with the block's name as a heading (household, 11 Oct 2026)."""
     content = card.get("content", "")
     if card.get("type") != "markdown" or "<ha-alert" not in content:
         return None
-    return content.split('title="', 1)[1].split('"', 1)[0]
+    return content.split("<h2>", 1)[1].split("</h2>", 1)[0]
 
 
 def _what(card):
@@ -82,30 +82,41 @@ def _what(card):
     if card["type"] == "custom:apexcharts-card":
         return card["header"]["title"]
     if card["type"] == "tile":
-        return f"slider: {card['name']}"
+        kind = "slider" if card.get("features") else "tile"
+        return f"{kind}: {card['name']}"
+    if card["type"] == "button":
+        return f"button: {card['name']}"
     return card["type"]
 
 
 def test_the_sections_are_the_agreed_ones_in_order() -> None:
-    """The household's review on devhub, 11 Oct 2026: five blocks, each
-    opened by a full-width coloured band; cards side by side in rows."""
-    layout = []
+    """The household's reviews on devhub, 11 Oct 2026: Solve now on the very
+    top row, then five blocks, each opened by a full-width band."""
+    layout: list[list] = [["top"]]
     for section in solver_tab.template():
         cards = section["cards"]
         if _block(cards[0]):
             assert section["column_span"] == 4
             assert len(cards) == 1
+            assert not cards[0].get("text_only")  # outlined like a card
             layout.append([_block(cards[0])])
             continue
         assert len(cards) == 1, cards
         layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
         [
+            "top",
+            (1, "button: Solve now"),
+            (1, "tile: Plan"),
+            (1, "tile: Solve time"),
+            (1, "tile: Limiting the plan now"),
+        ],
+        [
             "Performance",
             (2, "At a glance"),
             (2, "Score by day"),
-            (2, "Plan cost, last 7 days"),
-            (2, "Where the cost comes from, last 24 h"),
+            (2, "Plan-ahead cost, as estimated"),
+            (2, "Where the plan's cost comes from"),
         ],
         [
             "Money",
@@ -128,36 +139,62 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Battery"),
             (1, "Grid and fees"),
             (1, "P2P"),
-            (1, "Reserve and price spikes"),
+            (1, "P2P hours and matching"),
         ],
         [
             "Advanced settings",
             (1, "Costs and stability"),
             (1, "Features"),
             (1, "Scoring"),
-            (1, "P2P hours and matching"),
+            (1, "Reserve and price spikes"),
         ],
     ]
 
 
-def test_cards_side_by_side_have_the_same_number_of_rows() -> None:
-    """Bottoms line up by content, not padding: every card in a row of four
-    has the same number of rows, its note inside under a divider."""
-    sections = solver_tab.template()
+def test_solve_now_calls_the_solver() -> None:
+    button = solver_tab.template()[0]["cards"][0]
+    assert button["tap_action"] == {
+        "action": "perform-action",
+        "perform_action": "nimbus_load.solve_now",
+    }
+
+
+# Rendered row heights in px, measured off the household's screenshot of
+# devhub (11 Oct 2026): a number box is taller than a toggle or a reading,
+# so equal row COUNTS did not line up. A divider + line of text is ~20 px
+# plus ~20 px per wrapped line (about 40 characters at a quarter width).
+_NUMBER, _OTHER = 66, 44
+
+
+def _height(card) -> int:
+    total = 0
+    for e in card["entities"]:
+        if e.get("type") == "conditional":
+            continue
+        if e.get("type") == "section":
+            total += 20 + 20 * -(-len(e["label"]) // 40)
+        elif e["entity"].startswith("@solver_") and not e["entity"].endswith(
+            ("_enabled", "_dry_run", "_known_solar", "_armed", "_policy")
+        ):
+            total += _NUMBER
+        else:
+            total += _OTHER
+    return total
+
+
+def test_cards_side_by_side_end_on_one_line() -> None:
+    """Household, 11 Oct 2026: bottoms line up by content -- more settings,
+    or more explanation where a card has fewer -- never by empty space."""
     rows: list[list[int]] = []
-    for section in sections:
+    for section in solver_tab.template():
         card = section["cards"][0]
         if _block(card):
             rows.append([])
-        elif card["type"] == "entities":
-            entries = card["entities"]
-            assert entries[-1]["type"] == "section", card["title"]  # the note
-            assert len(entries[-1]["label"]) <= 42, entries[-1]["label"]
-            plain = [
-                e for e in entries if e.get("type") not in ("section", "conditional")
-            ]
-            rows[-1].append(len(plain))
-    assert [r for r in rows if r] == [[6, 6, 6, 6], [8, 8, 8, 8], [8, 8, 8, 8]]
+        elif card["type"] == "entities" and rows:
+            assert card["entities"][-1]["type"] == "section", card["title"]
+            rows[-1].append(_height(card))
+    for heights in (r for r in rows if r):
+        assert max(heights) - min(heights) <= 45, heights
 
 
 def test_the_sliders_are_sliders() -> None:
@@ -167,13 +204,23 @@ def test_the_sliders_are_sliders() -> None:
     plan_row = [
         s["cards"][0]
         for s in solver_tab.template()
-        if s["cards"][0]["type"] == "tile"
+        if s["cards"][0].get("features")
         or "What the sliders do" in s["cards"][0].get("content", "")
     ]
     assert len(plan_row) == 4
     for card in plan_row[:3]:
         assert card["features"] == [{"type": "numeric-input", "style": "slider"}]
     assert len({json.dumps(c["grid_options"]) for c in plan_row}) == 1
+
+
+def test_charts_side_by_side_are_one_height() -> None:
+    charts = [
+        s["cards"][0]
+        for s in solver_tab.template()
+        if s["column_span"] == 2 and s["cards"][0]["type"] == "custom:apexcharts-card"
+    ]
+    assert len(charts) == 4
+    assert len({json.dumps(c["grid_options"]) for c in charts}) == 1
 
 
 def test_live_values_in_text_are_resolved() -> None:
@@ -332,10 +379,11 @@ def test_a_missing_entity_is_dropped_not_written_blank() -> None:
 
 
 def test_an_entities_card_with_nothing_left_is_dropped() -> None:
-    """With no entities at all only the block bands are left: every card,
-    chart and slider goes, and its column with it."""
+    """With no entities at all only the Solve now button and the block bands
+    are left: every card, chart and slider goes, and its column with it."""
     view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
     assert [[_block(c) for c in s["cards"]] for s in view] == [
+        [None],  # Solve now needs no entity
         ["Performance"],
         ["Money"],
         ["Plan"],

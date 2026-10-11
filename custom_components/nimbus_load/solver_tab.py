@@ -161,34 +161,36 @@ _GRID: _Card = (
 _P2P: _Card = (
     "P2P",
     [
-        ("solver_p2p_block_1_rate_kw", "Block 1 rate"),
-        ("solver_p2p_block_2_rate_kw", "Block 2 rate"),
-        ("solver_p2p_block_3_rate_kw", "Block 3 rate"),
+        ("solver_p2p_block_1_rate_kw", "Block 1 amount"),
+        ("solver_p2p_block_2_rate_kw", "Block 2 amount"),
+        ("solver_p2p_block_3_rate_kw", "Block 3 amount"),
         ("solver_p2p_block_lead_time_minutes", "Start lead time"),
         ("solver_p2p_bonus_price", "Bonus price"),
         ("solver_p2p_bonus_volume_kwh", "Bonus volume"),
         ("nimbus_solver_current_bonus_price", "Bonus price now"),
-        ("solver_post_window_self_consume_hours", "Self-consume after"),
+        ("solver_post_window_self_consume_hours", "Self-consume after midnight"),
     ],
-    "Rate 0 = block unused. Hours: Advanced.",
+    (
+        "Self-consume after midnight: after a block ending at midnight, "
+        "hours with no selling. 0 = sell straight away."
+    ),
 )
 
-_RESERVE: _Card = (
-    "Reserve and price spikes",
+_P2P_HOURS: _Card = (
+    "P2P hours and matching",
     [
-        ("solver_battery_reserve_percent", "Reserve"),
-        ("solver_battery_reserve_release_price", "Release margin"),
-        ("solver_battery_reserve_start_hour", "Hold from"),
-        ("solver_battery_reserve_end_hour", "Release at"),
-        ("solver_price_event_enabled", "Price events"),
-        ("solver_price_spike_threshold", "Spike threshold"),
-        ("solver_price_spike_discharge_kw", "Spike discharge"),
-        ("solver_price_spike_override_armed", "Spike override armed"),
+        ("solver_p2p_block_1_start_hour", "Block 1 start"),
+        ("solver_p2p_block_1_end_hour", "Block 1 stop"),
+        ("solver_p2p_block_2_start_hour", "Block 2 start"),
+        ("solver_p2p_block_2_end_hour", "Block 2 stop"),
+        ("solver_p2p_block_3_start_hour", "Block 3 start"),
+        ("solver_p2p_block_3_end_hour", "Block 3 stop"),
+        ("section", "Hours of the day: 17 = 5 pm, 24 = midnight."),
+        ("nimbus_solver_p2p_match_fraction", "Matched share (0–1)"),
+        ("nimbus_solver_p2p_recent_avg_volume_kwh", "Matched volume"),
     ],
-    "Insurance against a sudden high price.",
+    "Matched: export recently sold to a peer.",
 )
-
-# --- Advanced settings: four cards, eight rows each ------------------------
 
 _COSTS: _Card = (
     "Costs and stability",
@@ -216,6 +218,19 @@ _FEATURES: _Card = (
         ("solver_flex_signals_enabled", "Flex signals (slower)"),
         ("solver_score_controllable_loads_enabled", "Score controllable loads"),
         ("solver_dispatch_dry_run", "Own dispatcher: dry run"),
+        (
+            "section",
+            "Dry run: Nimbus's own dispatcher sends nothing to the inverter.",
+        ),
+        (
+            "section",
+            "Flex signals: each solve ~9× slower.",
+        ),
+        (
+            "section",
+            "Calibrated: ties go to steadier plans.",
+        ),
+        ("section", "Offer curve: publishes price response."),
     ],
     "Defaults suit most installs.",
 )
@@ -231,23 +246,33 @@ _SCORING: _Card = (
         ("nimbus_quality_epr_reliable", "Score reliable"),
         ("nimbus_counterfactual_nimbus_only_soc_close_pct", "Nimbus-only SoC, 5 pm"),
         ("nimbus_counterfactual_real_soc_close_pct", "Real SoC, 5 pm"),
+        (
+            "section",
+            "SoC gap: how far the battery's reported charge and the energy it measured drifted apart yesterday.",
+        ),
+        (
+            "section",
+            "Nimbus-only SoC: where the battery would have been at 5 pm had Nimbus alone decided; real SoC is where it was.",
+        ),
     ],
-    "A day over the limits is not scored.",
+    "A day over either limit is not scored.",
 )
 
-_P2P_HOURS: _Card = (
-    "P2P hours and matching",
+_RESERVE: _Card = (
+    "Reserve and price spikes",
     [
-        ("solver_p2p_block_1_start_hour", "Block 1 from"),
-        ("solver_p2p_block_1_end_hour", "Block 1 until"),
-        ("solver_p2p_block_2_start_hour", "Block 2 from"),
-        ("solver_p2p_block_2_end_hour", "Block 2 until"),
-        ("solver_p2p_block_3_start_hour", "Block 3 from"),
-        ("solver_p2p_block_3_end_hour", "Block 3 until"),
-        ("nimbus_solver_p2p_match_fraction", "Matched share"),
-        ("nimbus_solver_p2p_recent_avg_volume_kwh", "Matched volume"),
+        ("solver_battery_reserve_percent", "Reserve"),
+        ("solver_battery_reserve_release_price", "Release margin"),
+        ("solver_battery_reserve_start_hour", "Hold from"),
+        ("solver_battery_reserve_end_hour", "Release at"),
+        ("section", "Times of day: 5.5 = 5:30 am."),
+        ("section", "Price spikes"),
+        ("solver_price_event_enabled", "Price events"),
+        ("solver_price_spike_threshold", "Spike threshold"),
+        ("solver_price_spike_discharge_kw", "Spike discharge"),
+        ("solver_price_spike_override_armed", "Spike override armed"),
     ],
-    "When each block exports; how much sold.",
+    "Insurance against a sudden high price.",
 )
 
 # --- Plan: risk sliders ----------------------------------------------------
@@ -284,8 +309,8 @@ _BANNERS = (
 )
 
 _MONEY_ROW = (_SCORED, _MONEY, _BREAKDOWN, _BATTERY_NOW)
-_BASIC_ROW = (_BATTERY, _GRID, _P2P, _RESERVE)
-_ADVANCED_ROW = (_COSTS, _FEATURES, _SCORING, _P2P_HOURS)
+_BASIC_ROW = (_BATTERY, _GRID, _P2P, _P2P_HOURS)
+_ADVANCED_ROW = (_COSTS, _FEATURES, _SCORING, _RESERVE)
 
 # A block's rate reads "0.0" (or "0") while unused.
 _UNUSED = ("0", "0.0")
@@ -300,6 +325,10 @@ def _row(key: str, name: str) -> dict[str, Any]:
 def _rows(rows: list[tuple[str, ...]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for row in rows:
+        if row[0] == "section":
+            # A divider with a line of explanation, inside the card.
+            out.append({"type": "section", "label": row[1]})
+            continue
         if row[0] != "block":
             out.append(_row(*row))
             continue
@@ -318,23 +347,28 @@ def _rows(rows: list[tuple[str, ...]]) -> list[dict[str, Any]]:
     return out
 
 
-def _section(cards: list[dict[str, Any]], span: int) -> dict[str, Any]:
+def _section(
+    cards: list[dict[str, Any]], span: int, size: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """One column of the layout. `size` locks the cards' height, so charts
+    side by side end on the same line."""
+    grid = {"columns": "full", **(size or {})}
     return {
         "type": "grid",
         "column_span": span,
-        "cards": [{**c, "grid_options": {"columns": "full"}} for c in cards],
+        "cards": [{**c, "grid_options": grid} for c in cards],
     }
 
 
 def _banner(name: str, kind: str, line: str) -> dict[str, Any]:
-    """A full-width coloured title band opening a block."""
+    """A full-width band opening a block: a card (so it has the cards'
+    outline) holding a coloured alert with the block's name as a heading."""
     return _section(
         [
             {
                 "type": "markdown",
-                "text_only": True,
                 "content": (
-                    f'<ha-alert alert-type="{kind}" title="{name}">{line}</ha-alert>'
+                    f'<ha-alert alert-type="{kind}"><h2>{name}</h2>{line}</ha-alert>'
                 ),
             }
         ],
@@ -419,15 +453,39 @@ def _glance_chart() -> dict[str, Any]:
             },
         ],
         chart_type="radialBar",
-        apex_config={"plotOptions": {"radialBar": {"hollow": {"size": "30%"}}}},
+        apex_config={
+            "legend": {"show": True, "position": "right"},
+            "plotOptions": {
+                "radialBar": {
+                    "hollow": {"size": "22%"},
+                    "track": {"margin": 4},
+                    "dataLabels": {
+                        "name": {"fontSize": "14px"},
+                        "value": {"fontSize": "20px"},
+                    },
+                }
+            },
+        },
+    )
+
+
+def _history(field: str, scale: float = 1.0) -> str:
+    """A data_generator reading the quality report's dated history: each
+    scored day at its own date. The EPR/regret sensors change the morning
+    AFTER the day they score, so charting their history put every day a day
+    late (audit, 11 Oct 2026)."""
+    return (
+        "const r = hass.states['${@nimbus_solver_quality_report}']; "
+        "const h = (r && r.attributes.history) || {}; "
+        "return Object.keys(h).sort().map(d => "
+        f"[new Date(d + 'T12:00:00').getTime(), h[d].{field} * {scale}]);"
     )
 
 
 def _score_chart() -> dict[str, Any]:
-    day = {"group_by": {"func": "last", "duration": "1d"}}
     return _apex(
         "Score by day",
-        "EPR (line) and regret in dollars (bars), once settled.",
+        "Each settled day: EPR (line) and regret in dollars (bars).",
         [
             {
                 "entity": "@nimbus_quality_regret_dollars",
@@ -435,7 +493,7 @@ def _score_chart() -> dict[str, Any]:
                 "type": "column",
                 "color": "#E8615F",
                 "yaxis_id": "aud",
-                **day,
+                "data_generator": _history("regret_dollars"),
             },
             {
                 "entity": "@nimbus_quality_epr",
@@ -444,7 +502,7 @@ def _score_chart() -> dict[str, Any]:
                 "color": "#4FC3C7",
                 "stroke_width": 3,
                 "yaxis_id": "pct",
-                **day,
+                "data_generator": _history("epr", 100.0),
             },
         ],
         graph_span="14d",
@@ -459,8 +517,9 @@ def _score_chart() -> dict[str, Any]:
 def _cost_chart() -> dict[str, Any]:
     hour = {"group_by": {"func": "last", "duration": "1h"}, "curve": "stepline"}
     return _apex(
-        "Plan cost, last 7 days",
-        "Plan cost (white) inside its best–worst range. Below zero it earns.",
+        "Plan-ahead cost, as estimated",
+        "Each point is the whole plan ahead (about four days) as estimated "
+        "then, inside its best–worst range -- not money spent. Below zero earns.",
         [
             {
                 "entity": "@nimbus_solver_cost_band_upper",
@@ -494,34 +553,37 @@ def _cost_chart() -> dict[str, Any]:
 
 
 def _breakdown_chart() -> dict[str, Any]:
-    """Stacked columns every 3 hours. Earnings stack below zero, costs above;
-    the axis follows both, and every segment carries its dollar label so a
-    few cents of wear still reads next to tens of dollars of grid."""
-    step = {"group_by": {"func": "last", "duration": "3h"}, "type": "column"}
+    """The CURRENT plan's cost, split into its parts, one labelled column
+    each, then their total. The breakdown sensors are whole-plan figures
+    (about four days ahead), re-estimated every solve -- NOT costs per hour.
+    An earlier version charted their snapshots over 24 hours as if they were,
+    and every figure on it misled (household, 11 Oct 2026). So: one moment,
+    the latest, and the parts add up to the plan cost beside them."""
+    now = {"group_by": {"func": "last", "duration": "1h"}, "type": "column"}
     parts = (
         ("nimbus_solver_cost_breakdown_grid_net", "Grid, net", "#4fa3ff"),
         ("nimbus_solver_cost_breakdown_charge_fee", "Charging", "#ffb340"),
         ("nimbus_solver_cost_breakdown_discharge_fee", "Discharging", "#ff4d8d"),
         ("nimbus_solver_cost_breakdown_degradation", "Battery wear", "#E8615F"),
         ("nimbus_solver_cost_breakdown_terminal_value_credit", "Value left", "#3ddc84"),
+        ("nimbus_solver_total_cost", "Plan cost", "#e8eaf0"),
     )
     return _apex(
-        "Where the cost comes from, last 24 h",
-        "Above zero costs, below zero earns. Labels in dollars.",
-        [{"entity": f"@{k}", "name": n, "color": c, **step} for k, n, c in parts],
-        height=320,
-        graph_span="24h",
-        stacked=True,
+        "Where the plan's cost comes from",
+        "The whole plan ahead, about four days. The five parts add up to "
+        "the plan cost. Above zero costs, below zero earns.",
+        [{"entity": f"@{k}", "name": n, "color": c, **now} for k, n, c in parts],
+        graph_span="1h",
+        span={"end": "hour"},
         yaxis=[{"decimals": 0}],
         apex_config={
+            "xaxis": {"labels": {"show": False}},
+            "plotOptions": {"bar": {"columnWidth": "85%"}},
             "dataLabels": {
                 "enabled": True,
-                "style": {"fontSize": "10px"},
-                "formatter": (
-                    "EVAL:function(v){return (v === null || Math.abs(v) < 0.005)"
-                    " ? '' : '$' + v.toFixed(2);}"
-                ),
-            }
+                "style": {"fontSize": "12px"},
+                "formatter": "EVAL:function(v){return v === null ? '' : '$' + v.toFixed(2);}",
+            },
         },
     )
 
@@ -539,14 +601,14 @@ def _chart() -> dict[str, Any]:
     return _apex(
         "Battery: plan against measured",
         "kW, up = discharging. Solid: measured; teal: plan, dashed ahead. "
-        "Green: state of charge. Amber: buy price.",
+        "Green: state of charge. Red: buy price.",
         [
             {
                 "entity": "@option:battery_sensor",
                 "name": "Measured",
                 "curve": "stepline",
                 "color": "#e8eaf0",
-                "stroke_width": 3,
+                "stroke_width": 2,
                 "yaxis_id": "kw",
                 **past,
             },
@@ -555,7 +617,7 @@ def _chart() -> dict[str, Any]:
                 "name": "Plan",
                 "curve": "stepline",
                 "color": "#4FC3C7",
-                "stroke_width": 1.5,
+                "stroke_width": 4.5,
                 "yaxis_id": "kw",
                 **past,
             },
@@ -564,7 +626,7 @@ def _chart() -> dict[str, Any]:
                 "name": "Plan ahead",
                 "curve": "stepline",
                 "color": "#4FC3C7",
-                "stroke_width": 2.5,
+                "stroke_width": 4.5,
                 "stroke_dash": 5,
                 "yaxis_id": "kw",
                 "data_generator": _forecast("battery_kw"),
@@ -594,8 +656,8 @@ def _chart() -> dict[str, Any]:
                 "entity": "@nimbus_solver_current_import_price",
                 "name": "Buy price",
                 "curve": "stepline",
-                "color": "#ffb340",
-                "stroke_width": 1.5,
+                "color": "#ff3b5c",
+                "stroke_width": 3,
                 "yaxis_id": "price",
                 "unit": "c/kWh",
                 "transform": "return x * 100;",
@@ -605,8 +667,8 @@ def _chart() -> dict[str, Any]:
                 "entity": plan,
                 "name": "Buy price ahead",
                 "curve": "stepline",
-                "color": "#ffb340",
-                "stroke_width": 1.5,
+                "color": "#ff3b5c",
+                "stroke_width": 3,
                 "stroke_dash": 3,
                 "yaxis_id": "price",
                 "data_generator": _forecast("import_price", 100.0),
@@ -616,7 +678,7 @@ def _chart() -> dict[str, Any]:
         height=360,
         graph_span="36h",
         span={"start": "hour", "offset": "-12h"},
-        now={"show": True, "label": "Now", "color": "#ff4d8d"},
+        now={"show": True, "label": "Now", "color": "#ffffff"},
         yaxis=[
             {"id": "kw", "decimals": 0, "apex_config": {"title": {"text": "kW"}}},
             {"id": "soc", "min": 0, "max": 100, "show": False},
@@ -638,10 +700,13 @@ def _energy_chart() -> dict[str, Any]:
         ("grid_to_battery", "Grid in", "#4fa3ff"),
         ("battery_to_load", "To house", "#3ddc84"),
         ("battery_to_grid", "To grid", "#ff4d8d"),
+        # Conversion losses: without them the slices out do not add up to
+        # the plan's discharge (audit, 11 Oct 2026: 375.6 + 59.3 = 434.8 kWh).
+        ("battery_to_losses", "Losses", "#6b7280"),
     )
     return _apex(
         "Battery energy in the plan",
-        "kWh over the whole plan ahead.",
+        "kWh over the whole plan ahead. Out = to house + to grid + losses.",
         [
             {
                 "entity": plan,
@@ -664,7 +729,7 @@ def _energy_chart() -> dict[str, Any]:
 
 def _risk_row() -> list[dict[str, Any]]:
     """Three slider tiles and the explanation, one column each, one height."""
-    height = {"rows": 4}
+    height = {"rows": 3}
     tiles = [
         _section(
             [
@@ -672,7 +737,6 @@ def _risk_row() -> list[dict[str, Any]]:
                     "type": "tile",
                     "entity": f"@{key}",
                     "name": name,
-                    "vertical": True,
                     "features": [{"type": "numeric-input", "style": "slider"}],
                     "features_position": "bottom",
                 }
@@ -687,17 +751,58 @@ def _risk_row() -> list[dict[str, Any]]:
     return [*tiles, explain]
 
 
+def _top_row() -> list[dict[str, Any]]:
+    """Solve now, and what it changes: the plan's status and when it last
+    solved, how long that took, and what is limiting the plan right now."""
+    height = {"columns": "full", "rows": 2}
+    button: dict[str, Any] = {
+        "type": "button",
+        "name": "Solve now",
+        "icon": "mdi:play-circle",
+        "icon_height": "48px",
+        "show_state": False,
+        "tap_action": {
+            "action": "perform-action",
+            "perform_action": "nimbus_load.solve_now",
+        },
+    }
+    tiles: list[dict[str, Any]] = [
+        {
+            "type": "tile",
+            "entity": "@nimbus_solver_lp_status",
+            "name": "Plan",
+            "state_content": ["state", "last_updated"],
+        },
+        {
+            "type": "tile",
+            "entity": "@nimbus_solver_solve_seconds",
+            "name": "Solve time",
+        },
+        {
+            "type": "tile",
+            "entity": "@nimbus_solver_binding_constraint_now",
+            "name": "Limiting the plan now",
+        },
+    ]
+    return [
+        {"type": "grid", "column_span": 1, "cards": [{**c, "grid_options": height}]}
+        for c in (button, *tiles)
+    ]
+
+
 def template() -> list[dict[str, Any]]:
     """The tab's sections with `@key` placeholders, before resolution. Also
     what the tab's design fingerprint is taken from, so it is the same on
     every install."""
     banners = {name: _banner(name, kind, line) for name, kind, line in _BANNERS}
+    pair = {"rows": 6}
     return [
+        *_top_row(),
         banners["Performance"],
-        _section([_glance_chart()], 2),
-        _section([_score_chart()], 2),
-        _section([_cost_chart()], 2),
-        _section([_breakdown_chart()], 2),
+        _section([_glance_chart()], 2, pair),
+        _section([_score_chart()], 2, pair),
+        _section([_cost_chart()], 2, pair),
+        _section([_breakdown_chart()], 2, pair),
         banners["Money"],
         *(_section([_card(c)], 1) for c in _MONEY_ROW),
         banners["Plan"],
