@@ -207,13 +207,11 @@ class NimbusForecastCard extends HTMLElement {
     };
     // nimbus #1570: any power unit, not only W behind a kW forecast.
     const k = NimbusForecastCard.powerScaleToKw(unit) / NimbusForecastCard.powerScaleToKw(fu);
-    if (k !== 1) {
-      series.transform = "return x * " + k + ";";
-      // The values are now in the forecast's unit, so label them that way:
-      // without this the tooltip kept the source's own unit, and a W sensor
-      // read "34.5 W" for 34.5 kW (a tester, 11 Oct 2026).
-      series.unit = fu || "kW";
-    }
+    if (k !== 1) series.transform = "return x * " + k + ";";
+    // The values are now in the forecast's unit, so label them that way:
+    // without this the tooltip kept the source's own unit, and a W sensor
+    // read "34.5 W" for 34.5 kW (a tester, 11 Oct 2026).
+    if (k !== 1) series.unit = fu || "kW";
     return series;
   }
 
