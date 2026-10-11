@@ -45,9 +45,15 @@ lookup.
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Callable
 from typing import Any
+
+try:
+    from .power_units import POWER_TO_KW, power_scale_to_kw
+except ImportError:  # loaded standalone (tests)
+    from power_units import POWER_TO_KW, power_scale_to_kw  # type: ignore[no-redef]
 
 # A card is (title, rows, note). A row is (key, name), or
 # ("block", rate_key, start_key, end_key, label): the rate, then its hours
@@ -441,6 +447,22 @@ def _apex(
     }
 
 
+# A series on a data_generator takes its unit from the plan sensor (kW)
+# unless given its own, so "SoC ahead" read "7 kW" (11 Oct 2026).
+#
+# The measured battery series is brought to kW with power_units.py's table
+# (nimbus #1570), read against the sensor's live unit: history rows may carry
+# no attributes. Case matters only for mW against MW.
+_TO_KW = (
+    "const s = hass.states['${@option:battery_sensor}']; "
+    "const u = String((s && s.attributes && s.attributes.unit_of_measurement) || '').trim(); "
+    f"const exact = {json.dumps({u: power_scale_to_kw(u) for u in ('mW', 'MW')})}; "
+    f"const t = {json.dumps(POWER_TO_KW)}; "
+    "const k = u in exact ? exact[u] : (u.toLowerCase() in t ? t[u.toLowerCase()] : 1); "
+    "return x * k;"
+)
+
+
 def _forecast(field: str, scale: float = 1.0) -> str:
     """A data_generator reading one field of the published plan."""
     return (
@@ -643,6 +665,10 @@ def _chart() -> dict[str, Any]:
                 "color": "#e8eaf0",
                 "stroke_width": 2,
                 "yaxis_id": "kw",
+                # A battery sensor in W (a tester's, 11 Oct 2026) was plotted
+                # as kW and flattened the plan to nothing.
+                "unit": "kW",
+                "transform": _TO_KW,
                 **past,
             },
             {
@@ -682,6 +708,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 1.5,
                 "stroke_dash": 4,
                 "yaxis_id": "soc",
+                "unit": "%",
                 "data_generator": _forecast("soc_pct"),
                 **ahead,
             },
@@ -704,6 +731,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 3,
                 "stroke_dash": 3,
                 "yaxis_id": "price",
+                "unit": "c/kWh",
                 "data_generator": _forecast("import_price", 100.0),
                 **ahead,
             },

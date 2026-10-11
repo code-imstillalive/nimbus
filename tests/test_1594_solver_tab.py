@@ -554,3 +554,21 @@ def test_the_energy_pie_is_tomorrow_beside_the_table() -> None:
     )
     for series in sections[i]["cards"][0]["series"]:
         assert "setHours(24, 0, 0, 0)" in series["data_generator"]
+
+
+def test_battery_chart_reads_watts_as_kw_and_labels_its_plan_series() -> None:
+    """11 Oct 2026: a tester's battery sensor in W was drawn as kW, and the
+    plan-ahead SoC and price series were labelled kW."""
+    chart = solver_tab._chart()
+    by_name = {s["name"]: s for s in chart["series"]}
+    measured = by_name["Measured"]
+    assert measured["unit"] == "kW"
+    assert '"w": 0.001' in measured["transform"]
+    assert '"MW": 1000.0' in measured["transform"]
+    assert "${@option:battery_sensor}" in measured["transform"]
+    resolved = solver_tab.resolve(
+        measured, lambda k: "sensor.batt" if k == "option:battery_sensor" else None
+    )
+    assert "hass.states['sensor.batt']" in resolved["transform"]
+    assert by_name["SoC ahead"]["unit"] == "%"
+    assert by_name["Buy price ahead"]["unit"] == "c/kWh"
