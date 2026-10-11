@@ -441,6 +441,17 @@ def _apex(
     }
 
 
+# A series on a data_generator takes its unit from the plan sensor (kW)
+# unless given its own, so "SoC ahead" read "7 kW" (11 Oct 2026).
+# The battery sensor's unit is read from its live state: history rows may
+# carry no attributes.
+_TO_KW = (
+    "const s = hass.states['${@option:battery_sensor}']; "
+    "const u = s && s.attributes ? s.attributes.unit_of_measurement : ''; "
+    "return u === 'W' ? x / 1000 : u === 'MW' ? x * 1000 : x;"
+)
+
+
 def _forecast(field: str, scale: float = 1.0) -> str:
     """A data_generator reading one field of the published plan."""
     return (
@@ -643,6 +654,10 @@ def _chart() -> dict[str, Any]:
                 "color": "#e8eaf0",
                 "stroke_width": 2,
                 "yaxis_id": "kw",
+                # A battery sensor in W (a tester's, 11 Oct 2026) was plotted
+                # as kW and flattened the plan to nothing.
+                "unit": "kW",
+                "transform": _TO_KW,
                 **past,
             },
             {
@@ -682,6 +697,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 1.5,
                 "stroke_dash": 4,
                 "yaxis_id": "soc",
+                "unit": "%",
                 "data_generator": _forecast("soc_pct"),
                 **ahead,
             },
@@ -704,6 +720,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 3,
                 "stroke_dash": 3,
                 "yaxis_id": "price",
+                "unit": "c/kWh",
                 "data_generator": _forecast("import_price", 100.0),
                 **ahead,
             },
