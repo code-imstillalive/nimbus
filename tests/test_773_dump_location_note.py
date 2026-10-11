@@ -34,6 +34,7 @@ from __future__ import annotations
 import ast
 import os
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
@@ -202,3 +203,60 @@ class TestBothCallSitesUseIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHomeAssistantDefaultsToTheConfigFolder(unittest.TestCase):
+    """11 Oct 2026: a tester's capture landed in the HA container's /tmp,
+    which a household cannot reach without docker. The integration now
+    defaults the dump directory to /config/nimbus_diagnostics."""
+
+    def test_the_runtime_sets_the_default_under_config(self):
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "custom_components"
+            / "nimbus_load"
+            / "solver_runtime.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'os.environ.setdefault("NIMBUS_LP_DUMP_DIR", '
+            'hass.config.path("nimbus_diagnostics"))',
+            src,
+        )
+
+    def test_the_dump_creates_its_directory(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "nimbus_diagnostics")
+            written = []
+
+            class _H:
+                def writeModel(self, path):
+                    written.append(path)
+                    open(path, "w").close()
+
+            with patch.dict(os.environ, {lp._LP_DUMP_DIR_ENV: target}):
+                lp._LP_DUMPED_PHASES.discard("dir_test")
+                path = lp._dump_failing_model(_H(), "dir_test", issue="1179")
+            self.assertEqual(path, os.path.join(target, "nimbus_1179_dir_test.mps"))
+            self.assertTrue(os.path.isfile(path))
+
+    def test_an_uncreatable_folder_falls_back_to_temp(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = os.path.join(tmp, "a_file")
+            open(blocker, "w").close()  # a file where the folder should be
+
+            class _H:
+                def writeModel(self, path):
+                    open(path, "w").close()
+
+            with patch.dict(
+                os.environ, {lp._LP_DUMP_DIR_ENV: os.path.join(blocker, "sub")}
+            ):
+                lp._LP_DUMPED_PHASES.discard("fallback_test")
+                path = lp._dump_failing_model(_H(), "fallback_test", issue="1179")
+            self.assertIsNotNone(path)
+            self.assertTrue(path.startswith(tempfile.gettempdir()))
+            os.remove(path)

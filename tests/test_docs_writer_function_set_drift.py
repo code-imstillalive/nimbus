@@ -548,6 +548,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Returns [] unconditionally in standalone mode already (_NATIVE_
         # HASS is None there), so there's nothing behavioural to port.
         "build_extra_batteries",
+        # nimbus #1715: build_extra_batteries()'s own SoC read for a battery
+        # participant (hold the last good SoC while a car sleeps). Native-only
+        # for the same reason as the function that calls it.
+        "_participant_soc_pct",
         # nimbus issue #768/#585: same reasoning as build_extra_
         # batteries() immediately above -- reads real battery_participant
         # ConfigSubentries (_NATIVE_HASS.config_entries.async_entries(...)
@@ -718,6 +722,11 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # Same reason: the shared block parser behind it and behind
         # fetch_p2p_fixed_export_kw(), which the docs copy does not have.
         "_configured_p2p_blocks",
+        # Household, 11 Oct 2026: a P2P block's pin becomes a floor in
+        # forecast price-spike periods while the spike override is armed.
+        # Same reason as above: the docs copy has no P2P block settings and
+        # no armed-override setting to read.
+        "spike_export_ceiling",
         # nimbus issue #1537 item 3 -- resample_real_p2p_rate()'s two row
         # shapes and second-source merge, split into helpers. The docs
         # copy's resample_real_p2p_rate(grid_times) takes no sensor at all
@@ -904,6 +913,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resolve_price_event_delta",
         "compute_cost_band",
         "compute_cost_breakdown",
+        # nimbus #1704: compute_cost_breakdown() split by day; same open
+        # drift as compute_cost_breakdown() itself, which the docs copy
+        # does not have either.
+        "compute_cost_breakdown_by_day",
         "fetch_entity_history_range",
         "periods_within_hours",
         "resample_generic_price_forecast_with_coverage",

@@ -461,6 +461,13 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_PLAN_STATE_PATH",
         hass.config.path("nimbus_solver_last_plan.json"),
     )
+    # A tester's real solver-failure capture (11 Oct 2026) was written to the
+    # HA container's /tmp, which a household cannot reach without docker and
+    # which a restart wipes. Captures now go in /config/nimbus_diagnostics,
+    # where the File editor, Samba and backups already reach. Safe for
+    # backups (#1324's failure was a file DELETED mid-walk; a capture is only
+    # ever written, once per failure kind, and never removed).
+    os.environ.setdefault("NIMBUS_LP_DUMP_DIR", hass.config.path("nimbus_diagnostics"))
     # nimbus issue #1324: these two must NOT live under /config, and the
     # reason is a real production failure rather than tidiness. HA's automatic
     # backup aborted at 04:45 AEST 2026-09-27 after 24 seconds and ~20 MB:

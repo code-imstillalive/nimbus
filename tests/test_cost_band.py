@@ -158,3 +158,53 @@ class TestTheBandIsOnThePlanCostsBasis(unittest.TestCase):
         band = _band([1.0, 1.0], [3.0, 3.0], import_price=np.full(2, -0.10))
         self.assertLessEqual(band["lower"], band["upper"])
         self.assertGreaterEqual(band["width"], 0.0)
+
+
+class TestCostBreakdownByDay(unittest.TestCase):
+    """nimbus #1704: the per-day split adds up to the whole-plan breakdown."""
+
+    def test_days_reconcile_with_the_whole_plan(self):
+        days = ["2026-10-11"] * 2 + ["2026-10-12"] * 2
+        net = [1.0, -2.0, 3.5, -0.5]
+        ch = np.array([2.0, 0.0, 1.0, 0.0])
+        dis = np.array([0.0, 3.0, 0.0, 4.0])
+        hours = np.array([0.5, 0.5, 1.0, 1.0])
+        dcost = np.array([0.01, 0.02, 0.01, 0.03])
+        whole = solver_publish.compute_cost_breakdown(
+            net_costs=net,
+            total_cost=sum(net) + 0.005 * 2.0 + 0.0 - 4.0,
+            degradation_cost_per_kwh=0.0,
+            total_throughput_kwh=float(np.sum((ch + dis) * hours)),
+            charge_cost=0.005,
+            total_charge_kwh=float(np.sum(ch * hours)),
+            discharge_cost_arr=dcost,
+            battery_discharge_kw=dis,
+            period_hours=hours,
+        )
+        by_day = solver_publish.compute_cost_breakdown_by_day(
+            days=days,
+            net_costs=net,
+            battery_charge_kw=ch,
+            battery_discharge_kw=dis,
+            period_hours=hours,
+            charge_cost=0.005,
+            degradation_cost_per_kwh=0.0,
+            discharge_cost_arr=dcost,
+            breakdown=whole,
+        )
+        self.assertEqual(list(by_day), ["2026-10-11", "2026-10-12"])
+        self.assertAlmostEqual(
+            sum(d["grid_net"] for d in by_day.values()), whole["grid_net"], places=4
+        )
+        self.assertAlmostEqual(
+            sum(d["discharge_fee"] for d in by_day.values()),
+            whole["discharge_fee"],
+            places=4,
+        )
+        # The end-of-plan credit sits on the last day only.
+        self.assertEqual(by_day["2026-10-11"]["end_of_plan"], 0.0)
+        self.assertAlmostEqual(
+            by_day["2026-10-12"]["end_of_plan"],
+            whole["terminal_value_credit"],
+            places=4,
+        )

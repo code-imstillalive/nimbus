@@ -2742,6 +2742,48 @@
        "soc_penalty": 0.0,
        "terminal_value_credit": -0.8166
       },
+      "cost_breakdown_by_day": {
+       "2026-07-31": {
+        "charge_fee": 0.2,
+        "degradation": 0.0,
+        "discharge_fee": 0.8814,
+        "end_of_plan": 0.0,
+        "grid_net": -6.9871,
+        "plan_cost": -5.9056
+       },
+       "2026-08-01": {
+        "charge_fee": 0.4465,
+        "degradation": 0.0,
+        "discharge_fee": 1.571,
+        "end_of_plan": 0.0,
+        "grid_net": -317.0693,
+        "plan_cost": -315.0518
+       },
+       "2026-08-02": {
+        "charge_fee": 0.4649,
+        "degradation": 0.0,
+        "discharge_fee": 0.0807,
+        "end_of_plan": 0.0,
+        "grid_net": 3.1629,
+        "plan_cost": 3.7085
+       },
+       "2026-08-03": {
+        "charge_fee": 0.2508,
+        "degradation": 0.0,
+        "discharge_fee": 1.9149,
+        "end_of_plan": 0.0,
+        "grid_net": -185.4884,
+        "plan_cost": -183.3227
+       },
+       "2026-08-04": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.125,
+        "end_of_plan": -0.8166,
+        "grid_net": -36.2389,
+        "plan_cost": -36.9305
+       }
+      },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
       "discharge_efficiency": 0.9747,
@@ -13060,7 +13102,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 308035 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=281354B, batteries=23564B, solve_diagnostics=481B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 308796 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=281354B, batteries=23564B, cost_breakdown_by_day=734B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }

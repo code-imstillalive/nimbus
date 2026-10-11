@@ -121,6 +121,10 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (2, "Score by day"),
             (2, "Plan-ahead cost, as estimated"),
             (2, "Where the plan's cost comes from"),
+            (
+                4,
+                "markdown: How the score was made: {{ state_attr(q, 'latest_date') or 'no day scored yet' }}",
+            ),
         ],
         [
             "Money",
@@ -128,12 +132,15 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Money, plan ahead"),
             (1, "Where the cost comes from"),
             (1, "Battery, now"),
+            (2, "markdown: Today and tomorrow, planned"),
+            (2, "markdown: The plan's cost, by day, $"),
             (2, "markdown: Yesterday and tomorrow, kWh"),
             (2, "Battery energy, tomorrow"),
         ],
         [
             "Plan",
             (4, "Battery: plan against measured"),
+            (4, "markdown: The plan until midnight, half-hourly"),
             (1, "slider: Import price risk"),
             (1, "slider: Export price risk"),
             (1, "slider: Solar forecast risk"),
@@ -554,3 +561,21 @@ def test_the_energy_pie_is_tomorrow_beside_the_table() -> None:
     )
     for series in sections[i]["cards"][0]["series"]:
         assert "setHours(24, 0, 0, 0)" in series["data_generator"]
+
+
+def test_battery_chart_reads_watts_as_kw_and_labels_its_plan_series() -> None:
+    """11 Oct 2026: a tester's battery sensor in W was drawn as kW, and the
+    plan-ahead SoC and price series were labelled kW."""
+    chart = solver_tab._chart()
+    by_name = {s["name"]: s for s in chart["series"]}
+    measured = by_name["Measured"]
+    assert measured["unit"] == "kW"
+    assert '"w": 0.001' in measured["transform"]
+    assert '"MW": 1000.0' in measured["transform"]
+    assert "${@option:battery_sensor}" in measured["transform"]
+    resolved = solver_tab.resolve(
+        measured, lambda k: "sensor.batt" if k == "option:battery_sensor" else None
+    )
+    assert "hass.states['sensor.batt']" in resolved["transform"]
+    assert by_name["SoC ahead"]["unit"] == "%"
+    assert by_name["Buy price ahead"]["unit"] == "c/kWh"

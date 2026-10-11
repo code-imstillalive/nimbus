@@ -45,9 +45,15 @@ lookup.
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Callable
 from typing import Any
+
+try:
+    from .power_units import POWER_TO_KW, power_scale_to_kw
+except ImportError:  # loaded standalone (tests)
+    from power_units import POWER_TO_KW, power_scale_to_kw  # type: ignore[no-redef]
 
 # A card is (title, rows, note). A row is (key, name), or
 # ("block", rate_key, start_key, end_key, label): the rate, then its hours
@@ -441,6 +447,22 @@ def _apex(
     }
 
 
+# A series on a data_generator takes its unit from the plan sensor (kW)
+# unless given its own, so "SoC ahead" read "7 kW" (11 Oct 2026).
+#
+# The measured battery series is brought to kW with power_units.py's table
+# (nimbus #1570), read against the sensor's live unit: history rows may carry
+# no attributes. Case matters only for mW against MW.
+_TO_KW = (
+    "const s = hass.states['${@option:battery_sensor}']; "
+    "const u = String((s && s.attributes && s.attributes.unit_of_measurement) || '').trim(); "
+    f"const exact = {json.dumps({u: power_scale_to_kw(u) for u in ('mW', 'MW')})}; "
+    f"const t = {json.dumps(POWER_TO_KW)}; "
+    "const k = u in exact ? exact[u] : (u.toLowerCase() in t ? t[u.toLowerCase()] : 1); "
+    "return x * k;"
+)
+
+
 def _forecast(field: str, scale: float = 1.0) -> str:
     """A data_generator reading one field of the published plan."""
     return (
@@ -591,7 +613,11 @@ def _breakdown_chart() -> dict[str, Any]:
     now = {
         "type": "column",
         "data_generator": (
-            "return [[Date.now() - 30 * 60 * 1000, parseFloat(entity.state)]];"
+            # No current plan (a failed or stale solve leaves these
+            # unavailable): no column, so the card reads N/A like the others
+            # rather than NaN (a tester's install, 11 Oct 2026).
+            "const v = parseFloat(entity.state); "
+            "return isNaN(v) ? [] : [[Date.now() - 30 * 60 * 1000, v]];"
         ),
     }
     parts = (
@@ -643,6 +669,10 @@ def _chart() -> dict[str, Any]:
                 "color": "#e8eaf0",
                 "stroke_width": 2,
                 "yaxis_id": "kw",
+                # A battery sensor in W (a tester's, 11 Oct 2026) was plotted
+                # as kW and flattened the plan to nothing.
+                "unit": "kW",
+                "transform": _TO_KW,
                 **past,
             },
             {
@@ -682,6 +712,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 1.5,
                 "stroke_dash": 4,
                 "yaxis_id": "soc",
+                "unit": "%",
                 "data_generator": _forecast("soc_pct"),
                 **ahead,
             },
@@ -704,6 +735,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_width": 3,
                 "stroke_dash": 3,
                 "yaxis_id": "price",
+                "unit": "c/kWh",
                 "data_generator": _forecast("import_price", 100.0),
                 **ahead,
             },
@@ -824,6 +856,214 @@ def _energy_pie() -> dict[str, Any]:
     )
 
 
+# --- #1704: score detail, plan tables (household, 11 Oct 2026) -------------
+# Every figure is read from Nimbus's own published plan and quality report,
+# and each table's total is the sum of its own rows.
+
+_PLAN = "${@nimbus_solver_battery_forecast}"
+_QUALITY = "${@nimbus_solver_quality_report}"
+
+# Dollars with the sign in front: -$21.44, not $-21.44.
+_MONEY_FMT = (
+    "{% macro m(x) %}{% if x is number %}"
+    "{{ ('-$%.2f' | format(-x)) if x < 0 else ('$%.2f' | format(x)) }}"
+    "{% else %}—{% endif %}{% endmacro %}"
+)
+
+
+def _score_detail() -> dict[str, Any]:
+    """How the last day's score was made: the three costs EPR is built from,
+    the arithmetic between them, and P2P and tracking."""
+    content = (
+        _MONEY_FMT + f"{{% set q = '{_QUALITY}' %}}"
+        "{% macro a(k) %}{{ state_attr(q, k) }}{% endmacro %}"
+        "{% set rate = (state_attr(q, 'real_p2p_dollars') | float(0)) / "
+        "(state_attr(q, 'real_p2p_volume_kwh') | float(0)) * 100 "
+        "if (state_attr(q, 'real_p2p_volume_kwh') | float(0)) > 0 else none %}"
+        "**How the score was made: "
+        "{{ state_attr(q, 'latest_date') or 'no day scored yet' }}**\n\n"
+        "| | Value | What it means |\n"
+        "|:---|---:|:---|\n"
+        "| Cost with the battery idle | {{ m(state_attr(q, 'j_ref')) }} | "
+        "the day with no battery dispatch (J_ref) |\n"
+        "| Cost achieved | {{ m(state_attr(q, 'j_ach')) }} | "
+        "what the battery's real dispatch cost (J_ach) |\n"
+        "| Cost with perfect foresight | {{ m(state_attr(q, 'j_star_evaluator')) }} | "
+        "the best any plan could have done knowing the day in advance (J★) |\n"
+        "| Value captured | {{ m(state_attr(q, 'value_captured')) }} | "
+        "idle minus achieved |\n"
+        "| Best possible | {{ m(state_attr(q, 'theoretical_maximum_yield')) }} | "
+        "idle minus perfect foresight |\n"
+        "| **EPR** | **{{ '%.1f' | format(state_attr(q, 'epr_pct') | float) "
+        "if state_attr(q, 'epr_pct') is number else '—' }}%** | "
+        "value captured ÷ best possible; 100% matches perfect foresight |\n"
+        "| Regret | {{ m(state_attr(q, 'regret_dollars')) }} | "
+        "best possible minus value captured |\n"
+        "| P2P settled | {{ m(state_attr(q, 'real_p2p_dollars')) }} for "
+        "{{ '%.1f' | format(state_attr(q, 'real_p2p_volume_kwh') | float(0)) }} kWh"
+        "{{ ' (%.1f c/kWh)' | format(rate) if rate is not none else '' }} | "
+        "the P2P payment settled for the day: "
+        "{{ state_attr(q, 'real_p2p_settlement_status') or '—' }} |\n"
+        "| Tracking fidelity | {{ '%.0f' | format((state_attr(q, 'tracking_fidelity') "
+        "| float) * 100) if state_attr(q, 'tracking_fidelity') is number else '—' }}% | "
+        "how closely the battery followed its plan |\n"
+        "| Tracking cost | {{ m(state_attr(q, 'tracking_cost')) }} | "
+        "what not following the plan cost |\n\n"
+        "Scored once a day, on settled data. Below zero is money earned."
+    )
+    return {"type": "markdown", "content": content}
+
+
+def _until_midnight() -> dict[str, Any]:
+    """The plan from now until midnight, half-hourly. Prices are
+    time-weighted means of the plan's own rows; Net is their sum."""
+    content = (
+        f"{{% set f = state_attr('{_PLAN}', 'forecast') or [] %}}"
+        "{% set end = today_at('00:00') + timedelta(days=1) %}"
+        "{% set n = now() %}"
+        "{% set t0 = n.replace(minute=(n.minute // 30) * 30, second=0, microsecond=0) %}"
+        "{% set ns = namespace(rows=[], net=0) %}"
+        "{% for i in range(48) %}{% set s = t0 + timedelta(minutes=30 * i) %}"
+        "{% if s < end %}"
+        "{% set b = namespace(h=0, buy=0, fee=0, sell=0, p2p=0, p2ph=0, load=0, pv=0, "
+        "batt=0, soc=none, net=0) %}"
+        "{% for p in f %}{% set t = as_datetime(p.time) %}"
+        "{% if t is not none and s <= t < s + timedelta(minutes=30) %}"
+        "{% set h = p.hours | float(0) %}"
+        "{% set b.h = b.h + h %}"
+        "{% set b.buy = b.buy + (p.import_price | float(0)) * h %}"
+        "{% set b.fee = b.fee + ((p.import_price | float(0)) - "
+        "(p.import_price_raw | float(p.import_price | float(0)))) * h %}"
+        "{% set b.sell = b.sell + (p.export_price | float(0)) * h %}"
+        "{% if (p.export_bonus_kw | float(0)) > 0 %}"
+        "{% set b.p2p = b.p2p + ((p.export_price | float(0)) + (p.bonus_price | float(0))) * h %}"
+        "{% set b.p2ph = b.p2ph + h %}{% endif %}"
+        "{% set b.load = b.load + (p.load_kw | float(0)) * h %}"
+        "{% set b.pv = b.pv + (p.solar_kw | float(0)) * h %}"
+        "{% set b.batt = b.batt + (p.battery_kw | float(0)) * h %}"
+        "{% set b.soc = p.soc_pct %}"
+        "{% set b.net = b.net + (p.net_cost | float(0)) %}"
+        "{% endif %}{% endfor %}"
+        "{% if b.h > 0 %}"
+        "{% set ns.net = ns.net + b.net %}"
+        "{% set ns.rows = ns.rows + ['| %s | %.1f | %.1f | %.1f | %s | %.2f | %.2f | %+.1f | %s | %.2f |' "
+        "| format(s.strftime('%H:%M'), b.buy / b.h * 100, b.fee / b.h * 100, "
+        "b.sell / b.h * 100, ('%.1f' | format(b.p2p / b.p2ph * 100)) if b.p2ph > 0 else '—', "
+        "b.load / b.h, b.pv / b.h, b.batt / b.h, "
+        "('%.0f' | format(b.soc | float)) if b.soc is not none else '—', b.net)] %}"
+        "{% endif %}{% endif %}{% endfor %}"
+        "**The plan until midnight, half-hourly**\n\n"
+        "| Time | Buy ¢ | Fees ¢ | Sell ¢ | P2P ¢ | Load kW | Solar kW | Battery kW "
+        "| SoC % | Net $ |\n"
+        "|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
+        "{{ ns.rows | join('\\n') }}\n"
+        "| **Total** | | | | | | | | | **{{ '%.2f' | format(ns.net) }}** |\n\n"
+        "Buy includes the fees column. P2P is the sell price plus the P2P bonus, "
+        "in a P2P block. Battery: + discharging. Net: below zero earns."
+    )
+    return {"type": "markdown", "content": content}
+
+
+_DAY_SUMS = (
+    "{% macro day(d0) %}"
+    "{% set ns = namespace(ik=0, ic=0, ek=0, sp=0, bo=0, net=0, smin=none, smax=none, "
+    "pch=0, pdis=0, rows=0) %}"
+    "{% for p in f %}{% set t = as_datetime(p.time) %}"
+    "{% if t is not none and d0 <= t < d0 + timedelta(days=1) %}"
+    "{% set h = p.hours | float(0) %}{% set ns.rows = ns.rows + 1 %}"
+    "{% set ns.ik = ns.ik + (p.grid_import_kw | float(0)) * h %}"
+    "{% set ns.ic = ns.ic + (p.import_price | float(0)) * (p.grid_import_kw | float(0)) * h %}"
+    "{% set ns.ek = ns.ek + (p.grid_export_kw | float(0)) * h %}"
+    "{% set ns.sp = ns.sp + (p.export_price | float(0)) * (p.grid_export_kw | float(0)) * h %}"
+    "{% set ns.bo = ns.bo + (p.bonus_price | float(0)) * (p.export_bonus_kw | float(0)) * h %}"
+    "{% set ns.net = ns.net + (p.net_cost | float(0)) %}"
+    "{% set sc = p.soc_pct | float(0) %}"
+    "{% set ns.smin = sc if ns.smin is none or sc < ns.smin else ns.smin %}"
+    "{% set ns.smax = sc if ns.smax is none or sc > ns.smax else ns.smax %}"
+    "{% set bk = p.battery_kw | float(0) %}"
+    "{% set ns.pch = [ns.pch, -bk] | max %}{% set ns.pdis = [ns.pdis, bk] | max %}"
+    "{% endif %}{% endfor %}"
+    "{{ [ns.ik, ns.ic, ns.ek, ns.sp, ns.bo, ns.net, ns.smin, ns.smax, ns.pch, ns.pdis, "
+    "ns.rows] | to_json }}"
+    "{% endmacro %}"
+)
+
+
+def _daily_summary() -> dict[str, Any]:
+    """Today (from now) and tomorrow, from the plan's own rows."""
+    lines = (
+        ("Imported, kWh", 0, False),
+        ("Import cost", 1, True),
+        ("Exported, kWh", 2, False),
+        ("Spot export earnings", 3, True),
+        ("P2P bonus earnings", 4, True),
+        ("**Net**", 5, True),
+        ("Peak charge, kW", 8, False),
+        ("Peak discharge, kW", 9, False),
+    )
+
+    def cell(day: str, i: int, money: bool) -> str:
+        if money:
+            return f"{{{{ m({day}[{i}]) }}}}"
+        return f"{{{{ '%.1f' | format({day}[{i}]) }}}}"
+
+    body = "".join(
+        f"| {label} | {cell('today', i, money)} | {cell('tomorrow', i, money)} |\n"
+        for label, i, money in lines
+    )
+    soc = (
+        "| SoC range | {{ ('%.0f–%.0f%%' | format(today[6], today[7])) if today[10] else '—' }} "
+        "| {{ ('%.0f–%.0f%%' | format(tomorrow[6], tomorrow[7])) if tomorrow[10] else '—' }} |\n"
+    )
+    content = (
+        _DAY_SUMS
+        + _MONEY_FMT
+        + f"{{% set f = state_attr('{_PLAN}', 'forecast') or [] %}}"
+        "{% set d0 = today_at('00:00') %}"
+        "{% set today = day(d0) | from_json %}"
+        "{% set tomorrow = day(d0 + timedelta(days=1)) | from_json %}"
+        "**Today and tomorrow, planned**\n\n"
+        "| | Rest of today | Tomorrow |\n"
+        "|:---|---:|---:|\n" + body + soc + "\n"
+        "Net = import cost − spot export − P2P bonus; below zero earns. "
+        "Today counts from now."
+    )
+    return {"type": "markdown", "content": content}
+
+
+def _per_day_money() -> dict[str, Any]:
+    """The plan's cost, split by day (cost_breakdown_by_day, published by the
+    Solver); the total is the plan cost."""
+    content = (
+        f"{{% set by = state_attr('{_PLAN}', 'cost_breakdown_by_day') or {{}} %}}"
+        "{% set ns = namespace(rows=[], g=0, fe=0, w=0, e=0, c=0) %}"
+        "{% for d in by | sort %}{% set r = by[d] %}"
+        "{% set fee = (r.charge_fee | float(0)) + (r.discharge_fee | float(0)) %}"
+        "{% set ns.g = ns.g + r.grid_net | float(0) %}{% set ns.fe = ns.fe + fee %}"
+        "{% set ns.w = ns.w + r.degradation | float(0) %}"
+        "{% set ns.e = ns.e + r.end_of_plan | float(0) %}"
+        "{% set ns.c = ns.c + r.plan_cost | float(0) %}"
+        "{% set ns.rows = ns.rows + ['| %s | %.2f | %.2f | %.2f | %s | %.2f |' "
+        "| format(as_datetime(d ~ 'T00:00:00').strftime('%a %d %b'), r.grid_net | float(0), "
+        "fee, r.degradation | float(0), ('%.2f' | format(r.end_of_plan | float(0))) "
+        "if (r.end_of_plan | float(0)) != 0 else '—', r.plan_cost | float(0))] %}"
+        "{% endfor %}"
+        "**The plan's cost, by day, $**\n\n"
+        "{% if ns.rows %}"
+        "| Day | Grid | Fees | Battery wear | End of plan | Plan cost |\n"
+        "|:---|---:|---:|---:|---:|---:|\n"
+        "{{ ns.rows | join('\\n') }}\n"
+        "| **Total** | **{{ '%.2f' | format(ns.g) }}** | **{{ '%.2f' | format(ns.fe) }}** "
+        "| **{{ '%.2f' | format(ns.w) }}** | **{{ '%.2f' | format(ns.e) }}** "
+        "| **{{ '%.2f' | format(ns.c) }}** |\n\n"
+        "{% else %}Not published by the Solver yet: it is, from the first solve "
+        "after updating to this version.\n\n{% endif %}"
+        "Midnight to midnight. End of plan: the value left in the battery, on the "
+        "plan's last day only. Below zero earns."
+    )
+    return {"type": "markdown", "content": content}
+
+
 def _risk_row() -> list[dict[str, Any]]:
     """Three slider tiles and the explanation, one column each, one height."""
     height = {"rows": 3}
@@ -900,12 +1140,16 @@ def template() -> list[dict[str, Any]]:
         _section([_score_chart()], 2, pair),
         _section([_cost_chart()], 2, pair),
         _section([_breakdown_chart()], 2, pair),
+        _section([_score_detail()], 4),
         banners["Money"],
         *(_section([_card(c)], 1) for c in _MONEY_ROW),
+        _section([_daily_summary()], 2, {"rows": 7}),
+        _section([_per_day_money()], 2, {"rows": 7}),
         _section([_energy_table()], 2, {"rows": 6}),
         _section([_energy_pie()], 2, {"rows": 6}),
         banners["Plan"],
         _section([_chart()], 4),
+        _section([_until_midnight()], 4),
         *_risk_row(),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),

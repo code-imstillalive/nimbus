@@ -803,6 +803,62 @@ def compute_binding_constraint_label(
     return binding_now, binding_now_value_per_kwh
 
 
+def compute_cost_breakdown_by_day(
+    *,
+    days: list[str],
+    net_costs: list[float],
+    battery_charge_kw: NDArray[np.float64],
+    battery_discharge_kw: NDArray[np.float64],
+    period_hours: NDArray[np.float64],
+    charge_cost: float,
+    degradation_cost_per_kwh: float,
+    discharge_cost_arr: NDArray[np.float64],
+    breakdown: dict[str, float],
+) -> dict[str, dict[str, float]]:
+    """`breakdown` (compute_cost_breakdown()'s whole-plan total) split by
+    local day (nimbus #1704, household 11 Oct 2026: "every plan-ahead figure
+    must be split per day").
+
+    `days[i]` is period i's local date. Grid net, charge and discharge fees
+    and battery wear are summed per period, by the same formulas as the
+    whole-plan figures. The terms that have no per-period value -- the
+    terminal-value credit, the SoC and import-excess penalties -- belong to
+    the plan's last day, where the plan ends. So the days add up to the
+    whole-plan figure exactly; a test pins it.
+    """
+    out: dict[str, dict[str, float]] = {}
+    for i, day in enumerate(days):
+        h = float(period_hours[i])
+        ch = float(battery_charge_kw[i]) * h
+        dis = float(battery_discharge_kw[i]) * h
+        row = out.setdefault(
+            day,
+            {
+                "grid_net": 0.0,
+                "charge_fee": 0.0,
+                "discharge_fee": 0.0,
+                "degradation": 0.0,
+                "end_of_plan": 0.0,
+            },
+        )
+        row["grid_net"] += float(net_costs[i])
+        row["charge_fee"] += charge_cost * ch
+        row["discharge_fee"] += float(discharge_cost_arr[i]) * dis
+        row["degradation"] += degradation_cost_per_kwh * (ch + dis)
+    if out:
+        last = out[days[-1]]
+        last["end_of_plan"] = (
+            float(breakdown.get("terminal_value_credit", 0.0))
+            + float(breakdown.get("soc_penalty", 0.0))
+            + float(breakdown.get("grid_import_excess_penalty", 0.0))
+        )
+    for row in out.values():
+        row["plan_cost"] = sum(row.values())
+        for key in row:
+            row[key] = round(row[key], 4)
+    return out
+
+
 def compute_cost_breakdown(
     net_costs: list[float],
     total_cost: float | None,
@@ -2181,6 +2237,20 @@ def publish_plan(
         grid_import_excess_penalty_cost=plan.grid_import_excess_penalty_cost,
     )
 
+    cost_breakdown_by_day = compute_cost_breakdown_by_day(
+        days=[str(period["time"])[:10] for period in forecast],
+        net_costs=[period["net_cost"] for period in forecast],
+        battery_charge_kw=plan.battery_charge_kw,
+        battery_discharge_kw=plan.battery_discharge_kw,
+        period_hours=np.asarray(period_hours_arr, dtype=float),
+        charge_cost=charge_cost,
+        degradation_cost_per_kwh=sw._cfg_num(
+            cfg, "solver_degradation_cost_per_kwh", 0.0
+        ),
+        discharge_cost_arr=discharge_cost_arr,
+        breakdown=cost_breakdown,
+    )
+
     # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see
     # compute_cost_band()'s own docstring for the full reasoning.
     # nimbus #1704: the plan's own P2P bonus per period, so the band sits on
@@ -2355,6 +2425,8 @@ def publish_plan(
             else None,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
+            # nimbus #1704: the same, per local day.
+            "cost_breakdown_by_day": cost_breakdown_by_day,
             "cost_band": cost_band,
             # nimbus issue #630: the same band, real-costed against only
             # the periods inside the next 24 real hours -- see this

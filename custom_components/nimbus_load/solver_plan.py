@@ -502,6 +502,46 @@ class PlanAssembly:
     flex_ranging_deferred: bool = False
 
 
+def spike_export_ceiling(
+    cfg: dict,
+    fixed_export_kw: list[float] | None,
+    import_price: list[float],
+    export_limit_kw: list[float],
+) -> list[float] | None:
+    """Per-period ceiling on a P2P block's export where a price spike is
+    forecast (household, 11 Oct 2026), or None.
+
+    A P2P block pins export to its rate exactly. With a QLD spike in the
+    forecast for 12 Oct 17:30-20:30 (~$21/kWh sell), the plan could not
+    sell more than 11.5 kW in those hours, so it sold its spare 15 kWh at
+    16:30 for 47c instead. The live spike override (#694) already turns the
+    pin into a floor, but only for period 0 and only on the live price.
+
+    Here the same applies to every block period whose FORECAST import price
+    is at or above the household's spike threshold, while the override is
+    armed: the block rate stays a floor (P2P is still delivered) and export
+    may rise to that period's export limit. Every other period keeps its
+    exact pin (NaN here). Unarmed, no threshold, or no block: None, so the
+    plan is byte-identical to before.
+    """
+    if fixed_export_kw is None or not cfg.get("solver_price_spike_override_armed"):
+        return None
+    threshold = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)
+    if threshold <= 0:
+        return None
+    ceiling = [float("nan")] * len(fixed_export_kw)
+    widened = False
+    for t, pinned in enumerate(fixed_export_kw):
+        if pinned is None or np.isnan(pinned) or pinned <= 0:
+            continue
+        if t < len(import_price) and import_price[t] >= threshold:
+            limit = float(export_limit_kw[t])
+            if limit > pinned:
+                ceiling[t] = limit
+                widened = True
+    return ceiling if widened else None
+
+
 def assemble_and_solve_plan(
     cfg: dict,
     *,
@@ -602,6 +642,9 @@ def assemble_and_solve_plan(
         spike_override_discharge_kw=spike_override_kw,
     )
     fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
+    spike_ceiling = spike_export_ceiling(
+        cfg, fixed_export_kw, import_price, export_limit_kw
+    )
     grid = elements.GridConfig(
         import_price=np.array(import_price),
         export_price=np.array(export_price),
@@ -611,6 +654,9 @@ def assemble_and_solve_plan(
         export_bonus_volume_kwh=p2p_recent_volume_kwh,
         fixed_export_kw=np.array(fixed_export_kw)
         if fixed_export_kw is not None
+        else None,
+        fixed_export_max_kw=np.array(spike_ceiling)
+        if spike_ceiling is not None
         else None,
         import_price_upper=np.array(import_price_upper)
         if import_price_upper is not None

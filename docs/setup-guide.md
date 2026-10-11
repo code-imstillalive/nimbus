@@ -1090,6 +1090,12 @@ on the right, and the grid above. It builds that picture from your Nimbus entrie
 not from the card's YAML. The documented card config stays `switchboard: {}` and
 `inverters: []`.
 
+Once Nimbus holds any Topology setting, the card's own `switchboard` and
+`inverters` entries are **ignored** (#1702). To change a sensor, change it in
+Nimbus → Configure → Topology diagram settings, and the card follows. The card's
+visual editor shows those sensors read-only and lists any of the card's own
+entries it is ignoring, with a button to remove them.
+
 > **The diagram is not built from your Energy dashboard.** You add each entry
 > below by hand. A few form fields are pre-filled from the Energy dashboard: see
 > [What is pre-filled for you](#what-is-pre-filled-for-you).
