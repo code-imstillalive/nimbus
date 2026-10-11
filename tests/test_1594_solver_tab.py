@@ -67,30 +67,38 @@ def _resolve(view):
     return solver_tab.resolve(view, _lookup_all)
 
 
+def _block(card) -> str | None:
+    """A block's opening card: a coloured title band (an ha-alert in a
+    text-only markdown card) naming the block (household, 11 Oct 2026)."""
+    content = card.get("content", "")
+    if card.get("type") != "markdown" or "<ha-alert" not in content:
+        return None
+    return content.split('title="', 1)[1].split('"', 1)[0]
+
+
+def _what(card):
+    if card["type"] == "entities":
+        return card["title"]
+    if card["type"] == "custom:apexcharts-card":
+        return card["header"]["title"]
+    if card["type"] == "tile":
+        return f"slider: {card['name']}"
+    return card["type"]
+
+
 def test_the_sections_are_the_agreed_ones_in_order() -> None:
-    """Four blocks (household, 11 Oct 2026): Performance, Plan, Basic
-    settings, Advanced settings. Each is its name across the full width, then
-    one section per column, every card titled inside itself with a note."""
+    """The household's review on devhub, 11 Oct 2026: five blocks, each
+    opened by a full-width coloured band; cards side by side in rows."""
     layout = []
     for section in solver_tab.template():
         cards = section["cards"]
-        if cards[0]["type"] == "heading":
+        if _block(cards[0]):
             assert section["column_span"] == 4
-            layout.append([cards[0]["heading"]])
+            assert len(cards) == 1
+            layout.append([_block(cards[0])])
             continue
-        types = [c["type"] for c in cards]
-        if types[0] == "custom:apexcharts-card":
-            assert types == ["custom:apexcharts-card", "markdown"]
-            layout[-1].append((section["column_span"], cards[0]["header"]["title"]))
-            continue
-        # Every card is followed by its note.
-        assert types == ["entities", "markdown"] * (len(types) // 2), types
-        layout[-1].append(
-            (
-                section["column_span"],
-                [c["title"] for c in cards if c["type"] == "entities"],
-            )
-        )
+        assert len(cards) == 1, cards
+        layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
         [
             "Performance",
@@ -98,31 +106,81 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (2, "Score by day"),
             (2, "Plan cost, last 7 days"),
             (2, "Where the cost comes from, last 24 h"),
-            (1, ["Last day, scored", "P2P matching"]),
-            (1, ["Money, plan ahead"]),
-            (1, ["Where the cost comes from"]),
-            (1, ["Battery, now"]),
+        ],
+        [
+            "Money",
+            (1, "Last day, scored"),
+            (1, "Money, plan ahead"),
+            (1, "Where the cost comes from"),
+            (1, "Battery, now"),
         ],
         [
             "Plan",
-            (2, "Battery energy in the plan"),
-            (2, ["Risk sliders"]),
+            (3, "Battery: plan against measured"),
+            (1, "Battery energy in the plan"),
+            (1, "slider: Import price risk"),
+            (1, "slider: Export price risk"),
+            (1, "slider: Solar forecast risk"),
+            (1, "markdown"),
         ],
         [
             "Basic settings",
-            (1, ["Battery and grid"]),
-            (1, ["Fees"]),
-            (1, ["P2P"]),
-            (1, ["Battery reserve"]),
+            (1, "Battery"),
+            (1, "Grid and fees"),
+            (1, "P2P"),
+            (1, "Reserve and price spikes"),
         ],
         [
             "Advanced settings",
-            (1, ["Costs"]),
-            (1, ["Stability"]),
-            (1, ["Price events", "Scoring thresholds"]),
-            (1, ["Features"]),
+            (1, "Costs and stability"),
+            (1, "Features"),
+            (1, "Scoring"),
+            (1, "P2P hours and matching"),
         ],
     ]
+
+
+def test_cards_side_by_side_have_the_same_number_of_rows() -> None:
+    """Bottoms line up by content, not padding: every card in a row of four
+    has the same number of rows, its note inside under a divider."""
+    sections = solver_tab.template()
+    rows: list[list[int]] = []
+    for section in sections:
+        card = section["cards"][0]
+        if _block(card):
+            rows.append([])
+        elif card["type"] == "entities":
+            entries = card["entities"]
+            assert entries[-1]["type"] == "section", card["title"]  # the note
+            assert len(entries[-1]["label"]) <= 42, entries[-1]["label"]
+            plain = [
+                e for e in entries if e.get("type") not in ("section", "conditional")
+            ]
+            rows[-1].append(len(plain))
+    assert [r for r in rows if r] == [[6, 6, 6, 6], [8, 8, 8, 8], [8, 8, 8, 8]]
+
+
+def test_the_sliders_are_sliders() -> None:
+    """Household, 11 Oct 2026: "u have called it sliders but produced
+    inputs". Each risk setting is a tile with a slider, all four columns of
+    that row one height."""
+    plan_row = [
+        s["cards"][0]
+        for s in solver_tab.template()
+        if s["cards"][0]["type"] == "tile"
+        or "What the sliders do" in s["cards"][0].get("content", "")
+    ]
+    assert len(plan_row) == 4
+    for card in plan_row[:3]:
+        assert card["features"] == [{"type": "numeric-input", "style": "slider"}]
+    assert len({json.dumps(c["grid_options"]) for c in plan_row}) == 1
+
+
+def test_live_values_in_text_are_resolved() -> None:
+    view = _resolve(solver_tab.template())
+    text = json.dumps(view)
+    assert "${@" not in text
+    assert "sensor.nimbus_solver_import_price_risk_effect_now_2" in text
 
 
 def test_a_chart_with_two_axes_names_the_axis_on_every_series() -> None:
@@ -137,17 +195,22 @@ def test_a_chart_with_two_axes_names_the_axis_on_every_series() -> None:
 def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
     """Household rule 5: one axis, the past and the plan ahead, a "now"
     marker, headline numbers, step lines. Never HAEO."""
-    plan = next(
-        s for s in solver_tab.template() if s["cards"][0].get("heading") == "Plan"
+    chart = next(
+        s["cards"][0]
+        for s in solver_tab.template()
+        if s["cards"][0].get("header", {}).get("title")
+        == "Battery: plan against measured"
     )
-    chart = plan["cards"][1]
-    assert chart["type"] == "custom:apexcharts-card"
     assert chart["now"]["show"] is True
     assert chart["header"]["show_states"] is True
     assert chart["span"]["offset"].startswith("-")
     names = {s["name"]: s for s in chart["series"]}
     assert names["Measured"]["entity"] == "@option:battery_sensor"
-    for planned in ("Plan ahead", "SoC planned", "Buy price"):
+    for line in ("Measured", "Plan", "Plan ahead", "Buy price", "Buy price ahead"):
+        assert names[line]["curve"] == "stepline", line
+    # Price behind Now is 5-minute detail from the buy price's own history.
+    assert names["Buy price"]["group_by"]["duration"] == "5min"
+    for planned in ("Plan ahead", "SoC ahead", "Buy price ahead"):
         assert names[planned]["entity"] == "@nimbus_solver_battery_forecast"
         assert "data_generator" in names[planned]
     assert "haeo" not in json.dumps(chart).lower()
@@ -221,18 +284,19 @@ def test_every_row_has_a_short_name() -> None:
 
 
 def test_an_unused_block_shows_only_its_rate() -> None:
-    """Hours appear only once a block's rate is set (household, 11 Oct)."""
+    """A fee block's hours appear only once its rate is set. P2P hours
+    have their own card in Advanced (household, 11 Oct)."""
     text = json.dumps(solver_tab.template())
-    assert text.count('"type": "conditional"') == 12  # 3 fee + 3 P2P blocks x 2
+    assert text.count('"type": "conditional"') == 6  # 3 fee blocks x 2
 
 
 def test_a_conditional_row_whose_entity_is_missing_is_dropped() -> None:
     view = solver_tab.resolve(
         solver_tab.template(),
-        lambda k: None if k == "solver_p2p_block_2_start_hour" else _lookup_all(k),
+        lambda k: None if k == "solver_network_fee_2_start_hour" else _lookup_all(k),
     )
     text = json.dumps(view)
-    assert "solver_p2p_block_2_start_hour" not in text
+    assert "solver_network_fee_2_start_hour" not in text
     assert '"row": null' not in text
 
 
@@ -268,10 +332,16 @@ def test_a_missing_entity_is_dropped_not_written_blank() -> None:
 
 
 def test_an_entities_card_with_nothing_left_is_dropped() -> None:
-    """With no entities at all only the block names are left: every card,
-    its note, its column and the chart go."""
+    """With no entities at all only the block bands are left: every card,
+    chart and slider goes, and its column with it."""
     view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
-    assert [[c["type"] for c in s["cards"]] for s in view] == [["heading"]] * 4
+    assert [[_block(c) for c in s["cards"]] for s in view] == [
+        ["Performance"],
+        ["Money"],
+        ["Plan"],
+        ["Basic settings"],
+        ["Advanced settings"],
+    ]
 
 
 def test_the_design_is_the_same_on_every_install() -> None:
