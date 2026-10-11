@@ -224,3 +224,15 @@ def test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in():
     assert 'series.transform = "return x * " + k' in body
     assert 'series.unit = fu || "kW"' in body
     assert body.index("series.transform") < body.index("series.unit")
+
+
+def test_the_solver_power_series_are_drawn_as_steps():
+    """11 Oct 2026: a plan row is the START of its period. Drawn as a line,
+    the P2P block's last 30-minute period sloped down to the next row and
+    the block read as ending 30 minutes early."""
+    src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
+    block = src[src.index("if (f.solver) {") :][:2500]
+    assert 'const step = { curve: "stepline" };' in block
+    for name in ("Battery", "Grid import", "Grid export"):
+        at = block.index(f'"Solver {name} (proposed)"')
+        assert "...step" in block[at - 120 : at], name
