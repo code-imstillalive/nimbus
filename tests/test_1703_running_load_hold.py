@@ -160,7 +160,7 @@ class TestLearnedWhenOff(unittest.TestCase):
 
     def _predict(self, now, live, **kw):
         timestamps = [now + timedelta(minutes=15 * i) for i in range(48)]
-        recent = [(now - timedelta(minutes=15 * i), live) for i in range(0, 8)]
+        recent = [(now - timedelta(minutes=15 * i), live) for i in range(8)]
         return ml_model.predict(
             trained=self.trained,
             timestamps=timestamps,
