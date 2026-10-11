@@ -2690,6 +2690,48 @@
        "soc_penalty": 0.0,
        "terminal_value_credit": 1.8892
       },
+      "cost_breakdown_by_day": {
+       "2026-09-06": {
+        "charge_fee": 0.1847,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 10.0781,
+        "plan_cost": 10.2628
+       },
+       "2026-09-07": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-08": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-09": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-10": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.3148,
+        "end_of_plan": 1.8892,
+        "grid_net": 10.356,
+        "plan_cost": 12.56
+       }
+      },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
       "discharge_efficiency": 0.9747,
@@ -15671,6 +15713,48 @@
        "grid_net": 95.1963,
        "soc_penalty": 0.0,
        "terminal_value_credit": 8.9061
+      },
+      "cost_breakdown_by_day": {
+       "2026-09-06": {
+        "charge_fee": 0.1847,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.9154,
+        "plan_cost": 10.1001
+       },
+       "2026-09-07": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-08": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-09": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 24.66,
+        "plan_cost": 24.66
+       },
+       "2026-09-10": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.3148,
+        "end_of_plan": 8.9061,
+        "grid_net": 11.3009,
+        "plan_cost": 20.5218
+       }
       },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
