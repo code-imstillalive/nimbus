@@ -13,6 +13,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 The redesigned Solver tab, the battery reserve's window as clock times, and
 two fixes. Nothing here changes a plan on an install whose reserve is unset.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 5aaf40f6**,
+  installed untagged via HACS from `main` (`installed_version` 5aaf40f) and
+  restarted ~15:15 AEST 11 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.448`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** against the pre-install baseline (the known duplicate-unique-id
+  class excluded). `time.nimbus_solver_battery_reserve_start_hour` /
+  `_end_hour` exist and devhub's saved window carried over as 00:00 -> 05:30.
+  The Solver tab was rebuilt (32 sections, Solve now first, the time
+  entities referenced, no unresolved placeholders). **Not claimed: a solve on
+  devhub.** devhub's own Solver hub entities have read `unavailable` since
+  before this release, so its plan sensors are production's mirrored rows.
+  The reserve hours reaching the Solver as hours (05:30 -> 5.5) is covered by
+  tests, not observed live.
+- Consumer check: a household sees the new Solver tab after a restart
+  (in place if its Nimbus Solver tab is untouched, beside it if edited); the
+  reserve's From / Until become clock-time pickers under new `time.` entity
+  ids (update any automation or card naming the old `number.` ids); the P2P
+  matched share and the clock-time settings lose their misleading units; and
+  the false temperature/humidity repair clears. Plans are unchanged where the
+  reserve is unset.
+
 ### Changed
 - **The Solver tab is redesigned** (household review on devhub, 11 Oct 2026).
   - Solve now on the top row, beside plan status, solve time and what limits
