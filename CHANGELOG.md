@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **On a spike night a P2P block delivers its matched volume, and the rest
+  goes to the spike.** While the spike override is armed and a forecast price
+  spike falls inside a block, that block's rate drops to the expected matched
+  P2P volume plus 10% (`sensor.nimbus_solver_p2p_recent_avg_volume_kwh`,
+  spread over every block's committed energy), and stays a floor in the spike
+  periods. On the reference household's 12 Oct plan: 11.5 kW -> 7.18 kW, with
+  18:00, 18:30 and 19:30 at the 38.7 kW export limit instead of 11.5, 24.5 and
+  38.7 kW, about $300 better over the horizon in a solver replay. A day
+  without a spike keeps the block's rate. Household's rule, 12 Oct 2026.
+
 ## [0.94.450] - 2026-10-12
 
 Fixes found on 11 Oct by the reference household and a tester. Three change
