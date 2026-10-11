@@ -781,6 +781,49 @@ def _energy_table() -> dict[str, Any]:
     return {"type": "markdown", "content": content}
 
 
+def _energy_pie() -> dict[str, Any]:
+    """Tomorrow's battery energy, 00:00-24:00, as a donut -- the same day as
+    the table's Tomorrow column beside it (household, 11 Oct 2026). Checked
+    against production's plan: in 23.5 + 103.2 = 126.7 kWh = the plan's
+    charging; out 14.4 + 92.8 + 1.3 = 108.5 = its discharging. An earlier
+    version summed the whole four-day plan (483 kWh "grid in")."""
+    plan = "@nimbus_solver_battery_forecast"
+    flows = (
+        ("pv_to_battery", "Solar in", "#ffb340"),
+        ("grid_to_battery", "Grid in", "#4fa3ff"),
+        ("battery_to_load", "To house", "#3ddc84"),
+        ("battery_to_grid", "To grid", "#ff4d8d"),
+        ("battery_to_losses", "Losses", "#6b7280"),
+    )
+    return _apex(
+        "Battery energy, tomorrow",
+        "kWh, 00:00-24:00. In = solar + grid; out = house + grid + losses.",
+        [
+            {
+                "entity": plan,
+                "name": name,
+                "color": color,
+                "unit": "kWh",
+                "float_precision": 1,
+                "data_generator": (
+                    "const d = new Date(); d.setHours(24, 0, 0, 0); "
+                    "const t0 = d.getTime(), t1 = t0 + 24 * 3600 * 1000; "
+                    "const f = (entity.attributes.forecast || []).filter(p => "
+                    "{ const t = new Date(p.time).getTime(); return t >= t0 && t < t1; }); "
+                    f"const kwh = f.reduce((a, p) => a + (p.flow_{key}_kw || 0) "
+                    "* (p.hours || 0), 0); return [[Date.now(), kwh]];"
+                ),
+            }
+            for key, name, color in flows
+        ],
+        chart_type="donut",
+        apex_config={
+            "legend": {"show": False},
+            "plotOptions": {"pie": {"offsetY": 18, "customScale": 0.92}},
+        },
+    )
+
+
 def _risk_row() -> list[dict[str, Any]]:
     """Three slider tiles and the explanation, one column each, one height."""
     height = {"rows": 3}
@@ -859,9 +902,10 @@ def template() -> list[dict[str, Any]]:
         _section([_breakdown_chart()], 2, pair),
         banners["Money"],
         *(_section([_card(c)], 1) for c in _MONEY_ROW),
+        _section([_energy_table()], 2, {"rows": 6}),
+        _section([_energy_pie()], 2, {"rows": 6}),
         banners["Plan"],
-        _section([_chart()], 3),
-        _section([_energy_table()], 1),
+        _section([_chart()], 4),
         *_risk_row(),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),

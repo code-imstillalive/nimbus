@@ -128,11 +128,12 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Money, plan ahead"),
             (1, "Where the cost comes from"),
             (1, "Battery, now"),
+            (2, "markdown: Yesterday and tomorrow, kWh"),
+            (2, "Battery energy, tomorrow"),
         ],
         [
             "Plan",
-            (3, "Battery: plan against measured"),
-            (1, "markdown: Yesterday and tomorrow, kWh"),
+            (4, "Battery: plan against measured"),
             (1, "slider: Import price risk"),
             (1, "slider: Export price risk"),
             (1, "slider: Solar forecast risk"),
@@ -227,7 +228,7 @@ def test_charts_side_by_side_are_one_height() -> None:
         for s in solver_tab.template()
         if s["column_span"] == 2 and s["cards"][0]["type"] == "custom:apexcharts-card"
     ]
-    assert len(charts) == 4
+    assert len(charts) == 5  # four performance charts + tomorrow's pie
     assert len({json.dumps(c["grid_options"]) for c in charts}) == 1
 
 
@@ -487,3 +488,20 @@ def test_the_energy_table_is_yesterday_measured_beside_tomorrow_planned() -> Non
     assert "timedelta(days=1)" in content  # tomorrow, not "the next 24 h"
     assert "'last_period'" in content  # yesterday's total, from Topology's meters
     assert "${@option:switchboard_house_load_energy_daily_sensor}" in content
+
+
+def test_the_energy_pie_is_tomorrow_beside_the_table() -> None:
+    """Household, 11 Oct 2026: keep the table AND the pie, one day each."""
+    sections = solver_tab.template()
+    titles = [
+        (s["column_span"], s["cards"][0].get("header", {}).get("title"))
+        for s in sections
+    ]
+    i = titles.index((2, "Battery energy, tomorrow"))
+    assert "Yesterday and tomorrow" in sections[i - 1]["cards"][0]["content"]
+    assert (
+        sections[i - 1]["cards"][0]["grid_options"]
+        == sections[i]["cards"][0]["grid_options"]
+    )
+    for series in sections[i]["cards"][0]["series"]:
+        assert "setHours(24, 0, 0, 0)" in series["data_generator"]
