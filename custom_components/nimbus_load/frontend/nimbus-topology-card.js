@@ -257,6 +257,58 @@ function icon(kind, cx, cy, size, color) {
   return g;
 }
 
+// nimbus #1702 (household, 11 Oct 2026): the Topology sensors are set in
+// Nimbus -> Configure -> Topology diagram settings only. The card used to
+// merge its own YAML under the wizard's values field by field, so its editor
+// could show sensors that were not in use, and nothing said which was which.
+// Where the wizard holds any Topology setting, the card's own `switchboard`
+// and `inverters` are ignored and the editor lists them as ignored. An
+// install that has never run the wizard keeps using the card's own config.
+const TOPOLOGY_SWITCHBOARD_FIELDS = {
+  grid_meter: ["switchboard_grid_meter_sensor", "Grid meter"],
+  import_price: ["switchboard_import_price_sensor", "Import price"],
+  export_price: ["switchboard_export_price_sensor", "Export price"],
+  battery_power: ["switchboard_battery_power_sensor", "Battery power"],
+  import_energy_daily: ["switchboard_import_energy_daily_sensor", "Grid import, daily"],
+  export_energy_daily: ["switchboard_export_energy_daily_sensor", "Grid export, daily"],
+  house_load_energy_daily: ["switchboard_house_load_energy_daily_sensor", "House load, daily"],
+  solar_energy_daily: ["switchboard_solar_energy_daily_sensor", "Solar, daily"],
+  battery_charge_daily: ["switchboard_battery_charge_daily_sensor", "Battery charge, daily"],
+  battery_discharge_daily: ["switchboard_battery_discharge_daily_sensor", "Battery discharge, daily"],
+};
+
+// The wizard's switchboard in the card's own keys; empty fields are null.
+function topologyWizardSwitchboard(attrs) {
+  const raw = (attrs && attrs.switchboard) || {};
+  const out = {};
+  for (const key in TOPOLOGY_SWITCHBOARD_FIELDS) {
+    out[key] = raw[TOPOLOGY_SWITCHBOARD_FIELDS[key][0]] || null;
+  }
+  return out;
+}
+
+// True when the wizard holds any Topology setting at all.
+function topologyWizardHolds(attrs) {
+  if (!attrs) return false;
+  if ((attrs.power_sources || []).length) return true;
+  return Object.values(topologyWizardSwitchboard(attrs)).some((v) => v);
+}
+
+// The card config's own Topology entries that the wizard overrides, as
+// readable names ("switchboard.grid_meter", "inverters").
+function topologyIgnoredEntries(config, attrs) {
+  if (!topologyWizardHolds(attrs)) return [];
+  const out = [];
+  const sb = (config && config.switchboard) || {};
+  for (const key of Object.keys(sb)) {
+    if (sb[key]) out.push(`switchboard.${key}`);
+  }
+  if (config && Array.isArray(config.inverters) && config.inverters.length) {
+    out.push("inverters");
+  }
+  return out;
+}
+
 // Real, deterministic inverse of Nimbus's own sensor.py:_object_id_from_source
 // -- that function turns "sensor.cb_pw_l1_power" into
 // "sensor.nimbus_cb_pw_l1_power_forecast" by string concatenation alone
@@ -286,6 +338,11 @@ class TopologyCard extends HTMLElement {
   // missing key.
   static getStubConfig() {
     return { switchboard: {}, inverters: [] };
+  }
+
+  // nimbus #1702: the visual editor shows the Topology sensors read-only.
+  static getConfigElement() {
+    return document.createElement("nimbus-topology-card-editor");
   }
 
   setConfig(config) {
@@ -488,23 +545,7 @@ class TopologyCard extends HTMLElement {
     // field in). Mapped 1:1 to the SAME keys topology_map.yaml's own
     // static switchboard: block already uses, so _render() never
     // needs to know which source a value came from.
-    const SB_MAP = {
-      grid_meter: "switchboard_grid_meter_sensor",
-      import_price: "switchboard_import_price_sensor",
-      export_price: "switchboard_export_price_sensor",
-      battery_power: "switchboard_battery_power_sensor",
-      import_energy_daily: "switchboard_import_energy_daily_sensor",
-      export_energy_daily: "switchboard_export_energy_daily_sensor",
-      house_load_energy_daily: "switchboard_house_load_energy_daily_sensor",
-      solar_energy_daily: "switchboard_solar_energy_daily_sensor",
-      battery_charge_daily: "switchboard_battery_charge_daily_sensor",
-      battery_discharge_daily: "switchboard_battery_discharge_daily_sensor",
-    };
-    const rawSwitchboard = attrs.switchboard || {};
-    const switchboard = {};
-    for (const cardKey in SB_MAP) {
-      switchboard[cardKey] = rawSwitchboard[SB_MAP[cardKey]] || null;
-    }
+    const switchboard = topologyWizardSwitchboard(attrs);
 
     return { inverters, switchboard };
   }
@@ -826,14 +867,16 @@ class TopologyCard extends HTMLElement {
     // yet) makes this byte-identical to `const cfg = this._config`,
     // exactly as it was before this feature existed.
     const liveTopology = this._discoverTopologyConfig();
-    let cfg = liveTopology
+    // nimbus #1702: where the wizard holds any Topology setting, the card's
+    // own switchboard and inverters are ignored entirely -- no field-by-field
+    // merge, so a stale entry in the card cannot fill a gap unseen.
+    const topoState = this._hass.states["sensor.nimbus_topology_config"];
+    const topoAttrs = topoState ? topoState.attributes || {} : null;
+    let cfg = topologyWizardHolds(topoAttrs)
       ? {
           ...this._config,
-          inverters: liveTopology.inverters,
-          switchboard: {
-            ...this._config.switchboard,
-            ...Object.fromEntries(Object.entries(liveTopology.switchboard).filter(([, v]) => v != null)),
-          },
+          inverters: liveTopology ? liveTopology.inverters : [],
+          switchboard: topologyWizardSwitchboard(topoAttrs),
         }
       : this._config;
     // nimbus issue #553 (Mark Purcell, real household finding): covers
@@ -1441,6 +1484,78 @@ function nimbusRegisterCard(name, cls) {
   window.addEventListener("load", ensure, { once: true });
 }
 
+// nimbus #1702: the card editor. Topology sensors are shown, not edited:
+// they are set in Nimbus -> Configure -> Topology diagram settings, and the
+// card follows them with no card edit. Entries left in the card's own config
+// that the wizard overrides are listed as ignored, with a button to remove
+// them from the card.
+const TOPOLOGY_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+function topologyEscape(text) {
+  return String(text).replace(/[&<>"']/g, (c) => TOPOLOGY_ESCAPES[c]);
+}
+
+class NimbusTopologyCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config || {};
+    this._draw();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._draw();
+  }
+
+  _draw() {
+    if (!this._hass || !this._config) return;
+    const state = this._hass.states["sensor.nimbus_topology_config"];
+    const attrs = state ? state.attributes || {} : null;
+    const where = "Nimbus &rarr; Configure &rarr; Topology diagram settings";
+    if (!topologyWizardHolds(attrs)) {
+      this.innerHTML = `<div style="padding:8px 0;line-height:1.5">
+        This install has no Topology settings yet. Set the sensors in
+        <b>${where}</b>. Until then the card uses the <code>switchboard</code>
+        and <code>inverters</code> entries in its own YAML (code editor).
+      </div>`;
+      return;
+    }
+    const sb = topologyWizardSwitchboard(attrs);
+    const rows = Object.keys(TOPOLOGY_SWITCHBOARD_FIELDS).map((key) => {
+      const label = TOPOLOGY_SWITCHBOARD_FIELDS[key][1];
+      const value = sb[key] ? `<code>${topologyEscape(sb[key])}</code>` : "<i>not set</i>";
+      return `<tr><td style="padding:2px 12px 2px 0">${label}</td><td>${value}</td></tr>`;
+    }).join("");
+    const counts = [
+      [(attrs.power_sources || []).length, "power source"],
+      [(attrs.pv_strings || []).length, "PV string"],
+      [(attrs.battery_towers || []).length, "battery tower"],
+    ].map(([n, what]) => `${n} ${what}${n === 1 ? "" : "s"}`).join(", ");
+    const ignored = topologyIgnoredEntries(this._config, attrs);
+    const ignoredHtml = ignored.length
+      ? `<div style="margin-top:12px;padding:8px;border-left:3px solid var(--warning-color, #ffa600)">
+          <b>Ignored:</b> this card's own ${ignored.map((e) => `<code>${topologyEscape(e)}</code>`).join(", ")}.
+          The settings above are used instead.
+          <div style="margin-top:8px"><button id="nimbus-topology-clear">Remove them from this card</button></div>
+        </div>`
+      : "";
+    this.innerHTML = `<div style="padding:8px 0;line-height:1.5">
+      <div>Set in <b>${where}</b>. To change one, change it there; this card follows.</div>
+      <table style="margin-top:8px;border-collapse:collapse">${rows}</table>
+      <div style="margin-top:8px">${counts}.</div>
+      ${ignoredHtml}
+    </div>`;
+    const button = this.querySelector("#nimbus-topology-clear");
+    if (button) {
+      button.addEventListener("click", () => {
+        const config = { ...this._config, switchboard: {}, inverters: [] };
+        this.dispatchEvent(new CustomEvent("config-changed", {
+          detail: { config }, bubbles: true, composed: true,
+        }));
+      });
+    }
+  }
+}
+
+nimbusRegisterCard("nimbus-topology-card-editor", NimbusTopologyCardEditor);
 nimbusRegisterCard("nimbus-topology-card", TopologyCard);
 // nimbus issue #519: kept as a back-compat alias for one or two releases
 // -- a dashboard already using `type: custom:switchboard-topology-card`
