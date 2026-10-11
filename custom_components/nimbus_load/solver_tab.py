@@ -6,11 +6,13 @@ sliders, and every Solver setting.
 
 Layout (household, 11 Oct 2026): four blocks, top to bottom --
 
-  Performance        charts of the score by day and the plan cost; the
-                     last scored day and P2P matching, the money ahead,
-                     where it comes from, the battery now
-  Plan               the battery chart (past and plan on one axis, a "now"
-                     line), the cost breakdown chart, the risk sliders
+  Performance        rings at a glance, score by day, plan cost and its
+                     range, the cost breakdown by hour; then the last
+                     scored day and P2P matching, the money ahead, where
+                     it comes from, the battery now
+  Plan               the battery chart (power, state of charge and buy
+                     price, past and plan on one axis, a "now" line), the
+                     plan's battery energy as a donut, the risk sliders
   Basic settings     battery and grid, fees, P2P, battery reserve
   Advanced settings  costs, stability, price events and scoring, features
 
@@ -320,8 +322,9 @@ _BLOCKS: tuple[tuple[str, tuple[tuple[_Card, ...], ...]], ...] = (
 )
 
 _CHART_NOTE = (
-    "Battery power, positive = discharging. Solid: measured. Blue: the plan "
-    "as it was published, then the plan ahead (dashed) from now."
+    "Battery power in kW (bars, up = discharging): orange is measured, blue "
+    "the plan ahead. Green shading is the state of charge, measured then "
+    "planned; the pink line is the buy price."
 )
 
 # A block's rate reads "0.0" (or "0") while unused.
@@ -366,13 +369,17 @@ def _card(card: _Card) -> list[dict[str, Any]]:
     ]
 
 
+def _forecast(field: str, scale: float = 1.0) -> str:
+    """A data_generator reading one field of the published plan."""
+    return (
+        "return (entity.attributes.forecast || []).map(p => "
+        f"[new Date(p.time).getTime(), p.{field} * {scale}]);"
+    )
+
+
 def _chart() -> dict[str, Any]:
     plan = "@nimbus_solver_battery_forecast"
-    step = {
-        "curve": "stepline",
-        "extend_to": False,
-        "group_by": {"func": "last", "duration": "1min"},
-    }
+    hist = {"extend_to": False, "group_by": {"func": "last", "duration": "5min"}}
     return {
         "type": "custom:apexcharts-card",
         "header": {
@@ -385,36 +392,67 @@ def _chart() -> dict[str, Any]:
         "graph_span": "36h",
         "span": {"start": "hour", "offset": "-12h"},
         "now": {"show": True, "label": "Now", "color": "#ff4d8d"},
-        "yaxis": [{"decimals": 0}],
-        "apex_config": {"chart": {"height": 280}, "legend": {"show": True}},
+        "yaxis": [
+            {"id": "kw", "decimals": 0, "apex_config": {"title": {"text": "kW"}}},
+            {"id": "soc", "min": 0, "max": 100, "opposite": True, "decimals": 0},
+            {"id": "price", "opposite": True, "decimals": 2, "show": False},
+        ],
+        "apex_config": {
+            "chart": {"height": 320},
+            "legend": {"show": True},
+            "fill": {"opacity": [0.9, 0.9, 0.18, 0.18, 1]},
+        },
         "series": [
             {
                 "entity": "@option:battery_sensor",
                 "name": "Measured",
+                "type": "column",
                 "color": "#ffb340",
-                "stroke_width": 2,
-                **step,
-            },
-            {
-                "entity": plan,
-                "name": "Plan, as published",
-                "color": "#4fa3ff",
-                "stroke_width": 1.5,
-                "show": {"in_header": False},
-                **step,
+                "yaxis_id": "kw",
+                **hist,
             },
             {
                 "entity": plan,
                 "name": "Plan ahead",
+                "type": "column",
                 "color": "#4fa3ff",
-                "stroke_width": 2.5,
-                "stroke_dash": 5,
-                "curve": "stepline",
+                "yaxis_id": "kw",
                 "extend_to": False,
-                "data_generator": (
-                    "return (entity.attributes.forecast || []).map("
-                    "p => [new Date(p.time).getTime(), p.battery_kw]);"
-                ),
+                "data_generator": _forecast("battery_kw"),
+                "show": {"in_header": False},
+            },
+            {
+                "entity": "@nimbus_solver_current_soc_pct",
+                "name": "SoC",
+                "type": "area",
+                "color": "#3ddc84",
+                "yaxis_id": "soc",
+                "stroke_width": 2,
+                **hist,
+            },
+            {
+                "entity": plan,
+                "name": "SoC planned",
+                "type": "area",
+                "color": "#3ddc84",
+                "yaxis_id": "soc",
+                "stroke_width": 2,
+                "stroke_dash": 4,
+                "extend_to": False,
+                "data_generator": _forecast("soc_pct"),
+                "show": {"in_header": False},
+            },
+            {
+                "entity": plan,
+                "name": "Buy price",
+                "type": "line",
+                "curve": "stepline",
+                "color": "#ff4d8d",
+                "yaxis_id": "price",
+                "stroke_width": 1.5,
+                "extend_to": False,
+                "data_generator": _forecast("import_price"),
+                "show": {"in_header": False},
             },
         ],
     }
@@ -440,6 +478,48 @@ def _apex(
     }
 
 
+def _glance_chart() -> dict[str, Any]:
+    """Rings: EPR, state of charge, P2P matched share, all 0-100."""
+    ring = {"min": 0, "max": 100}
+    return {
+        "type": "custom:apexcharts-card",
+        "chart_type": "radialBar",
+        "header": {
+            "show": True,
+            "title": "At a glance",
+            "show_states": True,
+            "colorize_states": True,
+        },
+        "update_interval": "1min",
+        "apex_config": {
+            "chart": {"height": 300},
+            "legend": {"show": True, "position": "bottom"},
+            "plotOptions": {"radialBar": {"hollow": {"size": "30%"}}},
+        },
+        "series": [
+            {
+                "entity": "@nimbus_quality_epr",
+                "name": "EPR, last day",
+                "color": "#4FC3C7",
+                **ring,
+            },
+            {
+                "entity": "@nimbus_solver_current_soc_pct",
+                "name": "Battery now",
+                "color": "#3ddc84",
+                **ring,
+            },
+            {
+                "entity": "@nimbus_solver_p2p_match_fraction",
+                "name": "P2P matched",
+                "color": "#ff4d8d",
+                "transform": "return x * 100;",
+                **ring,
+            },
+        ],
+    }
+
+
 def _score_chart() -> dict[str, Any]:
     day = {"group_by": {"func": "last", "duration": "1d"}}
     return _apex(
@@ -457,8 +537,9 @@ def _score_chart() -> dict[str, Any]:
             {
                 "entity": "@nimbus_quality_regret_dollars",
                 "name": "Regret",
+                "type": "line",
                 "color": "#E8615F",
-                "stroke_width": 2,
+                "stroke_width": 3,
                 "yaxis_id": "aud",
                 **day,
             },
@@ -478,31 +559,74 @@ def _cost_chart() -> dict[str, Any]:
         "7d",
         [
             {
-                "entity": "@nimbus_solver_total_cost",
-                "name": "Plan cost",
-                "color": "#3ddc84",
-                "stroke_width": 2,
+                "entity": "@nimbus_solver_cost_band_upper",
+                "name": "Worst case",
+                "type": "area",
+                "color": "#E8615F",
+                "stroke_width": 0,
                 **hour,
             },
             {
                 "entity": "@nimbus_solver_cost_band_lower",
                 "name": "Best case",
-                "color": "#9aa0ac",
-                "stroke_width": 1,
-                "stroke_dash": 4,
+                "type": "area",
+                "color": "#3ddc84",
+                "stroke_width": 0,
                 **hour,
             },
             {
-                "entity": "@nimbus_solver_cost_band_upper",
-                "name": "Worst case",
-                "color": "#9aa0ac",
-                "stroke_width": 1,
-                "stroke_dash": 4,
+                "entity": "@nimbus_solver_total_cost",
+                "name": "Plan cost",
+                "type": "line",
+                "color": "#e8eaf0",
+                "stroke_width": 2.5,
                 **hour,
             },
         ],
         yaxis=[{"decimals": 0}],
+        apex_config={
+            "chart": {"height": 240},
+            "legend": {"show": True},
+            "fill": {"opacity": [0.25, 0.25, 1]},
+        },
     )
+
+
+def _energy_chart() -> dict[str, Any]:
+    """Donut: the plan's battery energy -- where charging comes from and
+    where discharging goes, in kWh over the whole plan."""
+    plan = "@nimbus_solver_battery_forecast"
+    flows = (
+        ("pv_to_battery", "Solar into battery", "#ffb340"),
+        ("grid_to_battery", "Grid into battery", "#4fa3ff"),
+        ("battery_to_load", "Battery to house", "#3ddc84"),
+        ("battery_to_grid", "Battery to grid", "#ff4d8d"),
+    )
+    return {
+        "type": "custom:apexcharts-card",
+        "chart_type": "donut",
+        "header": {"show": True, "title": "Battery energy in the plan"},
+        "update_interval": "1min",
+        "apex_config": {
+            "chart": {"height": 300},
+            "legend": {"show": True, "position": "bottom"},
+        },
+        "series": [
+            {
+                "entity": plan,
+                "name": name,
+                "color": color,
+                "unit": "kWh",
+                "float_precision": 1,
+                "data_generator": (
+                    "const f = entity.attributes.forecast || []; "
+                    f"const kwh = f.reduce((a, p) => a + (p.flow_{key}_kw || 0) "
+                    "* (p.hours || 0), 0); return [[Date.now(), kwh]];"
+                ),
+            }
+            for key, name, color in flows
+        ],
+    }
 
 
 def _breakdown_chart() -> dict[str, Any]:
@@ -523,10 +647,19 @@ def _breakdown_chart() -> dict[str, Any]:
     )
 
 
+_GLANCE_NOTE = (
+    "Each ring is out of 100: yesterday's score, the battery's level now, "
+    "and the share of P2P export recently matched to a buyer."
+)
 _SCORE_NOTE = "Each day's EPR (bars) and regret in dollars (line), once settled."
+_ENERGY_NOTE = (
+    "Over the whole plan ahead: how much energy goes into the battery from "
+    "solar and from the grid, and how much comes out to the house and to "
+    "the grid."
+)
 _COST_NOTE = (
-    "What each plan expected to cost, hour by hour, with the range forecast "
-    "error could take it. Lower is better; below zero it earns."
+    "What each plan expected to cost (white line) and the range forecast "
+    "error could take it (shaded). Lower is better; below zero it earns."
 )
 _BREAKDOWN_NOTE = (
     "The plan cost split into its parts each hour. Bars below zero are earnings."
@@ -559,10 +692,12 @@ def template() -> list[dict[str, Any]]:
             ]
         sections.append({"type": "grid", "column_span": 4, "cards": top})
         if name == "Performance":
+            sections.append(_chart_section(_glance_chart(), _GLANCE_NOTE))
             sections.append(_chart_section(_score_chart(), _SCORE_NOTE))
             sections.append(_chart_section(_cost_chart(), _COST_NOTE))
-        if name == "Plan":
             sections.append(_chart_section(_breakdown_chart(), _BREAKDOWN_NOTE))
+        if name == "Plan":
+            sections.append(_chart_section(_energy_chart(), _ENERGY_NOTE))
         # A lone column sits beside a chart, so it takes half the row.
         span = 4 // len(columns) if len(columns) > 1 else 2
         for column in columns:

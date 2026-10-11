@@ -94,8 +94,10 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
     assert layout == [
         [
             "Performance",
+            (2, "At a glance"),
             (2, "Score by day"),
             (2, "Plan cost, last 7 days"),
+            (2, "Where the cost comes from, last 24 h"),
             (1, ["Last day, scored", "P2P matching"]),
             (1, ["Money, plan ahead"]),
             (1, ["Where the cost comes from"]),
@@ -103,7 +105,7 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         ],
         [
             "Plan",
-            (2, "Where the cost comes from, last 24 h"),
+            (2, "Battery energy in the plan"),
             (2, ["Risk sliders"]),
         ],
         [
@@ -143,13 +145,11 @@ def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
     assert chart["now"]["show"] is True
     assert chart["header"]["show_states"] is True
     assert chart["span"]["offset"].startswith("-")
-    assert all(s["curve"] == "stepline" for s in chart["series"])
-    assert [s["entity"] for s in chart["series"]] == [
-        "@option:battery_sensor",
-        "@nimbus_solver_battery_forecast",
-        "@nimbus_solver_battery_forecast",
-    ]
-    assert "data_generator" in chart["series"][2]
+    names = {s["name"]: s for s in chart["series"]}
+    assert names["Measured"]["entity"] == "@option:battery_sensor"
+    for planned in ("Plan ahead", "SoC planned", "Buy price"):
+        assert names[planned]["entity"] == "@nimbus_solver_battery_forecast"
+        assert "data_generator" in names[planned]
     assert "haeo" not in json.dumps(chart).lower()
 
 
@@ -264,7 +264,7 @@ def test_a_missing_entity_is_dropped_not_written_blank() -> None:
         for c in s["cards"]
         if c.get("header", {}).get("title") == "Battery: plan against measured"
     )
-    assert [x["name"] for x in chart["series"]] == ["Plan, as published", "Plan ahead"]
+    assert "Measured" not in [x["name"] for x in chart["series"]]
 
 
 def test_an_entities_card_with_nothing_left_is_dropped() -> None:
