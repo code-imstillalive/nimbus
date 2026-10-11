@@ -8,19 +8,49 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.448] - 2026-10-11
+
+The redesigned Solver tab, the battery reserve's window as clock times, and
+two fixes. Nothing here changes a plan on an install whose reserve is unset.
+
 ### Changed
-- **The Solver tab is redesigned** (household, 11 Oct 2026). The first
-  version listed raw entity names ("Nimbus P2P P2P Block 1 Start...", cut
-  off), left large empty areas, and showed every setting as a bare number
-  box. Now every row has a short plain name; each functional group (Battery
-  and grid, Fees, P2P blocks, Costs, Stability, Battery reserve, Price
-  events, Features...) is its own section, so whole groups reflow by screen
-  width -- four across on a PC, two on a tablet, one on a phone -- and none
-  is ever split; the plan chart spans the width; the risk sliders are real
-  sliders with their live effect on the same row; and a fee or P2P block
-  shows its hours only once its rate is set. An untouched tab updates in
-  place on the next restart; a tab you have edited is left alone and the new
-  design goes beside it.
+- **The Solver tab is redesigned** (household review on devhub, 11 Oct 2026).
+  - Solve now on the top row, beside plan status, solve time and what limits
+    the plan now.
+  - Five blocks, each opened by a coloured band: Performance, Money, Plan,
+    Basic settings, Advanced settings.
+  - Cards side by side end on one line; every card has its title and a
+    one-line note inside it, and each setting is explained.
+  - Charts:
+    - score by day, at each day's own date;
+    - the plan-ahead cost inside its range;
+    - the current plan's cost split into its parts;
+    - the battery chart, past and plan on one axis, with state of charge and
+      the buy price at 5-minute detail behind Now;
+    - tomorrow's battery energy as a pie, beside a table of yesterday measured
+      against tomorrow planned (midnight to midnight; yesterday from the
+      daily meters set in Topology).
+  - Real slider tiles for the risk settings.
+  - P2P blocks with their hours.
+  - No card header toggles.
+  - An untouched tab updates in place on the next restart; an edited one is
+    left alone and the new design goes beside it.
+- **The battery reserve's From / Until are time entities**, picked as a clock
+  time (00:00 -> 05:30) instead of numbers reading "0 h" / "5.5 h". The saved
+  values carry over and the Solver still receives hours, converted exactly.
+  The entity ids change from `number.nimbus_solver_battery_reserve_start_hour`
+  / `_end_hour` to `time.nimbus_solver_battery_reserve_start_hour` / `_end_hour`:
+  an automation or card that names the old ids needs updating.
+- **Clock-time settings carry no unit.** The P2P block and network-fee block
+  start/end hours no longer show "hour". **The P2P matched share has no "%".**
+  It is a 0-1 fraction and read "0.5%" for 51%.
+
+### Fixed
+- **The "power setting is not in W or kW" repair no longer lists temperature
+  or humidity Power Signals** (#1701). They are never read as power.
+- **Setup no longer fails once the time platform loads.** HA sets the
+  package's `time` attribute to the new platform module, which shadowed the
+  standard library in `__init__.py`.
 
 ## [0.94.447] - 2026-10-11
 
