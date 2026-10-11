@@ -68,26 +68,70 @@ def _resolve(view):
 
 
 def test_the_sections_are_the_agreed_ones_in_order() -> None:
-    """One section per functional group, in phone reading order (household,
-    11 Oct 2026): sections reflow whole by screen width, never split."""
-    headings = [s["cards"][0]["heading"] for s in solver_tab.template()]
-    assert headings == [
-        "Solver",
-        "Plan against actual",
-        "Money",
-        "How well it did",
-        "Risk sliders",
-        "Basic · Battery and grid",
-        "Basic · Fees",
-        "P2P · Committed blocks",
-        "P2P · Bonus and matching",
-        "Advanced · Costs",
-        "Advanced · Stability",
-        "Advanced · Battery reserve",
-        "Advanced · Price events",
-        "Advanced · Features",
-        "Advanced · Scoring thresholds",
+    """Four blocks (household, 11 Oct 2026): Performance, Plan, Basic
+    settings, Advanced settings. Each is its name across the full width, then
+    one section per column, every card titled inside itself with a note."""
+    layout = []
+    for section in solver_tab.template():
+        cards = section["cards"]
+        if cards[0]["type"] == "heading":
+            assert section["column_span"] == 4
+            layout.append([cards[0]["heading"]])
+        else:
+            layout[-1].append(
+                (
+                    section["column_span"],
+                    [c["title"] for c in cards if c["type"] == "entities"],
+                )
+            )
+            # Every card is followed by its note.
+            types = [c["type"] for c in cards]
+            assert types == ["entities", "markdown"] * (len(types) // 2), types
+    assert layout == [
+        [
+            "Performance",
+            (1, ["Last day, scored"]),
+            (1, ["Money, plan ahead"]),
+            (1, ["Battery, now"]),
+            (1, ["P2P matching"]),
+        ],
+        ["Plan", (2, ["Where the cost comes from"]), (2, ["Risk sliders"])],
+        [
+            "Basic settings",
+            (1, ["Battery and grid"]),
+            (1, ["Fees"]),
+            (1, ["P2P"]),
+            (1, ["Battery reserve"]),
+        ],
+        [
+            "Advanced settings",
+            (1, ["Costs"]),
+            (1, ["Stability"]),
+            (1, ["Price events", "Scoring thresholds"]),
+            (1, ["Features"]),
+        ],
     ]
+
+
+def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
+    """Household rule 5: one axis, the past and the plan ahead, a "now"
+    marker, headline numbers, step lines. Never HAEO."""
+    plan = next(
+        s for s in solver_tab.template() if s["cards"][0].get("heading") == "Plan"
+    )
+    chart = plan["cards"][1]
+    assert chart["type"] == "custom:apexcharts-card"
+    assert chart["now"]["show"] is True
+    assert chart["header"]["show_states"] is True
+    assert chart["span"]["offset"].startswith("-")
+    assert all(s["curve"] == "stepline" for s in chart["series"])
+    assert [s["entity"] for s in chart["series"]] == [
+        "@option:battery_sensor",
+        "@nimbus_solver_battery_forecast",
+        "@nimbus_solver_battery_forecast",
+    ]
+    assert "data_generator" in chart["series"][2]
+    assert "haeo" not in json.dumps(chart).lower()
 
 
 def test_every_setting_is_on_the_tab_exactly_once() -> None:
@@ -195,15 +239,17 @@ def test_a_missing_entity_is_dropped_not_written_blank() -> None:
     text = json.dumps(view)
     assert "nimbus_quality_epr_2" not in text
     assert '"@' not in text
-    plan = view[1]["cards"][1]
-    assert [e["name"] for e in plan["entities"]] == ["Nimbus plan (now)"]
+    chart = next(
+        c for s in view for c in s["cards"] if c["type"] == "custom:apexcharts-card"
+    )
+    assert [x["name"] for x in chart["series"]] == ["Plan, as published", "Plan ahead"]
 
 
 def test_an_entities_card_with_nothing_left_is_dropped() -> None:
+    """With no entities at all only the block names are left: every card,
+    its note, its column and the chart go."""
     view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
-    for section in view:
-        for card in section["cards"]:
-            assert card["type"] in ("heading", "markdown"), card
+    assert [[c["type"] for c in s["cards"]] for s in view] == [["heading"]] * 4
 
 
 def test_the_design_is_the_same_on_every_install() -> None:
