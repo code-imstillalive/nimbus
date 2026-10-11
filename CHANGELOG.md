@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The Solver tab now installs on a dashboard that merely mentions the
+  plan status.** 0.94.448 took any tab naming
+  `sensor.nimbus_solver_lp_status`, such as a household's own entities list,
+  for an existing Solver tab, and added none (a tester's install, 11 Oct
+  2026). Only the tab Nimbus wrote now counts. An install that 0.94.448
+  wrongly marked gets the tab once, at its next restart, beside the tab that
+  mentioned the sensor. A Solver tab the household deleted still stays
+  deleted.
+
 ## [0.94.448] - 2026-10-11
 
 The redesigned Solver tab, the battery reserve's window as clock times, and

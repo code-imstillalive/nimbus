@@ -291,8 +291,19 @@ def _sync_views(
             # here: what is on the dashboard now is the household's.
             mem[key] = {"design": design, "path": None, "written": None}
             continue
+        # The Solver tab's `match` is an ENTITY, not a card type, so "a tab
+        # mentions it" is no evidence of a Solver tab: a tester's own
+        # entities list named sensor.nimbus_solver_lp_status, so 0.94.448
+        # recorded his install as already having one and never added it
+        # (11 Oct 2026). A templated tab is recognised only as the one Nimbus
+        # wrote; a household tab of the same title still gets it beside.
+        templated = bool(spec.get("sections_template"))
+        if rec is not None and templated and rec.get("path") is None:
+            # Recorded by that wrong guess: nothing Nimbus wrote is there.
+            # Add it once now; from then on it is tracked like any other.
+            rec = None
         if rec is None:
-            if any(_holds_card(v, spec) for v in views):
+            if not templated and any(_holds_card(v, spec) for v in views):
                 # Rule 5: the card is there already; nothing until the design
                 # changes.
                 mem[key] = {"design": design, "path": None, "written": None}
