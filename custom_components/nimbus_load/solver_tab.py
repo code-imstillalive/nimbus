@@ -45,9 +45,15 @@ lookup.
 from __future__ import annotations
 
 import copy
+import json
 import re
 from collections.abc import Callable
 from typing import Any
+
+try:
+    from .power_units import POWER_TO_KW, power_scale_to_kw
+except ImportError:  # loaded standalone (tests)
+    from power_units import POWER_TO_KW, power_scale_to_kw  # type: ignore[no-redef]
 
 # A card is (title, rows, note). A row is (key, name), or
 # ("block", rate_key, start_key, end_key, label): the rate, then its hours
@@ -443,12 +449,17 @@ def _apex(
 
 # A series on a data_generator takes its unit from the plan sensor (kW)
 # unless given its own, so "SoC ahead" read "7 kW" (11 Oct 2026).
-# The battery sensor's unit is read from its live state: history rows may
-# carry no attributes.
+#
+# The measured battery series is brought to kW with power_units.py's table
+# (nimbus #1570), read against the sensor's live unit: history rows may carry
+# no attributes. Case matters only for mW against MW.
 _TO_KW = (
     "const s = hass.states['${@option:battery_sensor}']; "
-    "const u = s && s.attributes ? s.attributes.unit_of_measurement : ''; "
-    "return u === 'W' ? x / 1000 : u === 'MW' ? x * 1000 : x;"
+    "const u = String((s && s.attributes && s.attributes.unit_of_measurement) || '').trim(); "
+    f"const exact = {json.dumps({u: power_scale_to_kw(u) for u in ('mW', 'MW')})}; "
+    f"const t = {json.dumps(POWER_TO_KW)}; "
+    "const k = u in exact ? exact[u] : (u.toLowerCase() in t ? t[u.toLowerCase()] : 1); "
+    "return x * k;"
 )
 
 

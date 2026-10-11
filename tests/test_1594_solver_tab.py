@@ -563,7 +563,8 @@ def test_battery_chart_reads_watts_as_kw_and_labels_its_plan_series() -> None:
     by_name = {s["name"]: s for s in chart["series"]}
     measured = by_name["Measured"]
     assert measured["unit"] == "kW"
-    assert "x / 1000" in measured["transform"]
+    assert '"w": 0.001' in measured["transform"]
+    assert '"MW": 1000.0' in measured["transform"]
     assert "${@option:battery_sensor}" in measured["transform"]
     resolved = solver_tab.resolve(
         measured, lambda k: "sensor.batt" if k == "option:battery_sensor" else None
