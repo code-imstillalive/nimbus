@@ -613,7 +613,11 @@ def _breakdown_chart() -> dict[str, Any]:
     now = {
         "type": "column",
         "data_generator": (
-            "return [[Date.now() - 30 * 60 * 1000, parseFloat(entity.state)]];"
+            # No current plan (a failed or stale solve leaves these
+            # unavailable): no column, so the card reads N/A like the others
+            # rather than NaN (a tester's install, 11 Oct 2026).
+            "const v = parseFloat(entity.state); "
+            "return isNaN(v) ? [] : [[Date.now() - 30 * 60 * 1000, v]];"
         ),
     }
     parts = (
