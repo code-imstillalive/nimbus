@@ -107,12 +107,8 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             assert not cards[0].get("text_only")  # outlined like a card
             layout.append([_block(cards[0])])
             continue
-        if len(cards) > 1:  # the risk column: three sliders and their note
-            assert [_what(c) for c in cards[1:]] == [
-                "slider: Export price risk",
-                "slider: Solar forecast risk",
-                "markdown: What the sliders do",
-            ]
+        if len(cards) > 1:  # the daily summary: today and tomorrow, stacked
+            assert [_what(c) for c in cards] == ["Solver Daily Summary"] * 2
         layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
         [
@@ -144,8 +140,12 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             "Plan",
             (4, "Battery: plan against measured"),
             (2, "Solver Forecast — Until Midnight"),
-            (1, "Solver Daily Summary (Forecast Only)"),
-            (1, "slider: Import price risk"),
+            (1, "Nimbus Solver Quality (EPR / Regret)"),
+            (1, "Solver Daily Summary"),
+            (1, "nimbus:risk-slider"),
+            (1, "nimbus:risk-slider"),
+            (1, "nimbus:risk-slider"),
+            (1, "markdown: What the sliders do"),
         ],
         [
             "Basic settings",
@@ -216,15 +216,30 @@ def test_cards_side_by_side_end_on_one_line() -> None:
 
 def test_the_sliders_are_sliders() -> None:
     """Household, 11 Oct 2026: "u have called it sliders but produced
-    inputs". Each risk setting is a tile with a slider; since 12 Oct the
-    three are stacked in one column with their explanation under them."""
-    column = next(
-        s["cards"] for s in solver_tab.template() if s["cards"][0].get("features")
-    )
-    assert len(column) == 4
-    for card in column[:3]:
-        assert card["features"] == [{"type": "numeric-input", "style": "slider"}]
-    assert "What the sliders do" in column[3]["content"]
+    inputs". 12 Oct: the household's mushroom slider with a 100 px icon
+    where mushroom is installed, HA's tile slider elsewhere."""
+
+    def lookup(key):
+        return {"card:mushroom": MUSH}.get(key, f"number.nimbus_{key}")
+
+    for MUSH, kind in (("custom:mushroom-number-card", "mushroom"), (None, "tile")):
+        cards = [
+            c
+            for s in solver_tab.resolve(solver_tab.template(), lookup)
+            for c in s["cards"]
+            if c.get("display_mode") == "slider" or c.get("features")
+        ]
+        assert len(cards) == 3, kind
+        for card in cards:
+            if MUSH:
+                assert card["type"] == MUSH
+                assert "--mush-icon-size: 100px" in card["card_mod"]["style"]
+                assert card["entity"] in card["card_mod"]["style"]
+            else:
+                assert card["type"] == "tile"
+                assert card["features"] == [
+                    {"type": "numeric-input", "style": "slider"}
+                ]
 
 
 def _row(title_or_header: str) -> list[dict]:
@@ -251,7 +266,7 @@ def test_each_row_is_one_height_and_fills_it() -> None:
         "Nimbus Solver Quality (EPR / Regret)",
         "Solver Forecast — Until Midnight",
     ):
-        row = _row(first)
+        row = [s for s in _row(first) if len(s["cards"]) == 1][:2]
         heights = {
             json.dumps(s["cards"][0]["grid_options"])
             for s in row
@@ -260,6 +275,8 @@ def test_each_row_is_one_height_and_fills_it() -> None:
         assert len(heights) == 1, (first, heights)
         for s in row:
             style = s["cards"][0].get("card_mod", {}).get("style", "")
+            if isinstance(style, dict):
+                style = style["."]
             if s["cards"][0].get("features"):
                 continue
             assert "height: 100%" in style

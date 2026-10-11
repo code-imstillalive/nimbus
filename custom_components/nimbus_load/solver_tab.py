@@ -530,6 +530,41 @@ def _history(field: str, scale: float = 1.0) -> str:
     )
 
 
+def _zero_line(axis_index: int = 0) -> dict[str, Any]:
+    """A solid line at 0 on axis `axis_index`: every chart has its zero as a
+    horizon (household, 12 Oct 2026)."""
+    return {
+        "annotations": {
+            "yaxis": [
+                {
+                    "y": 0,
+                    "yAxisIndex": axis_index,
+                    "borderColor": "#c8ccd4",
+                    "borderWidth": 1.5,
+                    "strokeDashArray": 0,
+                }
+            ]
+        }
+    }
+
+
+# Hide an axis's labels below zero: the SoC axis runs -100..100 so its 0
+# sits on the kW axis's zero, but a negative SoC means nothing.
+_NO_NEGATIVE_LABELS = "EVAL:function (v) { return v < 0 ? '' : Math.round(v); }"
+
+
+def _mirror(field: str, scale: float = 1.0) -> str:
+    """The plan's `field` and its negation at every point: an invisible
+    series that makes its axis symmetric about 0, so that axis's zero lines
+    up with the kW axis's (household, 12 Oct 2026)."""
+    return (
+        "return (entity.attributes.forecast || []).flatMap(p => { "
+        "const t = new Date(p.time).getTime(); "
+        f"const v = Math.abs((p.{field} || 0) * {scale}); "
+        "return [[t, v], [t, -v]]; });"
+    )
+
+
 def _score_chart() -> dict[str, Any]:
     return _apex(
         "Score by day",
@@ -559,6 +594,7 @@ def _score_chart() -> dict[str, Any]:
             {"id": "pct", "min": 0, "max": 100, "decimals": 0, "opposite": True},
             {"id": "aud", "min": 0, "decimals": 0},
         ],
+        apex_config=_zero_line(1),
     )
 
 
@@ -598,7 +634,7 @@ def _cost_chart() -> dict[str, Any]:
         ],
         graph_span="7d",
         yaxis=[{"decimals": 0}],
-        apex_config={"fill": {"opacity": [0.25, 0.25, 1]}},
+        apex_config={"fill": {"opacity": [0.25, 0.25, 1]}, **_zero_line()},
     )
 
 
@@ -638,6 +674,7 @@ def _breakdown_chart() -> dict[str, Any]:
         graph_span="1h",
         yaxis=[{"decimals": 0}],
         apex_config={
+            **_zero_line(),
             "xaxis": {"labels": {"show": False}},
             "plotOptions": {"bar": {"columnWidth": "85%"}},
             "dataLabels": {
@@ -741,6 +778,25 @@ def _chart() -> dict[str, Any]:
                 "data_generator": _forecast("import_price", 100.0),
                 **ahead,
             },
+            # Invisible: they make the kW and price axes symmetric about 0,
+            # so all three axes share one zero line.
+            *(
+                {
+                    "entity": plan,
+                    "name": name,
+                    "curve": "stepline",
+                    "stroke_width": 0,
+                    "opacity": 0,
+                    "yaxis_id": axis,
+                    "data_generator": _mirror(field, scale),
+                    "show": {"in_legend": False, "in_header": False},
+                    "extend_to": False,
+                }
+                for name, axis, field, scale in (
+                    ("kW scale", "kw", "battery_kw", 1.0),
+                    ("Price scale", "price", "import_price", 100.0),
+                )
+            ),
         ],
         height=360,
         graph_span="36h",
@@ -750,13 +806,17 @@ def _chart() -> dict[str, Any]:
             {"id": "kw", "decimals": 0, "apex_config": {"title": {"text": "kW"}}},
             # Shown and labelled: hidden, a full battery sat on the kW axis's
             # top line and read as 40 kW (household, 12 Oct 2026).
+            # -100..100 puts 0% on the kW axis's zero; negatives unlabelled.
             {
                 "id": "soc",
-                "min": 0,
+                "min": -100,
                 "max": 100,
                 "opposite": True,
                 "decimals": 0,
-                "apex_config": {"title": {"text": "SoC %"}},
+                "apex_config": {
+                    "title": {"text": "SoC %"},
+                    "labels": {"formatter": _NO_NEGATIVE_LABELS},
+                },
             },
             {
                 "id": "price",
@@ -765,7 +825,10 @@ def _chart() -> dict[str, Any]:
                 "apex_config": {"title": {"text": "c/kWh"}},
             },
         ],
-        apex_config={"fill": {"opacity": [1, 1, 1, 0.15, 0.08, 1, 1]}},
+        apex_config={
+            "fill": {"opacity": [1, 1, 1, 0.15, 0.08, 1, 1, 0, 0]},
+            **_zero_line(0),
+        },
     )
 
 
@@ -931,37 +994,126 @@ _HOUSEHOLD_DAILY = {
 # Cards in one row share one height and never scroll (household, 12 Oct
 # 2026). Only the until-midnight table scrolls, as asked.
 _FILL_NO_SCROLL = "ha-card { height: 100%; box-sizing: border-box; overflow: hidden; } ha-card td, ha-card th { white-space: normal; overflow-wrap: anywhere; }"
-_UNTIL_MIDNIGHT_STYLE = "ha-card { height: 100%; overflow-y: auto; } ha-card table { width: 100%; table-layout: fixed; font-size: 0.88em; } ha-card th, ha-card td { padding: 3px 6px; white-space: nowrap; }"
+_UNTIL_MIDNIGHT_STYLE: Any = {
+    ".": "ha-card { height: 100%; overflow-x: hidden; overflow-y: auto; }",
+    # The table is inside ha-markdown's own shadow root, so it is styled
+    # there; styled from ha-card it kept its own width (12 Oct 2026).
+    "ha-markdown$": (
+        "table { width: 100%; table-layout: fixed; font-size: 0.88em; } "
+        "th, td { padding: 3px 6px; white-space: nowrap; overflow: hidden; }"
+    ),
+}
 # Chart cards fill their cell, title on top, figures at the bottom.
 _CHART_FIGURES_BELOW = "ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; } #header { display: contents; } #header__title { order: 0; } #graph-wrapper { order: 1; flex: 1 1 auto; } #header__states { order: 2; margin-top: auto; }"
 _FILL = "ha-card { height: 100%; box-sizing: border-box; }"
 
 
-def _styled(card: dict[str, Any], style: str) -> dict[str, Any]:
+def _daily(day: str) -> dict[str, Any]:
+    """The household's daily summary for one day ("Today" / "Tomorrow"):
+    their card with the other day's table left out, title without
+    "(Forecast Only)" (household, 12 Oct 2026)."""
+    calls = {
+        "Today": "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n",
+        "Tomorrow": (
+            "{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime"
+            "('%Y-%m-%d'), periods) }}\n"
+        ),
+    }
+    other = calls["Tomorrow" if day == "Today" else "Today"]
+    content = _HOUSEHOLD_DAILY["content"]
+    assert calls[day] in content and other in content
+    return {
+        **_HOUSEHOLD_DAILY,
+        "title": "Solver Daily Summary",
+        "content": content.replace(other, ""),
+    }
+
+
+def _styled(card: dict[str, Any], style: Any) -> dict[str, Any]:
     return {**card, "card_mod": {"style": style}}
 
 
-def _risk_column() -> dict[str, Any]:
-    """The three slider tiles stacked in one column, the explanation under
-    them (household, 12 Oct 2026)."""
-    tiles = [
+def _risk_row() -> list[dict[str, Any]]:
+    """The three risk sliders and their explanation, one column each, one
+    height (household, 12 Oct 2026). `nimbus:risk-slider` is resolved per
+    install: the household's mushroom slider (large icon, red-to-green with
+    the value) where mushroom is installed, HA's tile slider elsewhere."""
+    height = {"columns": "full", "rows": 4}
+    sliders = [
         {
-            "type": "tile",
-            "entity": f"@{key}",
-            "name": name,
-            "features": [{"type": "numeric-input", "style": "slider"}],
-            "features_position": "bottom",
-            "grid_options": {"columns": "full", "rows": 2},
+            "type": "grid",
+            "column_span": 1,
+            "cards": [
+                {
+                    "type": "nimbus:risk-slider",
+                    "entity": f"@{key}",
+                    "name": name,
+                    "grid_options": height,
+                }
+            ],
         }
         for key, name in _SLIDERS
     ]
     explain = {
-        "type": "markdown",
-        "content": _RISK_TEXT,
-        "card_mod": {"style": _FILL_NO_SCROLL},
-        "grid_options": {"columns": "full", "rows": 4},
+        "type": "grid",
+        "column_span": 1,
+        "cards": [
+            {
+                "type": "markdown",
+                "content": _RISK_TEXT,
+                "card_mod": {"style": _FILL_NO_SCROLL},
+                "grid_options": height,
+            }
+        ],
     }
-    return {"type": "grid", "column_span": 1, "cards": [*tiles, explain]}
+    return [*sliders, explain]
+
+
+# The household's own mushroom slider (their first Solver tab), icon at
+# 100 px (12 Oct 2026): red at 0, green at 1.
+_MUSHROOM_STYLE = (
+    "ha-card {\n"
+    "  {% set v = states('ENTITY') | float(0) %}\n"
+    "  {% set r = (244 - (244 - 76) * v) | round | int %}\n"
+    "  {% set g = (67 + (175 - 67) * v) | round | int %}\n"
+    "  {% set b = (54 + (80 - 54) * v) | round | int %}\n"
+    "  {% set c = 'rgb(' ~ r ~ ',' ~ g ~ ',' ~ b ~ ')' %}\n"
+    "  --icon-color: {{ c }};\n"
+    "  --main-color: {{ c }};\n"
+    "  --slider-color: {{ c }};\n"
+    "  --rgb-state-active: {{ r }},{{ g }},{{ b }};\n"
+    "  --card-mod-icon-color: {{ c }};\n"
+    "  --mush-icon-size: 100px;\n"
+    "  --mush-icon-symbol-size: 0.6em;\n"
+    "  height: 100%;\n"
+    "}"
+)
+
+
+def _risk_slider(node: dict[str, Any], mushroom: str | None) -> dict[str, Any]:
+    """One `nimbus:risk-slider` (entity already resolved) as a real card."""
+    if mushroom:
+        return {
+            "type": mushroom,
+            "entity": node["entity"],
+            "name": node["name"],
+            "secondary_info": "state",
+            "icon": "mdi:speedometer",
+            "layout": "vertical",
+            "display_mode": "slider",
+            "fill_container": True,
+            "grid_options": node.get("grid_options"),
+            "card_mod": {"style": _MUSHROOM_STYLE.replace("ENTITY", node["entity"])},
+        }
+    return {
+        "type": "tile",
+        "entity": node["entity"],
+        "name": node["name"],
+        "icon": "mdi:speedometer",
+        "features": [{"type": "numeric-input", "style": "slider"}],
+        "features_position": "bottom",
+        "grid_options": node.get("grid_options"),
+    }
 
 
 def _top_row() -> list[dict[str, Any]]:
@@ -1010,7 +1162,7 @@ def template() -> list[dict[str, Any]]:
     banners = {name: _banner(name, kind, line) for name, kind, line in _BANNERS}
     row = {"rows": 8}
     half = {"rows": 7}
-    plan = {"rows": 10}
+    plan = {"rows": 12}
     return [
         *_top_row(),
         banners["Performance"],
@@ -1027,8 +1179,16 @@ def template() -> list[dict[str, Any]]:
         banners["Plan"],
         _section([_chart()], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
-        _section([_styled(_HOUSEHOLD_DAILY, _FILL_NO_SCROLL)], 1, plan),
-        _risk_column(),
+        _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),
+        _section(
+            [
+                _styled(_daily("Today"), _FILL_NO_SCROLL),
+                _styled(_daily("Tomorrow"), _FILL_NO_SCROLL),
+            ],
+            1,
+            {"rows": 6},
+        ),
+        *_risk_row(),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],
@@ -1080,6 +1240,8 @@ def resolve(value: Any, lookup: Callable[[str], str | None]) -> Any:
             if target is None:
                 return None
             node["entity"] = target
+        if node.get("type") == "nimbus:risk-slider":
+            return _risk_slider(node, lookup("card:mushroom"))
         if node.get("type") == "conditional" and (
             not node.get("row") or not node.get("conditions")
         ):

@@ -412,6 +412,21 @@ async def _async_create_dashboard(hass: HomeAssistant, data: Any) -> Any:
     return dashboard
 
 
+def _has_lovelace_resource(hass: HomeAssistant, name: str) -> bool:
+    """Whether a dashboard resource whose URL contains `name` is installed
+    (read only). The Solver tab uses the household's mushroom sliders where
+    mushroom is installed and HA's own tile slider everywhere else."""
+    try:
+        lovelace = hass.data.get("lovelace")
+        resources = getattr(lovelace, "resources", None)
+        if resources is None and isinstance(lovelace, dict):
+            resources = lovelace.get("resources")
+        items = resources.async_items() if resources is not None else []
+        return any(name in str(item.get("url", "")) for item in items)
+    except Exception:  # noqa: BLE001 -- the tile slider is always a safe answer
+        return False
+
+
 def _solver_resolver(hass: HomeAssistant) -> Any:
     """`solver_tab.resolve` bound to this install: `@<key>` is the entity
     whose unique id is `<nimbus entry id>_<key>`, `@option:<name>` the
@@ -433,7 +448,11 @@ def _solver_resolver(hass: HomeAssistant) -> Any:
             continue
         by_uid[e.unique_id] = e.entity_id
 
+    mushroom = _has_lovelace_resource(hass, "mushroom")
+
     def lookup(key: str) -> str | None:
+        if key == "card:mushroom":
+            return "custom:mushroom-number-card" if mushroom else None
         if key.startswith("option:"):
             value = entry.options.get(key.split(":", 1)[1])
             return value if isinstance(value, str) and value else None
