@@ -548,6 +548,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Returns [] unconditionally in standalone mode already (_NATIVE_
         # HASS is None there), so there's nothing behavioural to port.
         "build_extra_batteries",
+        # nimbus #1715: build_extra_batteries()'s own SoC read for a battery
+        # participant (hold the last good SoC while a car sleeps). Native-only
+        # for the same reason as the function that calls it.
+        "_participant_soc_pct",
         # nimbus issue #768/#585: same reasoning as build_extra_
         # batteries() immediately above -- reads real battery_participant
         # ConfigSubentries (_NATIVE_HASS.config_entries.async_entries(...)
