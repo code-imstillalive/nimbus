@@ -53,7 +53,7 @@ by the household ("it is fixes not discovery or design or logic").
   rate as a **floor**, up to the export limit. Every other period keeps its
   exact pin; unarmed, or with no threshold, the plan is unchanged. Replayed on
   the reference household's 12 Oct plan inputs: no 16:30 dump (39.4 kW -> 0),
-  40 kW at 18:00 and 25.5 kW at 18:30, the 20:00-24:00 block still delivered,
+  40 kW at 18:00 and 25.5 kW at 18:30, the rest of the block still at its rate,
   and the plan's value $417 better over the horizon.
 - **A sleeping EV is not planned as empty (#1717, #1715).** An unreadable
   battery-participant SoC (`unavailable`, `unknown`, missing) used to become
