@@ -83,6 +83,38 @@ class TestRunningHold(unittest.TestCase):
         learned = self._predict(now, 0.3)
         self.assertGreater(max(learned.values), 0.3)  # the model alone would not
 
+    def _predict_series(self, now, series, **kw):
+        """`series`: (minutes before now, kW) readings."""
+        timestamps = [now + timedelta(minutes=15 * i) for i in range(48)]
+        recent = [(now - timedelta(minutes=m), v) for m, v in series]
+        return ml_model.predict(
+            trained=self.trained,
+            timestamps=timestamps,
+            temps=[20.0] * len(timestamps),
+            humidities=[50.0] * len(timestamps),
+            recent_load_values=recent,
+            resample_minutes=15,
+            **kw,
+        )
+
+    def test_a_short_dip_stays_held(self):
+        # A compressor dipping to 0.2 kW for 4 minutes is still running.
+        now = START + timedelta(days=DAYS, hours=15)
+        result = self._predict_series(
+            now, [(30, 0.9), (4, 0.9), (0, 0.2)], running_threshold_kw=0.6
+        )
+        self.assertEqual(result.values[:3], [0.9] * 3)
+
+    def test_a_dip_longer_than_the_grace_is_switched_off(self):
+        now = START + timedelta(days=DAYS, hours=15)
+        grace = ml_model.RUN_OFF_GRACE_MINUTES
+        result = self._predict_series(
+            now,
+            [(grace + 5, 0.9), (grace + 1, 0.0), (0, 0.0)],
+            running_threshold_kw=0.6,
+        )
+        self.assertEqual(result.values, [0.0] * 48)
+
     def test_unset_threshold_is_the_old_behaviour(self):
         now = START + timedelta(days=DAYS, hours=15)
         self.assertEqual(

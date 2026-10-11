@@ -1699,6 +1699,11 @@ def deterministic_values(
     ]
 
 
+# nimbus #1703: how long a burst load must stay below its running threshold
+# before the running hold treats it as switched off.
+RUN_OFF_GRACE_MINUTES: int = 10
+
+
 def predict(
     trained: TrainedModel,
     timestamps: list[datetime],
@@ -1801,20 +1806,30 @@ def predict(
     # words: "scheduled for an hour... check if they switched off and then
     # reprogram them to nil". A load with no threshold keeps its learned
     # forecast; the threshold is the choice of this rule over the model.
+    #
+    # A dip below the threshold counts as switched off only once it has
+    # lasted RUN_OFF_GRACE_MINUTES: an AC compressor cycling around the
+    # threshold stays held rather than flicking between an hour and nil on
+    # every refresh. The hold runs from the latest reading at or above it.
     if running_threshold_kw is not None and timestamps:
-        latest = (
-            max(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
-            if recent_load_values
-            else None
-        )
-        if latest is not None and latest[1] >= running_threshold_kw:
-            hold_end = _dst_safe_key(latest[0] + timedelta(hours=run_hold_hours))
-            return PredictionResult(
-                values=[
-                    float(latest[1]) if _dst_safe_key(t) < hold_end else 0.0
-                    for t in timestamps
-                ]
+        ordered = sorted(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
+        above = [p for p in ordered if p[1] >= running_threshold_kw]
+        if above and ordered:
+            last_above = above[-1]
+            below_for = _dst_safe_key(ordered[-1][0]) - _dst_safe_key(last_above[0])
+            still_running = ordered[-1][1] >= running_threshold_kw or below_for < (
+                timedelta(minutes=RUN_OFF_GRACE_MINUTES)
             )
+            if still_running:
+                hold_end = _dst_safe_key(
+                    last_above[0] + timedelta(hours=run_hold_hours)
+                )
+                return PredictionResult(
+                    values=[
+                        float(last_above[1]) if _dst_safe_key(t) < hold_end else 0.0
+                        for t in timestamps
+                    ]
+                )
         return PredictionResult(values=[0.0] * len(timestamps))
 
     step = timedelta(minutes=resample_minutes)
