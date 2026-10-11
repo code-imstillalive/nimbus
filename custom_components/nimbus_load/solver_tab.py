@@ -205,8 +205,9 @@ _COSTS: _Card = (
         ),
         (
             "section",
-            "Value left: worth of a kWh still stored when the plan ends.",
+            "Value left at end: what a kWh still stored when the plan ends is worth to you.",
         ),
+        ("section", "Battery wear: the battery's replacement cost per kWh cycled."),
         ("solver_intraplan_smoothness_weight_kw", "Plan smoothness"),
         ("solver_proximal_weight_kw", "Stick to last plan"),
         ("solver_battery_charge_earliness_budget_kw", "Charge earliness"),
@@ -230,14 +231,19 @@ _FEATURES: _Card = (
         ("solver_flex_signals_enabled", "Flex signals (slower)"),
         ("solver_score_controllable_loads_enabled", "Score controllable loads"),
         ("solver_dispatch_dry_run", "Own dispatcher: dry run"),
+        # One line per setting above, in the same order (household, 11 Oct).
         ("section", "Load forecast source: off = Nimbus's own forecast."),
         ("section", "Auto-include solar: finds solar forecast integrations."),
+        ("section", "Calibrated objective: equal plans go to the steadier one."),
         ("section", "Nowcast: records how forecasts track reality."),
-        ("section", "Flex signals: each solve ~9× slower."),
-        ("section", "Calibrated: equal plans go to the steadier one."),
-        ("section", "Dry run: Nimbus's own dispatcher sends nothing."),
+        ("section", "Offer curve: publishes how the plan responds to price."),
+        (
+            "section",
+            "Flex signals: publishes flexibility ranges, but each solve is about 9× slower.",
+        ),
+        ("section", "Score controllable loads: the score may re-time them."),
     ],
-    "Defaults suit most installs.",
+    "Dry run: Nimbus's own dispatcher sends nothing.",
 )
 
 _SCORING: _Card = (
@@ -256,6 +262,7 @@ _SCORING: _Card = (
             "SoC gap: how far the battery's reported charge and the energy it measured drifted apart yesterday.",
         ),
         ("section", "Limits: raise them only if good days keep going unscored."),
+        ("section", "Gaps and limits are in percentage points of charge."),
         ("section", "Readings reliable: the battery's own SoC reports were usable."),
         ("section", "Score reliable: the day had enough data to be scored."),
         (
@@ -273,18 +280,17 @@ _RESERVE: _Card = (
         ("solver_battery_reserve_release_price", "Release margin"),
         ("solver_battery_reserve_start_hour", "Hold from"),
         ("solver_battery_reserve_end_hour", "Release at"),
-        (
-            "section",
-            "Reserve: the bottom share kept back between these times. 0 = off.",
-        ),
+        ("section", "Reserve: battery share held back between these times; 0 = off."),
+        ("section", "Release margin: price edge needed to sell the reserve."),
         ("section", "Price spikes"),
         ("solver_price_event_enabled", "Price events"),
         ("solver_price_spike_threshold", "Spike threshold"),
         ("solver_price_spike_discharge_kw", "Spike discharge"),
         ("solver_price_spike_override_armed", "Spike override armed"),
+        ("section", "Price events: plan around your own price-event sensor."),
         (
             "section",
-            "Above the threshold the battery may sell at the spike discharge power.",
+            "Spike: a buy price above the threshold (0 = off). Armed, the battery sells at the spike discharge power.",
         ),
     ],
     "Insurance against a sudden high price.",
@@ -720,45 +726,59 @@ def _chart() -> dict[str, Any]:
     )
 
 
-def _energy_chart() -> dict[str, Any]:
-    plan = "@nimbus_solver_battery_forecast"
-    flows = (
-        ("pv_to_battery", "Solar in", "#ffb340"),
-        ("grid_to_battery", "Grid in", "#4fa3ff"),
-        ("battery_to_load", "To house", "#3ddc84"),
-        ("battery_to_grid", "To grid", "#ff4d8d"),
-        # Conversion losses: without them the slices out do not add up to
-        # the plan's discharge (audit, 11 Oct 2026: 375.6 + 59.3 = 434.8 kWh).
-        ("battery_to_losses", "Losses", "#6b7280"),
+# Yesterday (measured) and tomorrow (planned), midnight to midnight, side by
+# side (household, 11 Oct 2026). Measured: the daily meters set in Nimbus ->
+# Configure -> Topology, each meter's `last_period` (yesterday's total, kept by
+# a utility meter); a meter that keeps no yesterday shows a dash rather than a
+# wrong figure. Planned: tomorrow's 00:00-24:00 slice of the plan. An earlier
+# donut summed the whole four-day plan and its labels read like solar and
+# house totals -- 483 kWh "grid in" -- and was withdrawn.
+_ENERGY_ROWS = (
+    ("Solar", "switchboard_solar_energy_daily_sensor", "solar"),
+    ("House", "switchboard_house_load_energy_daily_sensor", "house"),
+    ("Grid in", "switchboard_import_energy_daily_sensor", "grid_in"),
+    ("Grid out", "switchboard_export_energy_daily_sensor", "grid_out"),
+    ("Battery in", "switchboard_battery_charge_daily_sensor", "batt_in"),
+    ("Battery out", "switchboard_battery_discharge_daily_sensor", "batt_out"),
+)
+
+_ENERGY_PLAN_SUMS = (
+    "{% set f = state_attr('${@nimbus_solver_battery_forecast}', 'forecast') or [] %}"
+    "{% set t0 = today_at('00:00') + timedelta(days=1) %}"
+    "{% set t1 = t0 + timedelta(days=1) %}"
+    "{% set ns = namespace(solar=0, house=0, grid_in=0, grid_out=0, batt_in=0, batt_out=0) %}"
+    "{% for p in f %}{% set t = as_datetime(p.time) %}"
+    "{% if t is not none and t0 <= t < t1 %}{% set h = p.hours | float(0) %}"
+    "{% set b = p.battery_kw | float(0) %}"
+    "{% set ns.solar = ns.solar + (p.solar_kw | float(0)) * h %}"
+    "{% set ns.house = ns.house + (p.load_kw | float(0)) * h %}"
+    "{% set ns.grid_in = ns.grid_in + (p.grid_import_kw | float(0)) * h %}"
+    "{% set ns.grid_out = ns.grid_out + (p.grid_export_kw | float(0)) * h %}"
+    "{% set ns.batt_in = ns.batt_in + ([0, -b] | max) * h %}"
+    "{% set ns.batt_out = ns.batt_out + ([0, b] | max) * h %}"
+    "{% endif %}{% endfor %}"
+)
+
+
+def _energy_table() -> dict[str, Any]:
+    rows = []
+    for label, option, key in _ENERGY_ROWS:
+        measured = (
+            f"{{% set y = state_attr('${{@option:{option}}}', 'last_period') %}}"
+            "{{ '%.1f' | format(y | float) if y is not none and y | is_number else '—' }}"
+        )
+        planned = f"{{{{ '%.1f' | format(ns.{key}) if f else '—' }}}}"
+        rows.append(f"| {label} | {measured} | {planned} |")
+    content = (
+        _ENERGY_PLAN_SUMS
+        + "**Yesterday and tomorrow, kWh**\n\n"
+        + "| | Yesterday, measured | Tomorrow, planned |\n"
+        + "|:---|---:|---:|\n"
+        + "\n".join(rows)
+        + "\n\nMidnight to midnight. Measured: the daily meters in Nimbus → "
+        "Configure → Topology; a dash means that meter keeps no yesterday."
     )
-    return _apex(
-        "Battery energy in the plan",
-        "kWh over the whole plan ahead. Out = to house + to grid + losses.",
-        [
-            {
-                "entity": plan,
-                "name": name,
-                "color": color,
-                "unit": "kWh",
-                "float_precision": 1,
-                "data_generator": (
-                    "const f = entity.attributes.forecast || []; "
-                    f"const kwh = f.reduce((a, p) => a + (p.flow_{key}_kw || 0) "
-                    "* (p.hours || 0), 0); return [[Date.now(), kwh]];"
-                ),
-            }
-            for key, name, color in flows
-        ],
-        height=360,
-        chart_type="donut",
-        # The header already shows each figure; the legend repeated them.
-        # offsetY/customScale keep the ring clear of the note (household
-        # screenshot, 11 Oct 2026).
-        apex_config={
-            "legend": {"show": False},
-            "plotOptions": {"pie": {"offsetY": 18, "customScale": 0.92}},
-        },
-    )
+    return {"type": "markdown", "content": content}
 
 
 def _risk_row() -> list[dict[str, Any]]:
@@ -841,7 +861,7 @@ def template() -> list[dict[str, Any]]:
         *(_section([_card(c)], 1) for c in _MONEY_ROW),
         banners["Plan"],
         _section([_chart()], 3),
-        _section([_energy_chart()], 1),
+        _section([_energy_table()], 1),
         *_risk_row(),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),

@@ -85,6 +85,9 @@ def _what(card):
     if card["type"] == "tile":
         kind = "slider" if card.get("features") else "tile"
         return f"{kind}: {card['name']}"
+    if card["type"] == "markdown" and card.get("content"):
+        text = card["content"]
+        return "markdown: " + text[text.index("**") + 2 :].split("**", 1)[0]
     if card["type"] == "button":
         return f"button: {card['name']}"
     return card["type"]
@@ -129,11 +132,11 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         [
             "Plan",
             (3, "Battery: plan against measured"),
-            (1, "Battery energy in the plan"),
+            (1, "markdown: Yesterday and tomorrow, kWh"),
             (1, "slider: Import price risk"),
             (1, "slider: Export price risk"),
             (1, "slider: Solar forecast risk"),
-            (1, "markdown"),
+            (1, "markdown: What the sliders do"),
         ],
         [
             "Basic settings",
@@ -468,3 +471,19 @@ def test_no_haeo_and_no_icon(view) -> None:
     assert "haeo" not in text
     spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
     assert "icon" not in dash._view_for(spec)
+
+
+def test_the_energy_table_is_yesterday_measured_beside_tomorrow_planned() -> None:
+    """Household, 11 Oct 2026: one table, side by side, midnight to midnight,
+    plain labels. The donut it replaces summed the whole four-day plan."""
+    content = next(
+        s["cards"][0]["content"]
+        for s in solver_tab.template()
+        if "Yesterday and tomorrow" in s["cards"][0].get("content", "")
+    )
+    assert "| | Yesterday, measured | Tomorrow, planned |" in content
+    for label in ("Solar", "House", "Grid in", "Grid out", "Battery in", "Battery out"):
+        assert f"| {label} |" in content
+    assert "timedelta(days=1)" in content  # tomorrow, not "the next 24 h"
+    assert "'last_period'" in content  # yesterday's total, from Topology's meters
+    assert "${@option:switchboard_house_load_energy_daily_sensor}" in content
