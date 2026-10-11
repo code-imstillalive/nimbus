@@ -299,6 +299,14 @@ def find_non_power_unit_inputs(hass: Any, entry: Any) -> list[tuple[str, str, st
         for sub_type, field, prefix in fields:
             if getattr(subentry, "subentry_type", None) != sub_type:
                 continue
+            # A temperature/humidity Power Signal is never read as power
+            # (coordinator `_convert_power_for_target`), so its °C / % unit
+            # is correct and not reported.
+            if sub_type == SUBENTRY_TYPE_SIGNAL and data.get("signal_role") in (
+                "temperature",
+                "humidity",
+            ):
+                continue
             eid = data.get(field)
             unit = _unit_of(hass, eid)
             energy_reported_elsewhere = sub_type in (

@@ -211,3 +211,19 @@ def test_the_shared_read_is_silent_for_power_units(caplog):
     ):
         assert solver_shared._kw_scale_factor("sensor.power_w_quiet") == 0.001
     assert not [r for r in caplog.records if "power_w_quiet" in r.getMessage()]
+
+
+def test_temperature_and_humidity_signals_are_not_reported():
+    """A temperature/humidity Power Signal is never read as power, so its
+    °C / % unit is correct (devhub repair, 11 Oct 2026). A signal with any
+    other role on a % sensor is still reported."""
+    hass = _hass({"sensor.t": "°C", "sensor.h": "%", "sensor.x": "%"})
+    entry = _entry(
+        subentries=(
+            _sub("power_signal", "Temp", load_sensor="sensor.t", signal_role="temperature"),
+            _sub("power_signal", "Humidity", load_sensor="sensor.h", signal_role="humidity"),
+            _sub("power_signal", "Other", load_sensor="sensor.x", signal_role="other"),
+        )
+    )
+    found = pic.find_non_power_unit_inputs(hass, entry)
+    assert [eid for _s, eid, _u in found] == ["sensor.x"]
