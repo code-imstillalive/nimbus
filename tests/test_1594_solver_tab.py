@@ -68,6 +68,8 @@ def _resolve(view):
 
 
 def test_the_sections_are_the_agreed_ones_in_order() -> None:
+    """One section per functional group, in phone reading order (household,
+    11 Oct 2026): sections reflow whole by screen width, never split."""
     headings = [s["cards"][0]["heading"] for s in solver_tab.template()]
     assert headings == [
         "Solver",
@@ -75,28 +77,41 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         "Money",
         "How well it did",
         "Risk sliders",
-        "Basic settings",
-        "P2P (optional)",
-        "Advanced settings",
+        "Basic · Battery and grid",
+        "Basic · Fees",
+        "P2P · Committed blocks",
+        "P2P · Bonus and matching",
+        "Advanced · Costs",
+        "Advanced · Stability",
+        "Advanced · Battery reserve",
+        "Advanced · Price events",
+        "Advanced · Features",
+        "Advanced · Scoring thresholds",
     ]
 
 
 def test_every_setting_is_on_the_tab_exactly_once() -> None:
     """All settings, grouped (household, 8 Oct 2026): every Solver number,
-    switch and select appears once, in Basic, P2P or Advanced."""
-    sections = {s["cards"][0]["heading"]: s for s in solver_tab.template()}
-    settings = [
-        k
-        for name in (
-            "Basic settings",
-            "P2P (optional)",
-            "Advanced settings",
-            "Risk sliders",
-        )
-        for k in _keys(sections[name])
-        if k.startswith("solver_")
-    ]
-    assert len(settings) == len(set(settings))
+    switch and select appears once. A block's rate is also read by its own
+    hour rows' conditions, so count the rows, not the references."""
+    rows = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "conditional":
+                walk(node["row"])
+                return
+            if isinstance(node.get("entity"), str):
+                rows.append(node["entity"][1:])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(solver_tab.template())
+    settings = [k for k in rows if k.startswith("solver_")]
+    assert len(settings) == len(set(settings)), sorted(settings)
     assert {
         "solver_battery_capacity_kwh",
         "solver_network_fee_default_rate",
@@ -104,7 +119,58 @@ def test_every_setting_is_on_the_tab_exactly_once() -> None:
         "solver_proximal_weight_kw",
         "solver_flex_signals_enabled",
         "solver_import_price_risk_aversion",
+        "solver_battery_reserve_percent",
     } <= set(settings)
+
+
+def test_every_row_has_a_short_name() -> None:
+    """No raw entity names (they read "Nimbus P2P P2P Block 1 Start..." and
+    were cut off), so every entity row and tile carries its own name."""
+
+    def walk(node, out):
+        if isinstance(node, dict):
+            if (
+                isinstance(node.get("entity"), str)
+                and node["entity"].startswith("@")
+                and "conditions" not in node
+            ):
+                out.append(node)
+            for v in node.values():
+                walk(v, out)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v, out)
+        return out
+
+    named = walk(solver_tab.template(), [])
+    conditions = [
+        c for c in walk(solver_tab.template(), []) if set(c) <= {"entity", "state_not"}
+    ]
+    for item in named:
+        if item in conditions:
+            continue
+        assert item.get("name"), item
+        assert len(item["name"]) <= 32, item["name"]
+        # The noise was the "Nimbus " prefix on every row; the chart legend's
+        # "Nimbus plan (now)" names the plan line against "Measured" on purpose.
+        if item["name"] != "Nimbus plan (now)":
+            assert not item["name"].startswith("Nimbus "), item["name"]
+
+
+def test_an_unused_block_shows_only_its_rate() -> None:
+    """Hours appear only once a block's rate is set (household, 11 Oct)."""
+    text = json.dumps(solver_tab.template())
+    assert text.count('"type": "conditional"') == 12  # 3 fee + 3 P2P blocks x 2
+
+
+def test_a_conditional_row_whose_entity_is_missing_is_dropped() -> None:
+    view = solver_tab.resolve(
+        solver_tab.template(),
+        lambda k: None if k == "solver_p2p_block_2_start_hour" else _lookup_all(k),
+    )
+    text = json.dumps(view)
+    assert "solver_p2p_block_2_start_hour" not in text
+    assert '"row": null' not in text
 
 
 def test_resolution_leaves_no_placeholder_and_uses_the_registry_ids() -> None:

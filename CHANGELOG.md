@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The Solver tab is redesigned** (household, 11 Oct 2026). The first
+  version listed raw entity names ("Nimbus P2P P2P Block 1 Start...", cut
+  off), left large empty areas, and showed every setting as a bare number
+  box. Now every row has a short plain name; each functional group (Battery
+  and grid, Fees, P2P blocks, Costs, Stability, Battery reserve, Price
+  events, Features...) is its own section, so whole groups reflow by screen
+  width -- four across on a PC, two on a tablet, one on a phone -- and none
+  is ever split; the plan chart spans the width; the risk sliders are real
+  sliders with their live effect on the same row; and a fee or P2P block
+  shows its hours only once its rate is set. An untouched tab updates in
+  place on the next restart; a tab you have edited is left alone and the new
+  design goes beside it.
+
 ## [0.94.447] - 2026-10-11
 
 Everything in v0.94.446 plus #1695 and #1697. #1697 changes plan prices
