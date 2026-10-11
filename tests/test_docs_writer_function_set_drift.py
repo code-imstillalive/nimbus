@@ -904,6 +904,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resolve_price_event_delta",
         "compute_cost_band",
         "compute_cost_breakdown",
+        # nimbus #1704: compute_cost_breakdown() split by day; same open
+        # drift as compute_cost_breakdown() itself, which the docs copy
+        # does not have either.
+        "compute_cost_breakdown_by_day",
         "fetch_entity_history_range",
         "periods_within_hours",
         "resample_generic_price_forecast_with_coverage",
