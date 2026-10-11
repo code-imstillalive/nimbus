@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
+  - The household's own Forecaster cards, copied as they are: *Solver
+    Forecast — Until Midnight*, *Solver Daily Summary* and *Nimbus Solver
+    Quality (EPR / Regret)*. They replace the three rebuilt in #1725. The
+    EPR card's table no longer breaks after its first row, and the daily
+    summary no longer says the Solver does not drive dispatch.
+  - Performance: the plan-ahead cost chart full width, then the EPR card,
+    At a glance, Score by day and Where the plan's cost comes from, one
+    column each, one height, with each chart's figures below it.
+  - Money: the energy table and the cost by day one column each, beside
+    tomorrow's energy pie.
+  - Plan: the until-midnight table over two columns (the only card that
+    scrolls), the daily summary, and the three risk sliders stacked with
+    their explanation.
+  - The battery chart's SoC axis is shown in % (hidden, a full battery read
+    as 40 kW), and the plan-ahead cost chart says the right-hand end is the
+    current plan and earlier points are earlier estimates.
+
 ## [0.94.450] - 2026-10-12
 
 Fixes found on 11 Oct by the reference household and a tester. Three change
