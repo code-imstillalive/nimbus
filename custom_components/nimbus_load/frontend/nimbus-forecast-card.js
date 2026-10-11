@@ -326,23 +326,32 @@ class NimbusForecastCard extends HTMLElement {
       const g = (field, neg) =>
         "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), " +
         (neg ? "-" : "") + "p." + field + "]);";
+      // Each plan row is the START of its period, held until the next row.
+      // Drawn as a smooth/straight line, the block's last 30-minute period
+      // (23:30-24:00) sloped down to the 00:00 row and read as ending at
+      // 23:30 (household, 11 Oct 2026). Steps, like the measured history.
+      const step = { curve: "stepline" };
       series.push(
         {
+          ...step,
           entity: f.solver.entity_id, name: "Solver Battery (proposed)", extend_to: false,
           data_generator: g("battery_kw"), yaxis_id: "power", color: "#AB47BC", type: "area", opacity: 0.2,
           stroke_width: 2.5, stroke_dash: 2, show: { in_header: true, in_legend: true },
         },
         {
+          ...step,
           entity: f.solver.entity_id, name: "Solver Grid import (proposed)", extend_to: false,
           data_generator: g("grid_import_kw"), yaxis_id: "power", color: "#9575CD", stroke_width: 1.5,
           stroke_dash: 2, show: { in_header: false, in_legend: true },
         },
         {
+          ...step,
           entity: f.solver.entity_id, name: "Solver Grid export (proposed)", extend_to: false,
           data_generator: g("grid_export_kw", true), yaxis_id: "power", color: "#4DB6AC", stroke_width: 1.5,
           stroke_dash: 2, show: { in_header: false, in_legend: true },
         },
         {
+          // SoC changes steadily through a period, so it stays a line.
           entity: f.solver.entity_id, name: "Solver SoC % (proposed)", extend_to: false,
           data_generator: g("soc_pct"), yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
           // The plan sensor's own unit is kW; this series is a percentage.
@@ -356,7 +365,15 @@ class NimbusForecastCard extends HTMLElement {
       { id: "temp", show: false, min: -pmax, max: pmax },
       { id: "humidity", show: true, opposite: false, min: 100, max: 0, decimals: 0, apex_config: { title: { text: "%" } } },
       { id: "load", show: false, min: -pmax, max: pmax },
-      { id: "soc", show: true, opposite: true, min: -100, max: 100, apex_config: { title: { text: "SoC %" } } },
+      // -100..100 so 0% sits on the 0 kW line; SoC is never below 0, so the
+      // negative half is unlabelled (household, 11 Oct 2026: "SoC shown -100").
+      {
+        id: "soc", show: true, opposite: true, min: -100, max: 100,
+        apex_config: {
+          title: { text: "SoC %" },
+          labels: { formatter: "EVAL:function(v){return v < 0 ? '' : Math.round(v) + '%';}" },
+        },
+      },
     ];
     cfg.series = series;
     return cfg;
