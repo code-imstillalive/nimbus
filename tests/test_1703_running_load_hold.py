@@ -50,7 +50,7 @@ class TestRunningHold(unittest.TestCase):
 
     def _predict(self, now: datetime, live_kw: float, **kw):
         timestamps = [now + timedelta(minutes=15 * i) for i in range(48)]
-        recent = [(now - timedelta(minutes=15 * i), live_kw) for i in range(0, 8)]
+        recent = [(now - timedelta(minutes=15 * i), live_kw) for i in range(8)]
         return ml_model.predict(
             trained=self.trained,
             timestamps=timestamps,
@@ -66,19 +66,22 @@ class TestRunningHold(unittest.TestCase):
         now = START + timedelta(days=DAYS, hours=15)
         result = self._predict(now, 0.9, running_threshold_kw=0.6, run_hold_hours=1.0)
         self.assertEqual(result.values[:4], [0.9] * 4)  # 15:00-15:45
-        # After the hour, back to the usual pattern for those hours: idle.
-        self.assertLess(max(result.values[8:40]), 0.3, result.values[8:40])
+        # After the hour: nothing (the household's "reprogram them to nil").
+        self.assertEqual(result.values[4:], [0.0] * 44)
 
     def test_a_longer_hold_holds_longer(self):
         now = START + timedelta(days=DAYS, hours=15)
         result = self._predict(now, 0.9, running_threshold_kw=0.6, run_hold_hours=2.0)
         self.assertEqual(result.values[:8], [0.9] * 8)
 
-    def test_below_the_threshold_nothing_changes(self):
-        now = START + timedelta(days=DAYS, hours=15)
-        with_rule = self._predict(now, 0.3, running_threshold_kw=0.6)
-        without = self._predict(now, 0.3)
-        self.assertEqual(with_rule.values, without.values)
+    def test_switched_off_forecasts_nothing(self):
+        # Below the threshold -- switched off, or idling -- the rule forecasts
+        # nil, at every hour, including the 13:00 slot the model has learned.
+        now = START + timedelta(days=DAYS, hours=12)
+        result = self._predict(now, 0.3, running_threshold_kw=0.6)
+        self.assertEqual(result.values, [0.0] * 48)
+        learned = self._predict(now, 0.3)
+        self.assertGreater(max(learned.values), 0.3)  # the model alone would not
 
     def test_unset_threshold_is_the_old_behaviour(self):
         now = START + timedelta(days=DAYS, hours=15)
