@@ -289,6 +289,7 @@ def _dump_failing_model(h: Any, label: str, *, issue: str = "773") -> str | None
         import tempfile
 
         base = os.environ.get(_LP_DUMP_DIR_ENV) or tempfile.gettempdir()
+        os.makedirs(base, exist_ok=True)
         # The label carries a phase name that reaches this from a
         # caller-supplied string; keep it to a filename-safe subset
         # rather than trusting it to be one.
@@ -347,7 +348,11 @@ def _dump_location_note() -> str:
     import os
 
     if os.environ.get(_LP_DUMP_DIR_ENV):
-        return f"{_LP_DUMP_DIR_ENV} is set, so this path is yours and persists."
+        return (
+            "It persists across restarts. In Home Assistant it is in the "
+            "nimbus_diagnostics folder inside the config folder: download it "
+            "with the File editor, Studio Code Server or Samba add-on."
+        )
     return (
         "This is a TEMPORARY directory: it will not survive a restart or a "
         "tmpfiles sweep, so copy the file out NOW if you want it. Set "
