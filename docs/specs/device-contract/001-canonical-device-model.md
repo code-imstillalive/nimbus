@@ -112,7 +112,7 @@ Source variants, from #1574, each with its required fields:
 | `model_output` | `model`, `target` (`device_id.role`) | |
 
 - **`registry_id` is how identity survives a rename** (DC-R02). When present, it is the reference of record; `entity_id` is a cached display value refreshed from the registry.
-- **Canonical signs** (#1574) are declared per role in `normalization.positive_direction`. DC-001 checks the declared direction is the canonical one for the role: Grid `import`, Battery `discharge`, Solar `generation`, Load `consumption`. Converting is DC-002's.
+- **Canonical signs** (#1574) are declared per role in `normalization.positive_direction`. DC-001 checks the declared direction is the canonical one for the role. A kind's signed `power` role carries the kind's sign: Grid `import`, Battery `discharge`, Solar `generation`, Load `consumption`. A magnitude role is positive in its own direction: Grid `import_power`/`import_energy` `import`, `export_power`/`export_energy` `export`; Battery `discharge_power`/`discharge_energy` `discharge`, `charge_power`/`charge_energy` `charge`; Solar `energy` `generation`; Load `energy` `consumption`. Roles without a flow (`soc`, prices, `temperature`) have no sign. Converting is DC-002's.
 
 ### Relationship
 

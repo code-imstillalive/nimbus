@@ -119,12 +119,34 @@ CONSTRAINT_KEYS: dict[str, frozenset[str]] = {
 }
 
 # One canonical sign per kind (#1574): Grid +import, Battery +discharge,
-# Solar +generation, Load +consumption.
+# Solar +generation, Load +consumption. That is the sign of each kind's
+# signed `power` role.
 CANONICAL_DIRECTION = {
     "grid": "import",
     "battery": "discharge",
     "solar": "generation",
     "load": "consumption",
+}
+
+# (kind, role) -> the direction a positive value means, for every role
+# that carries a flow. A magnitude role is positive in its own direction
+# (a Grid `export_power` is positive for export). Roles not listed (SoC,
+# prices, temperature) have no sign, so a declared direction is not checked.
+CANONICAL_ROLE_DIRECTION: dict[tuple[str, str], str] = {
+    ("grid", "power"): "import",
+    ("grid", "import_power"): "import",
+    ("grid", "export_power"): "export",
+    ("grid", "import_energy"): "import",
+    ("grid", "export_energy"): "export",
+    ("battery", "power"): "discharge",
+    ("battery", "discharge_power"): "discharge",
+    ("battery", "charge_power"): "charge",
+    ("battery", "discharge_energy"): "discharge",
+    ("battery", "charge_energy"): "charge",
+    ("solar", "power"): "generation",
+    ("solar", "energy"): "generation",
+    ("load", "power"): "consumption",
+    ("load", "energy"): "consumption",
 }
 
 # source.kind -> required fields (DC-001 "Source variants").
@@ -265,7 +287,7 @@ def _validate_device(device: dict[str, Any], base: str, add: Any) -> None:
         if role not in ROLES[kind]:
             add("role_not_allowed_for_kind", path, f"a {kind} has no {role!r} role")
             continue
-        _validate_binding(binding or {}, kind, path, add)
+        _validate_binding(binding or {}, kind, role, path, add)
     for key in device.get("constraints") or {}:
         if key not in CONSTRAINT_KEYS[kind]:
             add(
@@ -292,7 +314,9 @@ def _validate_device(device: dict[str, Any], base: str, add: Any) -> None:
             )
 
 
-def _validate_binding(binding: dict[str, Any], kind: str, path: str, add: Any) -> None:
+def _validate_binding(
+    binding: dict[str, Any], kind: str, role: str, path: str, add: Any
+) -> None:
     source = binding.get("source") or {}
     variant = str(source.get("kind"))
     required = SOURCE_REQUIRED.get(variant)
@@ -311,11 +335,12 @@ def _validate_binding(binding: dict[str, Any], kind: str, path: str, add: Any) -
                 f"a {variant} source needs {', '.join(missing)}",
             )
     direction = (binding.get("normalization") or {}).get("positive_direction")
-    if direction is not None and direction != CANONICAL_DIRECTION[kind]:
+    canonical = CANONICAL_ROLE_DIRECTION.get((kind, role))
+    if direction is not None and canonical is not None and direction != canonical:
         add(
             "sign_not_canonical",
             f"{path}.normalization.positive_direction",
-            f"a {kind} is positive for {CANONICAL_DIRECTION[kind]!r}, not {direction!r}",
+            f"a {kind} {role} is positive for {canonical!r}, not {direction!r}",
         )
 
 

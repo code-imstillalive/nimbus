@@ -404,6 +404,27 @@ _CODES = (
 )
 
 
+def test_a_magnitude_role_is_positive_in_its_own_direction() -> None:
+    # Mark Purcell, #1728: the kind's sign applies to its signed `power`
+    # role only. A Grid export_power and a Battery charge_power are
+    # positive for export and charge.
+    doc = _minimal()
+    grid = doc["devices"][0]
+    grid["bindings"]["import_power"] = _binding("sensor.imp", "import", "r_imp")
+    grid["bindings"]["export_power"] = _binding("sensor.exp", "export", "r_exp")
+    assert _codes(doc) == []
+    grid["bindings"]["export_power"]["normalization"]["positive_direction"] = "import"
+    assert _codes(doc) == ["sign_not_canonical"]
+
+
+def test_a_role_without_a_flow_has_no_sign_to_check() -> None:
+    doc = _minimal()
+    doc["devices"][0]["bindings"]["import_price"] = _binding(
+        "sensor.price", "import", "r_price"
+    )
+    assert _codes(doc) == []
+
+
 @pytest.mark.parametrize("code", _CODES)
 def test_every_problem_code_has_a_negative_case(code) -> None:
     assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
