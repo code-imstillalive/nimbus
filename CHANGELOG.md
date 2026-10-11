@@ -8,6 +8,61 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.450] - 2026-10-12
+
+Fixes found on 11 Oct by the reference household and a tester. Three change
+dispatch: the soft reserve now reaches the solve, a P2P block's pin becomes a
+floor in forecast price-spike periods while the spike override is armed, and
+a sleeping EV is no longer planned as empty. Merged with Mark's review waived
+by the household ("it is fixes not discovery or design or logic").
+
+### Fixed
+- **The soft battery reserve reaches the solve (#1727).** Its four settings
+  (Reserve, Release margin, Hold from, Release at) were saved and shown, but
+  never exposed on `sensor.nimbus_solver_config`, the solve's only channel for
+  settings. So the reserve was off on every install whatever the dashboard
+  said: the reference household had 5% from 00:00 to 05:30 set, and its plan
+  still sold to 2.8% at 05:00. **A reserve that is set now binds.** A new test
+  fails if any live setting the solve reads is missing from the config sensor.
+- **A P2P block can sell into a forecast price spike (#1724).** A block pinned
+  export exactly, so with ~$21/kWh forecast for 12 Oct 17:30-20:30 the plan
+  could sell no more than the block rate, and sold its spare energy at 16:30
+  for 47c instead. While the spike override is armed, a block period whose
+  forecast import price is at or above the spike threshold now keeps the block
+  rate as a **floor**, up to the export limit. Every other period keeps its
+  exact pin; unarmed, or with no threshold, the plan is unchanged. Replayed on
+  the reference household's 12 Oct plan inputs: no 16:30 dump (39.4 kW -> 0),
+  40 kW at 18:00 and 25.5 kW at 18:30, the 20:00-24:00 block still delivered,
+  and the plan's value $417 better over the horizon.
+- **A sleeping EV is not planned as empty (#1717, #1715).** An unreadable
+  battery-participant SoC (`unavailable`, `unknown`, missing) used to become
+  its minimum SoC. The last good SoC is now held for up to 12 h; with none to
+  hold, the participant sits out the solve.
+- **One retry when HiGHS returns Unknown (#1723, #1360).** A tester's plan
+  froze for three hours (169 Unknowns) with the 12 Oct spike in its horizon.
+  A calibrated solve now falls back to the plain solve, and a plain solve is
+  re-run once with the interior-point solver, before the previous plan is kept.
+- **Solver-failure captures are saved where a household can download them
+  (#1719)**: `/config/nimbus_diagnostics`, kept across restarts, instead of the
+  container's `/tmp`.
+- **Solver tab** (#1725, #1704): how the score was made, the plan until
+  midnight, today and tomorrow, and the plan's cost by day (new published
+  attribute `cost_breakdown_by_day`, which adds up exactly to `cost_breakdown`).
+  The breakdown chart shows no column, not NaN, when there is no current plan.
+- **Solver tab rows of a release's new entities are no longer dropped (#1726)**:
+  the dashboard is built after the platforms, so the reserve's Hold from /
+  Release at rows appear.
+- **Topology card** (#1716, #1702): sensors are set in the wizard only; the
+  card editor shows them read-only and names any of the card's own entries it
+  ignores.
+- **Charts:**
+  - the Solver's proposed power steps instead of sloping, so a P2P block no
+    longer reads as ending 30 minutes early (#1722);
+  - the SoC axis hides its meaningless negative half (#1722);
+  - a W battery sensor on the Solver tab's battery chart is drawn in kW, and
+    the plan-ahead SoC and price series are labelled in their own units
+    (#1714).
+
 ## [0.94.449] - 2026-10-11
 
 Two fixes found by a tester on 0.94.448, released the same day. Neither is
