@@ -55,3 +55,21 @@ def test_the_old_numbers_are_gone_and_the_bridge_reads_time() -> None:
     assert 'self._entity_id_for("time", key)' in sensor_src
     init_src = (_PKG / "__init__.py").read_text(encoding="utf-8")
     assert "Platform.TIME" in init_src
+
+
+def test_the_package_never_uses_the_name_time_for_the_stdlib() -> None:
+    """Loading the `time` platform sets the package's attribute `time` to
+    time.py, replacing a stdlib `import time` in __init__.py: setup then
+    failed on `time.monotonic()` (devhub, 11 Oct 2026)."""
+    src = (_PKG / "__init__.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "\nimport time\n" not in "\n" + code + "\n"
+    assert "time.monotonic(" not in code
+    assert "time.time(" not in code
+
+
+def test_the_tab_resolves_a_moved_setting_to_its_time_entity() -> None:
+    src = (_PKG / "forecaster_dashboard.py").read_text(encoding="utf-8")
+    assert 'e.domain != "time"' in src

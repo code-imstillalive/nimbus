@@ -377,13 +377,15 @@ def _section(
 
 def _banner(name: str, kind: str, line: str) -> dict[str, Any]:
     """A full-width band opening a block: a card (so it has the cards'
-    outline) holding a coloured alert with the block's name as a heading."""
+    outline) holding a coloured alert titled with the block's name. A
+    heading inside the alert does not survive HA's markdown: the band came
+    out empty with the name below it (household screenshot, 11 Oct 2026)."""
     return _section(
         [
             {
                 "type": "markdown",
                 "content": (
-                    f'<ha-alert alert-type="{kind}"><h2>{name}</h2>{line}</ha-alert>'
+                    f'<ha-alert alert-type="{kind}" title="{name}">{line}</ha-alert>'
                 ),
             }
         ],

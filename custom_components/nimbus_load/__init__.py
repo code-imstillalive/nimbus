@@ -16,8 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable
+
+# Not `import time`: loading the `time` platform (time.py) sets this
+# package's attribute `time` to that submodule, replacing the stdlib module
+# here -- `time.monotonic()` then raised AttributeError and setup failed
+# (devhub, 11 Oct 2026).
+from time import monotonic
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
@@ -833,7 +838,7 @@ async def _async_setup_entry_impl(
     # Diagnostic logging (2026-08-31, nimbus issue #312) -- kept in place:
     # if a collision is ever seen again, this call's own start/end/duration
     # is the first thing to check against the error's own timestamp.
-    _forward_started = time.monotonic()
+    _forward_started = monotonic()
     _LOGGER.debug(
         "Nimbus: forwarding entry %s to platforms %s", entry.entry_id, PLATFORMS
     )
@@ -841,7 +846,7 @@ async def _async_setup_entry_impl(
     _LOGGER.debug(
         "Nimbus: platform forwarding for entry %s completed in %.3fs",
         entry.entry_id,
-        time.monotonic() - _forward_started,
+        monotonic() - _forward_started,
     )
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))

@@ -73,7 +73,8 @@ def _block(card) -> str | None:
     content = card.get("content", "")
     if card.get("type") != "markdown" or "<ha-alert" not in content:
         return None
-    return content.split("<h2>", 1)[1].split("</h2>", 1)[0]
+    assert "<h2>" not in content  # does not survive HA's markdown
+    return content.split('title="', 1)[1].split('"', 1)[0]
 
 
 def _what(card):
