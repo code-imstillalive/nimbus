@@ -44,7 +44,7 @@ from typing import Any
 # A card is (title, rows, note). A row is (key, name), or
 # ("block", rate_key, start_key, end_key, label) for a fee or P2P block,
 # whose hours appear only while its rate is set.
-_Card = tuple[str, list[tuple], str]
+_Card = tuple[str, list[tuple[str, ...]], str]
 
 _SCORED: _Card = (
     "Last day, scored",
@@ -331,7 +331,7 @@ def _row(key: str, name: str) -> dict[str, Any]:
     return {"entity": f"@{key}", "name": name}
 
 
-def _rows(rows: list[tuple]) -> list[dict[str, Any]]:
+def _rows(rows: list[tuple[str, ...]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for row in rows:
         if row[0] != "block":
