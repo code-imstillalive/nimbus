@@ -121,6 +121,10 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (2, "Score by day"),
             (2, "Plan-ahead cost, as estimated"),
             (2, "Where the plan's cost comes from"),
+            (
+                4,
+                "markdown: How the score was made: {{ state_attr(q, 'latest_date') or 'no day scored yet' }}",
+            ),
         ],
         [
             "Money",
@@ -128,12 +132,15 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Money, plan ahead"),
             (1, "Where the cost comes from"),
             (1, "Battery, now"),
+            (2, "markdown: Today and tomorrow, planned"),
+            (2, "markdown: The plan's cost, by day, $"),
             (2, "markdown: Yesterday and tomorrow, kWh"),
             (2, "Battery energy, tomorrow"),
         ],
         [
             "Plan",
             (4, "Battery: plan against measured"),
+            (4, "markdown: The plan until midnight, half-hourly"),
             (1, "slider: Import price risk"),
             (1, "slider: Export price risk"),
             (1, "slider: Solar forecast risk"),
