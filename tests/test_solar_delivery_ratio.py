@@ -116,6 +116,49 @@ class TestQueueAndResolve(unittest.TestCase):
         self.assertAlmostEqual(result["solar_delivery_ratio"], 0.75, places=3)
         self.assertTrue(result["solar_delivery_underperforming"])  # 0.75 < 0.80
 
+    def test_a_sensor_in_watts_gives_a_ratio_not_a_thousand(self):
+        """Household, 12 Oct 2026: sensor.combined_total_dc_power is in W,
+        the forecast in kW, and the ratio read 1121 instead of ~1.12."""
+        cfg = _cfg()
+        t0 = datetime(2026, 8, 25, 12, 0, tzinfo=BRISBANE)
+        with patch.object(solver_writer, "fetch_entity_history_range"):
+            solver_writer.update_solar_delivery_ratio(cfg, t0, _grid(t0), [10.0] * 48)
+        t1 = t0 + timedelta(minutes=65)
+
+        def fake_fetch(entity_id, start, end):
+            return [(start + timedelta(minutes=5), 11200.0)]  # W
+
+        with (
+            patch.object(
+                solver_writer, "fetch_entity_history_range", side_effect=fake_fetch
+            ),
+            patch.object(solver_writer, "_kw_scale_factor", return_value=0.001),
+        ):
+            result = solver_writer.update_solar_delivery_ratio(
+                cfg, t1, _grid(t1), [10.0] * 48
+            )
+        self.assertAlmostEqual(result["solar_delivery_ratio"], 1.12, places=3)
+
+    def test_ratios_left_by_a_unit_mix_up_are_dropped(self):
+        now = datetime(2026, 8, 25, 12, 0, tzinfo=BRISBANE)
+        with open(self._tmpfile, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "pending": [],
+                    "ratios": [
+                        {"time": now.isoformat(), "ratio": 1121.05},
+                        {"time": now.isoformat(), "ratio": 0.9},
+                    ],
+                },
+                f,
+            )
+        with patch.object(solver_writer, "fetch_entity_history_range"):
+            result = solver_writer.update_solar_delivery_ratio(
+                _cfg(), now, _grid(now), [10.0] * 48
+            )
+        self.assertEqual(result["solar_delivery_sample_count"], 1)
+        self.assertAlmostEqual(result["solar_delivery_ratio"], 0.9, places=3)
+
     def test_forecast_below_threshold_is_dropped_not_resolved(self):
         # A near-dawn/dusk forecast under SOLAR_DELIVERY_MIN_FORECAST_KW
         # must never be fetched or turned into a ratio -- Mark's own

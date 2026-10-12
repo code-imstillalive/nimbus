@@ -19,6 +19,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   now top out at 99.2% instead of an instant 100%. Not yet on the Solver tab
   (the two settings are `number.` entities on the Solver device).
 
+### Fixed
+- **Solar held back for "Solar forecast risk" is no longer reported as
+  curtailed.** The plan counts on less solar than forecast when the slider is
+  above 0; the published flows were split from the raw forecast, so the
+  held-back part showed as curtailed solar (7.4 kWh on the reference
+  household's 13 Oct plan, never curtailed). The flows are now split from the
+  solar the plan counted on, and the difference is published per period as
+  `flow_pv_risk_margin_kw`. With the slider at 0 nothing changes (the golden
+  plans differ only by the new field). Reporting only: no plan changes.
+- **The solar delivery ratio converts a W sensor to kW.** It compared the
+  solar power sensor's raw reading with the kW forecast, so a sensor in W
+  (the reference household's `sensor.combined_total_dc_power`) read 1121
+  instead of ~1.12 and the "solar underperforming" check could never fire.
+  Readings now go through the shared unit converter, and ratios above 20 left
+  in the rolling window by the mix-up are dropped.
+
 ### Changed
 - **Solver tab, "Battery energy, tomorrow":** the labels say what each figure
   is (Solar → battery, Grid → battery, Battery → house, Battery → grid,
