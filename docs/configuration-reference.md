@@ -226,14 +226,14 @@ fields are added.
 | `number.nimbus_solver_p2p_bonus_price` | P2P Bonus Price | 0.0 | 0-10 | $/kWh |
 | `number.nimbus_solver_p2p_bonus_volume_kwh` | P2P Bonus Volume | 0.0 | 0-10000 | kWh |
 | `number.nimbus_solver_p2p_block_1_rate_kw` | P2P Block 1 Rate | 0.0 | 0-1000 | kW |
-| `number.nimbus_solver_p2p_block_1_start_hour` | P2P Block 1 Start Hour | 0 | 0-23 | hour |
-| `number.nimbus_solver_p2p_block_1_end_hour` | P2P Block 1 End Hour | 0 | 0-24 | hour |
+| `time.nimbus_solver_p2p_block_1_start_hour` | P2P Block 1 From | 00:00 | 00:00-23:59 | clock time |
+| `time.nimbus_solver_p2p_block_1_end_hour` | P2P Block 1 Until | 00:00 | 00:00-23:59 (00:00 after a later From = midnight) | clock time |
 | `number.nimbus_solver_p2p_block_2_rate_kw` | P2P Block 2 Rate | 0.0 | 0-1000 | kW |
-| `number.nimbus_solver_p2p_block_2_start_hour` | P2P Block 2 Start Hour | 0 | 0-23 | hour |
-| `number.nimbus_solver_p2p_block_2_end_hour` | P2P Block 2 End Hour | 0 | 0-24 | hour |
+| `time.nimbus_solver_p2p_block_2_start_hour` | P2P Block 2 From | 00:00 | 00:00-23:59 | clock time |
+| `time.nimbus_solver_p2p_block_2_end_hour` | P2P Block 2 Until | 00:00 | 00:00-23:59 (00:00 after a later From = midnight) | clock time |
 | `number.nimbus_solver_p2p_block_3_rate_kw` | P2P Block 3 Rate | 0.0 | 0-1000 | kW |
-| `number.nimbus_solver_p2p_block_3_start_hour` | P2P Block 3 Start Hour | 0 | 0-23 | hour |
-| `number.nimbus_solver_p2p_block_3_end_hour` | P2P Block 3 End Hour | 0 | 0-24 | hour |
+| `time.nimbus_solver_p2p_block_3_start_hour` | P2P Block 3 From | 00:00 | 00:00-23:59 | clock time |
+| `time.nimbus_solver_p2p_block_3_end_hour` | P2P Block 3 Until | 00:00 | 00:00-23:59 (00:00 after a later From = midnight) | clock time |
 | `number.nimbus_solver_network_fee_default_rate` | Network Fee Default Rate | 0.0 | 0-10 | $/kWh |
 | `number.nimbus_solver_network_fee_1_rate` | Network Fee Block 1 Rate | 0.0 | 0-10 | $/kWh |
 | `number.nimbus_solver_network_fee_1_start_hour` | Network Fee Block 1 Start Hour | 0 | 0-23 | hour |

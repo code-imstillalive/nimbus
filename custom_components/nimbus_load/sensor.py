@@ -463,6 +463,15 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # requirement as every field above -- caught by this file's own real
     # test_sensor_solver_config_keys.py before it ever shipped.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+    # nimbus #1654/#1695: the soft reserve. In _SOLVER_NUMBER_ENTITY_KEYS /
+    # _SOLVER_TIME_ENTITY_KEYS but never added here, so fetch_solver_config()
+    # never saw them and the reserve was off on every install whatever the
+    # dashboard said (reference household, 11 Oct 2026: 5% from 00:00 to
+    # 05:30 set, and the plan still sold to 2.8% at 05:00).
+    CONF_SOLVER_BATTERY_RESERVE_PERCENT,
+    CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
+    CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
     # nimbus issue #485: the household mode must be exposed here too,
     # or fetch_solver_config() never sees it and the solve-time resolver
     # has nothing to read -- the exact silent-no-op bug v0.94.283 shipped
@@ -507,14 +516,8 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_P2P_BLOCK_1_RATE_KW,
-    CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
-    CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
-    CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
-    CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
-    CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
-    CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
     # nimbus issue #565: same live-number-entity resolve path as every
     # other P2P block field above.
     CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
@@ -576,6 +579,12 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
 _SOLVER_TIME_ENTITY_KEYS = (
     CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as

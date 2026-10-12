@@ -2690,6 +2690,48 @@
        "soc_penalty": 0.0,
        "terminal_value_credit": -6.9011
       },
+      "cost_breakdown_by_day": {
+       "2026-09-06": {
+        "charge_fee": 0.127,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 5.4215,
+        "plan_cost": 5.5485
+       },
+       "2026-09-07": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-08": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-09": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-10": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.26,
+        "end_of_plan": -6.9011,
+        "grid_net": 0.0,
+        "plan_cost": -6.6411
+       }
+      },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
       "discharge_efficiency": 0.9747,
@@ -12778,7 +12820,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 295148 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=268716B, batteries=23343B, solve_diagnostics=481B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 295858 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=268716B, batteries=23343B, cost_breakdown_by_day=683B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   },
@@ -15471,6 +15513,48 @@
        "grid_net": 33.6696,
        "soc_penalty": 0.0,
        "terminal_value_credit": -6.9261
+      },
+      "cost_breakdown_by_day": {
+       "2026-09-06": {
+        "charge_fee": 0.1338,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 5.5896,
+        "plan_cost": 5.7234
+       },
+       "2026-09-07": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-08": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-09": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.0,
+        "end_of_plan": 0.0,
+        "grid_net": 9.36,
+        "plan_cost": 9.36
+       },
+       "2026-09-10": {
+        "charge_fee": 0.0,
+        "degradation": 0.0,
+        "discharge_fee": 0.2665,
+        "end_of_plan": -6.9261,
+        "grid_net": 0.0,
+        "plan_cost": -6.6596
+       }
       },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",

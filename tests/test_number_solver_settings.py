@@ -169,13 +169,14 @@ def test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub():
 
     12, not 11, since nimbus issue #565 added a 12th P2P field (`solver_
     p2p_block_lead_time_minutes`, shared across all 3 blocks) onto the
-    same sub-device.
+    same sub-device. 6 since 12 Oct 2026: the blocks' start and end are
+    time entities (time.py, to the minute), on the same sub-device.
     """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     p2p_descs = [d for d in _DESCRIPTIONS if d.sub_device == "p2p"]
-    assert len(p2p_descs) == 12, (
-        "expected exactly 12 P2P fields (2 bonus + 3 blocks x 3 fields + "
+    assert len(p2p_descs) == 6, (
+        "expected exactly 6 P2P number fields (2 bonus + 3 block rates + "
         f"1 shared lead-time field); got {len(p2p_descs)} -- a field was "
         "added/removed/renamed?"
     )
@@ -221,7 +222,7 @@ def test_non_p2p_fields_still_attach_to_the_hub():
     # -12, not -11, since nimbus issue #565 added a 12th P2P field --
     # see test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub's own
     # updated comment for the count.
-    assert len(non_p2p_descs) == len(_DESCRIPTIONS) - 12
+    assert len(non_p2p_descs) == len(_DESCRIPTIONS) - 6
 
     for desc in non_p2p_descs:
         entity = NimbusSolverNumber(

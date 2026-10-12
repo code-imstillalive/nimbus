@@ -908,6 +908,22 @@ P2P_BLOCK_KEYS = (
 )
 
 
+def _block_minutes(cfg: dict, start_key: str, end_key: str) -> tuple[int, int]:
+    """A P2P block's (start, end) in local minutes of the day.
+
+    Household, 12 Oct 2026: block times are picked as a clock time (20:30),
+    not whole hours, so the hours are read as a float (20.5 -> 1230). The
+    end of the day is 24 (1440); a time picker cannot show 24:00 and shows
+    a block ending at midnight as 00:00, so an end of 0 after a later start
+    is read as 1440. 00:00 to 00:00 stays "not configured", as before.
+    """
+    start = round(_cfg_num(cfg, start_key, 0.0) * 60)
+    end = round(_cfg_num(cfg, end_key, 0.0) * 60)
+    if end == 0 and start > 0:
+        end = 24 * 60
+    return start, end
+
+
 def _configured_p2p_blocks(cfg: dict) -> list[tuple[float, int, int]]:
     """Every configured P2P block as (rate_kw, start_minute, end_minute),
     in local minutes of the day, with the lead time already taken off the
@@ -921,14 +937,12 @@ def _configured_p2p_blocks(cfg: dict) -> list[tuple[float, int, int]]:
     for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
         try:
             rate_kw = _cfg_num(cfg, rate_key, 0.0)
-            start_hour = _cfg_int(cfg, start_key, 0)
-            end_hour = _cfg_int(cfg, end_key, 0)
+            start, end = _block_minutes(cfg, start_key, end_key)
         except (TypeError, ValueError):
             continue
-        if rate_kw <= 0 or end_hour <= start_hour:
+        if rate_kw <= 0 or end <= start:
             continue
-        start_minute = max(0, start_hour * 60 - lead_time_minutes)
-        blocks.append((rate_kw, start_minute, end_hour * 60))
+        blocks.append((rate_kw, max(0, start - lead_time_minutes), end))
     return blocks
 
 
@@ -1044,13 +1058,12 @@ def p2p_blocks_daily_energy_kwh(cfg: dict) -> float:
     for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
         try:
             rate_kw = _cfg_num(cfg, rate_key, 0.0)
-            start_hour = _cfg_int(cfg, start_key, 0)
-            end_hour = _cfg_int(cfg, end_key, 0)
+            start, end = _block_minutes(cfg, start_key, end_key)
         except (TypeError, ValueError):
             continue
-        if rate_kw <= 0 or end_hour <= start_hour:
+        if rate_kw <= 0 or end <= start:
             continue
-        total += rate_kw * (end_hour - start_hour)
+        total += rate_kw * (end - start) / 60
     return total
 
 

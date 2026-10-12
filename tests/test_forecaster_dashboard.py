@@ -637,3 +637,22 @@ def test_an_edited_panel_tab_is_left_alone(ha) -> None:
     ha.dashboards["my-nimbus"] = dash
     _run(mod, ha.hass)
     assert mine in dash.config["views"]
+
+
+def test_the_dashboard_is_built_after_the_platforms():
+    """11 Oct 2026: built before the platforms, the Solver tab dropped the
+    rows of entities new in that release (the reserve's two time settings on
+    0.94.448's first start), because the registry did not have them yet."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "custom_components"
+        / "nimbus_load"
+        / "__init__.py"
+    ).read_text(encoding="utf-8")
+    forward = src.index(
+        "await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)"
+    )
+    dashboard = src.index("await async_ensure_nimbus_dashboard(hass)")
+    assert dashboard > forward

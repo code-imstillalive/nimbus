@@ -199,3 +199,22 @@ def test_household_mode_select_key_is_resolved_live_and_exposed():
         "instead of the live select entity -- always None, a silent "
         "no-op exactly like the v0.94.283 switch incident."
     )
+
+
+# Live settings read by __init__.py itself, never by the solve.
+_NOT_SOLVE_INPUTS = {"solve_on_price_change", "solve_on_price_change_debounce_s"}
+
+
+def test_every_live_setting_reaches_fetch_solver_config():
+    """11 Oct 2026: the reserve's four settings were resolved live but never
+    exposed by the config sensor, so the solve never saw them and the
+    reserve was off on every install. Every live number, time, switch and
+    select setting the solve reads must be in _SOLVER_ALL_KEYS."""
+    exposed = set(sensor._SOLVER_ALL_KEYS)
+    live = (
+        set(sensor._SOLVER_NUMBER_ENTITY_KEYS)
+        | set(sensor._SOLVER_TIME_ENTITY_KEYS)
+        | set(sensor._SOLVER_SWITCH_ENTITY_KEYS)
+        | set(sensor._SOLVER_SELECT_ENTITY_KEYS)
+    )
+    assert sorted(live - exposed - _NOT_SOLVE_INPUTS) == []
