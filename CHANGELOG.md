@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.451] - 2026-10-12
+
+The reference household's asks of 12 Oct, all before the evening's QLD price
+spike. One changes dispatch: on a spike night a P2P block drops to its
+matched volume plus 10% and the rest of the battery goes to the spike. Block
+times are set to the minute, and the Solver tab is the household's
+signed-off layout. Review waived by the household ("I need all of this done
+and ready by p2p").
+
 ### Changed
 - **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
   - The household's own Forecaster cards, copied as they are: *Solver
