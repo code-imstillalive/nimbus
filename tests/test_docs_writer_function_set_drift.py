@@ -729,6 +729,9 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "spike_export_ceiling",
         "_block_minutes",
         "spike_night_block_floor",
+        # Household, 12 Oct 2026: the charge taper near full. The docs copy
+        # has no taper settings to read.
+        "charge_taper_curve",
         # nimbus issue #1537 item 3 -- resample_real_p2p_rate()'s two row
         # shapes and second-source merge, split into helpers. The docs
         # copy's resample_real_p2p_rate(grid_times) takes no sensor at all
