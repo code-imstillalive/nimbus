@@ -34,18 +34,23 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
+from . import pricing_source
 from .const import (
     CONF_HOUSEHOLD_MODE,
     CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
@@ -145,6 +150,7 @@ async def async_setup_entry(
                 sw_version,
                 shared_store,
             ),
+            NimbusPricingSourceSelect(hass, entry, sw_version),
         ]
     )
 
@@ -233,3 +239,81 @@ class NimbusSelect(SelectEntity, RestoreEntity):
         self._attr_current_option = option
         self.async_write_ha_state()
         await self._shared_store.async_write(self._key, option)
+
+
+class NimbusPricingSourceSelect(SelectEntity):
+    """`select.nimbus_pricing_source` (nimbus #1550): the detected pricing
+    providers plus Manual. The current option is derived from the Solver's
+    saved pricing fields, so nothing is stored here; see pricing_source.py."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll = False
+    _attr_icon = "mdi:cash-sync"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, sw_version: str | None
+    ) -> None:
+        self._entry = entry
+        self._profiles = pricing_source.detected_profiles(hass)
+        self._attr_options = [*self._profiles, pricing_source.MANUAL]
+        self._attr_unique_id = f"{entry.entry_id}_pricing_source"
+        self.entity_id = "select.nimbus_pricing_source"
+        self._attr_name = "Pricing Source"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+        self._refresh()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Providers load in any order, and detection needs them loaded, so
+        # detect again once HA has started and every few minutes after.
+        self.async_on_remove(async_at_started(self.hass, self._redetect))
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._redetect, timedelta(minutes=5))
+        )
+
+    @callback
+    def _redetect(self, *_: Any) -> None:
+        self._profiles = pricing_source.detected_profiles(self.hass)
+        self._attr_options = [*self._profiles, pricing_source.MANUAL]
+        self._refresh()
+        self.async_write_ha_state()
+
+    @callback
+    def _refresh(self) -> None:
+        options = dict(self._entry.options)
+        self._attr_current_option = pricing_source.active_label(options, self._profiles)
+        self._attr_extra_state_attributes = pricing_source.status(
+            options, self._profiles
+        )
+
+    async def async_select_option(self, option: str) -> None:
+        if option == pricing_source.MANUAL:
+            # Nothing to write: prices stay as saved, edited in the Solver
+            # settings. Shown as Manual until the options next match a
+            # provider.
+            self._attr_current_option = option
+            self.async_write_ha_state()
+            return
+        self._profiles = pricing_source.detected_profiles(self.hass)
+        profile = self._profiles.get(option)
+        if profile is None:
+            raise HomeAssistantError(f"Nimbus does not detect {option} on this install")
+        problems = pricing_source.problems(self.hass, profile)
+        if problems:
+            raise HomeAssistantError(
+                f"Pricing not switched to {option}; nothing changed. "
+                + "; ".join(problems)
+            )
+        # Both directions in one options write. The hub's update listener
+        # reloads it, which runs a fresh solve on the new prices.
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options=pricing_source.applied(dict(self._entry.options), profile),
+        )
