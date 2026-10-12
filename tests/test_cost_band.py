@@ -118,6 +118,48 @@ class TestPeriodsWithinHours(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class TestTheBandIsOnThePlanCostsBasis(unittest.TestCase):
+    """nimbus #1704: the band left out the plan's own P2P bonus, so on a P2P
+    plan it sat above the plan cost and the chart drew the plan line below
+    its own best case."""
+
+    def _p2p(self, bonus_credit):
+        # 2 h exporting 10 kW at 5c plus a 50c P2P bonus on that export.
+        n = 2
+        common = {
+            "solar_kw": np.zeros(n),
+            "discharge_committed_kw": np.full(n, 12.0),
+            "final_soc_kwh": 10.0,
+        }
+        point = _band([2.0, 2.0], [2.0, 2.0], **common)
+        band = _band([1.0, 1.0], [3.0, 3.0], bonus_credit=bonus_credit, **common)
+        return point, band
+
+    def test_lower_le_plan_cost_le_upper_for_a_p2p_plan(self):
+        bonus = 0.50 * 10.0 * 2.0
+        point, band = self._p2p(bonus)
+        plan_cost = point["lower"] - bonus  # the plan's own basis, bonus in
+        self.assertLessEqual(band["lower"], plan_cost)
+        self.assertLessEqual(plan_cost, band["upper"])
+
+    def test_without_the_credit_the_band_misses_the_plan(self):
+        # The pre-#1704 behaviour, pinned so the reason for the credit is
+        # visible: the plan cost falls below the band's own lower bound.
+        bonus = 0.50 * 10.0 * 2.0
+        point, band = self._p2p(0.0)
+        self.assertLess(point["lower"] - bonus, band["lower"])
+
+    def test_the_credit_does_not_change_the_width(self):
+        _, without = self._p2p(0.0)
+        _, with_credit = self._p2p(10.0)
+        self.assertAlmostEqual(without["width"], with_credit["width"], places=6)
+
+    def test_bounds_come_back_in_order_when_more_load_costs_less(self):
+        band = _band([1.0, 1.0], [3.0, 3.0], import_price=np.full(2, -0.10))
+        self.assertLessEqual(band["lower"], band["upper"])
+        self.assertGreaterEqual(band["width"], 0.0)
+
+
 class TestCostBreakdownByDay(unittest.TestCase):
     """nimbus #1704: the per-day split adds up to the whole-plan breakdown."""
 
