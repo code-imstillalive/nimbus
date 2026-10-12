@@ -351,9 +351,14 @@ class NimbusForecastCard extends HTMLElement {
           stroke_dash: 2, show: { in_header: false, in_legend: true },
         },
         {
-          // SoC changes steadily through a period, so it stays a line.
+          // SoC changes steadily through a period, so it stays a line. A
+          // row's soc_pct is the SoC at the END of its period, so it is
+          // drawn there: drawn at the row's start, a 30-minute sale's SoC
+          // drop showed a period before the battery bar (household, 12 Oct
+          // 2026: "purple should be sitting same period over the sell event").
           entity: f.solver.entity_id, name: "Solver SoC % (proposed)", extend_to: false,
-          data_generator: g("soc_pct"), yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
+          data_generator:
+            "return entity.attributes.forecast.map(p => [new Date(p.time).getTime() + (p.hours || 0) * 3600000, p.soc_pct]);", yaxis_id: "soc", color: "#C2185B", stroke_width: 4, stroke_dash: 8,
           // The plan sensor's own unit is kW; this series is a percentage.
           unit: "%", show: { in_header: true, in_legend: true },
         }
