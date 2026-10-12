@@ -17,6 +17,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   solar the plan counted on, and the difference is published per period as
   `flow_pv_risk_margin_kw`. With the slider at 0 nothing changes (the golden
   plans differ only by the new field). Reporting only: no plan changes.
+- **The solar delivery ratio converts a W sensor to kW.** It compared the
+  solar power sensor's raw reading with the kW forecast, so a sensor in W
+  (the reference household's `sensor.combined_total_dc_power`) read 1121
+  instead of ~1.12 and the "solar underperforming" check could never fire.
+  Readings now go through the shared unit converter, and ratios above 20 left
+  in the rolling window by the mix-up are dropped.
 
 ## [0.94.452] - 2026-10-12
 
