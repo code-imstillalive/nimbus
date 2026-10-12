@@ -608,6 +608,40 @@ def spike_night_block_floor(
     return out
 
 
+def charge_taper_curve(
+    cfg: dict,
+    capacity_kwh: float,
+    min_soc_kwh: float,
+    max_soc_kwh: float,
+    max_charge_kw: float,
+) -> list[tuple[float, float]] | None:
+    """The charge ceiling near full (household, 12 Oct 2026), as the
+    `BatteryConfig.charge_power_curve` points the LP enforces.
+
+    Flat at `max_charge_kw` up to the taper start (percent of capacity), then a
+    straight line down to `power at full` percent of `max_charge_kw` at 100%,
+    cut at `max_soc_kwh`. None (no taper) when the start is 100 or not inside
+    the SoC range, or the line would not fall. Before this the plan charged at
+    40 kW to 98.7% on the reference household, which measured ~24 kW at 92-96%
+    and ~8 kW at 99%.
+    """
+    start_pct = _cfg_num(cfg, "solver_charge_taper_start_percent", 90.0)
+    full_pct = _cfg_num(cfg, "solver_charge_power_at_full_percent", 10.0)
+    if capacity_kwh <= 0 or max_charge_kw <= 0 or start_pct >= 100:
+        return None
+    start_kwh = capacity_kwh * max(start_pct, 0.0) / 100.0
+    full_kw = max_charge_kw * min(max(full_pct, 0.0), 100.0) / 100.0
+    if full_kw >= max_charge_kw or not (min_soc_kwh < start_kwh < max_soc_kwh):
+        return None
+    slope = (full_kw - max_charge_kw) / (capacity_kwh - start_kwh)
+    at_max = max(max_charge_kw + slope * (max_soc_kwh - start_kwh), 0.0)
+    return [
+        (min_soc_kwh, max_charge_kw),
+        (start_kwh, max_charge_kw),
+        (max_soc_kwh, at_max),
+    ]
+
+
 def assemble_and_solve_plan(
     cfg: dict,
     *,
@@ -706,6 +740,13 @@ def assemble_and_solve_plan(
             _cfg_num(cfg, "solver_battery_reserve_end_hour", 0.0),
         ),
         spike_override_discharge_kw=spike_override_kw,
+        charge_power_curve=charge_taper_curve(
+            cfg,
+            capacity_kwh,
+            soc_envelope.min_soc_kwh,
+            soc_envelope.max_soc_kwh,
+            max_charge_kw,
+        ),
     )
     fixed_export_kw = spike_night_block_floor(
         cfg,

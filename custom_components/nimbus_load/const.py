@@ -1489,6 +1489,16 @@ CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
     "solver_battery_reserve_release_price"
 )
 DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
+# Household, 12 Oct 2026: a battery cannot take full charge power near full
+# (the CC->CV taper). From `taper start` percent SoC the plan's charge ceiling
+# falls in a straight line to `power at full` percent of max charge at 100%.
+# Defaults from the reference household's measured charging, 9-11 Oct:
+# ~24 kW at 92-96%, 14 at 97.5%, 10 at 98.5%, 6 at 99.5% on a 40 kW battery.
+# Taper start 100 = off (charge at max right up to max SoC).
+CONF_SOLVER_CHARGE_TAPER_START_PERCENT: Final = "solver_charge_taper_start_percent"
+DEFAULT_SOLVER_CHARGE_TAPER_START_PERCENT: Final = 90.0
+CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT: Final = "solver_charge_power_at_full_percent"
+DEFAULT_SOLVER_CHARGE_POWER_AT_FULL_PERCENT: Final = 10.0
 # nimbus #1654: the hours of day (local time) the reserve applies in. Start ==
 # end (the default 0 / 0) = all day, the original behaviour. Start > end wraps
 # midnight (22 -> 5.5 = 22:00-05:30). Outside the window the reserve is
