@@ -88,7 +88,7 @@ import dataclasses
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 import numpy as np
 from numpy.typing import NDArray
@@ -502,6 +502,112 @@ class PlanAssembly:
     flex_ranging_deferred: bool = False
 
 
+def spike_export_ceiling(
+    cfg: dict,
+    fixed_export_kw: list[float] | None,
+    import_price: list[float],
+    export_limit_kw: list[float],
+) -> list[float] | None:
+    """Per-period ceiling on a P2P block's export where a price spike is
+    forecast (household, 11 Oct 2026), or None.
+
+    A P2P block pins export to its rate exactly. With a QLD spike in the
+    forecast for 12 Oct 17:30-20:30 (~$21/kWh sell), the plan could not
+    sell more than 11.5 kW in those hours, so it sold its spare 15 kWh at
+    16:30 for 47c instead. The live spike override (#694) already turns the
+    pin into a floor, but only for period 0 and only on the live price.
+
+    Here the same applies to every block period whose FORECAST import price
+    is at or above the household's spike threshold, while the override is
+    armed: the block rate stays a floor (P2P is still delivered) and export
+    may rise to that period's export limit. Every other period keeps its
+    exact pin (NaN here). Unarmed, no threshold, or no block: None, so the
+    plan is byte-identical to before.
+    """
+    if fixed_export_kw is None or not cfg.get("solver_price_spike_override_armed"):
+        return None
+    threshold = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)
+    if threshold <= 0:
+        return None
+    ceiling = [float("nan")] * len(fixed_export_kw)
+    widened = False
+    for t, pinned in enumerate(fixed_export_kw):
+        if pinned is None or np.isnan(pinned) or pinned <= 0:
+            continue
+        if t < len(import_price) and import_price[t] >= threshold:
+            limit = float(export_limit_kw[t])
+            if limit > pinned:
+                ceiling[t] = limit
+                widened = True
+    return ceiling if widened else None
+
+
+# The margin a spike night keeps above the expected matched P2P volume
+# (household, 12 Oct 2026: "10% over matched... the rest is up for grabs").
+SPIKE_NIGHT_P2P_MARGIN = 0.10
+
+
+def spike_night_block_floor(
+    cfg: dict,
+    fixed_export_kw: list[float] | None,
+    import_price: list[float],
+    grid_times: list[datetime],
+    matched_kwh: float,
+) -> list[float] | None:
+    """`fixed_export_kw` with each P2P block that has a forecast price spike
+    lowered to the expected matched P2P volume plus SPIKE_NIGHT_P2P_MARGIN,
+    while the spike override is armed (household, 12 Oct 2026).
+
+    A block commits a rate for its whole window, but only the matched part
+    earns the P2P bonus; the rest sells at spot. On 12 Oct the reference
+    household's 11.5 kW block (80.5 kWh) had ~45.7 kWh matched, so 35 kWh
+    sold at 0.47-1.05 $/kWh while a $13-21/kWh spike was capped by the
+    battery running out. On a spike night the block delivers
+    rate x min(1, (1 + margin) x matched / committed), where committed is
+    every block's daily energy (`p2p_blocks_daily_energy_kwh`), so each
+    block keeps its share. 12 Oct: 11.5 x 1.1 x 45.7 / 80.5 = 7.2 kW.
+    The lowered rate is a floor in spike periods (`spike_export_ceiling`),
+    so everything above it is free for the spike, re-planned every solve.
+
+    Applied per block and per day, only on a day whose block periods hold
+    a spike (forecast import price at or above the spike threshold). A
+    block on another day keeps its rate. Unarmed, no threshold, no matched
+    volume, or no spike in a block: the input unchanged.
+    """
+    if fixed_export_kw is None or not cfg.get("solver_price_spike_override_armed"):
+        return fixed_export_kw
+    threshold = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)
+    committed = solver_shared.p2p_blocks_daily_energy_kwh(cfg)
+    if threshold <= 0 or matched_kwh <= 0 or committed <= 0:
+        return fixed_export_kw
+    share = min(1.0, (1.0 + SPIKE_NIGHT_P2P_MARGIN) * matched_kwh / committed)
+    if share >= 1.0:
+        return fixed_export_kw
+    blocks = solver_shared._configured_p2p_blocks(cfg)
+
+    def block_of(t: int) -> int | None:
+        local = _local(grid_times[t])
+        minute = local.hour * 60 + local.minute
+        for b, (_rate, start, end) in enumerate(blocks):
+            if start <= minute < end:
+                return b
+        return None
+
+    out = list(fixed_export_kw)
+    groups: dict[tuple[date, int], list[int]] = {}
+    for t, pinned in enumerate(out):
+        if pinned is None or np.isnan(pinned) or pinned <= 0 or t >= len(grid_times):
+            continue
+        b = block_of(t)
+        if b is not None:
+            groups.setdefault((_local(grid_times[t]).date(), b), []).append(t)
+    for periods in groups.values():
+        if any(t < len(import_price) and import_price[t] >= threshold for t in periods):
+            for t in periods:
+                out[t] = out[t] * share
+    return out
+
+
 def assemble_and_solve_plan(
     cfg: dict,
     *,
@@ -601,7 +707,16 @@ def assemble_and_solve_plan(
         ),
         spike_override_discharge_kw=spike_override_kw,
     )
-    fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
+    fixed_export_kw = spike_night_block_floor(
+        cfg,
+        fetch_p2p_fixed_export_kw(cfg, grid_times),
+        import_price,
+        grid_times,
+        p2p_recent_volume_kwh,
+    )
+    spike_ceiling = spike_export_ceiling(
+        cfg, fixed_export_kw, import_price, export_limit_kw
+    )
     grid = elements.GridConfig(
         import_price=np.array(import_price),
         export_price=np.array(export_price),
@@ -611,6 +726,9 @@ def assemble_and_solve_plan(
         export_bonus_volume_kwh=p2p_recent_volume_kwh,
         fixed_export_kw=np.array(fixed_export_kw)
         if fixed_export_kw is not None
+        else None,
+        fixed_export_max_kw=np.array(spike_ceiling)
+        if spike_ceiling is not None
         else None,
         import_price_upper=np.array(import_price_upper)
         if import_price_upper is not None

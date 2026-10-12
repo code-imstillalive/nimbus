@@ -196,6 +196,51 @@ _EXPECTED_ATTRS = {
         "grid_import_excess_penalty": 0.0,
         "terminal_value_credit": -6.9011,
     },
+    # nimbus #1704: cost_breakdown above, per local day. Additive; the days
+    # add up to it exactly (grid_net 33.5015, fees 0.127 + 0.26, and the
+    # end-of-plan credit -6.9011 on the last day).
+    "cost_breakdown_by_day": {
+        "2026-09-06": {
+            "charge_fee": 0.127,
+            "degradation": 0.0,
+            "discharge_fee": 0.0,
+            "end_of_plan": 0.0,
+            "grid_net": 5.4215,
+            "plan_cost": 5.5485,
+        },
+        "2026-09-07": {
+            "charge_fee": 0.0,
+            "degradation": 0.0,
+            "discharge_fee": 0.0,
+            "end_of_plan": 0.0,
+            "grid_net": 9.36,
+            "plan_cost": 9.36,
+        },
+        "2026-09-08": {
+            "charge_fee": 0.0,
+            "degradation": 0.0,
+            "discharge_fee": 0.0,
+            "end_of_plan": 0.0,
+            "grid_net": 9.36,
+            "plan_cost": 9.36,
+        },
+        "2026-09-09": {
+            "charge_fee": 0.0,
+            "degradation": 0.0,
+            "discharge_fee": 0.0,
+            "end_of_plan": 0.0,
+            "grid_net": 9.36,
+            "plan_cost": 9.36,
+        },
+        "2026-09-10": {
+            "charge_fee": 0.0,
+            "degradation": 0.0,
+            "discharge_fee": 0.26,
+            "end_of_plan": -6.9011,
+            "grid_net": 0.0,
+            "plan_cost": -6.6411,
+        },
+    },
     "cost_band": {"lower": 1.741, "upper": 32.7335, "width": 30.9925},
     "cost_band_24h": {"lower": -1.2203, "upper": 8.1922, "width": 9.4125},
     "p2p_match_fraction": 0.0,

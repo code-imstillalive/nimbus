@@ -35,6 +35,8 @@ would resolve those names at import time and silently defeat every patch.
 
 from __future__ import annotations
 
+import math
+import time
 from datetime import timedelta
 
 try:
@@ -79,6 +81,59 @@ _BATTERY_PARTICIPANT_WARNED: set[str] = set()
 # discharge (both max_charge_kw/max_discharge_kw at 0, a reachable
 # wizard state) is warned once per subentry, not every solve.
 _IMMOBILE_PARTICIPANT_WARNED: set[str] = set()
+
+# nimbus #1715 (a tester's install, 11 Oct 2026): a sleeping car's SoC sensor
+# reads `unavailable`, and the participant used to be planned at its MIN SoC
+# -- as if the car were empty. Its charge has not changed; it has only stopped
+# reporting. That substituted model ran for minutes or failed in HiGHS until
+# the car woke. Now the last SoC read for the participant is held, for at most
+# _SOC_HOLD_SECONDS; with none to hold, the participant sits out the solve.
+_SOC_HOLD_SECONDS: float = 12 * 3600
+# subentry_id -> (SoC %, time.monotonic() of the read)
+_LAST_GOOD_SOC: dict[str, tuple[float, float]] = {}
+# Participants already warned for the current unreadable spell.
+_SOC_UNREADABLE_WARNED: set[str] = set()
+
+
+def _participant_soc_pct(
+    sw, subentry_id: str, name: str, soc_sensor: str, now: float | None = None
+) -> float | None:
+    """The participant's SoC %, the held last good one while its sensor is
+    unreadable, or None when there is none to hold (#1715)."""
+    now = time.monotonic() if now is None else now
+    try:
+        live = sw.safe_num(soc_sensor, math.nan)
+    except OSError:  # an entity that does not exist (ha_get's 404)
+        live = math.nan
+    if not math.isnan(live):
+        _LAST_GOOD_SOC[subentry_id] = (live, now)
+        _SOC_UNREADABLE_WARNED.discard(subentry_id)
+        return live
+    held = _LAST_GOOD_SOC.get(subentry_id)
+    first = subentry_id not in _SOC_UNREADABLE_WARNED
+    _SOC_UNREADABLE_WARNED.add(subentry_id)
+    if held is not None and now - held[1] <= _SOC_HOLD_SECONDS:
+        if first:
+            solver_shared._LOGGER.warning(
+                "Nimbus #1715: battery participant '%s' SoC sensor %s is "
+                "unreadable (a sleeping car reads this way); holding its last "
+                "SoC, %.1f%% from %.0f min ago, for up to %.0f h",
+                name,
+                soc_sensor,
+                held[0],
+                (now - held[1]) / 60.0,
+                _SOC_HOLD_SECONDS / 3600.0,
+            )
+        return held[0]
+    if first:
+        solver_shared._LOGGER.warning(
+            "Nimbus #1715: battery participant '%s' SoC sensor %s is "
+            "unreadable and there is no recent SoC to hold -- leaving it out "
+            "of the plan until it reads again, rather than planning it empty",
+            name,
+            soc_sensor,
+        )
+    return None
 
 
 def _solver_writer():
@@ -365,7 +420,11 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         # site's own comment for the real "27+-crashes-per-window"
         # incident this pattern fixes. safe_num() itself already
         # degrades gracefully (WARN + fallback) on a non-numeric state.
-        initial_soc_pct = sw.safe_num(soc_sensor, min_soc_pct)
+        initial_soc_pct = _participant_soc_pct(
+            sw, subentry.subentry_id, name, soc_sensor
+        )
+        if initial_soc_pct is None:
+            continue
         initial_soc_kwh = capacity_kwh * initial_soc_pct / 100.0
         initial_soc_kwh = min(max(initial_soc_kwh, 0.0), capacity_kwh)
         # nimbus issue #563 item 2 (2026-09-08): availability gating.
