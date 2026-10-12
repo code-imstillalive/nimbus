@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.452] - 2026-10-12
+
+One fix that changes plans, found on the reference household on 12 Oct: the
+"Solar forecast risk" slider no longer budgets phantom house load. Review
+waived by the household ("fix the issue, do not hide it").
+
 ### Fixed
 - **"Solar forecast risk" plans for less solar only, not for phantom house
   load.** The slider (`risk_aversion`) also leaned every house load toward
