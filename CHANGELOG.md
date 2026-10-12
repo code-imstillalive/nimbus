@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **Solver tab, "Battery energy, tomorrow":** the labels say what each figure
+  is (Solar → battery, Grid → battery, Battery → house, Battery → grid,
+  Battery losses), and the note says the card counts only the battery's own
+  energy, so Solar → battery is not the day's solar (household, 12 Oct 2026:
+  "noone would have guessed that").
+
 ## [0.94.452] - 2026-10-12
 
 One fix that changes plans, found on the reference household on 12 Oct: the
