@@ -895,15 +895,18 @@ def _energy_pie() -> dict[str, Any]:
     version summed the whole four-day plan (483 kWh "grid in")."""
     plan = "@nimbus_solver_battery_forecast"
     flows = (
-        ("pv_to_battery", "Solar in", "#ffb340"),
-        ("grid_to_battery", "Grid in", "#4fa3ff"),
-        ("battery_to_load", "To house", "#3ddc84"),
-        ("battery_to_grid", "To grid", "#ff4d8d"),
-        ("battery_to_losses", "Losses", "#6b7280"),
+        ("pv_to_battery", "Solar → battery", "#ffb340"),
+        ("grid_to_battery", "Grid → battery", "#4fa3ff"),
+        ("battery_to_load", "Battery → house", "#3ddc84"),
+        ("battery_to_grid", "Battery → grid", "#ff4d8d"),
+        ("battery_to_losses", "Battery losses", "#6b7280"),
     )
     return _apex(
         "Battery energy, tomorrow",
-        "kWh, 00:00-24:00. In = solar + grid; out = house + grid + losses.",
+        "The battery's own energy only, kWh, 00:00-24:00 tomorrow, as planned: "
+        "what charges it (solar, grid) and where its discharge goes (house, grid, "
+        "conversion losses). Solar that goes straight to the house or the grid is "
+        "not counted, so Solar → battery is not the day's solar.",
         [
             {
                 "entity": plan,
