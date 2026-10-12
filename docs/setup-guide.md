@@ -357,6 +357,18 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 <a id="screen-2-of-3--solver-grid-prices"></a>
 
+### Switching between price providers
+
+`select.nimbus_pricing_source` (on the Nimbus device, under Configuration) lists every complete pricing
+provider Nimbus finds (LocalVolts v2, Amber Express, Amber Electric) plus **Manual**. It shows the
+provider your saved prices match, or Manual when you set them yourself.
+Picking a provider changes import and export together, after checking that each of its sensors exists
+and is reporting. If one is not, nothing changes and the message names it. Only the price fields
+change; fees, P2P blocks and every other setting stay as they are. Picking Manual changes nothing,
+so while your saved prices still match a provider, the select goes back to that provider's name
+within five minutes or at the next restart. It reads Manual once you edit a price field yourself
+([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
+
 ### If you are on LocalVolts: install LocalVolts v2 first
 
 With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
@@ -943,6 +955,9 @@ Examples include hot water, a pool pump and an EV charger.
 | **🔴 Power sensor to learn from** | One real circuit/appliance power sensor |
 | Fixed schedule start / end hour | Only for a load on a real fixed timer. **24-hour decimal**: `12.5` = 12:30pm |
 | Expected power while running (kW) | Used with a schedule. Enter the equipment's actual power. |
+| Running above (kW) | For a load that runs in bursts: a washer, an oven, an AC, an EV charger. While it draws at least this much, the forecast holds its current draw for the hold below, then nothing; while it is below this, nothing is forecast for it. Checked every 2 minutes, so a run that keeps going keeps extending and a switch-off clears it. Example: `0.6`. Leave blank to use the learned forecast instead. |
+| Hold while running (hours) | How long a running load is forecast to keep going from its latest reading. Default `1`. |
+| While off, forecast its usual runs | Only with Running above. Off (the default): nothing is forecast while the load is off. On: the runs it usually makes, learned from its history, are forecast instead. Use it for a load with a regular pattern, such as an AC on hot afternoons. |
 
 **Expected outcome:** `sensor.nimbus_<name>_forecast` per load, plus the whole-house
 roll-up `sensor.nimbus_household_load_total_forecast`. Each Load also gets its own

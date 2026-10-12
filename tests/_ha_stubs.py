@@ -669,6 +669,9 @@ def install_ha_stubs() -> None:
         async_get=MagicMock(),
     )
     module("homeassistant.helpers.storage", Store=_StubStore)
+    # nimbus #1550: select.py's pricing-source select re-detects providers
+    # once HA has started.
+    module("homeassistant.helpers.start", async_at_started=MagicMock())
     module(
         "homeassistant.helpers.restore_state",
         RestoreEntity=_generic_stub_class("RestoreEntity"),

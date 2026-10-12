@@ -28,6 +28,9 @@ from homeassistant.helpers import selector
 from ..const import (
     CONF_EXPECTED_LOAD_KW,
     CONF_LOAD_SENSOR,
+    CONF_RUN_HOLD_HOURS,
+    CONF_RUN_HOLD_LEARNED_WHEN_OFF,
+    CONF_RUNNING_THRESHOLD_KW,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
 )
@@ -125,6 +128,26 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         )
     else:
         schema_dict[vol.Optional(CONF_EXPECTED_LOAD_KW)] = load_selector
+
+    # nimbus #1703: a burst load's "running" hold -- see const.py. Same
+    # no-default-when-unset rule as the fields above.
+    for key, unit in ((CONF_RUNNING_THRESHOLD_KW, "kW"), (CONF_RUN_HOLD_HOURS, "h")):
+        sel = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement=unit
+            )
+        )
+        current = defaults.get(key)
+        if current is not None:
+            schema_dict[vol.Optional(key, default=current)] = sel
+        else:
+            schema_dict[vol.Optional(key)] = sel
+    schema_dict[
+        vol.Optional(
+            CONF_RUN_HOLD_LEARNED_WHEN_OFF,
+            default=bool(defaults.get(CONF_RUN_HOLD_LEARNED_WHEN_OFF, False)),
+        )
+    ] = selector.BooleanSelector()
 
     return vol.Schema(schema_dict)
 
