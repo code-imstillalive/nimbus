@@ -727,6 +727,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # Same reason as above: the docs copy has no P2P block settings and
         # no armed-override setting to read.
         "spike_export_ceiling",
+        "_flow_decomposition_counted",
         "_block_minutes",
         "spike_night_block_floor",
         # nimbus issue #1537 item 3 -- resample_real_p2p_rate()'s two row

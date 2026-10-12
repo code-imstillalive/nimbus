@@ -7934,6 +7934,10 @@ def _save_solar_delivery_state(state: dict) -> None:
         pass
 
 
+# A ratio above this is a unit mix-up, not a plant (12 Oct 2026).
+SOLAR_DELIVERY_MAX_PLAUSIBLE_RATIO = 20.0
+
+
 def update_solar_delivery_ratio(
     cfg: dict,
     now: datetime,
@@ -7966,7 +7970,20 @@ def update_solar_delivery_ratio(
 
     state = _load_solar_delivery_state()
     pending = state.get("pending", [])
-    ratios = state.get("ratios", [])
+    # Household, 12 Oct 2026: the measured reading is in the sensor's own
+    # unit (the reference household's is W) and the forecast is kW, so the
+    # ratio read 1121 instead of ~1.12 and "underperforming" could never
+    # fire. Measured readings are now converted to kW, and ratios a W/kW
+    # mix-up left in the rolling window (no real plant delivers 20x its
+    # forecast) are dropped.
+    kw_scale = _kw_scale_factor(solar_sensor)
+    ratios = [
+        r
+        for r in state.get("ratios", [])
+        if isinstance(r, dict)
+        and isinstance(r.get("ratio"), (int, float))
+        and 0.0 <= float(r["ratio"]) <= SOLAR_DELIVERY_MAX_PLAUSIBLE_RATIO
+    ]
 
     still_pending = []
     for entry in pending:
@@ -7991,9 +8008,12 @@ def update_solar_delivery_ratio(
                 # is genuinely representative; falling through to 0.0
                 # would record a misleading "solar delivered nothing"
                 # ratio whenever the only rows land just after the mark.
-                actual_kw = resample_history_nearest(
-                    hist, [target_time], backfill_first=True
-                )[0]
+                actual_kw = (
+                    resample_history_nearest(hist, [target_time], backfill_first=True)[
+                        0
+                    ]
+                    * kw_scale
+                )
                 ratios.append(
                     {"time": now.isoformat(), "ratio": actual_kw / forecast_kw}
                 )
