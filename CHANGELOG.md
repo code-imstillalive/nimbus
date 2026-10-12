@@ -14,6 +14,21 @@ Charts and reporting, released before the reference household's 17:00 P2P
 window. Nothing here changes a plan or a dispatch: the charge taper (#1741)
 is held for a later release.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 7705818b**,
+  installed untagged via HACS from `main` (`installed_version` 7705818) and
+  restarted 16:14 AEST 12 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.453`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** after the restart (the known duplicate-unique-id class excluded).
+  **Not claimed: a solve on devhub**, whose own Solver entities read
+  `unavailable`. CI on #1742 passed all 10 checks, including the full pytest
+  run; the chart change is pinned by two tests in
+  `tests/test_1594_solver_tab.py`.
+- Consumer check: on the Forecaster's Power Signals chart, the Solver tab's
+  battery chart and the dispatch card, the plan's SoC line now reaches each
+  period's SoC at the end of that period, so a sale's SoC drop sits under its
+  own battery bar and a block's SoC reaches its end value when the block ends.
+  The battery bars, grid lines and prices are unchanged.
+
 ### Fixed
 - **The plan's SoC line is drawn at the end of each period.** A plan row's
   `soc_pct` is the SoC after its period, but the Forecaster's Power Signals
