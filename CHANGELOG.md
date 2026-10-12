@@ -11,21 +11,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Changed
 - **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
   - The household's own Forecaster cards, copied as they are: *Solver
-    Forecast — Until Midnight*, *Solver Daily Summary* and *Nimbus Solver
-    Quality (EPR / Regret)*. They replace the three rebuilt in #1725. The
-    EPR card's table no longer breaks after its first row, and the daily
-    summary no longer says the Solver does not drive dispatch.
+    Forecast — Until Midnight*, *Solver Daily Summary* (Today and Tomorrow)
+    and *Nimbus Solver Quality (EPR / Regret)*. They replace the three rebuilt
+    in #1725. The EPR card's table no longer breaks after its first row; the
+    daily summary drops "(Forecast Only)" and the line saying the Solver does
+    not drive dispatch.
   - Performance: the plan-ahead cost chart full width, then the EPR card,
     At a glance, Score by day and Where the plan's cost comes from, one
-    column each, one height, with each chart's figures below it.
+    column each, one height, each chart's figures below it.
   - Money: the energy table and the cost by day one column each, beside
     tomorrow's energy pie.
-  - Plan: the until-midnight table over two columns (the only card that
-    scrolls), the daily summary, and the three risk sliders stacked with
-    their explanation.
-  - The battery chart's SoC axis is shown in % (hidden, a full battery read
-    as 40 kW), and the plan-ahead cost chart says the right-hand end is the
-    current plan and earlier points are earlier estimates.
+  - Plan: the battery chart; the until-midnight table over two columns (the
+    only card that scrolls, now filling its width), the EPR card, and Today
+    and Tomorrow; below them the three risk sliders and their explanation.
+  - **Risk sliders:** the household's mushroom sliders (100 px icon, red at 0
+    to green at 1) where mushroom is installed; HA's tile slider elsewhere.
+  - **Every chart has a solid zero line.** On the battery chart the kW, SoC
+    and price axes share one zero: SoC runs -100..100 with negatives
+    unlabelled, and two invisible series keep kW and price symmetric. Before,
+    a full battery and a price spike both sat on the "40 kW" line.
+  - The plan-ahead cost note says the right-hand end is the current plan and
+    earlier points are earlier estimates.
 - **P2P block times are set to the minute (household, 12 Oct 2026; asked for
   on #565, where only a shared lead time shipped).** Each block's From and
   Until are now time pickers (20:30), like the reserve's, on the Nimbus P2P
