@@ -8,7 +8,39 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.451] - 2026-10-12
+
+The reference household's asks of 12 Oct, all before the evening's QLD price
+spike. One changes dispatch: on a spike night a P2P block drops to its
+matched volume plus 10% and the rest of the battery goes to the spike. Block
+times are set to the minute, and the Solver tab is the household's
+signed-off layout. Review waived by the household ("I need all of this done
+and ready by p2p").
+
 ### Changed
+- **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
+  - The household's own Forecaster cards, copied as they are: *Solver
+    Forecast — Until Midnight*, *Solver Daily Summary* (Today and Tomorrow)
+    and *Nimbus Solver Quality (EPR / Regret)*. They replace the three rebuilt
+    in #1725. The EPR card's table no longer breaks after its first row; the
+    daily summary drops "(Forecast Only)" and the line saying the Solver does
+    not drive dispatch.
+  - Performance: the plan-ahead cost chart full width, then the EPR card,
+    At a glance, Score by day and Where the plan's cost comes from, one
+    column each, one height, each chart's figures below it.
+  - Money: the energy table and the cost by day one column each, beside
+    tomorrow's energy pie.
+  - Plan: the battery chart; the until-midnight table over two columns (the
+    only card that scrolls, now filling its width), the EPR card, and Today
+    and Tomorrow; below them the three risk sliders and their explanation.
+  - **Risk sliders:** the household's mushroom sliders (100 px icon, red at 0
+    to green at 1) where mushroom is installed; HA's tile slider elsewhere.
+  - **Every chart has a solid zero line.** On the battery chart the kW, SoC
+    and price axes share one zero: SoC runs -100..100 with negatives
+    unlabelled, and two invisible series keep kW and price symmetric. Before,
+    a full battery and a price spike both sat on the "40 kW" line.
+  - The plan-ahead cost note says the right-hand end is the current plan and
+    earlier points are earlier estimates.
 - **P2P block times are set to the minute (household, 12 Oct 2026; asked for
   on #565, where only a shared lead time shipped).** Each block's From and
   Until are now time pickers (20:30), like the reserve's, on the Nimbus P2P

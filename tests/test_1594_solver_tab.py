@@ -85,6 +85,8 @@ def _what(card):
     if card["type"] == "tile":
         kind = "slider" if card.get("features") else "tile"
         return f"{kind}: {card['name']}"
+    if card["type"] == "markdown" and card.get("title"):
+        return card["title"]
     if card["type"] == "markdown" and card.get("content"):
         text = card["content"]
         return "markdown: " + text[text.index("**") + 2 :].split("**", 1)[0]
@@ -105,7 +107,8 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             assert not cards[0].get("text_only")  # outlined like a card
             layout.append([_block(cards[0])])
             continue
-        assert len(cards) == 1, cards
+        if len(cards) > 1:  # the daily summary: today and tomorrow, stacked
+            assert [_what(c) for c in cards] == ["Solver Daily Summary"] * 2
         layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
         [
@@ -117,14 +120,11 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         ],
         [
             "Performance",
-            (2, "At a glance"),
-            (2, "Score by day"),
-            (2, "Plan-ahead cost, as estimated"),
-            (2, "Where the plan's cost comes from"),
-            (
-                4,
-                "markdown: How the score was made: {{ state_attr(q, 'latest_date') or 'no day scored yet' }}",
-            ),
+            (4, "Plan-ahead cost, as estimated"),
+            (1, "Nimbus Solver Quality (EPR / Regret)"),
+            (1, "At a glance"),
+            (1, "Score by day"),
+            (1, "Where the plan's cost comes from"),
         ],
         [
             "Money",
@@ -132,18 +132,19 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Money, plan ahead"),
             (1, "Where the cost comes from"),
             (1, "Battery, now"),
-            (2, "markdown: Today and tomorrow, planned"),
-            (2, "markdown: The plan's cost, by day, $"),
-            (2, "markdown: Yesterday and tomorrow, kWh"),
+            (1, "markdown: Yesterday and tomorrow, kWh"),
+            (1, "markdown: The plan's cost, by day, $"),
             (2, "Battery energy, tomorrow"),
         ],
         [
             "Plan",
             (4, "Battery: plan against measured"),
-            (4, "markdown: The plan until midnight, half-hourly"),
-            (1, "slider: Import price risk"),
-            (1, "slider: Export price risk"),
-            (1, "slider: Solar forecast risk"),
+            (2, "Solver Forecast — Until Midnight"),
+            (1, "Nimbus Solver Quality (EPR / Regret)"),
+            (1, "Solver Daily Summary"),
+            (1, "nimbus:risk-slider"),
+            (1, "nimbus:risk-slider"),
+            (1, "nimbus:risk-slider"),
             (1, "markdown: What the sliders do"),
         ],
         [
@@ -215,28 +216,78 @@ def test_cards_side_by_side_end_on_one_line() -> None:
 
 def test_the_sliders_are_sliders() -> None:
     """Household, 11 Oct 2026: "u have called it sliders but produced
-    inputs". Each risk setting is a tile with a slider, all four columns of
-    that row one height."""
-    plan_row = [
-        s["cards"][0]
-        for s in solver_tab.template()
-        if s["cards"][0].get("features")
-        or "What the sliders do" in s["cards"][0].get("content", "")
-    ]
-    assert len(plan_row) == 4
-    for card in plan_row[:3]:
-        assert card["features"] == [{"type": "numeric-input", "style": "slider"}]
-    assert len({json.dumps(c["grid_options"]) for c in plan_row}) == 1
+    inputs". 12 Oct: the household's mushroom slider with a 100 px icon
+    where mushroom is installed, HA's tile slider elsewhere."""
+
+    def lookup(key):
+        return {"card:mushroom": MUSH}.get(key, f"number.nimbus_{key}")
+
+    for MUSH, kind in (("custom:mushroom-number-card", "mushroom"), (None, "tile")):
+        cards = [
+            c
+            for s in solver_tab.resolve(solver_tab.template(), lookup)
+            for c in s["cards"]
+            if c.get("display_mode") == "slider" or c.get("features")
+        ]
+        assert len(cards) == 3, kind
+        for card in cards:
+            if MUSH:
+                assert card["type"] == MUSH
+                assert "--mush-icon-size: 100px" in card["card_mod"]["style"]
+                assert card["entity"] in card["card_mod"]["style"]
+            else:
+                assert card["type"] == "tile"
+                assert card["features"] == [
+                    {"type": "numeric-input", "style": "slider"}
+                ]
 
 
-def test_charts_side_by_side_are_one_height() -> None:
-    charts = [
-        s["cards"][0]
-        for s in solver_tab.template()
-        if s["column_span"] == 2 and s["cards"][0]["type"] == "custom:apexcharts-card"
+def _row(title_or_header: str) -> list[dict]:
+    """The sections from the one whose first card is `title_or_header` to
+    the next full-width band."""
+    sections = solver_tab.template()
+    names = [
+        s["cards"][0].get("title") or s["cards"][0].get("header", {}).get("title")
+        for s in sections
     ]
-    assert len(charts) == 5  # four performance charts + tomorrow's pie
-    assert len({json.dumps(c["grid_options"]) for c in charts}) == 1
+    i = names.index(title_or_header)
+    out = []
+    for s in sections[i:]:
+        if s["column_span"] == 4 and out:
+            break
+        out.append(s)
+    return out
+
+
+def test_each_row_is_one_height_and_fills_it() -> None:
+    """Household, 12 Oct 2026: cards side by side end on one line; chart
+    cards fill their cell; nothing scrolls but the until-midnight table."""
+    for first in (
+        "Nimbus Solver Quality (EPR / Regret)",
+        "Solver Forecast — Until Midnight",
+    ):
+        row = [s for s in _row(first) if len(s["cards"]) == 1][:2]
+        heights = {
+            json.dumps(s["cards"][0]["grid_options"])
+            for s in row
+            if not s["cards"][0].get("features")
+        }
+        assert len(heights) == 1, (first, heights)
+        for s in row:
+            style = s["cards"][0].get("card_mod", {}).get("style", "")
+            if isinstance(style, dict):
+                style = style["."]
+            if s["cards"][0].get("features"):
+                continue
+            assert "height: 100%" in style
+            if s["cards"][0].get("title") != "Solver Forecast — Until Midnight":
+                assert "overflow-y: auto" not in style
+
+
+def test_the_chart_figures_sit_below_the_chart() -> None:
+    """Household, 12 Oct 2026: keep the titles, move the figures down."""
+    for s in _row("Nimbus Solver Quality (EPR / Regret)")[1:]:
+        assert "#header__states { order: 2" in s["cards"][0]["card_mod"]["style"]
 
 
 def test_live_values_in_text_are_resolved() -> None:
@@ -547,17 +598,25 @@ def test_the_energy_table_is_yesterday_measured_beside_tomorrow_planned() -> Non
 
 
 def test_the_energy_pie_is_tomorrow_beside_the_table() -> None:
-    """Household, 11 Oct 2026: keep the table AND the pie, one day each."""
+    """Household, 11 Oct 2026: keep the table AND the pie, one day each.
+    12 Oct: the table and the cost by day one column each, the pie two."""
     sections = solver_tab.template()
     titles = [
         (s["column_span"], s["cards"][0].get("header", {}).get("title"))
         for s in sections
     ]
     i = titles.index((2, "Battery energy, tomorrow"))
-    assert "Yesterday and tomorrow" in sections[i - 1]["cards"][0]["content"]
+    assert "Yesterday and tomorrow" in sections[i - 2]["cards"][0]["content"]
+    assert "cost_breakdown_by_day" in sections[i - 1]["cards"][0]["content"]
+    assert [sections[k]["column_span"] for k in (i - 2, i - 1, i)] == [1, 1, 2]
     assert (
-        sections[i - 1]["cards"][0]["grid_options"]
-        == sections[i]["cards"][0]["grid_options"]
+        len(
+            {
+                json.dumps(sections[k]["cards"][0]["grid_options"])
+                for k in (i - 2, i - 1, i)
+            }
+        )
+        == 1
     )
     for series in sections[i]["cards"][0]["series"]:
         assert "setHours(24, 0, 0, 0)" in series["data_generator"]
