@@ -17,6 +17,32 @@ times are set to the minute, and the Solver tab is the household's
 signed-off layout. Review waived by the household ("I need all of this done
 and ready by p2p").
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at f6681099**,
+  installed untagged via HACS from `main` (`installed_version` f668109) and
+  restarted 11:15 AEST 12 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.451`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** after the restart (the known duplicate-unique-id class excluded).
+  The six `time.nimbus_solver_p2p_block_N_start_hour` / `_end_hour` pickers
+  exist. devhub's Solver tab was rebuilt in place and matches, card for card,
+  the release preview the household reviewed (only entity ids differ), with
+  mushroom sliders because mushroom is installed there. **Not claimed: a solve
+  on devhub, or the saved block hours carrying over there.** devhub's own
+  Solver entities read `unavailable`, so its block pickers read 00:00. The
+  hour conversion (17 -> 17:00, 24 -> 00:00 read as midnight) and the
+  spike-night floor are covered by tests, the floor also by a replay on the
+  reference household's 12 Oct inputs (7.18 kW). The saved hours carry over
+  through the number Store, the mechanism that carried the reserve's window
+  over on the reference household on 11 Oct (#1695); not observed for the
+  block times.
+- Consumer check: a household sets P2P block times to the minute (20:30) and
+  keeps its saved hours. A household with the spike override armed sees a
+  block drop to its matched P2P plus 10% on a forecast spike night, and keep
+  its rate on other nights. The Solver tab shows the household's own cards,
+  one height per row, a zero line on every chart, and a battery chart whose
+  kW, SoC and price share one zero. A dashboard card naming the old
+  `number.nimbus_solver_p2p_block_N_start_hour` / `_end_hour` needs `time.`
+  instead.
+
 ### Changed
 - **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
   - The household's own Forecaster cards, copied as they are: *Solver
