@@ -1699,6 +1699,11 @@ def deterministic_values(
     ]
 
 
+# nimbus #1703: how long a burst load must stay below its running threshold
+# before the running hold treats it as switched off.
+RUN_OFF_GRACE_MINUTES: int = 10
+
+
 def predict(
     trained: TrainedModel,
     timestamps: list[datetime],
@@ -1715,6 +1720,9 @@ def predict(
     solars_kw: list[float] | None = None,
     allow_negative: bool = False,
     seasonal_anchor: bool = False,
+    running_threshold_kw: float | None = None,
+    run_hold_hours: float = 1.0,
+    learned_when_off: bool = False,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -1789,6 +1797,72 @@ def predict(
                 timestamps, expected_load_kw, schedule_start_hour, schedule_end_hour
             )
         )
+
+    # nimbus #1703 (household, 11 Oct 2026): the household's own YAML rule
+    # for a washer, an oven, a cooktop, an AC or the EV charger. At or above
+    # the threshold, forecast the current draw for the hold, then nothing;
+    # below it, nothing at all. Re-evaluated every refresh (2 minutes, from
+    # the raw readings), so a run that keeps going keeps extending and a
+    # switch-off clears the held hour within one refresh. The household's
+    # words: "scheduled for an hour... check if they switched off and then
+    # reprogram them to nil". A load with no threshold keeps its learned
+    # forecast; the threshold is the choice of this rule over the model.
+    #
+    # A dip below the threshold counts as switched off only once it has
+    # lasted RUN_OFF_GRACE_MINUTES: an AC compressor cycling around the
+    # threshold stays held rather than flicking between an hour and nil on
+    # every refresh. The hold runs from the latest reading at or above it.
+    def _learned_usual_runs(start: int) -> PredictionResult:
+        """nimbus #1703 (household, 11 Oct 2026, for the ACs): the learned
+        forecast from `start` on, its lags taken from the load's usual
+        weekday/time pattern rather than chained from a held run or a zero,
+        so runs it usually makes (a hot afternoon) are still forecast."""
+
+        def tail(series: list[float] | None) -> list[float] | None:
+            return None if series is None else series[start:]
+
+        return predict(
+            trained,
+            timestamps[start:],
+            temps[start:],
+            humidities[start:],
+            recent_load_values,
+            resample_minutes,
+            tail(curtailments),
+            schedule_start_hour,
+            schedule_end_hour,
+            expected_load_kw,
+            tail(batteries_kw),
+            tail(grids_kw),
+            tail(solars_kw),
+            allow_negative,
+            True,
+        )
+
+    if running_threshold_kw is not None and timestamps:
+        ordered = sorted(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
+        above = [p for p in ordered if p[1] >= running_threshold_kw]
+        if above and ordered:
+            last_above = above[-1]
+            below_for = _dst_safe_key(ordered[-1][0]) - _dst_safe_key(last_above[0])
+            still_running = ordered[-1][1] >= running_threshold_kw or below_for < (
+                timedelta(minutes=RUN_OFF_GRACE_MINUTES)
+            )
+            if still_running:
+                hold_end = _dst_safe_key(
+                    last_above[0] + timedelta(hours=run_hold_hours)
+                )
+                n_hold = sum(1 for t in timestamps if _dst_safe_key(t) < hold_end)
+                held = [float(last_above[1])] * n_hold
+                if not learned_when_off or n_hold == len(timestamps):
+                    return PredictionResult(
+                        values=held + [0.0] * (len(timestamps) - n_hold)
+                    )
+                rest = _learned_usual_runs(n_hold)
+                return PredictionResult(values=held + rest.values)
+        if not learned_when_off:
+            return PredictionResult(values=[0.0] * len(timestamps))
+        return _learned_usual_runs(0)
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that

@@ -661,6 +661,19 @@ CONF_SCHEDULE_END_HOUR: Final = "schedule_end_hour"
 #      "that converts a guess from a guess to what we tell it to do."
 CONF_EXPECTED_LOAD_KW: Final = "expected_load_kw"
 
+# nimbus #1703 (household, 11 Oct 2026): for a load that runs in bursts (a
+# washer, an oven, an AC). At or above RUNNING_THRESHOLD_KW the forecast holds
+# the current draw for RUN_HOLD_HOURS, then nothing; below it, nothing at all.
+# A run that keeps going keeps extending the hold. Both optional; unset, the
+# load keeps its learned forecast exactly as before.
+CONF_RUNNING_THRESHOLD_KW: Final = "running_threshold_kw"
+CONF_RUN_HOLD_HOURS: Final = "run_hold_hours"
+# Off by default. On: while the load is off, and after a hold, forecast the
+# runs it usually makes (its learned pattern) instead of nothing -- for a load
+# with a regular pattern, such as an AC on hot afternoons.
+CONF_RUN_HOLD_LEARNED_WHEN_OFF: Final = "run_hold_learned_when_off"
+DEFAULT_RUN_HOLD_HOURS: Final = 1.0
+
 # nimbus issue #1566: the Forecaster must cover the Solver's whole plan.
 # The Solver plans TIER0_MINUTES + TOTAL_HORIZON_HOURS (solver_writer.py,
 # 5 min + 96 h) ahead and, past the end of a load forecast, holds the last
