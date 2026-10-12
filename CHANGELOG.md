@@ -9,6 +9,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Changed
+- **P2P block times are set to the minute (household, 12 Oct 2026; asked for
+  on #565, where only a shared lead time shipped).** Each block's From and
+  Until are now time pickers (20:30), like the reserve's, on the Nimbus P2P
+  sub-device. Saved hours carry over (17 -> 17:00). A block ending at
+  midnight shows Until 00:00 and still runs to midnight; 00:00 to 00:00 is
+  still "not set". **The entity ids change:** `number.nimbus_solver_p2p_block_N_start_hour`
+  / `_end_hour` become `time.nimbus_solver_p2p_block_N_start_hour` /
+  `_end_hour`. A dashboard card that names the old `number.` entities needs
+  them changed to `time.`.
 - **On a spike night a P2P block delivers its matched volume, and the rest
   goes to the spike.** While the spike override is armed and a forecast price
   spike falls inside a block, that block's rate drops to the expected matched

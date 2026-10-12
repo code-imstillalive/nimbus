@@ -37,6 +37,12 @@ from homeassistant.loader import async_get_integration
 from .const import (
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
     DOMAIN,
 )
 
@@ -49,6 +55,14 @@ _STORAGE_VERSION = 1
 TIME_SETTINGS: tuple[tuple[str, str], ...] = (
     (CONF_SOLVER_BATTERY_RESERVE_START_HOUR, "Battery Reserve From"),
     (CONF_SOLVER_BATTERY_RESERVE_END_HOUR, "Battery Reserve Until"),
+    # Household, 12 Oct 2026 (asked for before, #565): P2P blocks to the
+    # minute, e.g. 20:30. A block ending at midnight shows as 00:00.
+    (CONF_SOLVER_P2P_BLOCK_1_START_HOUR, "P2P Block 1 From"),
+    (CONF_SOLVER_P2P_BLOCK_1_END_HOUR, "P2P Block 1 Until"),
+    (CONF_SOLVER_P2P_BLOCK_2_START_HOUR, "P2P Block 2 From"),
+    (CONF_SOLVER_P2P_BLOCK_2_END_HOUR, "P2P Block 2 Until"),
+    (CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 From"),
+    (CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 Until"),
 )
 
 
@@ -118,11 +132,14 @@ class NimbusSolverTime(RestoreEntity, TimeEntity):
         self.entity_id = f"time.nimbus_{key}"
         self._attr_name = name
         self._attr_native_value = time(0, 0)
+        # The P2P block times sit on the "Nimbus P2P" sub-device beside the
+        # block rates (number.py, nimbus #465), where they always were.
+        p2p = key.startswith("solver_p2p_")
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name="Nimbus",
+            identifiers={(DOMAIN, f"{entry.entry_id}_p2p" if p2p else entry.entry_id)},
+            name="Nimbus P2P" if p2p else "Nimbus",
             manufacturer="Nimbus",
-            model="Hub",
+            model="Sub-device" if p2p else "Hub",
             sw_version=sw_version,
         )
 
