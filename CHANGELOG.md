@@ -14,6 +14,23 @@ One fix that changes plans, found on the reference household on 12 Oct: the
 "Solar forecast risk" slider no longer budgets phantom house load. Review
 waived by the household ("fix the issue, do not hide it").
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at a4c7b28c**,
+  installed untagged via HACS from `main` (`installed_version` a4c7b28) and
+  restarted 12:43 AEST 12 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.452`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** after the restart (the known duplicate-unique-id class excluded;
+  one unrelated pychromecast connection error). **Not claimed: a solve on
+  devhub**, whose own Solver entities read `unavailable`. The fix is covered
+  by `tests/test_risk_aversion_is_solar_only.py` (fails on 0.94.451, passes
+  here), the full local suite (5,551 passed), and a replay of the reference
+  household's live 12 Oct inputs: evening battery draw beyond export plus
+  house 1.90 -> -0.08 kW, import above the 42 kW limit 23.7 -> 0.0 kWh.
+- Consumer check: a household with "Solar forecast risk" above 0 no longer
+  sees its plan budget house load above the forecast. Its battery is not
+  planned lower than it really ends, its energy card's losses are real, and
+  its plan cost carries no import-limit penalty from load the house will not
+  draw. Solar is still planned toward its lower band.
+
 ### Fixed
 - **"Solar forecast risk" plans for less solar only, not for phantom house
   load.** The slider (`risk_aversion`) also leaned every house load toward
