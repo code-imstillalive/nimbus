@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Solar held back for "Solar forecast risk" is no longer reported as
+  curtailed.** The plan counts on less solar than forecast when the slider is
+  above 0; the published flows were split from the raw forecast, so the
+  held-back part showed as curtailed solar (7.4 kWh on the reference
+  household's 13 Oct plan, never curtailed). The flows are now split from the
+  solar the plan counted on, and the difference is published per period as
+  `flow_pv_risk_margin_kw`. With the slider at 0 nothing changes (the golden
+  plans differ only by the new field). Reporting only: no plan changes.
+
 ## [0.94.452] - 2026-10-12
 
 One fix that changes plans, found on the reference household on 12 Oct: the

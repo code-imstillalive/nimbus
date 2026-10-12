@@ -48,7 +48,7 @@ import time
 from datetime import UTC, datetime
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import ArrayLike, NDArray
 
 # DOWNWARD imports into the solver/ package, which is the lowest layer in
 # the nimbus-layers contract -- legal at module scope, no seam needed.
@@ -1336,6 +1336,49 @@ def _flow_decomposition(
     }
 
 
+def _flow_decomposition_counted(
+    solar_kw: ArrayLike,
+    effective_solar_kw: ArrayLike,
+    load_kw: ArrayLike,
+    charge_kw: ArrayLike,
+    discharge_kw: ArrayLike,
+    grid_export_kw: ArrayLike,
+) -> list[dict[str, float]]:
+    """_flow_decomposition() per period, on the solar the plan counted on.
+
+    Household, 12 Oct 2026: with "Solar forecast risk" above 0 the LP plans
+    on `effective_solar_kw` (the forecast leaned toward its lower band), and
+    the flows used to be split from the raw forecast, so the held-back solar
+    surfaced as pv_to_curtailment (7.4 kWh "curtailed" on the reference
+    household's 13 Oct plan that the plan never curtailed). The flows are
+    now split from min(forecast, effective) and the difference is its own
+    `pv_risk_margin`, so pv_to_* + pv_risk_margin == the forecast. With no
+    effective array (or risk 0) the margin is 0 and nothing changes.
+    """
+    solar = np.asarray(solar_kw, dtype=float)
+    load = np.asarray(load_kw, dtype=float)
+    charge = np.asarray(charge_kw, dtype=float)
+    discharge = np.asarray(discharge_kw, dtype=float)
+    export = np.asarray(grid_export_kw, dtype=float)
+    n = solar.size
+    effective = np.asarray(effective_solar_kw, dtype=float)
+    if effective.size != n:
+        effective = solar
+    out: list[dict[str, float]] = []
+    for i in range(n):
+        counted = min(float(solar[i]), max(0.0, float(effective[i])))
+        decomp = _flow_decomposition(
+            counted,
+            float(load[i]),
+            float(charge[i]),
+            float(discharge[i]),
+            grid_export_kw_i=float(export[i]),
+        )
+        decomp["pv_risk_margin"] = float(solar[i]) - counted
+        out.append(decomp)
+    return out
+
+
 def _compute_flow_economics(
     flows: list[dict[str, float]],
     import_price: np.ndarray,
@@ -1993,16 +2036,20 @@ def publish_plan(
     # real cross-period WACOG cost basis instead of a same-period lookup).
     # Byte-identical, additive to the existing dispatch_source_a/b fields
     # above -- nothing already published changes shape or value.
-    flow_decomp = [
-        _flow_decomposition(
-            solar_kw[i],
-            load_kw[i],
-            float(corrected_battery_charge_kw[i]),
-            float(corrected_battery_discharge_kw[i]),
-            grid_export_kw_i=float(plan.grid_export_kw[i]),
-        )
-        for i in range(n_periods)
-    ]
+    # Household, 12 Oct 2026: the flows are split from the solar the plan
+    # actually counted on (`effective_solar_kw`, the forecast after the
+    # "Solar forecast risk" lean), not the raw forecast. The difference is
+    # published as its own `pv_risk_margin` instead of landing in
+    # pv_to_curtailment: at 0.25 the reference household's plan showed
+    # 7.4 kWh of "curtailed" solar on 13 Oct that it never curtailed.
+    flow_decomp = _flow_decomposition_counted(
+        solar_kw,
+        plan.effective_solar_kw,
+        load_kw,
+        corrected_battery_charge_kw,
+        corrected_battery_discharge_kw,
+        plan.grid_export_kw,
+    )
     flow_econ = _compute_flow_economics(
         flow_decomp,
         import_price,
@@ -2179,6 +2226,9 @@ def publish_plan(
             # exceeds what the plan absorbs). See _flow_decomposition()'s
             # own docstring for the full reasoning.
             "flow_pv_to_curtailment_kw": round(flow_decomp[i]["pv_to_curtailment"], 3),
+            # Solar the plan did not count on because of "Solar forecast
+            # risk" -- not curtailed, not lost; see the flow_decomp comment.
+            "flow_pv_risk_margin_kw": round(flow_decomp[i]["pv_risk_margin"], 3),
             **flow_econ[i],
             # Real per-period duration (2026-08-17, found while fixing a
             # real bug this same session: the daily-summary dashboard
