@@ -530,6 +530,41 @@ def _history(field: str, scale: float = 1.0) -> str:
     )
 
 
+def _zero_line(axis_index: int = 0) -> dict[str, Any]:
+    """A solid line at 0 on axis `axis_index`: every chart has its zero as a
+    horizon (household, 12 Oct 2026)."""
+    return {
+        "annotations": {
+            "yaxis": [
+                {
+                    "y": 0,
+                    "yAxisIndex": axis_index,
+                    "borderColor": "#c8ccd4",
+                    "borderWidth": 1.5,
+                    "strokeDashArray": 0,
+                }
+            ]
+        }
+    }
+
+
+# Hide an axis's labels below zero: the SoC axis runs -100..100 so its 0
+# sits on the kW axis's zero, but a negative SoC means nothing.
+_NO_NEGATIVE_LABELS = "EVAL:function (v) { return v < 0 ? '' : Math.round(v); }"
+
+
+def _mirror(field: str, scale: float = 1.0) -> str:
+    """The plan's `field` and its negation at every point: an invisible
+    series that makes its axis symmetric about 0, so that axis's zero lines
+    up with the kW axis's (household, 12 Oct 2026)."""
+    return (
+        "return (entity.attributes.forecast || []).flatMap(p => { "
+        "const t = new Date(p.time).getTime(); "
+        f"const v = Math.abs((p.{field} || 0) * {scale}); "
+        "return [[t, v], [t, -v]]; });"
+    )
+
+
 def _score_chart() -> dict[str, Any]:
     return _apex(
         "Score by day",
@@ -559,6 +594,7 @@ def _score_chart() -> dict[str, Any]:
             {"id": "pct", "min": 0, "max": 100, "decimals": 0, "opposite": True},
             {"id": "aud", "min": 0, "decimals": 0},
         ],
+        apex_config=_zero_line(1),
     )
 
 
@@ -566,8 +602,10 @@ def _cost_chart() -> dict[str, Any]:
     hour = {"group_by": {"func": "last", "duration": "1h"}, "curve": "stepline"}
     return _apex(
         "Plan-ahead cost, as estimated",
-        "Each point is the whole plan ahead (about four days) as estimated "
-        "then, inside its best–worst range -- not money spent. Below zero earns.",
+        "Each point is the whole plan ahead (about four days) as estimated at "
+        "that moment, inside its best–worst range. The right-hand end is the "
+        "current plan; earlier points are earlier estimates, not money spent. "
+        "Below zero earns.",
         [
             {
                 "entity": "@nimbus_solver_cost_band_upper",
@@ -596,7 +634,7 @@ def _cost_chart() -> dict[str, Any]:
         ],
         graph_span="7d",
         yaxis=[{"decimals": 0}],
-        apex_config={"fill": {"opacity": [0.25, 0.25, 1]}},
+        apex_config={"fill": {"opacity": [0.25, 0.25, 1]}, **_zero_line()},
     )
 
 
@@ -636,6 +674,7 @@ def _breakdown_chart() -> dict[str, Any]:
         graph_span="1h",
         yaxis=[{"decimals": 0}],
         apex_config={
+            **_zero_line(),
             "xaxis": {"labels": {"show": False}},
             "plotOptions": {"bar": {"columnWidth": "85%"}},
             "dataLabels": {
@@ -739,6 +778,25 @@ def _chart() -> dict[str, Any]:
                 "data_generator": _forecast("import_price", 100.0),
                 **ahead,
             },
+            # Invisible: they make the kW and price axes symmetric about 0,
+            # so all three axes share one zero line.
+            *(
+                {
+                    "entity": plan,
+                    "name": name,
+                    "curve": "stepline",
+                    "stroke_width": 0,
+                    "opacity": 0,
+                    "yaxis_id": axis,
+                    "data_generator": _mirror(field, scale),
+                    "show": {"in_legend": False, "in_header": False},
+                    "extend_to": False,
+                }
+                for name, axis, field, scale in (
+                    ("kW scale", "kw", "battery_kw", 1.0),
+                    ("Price scale", "price", "import_price", 100.0),
+                )
+            ),
         ],
         height=360,
         graph_span="36h",
@@ -746,7 +804,20 @@ def _chart() -> dict[str, Any]:
         now={"show": True, "label": "Now", "color": "#ffffff"},
         yaxis=[
             {"id": "kw", "decimals": 0, "apex_config": {"title": {"text": "kW"}}},
-            {"id": "soc", "min": 0, "max": 100, "show": False},
+            # Shown and labelled: hidden, a full battery sat on the kW axis's
+            # top line and read as 40 kW (household, 12 Oct 2026).
+            # -100..100 puts 0% on the kW axis's zero; negatives unlabelled.
+            {
+                "id": "soc",
+                "min": -100,
+                "max": 100,
+                "opposite": True,
+                "decimals": 0,
+                "apex_config": {
+                    "title": {"text": "SoC %"},
+                    "labels": {"formatter": _NO_NEGATIVE_LABELS},
+                },
+            },
             {
                 "id": "price",
                 "opposite": True,
@@ -754,7 +825,10 @@ def _chart() -> dict[str, Any]:
                 "apex_config": {"title": {"text": "c/kWh"}},
             },
         ],
-        apex_config={"fill": {"opacity": [1, 1, 1, 0.15, 0.08, 1, 1]}},
+        apex_config={
+            "fill": {"opacity": [1, 1, 1, 0.15, 0.08, 1, 1, 0, 0]},
+            **_zero_line(0),
+        },
     )
 
 
@@ -861,174 +935,6 @@ def _energy_pie() -> dict[str, Any]:
 # and each table's total is the sum of its own rows.
 
 _PLAN = "${@nimbus_solver_battery_forecast}"
-_QUALITY = "${@nimbus_solver_quality_report}"
-
-# Dollars with the sign in front: -$21.44, not $-21.44.
-_MONEY_FMT = (
-    "{% macro m(x) %}{% if x is number %}"
-    "{{ ('-$%.2f' | format(-x)) if x < 0 else ('$%.2f' | format(x)) }}"
-    "{% else %}—{% endif %}{% endmacro %}"
-)
-
-
-def _score_detail() -> dict[str, Any]:
-    """How the last day's score was made: the three costs EPR is built from,
-    the arithmetic between them, and P2P and tracking."""
-    content = (
-        _MONEY_FMT + f"{{% set q = '{_QUALITY}' %}}"
-        "{% macro a(k) %}{{ state_attr(q, k) }}{% endmacro %}"
-        "{% set rate = (state_attr(q, 'real_p2p_dollars') | float(0)) / "
-        "(state_attr(q, 'real_p2p_volume_kwh') | float(0)) * 100 "
-        "if (state_attr(q, 'real_p2p_volume_kwh') | float(0)) > 0 else none %}"
-        "**How the score was made: "
-        "{{ state_attr(q, 'latest_date') or 'no day scored yet' }}**\n\n"
-        "| | Value | What it means |\n"
-        "|:---|---:|:---|\n"
-        "| Cost with the battery idle | {{ m(state_attr(q, 'j_ref')) }} | "
-        "the day with no battery dispatch (J_ref) |\n"
-        "| Cost achieved | {{ m(state_attr(q, 'j_ach')) }} | "
-        "what the battery's real dispatch cost (J_ach) |\n"
-        "| Cost with perfect foresight | {{ m(state_attr(q, 'j_star_evaluator')) }} | "
-        "the best any plan could have done knowing the day in advance (J★) |\n"
-        "| Value captured | {{ m(state_attr(q, 'value_captured')) }} | "
-        "idle minus achieved |\n"
-        "| Best possible | {{ m(state_attr(q, 'theoretical_maximum_yield')) }} | "
-        "idle minus perfect foresight |\n"
-        "| **EPR** | **{{ '%.1f' | format(state_attr(q, 'epr_pct') | float) "
-        "if state_attr(q, 'epr_pct') is number else '—' }}%** | "
-        "value captured ÷ best possible; 100% matches perfect foresight |\n"
-        "| Regret | {{ m(state_attr(q, 'regret_dollars')) }} | "
-        "best possible minus value captured |\n"
-        "| P2P settled | {{ m(state_attr(q, 'real_p2p_dollars')) }} for "
-        "{{ '%.1f' | format(state_attr(q, 'real_p2p_volume_kwh') | float(0)) }} kWh"
-        "{{ ' (%.1f c/kWh)' | format(rate) if rate is not none else '' }} | "
-        "the P2P payment settled for the day: "
-        "{{ state_attr(q, 'real_p2p_settlement_status') or '—' }} |\n"
-        "| Tracking fidelity | {{ '%.0f' | format((state_attr(q, 'tracking_fidelity') "
-        "| float) * 100) if state_attr(q, 'tracking_fidelity') is number else '—' }}% | "
-        "how closely the battery followed its plan |\n"
-        "| Tracking cost | {{ m(state_attr(q, 'tracking_cost')) }} | "
-        "what not following the plan cost |\n\n"
-        "Scored once a day, on settled data. Below zero is money earned."
-    )
-    return {"type": "markdown", "content": content}
-
-
-def _until_midnight() -> dict[str, Any]:
-    """The plan from now until midnight, half-hourly. Prices are
-    time-weighted means of the plan's own rows; Net is their sum."""
-    content = (
-        f"{{% set f = state_attr('{_PLAN}', 'forecast') or [] %}}"
-        "{% set end = today_at('00:00') + timedelta(days=1) %}"
-        "{% set n = now() %}"
-        "{% set t0 = n.replace(minute=(n.minute // 30) * 30, second=0, microsecond=0) %}"
-        "{% set ns = namespace(rows=[], net=0) %}"
-        "{% for i in range(48) %}{% set s = t0 + timedelta(minutes=30 * i) %}"
-        "{% if s < end %}"
-        "{% set b = namespace(h=0, buy=0, fee=0, sell=0, p2p=0, p2ph=0, load=0, pv=0, "
-        "batt=0, soc=none, net=0) %}"
-        "{% for p in f %}{% set t = as_datetime(p.time) %}"
-        "{% if t is not none and s <= t < s + timedelta(minutes=30) %}"
-        "{% set h = p.hours | float(0) %}"
-        "{% set b.h = b.h + h %}"
-        "{% set b.buy = b.buy + (p.import_price | float(0)) * h %}"
-        "{% set b.fee = b.fee + ((p.import_price | float(0)) - "
-        "(p.import_price_raw | float(p.import_price | float(0)))) * h %}"
-        "{% set b.sell = b.sell + (p.export_price | float(0)) * h %}"
-        "{% if (p.export_bonus_kw | float(0)) > 0 %}"
-        "{% set b.p2p = b.p2p + ((p.export_price | float(0)) + (p.bonus_price | float(0))) * h %}"
-        "{% set b.p2ph = b.p2ph + h %}{% endif %}"
-        "{% set b.load = b.load + (p.load_kw | float(0)) * h %}"
-        "{% set b.pv = b.pv + (p.solar_kw | float(0)) * h %}"
-        "{% set b.batt = b.batt + (p.battery_kw | float(0)) * h %}"
-        "{% set b.soc = p.soc_pct %}"
-        "{% set b.net = b.net + (p.net_cost | float(0)) %}"
-        "{% endif %}{% endfor %}"
-        "{% if b.h > 0 %}"
-        "{% set ns.net = ns.net + b.net %}"
-        "{% set ns.rows = ns.rows + ['| %s | %.1f | %.1f | %.1f | %s | %.2f | %.2f | %+.1f | %s | %.2f |' "
-        "| format(s.strftime('%H:%M'), b.buy / b.h * 100, b.fee / b.h * 100, "
-        "b.sell / b.h * 100, ('%.1f' | format(b.p2p / b.p2ph * 100)) if b.p2ph > 0 else '—', "
-        "b.load / b.h, b.pv / b.h, b.batt / b.h, "
-        "('%.0f' | format(b.soc | float)) if b.soc is not none else '—', b.net)] %}"
-        "{% endif %}{% endif %}{% endfor %}"
-        "**The plan until midnight, half-hourly**\n\n"
-        "| Time | Buy ¢ | Fees ¢ | Sell ¢ | P2P ¢ | Load kW | Solar kW | Battery kW "
-        "| SoC % | Net $ |\n"
-        "|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|\n"
-        "{{ ns.rows | join('\\n') }}\n"
-        "| **Total** | | | | | | | | | **{{ '%.2f' | format(ns.net) }}** |\n\n"
-        "Buy includes the fees column. P2P is the sell price plus the P2P bonus, "
-        "in a P2P block. Battery: + discharging. Net: below zero earns."
-    )
-    return {"type": "markdown", "content": content}
-
-
-_DAY_SUMS = (
-    "{% macro day(d0) %}"
-    "{% set ns = namespace(ik=0, ic=0, ek=0, sp=0, bo=0, net=0, smin=none, smax=none, "
-    "pch=0, pdis=0, rows=0) %}"
-    "{% for p in f %}{% set t = as_datetime(p.time) %}"
-    "{% if t is not none and d0 <= t < d0 + timedelta(days=1) %}"
-    "{% set h = p.hours | float(0) %}{% set ns.rows = ns.rows + 1 %}"
-    "{% set ns.ik = ns.ik + (p.grid_import_kw | float(0)) * h %}"
-    "{% set ns.ic = ns.ic + (p.import_price | float(0)) * (p.grid_import_kw | float(0)) * h %}"
-    "{% set ns.ek = ns.ek + (p.grid_export_kw | float(0)) * h %}"
-    "{% set ns.sp = ns.sp + (p.export_price | float(0)) * (p.grid_export_kw | float(0)) * h %}"
-    "{% set ns.bo = ns.bo + (p.bonus_price | float(0)) * (p.export_bonus_kw | float(0)) * h %}"
-    "{% set ns.net = ns.net + (p.net_cost | float(0)) %}"
-    "{% set sc = p.soc_pct | float(0) %}"
-    "{% set ns.smin = sc if ns.smin is none or sc < ns.smin else ns.smin %}"
-    "{% set ns.smax = sc if ns.smax is none or sc > ns.smax else ns.smax %}"
-    "{% set bk = p.battery_kw | float(0) %}"
-    "{% set ns.pch = [ns.pch, -bk] | max %}{% set ns.pdis = [ns.pdis, bk] | max %}"
-    "{% endif %}{% endfor %}"
-    "{{ [ns.ik, ns.ic, ns.ek, ns.sp, ns.bo, ns.net, ns.smin, ns.smax, ns.pch, ns.pdis, "
-    "ns.rows] | to_json }}"
-    "{% endmacro %}"
-)
-
-
-def _daily_summary() -> dict[str, Any]:
-    """Today (from now) and tomorrow, from the plan's own rows."""
-    lines = (
-        ("Imported, kWh", 0, False),
-        ("Import cost", 1, True),
-        ("Exported, kWh", 2, False),
-        ("Spot export earnings", 3, True),
-        ("P2P bonus earnings", 4, True),
-        ("**Net**", 5, True),
-        ("Peak charge, kW", 8, False),
-        ("Peak discharge, kW", 9, False),
-    )
-
-    def cell(day: str, i: int, money: bool) -> str:
-        if money:
-            return f"{{{{ m({day}[{i}]) }}}}"
-        return f"{{{{ '%.1f' | format({day}[{i}]) }}}}"
-
-    body = "".join(
-        f"| {label} | {cell('today', i, money)} | {cell('tomorrow', i, money)} |\n"
-        for label, i, money in lines
-    )
-    soc = (
-        "| SoC range | {{ ('%.0f–%.0f%%' | format(today[6], today[7])) if today[10] else '—' }} "
-        "| {{ ('%.0f–%.0f%%' | format(tomorrow[6], tomorrow[7])) if tomorrow[10] else '—' }} |\n"
-    )
-    content = (
-        _DAY_SUMS
-        + _MONEY_FMT
-        + f"{{% set f = state_attr('{_PLAN}', 'forecast') or [] %}}"
-        "{% set d0 = today_at('00:00') %}"
-        "{% set today = day(d0) | from_json %}"
-        "{% set tomorrow = day(d0 + timedelta(days=1)) | from_json %}"
-        "**Today and tomorrow, planned**\n\n"
-        "| | Rest of today | Tomorrow |\n"
-        "|:---|---:|---:|\n" + body + soc + "\n"
-        "Net = import cost − spot export − P2P bonus; below zero earns. "
-        "Today counts from now."
-    )
-    return {"type": "markdown", "content": content}
 
 
 def _per_day_money() -> dict[str, Any]:
@@ -1064,28 +970,150 @@ def _per_day_money() -> dict[str, Any]:
     return {"type": "markdown", "content": content}
 
 
+# The household's own cards, copied from their Forecaster tab as they are
+# (household, 12 Oct 2026: "move things as they are"), entity ids resolved
+# per install. Two edits only: the EPR card's `{% if %}` no longer leaves a
+# blank line that ended its table, and the daily summary no longer says the
+# Solver does not drive dispatch, which stopped being true in September.
+_HOUSEHOLD_QUALITY = {
+    "type": "markdown",
+    "title": "Nimbus Solver Quality (EPR / Regret)",
+    "content": "{% set s = states.${@nimbus_solver_quality_report} %}{% if s and s.attributes.get('latest_date') %}{% set epr = s.attributes.get('epr', 0) %}{% set epr_color = 'lightgreen' if epr >= 0.7 else ('orange' if epr >= 0.4 else 'red') %}**Latest scored day: {{ s.attributes.latest_date }}**\n\n| Metric | Value |\n|---|---|\n{% set _h = s.attributes.get('history') or {} %}{% set _row = _h.get(s.attributes.get('latest_date')) or {} %}{% set _prov = _row.get('p') or s.attributes.get('real_p2p_settlement_status') in ['no_settlement_entry_for_this_date','settlement_sensor_unreadable'] %}| EPR (Economic Performance Ratio) | <font color='{{ epr_color }}'>**{{ (epr * 100) | round(1) }}%**</font>{% if _prov %} <font color='orange'>(provisional)</font>{% endif %} |\n{%- if _prov %}\n> <font color='orange'>**Waiting on P2P settlement.**</font> Scored before this day's settlement existed -- export priced at plain spot, so the EPR above reads far lower than reality and can be negative. Self-repairs once settlement lands. Not a dispatch fault.\n{%- endif %}\n| Value captured | <font color='lightgreen'>${{ s.attributes.get('value_captured', 0) | round(2) }}</font> |\n| Uplift available (regret) | <font color='orange'>${{ s.attributes.get('uplift_available', 0) | round(2) }}</font> |\n| Theoretical maximum yield | ${{ s.attributes.get('theoretical_maximum_yield', 0) | round(2) }} |\n| Real P2P settled | ${{ s.attributes.get('real_p2p_dollars', 0) | round(2) }} / {{ s.attributes.get('real_p2p_volume_kwh', 0) | round(1) }}kWh |\n| Tracking fidelity | {{ (s.attributes.get('tracking_fidelity', 0) * 100) | round(1) }}% |\n| Tracking cost | ${{ s.attributes.get('tracking_cost', 0) | round(2) }} |\n| J_ref (idle) / J_ach (real) / J_star (perfect foresight) | ${{ s.attributes.get('j_ref', 0) | round(2) }} / ${{ s.attributes.get('j_ach', 0) | round(2) }} / ${{ s.attributes.get('j_star', 0) | round(2) }} |\n\n*EPR = share of the real available economic uplift the Solver's own plan actually captured (100% = matched a real perfect-foresight oracle; 0% = captured nothing beyond doing nothing at all). Scored once daily against yesterday's real, fully-settled data.*{% else %}*No scored day yet -- runs once daily at 06:17 AEST against yesterday's real settled data.*{% endif %}",
+}
+_HOUSEHOLD_UNTIL_MIDNIGHT = {
+    "type": "markdown",
+    "title": "Solver Forecast — Until Midnight",
+    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0, done=false) %}{% for p in fc %}{% if not day_ns.done %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.done = true %}{% else %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endif %}{% endif %}{% endfor %}\n{% endif %}',
+}
+_HOUSEHOLD_DAILY = {
+    "type": "markdown",
+    "title": "Solver Daily Summary (Forecast Only)",
+    "content": "{% macro day_table(day_label, day_str, periods) %}\n{% set ns = namespace(import_cost=0, import_kwh=0, spot_earn=0, spot_kwh=0, p2p_earn=0, p2p_kwh=0, net=0, socs=[], batt=[], found=false) %}\n{% for p in periods %}\n{% if p.time[:10] == day_str %}\n{% set ns.found = true %}\n{% set ns.import_cost = ns.import_cost + p.grid_import_kw * p.hours * p.import_price %}\n{% set ns.import_kwh = ns.import_kwh + p.grid_import_kw * p.hours %}\n{% set ns.spot_earn = ns.spot_earn + p.grid_export_kw * p.hours * p.export_price %}\n{% set ns.spot_kwh = ns.spot_kwh + p.grid_export_kw * p.hours %}\n{% set ns.p2p_earn = ns.p2p_earn + p.export_bonus_kw * p.hours * p.bonus_price %}\n{% set ns.p2p_kwh = ns.p2p_kwh + p.export_bonus_kw * p.hours %}\n{% set ns.net = ns.net + p.net_cost %}\n{% set ns.socs = ns.socs + [p.soc_pct] %}\n{% set ns.batt = ns.batt + [p.battery_kw] %}\n{% endif %}\n{% endfor %}\n**{{ day_label }} ({{ day_str }})**\n\n{% if ns.found %}\n| Metric | Value |\n|---|---:|\n| Import Cost | -${{ ns.import_cost | round(2) }} ({{ ns.import_kwh | round(1) }} kWh) |\n| Spot Export Earnings | +${{ ns.spot_earn | round(2) }} ({{ ns.spot_kwh | round(1) }} kWh) |\n| P2P Bonus Earnings | +${{ ns.p2p_earn | round(2) }} ({{ ns.p2p_kwh | round(1) }} kWh) |\n| Total Export Earnings | +${{ (ns.spot_earn + ns.p2p_earn) | round(2) }} |\n| Net $ (forecast) | <font color='{{ \"lightgreen\" if ns.net < 0 else \"orange\" }}'>${{ ns.net | round(2) }}</font> |\n| SoC Range | {{ (ns.socs | min) | round(0) | int }}% - {{ (ns.socs | max) | round(0) | int }}% |\n| Peak Charge / Discharge | {{ (ns.batt | min) | round(1) }} / {{ (ns.batt | max) | round(1) }} kW |\n{% else %}\n*No forecast periods for this day.*\n{% endif %}\n\n{% endmacro %}\n{% set fc = states.${@nimbus_solver_battery_forecast} %}\n{% if fc and fc.attributes.get('forecast') %}\n{% set periods = fc.attributes.forecast %}\n{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime('%Y-%m-%d'), periods) }}\n{% else %}\n*No Solver forecast yet.*\n{% endif %}",
+}
+
+# Cards in one row share one height and never scroll (household, 12 Oct
+# 2026). Only the until-midnight table scrolls, as asked.
+_FILL_NO_SCROLL = "ha-card { height: 100%; box-sizing: border-box; overflow: hidden; } ha-card td, ha-card th { white-space: normal; overflow-wrap: anywhere; }"
+_UNTIL_MIDNIGHT_STYLE: Any = {
+    ".": "ha-card { height: 100%; overflow-x: hidden; overflow-y: auto; }",
+    # The table is inside ha-markdown's own shadow root, so it is styled
+    # there; styled from ha-card it kept its own width (12 Oct 2026).
+    "ha-markdown$": (
+        "table { width: 100%; table-layout: fixed; font-size: 0.88em; } "
+        "th, td { padding: 3px 6px; white-space: nowrap; overflow: hidden; }"
+    ),
+}
+# Chart cards fill their cell, title on top, figures at the bottom.
+_CHART_FIGURES_BELOW = "ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; } #header { display: contents; } #header__title { order: 0; } #graph-wrapper { order: 1; flex: 1 1 auto; } #header__states { order: 2; margin-top: auto; }"
+_FILL = "ha-card { height: 100%; box-sizing: border-box; }"
+
+
+def _daily(day: str) -> dict[str, Any]:
+    """The household's daily summary for one day ("Today" / "Tomorrow"):
+    their card with the other day's table left out, title without
+    "(Forecast Only)" (household, 12 Oct 2026)."""
+    calls = {
+        "Today": "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n",
+        "Tomorrow": (
+            "{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime"
+            "('%Y-%m-%d'), periods) }}\n"
+        ),
+    }
+    other = calls["Tomorrow" if day == "Today" else "Today"]
+    content = _HOUSEHOLD_DAILY["content"]
+    assert calls[day] in content and other in content
+    return {
+        **_HOUSEHOLD_DAILY,
+        "title": "Solver Daily Summary",
+        "content": content.replace(other, ""),
+    }
+
+
+def _styled(card: dict[str, Any], style: Any) -> dict[str, Any]:
+    return {**card, "card_mod": {"style": style}}
+
+
 def _risk_row() -> list[dict[str, Any]]:
-    """Three slider tiles and the explanation, one column each, one height."""
-    height = {"rows": 3}
-    tiles = [
-        _section(
-            [
+    """The three risk sliders and their explanation, one column each, one
+    height (household, 12 Oct 2026). `nimbus:risk-slider` is resolved per
+    install: the household's mushroom slider (large icon, red-to-green with
+    the value) where mushroom is installed, HA's tile slider elsewhere."""
+    height = {"columns": "full", "rows": 4}
+    sliders = [
+        {
+            "type": "grid",
+            "column_span": 1,
+            "cards": [
                 {
-                    "type": "tile",
+                    "type": "nimbus:risk-slider",
                     "entity": f"@{key}",
                     "name": name,
-                    "features": [{"type": "numeric-input", "style": "slider"}],
-                    "features_position": "bottom",
+                    "grid_options": height,
                 }
             ],
-            1,
-        )
+        }
         for key, name in _SLIDERS
     ]
-    explain = _section([{"type": "markdown", "content": _RISK_TEXT}], 1)
-    for sec in (*tiles, explain):
-        sec["cards"][0]["grid_options"] = {"columns": "full", **height}
-    return [*tiles, explain]
+    explain = {
+        "type": "grid",
+        "column_span": 1,
+        "cards": [
+            {
+                "type": "markdown",
+                "content": _RISK_TEXT,
+                "card_mod": {"style": _FILL_NO_SCROLL},
+                "grid_options": height,
+            }
+        ],
+    }
+    return [*sliders, explain]
+
+
+# The household's own mushroom slider (their first Solver tab), icon at
+# 100 px (12 Oct 2026): red at 0, green at 1.
+_MUSHROOM_STYLE = (
+    "ha-card {\n"
+    "  {% set v = states('ENTITY') | float(0) %}\n"
+    "  {% set r = (244 - (244 - 76) * v) | round | int %}\n"
+    "  {% set g = (67 + (175 - 67) * v) | round | int %}\n"
+    "  {% set b = (54 + (80 - 54) * v) | round | int %}\n"
+    "  {% set c = 'rgb(' ~ r ~ ',' ~ g ~ ',' ~ b ~ ')' %}\n"
+    "  --icon-color: {{ c }};\n"
+    "  --main-color: {{ c }};\n"
+    "  --slider-color: {{ c }};\n"
+    "  --rgb-state-active: {{ r }},{{ g }},{{ b }};\n"
+    "  --card-mod-icon-color: {{ c }};\n"
+    "  --mush-icon-size: 100px;\n"
+    "  --mush-icon-symbol-size: 0.6em;\n"
+    "  height: 100%;\n"
+    "}"
+)
+
+
+def _risk_slider(node: dict[str, Any], mushroom: str | None) -> dict[str, Any]:
+    """One `nimbus:risk-slider` (entity already resolved) as a real card."""
+    if mushroom:
+        return {
+            "type": mushroom,
+            "entity": node["entity"],
+            "name": node["name"],
+            "secondary_info": "state",
+            "icon": "mdi:speedometer",
+            "layout": "vertical",
+            "display_mode": "slider",
+            "fill_container": True,
+            "grid_options": node.get("grid_options"),
+            "card_mod": {"style": _MUSHROOM_STYLE.replace("ENTITY", node["entity"])},
+        }
+    return {
+        "type": "tile",
+        "entity": node["entity"],
+        "name": node["name"],
+        "icon": "mdi:speedometer",
+        "features": [{"type": "numeric-input", "style": "slider"}],
+        "features_position": "bottom",
+        "grid_options": node.get("grid_options"),
+    }
 
 
 def _top_row() -> list[dict[str, Any]]:
@@ -1132,24 +1160,34 @@ def template() -> list[dict[str, Any]]:
     what the tab's design fingerprint is taken from, so it is the same on
     every install."""
     banners = {name: _banner(name, kind, line) for name, kind, line in _BANNERS}
-    pair = {"rows": 6}
+    row = {"rows": 8}
+    half = {"rows": 7}
+    plan = {"rows": 12}
     return [
         *_top_row(),
         banners["Performance"],
-        _section([_glance_chart()], 2, pair),
-        _section([_score_chart()], 2, pair),
-        _section([_cost_chart()], 2, pair),
-        _section([_breakdown_chart()], 2, pair),
-        _section([_score_detail()], 4),
+        _section([_cost_chart()], 4, {"rows": 6}),
+        _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, row),
+        _section([_styled(_glance_chart(), _CHART_FIGURES_BELOW)], 1, row),
+        _section([_styled(_score_chart(), _CHART_FIGURES_BELOW)], 1, row),
+        _section([_styled(_breakdown_chart(), _CHART_FIGURES_BELOW)], 1, row),
         banners["Money"],
         *(_section([_card(c)], 1) for c in _MONEY_ROW),
-        _section([_daily_summary()], 2, {"rows": 7}),
-        _section([_per_day_money()], 2, {"rows": 7}),
-        _section([_energy_table()], 2, {"rows": 6}),
-        _section([_energy_pie()], 2, {"rows": 6}),
+        _section([_styled(_energy_table(), _FILL_NO_SCROLL)], 1, half),
+        _section([_styled(_per_day_money(), _FILL_NO_SCROLL)], 1, half),
+        _section([_styled(_energy_pie(), _FILL)], 2, half),
         banners["Plan"],
         _section([_chart()], 4),
-        _section([_until_midnight()], 4),
+        _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
+        _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),
+        _section(
+            [
+                _styled(_daily("Today"), _FILL_NO_SCROLL),
+                _styled(_daily("Tomorrow"), _FILL_NO_SCROLL),
+            ],
+            1,
+            {"rows": 6},
+        ),
         *_risk_row(),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
@@ -1202,6 +1240,8 @@ def resolve(value: Any, lookup: Callable[[str], str | None]) -> Any:
             if target is None:
                 return None
             node["entity"] = target
+        if node.get("type") == "nimbus:risk-slider":
+            return _risk_slider(node, lookup("card:mushroom"))
         if node.get("type") == "conditional" and (
             not node.get("row") or not node.get("conditions")
         ):

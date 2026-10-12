@@ -8,6 +8,120 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.452] - 2026-10-12
+
+One fix that changes plans, found on the reference household on 12 Oct: the
+"Solar forecast risk" slider no longer budgets phantom house load. Review
+waived by the household ("fix the issue, do not hide it").
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at a4c7b28c**,
+  installed untagged via HACS from `main` (`installed_version` a4c7b28) and
+  restarted 12:43 AEST 12 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.452`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** after the restart (the known duplicate-unique-id class excluded;
+  one unrelated pychromecast connection error). **Not claimed: a solve on
+  devhub**, whose own Solver entities read `unavailable`. The fix is covered
+  by `tests/test_risk_aversion_is_solar_only.py` (fails on 0.94.451, passes
+  here), the full local suite (5,551 passed), and a replay of the reference
+  household's live 12 Oct inputs: evening battery draw beyond export plus
+  house 1.90 -> -0.08 kW, import above the 42 kW limit 23.7 -> 0.0 kWh.
+- Consumer check: a household with "Solar forecast risk" above 0 no longer
+  sees its plan budget house load above the forecast. Its battery is not
+  planned lower than it really ends, its energy card's losses are real, and
+  its plan cost carries no import-limit penalty from load the house will not
+  draw. Solar is still planned toward its lower band.
+
+### Fixed
+- **"Solar forecast risk" plans for less solar only, not for phantom house
+  load.** The slider (`risk_aversion`) also leaned every house load toward
+  the top of its forecast band. On the reference household's 12 Oct plan at
+  0.25, a band of 1.1 -> 10.3 kW added ~2 kW of house load all evening that
+  never came: the battery was planned to 7% at midnight against a measured
+  15-21% on every night since 5 Oct, the "losses" on the energy card read
+  25.7 kWh, and midday charging was pushed ~24 kWh past the 42 kW import
+  limit, where the solver's own import-limit penalty ($135.73) appeared in
+  the plan cost. Loads now use their point forecast; solar keeps its lean.
+  Replayed on that plan's inputs: the phantom draw 1.90 -> -0.08 kW, import
+  above the limit 23.7 -> 0.0 kWh.
+
+## [0.94.451] - 2026-10-12
+
+The reference household's asks of 12 Oct, all before the evening's QLD price
+spike. One changes dispatch: on a spike night a P2P block drops to its
+matched volume plus 10% and the rest of the battery goes to the spike. Block
+times are set to the minute, and the Solver tab is the household's
+signed-off layout. Review waived by the household ("I need all of this done
+and ready by p2p").
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at f6681099**,
+  installed untagged via HACS from `main` (`installed_version` f668109) and
+  restarted 11:15 AEST 12 Oct. The `nimbus_load` config entry is `loaded`;
+  devhub's own entities stamp `0.94.451`; **0 new Nimbus `ERROR`/`Traceback`
+  lines** after the restart (the known duplicate-unique-id class excluded).
+  The six `time.nimbus_solver_p2p_block_N_start_hour` / `_end_hour` pickers
+  exist. devhub's Solver tab was rebuilt in place and matches, card for card,
+  the release preview the household reviewed (only entity ids differ), with
+  mushroom sliders because mushroom is installed there. **Not claimed: a solve
+  on devhub, or the saved block hours carrying over there.** devhub's own
+  Solver entities read `unavailable`, so its block pickers read 00:00. The
+  hour conversion (17 -> 17:00, 24 -> 00:00 read as midnight) and the
+  spike-night floor are covered by tests, the floor also by a replay on the
+  reference household's 12 Oct inputs (7.18 kW). The saved hours carry over
+  through the number Store, the mechanism that carried the reserve's window
+  over on the reference household on 11 Oct (#1695); not observed for the
+  block times.
+- Consumer check: a household sets P2P block times to the minute (20:30) and
+  keeps its saved hours. A household with the spike override armed sees a
+  block drop to its matched P2P plus 10% on a forecast spike night, and keep
+  its rate on other nights. The Solver tab shows the household's own cards,
+  one height per row, a zero line on every chart, and a battery chart whose
+  kW, SoC and price share one zero. A dashboard card naming the old
+  `number.nimbus_solver_p2p_block_N_start_hour` / `_end_hour` needs `time.`
+  instead.
+
+### Changed
+- **Solver tab: the household's signed-off layout (12 Oct 2026, devhub).**
+  - The household's own Forecaster cards, copied as they are: *Solver
+    Forecast — Until Midnight*, *Solver Daily Summary* (Today and Tomorrow)
+    and *Nimbus Solver Quality (EPR / Regret)*. They replace the three rebuilt
+    in #1725. The EPR card's table no longer breaks after its first row; the
+    daily summary drops "(Forecast Only)" and the line saying the Solver does
+    not drive dispatch.
+  - Performance: the plan-ahead cost chart full width, then the EPR card,
+    At a glance, Score by day and Where the plan's cost comes from, one
+    column each, one height, each chart's figures below it.
+  - Money: the energy table and the cost by day one column each, beside
+    tomorrow's energy pie.
+  - Plan: the battery chart; the until-midnight table over two columns (the
+    only card that scrolls, now filling its width), the EPR card, and Today
+    and Tomorrow; below them the three risk sliders and their explanation.
+  - **Risk sliders:** the household's mushroom sliders (100 px icon, red at 0
+    to green at 1) where mushroom is installed; HA's tile slider elsewhere.
+  - **Every chart has a solid zero line.** On the battery chart the kW, SoC
+    and price axes share one zero: SoC runs -100..100 with negatives
+    unlabelled, and two invisible series keep kW and price symmetric. Before,
+    a full battery and a price spike both sat on the "40 kW" line.
+  - The plan-ahead cost note says the right-hand end is the current plan and
+    earlier points are earlier estimates.
+- **P2P block times are set to the minute (household, 12 Oct 2026; asked for
+  on #565, where only a shared lead time shipped).** Each block's From and
+  Until are now time pickers (20:30), like the reserve's, on the Nimbus P2P
+  sub-device. Saved hours carry over (17 -> 17:00). A block ending at
+  midnight shows Until 00:00 and still runs to midnight; 00:00 to 00:00 is
+  still "not set". **The entity ids change:** `number.nimbus_solver_p2p_block_N_start_hour`
+  / `_end_hour` become `time.nimbus_solver_p2p_block_N_start_hour` /
+  `_end_hour`. A dashboard card that names the old `number.` entities needs
+  them changed to `time.`.
+- **On a spike night a P2P block delivers its matched volume, and the rest
+  goes to the spike.** While the spike override is armed and a forecast price
+  spike falls inside a block, that block's rate drops to the expected matched
+  P2P volume plus 10% (`sensor.nimbus_solver_p2p_recent_avg_volume_kwh`,
+  spread over every block's committed energy), and stays a floor in the spike
+  periods. On the reference household's 12 Oct plan: 11.5 kW -> 7.18 kW, with
+  18:00, 18:30 and 19:30 at the 38.7 kW export limit instead of 11.5, 24.5 and
+  38.7 kW, about $300 better over the horizon in a solver replay. A day
+  without a spike keeps the block's rate. Household's rule, 12 Oct 2026.
+
 ## [0.94.450] - 2026-10-12
 
 Fixes found on 11 Oct by the reference household and a tester. Three change
