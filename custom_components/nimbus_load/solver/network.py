@@ -254,11 +254,12 @@ NUMBER the LP treats as "the forecast" for Load/SheddableLoad/Solar
 elements that carry a real `lower_kw`/`upper_kw` confidence band from
 Nimbus's own Forecaster (see elements.py's own `_validate_confidence_band`
 docstring). `risk_aversion=0.0` (default) uses the raw point forecast,
-unchanged from before this existed. A load's risk-adjusted demand leans
-toward its OWN upper bound (planning to actually have enough
-battery/grid headroom even if the load draws more than the point
-forecast suggests); solar's risk-adjusted supply leans toward its OWN
-lower bound (not structurally under-provisioning backup capacity by
+unchanged from before this existed. Since 12 Oct 2026 it applies to
+SOLAR ONLY (the dashboard's "Solar forecast risk"): loads use their point
+forecast. Leaning loads toward their upper band made a 1.1 -> 10.3 kW
+house-load band budget ~2 kW of house load that never came, and pushed
+charging past the import limit. Solar's risk-adjusted supply leans toward
+its OWN lower bound (not structurally under-provisioning backup capacity by
 over-trusting solar that might not show up). Both lean amounts scale
 with the band's own real width (a tight, confident forecast barely
 moves; a wide, uncertain one moves more) AND with `risk_aversion`
@@ -2466,13 +2467,8 @@ def _build_plan_once(
     # the SAME ub the LP itself was built against, not re-derive it.
     load_ub: dict[str, list[float]] = {}
     for sl in sheddable_loads:
-        eff = _risk_adjusted(
-            sl.forecast_kw,
-            sl.lower_kw,
-            sl.upper_kw,
-            risk_aversion,
-            conservative="upper",
-        )
+        # Point forecast, as for plain loads below (household, 12 Oct 2026).
+        eff = np.asarray(sl.forecast_kw, dtype=float)
         effective_shed_forecast[sl.name] = eff
         max_shed = [(1.0 - sl.min_fraction) * float(eff[t]) for t in range(n)]
         shed_vars[sl.name] = [
@@ -3656,15 +3652,16 @@ def _build_plan_once(
     # ---- Power balance at the switchboard, every period ----
     # Mechanism 3 continued: plain loads' own effective (pessimistic-
     # leaning) demand -- see the shed-load treatment above, same reasoning.
+    # Household, 12 Oct 2026: `risk_aversion` is the dashboard's "Solar
+    # forecast risk" -- "keeping energy in case solar falls short". It used
+    # to lean every load toward its upper band too, and a house-load band of
+    # 1.1 -> 10.3 kW at 0.25 had the plan budget ~2 kW of house load all
+    # evening that never came (battery planned to 7% against a real ~19%),
+    # and push midday charging past the import limit (grid_import_excess).
+    # Loads now use their point forecast; solar keeps its lean.
     plain_load_total = np.zeros(n)
     for load in loads:
-        plain_load_total += _risk_adjusted(
-            load.forecast_kw,
-            load.lower_kw,
-            load.upper_kw,
-            risk_aversion,
-            conservative="upper",
-        )
+        plain_load_total += load.forecast_kw
 
     for t in range(n):
         terms = {

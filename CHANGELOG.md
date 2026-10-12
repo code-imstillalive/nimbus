@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.452] - 2026-10-12
+
+One fix that changes plans, found on the reference household on 12 Oct: the
+"Solar forecast risk" slider no longer budgets phantom house load. Review
+waived by the household ("fix the issue, do not hide it").
+
+### Fixed
+- **"Solar forecast risk" plans for less solar only, not for phantom house
+  load.** The slider (`risk_aversion`) also leaned every house load toward
+  the top of its forecast band. On the reference household's 12 Oct plan at
+  0.25, a band of 1.1 -> 10.3 kW added ~2 kW of house load all evening that
+  never came: the battery was planned to 7% at midnight against a measured
+  15-21% on every night since 5 Oct, the "losses" on the energy card read
+  25.7 kWh, and midday charging was pushed ~24 kWh past the 42 kW import
+  limit, where the solver's own import-limit penalty ($135.73) appeared in
+  the plan cost. Loads now use their point forecast; solar keeps its lean.
+  Replayed on that plan's inputs: the phantom draw 1.90 -> -0.08 kW, import
+  above the limit 23.7 -> 0.0 kWh.
+
 ## [0.94.451] - 2026-10-12
 
 The reference household's asks of 12 Oct, all before the evening's QLD price
