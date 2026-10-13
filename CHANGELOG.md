@@ -27,6 +27,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   this solve posted, falling back to the state machine before the first
   publish.
 
+### Added
+- **The plan says whether it is one-way** (#1751, Mark Purcell).
+  `sensor.nimbus_solver_battery_forecast` gains `direction_exclusivity` and
+  `direction_two_way_pairs`, set by `build_plan()`'s #238 / #1535 direction
+  check on every path: `not_checked` (first solve not optimal),
+  `not_needed` (already one-way), `enforced` (a direction-exclusive
+  re-solve made it one-way), `declined` (a re-solve came back non-optimal,
+  so the last optimal plan is kept, still two-way) or `still_two_way`.
+  Before this, `declined` was only a warning in the HA log, and
+  `direction_exclusivity_enforced` was set on the plan but published
+  nowhere. The plan itself is unchanged: the golden master moves only by
+  the two new attributes (`not_needed`, 0 in every scenario).
+
 ## [0.94.454] - 2026-10-13
 
 Two plan changes for the reference household, both measured on its own data:

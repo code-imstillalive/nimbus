@@ -2734,6 +2734,8 @@
       },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
+      "direction_exclusivity": "not_needed",
+      "direction_two_way_pairs": 0,
       "discharge_efficiency": 0.9747,
       "efficiency_convention": "round_trip_symmetric_sqrt",
       "energy_shadow_price_now": 0.3,
@@ -13022,7 +13024,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 302094 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=274943B, batteries=23352B, cost_breakdown_by_day=683B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 302163 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=274943B, batteries=23352B, cost_breakdown_by_day=683B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   },
@@ -15760,6 +15762,8 @@
       },
       "degradation_cost_per_kwh": 0.0,
       "device_class": "power",
+      "direction_exclusivity": "not_needed",
+      "direction_two_way_pairs": 0,
       "discharge_efficiency": 0.9747,
       "efficiency_convention": "round_trip_symmetric_sqrt",
       "energy_shadow_price_now": 0.2994,

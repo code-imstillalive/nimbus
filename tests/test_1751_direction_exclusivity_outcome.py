@@ -1,0 +1,108 @@
+"""nimbus #1751 (Mark Purcell): `build_plan()`'s direction check (#238 /
+#1535) reports its outcome on the plan and on
+`sensor.nimbus_solver_battery_forecast`, not only in the HA log.
+
+Before this, a direction-exclusive re-solve that came back non-optimal kept
+the two-way plan with a log warning and nothing a dashboard could see.
+`direction_exclusivity` now names the outcome on every return path and
+`direction_two_way_pairs` counts what is still two-way.
+"""
+
+import unittest
+from dataclasses import replace
+from pathlib import Path
+from unittest import mock
+
+import _solver_path  # noqa: F401
+import numpy as np
+from solver import network
+from solver.network import _build_plan_thermal_fallback, build_plan
+from test_238_direction_exclusivity import _grid_opposing, _kwargs
+
+SPREAD = ([0.5] * 24, [0.2116] * 24, [0.6166] * 24)  # #1535's counterexample
+
+
+def _patched(strict_status=None, strict_result=None):
+    """Run the real first solve; replace every direction-exclusive re-solve
+    with a plan of `strict_status`, or with `strict_result(real_strict)`."""
+    real = _build_plan_thermal_fallback
+
+    def fake(**kw):
+        if "direction_binaries" not in kw:
+            return real(**kw)
+        if strict_result is not None:
+            return strict_result(real(**kw))
+        return replace(real(**kw), status=strict_status)
+
+    return mock.patch.object(network, "_build_plan_thermal_fallback", fake)
+
+
+class TestOutcomeOnEveryPath(unittest.TestCase):
+    def test_a_one_way_first_solve_is_not_needed(self):
+        plan = build_plan(**_kwargs([0.5] * 6, [0.30] * 6, [0.05] * 6))
+        self.assertEqual(plan.direction_exclusivity, "not_needed")
+        self.assertEqual(plan.direction_two_way_pairs, 0)
+        self.assertFalse(plan.direction_exclusivity_enforced)
+
+    def test_a_re_solve_that_makes_it_one_way_is_enforced(self):
+        plan = build_plan(**_kwargs(*SPREAD))
+        self.assertEqual(plan.direction_exclusivity, "enforced")
+        self.assertEqual(plan.direction_two_way_pairs, 0)
+        self.assertTrue(plan.direction_exclusivity_enforced)
+
+    def test_a_declined_re_solve_is_visible_and_counted(self):
+        first = _build_plan_thermal_fallback(**_kwargs(*SPREAD))
+        expected = len(network._opposing_flow_binaries(first))
+        self.assertGreater(expected, 0)
+        with (
+            _patched(strict_status="time_limit"),
+            mock.patch.object(network._LOGGER, "warning") as warn,
+        ):
+            plan = build_plan(**_kwargs(*SPREAD))
+        self.assertEqual(plan.status, "optimal")
+        self.assertEqual(plan.direction_exclusivity, "declined")
+        self.assertEqual(plan.direction_two_way_pairs, expected)
+        self.assertFalse(plan.direction_exclusivity_enforced)
+        # the plan kept is the first solve's, still two-way
+        self.assertGreater(_grid_opposing(plan), 0)
+        np.testing.assert_array_equal(plan.grid_export_kw, first.grid_export_kw)
+        warn.assert_called_once()
+        self.assertIn("time_limit", warn.call_args.args)
+
+    def test_pairs_left_after_every_re_solve_are_still_two_way(self):
+        # every re-solve "optimal" but handing back the two-way first plan
+        first = _build_plan_thermal_fallback(**_kwargs(*SPREAD))
+        with (
+            _patched(strict_result=lambda _strict: first),
+            mock.patch.object(network._LOGGER, "warning") as warn,
+        ):
+            plan = build_plan(**_kwargs(*SPREAD))
+        self.assertEqual(plan.direction_exclusivity, "still_two_way")
+        self.assertEqual(
+            plan.direction_two_way_pairs,
+            len(network._opposing_flow_binaries(first)),
+        )
+        warn.assert_called_once()
+
+    def test_a_non_optimal_first_solve_is_not_checked(self):
+        def first_fails(**kw):
+            return replace(_build_plan_thermal_fallback(**kw), status="infeasible")
+
+        with mock.patch.object(network, "_build_plan_thermal_fallback", first_fails):
+            plan = build_plan(**_kwargs(*SPREAD))
+        self.assertEqual(plan.direction_exclusivity, "not_checked")
+        self.assertEqual(plan.direction_two_way_pairs, 0)
+
+
+class TestPublished(unittest.TestCase):
+    def test_battery_forecast_carries_both_fields(self):
+        src = (Path(network.__file__).parent.parent / "solver_publish.py").read_text(
+            encoding="utf-8"
+        )
+        block = src[src.index('"batteries": _diag_757_battery_forecast,') :][:600]
+        self.assertIn('"direction_exclusivity": getattr(', block)
+        self.assertIn('"direction_two_way_pairs": getattr(', block)
+
+
+if __name__ == "__main__":
+    unittest.main()

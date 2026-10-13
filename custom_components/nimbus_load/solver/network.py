@@ -899,6 +899,17 @@ class Plan:
     # or battery flows in one period and this plan is the re-solve with a
     # direction binary per period per participant (see `build_plan()`).
     direction_exclusivity_enforced: bool = False
+    # nimbus issue #1751: what `build_plan()`'s direction check did, and how
+    # many direction pairs (a period's grid, or one battery in a period) are
+    # still two-way in this plan. One of:
+    #   "not_checked"   the first solve was not optimal, so it was not checked
+    #   "not_needed"    the first solve was already one-way
+    #   "enforced"      a direction-exclusive re-solve made it one-way
+    #   "declined"      a re-solve came back non-optimal, so the plan kept is
+    #                   the last optimal one, which is still two-way
+    #   "still_two_way" every re-solve was optimal and pairs are still two-way
+    direction_exclusivity: str = "not_checked"
+    direction_two_way_pairs: int = 0
     # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit
     # leaking into terminal_value_credit that #781's own soc_penalty fix
     # didn't touch). Root cause: grid_import_excess[t]'s own LP cost is
@@ -4886,7 +4897,11 @@ def build_plan(
     re-solve with a direction binary on exactly those periods and
     participants; if that still leaves a period two-way, or most of the plan
     was two-way, once more with a binary on every period. It returns that
-    plan with `direction_exclusivity_enforced` set. A plan that
+    plan with `direction_exclusivity_enforced` set, and records the outcome
+    in `direction_exclusivity` / `direction_two_way_pairs` on every path
+    (nimbus issue #1751), so a re-solve that is declined, or one that still
+    leaves pairs two-way, is visible on the plan and not only in the log.
+    A plan that
     is already one-way is returned unchanged, byte for byte: the binaries
     change which of several equally good answers a MIP solver settles on,
     so they are not applied where they are not needed. See
@@ -4923,7 +4938,7 @@ def build_plan(
         return plan
     opposing = _opposing_flow_binaries(plan)
     if not opposing:
-        return plan
+        return replace(plan, direction_exclusivity="not_needed")
     n_periods = len(plan.grid_export_kw)
     # Targeted first: binaries only where the plan was two-way. If that
     # leaves any period two-way (fixing one period can move the spread into
@@ -4951,15 +4966,30 @@ def build_plan(
         if strict.status != "optimal":
             _LOGGER.warning(
                 "Nimbus network.py: direction-exclusive re-solve came back %s; "
-                "keeping the previous plan (nimbus issue #238)",
+                "keeping the previous plan, %d direction pair(s) still "
+                "two-way (nimbus issues #238, #1751)",
                 strict.status,
+                len(opposing),
             )
-            return plan
+            return replace(
+                plan,
+                direction_exclusivity="declined",
+                direction_two_way_pairs=len(opposing),
+            )
         plan = replace(strict, direction_exclusivity_enforced=True)
         opposing = _opposing_flow_binaries(plan)
         if not opposing:
-            break
-    return plan
+            return replace(plan, direction_exclusivity="enforced")
+    _LOGGER.warning(
+        "Nimbus network.py: %d direction pair(s) still two-way after every "
+        "direction-exclusive re-solve (nimbus issue #1751)",
+        len(opposing),
+    )
+    return replace(
+        plan,
+        direction_exclusivity="still_two_way",
+        direction_two_way_pairs=len(opposing),
+    )
 
 
 class _AllDirections(frozenset):
