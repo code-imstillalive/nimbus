@@ -753,8 +753,24 @@ def _note_managed_publish_delivered(entity_id: str) -> None:
         _LOGGER.debug("Nimbus #1396: recovery bookkeeping failed for %s", entity_id)
 
 
+# nimbus #1658: what this process last published per entity_id, recorded
+# before any delivery path. In native mode the post reaches the state machine
+# asynchronously (hass.add_job), so a reader on the solve's own thread that
+# goes through hass.states sees the PREVIOUS publish. Measured on the
+# reference household, 9 Oct 04:25:31: the dry-run line logged 1.10 kW while
+# the plan just published, and dispatched, was 36.0 kW.
+_LAST_POSTED: dict[str, tuple[object, dict]] = {}
+
+
+def last_posted(entity_id: str) -> tuple[object, dict] | None:
+    """`(state, attributes)` this process last passed to ha_post_state()
+    for `entity_id`, or None if it has not published it yet."""
+    return _LAST_POSTED.get(entity_id)
+
+
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     sw = _solver_writer()
+    _LAST_POSTED[entity_id] = (state, attributes)
     if NATIVE.hass is not None:
         # Dispatch-table shortcut (2026-08-23, issue #55): if a real
         # SensorEntity has registered itself as the handler for this
