@@ -1095,9 +1095,12 @@ def _per_day_money() -> dict[str, Any]:
 
 # The household's own cards, copied from their Forecaster tab as they are
 # (household, 12 Oct 2026: "move things as they are"), entity ids resolved
-# per install. Two edits only: the EPR card's `{% if %}` no longer leaves a
+# per install. Edits: the EPR card's `{% if %}` no longer leaves a
 # blank line that ended its table, and the daily summary no longer says the
-# Solver does not drive dispatch, which stopped being true in September.
+# Solver does not drive dispatch, which stopped being true in September;
+# and (nimbus #1753, household, 13 Oct 2026) the forecast table runs the
+# plan's whole horizon with its TOTAL row at each midnight, where it used
+# to stop at the first one.
 _HOUSEHOLD_QUALITY = {
     "type": "markdown",
     "title": "Nimbus Solver Quality (EPR / Regret)",
@@ -1105,8 +1108,8 @@ _HOUSEHOLD_QUALITY = {
 }
 _HOUSEHOLD_UNTIL_MIDNIGHT = {
     "type": "markdown",
-    "title": "Solver Forecast — Until Midnight",
-    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0, done=false) %}{% for p in fc %}{% if not day_ns.done %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.done = true %}{% else %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endif %}{% endif %}{% endfor %}\n{% endif %}',
+    "title": "Solver Forecast — Whole Plan",
+    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0) %}{% for p in fc %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.net = 0 %}{% set day_ns.p2p = 0 %}{% endif %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endfor %}{% if day_ns.date is not none %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% endif %}\n{% endif %}',
 }
 _HOUSEHOLD_DAILY = {
     "type": "markdown",

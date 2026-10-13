@@ -22,6 +22,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   mask). Before this, the tab's plan chart showed 36 hours and every period
   read `price_source: primary`, so nothing said where the provider's prices
   ended.
+- **The Solver tab's forecast table runs the whole plan** (#1753, household).
+  "Solver Forecast — Until Midnight" stopped at the first midnight; it is now
+  "Solver Forecast — Whole Plan", every period of the plan's horizon with the
+  table's own bold TOTAL row at each midnight, in its scroll box. Columns and
+  colours unchanged.
 
 ### Fixed
 - **Forecaster points sit on the clock.** Every load and signal forecast

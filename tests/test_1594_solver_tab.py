@@ -143,7 +143,7 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             # card per day.
             (4, "Prices ahead"),
             *[(1, "markdown: {{ ns.bt }}")] * 4,
-            (2, "Solver Forecast — Until Midnight"),
+            (2, "Solver Forecast — Whole Plan"),
             (1, "Nimbus Solver Quality (EPR / Regret)"),
             (1, "Solver Daily Summary"),
             (1, "nimbus:risk-slider"),
@@ -268,7 +268,7 @@ def test_each_row_is_one_height_and_fills_it() -> None:
     cards fill their cell; nothing scrolls but the until-midnight table."""
     for first in (
         "Nimbus Solver Quality (EPR / Regret)",
-        "Solver Forecast — Until Midnight",
+        "Solver Forecast — Whole Plan",
     ):
         row = [s for s in _row(first) if len(s["cards"]) == 1][:2]
         heights = {
@@ -284,7 +284,7 @@ def test_each_row_is_one_height_and_fills_it() -> None:
             if s["cards"][0].get("features"):
                 continue
             assert "height: 100%" in style
-            if s["cards"][0].get("title") != "Solver Forecast — Until Midnight":
+            if s["cards"][0].get("title") != "Solver Forecast — Whole Plan":
                 assert "overflow-y: auto" not in style
 
 
