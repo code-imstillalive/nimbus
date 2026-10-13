@@ -21,6 +21,7 @@ import logging
 import math
 import pickle
 from bisect import bisect_right
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -2024,26 +2025,35 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             grids_kw.append(current_grid_kw)
             solars_kw.append(current_solar_kw)
 
+        # predict() needs evenly spaced timestamps (its lags step back by
+        # RESAMPLE_MINUTES and it appends each step to its lag buffer in
+        # time order), and the grid is "now" then the clock's quarter-hours.
+        # So the on-clock run is predicted as one sequence and "now" on its
+        # own; both read the same real history.
+        def _predict(lo: int, hi: int | None) -> PredictionResult:
+            return predict(
+                self._trained,
+                timestamps[lo:hi],
+                temps[lo:hi],
+                humidities[lo:hi],
+                recent_load_values,
+                RESAMPLE_MINUTES,
+                curtailments[lo:hi],
+                self._schedule_start_hour,
+                self._schedule_end_hour,
+                self._expected_load_kw,
+                batteries_kw[lo:hi],
+                grids_kw[lo:hi],
+                solars_kw[lo:hi],
+                self._allow_negative,
+                self._seasonal_anchor,
+                self._running_threshold_kw,
+                self._run_hold_hours,
+                self._run_hold_learned_when_off,
+            )
+
         result: PredictionResult = await self.hass.async_add_executor_job(
-            predict,
-            self._trained,
-            timestamps,
-            temps,
-            humidities,
-            recent_load_values,
-            RESAMPLE_MINUTES,
-            curtailments,
-            self._schedule_start_hour,
-            self._schedule_end_hour,
-            self._expected_load_kw,
-            batteries_kw,
-            grids_kw,
-            solars_kw,
-            self._allow_negative,
-            self._seasonal_anchor,
-            self._running_threshold_kw,
-            self._run_hold_hours,
-            self._run_hold_learned_when_off,
+            _predict_now_then_clock, _predict, len(timestamps)
         )
         preds = result.values
         has_model_bounds = (
@@ -2210,16 +2220,54 @@ def forecast_provenance(
 
 
 def _forecast_grid_utc(start: datetime, end: datetime) -> list[datetime]:
-    """The forecast's UTC timestamps, RESAMPLE_MINUTES apart from `start`
-    up to and including `end`. Shared by the trained and the deterministic
-    no-model paths so both publish the same grid (nimbus issue #1575)."""
-    grid: list[datetime] = []
+    """The forecast's UTC timestamps: `start` (now), then every
+    RESAMPLE_MINUTES boundary of the clock after it, up to and including
+    `end`. Shared by the trained and the deterministic no-model paths so
+    both publish the same grid (nimbus issue #1575).
+
+    On the clock (household, 13 Oct 2026): the grid used to step from
+    `start` itself, so every point after the first landed wherever that
+    sensor last refreshed (14:28:30, 14:43:30, ... on one circuit and
+    14:29:53, 14:44:53, ... on the next) while prices and the plan step on
+    :00/:15/:30/:45. The first point stays at `start`, so the forecast's
+    state and the next cycle's accuracy check still mean "now". Flooring
+    in UTC is the local quarter-hour too: every UTC offset in use is a
+    multiple of 15 minutes.
+    """
     step = timedelta(minutes=RESAMPLE_MINUTES)
-    t = start
+    grid: list[datetime] = [start] if start <= end else []
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    t = epoch + ((start - epoch) // step + 1) * step
     while t <= end:
         grid.append(t)
         t += step
     return grid
+
+
+def _predict_now_then_clock(
+    predict_slice: Callable[[int, int | None], PredictionResult], n: int
+) -> PredictionResult:
+    """`predict_slice(0, 1)` for "now" and `predict_slice(1, None)` for the
+    evenly spaced on-clock run after it (see `_forecast_grid_utc`), joined
+    into one result. Bounds are kept only when both parts carry them, so a
+    forecast never mixes model quantiles with the residual band."""
+    if n <= 1:
+        return predict_slice(0, None)
+    head = predict_slice(0, 1)
+    tail = predict_slice(1, None)
+    values = list(head.values) + list(tail.values)
+    if (
+        head.model_lower is not None
+        and head.model_upper is not None
+        and tail.model_lower is not None
+        and tail.model_upper is not None
+    ):
+        return PredictionResult(
+            values=values,
+            model_lower=list(head.model_lower) + list(tail.model_lower),
+            model_upper=list(head.model_upper) + list(tail.model_upper),
+        )
+    return PredictionResult(values=values)
 
 
 def _model_age_days(trained_at: datetime | None) -> float | None:
