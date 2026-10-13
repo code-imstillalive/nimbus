@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The solve uses the install's own Discharge Cost and Salvage Value at
+  every hour.** On any install with a price-forecast array (the reference
+  household's LocalVolts setup), the solve applied a hidden schedule instead:
+  discharge cost 0.09 from 07:00 to 17:00 and salvage value 0.30 for a horizon
+  ending 17:00-24:00 -- HAEO's retired 5pm/midnight/7am cost schedule. No
+  setting or entity reached it, so the visible Discharge Cost (0.01 on the
+  reference household) only applied overnight. On 13 Oct at 12:46 AEST the
+  sell price jumped to 43.5c for one interval and the plan sold nothing;
+  replaying production's own solve read-only with that spike sold 0 kW at
+  0.09 and the full 40 kW at 0.01. Daytime discharge, house load from the
+  battery and midday spikes are now costed at the setting, and the plan
+  agrees with the quality scorer and counterfactual, which already used it.
+  Changes plans: 13 golden scenarios move (the 10 price replays cost $0.55 to
+  $4.04 less; the 3 thermal ones, whose horizons end in the evening, carry the
+  setting's 0.15 salvage value instead of 0.30).
+
 ## [0.94.453] - 2026-10-12
 
 Charts and reporting, released before the reference household's 17:00 P2P
