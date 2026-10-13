@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.454] - 2026-10-13
+
+Two plan changes for the reference household, both measured on its own data:
+the plan stops assuming 40 kW of charge to 100%, and daytime discharge is
+costed at the install's own Discharge Cost instead of a hidden 0.09.
+
 ### Added
 - **Charge taper near full:** the plan no longer assumes full charge power
   up to 100%. From **Charge Taper Start** (default 90% SoC) the charge ceiling
