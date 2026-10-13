@@ -228,6 +228,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "build_per_battery_forecast",
         "register_entity_handler",
         "unregister_entity_handler",
+        # nimbus #1658: reads back what this process last posted, for the
+        # dry-run line in solver_runtime.py. It exists because the native
+        # post is asynchronous; the cron copy posts over REST synchronously
+        # and has no dry-run line.
+        "last_posted",
         # nimbus issue #1396: bookkeeping for ha_post_state()'s managed-entity
         # skip, which only exists in the native branch (_NATIVE_HASS set) and
         # keys off the handler registry the two names directly above build.
