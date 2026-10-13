@@ -346,7 +346,9 @@ _EXPECTED_ATTRS = {
     # above -- the CalibratedOptions searched blend weight shifts this
     # dual's own value by a tiny, real, understood amount too.
     # nimbus issue #732: regenerated alongside total_cost above.
-    "binding_constraint_shadow_price": 0.2501,
+    # 12 Oct 2026: the charge taper (default on, from 90% SoC) moved this
+    # dual from 0.2501; nothing else in the pushed attributes changed.
+    "binding_constraint_shadow_price": 0.3022,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
     # nimbus issue #567: this fixture configures no spike threshold/
@@ -426,7 +428,8 @@ _EXPECTED_FORECAST_SAMPLE = {
         "soc_pct": 57.03,
         "import_price": 0.3,
         "export_price": 0.05,
-        "shadow_price": 0.3,
+        # 12 Oct 2026: 0.3 before the charge taper (default on) moved it.
+        "shadow_price": 0.3001,
         "envelope_import_limit_kw": 15.0,
         "envelope_export_limit_kw": 15.0,
     },

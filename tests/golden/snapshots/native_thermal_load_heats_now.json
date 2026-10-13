@@ -1257,14 +1257,14 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 22.812,
           "soc_pct": 57.03,
           "time": "2026-09-06T20:05:00+10:00"
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 23.218,
           "soc_pct": 58.05,
           "time": "2026-09-06T20:10:00+10:00"
@@ -1320,7 +1320,7 @@
          },
          {
           "charge_kw": 5.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 26.467,
           "soc_pct": 66.17,
           "time": "2026-09-06T20:50:00+10:00"
@@ -1334,7 +1334,7 @@
          },
          {
           "charge_kw": 0.71,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 26.871,
           "soc_pct": 67.18,
           "time": "2026-09-06T21:00:00+10:00"
@@ -1355,7 +1355,7 @@
          },
          {
           "charge_kw": 0.71,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 27.908,
           "soc_pct": 69.77,
           "time": "2026-09-06T22:30:00+10:00"
@@ -1390,7 +1390,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T01:00:00+10:00"
@@ -1432,7 +1432,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T04:00:00+10:00"
@@ -1460,7 +1460,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T06:00:00+10:00"
@@ -1474,7 +1474,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T07:00:00+10:00"
@@ -1495,7 +1495,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T08:30:00+10:00"
@@ -1558,7 +1558,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T13:00:00+10:00"
@@ -1586,7 +1586,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T15:00:00+10:00"
@@ -1600,7 +1600,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T16:00:00+10:00"
@@ -1621,7 +1621,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T17:30:00+10:00"
@@ -1635,7 +1635,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T18:30:00+10:00"
@@ -1670,7 +1670,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T21:00:00+10:00"
@@ -1691,7 +1691,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T22:30:00+10:00"
@@ -1705,7 +1705,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-07T23:30:00+10:00"
@@ -1747,7 +1747,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T02:30:00+10:00"
@@ -1768,7 +1768,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T04:00:00+10:00"
@@ -1782,21 +1782,21 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T05:00:00+10:00"
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T05:30:00+10:00"
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T06:00:00+10:00"
@@ -1831,7 +1831,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T08:30:00+10:00"
@@ -1859,7 +1859,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T10:30:00+10:00"
@@ -1880,7 +1880,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": -0.0,
+          "discharge_kw": 0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T12:00:00+10:00"
@@ -1964,7 +1964,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T18:00:00+10:00"
@@ -1985,7 +1985,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T19:30:00+10:00"
@@ -1999,7 +1999,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T20:30:00+10:00"
@@ -2013,7 +2013,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T21:30:00+10:00"
@@ -2027,7 +2027,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T22:30:00+10:00"
@@ -2041,7 +2041,7 @@
          },
          {
           "charge_kw": 0.0,
-          "discharge_kw": 0.0,
+          "discharge_kw": -0.0,
           "soc_kwh": 28.6,
           "soc_pct": 71.5,
           "time": "2026-09-08T23:30:00+10:00"
@@ -2393,7 +2393,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 27.27,
-          "soc_pct": 68.17,
+          "soc_pct": 68.18,
           "time": "2026-09-10T00:30:00+10:00"
          },
          {
@@ -2421,7 +2421,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 24.61,
-          "soc_pct": 61.52,
+          "soc_pct": 61.53,
           "time": "2026-09-10T02:30:00+10:00"
          },
          {
@@ -2449,7 +2449,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 21.95,
-          "soc_pct": 54.87,
+          "soc_pct": 54.88,
           "time": "2026-09-10T04:30:00+10:00"
          },
          {
@@ -2533,7 +2533,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 13.97,
-          "soc_pct": 34.92,
+          "soc_pct": 34.93,
           "time": "2026-09-10T10:30:00+10:00"
          },
          {
@@ -2561,7 +2561,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 11.31,
-          "soc_pct": 28.27,
+          "soc_pct": 28.28,
           "time": "2026-09-10T12:30:00+10:00"
          },
          {
@@ -2617,7 +2617,7 @@
           "charge_kw": 0.0,
           "discharge_kw": 1.296,
           "soc_kwh": 5.99,
-          "soc_pct": 14.98,
+          "soc_pct": 14.97,
           "time": "2026-09-10T16:30:00+10:00"
          },
          {
@@ -3089,7 +3089,7 @@
         "savings_combined": -0.1917,
         "savings_interaction": -0.1821,
         "savings_pv": 0.0,
-        "shadow_price": 0.4599,
+        "shadow_price": 0.46,
         "soc_pct": 62.11,
         "solar_kw": 0.0,
         "time": "2026-09-06T20:30:00+10:00"
@@ -3189,7 +3189,7 @@
         "savings_combined": -0.2,
         "savings_interaction": -0.19,
         "savings_pv": 0.0,
-        "shadow_price": 0.4801,
+        "shadow_price": 0.48,
         "soc_pct": 64.14,
         "solar_kw": 0.0,
         "time": "2026-09-06T20:40:00+10:00"
@@ -3239,7 +3239,7 @@
         "savings_combined": -0.2042,
         "savings_interaction": -0.194,
         "savings_pv": 0.0,
-        "shadow_price": 0.4899,
+        "shadow_price": 0.49,
         "soc_pct": 65.15,
         "solar_kw": 0.0,
         "time": "2026-09-06T20:45:00+10:00"
@@ -3289,7 +3289,7 @@
         "savings_combined": -0.2083,
         "savings_interaction": -0.1979,
         "savings_pv": 0.0,
-        "shadow_price": 0.5001,
+        "shadow_price": 0.5,
         "soc_pct": 66.17,
         "solar_kw": 0.0,
         "time": "2026-09-06T20:50:00+10:00"
@@ -3739,7 +3739,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T00:30:00+10:00"
@@ -3789,7 +3789,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T01:00:00+10:00"
@@ -3805,7 +3805,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -3827,7 +3827,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -3939,7 +3939,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T02:30:00+10:00"
@@ -3955,7 +3955,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -3977,7 +3977,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -3989,7 +3989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T03:00:00+10:00"
@@ -4039,7 +4039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T03:30:00+10:00"
@@ -4089,7 +4089,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T04:00:00+10:00"
@@ -4139,7 +4139,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T04:30:00+10:00"
@@ -4189,7 +4189,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T05:00:00+10:00"
@@ -4239,7 +4239,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T05:30:00+10:00"
@@ -4289,7 +4289,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T06:00:00+10:00"
@@ -4489,7 +4489,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T08:00:00+10:00"
@@ -4539,7 +4539,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T08:30:00+10:00"
@@ -4589,7 +4589,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T09:00:00+10:00"
@@ -4639,7 +4639,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T09:30:00+10:00"
@@ -4705,7 +4705,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -4727,7 +4727,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -4739,7 +4739,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T10:30:00+10:00"
@@ -4789,7 +4789,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T11:00:00+10:00"
@@ -4939,7 +4939,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T12:30:00+10:00"
@@ -4989,7 +4989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T13:00:00+10:00"
@@ -5039,7 +5039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T13:30:00+10:00"
@@ -5355,7 +5355,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -5377,7 +5377,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -5439,7 +5439,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T17:30:00+10:00"
@@ -5455,7 +5455,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -5477,7 +5477,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -5489,7 +5489,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T18:00:00+10:00"
@@ -5605,7 +5605,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -5627,7 +5627,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -5639,7 +5639,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T19:30:00+10:00"
@@ -5739,7 +5739,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T20:30:00+10:00"
@@ -5789,7 +5789,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T21:00:00+10:00"
@@ -5839,7 +5839,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T21:30:00+10:00"
@@ -5939,7 +5939,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T22:30:00+10:00"
@@ -5989,7 +5989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T23:00:00+10:00"
@@ -6039,7 +6039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-07T23:30:00+10:00"
@@ -6389,7 +6389,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T03:00:00+10:00"
@@ -6439,7 +6439,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T03:30:00+10:00"
@@ -6489,7 +6489,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T04:00:00+10:00"
@@ -6539,7 +6539,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T04:30:00+10:00"
@@ -6589,7 +6589,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T05:00:00+10:00"
@@ -6655,7 +6655,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -6677,7 +6677,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -6839,7 +6839,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T07:30:00+10:00"
@@ -6889,7 +6889,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T08:00:00+10:00"
@@ -6955,7 +6955,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -6977,7 +6977,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -6989,7 +6989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T09:00:00+10:00"
@@ -7039,7 +7039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T09:30:00+10:00"
@@ -7089,7 +7089,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T10:00:00+10:00"
@@ -7139,7 +7139,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T10:30:00+10:00"
@@ -7155,7 +7155,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7177,7 +7177,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7189,7 +7189,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T11:00:00+10:00"
@@ -7289,7 +7289,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T12:00:00+10:00"
@@ -7339,7 +7339,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T12:30:00+10:00"
@@ -7405,7 +7405,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7427,7 +7427,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7505,7 +7505,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7527,7 +7527,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7539,7 +7539,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T14:30:00+10:00"
@@ -7589,7 +7589,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T15:00:00+10:00"
@@ -7705,7 +7705,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7727,7 +7727,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7739,7 +7739,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T16:30:00+10:00"
@@ -7789,7 +7789,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T17:00:00+10:00"
@@ -7839,7 +7839,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T17:30:00+10:00"
@@ -7855,7 +7855,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7877,7 +7877,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7955,7 +7955,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -7977,7 +7977,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -7989,7 +7989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T19:00:00+10:00"
@@ -8039,7 +8039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T19:30:00+10:00"
@@ -8055,7 +8055,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -8077,7 +8077,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -8089,7 +8089,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T20:00:00+10:00"
@@ -8189,7 +8189,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T21:00:00+10:00"
@@ -8239,7 +8239,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T21:30:00+10:00"
@@ -8339,7 +8339,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T22:30:00+10:00"
@@ -8389,7 +8389,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-08T23:00:00+10:00"
@@ -8689,7 +8689,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T02:00:00+10:00"
@@ -8705,7 +8705,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -8727,7 +8727,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -8739,7 +8739,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T02:30:00+10:00"
@@ -8789,60 +8789,10 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T03:00:00+10:00"
-       },
-       {
-        "battery_kw": 0.0,
-        "battery_kw_after_efficiency": 0.0,
-        "bonus_price": 0.0,
-        "dispatch_direction": "idle",
-        "dispatch_source_a_label": "Load",
-        "dispatch_source_a_pct": 0.0,
-        "dispatch_source_b_label": "Grid",
-        "dispatch_source_b_pct": 0.0,
-        "envelope_export_limit_kw": 15.0,
-        "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
-        "export_price": 0.26,
-        "export_price_raw": 0.26,
-        "export_price_source": "primary",
-        "flow_battery_cost_basis": 0.3384,
-        "flow_battery_to_grid_kw": 0.0,
-        "flow_battery_to_load_kw": 0.0,
-        "flow_battery_to_losses_kw": 0.0,
-        "flow_grid_to_battery_kw": 0.0,
-        "flow_grid_to_load_kw": 1.3,
-        "flow_price_battery_to_grid": -0.1039,
-        "flow_price_battery_to_load": 0.4845,
-        "flow_price_grid_to_battery": -0.51,
-        "flow_price_grid_to_load": -0.51,
-        "flow_price_pv_to_battery": 0.4845,
-        "flow_price_pv_to_grid": 0.26,
-        "flow_price_pv_to_load": 0.51,
-        "flow_pv_risk_margin_kw": 0.0,
-        "flow_pv_to_battery_kw": 0.0,
-        "flow_pv_to_curtailment_kw": 0.0,
-        "flow_pv_to_grid_kw": 0.0,
-        "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
-        "grid_import_kw": 1.3,
-        "hours": 0.5,
-        "import_price": 0.51,
-        "import_price_raw": 0.51,
-        "import_price_source": "primary",
-        "load_kw": 1.3,
-        "net_cost": 0.3315,
-        "savings_battery": 0.0,
-        "savings_combined": 0.0,
-        "savings_interaction": 0.0,
-        "savings_pv": 0.0,
-        "shadow_price": 0.51,
-        "soc_pct": 71.5,
-        "solar_kw": 0.0,
-        "time": "2026-09-09T03:30:00+10:00"
        },
        {
         "battery_kw": 0.0,
@@ -8890,6 +8840,56 @@
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
         "shadow_price": 0.51,
+        "soc_pct": 71.5,
+        "solar_kw": 0.0,
+        "time": "2026-09-09T03:30:00+10:00"
+       },
+       {
+        "battery_kw": 0.0,
+        "battery_kw_after_efficiency": 0.0,
+        "bonus_price": 0.0,
+        "dispatch_direction": "idle",
+        "dispatch_source_a_label": "Load",
+        "dispatch_source_a_pct": 0.0,
+        "dispatch_source_b_label": "Grid",
+        "dispatch_source_b_pct": 0.0,
+        "envelope_export_limit_kw": 15.0,
+        "envelope_import_limit_kw": 15.0,
+        "export_bonus_kw": 0.0,
+        "export_price": 0.26,
+        "export_price_raw": 0.26,
+        "export_price_source": "primary",
+        "flow_battery_cost_basis": 0.3384,
+        "flow_battery_to_grid_kw": 0.0,
+        "flow_battery_to_load_kw": 0.0,
+        "flow_battery_to_losses_kw": 0.0,
+        "flow_grid_to_battery_kw": 0.0,
+        "flow_grid_to_load_kw": 1.3,
+        "flow_price_battery_to_grid": -0.1039,
+        "flow_price_battery_to_load": 0.4845,
+        "flow_price_grid_to_battery": -0.51,
+        "flow_price_grid_to_load": -0.51,
+        "flow_price_pv_to_battery": 0.4845,
+        "flow_price_pv_to_grid": 0.26,
+        "flow_price_pv_to_load": 0.51,
+        "flow_pv_risk_margin_kw": 0.0,
+        "flow_pv_to_battery_kw": 0.0,
+        "flow_pv_to_curtailment_kw": 0.0,
+        "flow_pv_to_grid_kw": 0.0,
+        "flow_pv_to_load_kw": 0.0,
+        "grid_export_kw": -0.0,
+        "grid_import_kw": 1.3,
+        "hours": 0.5,
+        "import_price": 0.51,
+        "import_price_raw": 0.51,
+        "import_price_source": "primary",
+        "load_kw": 1.3,
+        "net_cost": 0.3315,
+        "savings_battery": 0.0,
+        "savings_combined": 0.0,
+        "savings_interaction": 0.0,
+        "savings_pv": 0.0,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T04:00:00+10:00"
@@ -8955,7 +8955,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -8977,7 +8977,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -8989,7 +8989,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T05:00:00+10:00"
@@ -9039,7 +9039,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T05:30:00+10:00"
@@ -9055,7 +9055,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -9077,7 +9077,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -9089,7 +9089,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T06:00:00+10:00"
@@ -9139,7 +9139,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T06:30:00+10:00"
@@ -9205,106 +9205,6 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
-        "export_price": 0.26,
-        "export_price_raw": 0.26,
-        "export_price_source": "primary",
-        "flow_battery_cost_basis": 0.3384,
-        "flow_battery_to_grid_kw": 0.0,
-        "flow_battery_to_load_kw": 0.0,
-        "flow_battery_to_losses_kw": 0.0,
-        "flow_grid_to_battery_kw": 0.0,
-        "flow_grid_to_load_kw": 1.3,
-        "flow_price_battery_to_grid": -0.1039,
-        "flow_price_battery_to_load": 0.4845,
-        "flow_price_grid_to_battery": -0.51,
-        "flow_price_grid_to_load": -0.51,
-        "flow_price_pv_to_battery": 0.4845,
-        "flow_price_pv_to_grid": 0.26,
-        "flow_price_pv_to_load": 0.51,
-        "flow_pv_risk_margin_kw": 0.0,
-        "flow_pv_to_battery_kw": 0.0,
-        "flow_pv_to_curtailment_kw": 0.0,
-        "flow_pv_to_grid_kw": 0.0,
-        "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
-        "grid_import_kw": 1.3,
-        "hours": 0.5,
-        "import_price": 0.51,
-        "import_price_raw": 0.51,
-        "import_price_source": "primary",
-        "load_kw": 1.3,
-        "net_cost": 0.3315,
-        "savings_battery": 0.0,
-        "savings_combined": 0.0,
-        "savings_interaction": 0.0,
-        "savings_pv": 0.0,
-        "shadow_price": 0.51,
-        "soc_pct": 71.5,
-        "solar_kw": 0.0,
-        "time": "2026-09-09T07:30:00+10:00"
-       },
-       {
-        "battery_kw": 0.0,
-        "battery_kw_after_efficiency": 0.0,
-        "bonus_price": 0.0,
-        "dispatch_direction": "idle",
-        "dispatch_source_a_label": "Load",
-        "dispatch_source_a_pct": 0.0,
-        "dispatch_source_b_label": "Grid",
-        "dispatch_source_b_pct": 0.0,
-        "envelope_export_limit_kw": 15.0,
-        "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
-        "export_price": 0.26,
-        "export_price_raw": 0.26,
-        "export_price_source": "primary",
-        "flow_battery_cost_basis": 0.3384,
-        "flow_battery_to_grid_kw": 0.0,
-        "flow_battery_to_load_kw": 0.0,
-        "flow_battery_to_losses_kw": 0.0,
-        "flow_grid_to_battery_kw": 0.0,
-        "flow_grid_to_load_kw": 1.3,
-        "flow_price_battery_to_grid": -0.1039,
-        "flow_price_battery_to_load": 0.4845,
-        "flow_price_grid_to_battery": -0.51,
-        "flow_price_grid_to_load": -0.51,
-        "flow_price_pv_to_battery": 0.4845,
-        "flow_price_pv_to_grid": 0.26,
-        "flow_price_pv_to_load": 0.51,
-        "flow_pv_risk_margin_kw": 0.0,
-        "flow_pv_to_battery_kw": 0.0,
-        "flow_pv_to_curtailment_kw": 0.0,
-        "flow_pv_to_grid_kw": 0.0,
-        "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
-        "grid_import_kw": 1.3,
-        "hours": 0.5,
-        "import_price": 0.51,
-        "import_price_raw": 0.51,
-        "import_price_source": "primary",
-        "load_kw": 1.3,
-        "net_cost": 0.3315,
-        "savings_battery": 0.0,
-        "savings_combined": 0.0,
-        "savings_interaction": 0.0,
-        "savings_pv": 0.0,
-        "shadow_price": 0.51,
-        "soc_pct": 71.5,
-        "solar_kw": 0.0,
-        "time": "2026-09-09T08:00:00+10:00"
-       },
-       {
-        "battery_kw": 0.0,
-        "battery_kw_after_efficiency": 0.0,
-        "bonus_price": 0.0,
-        "dispatch_direction": "idle",
-        "dispatch_source_a_label": "Load",
-        "dispatch_source_a_pct": 0.0,
-        "dispatch_source_b_label": "Grid",
-        "dispatch_source_b_pct": 0.0,
-        "envelope_export_limit_kw": 15.0,
-        "envelope_import_limit_kw": 15.0,
         "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
@@ -9340,6 +9240,106 @@
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
         "shadow_price": 0.5099,
+        "soc_pct": 71.5,
+        "solar_kw": 0.0,
+        "time": "2026-09-09T07:30:00+10:00"
+       },
+       {
+        "battery_kw": 0.0,
+        "battery_kw_after_efficiency": 0.0,
+        "bonus_price": 0.0,
+        "dispatch_direction": "idle",
+        "dispatch_source_a_label": "Load",
+        "dispatch_source_a_pct": 0.0,
+        "dispatch_source_b_label": "Grid",
+        "dispatch_source_b_pct": 0.0,
+        "envelope_export_limit_kw": 15.0,
+        "envelope_import_limit_kw": 15.0,
+        "export_bonus_kw": 0.0,
+        "export_price": 0.26,
+        "export_price_raw": 0.26,
+        "export_price_source": "primary",
+        "flow_battery_cost_basis": 0.3384,
+        "flow_battery_to_grid_kw": 0.0,
+        "flow_battery_to_load_kw": 0.0,
+        "flow_battery_to_losses_kw": 0.0,
+        "flow_grid_to_battery_kw": 0.0,
+        "flow_grid_to_load_kw": 1.3,
+        "flow_price_battery_to_grid": -0.1039,
+        "flow_price_battery_to_load": 0.4845,
+        "flow_price_grid_to_battery": -0.51,
+        "flow_price_grid_to_load": -0.51,
+        "flow_price_pv_to_battery": 0.4845,
+        "flow_price_pv_to_grid": 0.26,
+        "flow_price_pv_to_load": 0.51,
+        "flow_pv_risk_margin_kw": 0.0,
+        "flow_pv_to_battery_kw": 0.0,
+        "flow_pv_to_curtailment_kw": 0.0,
+        "flow_pv_to_grid_kw": 0.0,
+        "flow_pv_to_load_kw": 0.0,
+        "grid_export_kw": -0.0,
+        "grid_import_kw": 1.3,
+        "hours": 0.5,
+        "import_price": 0.51,
+        "import_price_raw": 0.51,
+        "import_price_source": "primary",
+        "load_kw": 1.3,
+        "net_cost": 0.3315,
+        "savings_battery": 0.0,
+        "savings_combined": 0.0,
+        "savings_interaction": 0.0,
+        "savings_pv": 0.0,
+        "shadow_price": 0.5101,
+        "soc_pct": 71.5,
+        "solar_kw": 0.0,
+        "time": "2026-09-09T08:00:00+10:00"
+       },
+       {
+        "battery_kw": 0.0,
+        "battery_kw_after_efficiency": 0.0,
+        "bonus_price": 0.0,
+        "dispatch_direction": "idle",
+        "dispatch_source_a_label": "Load",
+        "dispatch_source_a_pct": 0.0,
+        "dispatch_source_b_label": "Grid",
+        "dispatch_source_b_pct": 0.0,
+        "envelope_export_limit_kw": 15.0,
+        "envelope_import_limit_kw": 15.0,
+        "export_bonus_kw": 0.0,
+        "export_price": 0.26,
+        "export_price_raw": 0.26,
+        "export_price_source": "primary",
+        "flow_battery_cost_basis": 0.3384,
+        "flow_battery_to_grid_kw": 0.0,
+        "flow_battery_to_load_kw": 0.0,
+        "flow_battery_to_losses_kw": 0.0,
+        "flow_grid_to_battery_kw": 0.0,
+        "flow_grid_to_load_kw": 1.3,
+        "flow_price_battery_to_grid": -0.1039,
+        "flow_price_battery_to_load": 0.4845,
+        "flow_price_grid_to_battery": -0.51,
+        "flow_price_grid_to_load": -0.51,
+        "flow_price_pv_to_battery": 0.4845,
+        "flow_price_pv_to_grid": 0.26,
+        "flow_price_pv_to_load": 0.51,
+        "flow_pv_risk_margin_kw": 0.0,
+        "flow_pv_to_battery_kw": 0.0,
+        "flow_pv_to_curtailment_kw": 0.0,
+        "flow_pv_to_grid_kw": 0.0,
+        "flow_pv_to_load_kw": 0.0,
+        "grid_export_kw": -0.0,
+        "grid_import_kw": 1.3,
+        "hours": 0.5,
+        "import_price": 0.51,
+        "import_price_raw": 0.51,
+        "import_price_source": "primary",
+        "load_kw": 1.3,
+        "net_cost": 0.3315,
+        "savings_battery": 0.0,
+        "savings_combined": 0.0,
+        "savings_interaction": 0.0,
+        "savings_pv": 0.0,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T08:30:00+10:00"
@@ -9389,7 +9389,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T09:00:00+10:00"
@@ -9405,7 +9405,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -9427,7 +9427,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -9439,7 +9439,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T09:30:00+10:00"
@@ -9489,7 +9489,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T10:00:00+10:00"
@@ -9605,6 +9605,56 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
+        "export_bonus_kw": 0.0,
+        "export_price": 0.26,
+        "export_price_raw": 0.26,
+        "export_price_source": "primary",
+        "flow_battery_cost_basis": 0.3384,
+        "flow_battery_to_grid_kw": 0.0,
+        "flow_battery_to_load_kw": 0.0,
+        "flow_battery_to_losses_kw": 0.0,
+        "flow_grid_to_battery_kw": 0.0,
+        "flow_grid_to_load_kw": 1.3,
+        "flow_price_battery_to_grid": -0.1039,
+        "flow_price_battery_to_load": 0.4845,
+        "flow_price_grid_to_battery": -0.51,
+        "flow_price_grid_to_load": -0.51,
+        "flow_price_pv_to_battery": 0.4845,
+        "flow_price_pv_to_grid": 0.26,
+        "flow_price_pv_to_load": 0.51,
+        "flow_pv_risk_margin_kw": 0.0,
+        "flow_pv_to_battery_kw": 0.0,
+        "flow_pv_to_curtailment_kw": 0.0,
+        "flow_pv_to_grid_kw": 0.0,
+        "flow_pv_to_load_kw": 0.0,
+        "grid_export_kw": -0.0,
+        "grid_import_kw": 1.3,
+        "hours": 0.5,
+        "import_price": 0.51,
+        "import_price_raw": 0.51,
+        "import_price_source": "primary",
+        "load_kw": 1.3,
+        "net_cost": 0.3315,
+        "savings_battery": 0.0,
+        "savings_combined": 0.0,
+        "savings_interaction": 0.0,
+        "savings_pv": 0.0,
+        "shadow_price": 0.51,
+        "soc_pct": 71.5,
+        "solar_kw": 0.0,
+        "time": "2026-09-09T11:30:00+10:00"
+       },
+       {
+        "battery_kw": 0.0,
+        "battery_kw_after_efficiency": 0.0,
+        "bonus_price": 0.0,
+        "dispatch_direction": "idle",
+        "dispatch_source_a_label": "Load",
+        "dispatch_source_a_pct": 0.0,
+        "dispatch_source_b_label": "Grid",
+        "dispatch_source_b_pct": 0.0,
+        "envelope_export_limit_kw": 15.0,
+        "envelope_import_limit_kw": 15.0,
         "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
@@ -9639,10 +9689,10 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
-        "time": "2026-09-09T11:30:00+10:00"
+        "time": "2026-09-09T12:00:00+10:00"
        },
        {
         "battery_kw": 0.0,
@@ -9678,56 +9728,6 @@
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
         "grid_export_kw": -0.0,
-        "grid_import_kw": 1.3,
-        "hours": 0.5,
-        "import_price": 0.51,
-        "import_price_raw": 0.51,
-        "import_price_source": "primary",
-        "load_kw": 1.3,
-        "net_cost": 0.3315,
-        "savings_battery": 0.0,
-        "savings_combined": 0.0,
-        "savings_interaction": 0.0,
-        "savings_pv": 0.0,
-        "shadow_price": 0.5101,
-        "soc_pct": 71.5,
-        "solar_kw": 0.0,
-        "time": "2026-09-09T12:00:00+10:00"
-       },
-       {
-        "battery_kw": 0.0,
-        "battery_kw_after_efficiency": 0.0,
-        "bonus_price": 0.0,
-        "dispatch_direction": "idle",
-        "dispatch_source_a_label": "Load",
-        "dispatch_source_a_pct": 0.0,
-        "dispatch_source_b_label": "Grid",
-        "dispatch_source_b_pct": 0.0,
-        "envelope_export_limit_kw": 15.0,
-        "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
-        "export_price": 0.26,
-        "export_price_raw": 0.26,
-        "export_price_source": "primary",
-        "flow_battery_cost_basis": 0.3384,
-        "flow_battery_to_grid_kw": 0.0,
-        "flow_battery_to_load_kw": 0.0,
-        "flow_battery_to_losses_kw": 0.0,
-        "flow_grid_to_battery_kw": 0.0,
-        "flow_grid_to_load_kw": 1.3,
-        "flow_price_battery_to_grid": -0.1039,
-        "flow_price_battery_to_load": 0.4845,
-        "flow_price_grid_to_battery": -0.51,
-        "flow_price_grid_to_load": -0.51,
-        "flow_price_pv_to_battery": 0.4845,
-        "flow_price_pv_to_grid": 0.26,
-        "flow_price_pv_to_load": 0.51,
-        "flow_pv_risk_margin_kw": 0.0,
-        "flow_pv_to_battery_kw": 0.0,
-        "flow_pv_to_curtailment_kw": 0.0,
-        "flow_pv_to_grid_kw": 0.0,
-        "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -10105,7 +10105,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -10127,7 +10127,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -10155,7 +10155,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -10177,7 +10177,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -10589,7 +10589,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T21:00:00+10:00"
@@ -10605,7 +10605,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -10627,7 +10627,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 1.3,
         "hours": 0.5,
         "import_price": 0.51,
@@ -10639,7 +10639,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.51,
         "soc_pct": 71.5,
         "solar_kw": 0.0,
         "time": "2026-09-09T21:30:00+10:00"
@@ -10905,7 +10905,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -10927,7 +10927,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -10940,7 +10940,7 @@
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
         "shadow_price": 0.51,
-        "soc_pct": 68.17,
+        "soc_pct": 68.18,
         "solar_kw": 0.0,
         "time": "2026-09-10T00:30:00+10:00"
        },
@@ -10955,7 +10955,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -10977,7 +10977,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11055,7 +11055,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -11077,7 +11077,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11105,7 +11105,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -11127,7 +11127,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11140,7 +11140,7 @@
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
         "shadow_price": 0.51,
-        "soc_pct": 61.52,
+        "soc_pct": 61.53,
         "solar_kw": 0.0,
         "time": "2026-09-10T02:30:00+10:00"
        },
@@ -11340,7 +11340,7 @@
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
         "shadow_price": 0.51,
-        "soc_pct": 54.87,
+        "soc_pct": 54.88,
         "solar_kw": 0.0,
         "time": "2026-09-10T04:30:00+10:00"
        },
@@ -11455,7 +11455,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -11477,7 +11477,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11555,7 +11555,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -11577,7 +11577,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11655,7 +11655,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -11677,7 +11677,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -11839,7 +11839,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 38.25,
         "solar_kw": 0.0,
         "time": "2026-09-10T09:30:00+10:00"
@@ -11889,7 +11889,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 36.59,
         "solar_kw": 0.0,
         "time": "2026-09-10T10:00:00+10:00"
@@ -11939,8 +11939,8 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
-        "soc_pct": 34.92,
+        "shadow_price": 0.51,
+        "soc_pct": 34.93,
         "solar_kw": 0.0,
         "time": "2026-09-10T10:30:00+10:00"
        },
@@ -11989,7 +11989,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 33.26,
         "solar_kw": 0.0,
         "time": "2026-09-10T11:00:00+10:00"
@@ -12039,7 +12039,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
+        "shadow_price": 0.51,
         "soc_pct": 31.6,
         "solar_kw": 0.0,
         "time": "2026-09-10T11:30:00+10:00"
@@ -12105,7 +12105,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -12127,7 +12127,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -12139,8 +12139,8 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5099,
-        "soc_pct": 28.27,
+        "shadow_price": 0.51,
+        "soc_pct": 28.28,
         "solar_kw": 0.0,
         "time": "2026-09-10T12:30:00+10:00"
        },
@@ -12189,7 +12189,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.5101,
+        "shadow_price": 0.5099,
         "soc_pct": 26.61,
         "solar_kw": 0.0,
         "time": "2026-09-10T13:00:00+10:00"
@@ -12205,7 +12205,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -12227,7 +12227,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -12239,7 +12239,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 24.95,
         "solar_kw": 0.0,
         "time": "2026-09-10T13:30:00+10:00"
@@ -12305,7 +12305,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": 0.0,
+        "export_bonus_kw": -0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -12327,7 +12327,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": -0.0,
+        "grid_export_kw": 0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -12339,7 +12339,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5099,
         "soc_pct": 21.63,
         "solar_kw": 0.0,
         "time": "2026-09-10T14:30:00+10:00"
@@ -12389,7 +12389,7 @@
         "savings_combined": 0.3306,
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
-        "shadow_price": 0.51,
+        "shadow_price": 0.5101,
         "soc_pct": 19.96,
         "solar_kw": 0.0,
         "time": "2026-09-10T15:00:00+10:00"
@@ -12540,7 +12540,7 @@
         "savings_interaction": 0.0165,
         "savings_pv": 0.0,
         "shadow_price": 0.51,
-        "soc_pct": 14.98,
+        "soc_pct": 14.97,
         "solar_kw": 0.0,
         "time": "2026-09-10T16:30:00+10:00"
        },
@@ -12555,7 +12555,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -12577,7 +12577,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -12655,7 +12655,7 @@
         "dispatch_source_b_pct": 0.0,
         "envelope_export_limit_kw": 15.0,
         "envelope_import_limit_kw": 15.0,
-        "export_bonus_kw": -0.0,
+        "export_bonus_kw": 0.0,
         "export_price": 0.26,
         "export_price_raw": 0.26,
         "export_price_source": "primary",
@@ -12677,7 +12677,7 @@
         "flow_pv_to_curtailment_kw": 0.0,
         "flow_pv_to_grid_kw": 0.0,
         "flow_pv_to_load_kw": 0.0,
-        "grid_export_kw": 0.0,
+        "grid_export_kw": -0.0,
         "grid_import_kw": 0.004,
         "hours": 0.5,
         "import_price": 0.51,
@@ -13143,13 +13143,13 @@
     5.0,
     5.0,
     5.0,
+    0.7096617698687621,
+    0.7096617698687621,
+    0.7096617698687645,
+    0.7096617698687677,
     0.7096617698687675,
     0.7096617698687675,
     0.7096617698687675,
-    0.7096617698687675,
-    0.7096617698687675,
-    0.7096617698687675,
-    0.7096617698687673,
     0.0,
     0.0,
     0.0,
@@ -13498,46 +13498,46 @@
     0.0,
     0.0,
     0.0,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.296323647859587,
-    1.296323647859587,
     1.2963236478595903,
-    1.2963236478595903,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916,
-    1.2963236478595916
+    1.2963236478595899,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.296323647859592,
+    1.296323647859592,
+    1.296323647859592,
+    1.296323647859592,
+    1.296323647859592,
+    1.296323647859592,
+    1.296323647859592,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919,
+    1.2963236478595919
    ],
    "battery_name": "home",
    "grid_export_kw": [
@@ -13562,11 +13562,11 @@
     0.0,
     -0.0,
     -0.0,
-    0.0,
     -0.0,
     -0.0,
-    0.0,
+    -0.0,
     -0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
@@ -13580,9 +13580,9 @@
     -0.0,
     0.0,
     -0.0,
-    0.0,
     -0.0,
     -0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
@@ -13593,14 +13593,14 @@
     -0.0,
     -0.0,
     0.0,
-    -0.0,
     0.0,
-    -0.0,
     0.0,
-    -0.0,
+    0.0,
     0.0,
     -0.0,
     -0.0,
+    -0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
@@ -13619,17 +13619,15 @@
     0.0,
     -0.0,
     -0.0,
-    0.0,
     -0.0,
-    0.0,
     -0.0,
     0.0,
     -0.0,
     0.0,
     -0.0,
     -0.0,
-    0.0,
-    0.0,
+    -0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
@@ -13637,17 +13635,19 @@
     0.0,
     -0.0,
     -0.0,
-    0.0,
     -0.0,
     0.0,
-    -0.0,
     0.0,
     -0.0,
+    0.0,
     0.0,
+    0.0,
     -0.0,
     -0.0,
+    -0.0,
     0.0,
     0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
@@ -13660,58 +13660,51 @@
     0.0,
     -0.0,
     0.0,
-    0.0,
-    0.0,
     -0.0,
     0.0,
     0.0,
     -0.0,
     0.0,
-    -0.0,
     0.0,
-    -0.0,
-    -0.0,
     0.0,
     0.0,
     0.0,
+    -0.0,
     0.0,
+    -0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
+    -0.0,
     0.0,
     -0.0,
     0.0,
     -0.0,
+    -0.0,
     0.0,
     0.0,
     0.0,
     -0.0,
     0.0,
-    -0.0,
     -0.0,
     0.0,
     -0.0,
-    0.0,
     -0.0,
     0.0,
     -0.0,
     0.0,
     -0.0,
     0.0,
-    0.0,
     -0.0,
     0.0,
     -0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
+    -0.0,
     0.0,
+    -0.0,
     0.0,
     0.0,
     -0.0,
-    0.0,
     -0.0,
     0.0,
     -0.0,
@@ -13723,23 +13716,30 @@
     0.0,
     -0.0,
     0.0,
-    -0.0,
     0.0,
     0.0,
     0.0,
     0.0,
     0.0,
+    -0.0,
     0.0,
+    -0.0,
     0.0,
     0.0,
-    -0.0,
     0.0,
     0.0,
     -0.0,
     0.0,
+    -0.0,
+    0.0,
+    0.0,
     0.0,
     0.0,
+    -0.0,
+    0.0,
+    -0.0,
     0.0,
+    -0.0,
     0.0,
     0.0,
     0.0
@@ -13756,13 +13756,13 @@
     6.5,
     6.4,
     6.4,
-    2.1096617698687674,
+    2.109661769868762,
+    2.009661769868762,
+    2.0096617698687647,
+    2.0096617698687678,
     2.0096617698687673,
     2.0096617698687673,
     2.0096617698687673,
-    2.0096617698687673,
-    2.0096617698687673,
-    2.0096617698687673,
     1.3,
     1.3,
     1.3,
@@ -13907,46 +13907,46 @@
     1.3,
     1.3,
     1.3,
-    0.003676352140408401,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408401,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140408501,
-    0.003676352140413064,
-    0.003676352140413064,
-    0.0036763521404097332,
-    0.0036763521404097332,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408401,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408451,
-    0.003676352140408401
+    0.003676352140410286,
+    0.003676352140410286,
+    0.0036763521404081585,
+    0.003676352140408179,
+    0.003676352140408179,
+    0.003676352140408042,
+    0.0036763521404080445,
+    0.0036763521404080445,
+    0.003676352140408047,
+    0.003676352140408047,
+    0.0036763521404080475,
+    0.0036763521404080475,
+    0.003676352140408178,
+    0.003676352140408178,
+    0.0036763521404081794,
+    0.0036763521404081794,
+    0.0036763521404081794,
+    0.0036763521404081794,
+    0.0036763521404081794,
+    0.003676352140408254,
+    0.003676352140408254,
+    0.0036763521404081716,
+    0.003676352140408172,
+    0.0036763521404081603,
+    0.003676352140408173,
+    0.0036763521404081707,
+    0.003676352140408172,
+    0.003676352140408172,
+    0.0036763521404081195,
+    0.0036763521404081165,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408231,
+    0.003676352140408215,
+    0.003676352140408231
    ],
    "period_hours": [
     0.08333333333333333,
@@ -15829,7 +15829,7 @@
      },
      {
       "time": "2026-09-06T20:30:00+10:00",
-      "value": 0.4599
+      "value": 0.46
      },
      {
       "time": "2026-09-06T20:35:00+10:00",
@@ -15837,15 +15837,15 @@
      },
      {
       "time": "2026-09-06T20:40:00+10:00",
-      "value": 0.4801
+      "value": 0.48
      },
      {
       "time": "2026-09-06T20:45:00+10:00",
-      "value": 0.4899
+      "value": 0.49
      },
      {
       "time": "2026-09-06T20:50:00+10:00",
-      "value": 0.5001
+      "value": 0.5
      },
      {
       "time": "2026-09-06T20:55:00+10:00",
@@ -15881,11 +15881,11 @@
      },
      {
       "time": "2026-09-07T00:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T01:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T01:30:00+10:00",
@@ -15897,35 +15897,35 @@
      },
      {
       "time": "2026-09-07T02:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T03:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T03:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T04:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T04:30:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-07T05:00:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-07T05:30:00+10:00",
       "value": 0.5099
      },
      {
-      "time": "2026-09-07T06:00:00+10:00",
+      "time": "2026-09-07T05:00:00+10:00",
       "value": 0.5101
+     },
+     {
+      "time": "2026-09-07T05:30:00+10:00",
+      "value": 0.51
+     },
+     {
+      "time": "2026-09-07T06:00:00+10:00",
+      "value": 0.51
      },
      {
       "time": "2026-09-07T06:30:00+10:00",
@@ -15941,19 +15941,19 @@
      },
      {
       "time": "2026-09-07T08:00:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T08:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T09:00:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T09:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T10:00:00+10:00",
@@ -15961,11 +15961,11 @@
      },
      {
       "time": "2026-09-07T10:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-07T11:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-07T11:30:00+10:00",
@@ -15977,15 +15977,15 @@
      },
      {
       "time": "2026-09-07T12:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.5099
+      "value": 0.5101
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T14:00:00+10:00",
@@ -16017,11 +16017,11 @@
      },
      {
       "time": "2026-09-07T17:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-07T18:00:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T18:30:00+10:00",
@@ -16033,7 +16033,7 @@
      },
      {
       "time": "2026-09-07T19:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-07T20:00:00+10:00",
@@ -16041,15 +16041,15 @@
      },
      {
       "time": "2026-09-07T20:30:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-07T21:00:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-07T21:30:00+10:00",
-      "value": 0.5101
+      "value": 0.5099
      },
      {
       "time": "2026-09-07T22:00:00+10:00",
@@ -16057,15 +16057,15 @@
      },
      {
       "time": "2026-09-07T22:30:00+10:00",
-      "value": 0.5099
-     },
-     {
-      "time": "2026-09-07T23:00:00+10:00",
       "value": 0.51
      },
      {
-      "time": "2026-09-07T23:30:00+10:00",
+      "time": "2026-09-07T23:00:00+10:00",
       "value": 0.5101
+     },
+     {
+      "time": "2026-09-07T23:30:00+10:00",
+      "value": 0.51
      },
      {
       "time": "2026-09-08T00:00:00+10:00",
@@ -16093,23 +16093,23 @@
      },
      {
       "time": "2026-09-08T03:00:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-08T03:30:00+10:00",
       "value": 0.5101
      },
      {
+      "time": "2026-09-08T03:30:00+10:00",
+      "value": 0.5099
+     },
+     {
       "time": "2026-09-08T04:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T04:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-08T05:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T05:30:00+10:00",
@@ -16129,11 +16129,11 @@
      },
      {
       "time": "2026-09-08T07:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-08T08:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T08:30:00+10:00",
@@ -16141,23 +16141,23 @@
      },
      {
       "time": "2026-09-08T09:00:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-08T09:30:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-08T10:00:00+10:00",
       "value": 0.5099
      },
      {
-      "time": "2026-09-08T10:30:00+10:00",
+      "time": "2026-09-08T09:30:00+10:00",
+      "value": 0.5101
+     },
+     {
+      "time": "2026-09-08T10:00:00+10:00",
       "value": 0.51
      },
      {
+      "time": "2026-09-08T10:30:00+10:00",
+      "value": 0.5099
+     },
+     {
       "time": "2026-09-08T11:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T11:30:00+10:00",
@@ -16165,11 +16165,11 @@
      },
      {
       "time": "2026-09-08T12:00:00+10:00",
-      "value": 0.5101
+      "value": 0.5099
      },
      {
       "time": "2026-09-08T12:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-08T13:00:00+10:00",
@@ -16185,11 +16185,11 @@
      },
      {
       "time": "2026-09-08T14:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-08T15:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T15:30:00+10:00",
@@ -16201,15 +16201,15 @@
      },
      {
       "time": "2026-09-08T16:30:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-08T17:00:00+10:00",
       "value": 0.5099
      },
      {
-      "time": "2026-09-08T17:30:00+10:00",
+      "time": "2026-09-08T17:00:00+10:00",
       "value": 0.5101
+     },
+     {
+      "time": "2026-09-08T17:30:00+10:00",
+      "value": 0.51
      },
      {
       "time": "2026-09-08T18:00:00+10:00",
@@ -16221,15 +16221,15 @@
      },
      {
       "time": "2026-09-08T19:00:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-08T19:30:00+10:00",
       "value": 0.5099
      },
      {
+      "time": "2026-09-08T19:30:00+10:00",
+      "value": 0.5101
+     },
+     {
       "time": "2026-09-08T20:00:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-08T20:30:00+10:00",
@@ -16237,11 +16237,11 @@
      },
      {
       "time": "2026-09-08T21:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-08T21:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-08T22:00:00+10:00",
@@ -16249,11 +16249,11 @@
      },
      {
       "time": "2026-09-08T22:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-08T23:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-08T23:30:00+10:00",
@@ -16277,15 +16277,15 @@
      },
      {
       "time": "2026-09-09T02:00:00+10:00",
-      "value": 0.51
-     },
-     {
-      "time": "2026-09-09T02:30:00+10:00",
       "value": 0.5099
      },
      {
-      "time": "2026-09-09T03:00:00+10:00",
+      "time": "2026-09-09T02:30:00+10:00",
       "value": 0.5101
+     },
+     {
+      "time": "2026-09-09T03:00:00+10:00",
+      "value": 0.5099
      },
      {
       "time": "2026-09-09T03:30:00+10:00",
@@ -16293,7 +16293,7 @@
      },
      {
       "time": "2026-09-09T04:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-09T04:30:00+10:00",
@@ -16301,19 +16301,19 @@
      },
      {
       "time": "2026-09-09T05:00:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-09T05:30:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-09T06:00:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-09T06:30:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-09T07:00:00+10:00",
@@ -16321,27 +16321,27 @@
      },
      {
       "time": "2026-09-09T07:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-09T08:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-09T08:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-09T09:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-09T09:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-09T10:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-09T10:30:00+10:00",
@@ -16353,11 +16353,11 @@
      },
      {
       "time": "2026-09-09T11:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-09T12:00:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-09T12:30:00+10:00",
@@ -16429,11 +16429,11 @@
      },
      {
       "time": "2026-09-09T21:00:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-09T21:30:00+10:00",
-      "value": 0.5101
+      "value": 0.51
      },
      {
       "time": "2026-09-09T22:00:00+10:00",
@@ -16529,23 +16529,23 @@
      },
      {
       "time": "2026-09-10T09:30:00+10:00",
-      "value": 0.5099
-     },
-     {
-      "time": "2026-09-10T10:00:00+10:00",
       "value": 0.51
      },
      {
-      "time": "2026-09-10T10:30:00+10:00",
-      "value": 0.5099
-     },
-     {
-      "time": "2026-09-10T11:00:00+10:00",
+      "time": "2026-09-10T10:00:00+10:00",
       "value": 0.5101
      },
      {
-      "time": "2026-09-10T11:30:00+10:00",
+      "time": "2026-09-10T10:30:00+10:00",
+      "value": 0.51
+     },
+     {
+      "time": "2026-09-10T11:00:00+10:00",
       "value": 0.5099
+     },
+     {
+      "time": "2026-09-10T11:30:00+10:00",
+      "value": 0.51
      },
      {
       "time": "2026-09-10T12:00:00+10:00",
@@ -16553,15 +16553,15 @@
      },
      {
       "time": "2026-09-10T12:30:00+10:00",
-      "value": 0.5099
+      "value": 0.51
      },
      {
       "time": "2026-09-10T13:00:00+10:00",
-      "value": 0.5101
+      "value": 0.5099
      },
      {
       "time": "2026-09-10T13:30:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-10T14:00:00+10:00",
@@ -16569,11 +16569,11 @@
      },
      {
       "time": "2026-09-10T14:30:00+10:00",
-      "value": 0.51
+      "value": 0.5099
      },
      {
       "time": "2026-09-10T15:00:00+10:00",
-      "value": 0.51
+      "value": 0.5101
      },
      {
       "time": "2026-09-10T15:30:00+10:00",

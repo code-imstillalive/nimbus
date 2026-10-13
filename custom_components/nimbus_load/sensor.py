@@ -115,6 +115,8 @@ from .const import (
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_CHARGE_COST,
+    CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+    CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_EFFICIENCY_PERCENT,
@@ -470,6 +472,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # 05:30 set, and the plan still sold to 2.8% at 05:00).
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    # Household, 12 Oct 2026: the charge taper (see const.py).
+    CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
+    CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
     # nimbus issue #485: the household mode must be exposed here too,
@@ -573,6 +578,9 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # the sliders would be read from entry.options and do nothing (#538/#837).
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    # Household, 12 Oct 2026: the charge taper (see const.py).
+    CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
+    CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
 )
 # Household, 11 Oct 2026: time-of-day settings live in time.py as clock
 # times; resolved to hours (05:30 -> 5.5) so the Solver reads them as before.

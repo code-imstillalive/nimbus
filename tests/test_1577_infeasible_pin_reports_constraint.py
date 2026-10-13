@@ -35,7 +35,12 @@ import numpy as np
 import solver_plan
 from solver import network, pin_blockers
 
-from tests.test_1303_plan_assembly_extraction import CFG, _Env, _fingerprint, _kwargs
+from tests.test_1303_plan_assembly_extraction import CFG as _CFG_1303
+from tests.test_1303_plan_assembly_extraction import _Env, _fingerprint, _kwargs
+
+# The charge taper (12 Oct 2026) off: each test here isolates ONE blocker, and
+# at this fixture's SoC the default taper would name itself alongside it.
+CFG = {**_CFG_1303, "solver_charge_taper_start_percent": 100}
 
 
 class _LowSoc(_Env):
