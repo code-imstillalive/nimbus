@@ -638,3 +638,35 @@ def test_battery_chart_reads_watts_as_kw_and_labels_its_plan_series() -> None:
     assert "hass.states['sensor.batt']" in resolved["transform"]
     assert by_name["SoC ahead"]["unit"] == "%"
     assert by_name["Buy price ahead"]["unit"] == "c/kWh"
+
+
+def test_soc_ahead_is_drawn_at_the_end_of_each_period() -> None:
+    """A plan row's soc_pct is the SoC after its period (household, 12 Oct
+    2026: a sale's SoC drop showed a period before its battery bar)."""
+    gens = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("name") == "SoC ahead":
+                gens.append(node["data_generator"])
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(solver_tab.template())
+    assert gens
+    assert all("p.hours" in g and "3600000" in g for g in gens)
+
+
+def test_forecast_card_soc_is_drawn_at_the_end_of_each_period() -> None:
+    import pathlib
+
+    js = (
+        pathlib.Path(solver_tab.__file__).parent
+        / "frontend"
+        / "nimbus-forecast-card.js"
+    ).read_text(encoding="utf-8")
+    soc = js[js.index('name: "Solver SoC % (proposed)"') :][:400]
+    assert "(p.hours || 0) * 3600000, p.soc_pct" in soc

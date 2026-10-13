@@ -471,6 +471,17 @@ def _forecast(field: str, scale: float = 1.0) -> str:
     )
 
 
+def _forecast_at_period_end(field: str) -> str:
+    """Same, drawn at each row's END: `soc_pct` is the SoC after the period,
+    so at the row's start a sale's SoC drop shows a period before its bar
+    (household, 12 Oct 2026)."""
+    return (
+        "return (entity.attributes.forecast || []).map(p => "
+        "[new Date(p.time).getTime() + (p.hours || 0) * 3600000, "
+        f"p.{field}]);"
+    )
+
+
 # --- Performance charts ----------------------------------------------------
 
 
@@ -752,7 +763,7 @@ def _chart() -> dict[str, Any]:
                 "stroke_dash": 4,
                 "yaxis_id": "soc",
                 "unit": "%",
-                "data_generator": _forecast("soc_pct"),
+                "data_generator": _forecast_at_period_end("soc_pct"),
                 **ahead,
             },
             {

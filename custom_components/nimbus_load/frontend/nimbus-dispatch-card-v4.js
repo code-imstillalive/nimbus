@@ -559,7 +559,9 @@ class NimbusDispatchCardV4 extends HTMLElement {
       areaPath += ' L ' + xOf(times[times.length - 1]) + ' ' + yZero + ' Z';
     }
     let socPath = '';
-    fcChart.forEach((p, i) => { socPath += (i === 0 ? 'M ' : ' L ') + xOf(times[i]) + ' ' + yOfSoc(p.soc_pct || 0); });
+    // soc_pct is the SoC at the END of each period: drawn there, so a sale's
+    // SoC drop sits under its own period (household, 12 Oct 2026).
+    fcChart.forEach((p, i) => { socPath += (i === 0 ? 'M ' : ' L ') + xOf(Math.min(tMax, times[i] + (p.hours || 0) * 3600000)) + ' ' + yOfSoc(p.soc_pct || 0); });
     let actualPath = '';
     actual.forEach((a, i) => { actualPath += (i === 0 ? 'M ' : ' L ') + xOf(a[0]) + ' ' + yOfKw(a[1]); });
 
