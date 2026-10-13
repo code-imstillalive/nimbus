@@ -139,6 +139,10 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         [
             "Plan",
             (4, "Battery: plan against measured"),
+            # nimbus #1753: the plan's prices for its whole horizon, then one
+            # card per day.
+            (4, "Prices ahead"),
+            *[(1, "markdown: {{ ns.bt }}")] * 4,
             (2, "Solver Forecast — Until Midnight"),
             (1, "Nimbus Solver Quality (EPR / Regret)"),
             (1, "Solver Daily Summary"),

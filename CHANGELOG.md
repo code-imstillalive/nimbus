@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Prices ahead on the Solver tab** (#1753, household). Under the plan
+  chart, a full-width chart of buy and sell over the plan's whole horizon
+  (four days), solid where the price provider's own forecast covers it and
+  dashed where the price is Nimbus's estimate (wholesale forecast plus the
+  markup learned from the provider's history), then one card per day:
+  lowest, average and highest buy and sell, the 17:00-21:00 average, and
+  the cheapest buy and best sell times. The plan publishes
+  `import_price_provider_until` / `export_price_provider_until` on
+  `sensor.nimbus_solver_battery_forecast`, the start of the last period the
+  provider's forecast covers (from the price inputs' existing coverage
+  mask). Before this, the tab's plan chart showed 36 hours and every period
+  read `price_source: primary`, so nothing said where the provider's prices
+  ended.
+
 ### Fixed
 - **Forecaster points sit on the clock.** Every load and signal forecast
   stepped 15 minutes from the moment its sensor last refreshed, so its points

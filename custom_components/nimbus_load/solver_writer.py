@@ -5017,6 +5017,24 @@ def fetch_aemo_forecast(
     )
 
 
+def provider_forecast_until(
+    real_mask: object, grid_times: list[datetime]
+) -> str | None:
+    """nimbus #1753: the start of the last plan period the price provider's
+    own forecast covers (ISO), or None when it covers none. Periods after it
+    are priced by this module's wholesale + learned-markup extension (or
+    held flat), so a dashboard can tell the provider's prices from Nimbus's
+    estimate. `real_mask` is the per-period coverage mask the price inputs
+    already build (resample_price_with_extrapolation(),
+    resample_generic_price_forecast_with_coverage())."""
+    try:
+        flags = [bool(f) for f in real_mask]  # type: ignore[attr-defined]
+    except TypeError:
+        return None
+    last = max((i for i, f in enumerate(flags[: len(grid_times)]) if f), default=None)
+    return None if last is None else grid_times[last].isoformat()
+
+
 def extend_generic_price_tails(
     cfg: dict,
     grid_times: list[datetime],
@@ -9470,6 +9488,12 @@ def main() -> None:
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
         price_spike_active=price_spike_active,
         load_forecast_source_decision=load_forecast_source_decision,
+        import_price_provider_until=provider_forecast_until(
+            import_real_mask, grid_times
+        ),
+        export_price_provider_until=provider_forecast_until(
+            export_real_mask, grid_times
+        ),
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
