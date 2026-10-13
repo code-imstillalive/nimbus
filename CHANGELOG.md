@@ -14,6 +14,22 @@ Two plan changes for the reference household, both measured on its own data:
 the plan stops assuming 40 kW of charge to 100%, and daytime discharge is
 costed at the install's own Discharge Cost instead of a hidden 0.09.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 384b47e9**,
+  installed untagged via HACS from `main` (`installed_version` 384b47e) and
+  restarted 15:45 AEST 13 Oct. The `nimbus_load` config entry is loaded (147
+  entities); devhub's own entities stamp `0.94.454`; the two new settings
+  exist at their defaults (`number.nimbus_solver_charge_taper_start_percent`
+  90, `number.nimbus_solver_charge_power_at_full_percent` 10); **0 ERROR or
+  Traceback lines** after the restart. **Not claimed: a solve on devhub**,
+  whose own Solver entities read `unavailable`. CI passed all 10 checks on
+  #1741, #1745 and #1746, including the full pytest run.
+- Consumer check: the reference household's solve was replayed read-only on
+  13 Oct against production's live states with #1745's code. With the 12:46
+  spike (sell 43.5c, buy 49.1c) it sells 40 kW where v0.94.453 sold 0; on the
+  day's normal prices the plan is unchanged (same charging and block, 17:00
+  SoC 94.5% vs 94.6%). The taper is not exercised by a replay; it shows as
+  charge below 40 kW above 90% SoC in the first plan that charges near full.
+
 ### Added
 - **Charge taper near full:** the plan no longer assumes full charge power
   up to 100%. From **Charge Taper Start** (default 90% SoC) the charge ceiling
