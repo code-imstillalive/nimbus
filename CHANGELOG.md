@@ -20,6 +20,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   reads forecasts at-or-before each period start, so its 15- and 30-minute
   periods now take the point for that exact quarter-hour.
 
+## [0.94.454] - 2026-10-13
+
+Two plan changes for the reference household, both measured on its own data:
+the plan stops assuming 40 kW of charge to 100%, and daytime discharge is
+costed at the install's own Discharge Cost instead of a hidden 0.09.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 384b47e9**,
+  installed untagged via HACS from `main` (`installed_version` 384b47e) and
+  restarted 15:45 AEST 13 Oct. The `nimbus_load` config entry is loaded (147
+  entities); devhub's own entities stamp `0.94.454`; the two new settings
+  exist at their defaults (`number.nimbus_solver_charge_taper_start_percent`
+  90, `number.nimbus_solver_charge_power_at_full_percent` 10); **0 ERROR or
+  Traceback lines** after the restart. **Not claimed: a solve on devhub**,
+  whose own Solver entities read `unavailable`. CI passed all 10 checks on
+  #1741, #1745 and #1746, including the full pytest run.
+- Consumer check: the reference household's solve was replayed read-only on
+  13 Oct against production's live states with #1745's code. With the 12:46
+  spike (sell 43.5c, buy 49.1c) it sells 40 kW where v0.94.453 sold 0; on the
+  day's normal prices the plan is unchanged (same charging and block, 17:00
+  SoC 94.5% vs 94.6%). The taper is not exercised by a replay; it shows as
+  charge below 40 kW above 90% SoC in the first plan that charges near full.
+
 ### Added
 - **Charge taper near full:** the plan no longer assumes full charge power
   up to 100%. From **Charge Taper Start** (default 90% SoC) the charge ceiling
@@ -30,6 +52,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   98.7%. Changes plans on every install that charges near full: golden plans
   now top out at 99.2% instead of an instant 100%. Not yet on the Solver tab
   (the two settings are `number.` entities on the Solver device).
+
+### Fixed
+- **The solve uses the install's own Discharge Cost and Salvage Value at
+  every hour.** On any install with a price-forecast array (the reference
+  household's LocalVolts setup), the solve applied a hidden schedule instead:
+  discharge cost 0.09 from 07:00 to 17:00 and salvage value 0.30 for a horizon
+  ending 17:00-24:00 -- HAEO's retired 5pm/midnight/7am cost schedule. No
+  setting or entity reached it, so the visible Discharge Cost (0.01 on the
+  reference household) only applied overnight. On 13 Oct at 12:46 AEST the
+  sell price jumped to 43.5c for one interval and the plan sold nothing;
+  replaying production's own solve read-only with that spike sold 0 kW at
+  0.09 and the full 40 kW at 0.01. Daytime discharge, house load from the
+  battery and midday spikes are now costed at the setting, and the plan
+  agrees with the quality scorer and counterfactual, which already used it.
+  Changes plans: 13 golden scenarios move (the 10 price replays cost $0.55 to
+  $4.04 less; the 3 thermal ones, whose horizons end in the evening, carry the
+  setting's 0.15 salvage value instead of 0.30).
 
 ## [0.94.453] - 2026-10-12
 
