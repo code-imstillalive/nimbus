@@ -784,8 +784,10 @@ TOTAL_HORIZON_HOURS = 96.0  # tier0 + tier1 + tier2 combined span from tier1_sta
 # "generic" price-forecast-array field's LocalVolts-specific
 # costsflexup/earningsflexup key parsing (now solver_price_forecast_
 # array_import_key/export_key, fixed 2026-09-04). None of these are
-# "silent" anymore -- each is a real, visible, wizard-editable field,
-# even though the discharge-cost/salvage-value schedule and the
+# "silent" anymore -- each is a real, visible field (CORRECTED 13 Oct 2026:
+# the discharge-cost/salvage-value schedule never was -- no wizard field or
+# entity writes its keys -- and it now defaults to the visible settings, see
+# DISCHARGE_COST_SCHEDULE_BLOCK_KEYS), even though that schedule and the
 # costsflexup/earningsflexup keys both still only APPLY on the
 # has_price_forecast_array branch (a deliberate, unchanged scope, not a
 # new gap -- a generic install without that sensor was never affected by
@@ -1179,10 +1181,19 @@ def resolve_load_forecast_source_label(
 # `_cfg_int` fall back to exactly these same literals whenever a key is
 # absent. Kept as named constants (not inlined) so the schema-default
 # call sites below read as "the historical schedule," not magic numbers.
-BATTERY_DISCHARGE_COST_NIGHT = 0.01  # 5pm-7am (P2P window + midnight-7am)
-BATTERY_DISCHARGE_COST_DAY = 0.09  # 7am-5pm
-BATTERY_SALVAGE_VALUE_NIGHT = 0.3  # 5pm-midnight (P2P window only)
-BATTERY_SALVAGE_VALUE_OTHER = 0.15  # midnight-5pm
+#
+# 13 Oct 2026: the defaults are now the install's own Discharge Cost and
+# Salvage Value settings at every hour, and every block is off. The old
+# defaults (0.09 for 07:00-17:00, 0.01 otherwise; salvage 0.30 for a horizon
+# ending 17:00-24:00) were HAEO's "Battery Cost Schedule - 5pm/Midnight/7am"
+# automations, off on the reference household since 6-7 Sep. No wizard
+# field, number entity or setting ever wrote these keys, so the schedule was
+# not editable: it silently overrode the visible Discharge Cost (0.01 on the
+# reference household) with 0.09 every day from 07:00. Measured by replaying
+# production's own solve read-only, 13 Oct 13:1x AEST, with the 12:46 spike
+# (sell 43.5c, buy 49.1c) in the current interval: 0 kW sold at 0.09, the
+# full 40 kW at 0.01. The quality scorer and counterfactual already used the
+# flat setting, so the plan and its own scorer disagreed on every daytime kWh.
 
 # Block 1 alone reproduces the real historical schedule (a single
 # overnight window); blocks 2/3 default OFF (rate=0.0, the same "rate<=0
@@ -1225,17 +1236,17 @@ SALVAGE_VALUE_SCHEDULE_BLOCK_KEYS = (
         "solver_salvage_value_schedule_block_3_end_hour",
     ),
 )
-# Per-block schema-default fallbacks: block 1 defaults to the real
-# historical schedule (ON by construction); blocks 2/3 default OFF.
+# Per-block schema-default fallbacks: every block defaults OFF (13 Oct 2026,
+# see above); a block applies only when its rate key is set above 0.
 # Keyed by the same tuples above so the lookup functions below can stay
 # a single, non-repetitive loop instead of one hardcoded branch per slot.
 _DISCHARGE_COST_BLOCK_DEFAULTS = (
-    (BATTERY_DISCHARGE_COST_NIGHT, 17, 7),  # wraps past midnight
+    (0.0, 17, 7),  # wraps past midnight
     (0.0, 0, 0),
     (0.0, 0, 0),
 )
 _SALVAGE_VALUE_BLOCK_DEFAULTS = (
-    (BATTERY_SALVAGE_VALUE_NIGHT, 17, 24),
+    (0.0, 17, 24),
     (0.0, 0, 0),
     (0.0, 0, 0),
 )
@@ -1267,7 +1278,9 @@ def scheduled_discharge_cost_rate(cfg: dict, hour: int) -> float:
     unaffected, still reading the flat solver_discharge_cost field.
     """
     default_rate = _cfg_num(
-        cfg, "solver_discharge_cost_schedule_default_rate", BATTERY_DISCHARGE_COST_DAY
+        cfg,
+        "solver_discharge_cost_schedule_default_rate",
+        _cfg_num(cfg, "solver_discharge_cost", 0.01),
     )
     for (rate_key, start_key, end_key), (
         rate_default,
@@ -1294,7 +1307,9 @@ def scheduled_salvage_value_rate(cfg: dict, hour: int) -> float:
     would set at whatever real hour the horizon happens to end at, not
     whatever's live right now."""
     default_rate = _cfg_num(
-        cfg, "solver_salvage_value_schedule_default_rate", BATTERY_SALVAGE_VALUE_OTHER
+        cfg,
+        "solver_salvage_value_schedule_default_rate",
+        _cfg_num(cfg, "solver_salvage_value", 0.15),
     )
     for (rate_key, start_key, end_key), (
         rate_default,

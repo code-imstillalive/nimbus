@@ -36,58 +36,41 @@ import _solver_path  # noqa: F401
 import solver_writer
 
 
-class TestScheduledDischargeCostRateReproducesHistoricalSchedule(unittest.TestCase):
-    """With NO new config keys set (every existing install's real state,
-    since these keys have never existed before this fix), every hour must
-    produce EXACTLY the old hardcoded battery_discharge_cost_rate()'s
-    output -- byte-identical behaviour for the household this was tuned
-    for."""
+class TestScheduleDefaultsToTheVisibleSettings(unittest.TestCase):
+    """13 Oct 2026: with no schedule keys set (every install: nothing writes
+    them), every hour uses the install's own Discharge Cost and Salvage
+    Value. The old defaults were HAEO's 5pm/midnight/7am cost schedule
+    (0.09 from 07:00 to 17:00), which made the reference household's plan
+    sell nothing into a 43.5c spike at 12:46 while its Discharge Cost read
+    0.01."""
 
-    def test_matches_old_hardcoded_function_at_every_hour_of_day(self):
-        def old_battery_discharge_cost_rate(hour: int) -> float:
-            return 0.01 if (hour >= 17 or hour < 7) else 0.09
+    def test_discharge_cost_is_the_setting_at_every_hour(self):
+        for cost in (0.01, 0.04):
+            for hour in range(24):
+                with self.subTest(cost=cost, hour=hour):
+                    self.assertEqual(
+                        solver_writer.scheduled_discharge_cost_rate(
+                            {"solver_discharge_cost": cost}, hour
+                        ),
+                        cost,
+                    )
 
+    def test_no_settings_at_all_is_the_settings_own_default(self):
+        for hour in (0, 7, 12, 16, 17, 23):
+            self.assertEqual(
+                solver_writer.scheduled_discharge_cost_rate({}, hour), 0.01
+            )
+            self.assertEqual(solver_writer.scheduled_salvage_value_rate({}, hour), 0.15)
+
+    def test_salvage_value_is_the_setting_at_every_hour(self):
         for hour in range(24):
             with self.subTest(hour=hour):
                 self.assertEqual(
-                    solver_writer.scheduled_discharge_cost_rate({}, hour),
-                    old_battery_discharge_cost_rate(hour),
+                    solver_writer.scheduled_salvage_value_rate(
+                        {"solver_salvage_value": 0.22}, hour
+                    ),
+                    0.22,
                 )
-
-    def test_night_window_exact_boundaries(self):
-        cfg = {}
-        # 17:00-23:59 and 00:00-06:59 are the "night" (0.01) window.
-        for hour in (17, 18, 23, 0, 6):
-            self.assertEqual(
-                solver_writer.scheduled_discharge_cost_rate(cfg, hour), 0.01
-            )
-        # 07:00-16:59 is the "day" (0.09) window.
-        for hour in (7, 12, 16):
-            self.assertEqual(
-                solver_writer.scheduled_discharge_cost_rate(cfg, hour), 0.09
-            )
-
-
-class TestScheduledSalvageValueRateReproducesHistoricalSchedule(unittest.TestCase):
-    def test_matches_old_hardcoded_function_at_every_hour_of_day(self):
-        def old_battery_salvage_value_rate(hour: int) -> float:
-            return 0.3 if hour >= 17 else 0.15
-
-        for hour in range(24):
-            with self.subTest(hour=hour):
-                self.assertEqual(
-                    solver_writer.scheduled_salvage_value_rate({}, hour),
-                    old_battery_salvage_value_rate(hour),
-                )
-
-    def test_night_window_exact_boundaries(self):
-        cfg = {}
-        for hour in (17, 18, 23):
-            self.assertEqual(solver_writer.scheduled_salvage_value_rate(cfg, hour), 0.3)
-        for hour in (0, 12, 16):
-            self.assertEqual(
-                solver_writer.scheduled_salvage_value_rate(cfg, hour), 0.15
-            )
 
 
 class TestScheduleIsGenuinelyConfigurable(unittest.TestCase):
@@ -97,38 +80,43 @@ class TestScheduleIsGenuinelyConfigurable(unittest.TestCase):
     def test_default_rate_override_changes_the_day_rate(self):
         cfg = {"solver_discharge_cost_schedule_default_rate": 0.20}
         self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 12), 0.20)
-        # Night block untouched by a default-rate-only change.
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 20), 0.01)
+        # No block is on by default, so the default rate applies at night too.
+        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 20), 0.20)
 
     def test_block_1_override_changes_the_night_rate_and_window(self):
         cfg = {
+            "solver_discharge_cost": 0.01,
             "solver_discharge_cost_schedule_block_1_rate": 0.03,
             "solver_discharge_cost_schedule_block_1_start_hour": 20,
             "solver_discharge_cost_schedule_block_1_end_hour": 6,
         }
         self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 21), 0.03)
-        # Hour 18 is no longer inside the (now-narrower) night window.
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 18), 0.09)
+        # Hour 18 is outside the block: the setting applies.
+        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 18), 0.01)
 
     def test_zero_rate_on_block_1_disables_the_night_override_entirely(self):
         # Same "rate<=0 = not configured" convention as
         # NETWORK_FEE_BLOCK_KEYS -- lets an install go fully flat.
-        cfg = {"solver_discharge_cost_schedule_block_1_rate": 0.0}
+        cfg = {
+            "solver_discharge_cost": 0.02,
+            "solver_discharge_cost_schedule_block_1_rate": 0.0,
+        }
         for hour in (2, 12, 20):
             self.assertEqual(
-                solver_writer.scheduled_discharge_cost_rate(cfg, hour), 0.09
+                solver_writer.scheduled_discharge_cost_rate(cfg, hour), 0.02
             )
 
     def test_block_2_can_add_a_genuine_third_tier(self):
         cfg = {
+            "solver_discharge_cost": 0.01,
             "solver_discharge_cost_schedule_block_2_rate": 0.15,
             "solver_discharge_cost_schedule_block_2_start_hour": 7,
             "solver_discharge_cost_schedule_block_2_end_hour": 9,
         }
         self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 8), 0.15)
-        # Block 1 (night) and the default (day) are both unaffected.
+        # Outside block 2 the setting applies.
         self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 20), 0.01)
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 12), 0.09)
+        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 12), 0.01)
 
     def test_salvage_value_default_and_block_1_are_independently_configurable(self):
         cfg = {
