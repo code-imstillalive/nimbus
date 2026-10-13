@@ -79,6 +79,8 @@ from .const import (
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_CHARGE_COST,
+    CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+    CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_EFFICIENCY_PERCENT,
@@ -124,6 +126,8 @@ from .const import (
     DEFAULT_SOLVER_BATTERY_RESERVE_PERCENT,
     DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     DEFAULT_SOLVER_CHARGE_COST,
+    DEFAULT_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+    DEFAULT_SOLVER_CHARGE_TAPER_START_PERCENT,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
     DEFAULT_SOLVER_EFFICIENCY_PERCENT,
@@ -397,6 +401,25 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         20,
         0.01,
         _CURRENCY_PER_KWH,
+    ),
+    # Household, 12 Oct 2026: the charge taper near full (see const.py).
+    _SolverNumberDescription(
+        CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
+        "Charge Taper Start",
+        DEFAULT_SOLVER_CHARGE_TAPER_START_PERCENT,
+        50,
+        100,
+        0.5,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+        "Charge Power at Full",
+        DEFAULT_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+        0,
+        100,
+        1,
+        "%",
     ),
     # nimbus #1654: the reserve's window is a pair of TIME entities
     # (time.py), shown as a clock time, not numbers here.

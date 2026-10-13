@@ -651,6 +651,16 @@ def _compute_report_for_window(
         max_soc_kwh=max_soc_kwh,
         max_charge_kw=sw._cfg_num(cfg, "solver_max_charge_kw", 5.0),
         max_discharge_kw=sw._cfg_num(cfg, "solver_max_discharge_kw", 5.0),
+        # 12 Oct 2026 (Mark Purcell, #1741 review): the same charge taper
+        # the live plan uses, so the oracle is not scored on 40 kW to 100%
+        # that the battery cannot take.
+        charge_power_curve=sw.solver_plan.charge_taper_curve(
+            cfg,
+            capacity_kwh,
+            min_soc_kwh,
+            max_soc_kwh,
+            sw._cfg_num(cfg, "solver_max_charge_kw", 5.0),
+        ),
         # solver_efficiency_percent is a single ROUND-TRIP figure, split
         # geometrically into per-direction charge/discharge efficiency
         # via sqrt() -- see main()'s own real BatteryConfig construction

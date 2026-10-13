@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Charge taper near full:** the plan no longer assumes full charge power
+  up to 100%. From **Charge Taper Start** (default 90% SoC) the charge ceiling
+  falls in a straight line to **Charge Power at Full** (default 10% of max
+  charge) at 100%; Taper Start 100 turns it off. Defaults fit the reference
+  household's measured charging, 9-11 Oct (~24 kW at 92-96%, 14 at 97.5%,
+  10 at 98.5%, 6 at 99.5% on 40 kW); the 12 Oct plan had charged at 40 kW to
+  98.7%. Changes plans on every install that charges near full: golden plans
+  now top out at 99.2% instead of an instant 100%. Not yet on the Solver tab
+  (the two settings are `number.` entities on the Solver device).
+
 ## [0.94.453] - 2026-10-12
 
 Charts and reporting, released before the reference household's 17:00 P2P

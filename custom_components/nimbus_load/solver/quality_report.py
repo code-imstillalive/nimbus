@@ -869,6 +869,33 @@ def _curtailment_repricing(plan, *, hours, import_price, export_price) -> float:
     return float(np.sum(h * (cost(net_lp) - cost(net_eval))))
 
 
+def _respan_power_curve(
+    curve: list[tuple[float, float]] | None, lo: float, hi: float
+) -> list[tuple[float, float]] | None:
+    """A power curve re-spanned to new SoC bounds [lo, hi] (#1741).
+
+    The oracle's SoC envelope is widened to contain the achieved trajectory
+    (#956), and `BatteryConfig` requires a curve to start at `min_soc_kwh` and
+    end at `max_soc_kwh`. The curve's own upper bound is the minimum of its
+    segment lines, so it is evaluated at the new ends and at every old point
+    strictly inside them: same shape, still concave.
+    """
+    if curve is None or hi <= lo:
+        return None
+    socs = [s for s, _ in curve]
+    pws = [p for _, p in curve]
+    lines = [
+        ((pws[i + 1] - pws[i]) / (socs[i + 1] - socs[i]), socs[i], pws[i])
+        for i in range(len(curve) - 1)
+    ]
+
+    def at(x: float) -> float:
+        return max(min(p0 + m * (x - s0) for m, s0, p0 in lines), 0.0)
+
+    xs = [lo] + [x for x in socs if lo < x < hi] + [hi]
+    return [(x, at(x)) for x in xs]
+
+
 def compute_quality_report(
     *,
     periods: PeriodGrid,
@@ -958,7 +985,17 @@ def compute_quality_report(
     # change, which a shared list would leave resting on the evaluator's
     # current internals instead of on construction.
     battery_oracle = [
-        replace(b, min_soc_kwh=floor, max_soc_kwh=ceiling)
+        replace(
+            b,
+            min_soc_kwh=floor,
+            max_soc_kwh=ceiling,
+            charge_power_curve=_respan_power_curve(
+                b.charge_power_curve, floor, ceiling
+            ),
+            discharge_power_curve=_respan_power_curve(
+                b.discharge_power_curve, floor, ceiling
+            ),
+        )
         for b, floor, ceiling in (
             (b, *_soc_envelope_containing_achieved(b, c, d, hours))
             for b, c, d in zip(

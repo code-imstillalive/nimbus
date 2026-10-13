@@ -272,6 +272,10 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
             max_soc_kwh=max_soc_kwh,
             max_charge_kw=max_charge_kw,
             max_discharge_kw=max_discharge_kw,
+            # 12 Oct 2026 (#1741 review): the live plan's charge taper.
+            charge_power_curve=sw.solver_plan.charge_taper_curve(
+                cfg, capacity_kwh, min_soc_kwh, max_soc_kwh, max_charge_kw
+            ),
             charge_efficiency=efficiency,
             discharge_efficiency=efficiency,
             charge_cost=charge_cost,
