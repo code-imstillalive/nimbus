@@ -541,6 +541,15 @@ def _ensure_ready(hass: HomeAssistant):
     return _solver_writer
 
 
+class _PostedState:
+    """The two fields `_log_dispatch_dry_run` reads from a State, for a plan
+    taken from `last_posted()` instead of the state machine (nimbus #1658)."""
+
+    def __init__(self, state: object, attributes: dict) -> None:
+        self.state = state
+        self.attributes = attributes
+
+
 def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
     """Real-dispatch groundwork, phase 1 (2026-08-27, hardened 2026-08-28):
     observe-only.
@@ -631,7 +640,20 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
                 dry_run.state,
             )
             return
-        forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
+        # nimbus #1658: this solve's own published plan, not hass.states --
+        # in native mode the publish lands asynchronously, so the state
+        # machine still holds the previous solve's plan at this point.
+        last_posted = getattr(sw, "last_posted", None)
+        posted = (
+            last_posted("sensor.nimbus_solver_battery_forecast")
+            if callable(last_posted)
+            else None
+        )
+        forecast_state = (
+            _PostedState(posted[0], posted[1])
+            if isinstance(posted, tuple) and isinstance(posted[1], dict)
+            else hass.states.get("sensor.nimbus_solver_battery_forecast")
+        )
         if _startup_absence("battery_forecast", forecast_state is not None):
             _LOGGER.warning(
                 "Nimbus Dispatch (dry-run): skipping -- "

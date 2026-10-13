@@ -19,6 +19,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   on-clock run is predicted as one sequence and "now" on its own. The solve
   reads forecasts at-or-before each period start, so its 15- and 30-minute
   periods now take the point for that exact quarter-hour.
+- **The dispatch dry-run reports this solve's plan** (#1658). In native mode
+  the plan is published asynchronously, so the dry-run line and
+  `sensor.nimbus_solver_dispatch_dry_run`, which run right after the solve,
+  read the previous solve's plan. On 9 Oct at 04:25:31 the line said 1.10 kW
+  while 36.0 kW had just been published and dispatched. They now read what
+  this solve posted, falling back to the state machine before the first
+  publish.
 
 ## [0.94.454] - 2026-10-13
 

@@ -297,3 +297,46 @@ def test_sw_ha_post_state_raising_does_not_propagate(caplog):
         _log_dispatch_dry_run(hass, sw)  # must not raise
     sw.ha_post_state.assert_called_once()
     assert "logging failed, ignoring" in caplog.text
+
+
+def test_1658_reports_this_solves_plan_not_the_state_machines_previous_one():
+    """nimbus #1658 (reference household, 9 Oct 04:25:31): in native mode the
+    plan's publish lands asynchronously, so hass.states still held the
+    previous plan (1.10 kW) when this line ran, while the plan just published
+    and dispatched was 36.0 kW. The line must read what this solve posted."""
+    hass = _make_hass(switch_state="on", forecast=[{"battery_kw": 1.10}])
+    sw = _make_sw()
+    sw.last_posted = MagicMock(
+        return_value=(36.0, {"forecast": [{"battery_kw": 36.0, "soc_pct": 11.2}]})
+    )
+    _log_dispatch_dry_run(hass, sw)
+    sw.last_posted.assert_called_once_with("sensor.nimbus_solver_battery_forecast")
+    args, _kwargs = sw.ha_post_state.call_args
+    assert args[0] == "sensor.nimbus_solver_dispatch_dry_run"
+    assert args[1] == 36.0
+    assert args[2]["soc_pct"] == 11.2
+
+
+def test_1658_falls_back_to_the_state_machine_before_the_first_publish():
+    hass = _make_hass(switch_state="on", forecast=[{"battery_kw": -4.0}])
+    sw = _make_sw()
+    sw.last_posted = MagicMock(return_value=None)
+    _log_dispatch_dry_run(hass, sw)
+    assert sw.ha_post_state.call_args[0][1] == -4.0
+
+
+def test_1658_ha_post_state_records_the_post_before_delivering_it():
+    from custom_components.nimbus_load import solver_shared
+
+    solver_shared._LAST_POSTED.pop("sensor.nimbus_test_1658", None)
+    assert solver_shared.last_posted("sensor.nimbus_test_1658") is None
+    hass = MagicMock()
+    old = solver_shared.NATIVE.hass
+    solver_shared.NATIVE.hass = hass
+    try:
+        solver_shared.ha_post_state("sensor.nimbus_test_1658", 36.0, {"x": 1})
+        assert solver_shared.last_posted("sensor.nimbus_test_1658") == (36.0, {"x": 1})
+    finally:
+        solver_shared.NATIVE.hass = old
+        solver_shared._LAST_POSTED.pop("sensor.nimbus_test_1658", None)
+    hass.add_job.assert_called_once()

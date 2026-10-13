@@ -402,6 +402,7 @@ try:
         ha_get,
         ha_post_state,
         import_fee_rate,
+        last_posted,
         p2p_blocks_daily_energy_kwh,
         p2p_bonus_price_by_period,
         parse_iso,
@@ -441,6 +442,7 @@ except ImportError:
         ha_get,
         ha_post_state,
         import_fee_rate,
+        last_posted,  # noqa: F401 -- re-export for solver_runtime (#1658)
         p2p_blocks_daily_energy_kwh,  # noqa: F401 -- re-export: reached as sw.<name> from solver_inputs/prices.py (#1537)
         p2p_bonus_price_by_period,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         parse_iso,
