@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Forecaster points sit on the clock.** Every load and signal forecast
+  stepped 15 minutes from the moment its sensor last refreshed, so its points
+  landed at 14:28:30, 14:43:30, ... on one circuit and 14:29:53, 14:44:53, ...
+  on the next, while prices and the plan step on :00/:15/:30/:45 (household,
+  13 Oct 2026). The first point is still "now" (the forecast's state and the
+  next cycle's accuracy check are unchanged); every later point is a
+  quarter-hour of the clock. The model needs evenly spaced steps, so the
+  on-clock run is predicted as one sequence and "now" on its own. The solve
+  reads forecasts at-or-before each period start, so its 15- and 30-minute
+  periods now take the point for that exact quarter-hour.
+
 ### Added
 - **Charge taper near full:** the plan no longer assumes full charge power
   up to 100%. From **Charge Taper Start** (default 90% SoC) the charge ceiling

@@ -140,7 +140,9 @@ class TestTheFieldsReachThePredictCall(unittest.TestCase):
             / "nimbus_load"
             / "coordinator.py"
         ).read_text(encoding="utf-8")
-        call = src[src.index("result: PredictionResult = await") :][:900]
+        # The call lives in the coordinator's `_predict` slice helper (the
+        # grid is "now" then the clock, predicted in two parts, 13 Oct 2026).
+        call = src[src.index("def _predict(lo: int, hi: int | None)") :][:1200]
         self.assertIn("self._running_threshold_kw", call)
         self.assertIn("self._run_hold_hours", call)
 
