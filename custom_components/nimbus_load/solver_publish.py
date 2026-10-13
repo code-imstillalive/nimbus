@@ -2458,6 +2458,12 @@ def publish_plan(
             # computations that could theoretically diverge.
             "batteries": _diag_757_battery_forecast,
             "status": plan.status,
+            # nimbus #1751: whether the plan is one-way (#238 / #1535), and
+            # how many direction pairs are still two-way when it is not.
+            "direction_exclusivity": getattr(
+                plan, "direction_exclusivity", "not_checked"
+            ),
+            "direction_two_way_pairs": getattr(plan, "direction_two_way_pairs", 0),
             # nimbus issue #756-golden-CI-flake: rounded to match every
             # sibling KPI's own precision (total_cost_with_fixed_costs,
             # cost_breakdown, cost_band all round to 4dp) -- HiGHS's LP

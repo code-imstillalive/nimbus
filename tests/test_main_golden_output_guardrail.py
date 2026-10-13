@@ -125,6 +125,10 @@ _EXPECTED_ATTRS = {
     "signal_role": "battery",
     "source_sensor": "sensor.fake_soc",
     "status": "optimal",
+    # nimbus #1751: the direction check's outcome; this fixture's first
+    # solve is already one-way.
+    "direction_exclusivity": "not_needed",
+    "direction_two_way_pairs": 0,
     # nimbus issue #696, Stage 2: regenerated from a fresh real run
     # after solver_writer.py's main() started defaulting to
     # solve_options=CalibratedOptions() (switch.nimbus_solver_
