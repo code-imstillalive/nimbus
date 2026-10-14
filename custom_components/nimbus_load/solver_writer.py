@@ -9504,12 +9504,10 @@ def main() -> None:
     # see publish_flex_signals()'s own docstring.
     publish_flex_signals(plan, hold_last=_assembly.flex_ranging_deferred)
     # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
-    # schema-v2.0 record. Gated on the SAME switch as the flex signals
-    # above, and not by choice -- the schema's own `flex_available_up_kw`/
-    # `_down_kw` are required, non-nullable numbers, and they come from
-    # `Plan.grid_signals`, which is None unless ranging ran. So "default
-    # off" and "costs ~9x solve time when on" are inherited facts here,
-    # not a second decision.
+    # schema-v2.0 record, one per completed 5-minute interval. Not gated on
+    # the flex-signals switch since #1640: the flexibility fields come from
+    # physical availability, so no ranging is needed. When no record can be
+    # built, the sensor carries the reason instead (#1635).
     solver_publish.publish_flex_telemetry_record(
         cfg,
         plan,

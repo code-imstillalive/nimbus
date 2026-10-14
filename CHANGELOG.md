@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a
+  restart** (#1634, Mark Purcell, 10 Oct). When no record can be built, the
+  sensor publishes its reason once (#1635). If the first solve after a
+  restart ran before the entity had registered, that one post was dropped
+  (by design, #312), but it was still remembered as sent, so every later
+  cycle skipped it while the reason stayed the same, with nothing in the
+  log. `ha_post_state()` now says whether it delivered, and only a delivered
+  reason is remembered. A record was never affected: each new 5-minute
+  interval posts again. The `export_flex_telemetry` service description no
+  longer says it needs the flex-signals switch on, which stopped being true
+  with #1640.
+
 ## [0.94.456] - 2026-10-15
 
 Charge By / Charge To hold a SoC by a time of day; the plan chart shows the

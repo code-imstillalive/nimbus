@@ -768,7 +768,11 @@ def last_posted(entity_id: str) -> tuple[object, dict] | None:
     return _LAST_POSTED.get(entity_id)
 
 
-def ha_post_state(entity_id: str, state, attributes: dict) -> None:
+def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
+    """False only when native mode deliberately drops the post (the real
+    entity is mid-setup/unload, see below); True otherwise. A caller that
+    remembers "already published" must not remember a dropped post
+    (#1634: the no-record reason was dropped at startup and never re-sent)."""
     sw = _solver_writer()
     _LAST_POSTED[entity_id] = (state, attributes)
     if NATIVE.hass is not None:
@@ -814,7 +818,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         if handler is not None:
             _note_managed_publish_delivered(entity_id)
             NATIVE.hass.add_job(functools.partial(handler, state, attributes))
-            return
+            return True
         # Real root cause of issue #312's residual (2026-09-01, see
         # _NATIVE_MANAGED_ENTITY_IDS' own comment and __init__.py's
         # async_unload_entry() for the full incident): for an entity_id
@@ -840,7 +844,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
                 entity_id,
             )
             _note_managed_publish_skipped(entity_id)
-            return
+            return False
         # states.async_set() mutates HA's own state machine and fires a
         # real event -- unlike the plain dict-read in ha_get() above,
         # this genuinely must happen ON the event loop, never directly
@@ -867,7 +871,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
                 NATIVE.hass.states.async_set, entity_id, state, attributes
             )
         )
-        return
+        return True
     _warn_if_attrs_exceed_recorder_cap(entity_id, attributes)
     body = json.dumps({"state": state, "attributes": attributes}).encode("utf-8")
     req = urllib.request.Request(
@@ -881,6 +885,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         resp.read()
+    return True
 
 
 # Real, live household automation design (config/automations.yaml):

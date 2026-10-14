@@ -291,7 +291,7 @@ def _post_no_record_reason(sw, build) -> None:
     if _LAST_FLEX_TELEMETRY_NO_RECORD.get("reason_code") == code:
         return
     last = _LAST_FLEX_TELEMETRY_POST.get("state")
-    sw.ha_post_state(
+    delivered = sw.ha_post_state(
         sw.FLEX_TELEMETRY_ENTITY_ID,
         FLEX_TELEMETRY_NO_RECORD_STATE,
         {
@@ -302,6 +302,11 @@ def _post_no_record_reason(sw, build) -> None:
             "generated_at": datetime.now(UTC).astimezone(sw.LOCAL_TZ).isoformat(),
         },
     )
+    # nimbus #1634: a post dropped while the entity is mid-setup must not
+    # count as published, or every later cycle skips on the same reason
+    # and the sensor stays `unknown` until the next restart.
+    if delivered is False:
+        return
     _LAST_FLEX_TELEMETRY_NO_RECORD.clear()
     _LAST_FLEX_TELEMETRY_NO_RECORD["reason_code"] = code
 
