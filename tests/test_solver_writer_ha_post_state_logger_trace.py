@@ -54,7 +54,7 @@ def _extract_ha_post_state_native_branch(src: str) -> str:
     """Return just the `if NATIVE.hass is not None:` block inside
     `ha_post_state()`, so the assertions below can't accidentally match
     some unrelated logger/print call elsewhere in this large file."""
-    marker = "def ha_post_state(entity_id: str, state, attributes: dict) -> None:"
+    marker = "def ha_post_state(entity_id: str, state, attributes: dict) -> bool:"
     start = src.index(marker)
     end = src.index("\ndef fetch_p2p_fixed_export_kw(", start)
     return src[start:end]
