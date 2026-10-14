@@ -2402,6 +2402,14 @@ def _build_plan_once(
     # (hard-pinned to the configured spike rate just above) produces
     # beyond what the P2P commitment alone was already moving.
     grid_export = []
+    # nimbus #1761: a positive block pin is a floor the LP may fall short of
+    # at a price, never a hard lower bound. The wash-trade row below forbids
+    # grid import from funding export, and charging is gated inside the block,
+    # so a battery too empty to deliver the whole block made the model
+    # infeasible and the published plan 0 kW everywhere (reference household,
+    # 14 Oct 2026). `block_short[t]` is costed below at more than any other
+    # way out, so a block the battery can fund is still delivered exactly.
+    block_short: dict[int, str] = {}
     for t in range(n):
         export_lb, export_ub = p2p_export.grid_export_bounds(
             t,
@@ -2409,9 +2417,20 @@ def _build_plan_once(
             float(export_limit_arr[t]),
             override_p2p=(t == 0 and spike_overrides_p2p_at_t0),
         )
+        floor = max(0.0, export_lb)
         grid_export.append(
-            p.add_variable(f"grid_export_{t}", lb=export_lb, ub=export_ub)
+            p.add_variable(
+                f"grid_export_{t}", lb=0.0 if floor else export_lb, ub=export_ub
+            )
         )
+        if floor:
+            block_short[t] = p.add_variable(f"p2p_block_short_{t}", lb=0.0, ub=floor)
+            # -grid_export[t] - block_short[t] <= -floor
+            p.add_ub_constraint(
+                {grid_export[t]: -1.0, block_short[t]: -1.0},
+                -floor,
+                name=f"p2p_block_floor_t{t}",
+            )
 
     # Two-tier export bonus (see elements.py's own GridConfig docstring,
     # "export_bonus_price / export_bonus_volume_kwh") -- export_bonus[t]
@@ -2907,6 +2926,21 @@ def _build_plan_once(
     # price would be too cheap to actually deter reaching for this before
     # exhausting every real, cheaper option first.
     import_excess_penalty_rate = max(10.0 * float(np.max(effective_import_price)), 5.0)
+    # nimbus #1761: each kWh a block falls short costs more than the #390
+    # import excess plus the best that kWh could earn anywhere (export price
+    # and bonus), so the LP only falls short when nothing feasible delivers it.
+    block_short_penalty_rate = (
+        import_excess_penalty_rate
+        + float(np.max(np.abs(effective_import_price)))
+        + float(np.max(np.abs(effective_export_price)))
+        + (
+            float(np.max(np.abs(grid.export_bonus_price)))
+            if grid.export_bonus_price is not None
+            else 0.0
+        )
+    )
+    for t, short in block_short.items():
+        p.set_cost(short, block_short_penalty_rate * hours[t])
     # nimbus issue #1480: per-battery (charge, discharge) loss tie-break
     # rates, recorded where they are priced so the solved total can be
     # reported without re-deriving the formula.

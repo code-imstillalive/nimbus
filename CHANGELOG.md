@@ -34,6 +34,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   (#1734). It now says a block ending at midnight shows as 00:00. The Grid,
   P2P and P2P hours cards gain a line each of explanation so their bottoms
   still line up with the Battery card's two new rows.
+- **A P2P block the battery cannot fund no longer makes the plan
+  infeasible** (#1761). Inside a block, export is pinned to the block rate
+  and the wash-trade rule forbids grid import from funding export, so with
+  too little energy before the block there was no feasible plan: the #773
+  fallback published 0 kW in every period, so the battery did not even
+  charge. Reproduced on the reference household's 14 Oct 15:42 inputs (SoC
+  28.7 kWh, block 17:00-24:00 at 11.5 kW). The block rate is now an exact
+  ceiling with a priced floor: each kWh short costs more than the #390
+  import excess plus the best that kWh could earn, so a block the battery
+  can fund is still delivered exactly (golden master unchanged), and one it
+  cannot gets a plan that charges flat out now and sells what it can.
+  `pin_blockers` no longer names the export floor as a blocker.
 
 ## [0.94.455] - 2026-10-14
 
