@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Amber Express installs learn the retail markup against the wholesale in
+  Amber's own response** (#1698, Mark Purcell). Beyond the retail
+  forecast's horizon Nimbus prices each period as the AEMO forecast plus a
+  learned per-5-minute markup (`compute_5min_offset`). The markup was
+  learned against the AEMO price sensor, which can post an interval's price
+  after the interval has ended (10 Oct, 19:10:24 for 19:05-19:10), so the
+  value landed in the wrong interval. Amber Express's `detailedForecast`
+  carries `spot_per_kwh` for the same interval as `per_kwh`, in the same
+  response. Each solve now records the in-progress interval's spot (divided
+  by 1.10, since it is GST-inclusive: 1.0998-1.1001 x AEMO RRP measured on
+  10 Oct), keeping the last post per interval for 5 days in
+  `nimbus_solver_amber_spot.json` beside the other solver state, because
+  the recorder does not keep `detailedForecast`. Those intervals take the
+  Amber value; others keep the AEMO sensor (#1697), and an Amber-only
+  install no longer needs the AEMO sensor for a markup. Installs without
+  Amber Express change nothing (golden master: no plan value moved; the
+  only difference is two more state reads per solve).
+
 ### Fixed
 - **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a
   restart** (#1634, Mark Purcell, 10 Oct). When no record can be built, the

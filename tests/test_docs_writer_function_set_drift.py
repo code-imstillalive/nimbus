@@ -264,6 +264,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "charge_by_period_indices",
         "charge_by_summary",
         "charge_before_block_summary",
+        # nimbus #1698: Amber Express same-poll wholesale, collected each
+        # solve; the cron copy reads no Amber Express detailedForecast.
+        "_load_amber_spot",
+        "collect_amber_spot",
+        "_wholesale_by_interval",
         "_deadband_class",
         "_period0_net_kw",
         "_anchor_target_kw",

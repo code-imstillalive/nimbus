@@ -194,6 +194,40 @@ AMBER_EXPRESS_DETAILED_KEY = "detailedForecast"
 _AMBER_MAX_INTERVAL = timedelta(minutes=30)
 
 
+# nimbus #1698 (Mark Purcell): Amber Express's `spot_per_kwh` is AEMO's
+# wholesale price for the SAME interval in the SAME response as `per_kwh`, but
+# GST-inclusive (measured 10 Oct 2026: 1.0998-1.1001 x AEMO RRP over four
+# intervals), so it is divided by this to sit on the ex-GST RRP basis the
+# rest of Nimbus's wholesale series use.
+AMBER_SPOT_GST_FACTOR = 1.10
+
+
+def amber_spot_in_progress(
+    detailed: Any, now: datetime
+) -> tuple[datetime, float] | None:
+    """The interval in progress at `now` from an Amber Express
+    `detailedForecast`: (its start, `spot_per_kwh` ex GST), or None.
+
+    The start is `end_time - duration` (Amber's own `start_time` reads one
+    second in). A first post can still carry the previous interval's spot
+    (#1698); the caller keeps the LAST value seen per interval, which is the
+    settled one."""
+    if not isinstance(detailed, list):
+        return None
+    for d in detailed:
+        if not isinstance(d, dict):
+            continue
+        try:
+            end = parse_iso(d["end_time"])
+            start = end - timedelta(minutes=int(d["duration"]))
+            spot = float(d["spot_per_kwh"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if start <= now < end and end > start and math.isfinite(spot):
+            return start, spot / AMBER_SPOT_GST_FACTOR
+    return None
+
+
 def amber_express_intervals(forecast: Any, detailed: Any) -> list[PriceInterval] | None:
     """Amber Express `forecast` prices on `detailedForecast` boundaries, or
     None when either attribute is not a list (the caller keeps its own

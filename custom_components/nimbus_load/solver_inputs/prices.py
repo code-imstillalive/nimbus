@@ -123,13 +123,25 @@ def build_price_arrays(
         # wizard-configured fields instead of two more hardcoded literals.
         import_history = sw.fetch_price_history(cfg["solver_import_price_sensor"])
         export_history = sw.fetch_price_history(cfg["solver_export_price_sensor"])
+        # nimbus #1698 (Mark Purcell): an Amber Express price sensor carries the
+        # interval's wholesale in the same response; collected each solve, it
+        # is the reference for the intervals it covers. Empty otherwise.
+        same_poll_wholesale = sw.collect_amber_spot(
+            (
+                cfg.get("solver_import_price_sensor"),
+                cfg.get("solver_export_price_sensor"),
+            ),
+            now,
+        )
         import_offset_by_5min = sw.compute_5min_offset(
             import_history,
             regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
+            same_poll_wholesale=same_poll_wholesale,
         )
         export_offset_by_5min = sw.compute_5min_offset(
             export_history,
             regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
+            same_poll_wholesale=same_poll_wholesale,
         )
         # Real empirical price bands for price_risk_aversion (2026-08-21,
         # task #128 -- see compute_price_percentile_band()'s own docstring).
