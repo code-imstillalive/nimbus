@@ -5136,14 +5136,10 @@ def compute_5min_offset(
     `regional_spot_sensor` is blank, or either side's real history is
     unavailable -- must never crash the writer.
     """
-    if not regional_spot_sensor and not same_poll_wholesale:
+    if not real_history:
         return {}
-    aemo_history = (
-        fetch_price_history(regional_spot_sensor, days=days)
-        if regional_spot_sensor
-        else []
-    )
-    if not real_history or not (aemo_history or same_poll_wholesale):
+    wholesale = _wholesale_by_interval(regional_spot_sensor, days, same_poll_wholesale)
+    if not wholesale:
         return {}
 
     # nimbus #1694: each interval's SETTLED retail price against the SAME
@@ -5151,12 +5147,6 @@ def compute_5min_offset(
     # interval, provisional posts included), and each bucket's median over its
     # last _OFFSET_RECENT_DAYS samples, so a tariff change is followed.
     retail = _settled_by_interval(real_history)
-    wholesale = _settled_by_interval(aemo_history)
-    # nimbus #1698: where the retailer's own response carried the interval's
-    # wholesale (Amber Express `spot_per_kwh`, ex GST), it wins over the AEMO
-    # sensor for that interval: same poll as the retail price, so no
-    # cross-sensor timing (a late AEMO post keyed into the wrong interval).
-    wholesale.update(same_poll_wholesale or {})
     by_bucket: dict[int, list[tuple[datetime, float]]] = {}
     for key in retail.keys() & wholesale.keys():
         start, real_v = retail[key]
@@ -5166,6 +5156,26 @@ def compute_5min_offset(
         b: statistics.median(v for _, v in sorted(rows)[-_OFFSET_RECENT_DAYS:])
         for b, rows in by_bucket.items()
     }
+
+
+def _wholesale_by_interval(
+    regional_spot_sensor: str | None,
+    days: int,
+    same_poll_wholesale: dict[int, tuple[datetime, float]] | None,
+) -> dict[int, tuple[datetime, float]]:
+    """The regional AEMO sensor's settled value per interval, overlaid with
+    nimbus #1698's same-poll wholesale: where the retailer's own response
+    carried the interval's wholesale (Amber Express `spot_per_kwh`, ex GST),
+    it wins for that interval, as it shares the retail price's poll and so has
+    no cross-sensor timing (a late AEMO post keyed into the wrong interval)."""
+    aemo_history = (
+        fetch_price_history(regional_spot_sensor, days=days)
+        if regional_spot_sensor
+        else []
+    )
+    wholesale = _settled_by_interval(aemo_history)
+    wholesale.update(same_poll_wholesale or {})
+    return wholesale
 
 
 # nimbus #1694: one sample per 5-minute-of-day bucket per day, so the median of

@@ -268,6 +268,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # solve; the cron copy reads no Amber Express detailedForecast.
         "_load_amber_spot",
         "collect_amber_spot",
+        "_wholesale_by_interval",
         "_deadband_class",
         "_period0_net_kw",
         "_anchor_target_kw",
