@@ -392,6 +392,10 @@ _ADDED_AFTER_REFERENCE = {
     "reserve_kwh": 0.0,
     "reserve_release_price": 0.0,
     "reserve_period_indices": None,
+    # Household, 14 Oct 2026: "charge by", primary battery only, like the
+    # reserve.
+    "charge_by_kwh": 0.0,
+    "charge_by_period_indices": None,
 }
 
 

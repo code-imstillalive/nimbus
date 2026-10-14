@@ -258,6 +258,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # in solver_plan.py beside the battery it configures; the cron copy
         # builds no BatteryConfig reserve at all.
         "reserve_window_indices",
+        # Household, 14 Oct 2026, "charge by": the deadline periods and the
+        # plan's published summary of them. Like the reserve, the cron copy
+        # builds no charge-by target at all.
+        "charge_by_period_indices",
+        "charge_by_summary",
         "_deadband_class",
         "_period0_net_kw",
         "_anchor_target_kw",

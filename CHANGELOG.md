@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Charge By / Charge To** (household, 14 Oct). Two settings beside Battery
+  Max SoC: `time.nimbus_solver_charge_by_hour` (default 16:00) and
+  `number.nimbus_solver_charge_by_percent` (default 0 = off). Every day in the
+  plan, the battery should hold at least that SoC by that time. On 14 Oct
+  every plan from 10:00 to 15:00 on the reference household held a charge
+  before the 17:00 P2P block, and every 15 s re-plan moved it to a slot
+  forecast a cent or two cheaper, so it never started; the household charged
+  by hand. A read-only replay (v0.94.454, production's live states, low SoC)
+  showed the deferral follows the price shape and that raising the charge
+  earliness tie-break 100x did not move it. Soft: each kWh short costs
+  $2.00, above any ordinary buy price or P2P bonus and below a market-cap
+  spike, so a target the battery cannot reach in time still solves, charging
+  as fast as it can. The plan publishes `charge_by_time`,
+  `charge_by_target_pct`, `charge_by_next`, `charge_by_next_soc_pct` and
+  `charge_by_next_short_pct` (all null when off). Shown on the Solver tab's
+  Battery card under Maximum SoC. Off by default, so no plan changes until it
+  is set (golden master: 19 plans byte-identical apart from the five null
+  keys).
+
+### Fixed
+- The Solver tab's P2P hours card said "Hours of the day: 17 = 5 pm, 24 =
+  midnight", left over from before the block times became clock pickers
+  (#1734). It now says a block ending at midnight shows as 00:00. The Grid,
+  P2P and P2P hours cards gain a line each of explanation so their bottoms
+  still line up with the Battery card's two new rows.
+
 ## [0.94.455] - 2026-10-14
 
 The Solver tab shows prices for the plan's whole horizon and where the

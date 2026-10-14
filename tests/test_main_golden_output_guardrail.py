@@ -133,6 +133,12 @@ _EXPECTED_ATTRS = {
     # period), published for the Solver tab's Prices ahead card.
     "import_price_provider_until": "2026-09-10T19:30:00+10:00",
     "export_price_provider_until": "2026-09-10T19:30:00+10:00",
+    # Household, 14 Oct 2026: "charge by" is off in this fixture.
+    "charge_by_time": None,
+    "charge_by_target_pct": None,
+    "charge_by_next": None,
+    "charge_by_next_soc_pct": None,
+    "charge_by_next_short_pct": None,
     # nimbus issue #696, Stage 2: regenerated from a fresh real run
     # after solver_writer.py's main() started defaulting to
     # solve_options=CalibratedOptions() (switch.nimbus_solver_

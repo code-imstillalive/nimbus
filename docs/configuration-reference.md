@@ -214,6 +214,8 @@ fields are added.
 | `number.nimbus_solver_battery_soh_percent` | Battery State of Health | 100.0 | 1-100 | % |
 | `number.nimbus_solver_battery_min_soc_percent` | Battery Min SoC | 5.0 | 0-100 | % |
 | `number.nimbus_solver_battery_max_soc_percent` | Battery Max SoC | 100.0 | 0-100 | % |
+| `time.nimbus_solver_charge_by_hour` | Charge By: the time of day the battery must hold "Charge To" | 16:00 | 00:00-23:59 | clock time |
+| `number.nimbus_solver_charge_by_percent` | Charge To: SoC to hold by "Charge By" every day; 0 = off. Soft: a target it cannot reach still solves, charging as fast as it can | 0 | 0-100 | % |
 | `number.nimbus_solver_max_charge_kw` | Max Charge Power | 0.1 | 0.1-1000 | kW |
 | `number.nimbus_solver_max_discharge_kw` | Max Discharge Power | 0.1 | 0.1-1000 | kW |
 | `number.nimbus_solver_efficiency_percent` | Round-Trip Efficiency | 95.0 | 50-100 | % |
