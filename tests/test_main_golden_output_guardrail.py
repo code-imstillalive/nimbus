@@ -129,6 +129,10 @@ _EXPECTED_ATTRS = {
     # solve is already one-way.
     "direction_exclusivity": "not_needed",
     "direction_two_way_pairs": 0,
+    # nimbus #1753: where the fixture's price forecast ends (its last covered
+    # period), published for the Solver tab's Prices ahead card.
+    "import_price_provider_until": "2026-09-10T19:30:00+10:00",
+    "export_price_provider_until": "2026-09-10T19:30:00+10:00",
     # nimbus issue #696, Stage 2: regenerated from a fresh real run
     # after solver_writer.py's main() started defaulting to
     # solve_options=CalibratedOptions() (switch.nimbus_solver_

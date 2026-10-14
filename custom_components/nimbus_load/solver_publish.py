@@ -1700,6 +1700,10 @@ def publish_plan(
     # decision still publishes all seven keys as None rather than omitting them --
     # a consumer must never see a key appear and vanish between cycles (#589).
     load_forecast_source_decision=None,
+    # nimbus #1753: where each side's provider forecast ends (ISO start of
+    # its last covered period), from main()'s price coverage masks.
+    import_price_provider_until=None,
+    export_price_provider_until=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -2464,6 +2468,10 @@ def publish_plan(
                 plan, "direction_exclusivity", "not_checked"
             ),
             "direction_two_way_pairs": getattr(plan, "direction_two_way_pairs", 0),
+            # nimbus #1753: the last period each side's price comes from the
+            # provider's own forecast; later periods are Nimbus's estimate.
+            "import_price_provider_until": import_price_provider_until,
+            "export_price_provider_until": export_price_provider_until,
             # nimbus issue #756-golden-CI-flake: rounded to match every
             # sibling KPI's own precision (total_cost_with_fixed_costs,
             # cost_breakdown, cost_band all round to 4dp) -- HiGHS's LP

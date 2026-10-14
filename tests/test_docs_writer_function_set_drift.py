@@ -712,6 +712,11 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # tail extension. Same reason: the docs copy has no generic branch.
         "extend_generic_price_tails",
         "price_unit_scale_of_history",
+        # nimbus #1753 -- where the provider's price forecast ends, published
+        # on the plan for the Solver tab's Prices ahead card. The docs copy's
+        # resample_price_with_extrapolation() returns no coverage mask, so
+        # there is nothing there yet for this to read.
+        "provider_forecast_until",
         # nimbus issue #1583 -- an OpenADR 3 VEN price sensor's rows come
         # from its get_forecast action. The docs copy has no provider
         # adapters at all (no price_intervals, no generic coverage reader

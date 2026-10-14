@@ -843,6 +843,115 @@ def _chart() -> dict[str, Any]:
     )
 
 
+# --- Prices ahead (nimbus #1753) ------------------------------------------
+#
+# The plan prices its whole horizon (four days here), but the provider's own
+# forecast covers only part of it (LocalVolts: 24 h); past that the price is
+# Nimbus's estimate, wholesale forecast plus the markup learned from the
+# provider's history. The plan publishes where each side's provider forecast
+# ends (`*_price_provider_until`), so the chart draws the provider's part
+# solid and the estimate dashed (household, 13 Oct 2026: "the user is
+# blindsided").
+
+
+def _price_part(field: str, until: str, part: str) -> str:
+    """A data_generator for one price, either the periods the provider's
+    forecast covers ("provider") or the rest ("estimate"). The provider part
+    carries one extra point so its last step is drawn solid to its end."""
+    pick = (
+        "i < 0 ? [] : rows.slice(0, i + 2)"
+        if part == "provider"
+        else "rows.slice(i + 1)"
+    )
+    return (
+        f"const u = entity.attributes.{until}; "
+        "const cut = u ? new Date(u).getTime() : -Infinity; "
+        "const rows = (entity.attributes.forecast || []).map(p => "
+        f"[new Date(p.time).getTime(), p.{field} * 100]); "
+        "let i = -1; rows.forEach((r, k) => { if (r[0] <= cut) i = k; }); "
+        f"return {pick};"
+    )
+
+
+def _prices_chart() -> dict[str, Any]:
+    plan = "@nimbus_solver_battery_forecast"
+    hidden = {"extend_to": False, "show": {"in_header": False}}
+    series = []
+    for name, field, until, color in (
+        ("Buy", "import_price", "import_price_provider_until", "#ff3b5c"),
+        ("Sell", "export_price", "export_price_provider_until", "#3d9df3"),
+    ):
+        for part, label, dash in (
+            ("provider", "forecast", 0),
+            ("estimate", "Nimbus estimate", 4),
+        ):
+            series.append(
+                {
+                    "entity": plan,
+                    "name": f"{name}, {label}",
+                    "curve": "stepline",
+                    "color": color,
+                    "stroke_width": 2.5,
+                    "stroke_dash": dash,
+                    "unit": "c/kWh",
+                    "data_generator": _price_part(field, until, part),
+                    **hidden,
+                }
+            )
+    return _apex(
+        "Prices ahead",
+        "c/kWh, what the plan pays and earns, fees included. Solid: your price "
+        "provider's own forecast. Dashed: Nimbus's estimate past it, the "
+        "wholesale forecast plus the markup learned from your price history.",
+        series,
+        height=300,
+        graph_span="4d",
+        span={"start": "hour"},
+        now={"show": True, "label": "Now", "color": "#ffffff"},
+        yaxis=[{"decimals": 0, "apex_config": {"title": {"text": "c/kWh"}}}],
+        apex_config={**_zero_line(0)},
+    )
+
+
+# One card per day of the plan; time-weighted by each period's hours. The
+# day's heading is inside the card, as the household's design rules ask.
+_PRICE_DAY = """{% set plan = '${@nimbus_solver_battery_forecast}' %}
+{% set fc = state_attr(plan, 'forecast') or [] %}
+{% set d = (now() + timedelta(days=__K__)).strftime('%Y-%m-%d') %}
+{% set ns = namespace(h=0, b=0, s=0, bmin=none, bmax=none, smin=none, smax=none, eh=0, eb=0, es=0, bt='', st='', first='', last='') %}
+{% for p in fc %}{% set ts = as_timestamp(p.time) %}{% if ts | timestamp_custom('%Y-%m-%d') == d %}
+{% set h = p.hours | float(0) %}{% set b = p.import_price * 100 %}{% set s = p.export_price * 100 %}
+{% if ns.first == '' %}{% set ns.first = ts | timestamp_custom('%H:%M') %}{% endif %}
+{% set ns.last = (ts + h * 3600) | timestamp_custom('%H:%M') %}
+{% set ns.h = ns.h + h %}{% set ns.b = ns.b + b * h %}{% set ns.s = ns.s + s * h %}
+{% if ns.bmin is none or b < ns.bmin %}{% set ns.bmin = b %}{% set ns.bt = ts | timestamp_custom('%H:%M') %}{% endif %}
+{% if ns.bmax is none or b > ns.bmax %}{% set ns.bmax = b %}{% endif %}
+{% if ns.smin is none or s < ns.smin %}{% set ns.smin = s %}{% endif %}
+{% if ns.smax is none or s > ns.smax %}{% set ns.smax = s %}{% set ns.st = ts | timestamp_custom('%H:%M') %}{% endif %}
+{% set hr = ts | timestamp_custom('%H') | int %}{% if 17 <= hr < 21 %}{% set ns.eh = ns.eh + h %}{% set ns.eb = ns.eb + b * h %}{% set ns.es = ns.es + s * h %}{% endif %}
+{% endif %}{% endfor %}
+{% set day = as_timestamp(d ~ 'T12:00:00') %}
+#### {{ ['Today', 'Tomorrow'][__K__] if __K__ < 2 else day | timestamp_custom('%A') }} · {{ day | timestamp_custom('%a %d %b') }}
+{% if ns.h > 0 %}
+| | <font color='#ff3b5c'>Buy ¢</font> | <font color='#3d9df3'>Sell ¢</font> |
+|:---|---:|---:|
+| Lowest | {{ '%.1f' % ns.bmin }} | {{ '%.1f' % ns.smin }} |
+| Average | {{ '%.1f' % (ns.b / ns.h) }} | {{ '%.1f' % (ns.s / ns.h) }} |
+| Highest | {{ '%.1f' % ns.bmax }} | {{ '%.1f' % ns.smax }} |
+| Evening 17–21 | {{ ('%.1f' % (ns.eb / ns.eh)) if ns.eh > 0 else '–' }} | {{ ('%.1f' % (ns.es / ns.eh)) if ns.eh > 0 else '–' }} |
+
+Cheapest buy **{{ ns.bt }}** · best sell **{{ ns.st }}**{{ (' · plan ' ~ ns.first ~ '–' ~ ns.last) if ns.first != '00:00' or ns.last != '00:00' else '' }}
+{% set u = state_attr(plan, 'import_price_provider_until') %}{% set ud = (as_timestamp(u) | timestamp_custom('%Y-%m-%d')) if u else '' %}
+<font color='#9aa0ac'>{% if ud > d %}From your price provider's forecast.{% elif ud == d %}Provider's forecast until {{ as_timestamp(u) | timestamp_custom('%H:%M') }}, Nimbus's estimate after.{% else %}Nimbus's estimate: wholesale forecast plus your learned markup.{% endif %}</font>
+{% else %}
+*Not in the plan yet.*
+{% endif %}"""
+
+
+def _price_day(k: int) -> dict[str, Any]:
+    return {"type": "markdown", "content": _PRICE_DAY.replace("__K__", str(k))}
+
+
 # Yesterday (measured) and tomorrow (planned), midnight to midnight, side by
 # side (household, 11 Oct 2026). Measured: the daily meters set in Nimbus ->
 # Configure -> Topology, each meter's `last_period` (yesterday's total, kept by
@@ -986,9 +1095,12 @@ def _per_day_money() -> dict[str, Any]:
 
 # The household's own cards, copied from their Forecaster tab as they are
 # (household, 12 Oct 2026: "move things as they are"), entity ids resolved
-# per install. Two edits only: the EPR card's `{% if %}` no longer leaves a
+# per install. Edits: the EPR card's `{% if %}` no longer leaves a
 # blank line that ended its table, and the daily summary no longer says the
-# Solver does not drive dispatch, which stopped being true in September.
+# Solver does not drive dispatch, which stopped being true in September;
+# and (nimbus #1753, household, 13 Oct 2026) the forecast table runs the
+# plan's whole horizon with its TOTAL row at each midnight, where it used
+# to stop at the first one.
 _HOUSEHOLD_QUALITY = {
     "type": "markdown",
     "title": "Nimbus Solver Quality (EPR / Regret)",
@@ -996,8 +1108,8 @@ _HOUSEHOLD_QUALITY = {
 }
 _HOUSEHOLD_UNTIL_MIDNIGHT = {
     "type": "markdown",
-    "title": "Solver Forecast — Until Midnight",
-    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0, done=false) %}{% for p in fc %}{% if not day_ns.done %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.done = true %}{% else %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endif %}{% endif %}{% endfor %}\n{% endif %}',
+    "title": "Solver Forecast — Whole Plan",
+    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0) %}{% for p in fc %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.net = 0 %}{% set day_ns.p2p = 0 %}{% endif %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endfor %}{% if day_ns.date is not none %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% endif %}\n{% endif %}',
 }
 _HOUSEHOLD_DAILY = {
     "type": "markdown",
@@ -1192,6 +1304,11 @@ def template() -> list[dict[str, Any]]:
         _section([_styled(_energy_pie(), _FILL)], 2, half),
         banners["Plan"],
         _section([_chart()], 4),
+        _section([_styled(_prices_chart(), _FILL)], 4, {"rows": 7}),
+        *(
+            _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
+            for k in range(4)
+        ),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),
         _section(
