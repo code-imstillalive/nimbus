@@ -160,11 +160,11 @@ def test_the_trigger_and_the_plan_agree_on_when_the_block_starts():
     assert start == 16 * 60 + 59
 
 
-def test_registered_at_second_5_of_every_minute():
+def test_registered_at_seconds_5_20_35_50_of_every_minute():
     captured, _ = _setup_and_fire(
         "entry_p2p_reg", BLOCK_17_24_LEAD_1, _utc(12, 0), AsyncMock(return_value=True)
     )
-    assert captured["kwargs"] == {"second": nimbus_init._P2P_BLOCK_START_SECOND}
+    assert captured["kwargs"] == {"second": [5, 20, 35, 50]}
     assert nimbus_init._P2P_BLOCK_START_SECOND == 5
 
 
@@ -177,8 +177,8 @@ def test_solves_in_the_block_start_minute():
     recorded.assert_called_once_with(trigger_source="p2p_block_start")
 
 
-def test_does_nothing_in_any_other_minute():
-    for h, m in ((16, 58), (17, 0), (12, 0)):
+def test_does_nothing_outside_a_block():
+    for h, m in ((16, 58), (12, 0), (0, 30)):
         run_solve = AsyncMock(return_value=True)
         _setup_and_fire(f"entry_p2p_{h}{m}", BLOCK_17_24_LEAD_1, _utc(h, m), run_solve)
         run_solve.assert_not_called()
@@ -256,3 +256,75 @@ def test_a_second_setup_cancels_the_first_trigger():
     unsubs[1].assert_not_called()
     assert nimbus_init._p2p_start_timer_unsub["entry_p2p_twice"] is unsubs[1]
     solver_runtime._last_solve_completed_monotonic = None
+
+
+# --- nimbus #1678: re-plan every ~15 s while a block is active --------------
+
+
+def _replan(fire_at, since):
+    run_solve = AsyncMock(return_value=True)
+    with patch.object(
+        nimbus_init.solver_runtime, "time_since_last_solve", return_value=since
+    ):
+        _, recorded = _setup_and_fire(
+            f"entry_replan_{fire_at.minute}_{fire_at.second}_{since}",
+            BLOCK_17_24_LEAD_1,
+            fire_at,
+            run_solve,
+        )
+    return run_solve, recorded
+
+
+def test_p2p_block_active_matches_the_plan_window():
+    from custom_components.nimbus_load.solver_shared import p2p_block_active
+
+    assert p2p_block_active(BLOCK_17_24_LEAD_1, 16 * 60 + 59)  # lead minute
+    assert p2p_block_active(BLOCK_17_24_LEAD_1, 23 * 60 + 59)
+    assert not p2p_block_active(BLOCK_17_24_LEAD_1, 16 * 60 + 58)
+    assert not p2p_block_active(BLOCK_17_24_LEAD_1, 0)
+    assert not p2p_block_active({}, 18 * 60)
+
+
+def test_in_a_block_it_re_plans_when_no_solve_is_recent():
+    for s in (5, 20, 35, 50):
+        run_solve, recorded = _replan(_utc(18, 10, s), since=15.2)
+        run_solve.assert_called_once()
+        recorded.assert_called_once_with(trigger_source="p2p_block_replan")
+
+
+def test_in_a_block_it_skips_when_any_solve_is_recent():
+    # e.g. a household automation calling solve_now every 15 s
+    run_solve, _ = _replan(_utc(18, 10, 20), since=9.0)
+    run_solve.assert_not_called()
+
+
+def test_in_a_block_the_first_solve_after_a_restart_runs():
+    run_solve, _ = _replan(_utc(18, 10, 35), since=None)
+    run_solve.assert_called_once()
+
+
+def test_outside_a_block_it_never_re_plans():
+    for h, m in ((12, 0), (16, 58), (0, 30)):
+        run_solve, _ = _replan(_utc(h, m, 20), since=60.0)
+        run_solve.assert_not_called()
+
+
+def test_the_start_minute_still_solves_whatever_the_last_solve():
+    run_solve, recorded = _replan(_utc(16, 59, 5), since=2.0)
+    run_solve.assert_called_once()
+    recorded.assert_called_once_with(trigger_source="p2p_block_start")
+
+
+def test_solve_now_is_recorded_so_the_re_plan_does_not_repeat_it():
+    from custom_components.nimbus_load import services
+
+    with (
+        patch.object(
+            services.solver_runtime,
+            "async_run_solve",
+            new=AsyncMock(return_value=True),
+        ),
+        patch.object(services.solver_runtime, "record_solve_completed") as rec,
+    ):
+        asyncio.run(services._async_handle_solve_now(MagicMock(), MagicMock()))
+    rec.assert_called_once_with(trigger_source="solve_now")

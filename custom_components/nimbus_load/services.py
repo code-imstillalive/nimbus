@@ -416,6 +416,10 @@ async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> Non
     while a periodic solve is mid-flight is a safe no-op, not a race.
     """
     ok = await solver_runtime.async_run_solve(hass)
+    if ok:
+        # nimbus #1678: count it, so the cron and the in-block re-plan see
+        # it in time_since_last_solve() and do not repeat it.
+        solver_runtime.record_solve_completed(trigger_source="solve_now")
     if not ok:
         _LOGGER.warning(
             "Nimbus: solve_now service call did not produce a successful "
