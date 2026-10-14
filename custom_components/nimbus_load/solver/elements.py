@@ -970,6 +970,14 @@ class BatteryConfig:
     # the window closes -- "hold 15% through the pre-dawn hours, then sell
     # it before the morning price drop".
     reserve_period_indices: frozenset[int] | None = None
+    # Household, 14 Oct 2026, "charge by": at the end of each period in
+    # `charge_by_period_indices` the battery should hold at least
+    # `charge_by_kwh`. Soft: every kWh short costs
+    # CHARGE_BY_SHORTFALL_PENALTY_PER_KWH (network.py), so a target the battery
+    # cannot reach in time still solves, charging as fast as it can, instead
+    # of making the plan infeasible. 0 kWh or no periods = off.
+    charge_by_kwh: float = 0.0
+    charge_by_period_indices: frozenset[int] | None = None
 
     def __post_init__(self) -> None:
         # nimbus issue #467: accept any iterable of ints (a list
@@ -993,6 +1001,14 @@ class BatteryConfig:
                 self,
                 "reserve_period_indices",
                 frozenset(int(i) for i in self.reserve_period_indices),
+            )
+        if self.charge_by_period_indices is not None and not isinstance(
+            self.charge_by_period_indices, frozenset
+        ):
+            object.__setattr__(
+                self,
+                "charge_by_period_indices",
+                frozenset(int(i) for i in self.charge_by_period_indices),
             )
         if self.stale_history_period_indices is not None and not isinstance(
             self.stale_history_period_indices, frozenset

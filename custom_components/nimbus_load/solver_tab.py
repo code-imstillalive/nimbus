@@ -123,12 +123,15 @@ _BATTERY: _Card = (
         ("solver_battery_soh_percent", "State of health"),
         ("solver_battery_min_soc_percent", "Minimum SoC"),
         ("solver_battery_max_soc_percent", "Maximum SoC"),
+        # Household, 14 Oct 2026: beside Maximum SoC, the two together.
+        ("solver_charge_by_hour", "Charge by"),
+        ("solver_charge_by_percent", "Charge to"),
         ("solver_max_charge_kw", "Max charge"),
         ("solver_max_discharge_kw", "Max discharge"),
         ("solver_efficiency_percent", "Round-trip efficiency"),
         ("solver_inverter_self_consumption_kw", "Inverter self-use"),
     ],
-    "Limits every plan must respect.",
+    "Charge to: SoC to hold by Charge by each day; 0 = off.",
 )
 
 _GRID: _Card = (
@@ -160,6 +163,8 @@ _GRID: _Card = (
         ),
         ("solver_flat_fee_rate", "Flat fee"),
         ("solver_fixed_daily_charge", "Fixed daily charge"),
+        ("section", "Max import and export: your connection's limits."),
+        ("section", "Fee blocks: extra per kWh within set hours; 0 = unused."),
     ],
     "Fees are added to the buy price.",
 )
@@ -175,6 +180,8 @@ _P2P: _Card = (
         ("solver_p2p_bonus_volume_kwh", "Bonus volume"),
         ("nimbus_solver_current_bonus_price", "Bonus price now"),
         ("solver_post_window_self_consume_hours", "Self-consume after midnight"),
+        ("section", "Amount: the kW sold through each block; 0 = unused."),
+        ("section", "Bonus: paid above the sell price on P2P volume."),
     ],
     (
         "Self-consume after midnight: after a block ending at midnight, "
@@ -191,9 +198,11 @@ _P2P_HOURS: _Card = (
         ("solver_p2p_block_2_end_hour", "Block 2 stop"),
         ("solver_p2p_block_3_start_hour", "Block 3 start"),
         ("solver_p2p_block_3_end_hour", "Block 3 stop"),
-        ("section", "Hours of the day: 17 = 5 pm, 24 = midnight."),
+        ("section", "A block ending at midnight shows as 00:00."),
         ("nimbus_solver_p2p_match_fraction", "Matched share (0–1)"),
         ("nimbus_solver_p2p_recent_avg_volume_kwh", "Matched volume"),
+        ("section", "Start lead time (P2P card) begins each block early."),
+        ("section", "Matched volume: average kWh sold to peers lately."),
     ],
     "Matched: export recently sold to a peer.",
 )

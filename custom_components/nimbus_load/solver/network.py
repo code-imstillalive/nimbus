@@ -2341,6 +2341,7 @@ def _build_plan_once(
             p.set_cost(underfill_vars[b.name][t], soft_soc_penalty_per_kwh)
             p.set_cost(overfill_vars[b.name][t], soft_soc_penalty_per_kwh)
         _add_soft_reserve(p, b, soc_vars[b.name], n)
+        _add_charge_by(p, b, soc_vars[b.name], n)
     # A P2P-pinned period's export is NET export: no ordinary grid import
     # alongside it (see p2p_export.grid_import_ub's docstring).
     grid_import = [
@@ -4855,6 +4856,32 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
         else:
             p.add_ub_constraint({held[t - 1]: 1.0, held[t]: -1.0, drawn[t]: -1.0}, 0.0)
         p.set_cost(drawn[t], price)
+
+
+# Household, 14 Oct 2026: $/kWh for each kWh the battery is short of its
+# "charge by" target. Above any ordinary buy price or P2P bonus (tens of
+# cents), so the plan charges in time rather than waiting for a slot it
+# forecasts a cent or two cheaper; below a real price spike (the market cap
+# is ~$17/kWh), so a spike can still be sold into. Not scaled by hours: it
+# prices the state, like the soft SoC bounds (#338).
+CHARGE_BY_SHORTFALL_PENALTY_PER_KWH = 2.0
+
+
+def _add_charge_by(p, b, soc_vars: list[str], n: int) -> None:
+    """Household, 14 Oct 2026: soc[t] + short[t] >= charge_by_kwh at each
+    deadline period t (soc[t] is the SoC at the END of period t), with
+    short[t] >= 0 costed at CHARGE_BY_SHORTFALL_PENALTY_PER_KWH. The target is
+    capped at the battery's max SoC. Off (no variables) unless both the target
+    and at least one deadline period are set."""
+    target = min(float(b.charge_by_kwh), float(b.max_soc_kwh))
+    window = b.charge_by_period_indices
+    if target <= 0.0 or not window:
+        return
+    for t in sorted(i for i in window if 0 <= i < n):
+        short = p.add_variable(f"battery_charge_by_short_{b.name}_{t}", lb=0.0)
+        # -soc[t] - short[t] <= -target
+        p.add_ub_constraint({soc_vars[t]: -1.0, short: -1.0}, -target)
+        p.set_cost(short, CHARGE_BY_SHORTFALL_PENALTY_PER_KWH)
 
 
 def build_plan(

@@ -78,6 +78,7 @@ from .const import (
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
+    CONF_SOLVER_CHARGE_BY_PERCENT,
     CONF_SOLVER_CHARGE_COST,
     CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
     CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
@@ -125,6 +126,7 @@ from .const import (
     DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     DEFAULT_SOLVER_BATTERY_RESERVE_PERCENT,
     DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
+    DEFAULT_SOLVER_CHARGE_BY_PERCENT,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
     DEFAULT_SOLVER_CHARGE_TAPER_START_PERCENT,
@@ -430,6 +432,17 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         100,
         0.1,
+        "%",
+    ),
+    # Household, 14 Oct 2026: the SoC the battery must hold by "Charge By"
+    # (time.py) every day. 0 = off. See const.py.
+    _SolverNumberDescription(
+        CONF_SOLVER_CHARGE_BY_PERCENT,
+        "Charge To",
+        DEFAULT_SOLVER_CHARGE_BY_PERCENT,
+        0,
+        100,
+        1,
         "%",
     ),
     _SolverNumberDescription(

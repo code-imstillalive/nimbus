@@ -2472,6 +2472,9 @@ def publish_plan(
             # provider's own forecast; later periods are Nimbus's estimate.
             "import_price_provider_until": import_price_provider_until,
             "export_price_provider_until": export_price_provider_until,
+            # Household, 14 Oct 2026: "charge by" -- the target, the next
+            # deadline the plan reaches, and how far short it lands there.
+            **solver_shared.charge_by_summary(cfg, forecast),
             # nimbus issue #756-golden-CI-flake: rounded to match every
             # sibling KPI's own precision (total_cost_with_fixed_costs,
             # cost_breakdown, cost_band all round to 4dp) -- HiGHS's LP

@@ -2670,6 +2670,11 @@
       "battery_kw_sign_convention": "positive_discharge_negative_charge",
       "binding_constraint_now": "Grid export at zero (not economical right now)",
       "binding_constraint_shadow_price": 0.3832,
+      "charge_by_next": null,
+      "charge_by_next_short_pct": null,
+      "charge_by_next_soc_pct": null,
+      "charge_by_target_pct": null,
+      "charge_by_time": null,
       "charge_efficiency": 0.9747,
       "cost_band": {
        "lower": -0.9766,

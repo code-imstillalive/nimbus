@@ -99,7 +99,12 @@ try:
     from .solver_inputs import extra_batteries as extra_batteries_inputs
     from .solver_inputs.battery_soc import SocEnvelope
     from .solver_inputs.controllable_loads import build_controllable_loads
-    from .solver_shared import _cfg_num, _local, fetch_p2p_fixed_export_kw
+    from .solver_shared import (
+        _cfg_num,
+        _local,
+        charge_by_period_indices,
+        fetch_p2p_fixed_export_kw,
+    )
 except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
     from solver import elements, lp, network, pin_blockers  # type: ignore[no-redef]
@@ -113,6 +118,7 @@ except ImportError:  # pragma: no cover - standalone/cron path
     from solver_shared import (  # type: ignore[no-redef]
         _cfg_num,
         _local,
+        charge_by_period_indices,
         fetch_p2p_fixed_export_kw,
     )
 
@@ -738,6 +744,15 @@ def assemble_and_solve_plan(
             grid_times,
             _cfg_num(cfg, "solver_battery_reserve_start_hour", 0.0),
             _cfg_num(cfg, "solver_battery_reserve_end_hour", 0.0),
+        ),
+        # Household, 14 Oct 2026: "charge by"; 0 % = off.
+        charge_by_kwh=capacity_kwh
+        * _cfg_num(cfg, "solver_charge_by_percent", 0.0)
+        / 100.0,
+        charge_by_period_indices=charge_by_period_indices(
+            grid_times,
+            period_hours_arr,
+            _cfg_num(cfg, "solver_charge_by_hour", 16.0),
         ),
         spike_override_discharge_kw=spike_override_kw,
         charge_power_curve=charge_taper_curve(

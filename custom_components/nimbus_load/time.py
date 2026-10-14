@@ -37,12 +37,14 @@ from homeassistant.loader import async_get_integration
 from .const import (
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
     CONF_SOLVER_BATTERY_RESERVE_START_HOUR,
+    CONF_SOLVER_CHARGE_BY_HOUR,
     CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
     CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
+    DEFAULT_SOLVER_CHARGE_BY_HOUR,
     DOMAIN,
 )
 
@@ -53,6 +55,9 @@ _STORAGE_VERSION = 1
 # (key, name). The key is also the Solver config key, the unique-id suffix
 # and the old number entity's key, so its saved value can be carried over.
 TIME_SETTINGS: tuple[tuple[str, str], ...] = (
+    # Household, 14 Oct 2026: "Charge By" sits with "Charge To" (number.py),
+    # beside Battery Max SoC. See const.py.
+    (CONF_SOLVER_CHARGE_BY_HOUR, "Charge By"),
     (CONF_SOLVER_BATTERY_RESERVE_START_HOUR, "Battery Reserve From"),
     (CONF_SOLVER_BATTERY_RESERVE_END_HOUR, "Battery Reserve Until"),
     # Household, 12 Oct 2026 (asked for before, #565): P2P blocks to the
@@ -64,6 +69,13 @@ TIME_SETTINGS: tuple[tuple[str, str], ...] = (
     (CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 From"),
     (CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 Until"),
 )
+
+
+# A setting whose first value is not midnight. Every other time setting
+# starts at 00:00, which for them means "unset".
+TIME_DEFAULTS: dict[str, float] = {
+    CONF_SOLVER_CHARGE_BY_HOUR: DEFAULT_SOLVER_CHARGE_BY_HOUR,
+}
 
 
 def hours_to_time(hours: float) -> time:
@@ -131,7 +143,7 @@ class NimbusSolverTime(RestoreEntity, TimeEntity):
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self.entity_id = f"time.nimbus_{key}"
         self._attr_name = name
-        self._attr_native_value = time(0, 0)
+        self._attr_native_value = hours_to_time(TIME_DEFAULTS.get(key, 0.0))
         # The P2P block times sit on the "Nimbus P2P" sub-device beside the
         # block rates (number.py, nimbus #465), where they always were.
         p2p = key.startswith("solver_p2p_")

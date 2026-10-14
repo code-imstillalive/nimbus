@@ -1507,6 +1507,15 @@ CONF_SOLVER_BATTERY_RESERVE_START_HOUR: Final = "solver_battery_reserve_start_ho
 DEFAULT_SOLVER_BATTERY_RESERVE_START_HOUR: Final = 0.0
 CONF_SOLVER_BATTERY_RESERVE_END_HOUR: Final = "solver_battery_reserve_end_hour"
 DEFAULT_SOLVER_BATTERY_RESERVE_END_HOUR: Final = 0.0
+# Household, 14 Oct 2026: "charge by" -- the battery holds at least
+# `charge_by_percent` of capacity by `charge_by_hour` (local time) every day
+# of the plan. Without it the plan kept the cheap pre-block charge "for
+# later" on every 15 s re-plan and never started it (14 Oct, 10:00-15:00).
+# 0 % (the default) = off, plans unchanged.
+CONF_SOLVER_CHARGE_BY_HOUR: Final = "solver_charge_by_hour"
+DEFAULT_SOLVER_CHARGE_BY_HOUR: Final = 16.0
+CONF_SOLVER_CHARGE_BY_PERCENT: Final = "solver_charge_by_percent"
+DEFAULT_SOLVER_CHARGE_BY_PERCENT: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
 DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"

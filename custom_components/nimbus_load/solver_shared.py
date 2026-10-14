@@ -978,6 +978,70 @@ def p2p_block_start_minutes(cfg: dict) -> frozenset[int]:
     return frozenset(start for _rate, start, _end in _configured_p2p_blocks(cfg))
 
 
+def charge_by_period_indices(
+    grid_times: list[datetime], period_hours: list[float], deadline_hour: float
+) -> frozenset[int]:
+    """Household, 14 Oct 2026, "charge by": for each local day whose deadline
+    the plan reaches, the last period that ENDS at or before that deadline
+    (the LP's soc[t] is the state at the end of period t). A deadline already
+    past at the end of period 0 has no such period and is skipped, as is one
+    beyond the plan's last period."""
+    if not grid_times:
+        return frozenset()
+    ends = [
+        _local(t) + timedelta(hours=float(h))
+        for t, h in zip(grid_times, period_hours, strict=False)
+    ]
+    last: dict[object, int] = {}
+    for i, end in enumerate(ends):
+        midnight = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        if end <= midnight + timedelta(hours=float(deadline_hour)):
+            last[end.date()] = i
+    out = set()
+    for i in last.values():
+        midnight = ends[i].replace(hour=0, minute=0, second=0, microsecond=0)
+        if ends[-1] >= midnight + timedelta(hours=float(deadline_hour)):
+            out.add(i)
+    return frozenset(out)
+
+
+def charge_by_summary(cfg: dict, forecast: list[dict]) -> dict:
+    """Household, 14 Oct 2026: what the published plan does about "charge
+    by", from its own rows (soc_pct is the SoC at the end of each row). Every
+    key is always present, None when the setting is off (#589)."""
+    pct = float(_cfg_num(cfg, "solver_charge_by_percent", 0.0))
+    hour = float(_cfg_num(cfg, "solver_charge_by_hour", 16.0))
+    out: dict = {
+        "charge_by_time": None,
+        "charge_by_target_pct": None,
+        "charge_by_next": None,
+        "charge_by_next_soc_pct": None,
+        "charge_by_next_short_pct": None,
+    }
+    if pct <= 0.0:
+        return out
+    minutes = round(hour * 60) % (24 * 60)
+    out["charge_by_time"] = f"{minutes // 60:02d}:{minutes % 60:02d}"
+    out["charge_by_target_pct"] = round(pct, 1)
+    times, hours = [], []
+    for row in forecast:
+        try:
+            times.append(datetime.fromisoformat(str(row["time"])))
+            hours.append(float(row.get("hours") or 0.0))
+        except (KeyError, TypeError, ValueError):
+            return out
+    indices = charge_by_period_indices(times, hours, hour)
+    if not indices:
+        return out
+    i = min(indices)
+    soc = forecast[i].get("soc_pct")
+    out["charge_by_next"] = _local(times[i] + timedelta(hours=hours[i])).isoformat()
+    if soc is not None:
+        out["charge_by_next_soc_pct"] = round(float(soc), 1)
+        out["charge_by_next_short_pct"] = round(max(0.0, pct - float(soc)), 1)
+    return out
+
+
 def p2p_block_active(cfg: dict, local_minute: int) -> bool:
     """True when `local_minute` (local minute of the day) is inside a
     configured P2P block, lead time included: the same windows the plan pins
