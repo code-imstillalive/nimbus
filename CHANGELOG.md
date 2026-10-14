@@ -38,6 +38,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   restart's log. A rescued Unknown isn't a failure, so it left no record at
   all. Observability only: nothing reads these values (golden master: the
   four keys, null and 0, and no plan value moved).
+- **Device contract DC-002: one resolver turns a binding into a value in
+  canonical units and sign, or a series of priced intervals** (#1574,
+  `device_bindings.py`). It keeps missing, unavailable, stale, held and a
+  measured zero apart, refuses wrong or unknown units and other currencies
+  with a reason, measures coverage from the intervals without filling gaps,
+  refuses overlapping rows, and calls only the two read-only actions on its
+  list. Nothing reads it yet, so nothing an install does changes.
 
 ### Fixed
 - **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a

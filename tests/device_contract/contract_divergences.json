@@ -8,7 +8,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -17,7 +17,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -26,7 +26,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -35,7 +35,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -44,7 +44,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision."
+   "note": "Legacy lowercases units (except exact mW/MW) and strips whitespace, so this spelling is read as a power unit. HA's UnitOfPower spellings are exact; whether Nimbus accepts a miscased template-sensor unit is a contract decision. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -53,7 +53,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "Legacy reads lowercase 'mw' as megawatt, a documented choice in power_units.py (a milliwatt house sensor does not occur in practice). The contract refuses it as neither exact mW nor MW."
+   "note": "Legacy reads lowercase 'mw' as megawatt, a documented choice in power_units.py (a milliwatt house sensor does not occur in practice). The contract refuses it as neither exact mW nor MW. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -62,7 +62,7 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "No unit: read as kW by design ('kW was always the assumption'). The contract treats a missing unit as unresolved rather than assumed."
+   "note": "No unit: read as kW by design ('kW was always the assumption'). The contract treats a missing unit as unresolved rather than assumed. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
   },
   {
    "fixture": "F09",
@@ -71,7 +71,25 @@
    "contract": "refused",
    "class": "open_decision",
    "owner": "DC-002",
-   "note": "No unit attribute: read as kW by design. The contract treats a missing unit as unresolved rather than assumed."
+   "note": "No unit attribute: read as kW by design. The contract treats a missing unit as unresolved rather than assumed. DC-002's resolver (device_bindings.py) takes the contract side and refuses it; the legacy readers are unchanged until DC-006."
+  },
+  {
+   "fixture": "F04",
+   "case": "overlap",
+   "legacy": "first_row_kept",
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "price_intervals.py's provider readers (_ordered) keep the first of two overlapping rows and drop the second, silently. The oracle refuses overlapping published intervals. DC-002's resolver refuses the whole series (reason overlapping_intervals); the legacy solver path is unchanged until DC-006."
+  },
+  {
+   "fixture": "F04",
+   "case": "expired_price",
+   "legacy": "held",
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "price_intervals.on_grid holds the last interval's value at grid times past its end, flagging them real=False. The oracle never extends a price past its interval. DC-002's resolver reports the tail as a coverage gap with no value; the legacy solver path, which reads the flag, is unchanged until DC-006."
   }
  ]
 }

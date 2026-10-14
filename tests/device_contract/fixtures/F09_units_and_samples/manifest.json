@@ -175,7 +175,7 @@
   "execution_status": {
     "reference_oracle": "verified",
     "legacy_characterised": "recorded",
-    "production_obligation": "pending (DC-002, DC-005, DC-006)",
+    "production_obligation": "pending (DC-002 resolver tested in test_dc002_bindings_and_normalisation.py; DC-005, DC-006 not started)",
     "legacy_evidence": "snapshots/legacy/F09_power_units.json: power-unit conversion only; samples and counters not yet characterised"
   },
   "privacy": {

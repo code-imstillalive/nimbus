@@ -4,7 +4,7 @@ manifest and independent of production code."""
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -44,7 +44,14 @@ def _rows(raw: list) -> list[Row]:
 
 
 @pytest.mark.parametrize(
-    "name", ["thirty_min_window_over_5_min", "gap", "nothing_published"]
+    "name",
+    [
+        "thirty_min_window_over_5_min",
+        "gap",
+        "nothing_published",
+        "thirty_min_series",
+        "hole",
+    ],
 )
 def test_f04_price_over_a_window(name: str) -> None:
     case, expected = F04["cases"][name], F04["expected"][name]
@@ -64,6 +71,41 @@ def test_f04_a_utc_interval_is_the_same_instant_and_its_negative_price_is_kept()
     assert utc.start == T("2026-10-05T17:10:00+10:00")
     price, _ = price_over([utc], utc.start, utc.end)
     assert price == -0.06
+
+
+def _blocks(raw: list) -> list[PriceInterval]:
+    """F04 `multi_day`: `[first start, minutes, count, price]` blocks."""
+    out = []
+    for first, minutes, count, price in raw:
+        start = T(first)
+        for k in range(count):
+            a = start + timedelta(minutes=minutes * k)
+            out.append(PriceInterval(a, a + timedelta(minutes=minutes), price))
+    return out
+
+
+def test_f04_a_multi_day_series_with_a_24_hour_hole() -> None:
+    case, expected = F04["cases"]["multi_day"], F04["expected"]["multi_day"]
+    price, coverage = price_over(_blocks(case["blocks"]), *map(T, case["window"]))
+    assert price is not None and abs(price - expected["price"]) <= TOL
+    assert abs(coverage - expected["coverage"]) <= TOL
+
+
+def test_f04_the_overlap_case_is_refused() -> None:
+    case = F04["cases"]["overlap"]
+    assert F04["expected"]["overlap"] == "refused"
+    with pytest.raises(ValueError, match="overlapping"):
+        price_over(_intervals(case["intervals"]), *map(T, case["window"]))
+
+
+def test_f04_a_feed_in_only_provider_gives_no_import_price() -> None:
+    case, expected = F04["cases"]["feed_in_only"], F04["expected"]["feed_in_only"]
+    window = tuple(map(T, case["window"]))
+    assert price_over([], *window)[0] is expected["import"]
+    assert (
+        price_over(_intervals(case["export_intervals"]), *window)[0]
+        == (expected["export"])
+    )
 
 
 def test_f04_overlapping_published_intervals_are_refused() -> None:
