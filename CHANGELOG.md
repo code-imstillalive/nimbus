@@ -8,11 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-## [0.94.456] - 2026-10-14
+## [0.94.456] - 2026-10-15
 
-Charge By / Charge To hold a SoC by a time of day; a P2P block the battery
-cannot fund falls short at a price instead of making the plan infeasible;
-the plan re-plans every ~15 s while a block is active.
+Charge By / Charge To hold a SoC by a time of day; the plan chart shows the
+charge each plan is holding for later; a P2P block the battery cannot fund
+falls short at a price instead of making the plan infeasible; the plan
+re-plans every ~15 s while a block is active.
 
 ### Added
 - **The Solver tab's plan chart shows the charge each plan is holding for
