@@ -328,6 +328,8 @@ def _bad(code):
         )
     elif code == "source_fields_missing":
         devices[0]["bindings"]["power"]["source"] = {"kind": "recorder_statistic"}
+    elif code == "capacity_missing":
+        devices.append({"id": "b", "kind": "battery"})
     elif code == "capacity_basis_missing":
         devices.append(
             {"id": "b", "kind": "battery", "capacity": {"value": 10, "unit": "kWh"}}
@@ -347,6 +349,7 @@ def _bad(code):
             {
                 "id": "b",
                 "kind": "battery",
+                "capacity": {"value": 10, "unit": "kWh", "basis": "usable"},
                 "constraints": {"soc_min": 90, "soc_max": 10},
             }
         )
@@ -392,6 +395,7 @@ _CODES = (
     "role_not_allowed_for_kind",
     "sign_not_canonical",
     "source_fields_missing",
+    "capacity_missing",
     "capacity_basis_missing",
     "constraint_key_not_allowed_for_kind",
     "binding_source_duplicate",
@@ -478,3 +482,13 @@ def test_no_module_imports_the_device_contract_yet() -> None:
         and "device_contract" in p.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+def test_a_battery_must_state_its_capacity() -> None:
+    # Household, #1728 (14 Oct): capacity is required on every battery, so
+    # a battery found before anyone has entered its size fails with exactly
+    # this code and nothing else.
+    doc = _with(_minimal(), {"id": "battery_found", "kind": "battery"})
+    assert _codes(doc) == ["capacity_missing"]
+    doc["devices"][-1]["capacity"] = {"value": 10, "unit": "kWh", "basis": "usable"}
+    assert _codes(doc) == []

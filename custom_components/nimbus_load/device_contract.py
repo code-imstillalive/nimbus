@@ -297,7 +297,15 @@ def _validate_device(device: dict[str, Any], base: str, add: Any) -> None:
             )
     if kind == "battery":
         capacity = device.get("capacity")
-        if capacity is not None and (capacity or {}).get("basis") not in CAPACITY_BASES:
+        if capacity is None:
+            # Household, #1728 (14 Oct): a battery the Solver cannot size is
+            # not a usable battery, so its capacity is required, not optional.
+            add(
+                "capacity_missing",
+                f"{base}.capacity",
+                "a battery must state its capacity",
+            )
+        elif (capacity or {}).get("basis") not in CAPACITY_BASES:
             add(
                 "capacity_basis_missing",
                 f"{base}.capacity",

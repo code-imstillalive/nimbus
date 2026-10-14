@@ -79,7 +79,7 @@ shared_constraints: [...]
 | `load` | `power`, `energy`, `temperature` | `demand_forecast`; output `scheduled_consumption` | `fixed_hours`, `min_runtime`, `energy_requirement`, `operating_window`, `thermal_comfort`, `sheddable` |
 | `battery` | `soc`, `power` (signed), `charge_power`, `discharge_power`, `charge_energy`, `discharge_energy` | `availability`, `target_soc`; outputs `planned_dispatch`, `planned_soc` | `soc_min`, `soc_max`, `reserve`, `charge_limit`, `discharge_limit`, `charge_efficiency`, `discharge_efficiency`, `departure_target` |
 
-- **Battery capacity states its basis** (`nominal` or `usable`); a capacity without one is a structural error. This is #1574's "explicit nominal/usable basis", and F02's.
+- **Every battery states its capacity, and the capacity states its basis** (`nominal` or `usable`). A battery without a capacity, or a capacity without a basis, is a structural error. A discovered battery whose size nobody has entered yet therefore fails with `capacity_missing`, which is the prompt to enter it (household, #1728, 14 Oct). This is #1574's "explicit nominal/usable basis", and F02's.
 - **Paired versus net:** `grid` may have `power`, or `import_power` + `export_power`, or both. Whether a pair and a net agree is DC-002/DC-003, not structure.
 - **Constraint keys are policed like roles.** A constraint key the kind does not accept (a `battery` with `fixed_hours`, a `load` with `soc_min`) is a structural error, `constraint_key_not_allowed_for_kind`.
 - **Two inverters versus one inverter's strings (F02).** Two inverters are two `solar` devices, each with its own `boundary` and its own total binding. One inverter's strings are **not** separate peers of its total: each string is a `solar` device that is the `child` of an `included_in_measurement` relationship whose `parent` is the inverter's total device, `quantity: generation`. Declared that way, the total is never counted twice, because DC-003 decomposes inclusion rather than summing peers.
@@ -174,6 +174,7 @@ A pure function, `validate(document) -> list[Problem]`. It reads no sensors and 
 | `role_not_allowed_for_kind` | a binding role the device's kind does not accept |
 | `sign_not_canonical` | `normalization.positive_direction` is not the role's canonical direction |
 | `source_fields_missing` | a source variant lacks a required field |
+| `capacity_missing` | a battery with no `capacity` |
 | `capacity_basis_missing` | battery capacity without `nominal`/`usable` |
 | `constraint_key_not_allowed_for_kind` | a constraint key the device's kind does not accept (the table's last column) |
 | `binding_source_duplicate` | the same source (same `registry_id`, else same `entity_id` + `attribute_path`, else same `statistic_id`) bound under the same role on two different devices. This catches the same total sensor bound to two `solar` devices |
@@ -222,7 +223,7 @@ Tests live under `tests/device_contract/`, next to DC-000's. Each test reference
   - two inverters as two `solar` devices with distinct boundaries and distinct total bindings validates;
   - one inverter's two strings declared as `children` of its total via `included_in_measurement` validates;
   - the same total sensor bound to two `solar` devices gives `binding_source_duplicate`;
-  - a shared inverter limit in `shared_constraints` validates, and a battery without a capacity basis gives `capacity_basis_missing`;
+  - a shared inverter limit in `shared_constraints` validates, a battery without a capacity basis gives `capacity_basis_missing`, and a battery without a capacity gives `capacity_missing`;
   - an undeclared string-plus-total pair through two different sensors **validates here** and is pinned as a DC-003 case (see the deferral under "Structural validation"), so the test records the hand-off rather than silently passing.
 - **Each problem code has one negative test**, so the table above cannot be dead text (the DC-000 non-vacuity rule).
 - **Round-trip** on every fixture document.
