@@ -1005,6 +1005,49 @@ def charge_by_period_indices(
     return frozenset(out)
 
 
+def charge_before_block_summary(
+    fixed_export_kw, charge_kw, hours, times, capacity_kwh: float
+) -> dict:
+    """Household, 14 Oct 2026: how much charging this plan intends before the
+    next P2P block. The Solver tab's plan line only ever records period 0
+    ("what to do now"), so a plan that keeps postponing its charge drew 0 all
+    morning while every plan held a charge for later. Recorded every solve,
+    its history shows that at a glance: a value that stays high and is never
+    worked off is a plan that keeps deferring. A block already running is
+    skipped to the one after it. Every key is always present (#589)."""
+    out: dict = {
+        "charge_before_block_kwh": None,
+        "charge_before_block_pct": None,
+        "next_block_start": None,
+    }
+    if fixed_export_kw is None:
+        return out
+    pinned = np.nan_to_num(np.asarray(fixed_export_kw, dtype=float), nan=0.0) > 0.0
+    n = min(len(pinned), len(charge_kw), len(hours), len(times))
+    i = 0
+    while i < n and pinned[i]:
+        i += 1
+    block = next((j for j in range(i, n) if pinned[j]), None)
+    if block is None:
+        return out
+    kwh = float(
+        np.sum(
+            np.asarray(charge_kw[:block], dtype=float)
+            * np.asarray(hours[:block], dtype=float)
+        )
+    )
+    out["charge_before_block_kwh"] = round(kwh, 2)
+    if capacity_kwh > 0:
+        out["charge_before_block_pct"] = round(kwh / capacity_kwh * 100.0, 1)
+    try:
+        out["next_block_start"] = _local(
+            datetime.fromisoformat(str(times[block]))
+        ).isoformat()
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
 def charge_by_summary(cfg: dict, forecast: list[dict]) -> dict:
     """Household, 14 Oct 2026: what the published plan does about "charge
     by", from its own rows (soc_pct is the SoC at the end of each row). Every

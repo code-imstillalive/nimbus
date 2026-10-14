@@ -9,6 +9,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **The Solver tab's plan chart shows the charge each plan is holding for
+  later** (household, 14 Oct). The teal plan line records only what each plan
+  said to do in its first minute, so on 14 Oct, while every plan held a
+  charge for later and kept postponing it, the line drew 0 all morning and
+  read as "the plan never meant to charge". Each plan now publishes
+  `charge_before_block_kwh` / `charge_before_block_pct` (the charge it
+  intends before the next P2P block; a block already running is skipped to
+  the next) and `next_block_start`, all null without a block ahead. The chart
+  draws `charge_before_block_pct` in orange on the SoC axis as "Charge held
+  for later": a line that stays high and is never worked off is a plan that
+  keeps deferring. The teal line is renamed "Plan now" and the card's note
+  says what each line is.
 - **Charge By / Charge To** (household, 14 Oct). Two settings beside Battery
   Max SoC: `time.nimbus_solver_charge_by_hour` (default 16:00) and
   `number.nimbus_solver_charge_by_percent` (default 0 = off). Every day in the

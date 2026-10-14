@@ -324,8 +324,14 @@ def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
     assert chart["span"]["offset"].startswith("-")
     names = {s["name"]: s for s in chart["series"]}
     assert names["Measured"]["entity"] == "@option:battery_sensor"
-    for line in ("Measured", "Plan", "Plan ahead", "Buy price", "Buy price ahead"):
+    for line in ("Measured", "Plan now", "Plan ahead", "Buy price", "Buy price ahead"):
         assert names[line]["curve"] == "stepline", line
+    # Household, 14 Oct 2026: period 0 alone drew 0 all morning while every
+    # plan held a charge for later; this line shows the charge being held.
+    held = names["Charge held for later"]
+    assert held["entity"] == "@nimbus_solver_battery_forecast"
+    assert held["attribute"] == "charge_before_block_pct"
+    assert held["yaxis_id"] == "soc"
     # Price behind Now is 5-minute detail from the buy price's own history.
     assert names["Buy price"]["group_by"]["duration"] == "5min"
     for planned in ("Plan ahead", "SoC ahead", "Buy price ahead"):

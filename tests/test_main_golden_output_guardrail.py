@@ -139,6 +139,9 @@ _EXPECTED_ATTRS = {
     "charge_by_next": None,
     "charge_by_next_soc_pct": None,
     "charge_by_next_short_pct": None,
+    "charge_before_block_kwh": None,
+    "charge_before_block_pct": None,
+    "next_block_start": None,
     # nimbus issue #696, Stage 2: regenerated from a fresh real run
     # after solver_writer.py's main() started defaulting to
     # solve_options=CalibratedOptions() (switch.nimbus_solver_
