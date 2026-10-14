@@ -12899,6 +12899,8 @@
        "calibration_min_weight_fallback": false,
        "calibration_weight_used": 0.01,
        "household_mode": null,
+       "last_failure_at": null,
+       "last_failure_raw_status": null,
        "n_adequacy_loads": 1,
        "n_batteries": 1,
        "n_controllable_loads": 2,
@@ -12908,7 +12910,9 @@
        "simplex_iterations": 238,
        "solver_failures": 0,
        "solves_attempted": 1,
-       "thermal_guarantee_relaxed": []
+       "thermal_guarantee_relaxed": [],
+       "unknown_retries": 0,
+       "unknown_retries_recovered": 0
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",
@@ -26137,6 +26141,8 @@
        "calibration_min_weight_fallback": false,
        "calibration_weight_used": 0.01,
        "household_mode": null,
+       "last_failure_at": null,
+       "last_failure_raw_status": null,
        "n_adequacy_loads": 1,
        "n_batteries": 1,
        "n_controllable_loads": 2,
@@ -26146,7 +26152,9 @@
        "simplex_iterations": 0,
        "solver_failures": 0,
        "solves_attempted": 2,
-       "thermal_guarantee_relaxed": []
+       "thermal_guarantee_relaxed": [],
+       "unknown_retries": 0,
+       "unknown_retries_recovered": 0
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",

@@ -12899,6 +12899,8 @@
        "calibration_min_weight_fallback": false,
        "calibration_weight_used": null,
        "household_mode": null,
+       "last_failure_at": null,
+       "last_failure_raw_status": null,
        "n_adequacy_loads": 0,
        "n_batteries": 1,
        "n_controllable_loads": 1,
@@ -12910,7 +12912,9 @@
        "solves_attempted": 1,
        "thermal_guarantee_relaxed": [
         "Tank"
-       ]
+       ],
+       "unknown_retries": 0,
+       "unknown_retries_recovered": 0
       },
       "source_sensor": "sensor.fake_soc",
       "state_class": "measurement",

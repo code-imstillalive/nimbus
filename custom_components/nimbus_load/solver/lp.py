@@ -2433,10 +2433,18 @@ def _solve_with_options(
 
 
 _UNKNOWN_RETRY_NOTED: set[str] = set()
+#: nimbus #1360: Unknown retries this process, and how many ended optimal.
+#: Published in `solve_diagnostics` beside `solver_failures`, because a
+#: rescued solve is not a failure and its one WARNING per process is lost at
+#: the next restart. A calibrated solve whose plain fallback also returns
+#: Unknown and is rescued by the interior-point retry counts twice.
+UNKNOWN_RETRIES: dict[str, int] = {"attempted": 0, "recovered": 0}
 
 
 def _note_unknown_retry(how: str) -> None:
-    """One WARNING per retry kind per process (nimbus #1360)."""
+    """One WARNING per retry kind per process (nimbus #1360); every retry is
+    counted in `UNKNOWN_RETRIES`."""
+    UNKNOWN_RETRIES["attempted"] += 1
     if how in _UNKNOWN_RETRY_NOTED:
         return
     _UNKNOWN_RETRY_NOTED.add(how)
@@ -2716,10 +2724,15 @@ def _solve_highs(
     if status == highspy.HighsModelStatus.kUnknown and not binary_cols:
         if options is not None:
             _note_unknown_retry("plain single-objective solve")
-            return _solve_highs(
+            retried = _solve_highs(
                 problem, ranging=ranging, keep_basis=keep_basis, options=None
             )
+            if retried.status == "optimal":
+                UNKNOWN_RETRIES["recovered"] += 1
+            return retried
         status = _retry_unknown_with_ipm(h)
+        if status == highspy.HighsModelStatus.kOptimal:
+            UNKNOWN_RETRIES["recovered"] += 1
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
         return LPResult(

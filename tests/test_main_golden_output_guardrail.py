@@ -581,6 +581,15 @@ class TestMainGoldenOutput:
         diag = dict(actual_non_time["solve_diagnostics"])
         attempted = diag.pop("solves_attempted")
         failures = diag.pop("solver_failures")
+        # nimbus #1360 (15 Oct): also process-wide, so earlier tests in this
+        # process can have set them.
+        for key in (
+            "last_failure_raw_status",
+            "last_failure_at",
+            "unknown_retries",
+            "unknown_retries_recovered",
+        ):
+            diag.pop(key)
         assert isinstance(attempted, int) and attempted >= 1
         assert isinstance(failures, int) and 0 <= failures <= attempted
         actual_non_time["solve_diagnostics"] = diag
