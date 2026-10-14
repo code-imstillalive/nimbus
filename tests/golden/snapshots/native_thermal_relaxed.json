@@ -12994,6 +12994,16 @@
      "query": "start=2026-09-01T10:00:00+00:00&end=2026-09-06T10:00:00+00:00"
     },
     {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_import_price",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.fake_export_price",
+     "query": ""
+    },
+    {
      "method": "NATIVE_HISTORY",
      "path": "/recorder/sensor.fake_import_price",
      "query": "start=2026-08-23T10:00:00+00:00&end=2026-09-06T10:00:00+00:00"

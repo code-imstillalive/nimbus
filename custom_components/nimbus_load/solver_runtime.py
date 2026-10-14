@@ -524,6 +524,10 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH",
         hass.config.path("nimbus_solver_solar_delivery_ratio.json"),
     )
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_AMBER_SPOT_PATH",
+        hass.config.path("nimbus_solver_amber_spot.json"),
+    )
 
 
 def _ensure_ready(hass: HomeAssistant):

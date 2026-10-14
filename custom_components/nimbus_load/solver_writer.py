@@ -5106,6 +5106,7 @@ def compute_5min_offset(
     real_history: list[tuple[datetime, float]],
     days: int = 5,
     regional_spot_sensor: str | None = None,
+    same_poll_wholesale: dict[int, tuple[datetime, float]] | None = None,
 ) -> dict[int, float]:
     """Real, empirical (retail price - regional wholesale spot) offset,
     binned by 5-MINUTE-of-day (288 buckets: hour*12 + minute//5) from
@@ -5135,10 +5136,14 @@ def compute_5min_offset(
     `regional_spot_sensor` is blank, or either side's real history is
     unavailable -- must never crash the writer.
     """
-    if not regional_spot_sensor:
+    if not regional_spot_sensor and not same_poll_wholesale:
         return {}
-    aemo_history = fetch_price_history(regional_spot_sensor, days=days)
-    if not real_history or not aemo_history:
+    aemo_history = (
+        fetch_price_history(regional_spot_sensor, days=days)
+        if regional_spot_sensor
+        else []
+    )
+    if not real_history or not (aemo_history or same_poll_wholesale):
         return {}
 
     # nimbus #1694: each interval's SETTLED retail price against the SAME
@@ -5147,6 +5152,11 @@ def compute_5min_offset(
     # last _OFFSET_RECENT_DAYS samples, so a tariff change is followed.
     retail = _settled_by_interval(real_history)
     wholesale = _settled_by_interval(aemo_history)
+    # nimbus #1698: where the retailer's own response carried the interval's
+    # wholesale (Amber Express `spot_per_kwh`, ex GST), it wins over the AEMO
+    # sensor for that interval: same poll as the retail price, so no
+    # cross-sensor timing (a late AEMO post keyed into the wrong interval).
+    wholesale.update(same_poll_wholesale or {})
     by_bucket: dict[int, list[tuple[datetime, float]]] = {}
     for key in retail.keys() & wholesale.keys():
         start, real_v = retail[key]
@@ -5175,6 +5185,74 @@ def _settled_by_interval(
         key = int(t.timestamp()) // 300
         out[key] = (datetime.fromtimestamp(key * 300, t.tzinfo), float(v))
     return out
+
+
+# nimbus #1698: Amber Express's per-interval `spot_per_kwh` is in
+# `detailedForecast`, which the recorder does not keep, so its history is
+# collected here, one settled value per 5-minute interval. Same env-var
+# convention as SOLAR_DELIVERY_RATIO_PATH; solver_runtime points it at HA's
+# config directory for the native path.
+AMBER_SPOT_PATH = os.environ.get(
+    "NIMBUS_SOLVER_AMBER_SPOT_PATH", "/opt/nimbus_solver_amber_spot.json"
+)
+# compute_5min_offset() reads 5 days of retail history; keep as many.
+_AMBER_SPOT_KEEP_INTERVALS = 5 * 288
+_AMBER_SPOT_CACHE: dict[str, float] | None = None
+
+
+def _load_amber_spot() -> dict[str, float]:
+    global _AMBER_SPOT_CACHE
+    if _AMBER_SPOT_CACHE is None:
+        try:
+            with open(AMBER_SPOT_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+            _AMBER_SPOT_CACHE = {
+                str(k): float(v)
+                for k, v in (data.items() if isinstance(data, dict) else [])
+            }
+        except (OSError, ValueError, TypeError):
+            _AMBER_SPOT_CACHE = {}
+    return _AMBER_SPOT_CACHE
+
+
+def collect_amber_spot(entity_ids, now: datetime) -> dict[int, tuple[datetime, float]]:
+    """nimbus #1698: record the in-progress interval's Amber Express wholesale
+    (`spot_per_kwh` / 1.10) from the first of `entity_ids` that carries one,
+    and return every interval collected, as compute_5min_offset()'s
+    `same_poll_wholesale`. Empty for an install without Amber Express. Never
+    raises: a failed read or write only means fewer pairs."""
+    store = _load_amber_spot()
+    for entity_id in entity_ids:
+        if not entity_id:
+            continue
+        try:
+            detailed = (ha_get(entity_id).get("attributes") or {}).get(
+                price_intervals.AMBER_EXPRESS_DETAILED_KEY
+            )
+        except Exception as e:  # noqa: BLE001 - a missing sensor is not an error here
+            _LOGGER.debug("Nimbus #1698: no Amber spot from %s: %s", entity_id, e)
+            continue
+        found = price_intervals.amber_spot_in_progress(detailed, now)
+        if found is None:
+            continue
+        start, spot = found
+        key = str(int(start.timestamp()) // 300)
+        if store.get(key) != spot:
+            store[key] = spot
+            newest = int(key)
+            for old in [
+                k for k in store if int(k) <= newest - _AMBER_SPOT_KEEP_INTERVALS
+            ]:
+                del store[old]
+            try:
+                with open(AMBER_SPOT_PATH, "w", encoding="utf-8") as f:
+                    json.dump(store, f)
+            except OSError:
+                pass
+        break
+    return {
+        int(k): (datetime.fromtimestamp(int(k) * 300, UTC), v) for k, v in store.items()
+    }
 
 
 def check_aemo_p5min_disagreement(

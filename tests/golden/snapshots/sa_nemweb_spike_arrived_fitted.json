@@ -13255,6 +13255,16 @@
     },
     {
      "method": "GET",
+     "path": "/api/states/sensor.fake_import_price",
+     "query": ""
+    },
+    {
+     "method": "GET",
+     "path": "/api/states/sensor.fake_export_price",
+     "query": ""
+    },
+    {
+     "method": "GET",
      "path": "/api/history/period/2026-07-25T16:31:00Z",
      "query": "filter_entity_id=sensor.golden_regional_spot_price&end_time=2026-07-30T16:31:00Z&minimal_response"
     },
