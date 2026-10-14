@@ -187,6 +187,20 @@ _p2p_start_timer_unsub: dict[str, Callable[[], None]] = {}
 # inside it.
 _P2P_BLOCK_START_SECOND = 5
 
+# nimbus #1678: inside a P2P block the battery setpoint is the plan's own
+# prediction of block rate + house - solar, so every house-load step between
+# solves lands on the meter. At the designed cadence (5-minute cron plus real
+# price changes, ~23-37 solves an hour) a cycling ~1 kW load moved the
+# reference household's net export 10.3-12.8 kW against a 12 kW block on
+# 9 Oct; at ~15 s it stayed flat (30 Sep, meter sd 0.14 kW; 12 Oct, -11.2 kW
+# through the block). So while a block is active the same per-minute check
+# also runs at :20, :35 and :50, and solves unless any solve -- from any
+# trigger, solve_now included -- finished within the last
+# _P2P_BLOCK_REPLAN_MIN_GAP_S. An install that already calls solve_now every
+# 15 s therefore gets no extra solves. Outside a block nothing changes.
+_P2P_BLOCK_REPLAN_SECONDS = (5, 20, 35, 50)
+_P2P_BLOCK_REPLAN_MIN_GAP_S = 14.0
+
 # Same idempotent-unsub pattern as _solver_timer_unsub above -- both to
 # handle a hub reload re-entering async_setup_entry with a listener
 # already registered for the same entry_id (see the CONF_SOLVE_ON_PRICE_
@@ -926,22 +940,37 @@ async def _async_setup_entry_impl(
         state = hass.states.get("sensor.nimbus_solver_config")
         if state is None or state.state != "configured":
             return
-        from .solver_shared import _local, p2p_block_start_minutes
+        from .solver_shared import (
+            _local,
+            p2p_block_active,
+            p2p_block_start_minutes,
+        )
 
         local = _local(now)
         minute = local.hour * 60 + local.minute
-        if minute not in p2p_block_start_minutes(dict(state.attributes)):
+        cfg = dict(state.attributes)
+        if local.second == _P2P_BLOCK_START_SECOND and minute in (
+            p2p_block_start_minutes(cfg)
+        ):
+            _LOGGER.debug(
+                "Nimbus Solver: P2P block starts at %02d:%02d, solving now",
+                local.hour,
+                local.minute,
+            )
+            if await solver_runtime.async_run_solve(hass):
+                solver_runtime.record_solve_completed(trigger_source="p2p_block_start")
             return
-        _LOGGER.debug(
-            "Nimbus Solver: P2P block starts at %02d:%02d, solving now",
-            local.hour,
-            local.minute,
-        )
+        # nimbus #1678: re-plan every ~15 s while a block is active.
+        if not p2p_block_active(cfg, minute):
+            return
+        since = solver_runtime.time_since_last_solve()
+        if since is not None and since < _P2P_BLOCK_REPLAN_MIN_GAP_S:
+            return
         if await solver_runtime.async_run_solve(hass):
-            solver_runtime.record_solve_completed(trigger_source="p2p_block_start")
+            solver_runtime.record_solve_completed(trigger_source="p2p_block_replan")
 
     unsub_p2p_start = async_track_utc_time_change(
-        hass, _p2p_block_start_solve, second=_P2P_BLOCK_START_SECOND
+        hass, _p2p_block_start_solve, second=list(_P2P_BLOCK_REPLAN_SECONDS)
     )
     _p2p_start_timer_unsub[entry.entry_id] = unsub_p2p_start
     entry.async_on_unload(unsub_p2p_start)

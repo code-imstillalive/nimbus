@@ -978,6 +978,15 @@ def p2p_block_start_minutes(cfg: dict) -> frozenset[int]:
     return frozenset(start for _rate, start, _end in _configured_p2p_blocks(cfg))
 
 
+def p2p_block_active(cfg: dict, local_minute: int) -> bool:
+    """True when `local_minute` (local minute of the day) is inside a
+    configured P2P block, lead time included: the same windows the plan pins
+    to the block rate (nimbus #1678)."""
+    return any(
+        start <= local_minute < end for _rate, start, end in _configured_p2p_blocks(cfg)
+    )
+
+
 def fetch_p2p_fixed_export_kw(
     cfg: dict, grid_times: list[datetime]
 ) -> list[float] | None:

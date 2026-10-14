@@ -210,6 +210,8 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # The standalone/cron copy runs from cron and has no HA event loop
         # to register a minute trigger on.
         "p2p_block_start_minutes",
+        # nimbus issue #1678: same trigger, its in-block re-plan check.
+        "p2p_block_active",
         # nimbus issue #363 step 2 (Mark Purcell's own approved staged-
         # extraction plan): a pure code-organization move out of main()
         # in the integration copy only -- the docs/cron copy's own

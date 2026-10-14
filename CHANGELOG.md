@@ -15,6 +15,18 @@ provider's own forecast ends; the plan says whether it is one-way; Forecaster
 points sit on the clock; the dry-run reports this solve's plan.
 
 ### Added
+- **The plan re-plans every ~15 s while a P2P block is active** (#1678). In
+  a block the battery setpoint is the plan's own prediction of block rate +
+  house - solar, so each house-load step between solves lands on the meter.
+  At the designed cadence (5-minute cron plus real price changes, ~23-37
+  solves an hour) a cycling ~1 kW load moved the reference household's net
+  export 10.3-12.8 kW against a 12 kW block on 9 Oct; at a ~15 s cadence it
+  stayed flat (30 Sep; 12 Oct). The block-start check now also runs at :20,
+  :35 and :50 each minute and, inside a block, solves unless any solve
+  finished within the last 14 s. `nimbus_load.solve_now` now counts as a
+  solve for that check and for the cron's 60 s suppression, so an install
+  that already calls it every 15 s gets no extra solves. Outside a block
+  nothing changes.
 - **Prices ahead on the Solver tab** (#1753, household). Under the plan
   chart, a full-width chart of buy and sell over the plan's whole horizon
   (four days), solid where the price provider's own forecast covers it and
