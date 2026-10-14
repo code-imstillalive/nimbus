@@ -15,6 +15,41 @@ charge each plan is holding for later; a P2P block the battery cannot fund
 falls short at a price instead of making the plan infeasible; the plan
 re-plans every ~15 s while a block is active.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 3337be64**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `release/0.94.456`) and restarted 06:32:23 AEST 15 Oct.
+  - devhub's own entities stamp `0.94.456` (the other 122 are production's
+    mirrored entities on 0.94.455). All 147 `nimbus_load` entities are
+    available, so the config entry is loaded.
+  - **No Traceback, and no ERROR line this release introduces.** The start
+    logs the same 195 `nimbus_load` "does not generate unique IDs" errors as
+    0.94.455's check. It also logs one #773 `phase1_primary` `Infeasible`, a
+    plain-solve fallback, and devhub's own `Test EV` participant at 5% SoC
+    against its 20% floor. A **v0.94.455** control, installed and restarted
+    06:29:32, logged the same 195 errors and the same #773 failure with the
+    same `Test EV` warning, so neither comes from this release.
+  - The Solver tab on devhub (`nimbus-devhub`) carries the plan chart's
+    "Charge held for later" series (`charge_before_block_pct`) and the
+    "Plan now" label, from #1767's code.
+  - **Not claimed:**
+    - Charge By's effect on a plan: devhub has no P2P block or deadline of
+      the reference household's, so the effect is pinned by
+      `tests/test_charge_by.py` only;
+    - the "Charge held for later" value on a live plan: it was replayed on
+      production's captured 14 Oct inputs (112.23 kWh / 93.7% before 15 Oct
+      17:00, #1767).
+  - CI passed all 10 checks on #1762, #1763, #1767, #1769 and this release
+    PR, including the full pytest run.
+- Consumer check: a household that wants the battery charged by a time
+  now sets Charge To and Charge By. The plan holds that charge by that time
+  instead of deferring it with every re-plan, which is what 14 Oct's charge
+  window did on the reference household. The Solver tab's plan chart now
+  shows the charge each plan is holding for later, so a plan that keeps
+  postponing a charge is visible as an orange line that never falls. Still
+  missing (#1749, deliberately not built yet): a correction for a price
+  forecast that runs low all day; until then Discharge Cost and Charge By
+  are the guardrails.
+
 ### Added
 - **The Solver tab's plan chart shows the charge each plan is holding for
   later** (household, 14 Oct). The teal plan line records only what each plan
