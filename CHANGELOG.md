@@ -14,6 +14,38 @@ The Solver tab shows prices for the plan's whole horizon and where the
 provider's own forecast ends; the plan says whether it is one-way; Forecaster
 points sit on the clock; the dry-run reports this solve's plan.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 29a5ddb5**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `claude/release-0.94.455`) and restarted 10:27:50 AEST 14 Oct.
+  - The `nimbus_load` config entry is `loaded`, and devhub's own entities stamp
+    `0.94.455`.
+  - **0 new ERROR lines, and no Traceback.** The start logs 195
+    `nimbus_load` "does not generate unique IDs" errors (with 17-20 from
+    `cast`), plus Nimbus's own pre-check warnings for the same entities. A
+    control install of **v0.94.454** restarted at 10:30:46 logged the same 195
+    `nimbus_load` errors, so this release did not cause them. In every case,
+    devhub's own `unique_id` is reported as "already used by" the un-suffixed
+    entity_id. Why devhub's registry is in that state is not established.
+  - The Solver tab's new templates render through devhub's own template engine
+    against the mirrored plan: four day cards with lowest, average, highest and
+    evening prices, and the whole-plan table with 208 rows and 5 TOTAL rows.
+  - **Not claimed:**
+    - a solve on devhub, whose own Solver entities read `unavailable` (the
+      un-suffixed ones are production's mirror);
+    - the solid/dashed split of the Prices ahead chart. The mirrored plan comes
+      from v0.94.454 and has no `import_price_provider_until`, so the day cards
+      fall back to "Nimbus's estimate" there, as designed. The split is pinned
+      by `tests/test_1753_prices_ahead.py`, and its template was rendered
+      against production's live plan on 13 Oct.
+  - CI passed all 10 checks on #1747, #1750, #1754, #1755 and this release PR,
+    including the full pytest run.
+- Consumer check: on the Solver tab, a household now sees what the plan
+  expects to pay and earn on each of the next four days, and where the price
+  provider's own forecast stops and Nimbus's estimate starts. That is the gap
+  the household raised on 13 Oct: LocalVolts publishes 24 h, and the plan runs
+  ~96 h. Still missing (follow-up, not in this release): no chart shows past
+  settled prices next to what was forecast for them.
+
 ### Added
 - **Prices ahead on the Solver tab** (#1753, household). Under the plan
   chart, a full-width chart of buy and sell over the plan's whole horizon
