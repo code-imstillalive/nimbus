@@ -718,8 +718,11 @@ def _chart() -> dict[str, Any]:
     ahead = {"extend_to": False, "show": {"in_header": False}}
     return _apex(
         "Battery: plan against measured",
-        "kW, up = discharging. Solid: measured; teal: plan, dashed ahead. "
-        "Green: state of charge. Red: buy price.",
+        "kW, up = discharging. White: measured. Teal: what each plan said "
+        "to do at that moment (its first minute only); dashed: the plan "
+        "ahead. Orange: the charge each plan held for later, before the next "
+        "P2P block (% of battery); high and never worked off means the plan "
+        "keeps putting it off. Green: state of charge. Red: buy price.",
         [
             {
                 "entity": "@option:battery_sensor",
@@ -736,11 +739,22 @@ def _chart() -> dict[str, Any]:
             },
             {
                 "entity": plan,
-                "name": "Plan",
+                "name": "Plan now",
                 "curve": "stepline",
                 "color": "#4FC3C7",
                 "stroke_width": 1.5,
                 "yaxis_id": "kw",
+                **past,
+            },
+            {
+                "entity": plan,
+                "attribute": "charge_before_block_pct",
+                "name": "Charge held for later",
+                "curve": "stepline",
+                "color": "#ffa726",
+                "stroke_width": 2,
+                "yaxis_id": "soc",
+                "unit": "%",
                 **past,
             },
             {

@@ -2475,6 +2475,16 @@ def publish_plan(
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
             **solver_shared.charge_by_summary(cfg, forecast),
+            # Household, 14 Oct 2026: the charge this plan intends before the
+            # next P2P block, so a plan that keeps deferring shows on the
+            # Solver tab's chart (period 0 alone drew 0 all morning).
+            **solver_shared.charge_before_block_summary(
+                grid.fixed_export_kw,
+                corrected_battery_charge_kw,
+                [row.get("hours") for row in forecast],
+                [row.get("time") for row in forecast],
+                fleet_capacity_kwh,
+            ),
             # nimbus issue #756-golden-CI-flake: rounded to match every
             # sibling KPI's own precision (total_cost_with_fixed_costs,
             # cost_breakdown, cost_band all round to 4dp) -- HiGHS's LP

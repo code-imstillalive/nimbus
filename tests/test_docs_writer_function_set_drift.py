@@ -263,6 +263,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # builds no charge-by target at all.
         "charge_by_period_indices",
         "charge_by_summary",
+        "charge_before_block_summary",
         "_deadband_class",
         "_period0_net_kw",
         "_anchor_target_kw",
