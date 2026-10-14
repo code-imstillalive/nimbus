@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.455] - 2026-10-14
+
+The Solver tab shows prices for the plan's whole horizon and where the
+provider's own forecast ends; the plan says whether it is one-way; Forecaster
+points sit on the clock; the dry-run reports this solve's plan.
+
 ### Added
 - **Prices ahead on the Solver tab** (#1753, household). Under the plan
   chart, a full-width chart of buy and sell over the plan's whole horizon
@@ -27,6 +33,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   "Solver Forecast — Whole Plan", every period of the plan's horizon with the
   table's own bold TOTAL row at each midnight, in its scroll box. Columns and
   colours unchanged.
+- **The plan says whether it is one-way** (#1751, Mark Purcell).
+  `sensor.nimbus_solver_battery_forecast` gains `direction_exclusivity` and
+  `direction_two_way_pairs`, set by `build_plan()`'s #238 / #1535 direction
+  check on every path: `not_checked` (first solve not optimal),
+  `not_needed` (already one-way), `enforced` (a direction-exclusive
+  re-solve made it one-way), `declined` (a re-solve came back non-optimal,
+  so the last optimal plan is kept, still two-way) or `still_two_way`.
+  Before this, `declined` was only a warning in the HA log, and
+  `direction_exclusivity_enforced` was set on the plan but published
+  nowhere. The plan itself is unchanged: the golden master moves only by
+  the two new attributes (`not_needed`, 0 in every scenario).
 
 ### Fixed
 - **Forecaster points sit on the clock.** Every load and signal forecast
@@ -46,19 +63,6 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   while 36.0 kW had just been published and dispatched. They now read what
   this solve posted, falling back to the state machine before the first
   publish.
-
-### Added
-- **The plan says whether it is one-way** (#1751, Mark Purcell).
-  `sensor.nimbus_solver_battery_forecast` gains `direction_exclusivity` and
-  `direction_two_way_pairs`, set by `build_plan()`'s #238 / #1535 direction
-  check on every path: `not_checked` (first solve not optimal),
-  `not_needed` (already one-way), `enforced` (a direction-exclusive
-  re-solve made it one-way), `declined` (a re-solve came back non-optimal,
-  so the last optimal plan is kept, still two-way) or `still_two_way`.
-  Before this, `declined` was only a warning in the HA log, and
-  `direction_exclusivity_enforced` was set on the plan but published
-  nowhere. The plan itself is unchanged: the golden master moves only by
-  the two new attributes (`not_needed`, 0 in every scenario).
 
 ## [0.94.454] - 2026-10-13
 
