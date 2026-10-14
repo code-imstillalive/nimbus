@@ -141,13 +141,12 @@ class TestEachBlockerIsReal(unittest.TestCase):
         fixed = np.full(len(kw["periods"].hours), np.nan)
         fixed[0] = 5.0  # a 5 kW commitment in period 0, solar there is 0
         grid = dataclasses.replace(kw["grid"], fixed_export_kw=fixed)
-        self._assert_blocked(
-            kw,
-            -3.0,
-            ["p2p_fixed_window_charge_gate", "p2p_fixed_export_commitment"],
-            grid=grid,
-        )
-        self._assert_blocked(kw, 2.0, ["p2p_fixed_export_commitment"], grid=grid)
+        self._assert_blocked(kw, -3.0, ["p2p_fixed_window_charge_gate"], grid=grid)
+        # nimbus #1761: the commitment's export floor is soft now, so a pin
+        # that cannot fund all 5 kW is feasible (short, at a price) and
+        # explains to nothing.
+        self.assertEqual(_pinned_status(kw, 2.0, grid=grid), "optimal")
+        self.assertEqual(_explain(kw, 2.0, grid=grid), [])
 
     def test_pin_above_the_charge_power_curve(self):
         """A CV taper: at 20 kWh the curve allows 10 - (20-4)*0.25 = 6 kW."""

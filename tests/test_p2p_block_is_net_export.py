@@ -125,11 +125,15 @@ class TestABlockIsNetExport(unittest.TestCase):
         np.testing.assert_allclose(plan.grid_export_kw[BLOCK], 12.0, atol=1e-6)
         self.assertGreater(plan.import_cap_breach_kwh, 0.0)
 
-    def test_not_even_the_block_is_infeasible_exactly_as_before(self):
-        """Unchanged by this fix: a battery that cannot deliver the pinned
-        export itself was already infeasible (the pin, not the import cap)."""
+    def test_a_block_the_battery_cannot_deliver_still_solves(self):
+        """nimbus #1761: a battery that cannot deliver the pinned export used
+        to make the whole solve infeasible (published as 0 kW everywhere).
+        The block now falls short at a price instead, and never exceeds its
+        rate."""
         plan = _plan(initial_soc_kwh=122.2 * 0.02 + 5.0)
-        self.assertEqual(plan.status, "infeasible")
+        self.assertEqual(plan.status, "optimal")
+        self.assertTrue(np.all(plan.grid_export_kw[BLOCK] <= 12.0 + 1e-6))
+        self.assertLess(float(np.sum(plan.grid_export_kw[BLOCK])), 12.0 * 3)
 
     def test_the_price_spike_override_keeps_its_own_period_0_limit(self):
         self.assertEqual(

@@ -221,7 +221,7 @@ def period0_pin_blockers(
             )
 
     export_limit0 = float(np.asarray(grid.export_limit_kw, dtype=float).reshape(-1)[0])
-    export_lb, export_ub = p2p_export.grid_export_bounds(0, grid, export_limit0)
+    _, export_ub = p2p_export.grid_export_bounds(0, grid, export_limit0)
 
     # Power balance at t=0 (power_balance_t0), discharge side: with solar
     # curtailed to 0 and no import, the pinned discharge must still be
@@ -246,27 +246,7 @@ def period0_pin_blockers(
                 f"their largest)"
             )
 
-    # Wash-trade guard (1) at t=0 against a fixed export commitment's FLOOR:
-    # export must be funded by solar or discharge, so a committed rate needs
-    # at least that much from the pinned battery once solar and every other
-    # battery are at their largest.
-    if export_lb > 0.0:
-        solar_max = (
-            0.0
-            if solar is None
-            else _effective0(
-                solar.forecast_kw,
-                solar.lower_kw,
-                solar.upper_kw,
-                risk_aversion,
-                "lower",
-            )
-        )
-        others = sum(m.max_discharge_kw for m in list(batteries)[1:])
-        if d + solar_max + others < export_lb - TOL:
-            out.append(
-                f"p2p_fixed_export_commitment: export floor {export_lb:.3f} kW > "
-                f"discharge {d:.3f} + solar {solar_max:.3f} + other batteries "
-                f"{others:.3f} kW"
-            )
+    # nimbus #1761: a fixed export commitment's floor is no longer a blocker.
+    # The LP may fall short of it at a price (network.py's block_short), so a
+    # pin that cannot fund the committed export is feasible, just expensive.
     return out

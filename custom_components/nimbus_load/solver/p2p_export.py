@@ -188,9 +188,11 @@ def grid_import_ub(
     13.2 kW, grid import 0, net export 12.
 
     Feasibility is unchanged: `grid_import_excess[t]` (#390) still exists
-    and is unbounded at a heavy penalty, so a block the battery genuinely
-    cannot sustain yields a plan that plans ahead to keep enough energy,
-    and as a last resort imports at that penalty -- never no plan.
+    and is unbounded at a heavy penalty, so the HOUSE is always covered.
+    The block's export is not: the wash-trade rule forbids import from
+    funding export, so a block the battery cannot fund used to make the
+    whole solve infeasible (nimbus #1761). network.py's `block_short[t]`
+    now lets the block fall short at a price above every other way out.
 
     `override_p2p` (#694, price-spike override at period 0) leaves the
     normal limit: the spike path already pins discharge high, and its own

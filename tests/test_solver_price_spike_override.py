@@ -289,16 +289,17 @@ class TestSpikeOverrideWinsOverAnActiveP2PCommitment(unittest.TestCase):
         self.assertEqual(plan.status, "optimal")
         self.assertAlmostEqual(plan.grid_export_kw[1], 9.0, places=3)
 
-    def test_a_discharge_rate_below_the_p2p_floor_is_honestly_infeasible(self):
+    def test_a_discharge_rate_below_the_p2p_floor_falls_short_of_the_block(self):
         """nimbus issue #694 caveat, documented directly rather than
         silently guarded against: grid_export can never exceed solar +
         total discharge (the pre-existing same-period wash-trade guard),
         so a household who configures a spike discharge_kw BELOW an
-        active P2P block's own committed rate gets a genuinely
-        infeasible solve, not a silently-clamped one -- there's nowhere
-        for the P2P-floor-mandated export to come from. This is the
-        real, honest reason number.py's own field description warns to
-        set the rate above every configured P2P block's rate."""
+        active P2P block's own committed rate cannot meet the block --
+        there's nowhere for the P2P-floor-mandated export to come from.
+        Until nimbus #1761 that made the whole solve infeasible; the block
+        now falls short at a price instead, so the plan is published and
+        the export is visibly below the commitment. number.py's field
+        description still warns to set the rate above every block's rate."""
         n = 4
         periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
         plan = build_plan(
@@ -311,7 +312,8 @@ class TestSpikeOverrideWinsOverAnActiveP2PCommitment(unittest.TestCase):
             solar=SolarConfig(forecast_kw=np.zeros(n)),
             loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
         )
-        self.assertEqual(plan.status, "infeasible")
+        self.assertEqual(plan.status, "optimal")
+        self.assertLess(plan.grid_export_kw[0], 11.5 - 1e-6)
 
 
 class TestOverrideRespectsUnavailableBattery(unittest.TestCase):
