@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.456] - 2026-10-14
+
+Charge By / Charge To hold a SoC by a time of day; a P2P block the battery
+cannot fund falls short at a price instead of making the plan infeasible;
+the plan re-plans every ~15 s while a block is active.
+
 ### Added
 - **The Solver tab's plan chart shows the charge each plan is holding for
   later** (household, 14 Oct). The teal plan line records only what each plan
@@ -39,6 +45,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Battery card under Maximum SoC. Off by default, so no plan changes until it
   is set (golden master: 19 plans byte-identical apart from the five null
   keys).
+- **The plan re-plans every ~15 s while a P2P block is active** (#1678). In
+  a block the battery setpoint is the plan's own prediction of block rate +
+  house - solar, so each house-load step between solves lands on the meter.
+  At the designed cadence (5-minute cron plus real price changes, ~23-37
+  solves an hour) a cycling ~1 kW load moved the reference household's net
+  export 10.3-12.8 kW against a 12 kW block on 9 Oct; at a ~15 s cadence it
+  stayed flat (30 Sep; 12 Oct). The block-start check now also runs at :20,
+  :35 and :50 each minute and, inside a block, solves unless any solve
+  finished within the last 14 s. `nimbus_load.solve_now` now counts as a
+  solve for that check and for the cron's 60 s suppression, so an install
+  that already calls it every 15 s gets no extra solves. Outside a block
+  nothing changes.
+- **DC-001 canonical device model** (#1574, #1728): `device_contract.py`, the
+  spec's site/device/binding schema with identity, versioning and structural
+  validation. Nothing imports it at runtime yet, so no plan or entity changes.
 
 ### Fixed
 - The Solver tab's P2P hours card said "Hours of the day: 17 = 5 pm, 24 =
@@ -98,18 +119,6 @@ points sit on the clock; the dry-run reports this solve's plan.
   settled prices next to what was forecast for them.
 
 ### Added
-- **The plan re-plans every ~15 s while a P2P block is active** (#1678). In
-  a block the battery setpoint is the plan's own prediction of block rate +
-  house - solar, so each house-load step between solves lands on the meter.
-  At the designed cadence (5-minute cron plus real price changes, ~23-37
-  solves an hour) a cycling ~1 kW load moved the reference household's net
-  export 10.3-12.8 kW against a 12 kW block on 9 Oct; at a ~15 s cadence it
-  stayed flat (30 Sep; 12 Oct). The block-start check now also runs at :20,
-  :35 and :50 each minute and, inside a block, solves unless any solve
-  finished within the last 14 s. `nimbus_load.solve_now` now counts as a
-  solve for that check and for the cron's 60 s suppression, so an install
-  that already calls it every 15 s gets no extra solves. Outside a block
-  nothing changes.
 - **Prices ahead on the Solver tab** (#1753, household). Under the plan
   chart, a full-width chart of buy and sell over the plan's whole horizon
   (four days), solid where the price provider's own forecast covers it and
