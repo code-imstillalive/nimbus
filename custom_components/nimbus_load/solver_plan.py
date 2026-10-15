@@ -102,7 +102,7 @@ try:
     from .solver_shared import (
         _cfg_num,
         _local,
-        charge_by_period_indices,
+        charge_by_target_indices,
         fetch_p2p_fixed_export_kw,
     )
 except ImportError:  # pragma: no cover - standalone/cron path
@@ -118,7 +118,7 @@ except ImportError:  # pragma: no cover - standalone/cron path
     from solver_shared import (  # type: ignore[no-redef]
         _cfg_num,
         _local,
-        charge_by_period_indices,
+        charge_by_target_indices,
         fetch_p2p_fixed_export_kw,
     )
 
@@ -749,7 +749,8 @@ def assemble_and_solve_plan(
         charge_by_kwh=capacity_kwh
         * _cfg_num(cfg, "solver_charge_by_percent", 0.0)
         / 100.0,
-        charge_by_period_indices=charge_by_period_indices(
+        # Household, 15 Oct 2026: the deadline and an hour before it.
+        charge_by_period_indices=charge_by_target_indices(
             grid_times,
             period_hours_arr,
             _cfg_num(cfg, "solver_charge_by_hour", 16.0),

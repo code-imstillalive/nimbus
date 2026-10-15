@@ -262,6 +262,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # plan's published summary of them. Like the reserve, the cron copy
         # builds no charge-by target at all.
         "charge_by_period_indices",
+        "charge_by_target_indices",
         "charge_by_summary",
         "charge_before_block_summary",
         # nimbus #1698: Amber Express same-poll wholesale, collected each

@@ -180,3 +180,76 @@ def test_summary_reports_the_next_deadline_and_the_shortfall():
     assert out["charge_by_next"].startswith("2026-10-14T14:00:00")
     assert out["charge_by_next_soc_pct"] == 75.0
     assert out["charge_by_next_short_pct"] == pytest.approx(15.0)
+
+
+# --- the margin (household, 15 Oct 2026) -------------------------------------
+# "I want it to meet its expected outcomes... not me to intervene." With the
+# target at the deadline alone, the plan spent every minute of slack: on
+# 15 Oct a Charge By of 14:00 / 100 % left the battery at ~95 % at 14:00 on
+# the taper. The target now also binds CHARGE_BY_MARGIN_HOURS earlier.
+
+
+def test_the_margin_is_one_hour():
+    assert solver_shared.CHARGE_BY_MARGIN_HOURS == 1.0
+
+
+def test_the_target_binds_at_the_deadline_and_an_hour_before_each_day():
+    times, hours = _grid(
+        datetime(2026, 10, 14, 0, 4, tzinfo=UTC), [(1, 1), (5, 5), (140, 30)]
+    )
+    found = solver_shared.charge_by_target_indices(times, hours, 15.0)
+    assert _ends_local(times, hours, found) == [
+        "14 14:00",
+        "14 15:00",
+        "15 14:00",
+        "15 15:00",
+        "16 14:00",
+        "16 15:00",
+    ]
+
+
+def test_an_early_deadline_is_clamped_at_midnight():
+    # 00:30: the margin would be 23:30 the day before; it binds at 00:00.
+    times, hours = _grid(datetime(2026, 10, 14, 0, 0, tzinfo=UTC), [(96, 30)])
+    found = solver_shared.charge_by_target_indices(times, hours, 0.5)
+    assert _ends_local(times, hours, found) == [
+        "15 00:00",
+        "15 00:30",
+        "16 00:00",
+        "16 00:30",
+    ]
+
+
+def test_with_the_margin_the_target_is_held_an_hour_early():
+    # Deadline 16:00 = end of period 5; the cheap 10c slots are 14:00-16:00,
+    # so with the deadline alone the plan fills up in its last hour.
+    alone = _plan(target_kwh=80.0, deadline=frozenset({5}))
+    assert alone.status == "optimal"
+    assert alone.battery_soc_kwh[5] >= 80.0 - 1e-6
+    assert alone.battery_soc_kwh[4] < 80.0 - 1.0  # landed on the deadline
+    # With the margin (end of period 4 = 15:00 too), it is full an hour early.
+    early = _plan(target_kwh=80.0, deadline=frozenset({4, 5}))
+    assert early.status == "optimal"
+    assert early.battery_soc_kwh[4] >= 80.0 - 1e-6
+
+
+def test_with_the_margin_an_unreachable_target_charges_at_once():
+    # 10 kW cannot reach 90 kWh by 13:00 or 14:00: flat out from period 0.
+    plan = _plan(target_kwh=90.0, deadline=frozenset({2, 3}), max_charge=10.0)
+    assert plan.status == "optimal"
+    assert np.allclose(plan.battery_charge_kw[:4], 10.0, atol=1e-6)
+
+
+def test_the_plan_binds_the_target_with_the_margin():
+    """The solve's battery gets charge_by_target_indices, not the deadline
+    alone; without this pin the margin could be dropped at the call site."""
+    from pathlib import Path
+
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "custom_components"
+        / "nimbus_load"
+        / "solver_plan.py"
+    ).read_text(encoding="utf-8")
+    assert "charge_by_period_indices=charge_by_target_indices(" in src
+    assert "charge_by_period_indices=charge_by_period_indices(" not in src

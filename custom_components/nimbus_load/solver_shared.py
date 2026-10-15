@@ -983,6 +983,14 @@ def p2p_block_start_minutes(cfg: dict) -> frozenset[int]:
     return frozenset(start for _rate, start, _end in _configured_p2p_blocks(cfg))
 
 
+# Household, 15 Oct 2026: "I want it to meet its expected outcomes... not me
+# to intervene". With the target only at the deadline, the plan spent every
+# minute of slack (the near-term forecast runs below what settles, #1749), so
+# a Charge By of 14:00 / 100 % left the battery at ~95 % at 14:00 on the
+# taper. The plan therefore also holds the target this many hours earlier.
+CHARGE_BY_MARGIN_HOURS = 1.0
+
+
 def charge_by_period_indices(
     grid_times: list[datetime], period_hours: list[float], deadline_hour: float
 ) -> frozenset[int]:
@@ -1008,6 +1016,21 @@ def charge_by_period_indices(
         if ends[-1] >= midnight + timedelta(hours=float(deadline_hour)):
             out.add(i)
     return frozenset(out)
+
+
+def charge_by_target_indices(
+    grid_times: list[datetime], period_hours: list[float], deadline_hour: float
+) -> frozenset[int]:
+    """The periods the Charge By target binds at: each day's deadline period
+    and the one CHARGE_BY_MARGIN_HOURS earlier (clamped at midnight). With the
+    deadline alone the plan spent every minute of slack and landed on the
+    target exactly at the deadline, so the taper or one short slot missed it
+    (household, 15 Oct 2026). When the target is out of reach, the earlier
+    period's shortfall is already priced, so the plan charges at once."""
+    early = max(0.0, float(deadline_hour) - CHARGE_BY_MARGIN_HOURS)
+    return charge_by_period_indices(
+        grid_times, period_hours, deadline_hour
+    ) | charge_by_period_indices(grid_times, period_hours, early)
 
 
 def charge_before_block_summary(
