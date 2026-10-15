@@ -2461,6 +2461,18 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=None,
     ),
+    FlattenedAttrSpec(
+        # nimbus #1654: period 0's "hold" flag (battery idle, grid flowing),
+        # for a dispatcher to choose preserve over self-consume.
+        source_key="dispatch_hold",
+        name="Solver Current Dispatch Hold",
+        entity_id_suffix="current_dispatch_hold",
+        entity_category=None,
+        device_class=None,
+        state_class=None,  # string state (True/False)
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
     # --- Grid flows (primary) -----------------------------------------------
     FlattenedAttrSpec(
         source_key="grid_import_kw",

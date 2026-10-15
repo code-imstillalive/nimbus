@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **The plan says when the battery should hold** (#1654, Mark Purcell). Each
+  plan row carries `dispatch_hold`, and period 0's is
+  `sensor.nimbus_solver_current_dispatch_hold`: true when the plan leaves the
+  battery idle (within 0.05 kW) while the grid still imports or exports (more
+  than 0.05 kW net). Mark's rule: with the grid at 0 W, Self-Consume is right;
+  with the battery at 0 W and the grid not, a dispatcher should hold/preserve,
+  because Self-Consume would serve that load from the battery. On 16 Oct the
+  reference household's plan held 18.8 % overnight and imported the house
+  load; its automation chose Self-Consume and the battery reached 10.7 % at
+  dawn, against a planned 17.3 %. How to hold depends on the inverter's
+  commands, so this only publishes the signal. Additive: `dispatch_direction`
+  is unchanged (golden master: only the new key moved).
+
 ## [0.94.457] - 2026-10-15
 
 Charge By finishes an hour before its deadline, so it meets its target;
