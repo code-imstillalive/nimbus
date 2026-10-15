@@ -15,6 +15,36 @@ Amber Express installs learn the retail markup against Amber's own same-poll
 wholesale; a failed solve records what failed; the flex-telemetry sensor no
 longer sticks at `unknown` after a restart.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at cbcf85ae**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `release/0.94.457`) and restarted 15:09:16 AEST 15 Oct.
+  - devhub's own entities stamp `0.94.457` (the other 117 are production's
+    mirrored entities on 0.94.456). All 145 `nimbus_load` entities are
+    available.
+  - **No Traceback, and no ERROR line this release introduces.** The start
+    logs 197 `nimbus_load` "does not generate unique IDs" errors. A
+    **v0.94.456** control, installed and restarted 15:06:45, logged the same
+    197. The two above 0.94.456's own check (195) arrived with production's
+    move to 0.94.456, whose mirrored entities now collide with devhub's.
+  - **Not claimed:**
+    - Charge By's margin on a live plan: devhub has no P2P block or deadline
+      of the reference household's. It is pinned by `tests/test_charge_by.py`
+      and by #1775's closed-loop replay of the reference household's inputs
+      (100 % by 14:00 for a 15:00 deadline, against exactly at 15:00
+      without the margin);
+    - Amber Express's same-poll spot (#1770): devhub has no Amber Express
+      install of its own;
+    - a failed solve's status (#1772): no failure occurred.
+  - CI passed all 10 checks on #1766, #1770, #1772, #1775 and this release
+    PR (#1776), including the full pytest run.
+- Consumer check: a household that sets Charge By now gets the target met an
+  hour before the deadline. On 15 Oct the reference household set 14:00 /
+  100 % and had ~95 % at 14:00, because the plan waited until the deadline
+  and the charge taper made it miss. The deadline still means what it says;
+  the hour before it is a buffer for the taper, a short slot or a forecast
+  that settles high. Still missing (#1749): the forecast bias that makes the
+  plan wait at all.
+
 ### Added
 - **Amber Express installs learn the retail markup against the wholesale in
   Amber's own response** (#1698, Mark Purcell). Beyond the retail
