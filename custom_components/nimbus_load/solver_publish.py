@@ -1141,6 +1141,28 @@ def save_plan_state(
         )
 
 
+# nimbus #1654 (Mark Purcell, 16 Oct 2026): "IF grid is 0W, then
+# self-consume is correct. If battery is 0W, but grid <> 0 W then
+# self-consume is incorrect and should be hold or preserve command."
+# Both thresholds match the reference household's dispatch deadband (0.05 kW),
+# so plan noise around zero reads as neither.
+DISPATCH_HOLD_BATTERY_KW = 0.05
+DISPATCH_HOLD_GRID_KW = 0.05
+
+
+def _dispatch_hold(
+    battery_kw: float, grid_import_kw: float, grid_export_kw: float
+) -> bool:
+    """True when the plan leaves the battery idle while the grid still
+    imports or exports: the plan chose the grid over the battery, so the
+    battery must be held, not left to self-consume. On 16 Oct the reference
+    household's plan held 18.8 % from 01:00 to 04:00 and imported the house
+    load; Self-Consume served it from the battery instead (10.7 % at dawn)."""
+    if abs(battery_kw) > DISPATCH_HOLD_BATTERY_KW:
+        return False
+    return abs(grid_import_kw - grid_export_kw) > DISPATCH_HOLD_GRID_KW
+
+
 def _dispatch_source_breakdown(
     battery_kw: float,
     solar_kw_i: float,
@@ -2230,6 +2252,14 @@ def publish_plan(
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
             "dispatch_direction": dispatch_breakdown[i][0],
+            # nimbus #1654 (Mark Purcell, 16 Oct): the battery idle while the
+            # grid still flows means "hold": a dispatcher should preserve the
+            # battery, not self-consume (which would serve that load from it).
+            "dispatch_hold": _dispatch_hold(
+                float(net_battery[i]),
+                float(corrected_grid_import[i]),
+                float(plan.grid_export_kw[i]),
+            ),
             "dispatch_source_a_label": dispatch_breakdown[i][1],
             "dispatch_source_a_pct": dispatch_breakdown[i][2],
             "dispatch_source_b_label": dispatch_breakdown[i][3],

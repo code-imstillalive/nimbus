@@ -264,6 +264,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "charge_by_period_indices",
         "charge_by_target_indices",
         "charge_by_summary",
+        # nimbus #1654: the plan's "hold" flag; the cron copy publishes no
+        # per-period dispatch hints.
+        "_dispatch_hold",
         "charge_before_block_summary",
         # nimbus #1698: Amber Express same-poll wholesale, collected each
         # solve; the cron copy reads no Amber Express detailedForecast.
