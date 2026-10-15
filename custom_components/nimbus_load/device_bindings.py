@@ -70,6 +70,7 @@ _CURRENCY_SYMBOLS = {"€": "EUR", "£": "GBP", "¥": "JPY"}
 # read as the site's currency, the way the provider readers always have. Built
 # from one string so no bare dollar literal reads as a published unit (#1293).
 _SITE_MONEY_SYMBOLS = frozenset("$c¢")
+_PER = ("kWh", "MWh")
 
 _POWER_ROLES = (
     "power",
@@ -384,22 +385,27 @@ def _energy_scale(unit: Any) -> tuple[float | None, str | None, str | None]:
 def _price_scale(
     unit: Any, currency: str | None
 ) -> tuple[float | None, str | None, str | None]:
-    """c/kWh and /MWh scale once (price_intervals.price_unit_scale). The
-    money part must be the site's currency: a symbol `$`/`c`/`¢`, or the
-    site's ISO code. Another currency is refused; there is no FX."""
+    """Exactly $/kWh, $/MWh and c/kWh (Mark Purcell, #1774), scaled once by
+    price_intervals.price_unit_scale. `¢/kWh` is the same cent unit, and the
+    site's ISO code may stand for `$` (`AUD/kWh`, `AUD/MWh`). Another
+    currency is refused (no FX); anything else, a unitless price included,
+    is not a price unit."""
     text = str(unit or "").strip()
-    per = text.lower().replace(" ", "")
     if not text:
         return None, None, "unit_missing"
-    if not per.endswith(("/kwh", "/mwh")):
-        return None, None, "unit_not_price"
     if not currency:
         return None, None, "site_currency_missing"  # never labelled by guess
-    money = text.split("/", 1)[0].strip()
-    code = _CURRENCY_SYMBOLS.get(money, money.upper())
-    if money not in _SITE_MONEY_SYMBOLS and code != currency.upper():
+    money, _, per = text.partition("/")
+    money = money.strip()
+    code = currency.upper()
+    accepted = {f"{m}/{p}" for m in _SITE_MONEY_SYMBOLS - {"c", "¢"} for p in _PER}
+    accepted |= {f"{code}/{p}" for p in _PER} | {"c/kWh", "¢/kWh"}
+    if text in accepted:
+        return price_intervals.price_unit_scale(text), f"{currency}/kWh", None
+    foreign = _CURRENCY_SYMBOLS.get(money, money.upper()) != code
+    if per in _PER and money and money not in _SITE_MONEY_SYMBOLS and foreign:
         return None, None, "currency_mismatch"
-    return price_intervals.price_unit_scale(text), f"{currency}/kWh", None
+    return None, None, "unit_not_price"
 
 
 def _sign(binding: Mapping[str, Any]) -> float:
@@ -658,21 +664,25 @@ _Rows = list[price_intervals.PriceInterval]
 class Adapter:
     """A versioned reader of one provider's rows, through price_intervals.py.
 
-    `native_unit` is what the rows are published in (None: the provider does
-    not say, so the binding must); `fees_included` whether network and retail
-    fees are inside them (None: not stated); `max_age_s` the age past which a
-    fetched forecast is stale (None: not declared, so not judged);
-    `singles` gives each row's own interval so overlapping rows are SEEN --
-    the provider readers keep the first of two overlapping rows."""
+    `native_unit(spec)` is what the rows are published in, from the binding's
+    adapter spec (None: the provider does not say, so the binding or the
+    response must); `fees_included` whether network and retail fees are inside
+    them (None: not stated); `max_age_s` the age past which a fetched forecast
+    is stale; `singles` gives each row's own interval so overlapping rows are
+    SEEN -- the provider readers keep the first of two overlapping rows;
+    `no_match` the starts of explicit P2P no-match intervals. `extra` is the
+    adapter's own context: Amber Express's `detailedForecast`, or the
+    LocalVolts field, direction and qualities."""
 
     name: str
     version: int
-    native_unit: str | None
-    fees_included: Callable[[Any], bool | None]
-    max_age_s: float | None
+    native_unit: Callable[[Mapping[str, Any]], str | None]
+    fees_included: Callable[[Any, Any], bool | None]
+    max_age_s: float
     intervals: Callable[[Any, Any], _Rows]
     singles: Callable[[Any, Any], _Rows]
     action_only: bool = False
+    no_match: Callable[[Any, Any], set[datetime]] | None = None
 
 
 def _each(fn: Callable[[Any], _Rows]) -> Callable[[Any, Any], _Rows]:
@@ -700,62 +710,122 @@ def _amber_express_singles(rows: Any, detailed: Any) -> _Rows:
     return out
 
 
-def _pd7day_fees(rows: Any) -> bool:
+def _pd7day_fees(rows: Any, _extra: Any) -> bool:
     # A tariff sensor's `value` carries its network rate; wholesale does not.
     return price_intervals.pd7day_basis(rows) == price_intervals.BASIS_TARIFF
 
 
+def _lv(rows: Any, extra: Any) -> list[price_intervals.LocalVoltsInterval]:
+    return price_intervals.localvolts_v2_rows(
+        rows if isinstance(rows, list) else [],
+        str(extra.get("field")),
+        extra.get("direction"),
+        extra.get("qualities"),
+    )
+
+
+def _lv_intervals(rows: Any, extra: Any) -> _Rows:
+    return price_intervals.localvolts_v2_intervals(
+        rows if isinstance(rows, list) else [],
+        str(extra.get("field")),
+        extra.get("direction"),
+        extra.get("qualities"),
+    )
+
+
+def _lv_singles(rows: Any, extra: Any) -> _Rows:
+    return [i.interval for i in _lv(rows, extra)]
+
+
+def _lv_no_match(rows: Any, extra: Any) -> set[datetime]:
+    return {i.interval.start for i in _lv(rows, extra) if not i.matched}
+
+
+def _lv_unit(spec: Mapping[str, Any]) -> str | None:
+    """Rates are cents per kWh; the matched rate comes from dollar amounts.
+    LocalVolts trades in the NEM, so its dollars are Australian (#1293)."""
+    field = spec.get("field")
+    if field in price_intervals.LV_RATE_FIELDS:
+        return "c/kWh"
+    return "AUD/kWh" if field == price_intervals.LV_MATCHED_RATE else None
+
+
+def _lv_fees(_rows: Any, extra: Any) -> bool | None:
+    """LocalVolts' rates (Flex Up included) carry network and retail fees.
+    The matched P2P rate is what a peer paid, so it is not stated."""
+    return None if extra.get("field") == price_intervals.LV_MATCHED_RATE else True
+
+
+def _aud(_spec: Mapping[str, Any]) -> str:
+    return "AUD/kWh"
+
+
+# Nothing older than five minutes, as default (Mark Purcell, #1774). A binding
+# may declare its own `normalization.freshness.max_age_s`.
+DEFAULT_MAX_AGE_S = 300.0
+
 ADAPTERS: dict[tuple[str, int], Adapter] = {
-    # AEMO's wholesale price: no network or retail fees. Stale after two of
-    # its 30-minute publishes.
+    # AEMO's wholesale price: no network or retail fees.
     ("aemo_nem", 1): Adapter(
         "aemo_nem",
         1,
-        "AUD/kWh",
-        lambda _rows: False,
-        3600.0,
+        _aud,
+        lambda _rows, _extra: False,
+        DEFAULT_MAX_AGE_S,
         _rows(price_intervals.aemo_nem_intervals),
         _each(price_intervals.aemo_nem_intervals),
     ),
     ("nem_pd7day", 1): Adapter(
         "nem_pd7day",
         1,
-        "AUD/kWh",
+        _aud,
         _pd7day_fees,
-        None,
+        DEFAULT_MAX_AGE_S,
         _rows(price_intervals.pd7day_intervals),
         _each(price_intervals.pd7day_intervals),
     ),
-    # Amber's retail price, fees inside. Stale after two 5-minute publishes.
+    # Amber's retail price, fees inside.
     ("amber_express", 1): Adapter(
         "amber_express",
         1,
-        "AUD/kWh",
-        lambda _rows: True,
-        600.0,
+        _aud,
+        lambda _rows, _extra: True,
+        DEFAULT_MAX_AGE_S,
         _amber_express,
         _amber_express_singles,
     ),
     ("amberelectric", 1): Adapter(
         "amberelectric",
         1,
-        "AUD/kWh",
-        lambda _rows: True,
-        600.0,
+        _aud,
+        lambda _rows, _extra: True,
+        DEFAULT_MAX_AGE_S,
         _rows(price_intervals.amber_core_intervals),
         _each(price_intervals.amber_core_intervals),
     ),
-    # OpenADR states neither currency nor whether a value is a full tariff,
-    # and publishes its rows only through its action.
+    # OpenADR does not say whether a value is a full tariff, and publishes its
+    # rows only through its action; the response block states the unit.
     ("openadr3_ven", 1): Adapter(
         "openadr3_ven",
         1,
-        None,
-        lambda _rows: None,
-        None,
+        lambda _spec: None,
+        lambda _rows, _extra: None,
+        DEFAULT_MAX_AGE_S,
         _rows(price_intervals.openadr_intervals),
         _each(price_intervals.openadr_intervals),
         action_only=True,
+    ),
+    # LocalVolts v2: the binding's adapter spec names the `field` (flexUp,
+    # flexDown or matched_rate) and the `direction` (Buy, Sell).
+    ("localvolts_v2", 1): Adapter(
+        "localvolts_v2",
+        1,
+        _lv_unit,
+        _lv_fees,
+        DEFAULT_MAX_AGE_S,
+        _lv_intervals,
+        _lv_singles,
+        no_match=_lv_no_match,
     ),
 }
 
@@ -802,10 +872,36 @@ def _resolve_attribute(
         return _missing(role, device_id, prov, str(st.get("state")), UNAVAILABLE)
     attrs = st.get("attributes") or {}
     rows = _path(attrs, source.get("attribute_path"))
-    extra = attrs.get(price_intervals.AMBER_EXPRESS_DETAILED_KEY)
+    spec = source.get("adapter") or {}
+    extra: Any = attrs.get(price_intervals.AMBER_EXPRESS_DETAILED_KEY)
+    if adapter.name == "localvolts_v2":
+        extra = _lv_extra(spec, role, binding)
+        if extra is None:
+            return _missing(role, device_id, prov, "adapter_field_unknown")
     fetched = _when(st.get("last_updated")) or _when(st.get("last_changed"))
-    read = _Read(adapter, rows, extra, fetched)
+    read = _Read(adapter, rows, extra, fetched, adapter.native_unit(spec))
     return _adapt(ctx, device_id, role, dimension, binding, read, prov)
+
+
+def _lv_extra(
+    spec: Mapping[str, Any], role: str, binding: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """The LocalVolts field, direction and row qualities for this binding.
+    A settled series reads elapsed rows only; anything else reads `Fcst`
+    rows only, so a settlement row is never read as a forecast."""
+    field = spec.get("field")
+    direction = spec.get("direction")
+    if field not in price_intervals.LV_RATE_FIELDS | {price_intervals.LV_MATCHED_RATE}:
+        return None
+    if direction is not None and direction not in price_intervals.LV_DIRECTIONS:
+        return None
+    settled = _quality(role, binding.get("normalization") or {}) == "settled"
+    qualities = (
+        price_intervals.LV_ELAPSED_QUALITIES
+        if settled
+        else price_intervals.LV_FORECAST_QUALITIES
+    )
+    return {"field": field, "direction": direction, "qualities": qualities}
 
 
 def _resolve_action(
@@ -832,12 +928,17 @@ def _resolve_action(
     response = ctx.readers.action_response(action, target, params)
     if response is None:
         return _missing(role, device_id, prov, "no_response")
+    native_unit = adapter.native_unit(source.get("adapter") or {})
     if adapter.name == "openadr3_ven":
-        # Keyed by entity and checked to be a PRICE payload (#1583).
+        # Keyed by entity and checked to be a PRICE payload (#1583); the
+        # block states its own unit (`$/kWh` in Mark Purcell's capture).
         rows = price_intervals.openadr_rows_from_response(response, str(target))
+        block = response.get(str(target)) if isinstance(response, Mapping) else None
+        if isinstance(block, Mapping) and isinstance(block.get("unit"), str):
+            native_unit = block["unit"]
     else:
         rows = _path(response, source.get("response_path"))
-    read = _Read(adapter, rows, None, ctx.now)
+    read = _Read(adapter, rows, None, ctx.now, native_unit)
     return _adapt(ctx, device_id, role, dimension, binding, read, prov)
 
 
@@ -847,6 +948,7 @@ class _Read:
     rows: Any
     extra: Any
     fetched: datetime | None
+    native_unit: str | None
 
 
 def _adapt(
@@ -865,7 +967,11 @@ def _adapt(
     quality = _quality(role, norm)
     if quality is None:
         return _missing(role, device_id, prov, "settlement_is_not_a_forecast")
-    native_unit = norm.get("native_unit") or adapter.native_unit
+    if quality == "matched" and role.startswith("import_"):
+        # A matched P2P rate is what a peer pays for the household's export,
+        # so it prices the export side only (a block's export, for one).
+        return _missing(role, device_id, prov, "matched_rate_is_export_side")
+    native_unit = norm.get("native_unit") or read.native_unit
     prov["native_unit"] = native_unit
     if not native_unit:
         return _missing(role, device_id, prov, "unit_undeclared")
@@ -878,9 +984,26 @@ def _adapt(
     if any(b.start < a.end for a, b in pairwise(singles)):
         return _missing(role, device_id, prov, "overlapping_intervals")
     rows = adapter.intervals(read.rows, read.extra)
-    fees = norm.get("fees_included", adapter.fees_included(read.rows))
+    fees = norm.get("fees_included", adapter.fees_included(read.rows, read.extra))
     series = _series(ctx, device_id, role, rows, scale, unit, prov, quality, binding)
-    return _with_freshness(series, adapter, fees, read.fetched, ctx.now)
+    if adapter.no_match is not None:
+        series = _tag_no_match(series, adapter.no_match(read.rows, read.extra))
+    declared: Any = (norm.get("freshness") or {}).get("max_age_s")
+    max_age = float(declared) if _is_number(declared) else adapter.max_age_s
+    return _with_freshness(series, max_age, fees, read.fetched, ctx.now)
+
+
+def _tag_no_match(series: Series, starts: set[datetime]) -> Series:
+    """An explicit P2P no-match keeps its interval (it is the provider's own
+    answer, not a gap) at 0.0, tagged `no_match` so it never reads as a match
+    at a zero price."""
+    if not starts:
+        return series
+    intervals = tuple(
+        dataclasses.replace(i, quality="no_match") if i.start in starts else i
+        for i in series.intervals
+    )
+    return dataclasses.replace(series, intervals=intervals)
 
 
 def _quality(role: str, norm: Mapping[str, Any]) -> str | None:
@@ -894,25 +1017,21 @@ def _quality(role: str, norm: Mapping[str, Any]) -> str | None:
 
 def _with_freshness(
     series: Series,
-    adapter: Adapter,
+    max_age_s: float,
     fees: bool | None,
     fetched: datetime | None,
     now: datetime,
 ) -> Series:
-    """A forecast is stale when its fetch is older than the adapter's
-    declared allowance, whatever the age of the HA state around it."""
+    """A forecast is stale when its fetch is older than `max_age_s` (the
+    binding's own, else the adapter's five minutes), whatever the age of the
+    HA state around it."""
     prov = dict(series.provenance)
-    prov["freshness"] = (
-        {"mode": "forecast", "max_age_s": adapter.max_age_s}
-        if adapter.max_age_s is not None
-        else "undeclared"
-    )
+    prov["freshness"] = {"mode": "forecast", "max_age_s": max_age_s}
     state = series.state
     if (
         state == VALID
-        and adapter.max_age_s is not None
         and fetched is not None
-        and now - fetched > timedelta(seconds=adapter.max_age_s)
+        and now - fetched > timedelta(seconds=max_age_s)
     ):
         state = STALE
     # issued_at stays None: none of these providers states one, and it is

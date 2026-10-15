@@ -267,7 +267,7 @@
         "DC-005"
       ],
       "status": {
-        "reference_oracle": "not_started",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }

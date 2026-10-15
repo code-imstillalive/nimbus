@@ -90,6 +90,24 @@
    "class": "open_decision",
    "owner": "DC-002",
    "note": "price_intervals.on_grid holds the last interval's value at grid times past its end, flagging them real=False. The oracle never extends a price past its interval. DC-002's resolver reports the tail as a coverage gap with no value; the legacy solver path, which reads the flag, is unchanged until DC-006."
+  },
+  {
+   "fixture": "F04",
+   "case": "price_unit_missing",
+   "legacy": "read_as_dollars_per_kwh",
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Mark Purcell, PR #1774: a price is $/kWh, $/MWh or c/kWh, scaled as required. price_intervals.price_unit_scale reads a price with no unit as $/kWh, as every price sensor always was. DC-002's resolver refuses it (unit_missing): a unitless number is not one of the three. The legacy readers are unchanged until DC-006."
+  },
+  {
+   "fixture": "F04",
+   "case": "c_per_mwh",
+   "legacy": "scaled",
+   "contract": "refused",
+   "class": "open_decision",
+   "owner": "DC-002",
+   "note": "Mark Purcell, PR #1774: a price is $/kWh, $/MWh or c/kWh. price_intervals.price_unit_scale also scales c/MWh (x 0.00001). DC-002's resolver accepts only the three units (plus the cent sign and the site currency code for $) and refuses c/MWh (unit_not_price). The legacy readers are unchanged until DC-006."
   }
  ]
 }

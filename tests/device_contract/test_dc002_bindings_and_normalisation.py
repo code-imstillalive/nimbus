@@ -489,12 +489,35 @@ def test_dc_r04_freshness_reads_the_live_last_reported_not_last_changed() -> Non
 
 def test_dc_r04_f04_a_forecast_past_its_refresh_period_is_stale() -> None:
     rows = _aemo(F04["cases"]["gap"]["intervals"])
-    max_age = db.ADAPTERS[("aemo_nem", 1)].max_age_s
-    assert max_age is not None
-    old = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(seconds=max_age + 1))
-    fresh = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(minutes=10))
+    old = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(seconds=301))
+    fresh = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(seconds=299))
     assert old.state == db.STALE and fresh.state == db.VALID
     assert old.intervals == fresh.intervals  # carried, flagged, not nulled
+
+
+def test_dc_r04_every_price_adapter_is_stale_after_five_minutes() -> None:
+    """Mark Purcell, #1774: "nothing should be more than 5 minutes, as
+    default". No adapter is left undeclared."""
+    assert {a.max_age_s for a in db.ADAPTERS.values()} == {300.0}
+    assert {name for name, _ in db.ADAPTERS} == {
+        "aemo_nem",
+        "nem_pd7day",
+        "amber_express",
+        "amberelectric",
+        "openadr3_ven",
+        "localvolts_v2",
+    }
+
+
+def test_dc_r04_a_binding_may_declare_its_own_max_age() -> None:
+    rows = _aemo(F04["cases"]["gap"]["intervals"])
+    ten_min = NOW - timedelta(minutes=10)
+    default = _price_series(rows, "aemo_nem", fetched=ten_min)
+    longer = _price_series(
+        rows, "aemo_nem", fetched=ten_min, freshness={"max_age_s": 900}
+    )
+    assert (default.state, longer.state) == (db.STALE, db.VALID)
+    assert longer.provenance["freshness"]["max_age_s"] == 900.0
 
 
 # --- DC-R06 / F04: intervals and coverage -------------------------------------------
@@ -742,12 +765,15 @@ def test_dc_r05_f03_an_allowed_read_only_action_is_called_once_and_read() -> Non
     assert [(i.start, i.end, i.value) for i in got.intervals] == [
         (T("2026-10-05T17:00:00+10:00"), T("2026-10-05T17:30:00+10:00"), 0.31)
     ]
-    # OpenADR states no currency: undeclared, it is refused, not assumed.
+    # The response block states its unit; with none, the price is refused,
+    # never assumed.
+    unitless = {"sensor.openadr_price": {**_OPENADR["sensor.openadr_price"]}}
+    del unitless["sensor.openadr_price"]["unit"]
     bare = _resolve(
         _action_doc("openadr3_ven.get_forecast"),
         "grid_main",
         "import_price_forecast",
-        Recorder(response=_OPENADR),
+        Recorder(response=unitless),
     )
     assert bare.reason == "unit_undeclared"
 
@@ -801,9 +827,15 @@ def test_dc_r05_f03_f09_a_statistic_without_an_entity_resolves_as_energy() -> No
         ("¢/kWh", "26.5", 0.265, None),
         ("AUD/kWh", "0.265", 0.265, None),
         ("$/MWh", "265", 0.265, None),
+        ("AUD/MWh", "265", 0.265, None),
         ("USD/kWh", "0.265", None, "currency_mismatch"),
         ("€/kWh", "0.265", None, "currency_mismatch"),
         ("kW", "0.265", None, "unit_not_price"),
+        # Exactly $/kWh, $/MWh and c/kWh (Mark Purcell, #1774): nothing else.
+        ("c/MWh", "26500", None, "unit_not_price"),
+        ("$/kwh", "0.265", None, "unit_not_price"),
+        ("$", "0.265", None, "unit_not_price"),
+        ("", "0.265", None, "unit_missing"),
         (None, "0.265", None, "unit_missing"),
     ],
 )
@@ -827,6 +859,193 @@ def test_dc_r05_a_price_with_no_site_currency_is_refused_not_labelled() -> None:
     rec = Recorder({"sensor.buy": _state("26.5", "c/kWh")})
     got = _resolve(doc, "grid_main", "import_price", rec)
     assert (got.value, got.unit, got.reason) == (None, None, "site_currency_missing")
+
+
+# --- F03: the providers' own response shapes (Mark Purcell's capture, #1774) ----------
+
+F03 = _manifest("F03_provider_responses")
+
+
+def _triples(raw: list[list[Any]]) -> list[tuple[datetime, datetime, float]]:
+    return [(T(a), T(b), v) for a, b, v, *_ in raw]
+
+
+def _got(series: db.Resolved) -> list[tuple[datetime, datetime, float]]:
+    assert isinstance(series, db.Series), series
+    return [(i.start, i.end, round(i.value, 12)) for i in series.intervals]
+
+
+def _action_binding(action: str, target: str, path: str, adapter: str) -> Any:
+    source = {
+        "kind": "action_response",
+        "action": action,
+        "target": target,
+        "response_path": path,
+        "adapter": {"name": adapter, "version": 1},
+    }
+    return _binding(source)
+
+
+def test_dc_r05_f03_amber_get_forecasts_gives_its_published_intervals() -> None:
+    """Shape validated against Mark's pasted response, not a live call: the
+    interval starts on the boundary, one second before Amber's start_time,
+    and per_kwh is the price (never advanced_price_predicted)."""
+    case = F03["cases"]["amber_get_forecasts"]
+    expected = F03["expected"]["amber_get_forecasts"]
+    binding = _action_binding(
+        "amberelectric.get_forecasts",
+        "sensor.general_price",
+        "forecasts",
+        "amberelectric",
+    )
+    doc = _doc(_device("grid_main", "grid", import_price_forecast=binding))
+    window = tuple(map(T, case["window"]))
+    rec = Recorder(response=case["response"])
+    got = _resolve(doc, "grid_main", "import_price_forecast", rec, window=window)
+    assert _got(got) == _triples(expected["intervals"])
+    price, fraction = db.value_over(got, *window)
+    assert price is not None and abs(price - expected["price"]) <= TOL
+    assert abs(fraction - expected["coverage"]) <= TOL
+    assert [c[0] for c in rec.calls] == ["action"]
+
+
+def test_dc_r05_f03_openadr_get_forecast_gives_variable_length_intervals() -> None:
+    """Shape validated against Mark's pasted response: interval_minutes of 5,
+    20 and 30, the block's own `$/kWh` unit, and a final row with no value
+    dropped rather than extended."""
+    case = F03["cases"]["openadr_get_forecast"]
+    expected = F03["expected"]["openadr_get_forecast"]
+    binding = _action_binding(
+        "openadr3_ven.get_forecast", case["target"], "", "openadr3_ven"
+    )
+    doc = _doc(_device("grid_main", "grid", export_price_forecast=binding))
+    window = tuple(map(T, case["window"]))
+    rec = Recorder(response=case["response"])
+    got = _resolve(doc, "grid_main", "export_price_forecast", rec, window=window)
+    assert _got(got) == _triples(expected["intervals"])
+    assert [round((i.end - i.start).total_seconds() / 60) for i in got.intervals] == [
+        5,
+        20,
+        30,
+        30,
+    ]
+    assert got.provenance["native_unit"] == "$/kWh"
+    price, _ = db.value_over(got, *window)
+    assert price is not None and abs(price - expected["price"]) <= TOL
+    longer = _resolve(
+        doc,
+        "grid_main",
+        "export_price_forecast",
+        Recorder(response=case["response"]),
+        window=tuple(map(T, case["past_the_last_row"])),
+    )
+    assert (
+        abs(longer.coverage.covered_fraction - expected["past_the_last_row_coverage"])
+        <= TOL
+    )
+
+
+def _lv_binding(field: str, direction: str | None, **norm: Any) -> Any:
+    source = {
+        "kind": "entity_attribute",
+        "entity_id": "sensor.localvolts",
+        "attribute_path": "forecast",
+        "adapter": {
+            "name": "localvolts_v2",
+            "version": 1,
+            "field": field,
+            "direction": direction,
+        },
+    }
+    return _binding(source, **norm)
+
+
+def _lv_resolve(role: str, binding: Any) -> db.Resolved:
+    doc = _doc(_device("grid_main", "grid", **{role: binding}))
+    rows = F03["cases"]["localvolts_v2"]["rows"]
+    rec = Recorder(
+        {
+            "sensor.localvolts": {
+                "state": "31.5",
+                "attributes": {"forecast": rows},
+                "last_updated": NOW.isoformat(),
+            }
+        }
+    )
+    return db.resolve(doc, "grid_main", role, rec.readers(), NOW)
+
+
+def test_dc_r05_f03_localvolts_v2_directions_pair_on_interval_end() -> None:
+    """One row per direction, paired on intervalEnd; rates in cents scaled
+    once; elapsed (Act) rows are not a forecast."""
+    expected = F03["expected"]["localvolts_v2"]
+    buy = _lv_resolve("import_price_forecast", _lv_binding("flexUp", "Buy"))
+    sell = _lv_resolve("export_price_forecast", _lv_binding("flexUp", "Sell"))
+    assert _got(buy) == _triples(expected["buy_flexup"])
+    assert _got(sell) == _triples(expected["sell_flexup"])
+    assert [(i.start, i.end) for i in buy.intervals] == [
+        (i.start, i.end) for i in sell.intervals
+    ]
+    assert buy.provenance["native_unit"] == "c/kWh"
+    assert (buy.fees_included, sell.fees_included) == (True, True)
+    settled = _lv_resolve(
+        "export_price", _lv_binding("flexUp", "Sell", quality="settled")
+    )
+    assert _got(settled) == _triples(expected["sell_settled_flexup"])
+
+
+def test_dc_r05_f03_a_matched_p2p_rate_prices_a_blocks_export() -> None:
+    """Mark Purcell, #1774: P2P rates in terms of the current block export.
+    The matched rate is an export-side series; a no-match interval is kept
+    and tagged, so a block's export is priced at the match only where there
+    was one."""
+    expected = F03["expected"]["localvolts_v2"]
+    matched = _lv_resolve(
+        "export_price", _lv_binding("matched_rate", "Sell", quality="matched")
+    )
+    assert isinstance(matched, db.Series) and matched.unit == "AUD/kWh"
+    assert [
+        (i.start, i.end, round(i.value, 12), i.quality) for i in matched.intervals
+    ] == [(T(a), T(b), v, q) for a, b, v, q in expected["sell_matched"]]
+    assert matched.fees_included is None  # a peer's price: not stated
+    block = F03["cases"]["localvolts_v2"]["block"]
+    revenue = sum(
+        block["export_kw"] * (i.end - i.start).total_seconds() / 3600 * i.value
+        for i in matched.intervals
+        if i.quality == "matched"
+    )
+    assert abs(revenue - expected["block_matched_revenue"]) <= TOL
+    wrong_side = _lv_resolve(
+        "import_price", _lv_binding("matched_rate", "Sell", quality="matched")
+    )
+    assert wrong_side.reason == "matched_rate_is_export_side"
+
+
+def test_dc_r06_f03_localvolts_without_a_direction_overlaps_and_is_refused() -> None:
+    got = _lv_resolve("import_price_forecast", _lv_binding("flexUp", None))
+    assert (got.state, got.reason) == (db.MISSING, "overlapping_intervals")
+    unknown = _lv_resolve("import_price_forecast", _lv_binding("costsFlexUp", "Buy"))
+    assert unknown.reason == "adapter_field_unknown"
+
+
+def test_dc_r05_f03_the_matched_rate_agrees_with_the_solvers_own_reader() -> None:
+    """Reuse, pinned: the pure reader's matched rate is the arithmetic
+    solver_writer's `_p2p_triple_intervals` (#1537) applies, row for row."""
+    import solver_writer
+
+    rows = [
+        r
+        for r in F03["cases"]["localvolts_v2"]["rows"]
+        if r["direction"] == "Sell" and r["quality"] == "Fcst"
+    ]
+    ours = price_intervals.localvolts_v2_rows(rows, price_intervals.LV_MATCHED_RATE)
+    theirs = solver_writer._p2p_triple_intervals(rows)
+    assert [
+        (i.interval.start, i.interval.end, i.matched, i.interval.value) for i in ours
+    ] == [
+        (start, end, state == solver_writer.P2P_RATE, value)
+        for start, end, state, value in theirs
+    ]
 
 
 # --- DC-R16 / F11: derived dependencies at run time ---------------------------------
@@ -950,6 +1169,13 @@ def _f04_legacy_divergences() -> dict[str, str]:
     values, real = price_intervals.on_grid(gap, [T("2026-10-05T17:45:00+10:00")])
     if values[0] == gap[-1].value and not real[0]:
         found["expired_price"] = "held"
+    # Mark Purcell, #1774: a price is $/kWh, $/MWh or c/kWh. The legacy
+    # scale reads a unitless price as $/kWh and scales c/MWh; the resolver
+    # refuses both (test_dc_r05_a_price_is_scaled_once_...).
+    if price_intervals.price_unit_scale(None) == 1.0:
+        found["price_unit_missing"] = "read_as_dollars_per_kwh"
+    if price_intervals.price_unit_scale("c/MWh") == 1e-05:
+        found["c_per_mwh"] = "scaled"
     return found
 
 

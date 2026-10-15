@@ -1,5 +1,5 @@
-"""Spec DC-000 F04, F09: signal reference oracles, read from each fixture's
-manifest and independent of production code."""
+"""Spec DC-000 F03, F04, F09: signal reference oracles, read from each
+fixture's manifest and independent of production code."""
 
 from __future__ import annotations
 
@@ -28,6 +28,9 @@ F04 = json.loads(
 )
 F09 = json.loads(
     (FIX / "F09_units_and_samples" / "manifest.json").read_text(encoding="utf-8")
+)
+F03 = json.loads(
+    (FIX / "F03_provider_responses" / "manifest.json").read_text(encoding="utf-8")
 )
 T = datetime.fromisoformat
 
@@ -199,3 +202,52 @@ def test_f09_no_rating_is_inferred_from_a_historical_peak() -> None:
         is F09["expected"]["rating_kw"]
     )
     assert declared_rating_kw(5.0, case["history_kw"]) == 5.0
+
+
+# F03: provider responses in their published shapes ----------------------
+
+
+@pytest.mark.parametrize("name", ["amber_get_forecasts", "openadr_get_forecast"])
+def test_f03_a_providers_published_intervals_price_the_window(name: str) -> None:
+    case, expected = F03["cases"][name], F03["expected"][name]
+    price, coverage = price_over(
+        _intervals(expected["intervals"]), *map(T, case["window"])
+    )
+    assert price is not None and abs(price - expected["price"]) <= TOL
+    assert abs(coverage - expected["coverage"]) <= TOL
+
+
+def test_f03_amber_intervals_start_on_the_boundary_not_a_second_past() -> None:
+    rows = F03["cases"]["amber_get_forecasts"]["response"]["forecasts"]
+    for row, (start, end, price) in zip(
+        rows, F03["expected"]["amber_get_forecasts"]["intervals"], strict=True
+    ):
+        assert T(row["start_time"]) - T(start) == timedelta(seconds=1)
+        assert T(row["end_time"]) == T(end)
+        assert T(end) - T(start) == timedelta(minutes=row["duration"])
+        assert row["per_kwh"] == price  # the price, not advanced_price_*
+
+
+def test_f03_openadrs_last_row_is_not_extended() -> None:
+    case = F03["cases"]["openadr_get_forecast"]
+    expected = F03["expected"]["openadr_get_forecast"]
+    _, coverage = price_over(
+        _intervals(expected["intervals"]), *map(T, case["past_the_last_row"])
+    )
+    assert abs(coverage - expected["past_the_last_row_coverage"]) <= TOL
+
+
+def test_f03_localvolts_directions_share_their_intervals_and_a_block_is_priced() -> (
+    None
+):
+    expected = F03["expected"]["localvolts_v2"]
+    buy = [(a, b) for a, b, _ in expected["buy_flexup"]]
+    sell = [(a, b) for a, b, _ in expected["sell_flexup"]]
+    assert buy == sell  # paired on intervalEnd
+    block = F03["cases"]["localvolts_v2"]["block"]
+    revenue = sum(
+        block["export_kw"] * (T(b) - T(a)).total_seconds() / 3600 * rate
+        for a, b, rate, tag in expected["sell_matched"]
+        if tag == "matched"
+    )
+    assert abs(revenue - expected["block_matched_revenue"]) <= TOL

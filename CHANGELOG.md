@@ -41,10 +41,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Device contract DC-002: one resolver turns a binding into a value in
   canonical units and sign, or a series of priced intervals** (#1574,
   `device_bindings.py`). It keeps missing, unavailable, stale, held and a
-  measured zero apart, refuses wrong or unknown units and other currencies
-  with a reason, measures coverage from the intervals without filling gaps,
-  refuses overlapping rows, and calls only the two read-only actions on its
-  list. Nothing reads it yet, so nothing an install does changes.
+  measured zero apart, accepts prices only in $/kWh, $/MWh or c/kWh, refuses
+  wrong or unknown units and other currencies with a reason, treats a price
+  forecast older than 5 minutes as stale, measures coverage from the
+  intervals without filling gaps, refuses overlapping rows, and calls only
+  the two read-only actions on its list. It reads AEMO NEM, NEM PD7DAY, both
+  Amber integrations, OpenADR 3 and LocalVolts v2 (new pure reader in
+  `price_intervals.py`; the solver's own LocalVolts reading is unchanged).
+  Nothing reads the resolver yet, so nothing an install does changes.
 
 ### Fixed
 - **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a
