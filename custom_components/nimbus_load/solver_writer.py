@@ -206,6 +206,10 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import price_intervals  # type: ignore[no-redef]
 try:
+    from . import p5min_guard
+except ImportError:  # pragma: no cover - standalone/cron path
+    import p5min_guard  # type: ignore[no-redef]
+try:
     from .solver_inputs import solar as solar_inputs_solar
 except ImportError:
     from solver_inputs import solar as solar_inputs_solar  # type: ignore[no-redef]
@@ -9227,6 +9231,21 @@ def main() -> None:
         spot_export[_i] = spot_export_source[_i]
         import_price_source[_i] = "primary"
         export_price_source[_i] = "primary"
+
+    # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
+    # forward spikes in the SCHEDULING prices -- whatever the source, after
+    # blending -- are replaced; the current interval keeps its real price.
+    spot_import_raw, spot_export = p5min_guard.guard_schedule_prices(
+        spot_import_raw,
+        spot_export,
+        grid_times,
+        _cfg_num(
+            cfg,
+            "solver_p5min_false_spike_threshold_mwh",
+            p5min_guard.DEFAULT_THRESHOLD_MWH,
+        ),
+        ha_get,
+    )
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed

@@ -1613,6 +1613,15 @@ CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS: Final = (
     "solver_aemo_p5min_disagreement_threshold_dollars"
 )
 
+# nimbus #1778 (Mark Purcell): the P5MIN false-spike guard's threshold, in
+# AUD/MWh (AEMO's own unit and currency, whatever the install's). A P5MIN
+# interval, or an Amber forward price, at or above it (or within 10% of the
+# Market Price Cap, if lower) is a spike. The guard distrusts one that an
+# infeasible run produced or dispatch contradicted -- see p5min_guard.py.
+CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH: Final = (
+    "solver_p5min_false_spike_threshold_mwh"
+)
+
 # Intra-plan smoothness weight (real household finding, 2026-09-08): the
 # solver's own network.py already has an "intra-plan smoothness" mechanism
 # (_add_intraplan_smoothness_penalty, added 2026-08-20 for this exact
@@ -1719,6 +1728,8 @@ DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = 8.0
 # starting default; tunable per household via the dashboard number, no
 # release needed.
 DEFAULT_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS: Final = 0.10
+# nimbus #1778: "$5,000/MWh, or within 10% of the cap" -- p5min_guard.py.
+DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH: Final = 5000.0
 # Matches network.py's own DEFAULT_SMOOTHNESS_WEIGHT_KW exactly -- see
 # CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW's own comment above for why.
 DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = 0.005

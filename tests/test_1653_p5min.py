@@ -195,8 +195,15 @@ def test_the_listing_is_not_read_before_the_next_run_can_exist():
 
 
 def test_series_are_excluded_from_recorder():
+    # #1778 added two lists that can grow: the first interval's violated
+    # constraints and the forecast-vs-dispatch record.
     assert sp.NimbusP5MinForecastSensor._unrecorded_attributes == frozenset(
-        {"forecast", "previous_forecast"}
+        {
+            "forecast",
+            "previous_forecast",
+            "violated_constraints",
+            "forecast_at_dispatch",
+        }
     )
 
 
