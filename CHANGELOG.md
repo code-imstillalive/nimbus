@@ -75,6 +75,17 @@ longer sticks at `unknown` after a restart.
   restart's log. A rescued Unknown isn't a failure, so it left no record at
   all. Observability only: nothing reads these values (golden master: the
   four keys, null and 0, and no plan value moved).
+- **Device contract DC-002: one resolver turns a binding into a value in
+  canonical units and sign, or a series of priced intervals** (#1574,
+  `device_bindings.py`). It keeps missing, unavailable, stale, held and a
+  measured zero apart, accepts prices only in $/kWh, $/MWh or c/kWh, refuses
+  wrong or unknown units and other currencies with a reason, treats a price
+  forecast older than 5 minutes as stale, measures coverage from the
+  intervals without filling gaps, refuses overlapping rows, and calls only
+  the two read-only actions on its list. It reads AEMO NEM, NEM PD7DAY, both
+  Amber integrations, OpenADR 3 and LocalVolts v2 (new pure reader in
+  `price_intervals.py`; the solver's own LocalVolts reading is unchanged).
+  Nothing reads the resolver yet, so nothing an install does changes.
 
 ### Fixed
 - **Charge By now finishes an hour early, so it meets its target** (household,

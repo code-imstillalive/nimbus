@@ -408,6 +408,118 @@ def openadr_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
     return _ordered(parsed)
 
 
+# --- LocalVolts v2 (nimbus #1574, DC-002) ------------------------------------
+#
+# purcell-lab/localvolts_v2 polls LocalVolts' v2 interval API and publishes
+# its rows as they come: ONE ROW PER DIRECTION (`direction` "Buy" or "Sell"),
+# the two paired on `intervalEnd` (UTC), each covering
+# [intervalEnd - intervalDuration, intervalEnd), intervalDuration defaulting
+# to 5 minutes. RATES are cents per kWh (`flexUp`, `flexDown`); AMOUNTS are
+# dollars (`matchedCost`), volumes kWh. `quality` is `Fcst` for a forecast
+# row and `Exp`/`Act`/`Sub`/`FSub` once the interval has elapsed. The rate
+# fields frozen when a forecast is built (#1661, price_input_check.py) are
+# not read.
+#
+# The matched P2P rate is matchedCost / (volume x proportionP2P) in $/kWh,
+# and a row matching 0.01 kWh or less is an explicit no-match -- the same
+# arithmetic as solver_writer's `_p2p_triple_intervals` (#1537), which keeps
+# its own copy and is pinned to agree with this one by a test. That reader
+# also accepts the reference household's `time` key for the interval end; so
+# does this one.
+#
+# Nothing in the solver reads this function yet (DC-002's resolver does).
+
+LOCALVOLTS_V2_DOMAIN = "localvolts_v2"
+LV_DIRECTIONS = frozenset({"Buy", "Sell"})
+LV_RATE_FIELDS = frozenset({"flexUp", "flexDown"})  # c/kWh
+LV_MATCHED_RATE = "matched_rate"  # derived from dollar amounts: $/kWh
+LV_FORECAST_QUALITIES = frozenset({"Fcst"})
+LV_ELAPSED_QUALITIES = frozenset({"Exp", "Act", "Sub", "FSub"})
+_LV_DEFAULT_MINUTES = 5.0
+_LV_NO_MATCH_KWH = 0.01
+
+
+@dataclass(frozen=True)
+class LocalVoltsInterval:
+    """One LocalVolts v2 row as an interval. `matched` is False only for an
+    explicit P2P no-match on the matched rate (value 0.0, not a zero price)."""
+
+    interval: PriceInterval
+    matched: bool = True
+
+
+def _lv_span(row: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    try:
+        end = parse_iso(row["time"] if "time" in row else row["intervalEnd"])
+        minutes = float(row.get("intervalDuration") or _LV_DEFAULT_MINUTES)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    if not math.isfinite(minutes) or minutes <= 0:
+        return None
+    return end - timedelta(minutes=minutes), end
+
+
+def _lv_value(row: dict[str, Any], field: str) -> tuple[float, bool] | None:
+    """(value, matched) for one row, or None when the row says nothing."""
+    try:
+        if field != LV_MATCHED_RATE:
+            value = float(row[field])
+            return (value, True) if math.isfinite(value) else None
+        vol, prop, cost = (
+            row.get(k) for k in ("volume", "proportionP2P", "matchedCost")
+        )
+        if vol is None or prop is None:
+            return None
+        matched_vol = float(vol) * float(prop)
+        if matched_vol <= _LV_NO_MATCH_KWH:
+            return 0.0, False
+        if cost is None:
+            return None
+        value = float(cost) / matched_vol
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+    return (value, True) if math.isfinite(value) else None
+
+
+def localvolts_v2_rows(
+    rows: Iterable[Any],
+    field: str,
+    direction: str | None = None,
+    qualities: frozenset[str] | None = None,
+) -> list[LocalVoltsInterval]:
+    """LocalVolts v2 rows -> one interval per usable row, unordered and with
+    overlaps kept, so a caller can see them. A row of the other `direction`,
+    or whose `quality` is not in `qualities`, is not this series' row; a row
+    stating neither is kept (a per-direction sensor need not repeat it)."""
+    out: list[LocalVoltsInterval] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if direction is not None and row.get("direction") not in (None, direction):
+            continue
+        if qualities is not None and row.get("quality") not in (None, *qualities):
+            continue
+        span = _lv_span(row)
+        got = _lv_value(row, field)
+        if span is None or got is None:
+            continue
+        out.append(LocalVoltsInterval(PriceInterval(*span, got[0]), got[1]))
+    return out
+
+
+def localvolts_v2_intervals(
+    rows: Iterable[Any],
+    field: str,
+    direction: str | None = None,
+    qualities: frozenset[str] | None = None,
+) -> list[PriceInterval]:
+    """LocalVolts v2 rows -> ordered, non-overlapping intervals of `field`
+    (cents for a rate field, dollars per kWh for the matched rate)."""
+    return _ordered(
+        [i.interval for i in localvolts_v2_rows(rows, field, direction, qualities)]
+    )
+
+
 def intervals_from_rows(rows: Any) -> list[PriceInterval] | None:
     """Intervals for a provider shape this module knows, else None (the
     caller keeps its own `{time, value}` handling)."""

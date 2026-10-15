@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F04",
-    "revision": 1,
+    "revision": 2,
     "requirements": [
       "DC-R03",
       "DC-R04",
@@ -11,7 +11,7 @@
       "DC-R17"
     ],
     "owner": "DC-005",
-    "purpose": "Prices read on their published intervals: 5- and 30-minute overlap, offset and UTC timestamps, negative prices kept, gaps reported, a missing direction left missing, fees added once."
+    "purpose": "Prices read on their published intervals: 5- and 30-minute series and a multi-day series, offset and UTC timestamps, negative prices kept, gaps and holes reported, overlap refused, an expired price not extended, a missing direction left missing, fees added once."
   },
   "origin": {
     "kind": "synthetic",
@@ -75,6 +75,116 @@
     "fees": {
       "spot": 0.1,
       "fees": 0.12
+    },
+    "thirty_min_series": {
+      "window": [
+        "2026-10-05T16:00:00+10:00",
+        "2026-10-05T18:00:00+10:00"
+      ],
+      "intervals": [
+        [
+          "2026-10-05T16:00:00+10:00",
+          "2026-10-05T16:30:00+10:00",
+          0.25
+        ],
+        [
+          "2026-10-05T16:30:00+10:00",
+          "2026-10-05T17:00:00+10:00",
+          0.31
+        ],
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          -0.02
+        ],
+        [
+          "2026-10-05T17:30:00+10:00",
+          "2026-10-05T18:00:00+10:00",
+          0.5
+        ]
+      ]
+    },
+    "hole": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T18:30:00+10:00"
+      ],
+      "intervals": [
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          0.2
+        ],
+        [
+          "2026-10-05T18:00:00+10:00",
+          "2026-10-05T18:30:00+10:00",
+          0.4
+        ]
+      ],
+      "gaps": [
+        [
+          "2026-10-05T17:30:00+10:00",
+          "2026-10-05T18:00:00+10:00"
+        ]
+      ]
+    },
+    "multi_day": {
+      "window": [
+        "2026-10-06T00:00:00+10:00",
+        "2026-10-09T00:00:00+10:00"
+      ],
+      "_doc": "blocks of [first start, minutes per interval, count, price]; a 24-hour hole between them (#1550's capture)",
+      "blocks": [
+        [
+          "2026-10-06T00:00:00+10:00",
+          30,
+          48,
+          0.1
+        ],
+        [
+          "2026-10-08T00:00:00+10:00",
+          30,
+          48,
+          0.3
+        ]
+      ],
+      "gaps": [
+        [
+          "2026-10-07T00:00:00+10:00",
+          "2026-10-08T00:00:00+10:00"
+        ]
+      ]
+    },
+    "overlap": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T17:45:00+10:00"
+      ],
+      "intervals": [
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          0.1
+        ],
+        [
+          "2026-10-05T17:15:00+10:00",
+          "2026-10-05T17:45:00+10:00",
+          0.2
+        ]
+      ]
+    },
+    "feed_in_only": {
+      "window": [
+        "2026-10-05T17:00:00+10:00",
+        "2026-10-05T17:30:00+10:00"
+      ],
+      "export_intervals": [
+        [
+          "2026-10-05T17:00:00+10:00",
+          "2026-10-05T17:30:00+10:00",
+          0.08
+        ]
+      ]
     }
   },
   "expected": {
@@ -94,17 +204,34 @@
       "fees_not_included": 0.22,
       "fees_included": 0.1,
       "missing_direction": null
+    },
+    "thirty_min_series": {
+      "price": 0.26,
+      "coverage": 1.0
+    },
+    "hole": {
+      "price": 0.3,
+      "coverage": 0.6666666666666666
+    },
+    "multi_day": {
+      "price": 0.2,
+      "coverage": 0.6666666666666666
+    },
+    "overlap": "refused",
+    "feed_in_only": {
+      "import": null,
+      "export": 0.08
     }
   },
   "comparison": {
     "absolute_tolerance": 1e-09,
     "relative_tolerance": 0.0,
-    "note": "coverage below 1 is reported, never filled"
+    "note": "coverage below 1 is reported, never filled; overlapping published intervals are refused, never averaged"
   },
   "execution_status": {
     "reference_oracle": "verified",
     "legacy_characterised": "not_started",
-    "production_obligation": "pending (DC-002, DC-005, DC-006)"
+    "production_obligation": "pending (DC-002 resolver tested in test_dc002_bindings_and_normalisation.py; DC-005, DC-006 not started)"
   },
   "privacy": {
     "publication": "synthetic; no household data"

@@ -110,7 +110,7 @@
   "execution_status": {
     "reference_oracle": "verified",
     "legacy_characterised": "not_started",
-    "production_obligation": "pending (DC-001, DC-002, DC-006)"
+    "production_obligation": "pending (DC-001 structure and DC-002 run-time cycle refusal tested; DC-006 not started)"
   },
   "privacy": {
     "publication": "synthetic; no household data"
