@@ -1,0 +1,150 @@
+{
+  "identity": {
+    "fixture": "F02",
+    "revision": 1,
+    "requirements": [
+      "DC-R02",
+      "DC-R03",
+      "DC-R09"
+    ],
+    "owner": "DC-001, DC-002, DC-003",
+    "purpose": "One integration exposes Grid, Solar and Battery; two inverters; one inverter's strings inside its total; and limits shared across devices (a circuit, a charger, a hybrid inverter's AC rating), each a combined quantity constrained once, never copied into each member's own limit."
+  },
+  "origin": {
+    "kind": "synthetic",
+    "baseline": "8a9f50305ca60eb480a1e504d25786763fe42a8a",
+    "source": "Spec DC-000 §Fixture catalogue (docs/specs/device-contract/000-baseline-fixtures-and-gates.md); quantity formulas as drafted in DC-003 (#1781)"
+  },
+  "data_semantics": {
+    "units": "kW over one interval",
+    "signs": "Grid +import, Battery +discharge, Solar +generation, Load +consumption",
+    "quantities": {
+      "circuit_power": "sum of member load consumption",
+      "charger_power": "sum of each member's charge plus discharge; a charging and a discharging vehicle never cancel",
+      "inverter_ac_power": "magnitude of solar generation plus battery canonical power at the inverter's AC terminals"
+    }
+  },
+  "cases": {
+    "shared_hardware": {
+      "note": "one inverter integration supplies three logical devices; the house is a fourth",
+      "equipment": "inverter_1",
+      "devices": [
+        {"id": "grid_main", "role": "grid"},
+        {"id": "pv_roof", "role": "solar"},
+        {"id": "battery_home", "role": "battery", "fields": {"capacity_kwh": 40.3}},
+        {"id": "load_house", "role": "load"}
+      ]
+    },
+    "kinds": {
+      "hws_a": "load",
+      "hws_b": "load",
+      "ev_a": "battery",
+      "ev_b": "battery",
+      "pv_roof": "solar",
+      "battery_home": "battery"
+    },
+    "limits": {
+      "circuit": {"equipment": "hws_circuit", "quantity": "circuit_power", "devices": ["hws_a", "hws_b"], "limit_kw": 5.0},
+      "charger": {"equipment": "dc_charger", "quantity": "charger_power", "devices": ["ev_a", "ev_b"], "limit_kw": 25.0},
+      "inverter": {"equipment": "inverter_1", "quantity": "inverter_ac_power", "devices": ["pv_roof", "battery_home"], "limit_kw": 10.0}
+    },
+    "intervals": [
+      {"name": "both_heaters_on", "limit": "circuit", "kw": {"hws_a": 3.7, "hws_b": 3.7}},
+      {"name": "one_heater_on", "limit": "circuit", "kw": {"hws_a": 3.7, "hws_b": 0.0}},
+      {"name": "both_vehicles_charging", "limit": "charger", "kw": {"ev_a": -20.0, "ev_b": -15.0}},
+      {"name": "one_v2h_one_charging", "limit": "charger", "kw": {"ev_a": 10.0, "ev_b": -10.0}},
+      {"name": "heavy_v2h_and_charging", "limit": "charger", "kw": {"ev_a": 15.0, "ev_b": -15.0}},
+      {"name": "solar_and_discharge", "limit": "inverter", "kw": {"pv_roof": 9.0, "battery_home": 3.0}},
+      {"name": "solar_into_battery", "limit": "inverter", "kw": {"pv_roof": 9.0, "battery_home": -4.0}},
+      {"name": "grid_charge", "limit": "inverter", "kw": {"pv_roof": 0.0, "battery_home": -8.0}},
+      {"name": "grid_charge_over", "limit": "inverter", "kw": {"pv_roof": 0.0, "battery_home": -12.0}}
+    ],
+    "invalid_limits": {
+      "duplicate": [
+        {"equipment": "inverter_1", "quantity": "inverter_ac_power", "devices": ["pv_roof", "battery_home"], "limit_kw": 10.0},
+        {"equipment": "inverter_1", "quantity": "inverter_ac_power", "devices": ["pv_roof", "battery_home"], "limit_kw": 8.0}
+      ],
+      "unknown_quantity": [
+        {"equipment": "inverter_1", "quantity": "dc_bus_power", "devices": ["pv_roof", "battery_home"], "limit_kw": 10.0}
+      ],
+      "kind_mismatch": [
+        {"equipment": "dc_charger", "quantity": "charger_power", "devices": ["ev_a", "hws_a"], "limit_kw": 25.0}
+      ],
+      "single_member": [
+        {"equipment": "dc_charger", "quantity": "charger_power", "devices": ["ev_a"], "limit_kw": 25.0}
+      ],
+      "undeclared_device": [
+        {"equipment": "dc_charger", "quantity": "charger_power", "devices": ["ev_a", "ev_c"], "limit_kw": 25.0}
+      ]
+    },
+    "string_and_total": [
+      {"name": "house", "role": "load", "kw": 8.0},
+      {"name": "pv_total", "role": "solar", "kw": 8.0},
+      {"name": "pv_string_1", "role": "solar", "kw": 3.0, "included_in": "pv_total"},
+      {"name": "pv_string_2", "role": "solar", "kw": 5.0, "included_in": "pv_total"}
+    ],
+    "two_inverters": [
+      {"name": "house", "role": "load", "kw": 10.0},
+      {"name": "inverter_1", "role": "solar", "kw": 6.0},
+      {"name": "inverter_2", "role": "solar", "kw": 4.0}
+    ]
+  },
+  "expected": {
+    "shared_hardware_problems": [],
+    "combined_kw": {
+      "both_heaters_on": 7.4,
+      "one_heater_on": 3.7,
+      "both_vehicles_charging": 35.0,
+      "one_v2h_one_charging": 20.0,
+      "heavy_v2h_and_charging": 30.0,
+      "solar_and_discharge": 12.0,
+      "solar_into_battery": 5.0,
+      "grid_charge": 8.0,
+      "grid_charge_over": 12.0
+    },
+    "within_shared_limit": {
+      "both_heaters_on": false,
+      "one_heater_on": true,
+      "both_vehicles_charging": false,
+      "one_v2h_one_charging": true,
+      "heavy_v2h_and_charging": false,
+      "solar_and_discharge": false,
+      "solar_into_battery": true,
+      "grid_charge": true,
+      "grid_charge_over": false
+    },
+    "copied_limits_miss": [
+      "both_heaters_on",
+      "both_vehicles_charging",
+      "heavy_v2h_and_charging",
+      "solar_and_discharge"
+    ],
+    "invalid_limit_needles": {
+      "duplicate": "limited twice",
+      "unknown_quantity": "unknown quantity",
+      "kind_mismatch": "not part of charger_power",
+      "single_member": "needs two devices",
+      "undeclared_device": "undeclared device"
+    },
+    "string_and_total_grid_kw": 0.0,
+    "string_and_total_double_count_grid_kw": -8.0,
+    "two_inverters_grid_kw": 0.0,
+    "two_inverters_one_missed_grid_kw": 4.0
+  },
+  "deferred": {
+    "undeclared_string_and_total": "Detecting a string and its total bound as two unrelated solar devices needs readings over a window, and its test statistic is DC-003's open decision 5 (#1781). Not built until Mark has decided it.",
+    "capacity_basis": "Nominal/usable capacity is structural and already checked by DC-001 (test_dc001_canonical_model.py: capacity_missing, capacity_basis_missing)."
+  },
+  "comparison": {
+    "absolute_tolerance": 1e-09,
+    "relative_tolerance": 0.0
+  },
+  "execution_status": {
+    "reference_oracle": "verified",
+    "legacy_characterised": "not_started",
+    "production_obligation": "pending (DC-003, DC-006)"
+  },
+  "privacy": {
+    "publication": "synthetic; no household data"
+  }
+}

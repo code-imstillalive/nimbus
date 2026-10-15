@@ -101,3 +101,40 @@ def test_dependency_mutation_closing_a_cycle_is_rejected() -> None:
     assert dependency_problems(graph) == []
     graph["b"] = {"a"}
     assert any("cycle" in p for p in dependency_problems(graph))
+
+
+# F02 shared-limit negative controls ---------------------------------------
+
+
+def test_limit_mutation_copying_the_rating_onto_each_member_is_detected() -> None:
+    from tests.device_contract.oracles_limits import (
+        Member,
+        SharedLimit,
+        within,
+        within_copied_limits,
+    )
+
+    members = [Member("hws_a", "load", 3.7), Member("hws_b", "load", 3.7)]
+    shared = SharedLimit("hws_circuit", "circuit_power", ("hws_a", "hws_b"), 5.0)
+    # Copied per member, each heater passes; stated once, the pair does not.
+    assert within_copied_limits(members, 5.0)
+    assert not within(shared, members)
+
+
+def test_limit_mutation_netting_a_charger_hides_an_overload() -> None:
+    from tests.device_contract.oracles_limits import Member, combined_kw
+
+    members = [Member("ev_a", "battery", 15.0), Member("ev_b", "battery", -15.0)]
+    netted = abs(sum(m.kw for m in members))
+    assert netted <= 25.0  # a netting reader would see an idle charger
+    assert combined_kw("charger_power", members) > 25.0
+
+
+def test_limit_mutation_stating_a_limit_twice_is_rejected() -> None:
+    from tests.device_contract.oracles_limits import SharedLimit, limit_problems
+
+    kinds = {"pv": "solar", "bat": "battery"}
+    once = [SharedLimit("inv", "inverter_ac_power", ("pv", "bat"), 10.0)]
+    assert limit_problems(once, kinds) == []
+    twice = [*once, SharedLimit("inv", "inverter_ac_power", ("pv", "bat"), 8.0)]
+    assert any("twice" in p for p in limit_problems(twice, kinds))

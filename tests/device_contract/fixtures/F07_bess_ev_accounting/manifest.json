@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F07",
-    "revision": 1,
+    "revision": 2,
     "requirements": [
       "DC-R07",
       "DC-R08",
@@ -61,6 +61,95 @@
     "grid_import_kw": 0.0,
     "invalid_double_count_grid_kw": 10.0,
     "decomposed_house_residual_kw": 4.0
+  },
+  "variants": {
+    "_note": "DC-000 §F07's listed variants. A vehicle not connected in a segment is absent from its flows. Connection is declared here, not inferred from location; what to do without connection evidence is DC-003's open decision 7 (#1781) and is not built.",
+    "partial_interval_connection": {
+      "purpose": "The DC EV is connected for the second half hour only: its charge counts for that half, not the whole hour.",
+      "segments": [
+        {
+          "hours": 0.5,
+          "flows": [
+            {"name": "pv", "role": "solar", "kw": 16.0},
+            {"name": "house", "role": "load", "kw": 14.0},
+            {"name": "ev_ac", "role": "battery", "kw": -10.0, "included_in": "house"},
+            {"name": "bess", "role": "battery", "kw": 0.0}
+          ]
+        },
+        {
+          "hours": 0.5,
+          "flows": [
+            {"name": "pv", "role": "solar", "kw": 16.0},
+            {"name": "house", "role": "load", "kw": 14.0},
+            {"name": "ev_ac", "role": "battery", "kw": -10.0, "included_in": "house"},
+            {"name": "ev_dc", "role": "battery", "kw": -4.0},
+            {"name": "bess", "role": "battery", "kw": 0.0}
+          ]
+        }
+      ],
+      "expected": {
+        "grid_import_kwh": 0.0,
+        "ev_dc_site_charge_kwh": 2.0,
+        "invalid_connected_all_interval_grid_kwh": 2.0
+      }
+    },
+    "two_vehicles_one_charger": {
+      "purpose": "Two DC vehicles on one 12 kW charger: each counts once at the site, and their combined charger power is limited once, not per vehicle.",
+      "charger": {"equipment": "dc_charger", "quantity": "charger_power", "devices": ["ev_a", "ev_b"], "limit_kw": 12.0},
+      "both_connected": [
+        {"name": "pv", "role": "solar", "kw": 16.0},
+        {"name": "house", "role": "load", "kw": 4.0},
+        {"name": "ev_a", "role": "battery", "kw": -8.0},
+        {"name": "ev_b", "role": "battery", "kw": -6.0}
+      ],
+      "only_ev_a_drawing": [
+        {"name": "pv", "role": "solar", "kw": 16.0},
+        {"name": "house", "role": "load", "kw": 4.0},
+        {"name": "ev_a", "role": "battery", "kw": -8.0},
+        {"name": "ev_b", "role": "battery", "kw": 0.0}
+      ],
+      "expected": {
+        "both_connected_grid_kw": 2.0,
+        "both_connected_charger_kw": 14.0,
+        "both_connected_within_charger": false,
+        "both_connected_within_copied_limits": true,
+        "only_ev_a_grid_kw": -4.0,
+        "only_ev_a_within_charger": true
+      }
+    },
+    "trip_and_reconnection": {
+      "purpose": "A vehicle charges for an hour, leaves for an hour, then returns and charges again. Driving energy changes its pack but never crosses the site boundary.",
+      "pack_kwh": {"start": 30.0, "end": 34.0},
+      "segments": [
+        {
+          "hours": 1.0,
+          "flows": [
+            {"name": "house", "role": "load", "kw": 2.0},
+            {"name": "ev", "role": "battery", "kw": -7.0}
+          ]
+        },
+        {
+          "hours": 1.0,
+          "flows": [
+            {"name": "house", "role": "load", "kw": 2.0}
+          ]
+        },
+        {
+          "hours": 1.0,
+          "flows": [
+            {"name": "house", "role": "load", "kw": 2.0},
+            {"name": "ev", "role": "battery", "kw": -7.0}
+          ]
+        }
+      ],
+      "expected": {
+        "grid_import_kwh": 20.0,
+        "ev_site_charge_kwh": 14.0,
+        "driving_kwh_lossless": 10.0,
+        "invalid_pack_delta_as_site_grid_kwh": 10.0,
+        "invalid_setpoint_held_while_away_grid_kwh": 27.0
+      }
+    }
   },
   "comparison": {
     "absolute_tolerance": 1e-09,
