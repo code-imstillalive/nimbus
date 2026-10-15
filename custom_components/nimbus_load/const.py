@@ -1523,6 +1523,21 @@ CONF_SOLVER_CHARGE_BY_HOUR: Final = "solver_charge_by_hour"
 DEFAULT_SOLVER_CHARGE_BY_HOUR: Final = 16.0
 CONF_SOLVER_CHARGE_BY_PERCENT: Final = "solver_charge_by_percent"
 DEFAULT_SOLVER_CHARGE_BY_PERCENT: Final = 0.0
+# nimbus issue #1784 (Mark Purcell): the solar "running low" gate. While
+# measured PV (30-minute mean of solver_solar_power_sensor, from the
+# recorder) runs below ON % of Solcast's p50 reference -- the lower of the
+# current half-hour's p50 and the one 30 minutes earlier -- the rest of
+# TODAY plans on Solcast p10. Off again above OFF %. Judged only while both
+# p50s are at least MIN kW; MIN 0 = off. Mark's defaults: 2 kW, 70 %, 90 %.
+# Mirrored as literals in solver_inputs/solar_running_low.py (HA-free).
+CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW: Final = "solver_solar_running_low_min_p50_kw"
+DEFAULT_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW: Final = 2.0
+CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT: Final = "solver_solar_running_low_on_percent"
+DEFAULT_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT: Final = 70.0
+CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT: Final = (
+    "solver_solar_running_low_off_percent"
+)
+DEFAULT_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT: Final = 90.0
 CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
 DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"

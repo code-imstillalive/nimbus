@@ -32,6 +32,11 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
 
+try:
+    from . import solar_running_low
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver_inputs import solar_running_low  # type: ignore[no-redef]
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -214,6 +219,7 @@ def build_solar_arrays(
     cfg: dict,
     grid_times: list[datetime],
     n_periods: int,
+    now: datetime | None = None,
 ) -> tuple[list[float], list[float], list[float]]:
     """Fetch, blend, and live-anchor every configured solar source into
     the three `(solar_kw, solar_lower_kw, solar_upper_kw)` arrays the LP
@@ -276,10 +282,33 @@ def build_solar_arrays(
     state right now), equal weight is the correct, defensible
     default, not a shortcut. Same, uniform treatment for EVERY
     period, including "now" -- no special-cased override anywhere.
+
+    nimbus issue #1784: before blending, the solar "running low" gate
+    (solar_running_low.py) is judged, and while it is on each Solcast
+    member plans the remaining periods of TODAY on its own p10. `now`
+    is main()'s local clock; omitted, grid_times[0] stands in.
     """
     sw = _solver_writer()
 
     solar_values, solar_lowers, solar_uppers = [], [], []
+    # nimbus issue #1784: which members are Solcast's, by position, so the
+    # running-low gate can switch exactly those to p10 below.
+    solar_is_solcast: list[bool] = []
+
+    def _add_member(
+        result: tuple[list[float], list[float], list[float]] | None,
+        is_solcast: bool,
+    ) -> None:
+        # One blend member: its (value, lower, upper) arrays, and whether
+        # it is Solcast's (#1784). A failed fetch (None) adds nothing --
+        # see the "DROPPED, never zero-filled" rule in the docstring.
+        if result is None:
+            return
+        v, lo, up = result
+        solar_values.append(np.array(v))
+        solar_lowers.append(np.array(lo))
+        solar_uppers.append(np.array(up))
+        solar_is_solcast.append(is_solcast)
 
     # nimbus issue #546 (Mark Purcell, real regression the same day
     # #542/#543 shipped): whether auto-include is on, computed once up
@@ -302,12 +331,10 @@ def build_solar_arrays(
     # (this household: Nimbus's own self-trained model).
     configured_entity = cfg.get("solver_solar_forecast_sensor")
     if configured_entity and not _skip_as_standalone_source(configured_entity):
-        result = _fetch_solar_source_safe(configured_entity, grid_times, n_periods)
-        if result is not None:
-            v, lo, up = result
-            solar_values.append(np.array(v))
-            solar_lowers.append(np.array(lo))
-            solar_uppers.append(np.array(up))
+        _add_member(
+            _fetch_solar_source_safe(configured_entity, grid_times, n_periods),
+            configured_entity in sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS,
+        )
 
     # Known real integrations (Open-Meteo, Solcast) -- ONLY included if
     # switch.nimbus_solver_auto_include_known_solar is explicitly ON
@@ -320,16 +347,12 @@ def build_solar_arrays(
     # install gets exactly what's configured in sources 1/2/3, nothing
     # more, unless this switch is explicitly turned on.
     if auto_include_known_solar:
-        for fetcher in (
-            lambda: _fetch_open_meteo_solar_raw(grid_times),
-            lambda: _fetch_solcast_solar_raw(grid_times, n_periods),
+        for fetcher, is_solcast in (
+            (lambda: _fetch_open_meteo_solar_raw(grid_times), False),
+            (lambda: _fetch_solcast_solar_raw(grid_times, n_periods), True),
         ):
             result = fetcher()
-            if result is not None:
-                v, lo, up = result
-                solar_values.append(np.array(v))
-                solar_lowers.append(np.array(lo))
-                solar_uppers.append(np.array(up))
+            _add_member(result, is_solcast)
 
     # Optional generic ADDITIONAL sources (solver_solar_forecast_
     # sensor_2/_3) -- for any OTHER solar forecast integration this
@@ -343,12 +366,19 @@ def build_solar_arrays(
     ):
         if not entity_id or _skip_as_standalone_source(entity_id):
             continue
-        result = _fetch_solar_source_safe(entity_id, grid_times, n_periods)
-        if result is not None:
-            v, lo, up = result
-            solar_values.append(np.array(v))
-            solar_lowers.append(np.array(lo))
-            solar_uppers.append(np.array(up))
+        _add_member(
+            _fetch_solar_source_safe(entity_id, grid_times, n_periods),
+            entity_id in sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS,
+        )
+
+    _apply_running_low_gate(
+        cfg,
+        grid_times,
+        now if now is not None else grid_times[0],
+        solar_values,
+        solar_lowers,
+        solar_is_solcast,
+    )
 
     if not solar_values:
         # Real bug found live (nimbus repo issue #115, Mark Purcell, a
@@ -471,6 +501,49 @@ def build_solar_arrays(
             pass
 
     return solar_kw, solar_lower_kw, solar_upper_kw
+
+
+def _apply_running_low_gate(
+    cfg: dict,
+    grid_times: list[datetime],
+    now: datetime,
+    solar_values: list,
+    solar_lowers: list,
+    solar_is_solcast: list[bool],
+) -> None:
+    """nimbus issue #1784: judge the solar running-low gate and, while it
+    is on, replace each Solcast member's value with its own lower bound
+    (Solcast's p10) for the remaining periods of today -- in place, before
+    blending, so everything downstream (blend, band, live anchor, #1259,
+    #128) sees p10 as that member's forecast.
+
+    Only Solcast members move: the gate's evidence is Solcast's p50 against
+    measured PV, and p10 is Solcast's own number. A member's lower bound is
+    already min(p10, p50), so the band stays valid (lower <= value).
+
+    Never raises: a failure records a "not judged" result and leaves every
+    array exactly as fetched.
+    """
+    try:
+        result = solar_running_low.evaluate_gate(
+            _solver_writer(), cfg, now, any(solar_is_solcast)
+        )
+    except Exception as e:  # noqa: BLE001 -- the gate must never break the real solve
+        solver_shared._LOGGER.warning("Nimbus #1784: running-low gate failed: %s", e)
+        solar_running_low.record_result(solar_running_low._gate_result("error"))
+        return
+    switched = 0
+    if result["active"]:
+        mask = solar_running_low.remaining_today_mask(grid_times, now)
+        idx = [i for i, m in enumerate(mask) if m and i < len(solar_values[0])]
+        for k, is_solcast in enumerate(solar_is_solcast):
+            if not is_solcast:
+                continue
+            for i in idx:
+                solar_values[k][i] = solar_lowers[k][i]
+        switched = len(idx)
+    result["periods_on_p10"] = switched
+    solar_running_low.record_result(result)
 
 
 # nimbus issue #1259, placed here rather than in solver_writer.py. The size

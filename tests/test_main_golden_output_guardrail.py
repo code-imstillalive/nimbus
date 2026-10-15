@@ -378,6 +378,20 @@ _EXPECTED_ATTRS = {
         "calibration_fallback_reason": None,
         "calibration_weight_used": 0.01,
         "simplex_iterations": 0,
+        # nimbus issue #1784: the solar running-low gate. This fixture's
+        # solar source is not Solcast, so the gate is inert and says why;
+        # the plan above is unchanged by it.
+        "solar_running_low": {
+            "active": False,
+            "reason": "no_solcast",
+            "actual_30min_avg_kw": None,
+            "p50_now_kw": None,
+            "p50_lagged_kw": None,
+            "reference_kw": None,
+            "ratio": None,
+            "on_since": None,
+            "periods_on_p10": 0,
+        },
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body

@@ -259,6 +259,29 @@ price source's forecast series.
     unchanged (heads 48 h, horizons 7 days).
   - Devhub validation: not claimed yet; a live export's real sizes are the
     check.
+- **Solar "running low": when measured PV runs well below Solcast's p50,
+  the rest of today is planned on Solcast's p10** (#1784, Mark Purcell).
+  On overcast days every day-ahead PV forecast runs far high (15 Oct: 38.3
+  kWh actual against a Solcast p50 of 83.2), and a plan built on p50 holds
+  the battery for solar that never comes. Each solve compares the
+  recorder's 30-minute time-weighted mean of the solar power sensor with
+  a reference: the lower of Solcast's p50 for the current half-hour and for
+  the half-hour 30 minutes earlier, so a rising morning curve, which the
+  mean trails, does not trip it. It judges only while both p50s are at
+  least 2 kW, turns on below 70 % of the reference and off above 90 %.
+  While on, each Solcast member of the solar blend uses its own p10 for the
+  remaining periods of today, before blending; the current period (the
+  live anchor) and later days are untouched. The average comes from the
+  recorder, not an in-process average, so it is right straight after a
+  restart; without history the gate is off. Inert, with one DEBUG line,
+  on an install without Solcast's p10 in the blend or without
+  `solver_solar_power_sensor`. A WARNING when it turns on and an INFO when
+  it turns off, with the numbers. Three new numbers:
+  `number.nimbus_solver_solar_running_low_min_p50_kw` (2 kW; 0 = off),
+  `_on_percent` (70) and `_off_percent` (90). The state and evidence
+  (active, reason, 30-minute average, p50 now and 30 minutes earlier,
+  reference, ratio, since when, periods switched) are published as
+  `solve_diagnostics.solar_running_low`, which now has twenty-two keys.
 
 ## [0.94.457] - 2026-10-15
 
