@@ -1,15 +1,18 @@
 """nimbus issue #1784 (Mark Purcell): the solar "running low" gate.
 
 When measured PV (a 30-minute mean of `solver_solar_power_sensor`, read from
-the recorder) runs well below Solcast's p50, the rest of TODAY is planned on
-Solcast's p10. Each rule Mark set out on the issue has a test here:
+the recorder) runs well below the p50 forecast, the rest of TODAY is planned
+on a lower forecast (Solcast's p10 where Solcast is there). Each rule Mark set out on the issue has a test here:
 
 - the lagged reference: the lower of the current half-hour's p50 and the one
   30 minutes earlier, so a rising morning curve does not trip it;
 - it judges only while both p50s are at least the minimum (2 kW);
 - hysteresis: on below 70 %, held until above 90 %;
 - only today's remaining periods switch to p10; tomorrow stays p50;
-- inert without a Solcast p10, and off without recorder history;
+- Solcast p10 when Solcast is the reference; otherwise each member's own lower
+  bound, or option (b) (ratio-scaled, floored at 0.3) when it has none;
+- the blend itself is the reference when Solcast is absent; off without
+  recorder history;
 - 0 turns it off;
 - and Mark's own 16 Oct 07:00 numbers (0.33 kW against 2.88 kW) turn it on.
 
@@ -123,7 +126,7 @@ class _Base(unittest.TestCase):
     def _evaluate(self, fake, now, cfg=None):
         p = fake.patches()
         with p[0], p[1], p[2], p[3]:
-            return srl.evaluate_gate(solver_writer, cfg or _cfg(), now, True)
+            return srl.evaluate_gate(solver_writer, cfg or _cfg(), now, None)[0]
 
     def _build(self, fake, now, grid, cfg=None):
         p = fake.patches()
@@ -270,7 +273,7 @@ class TestOnlyTodaysRemainingPeriods(_Base):
             self.assertLessEqual(lo[i], kw[i])
             self.assertGreaterEqual(up[i], kw[i])
         today_periods = sum(1 for t in grid[1:] if t.date() == TODAY.date())
-        self.assertEqual(pub["periods_on_p10"], today_periods)
+        self.assertEqual(pub["periods_lowered"], today_periods)
 
     def test_while_off_the_plan_is_byte_identical(self):
         p50, p10 = _flat_daylight(4.0, 1.5)
@@ -288,57 +291,168 @@ class TestOnlyTodaysRemainingPeriods(_Base):
         self.assertEqual(pub_off["reason"], "off")
         self.assertEqual(on, off)
 
-    def test_other_blend_members_are_not_touched(self):
-        """Open-Meteo stays at its own forecast; only Solcast's member moves."""
+    def _with_other_members(self, history_w):
+        """Solcast (p50 4.0, p10 1.5), plus Open-Meteo at 6 kW (no lower
+        bound) and a configured generic forecast at 5 kW with a lower
+        bound of 3.5 kW -- the shape of the reference household's blend
+        (Nimbus's own forecaster carries an 80 % band)."""
+        p50, p10 = _flat_daylight(4.0, 1.5)
+        now = TODAY.replace(hour=10, minute=3)
+        grid = [now, TODAY.replace(hour=11), TOMORROW.replace(hour=11)]
+        fake = _Fake(
+            _day(TODAY, p50, p10),
+            _day(TOMORROW, p50, p10),
+            history=_held(now, history_w),
+        )
+        hours = [TODAY + timedelta(hours=h) for h in range(48)]
+        fake.states["sensor.home_energy_production_today"] = {
+            "watts": {t.isoformat(): 6000.0 for t in hours}
+        }
+        fake.states["sensor.own"] = {
+            "forecast": [
+                {"time": t.isoformat(), "value": 5.0, "lower": 3.5, "upper": 6.5}
+                for t in hours
+            ]
+        }
+        return fake, now, grid, _cfg(solver_solar_forecast_sensor="sensor.own")
+
+    def test_every_member_is_lowered_by_its_own_path(self):
+        fake, now, grid, cfg = self._with_other_members(2000)  # ratio 0.5
+        (kw, lo, _up), pub = self._build(fake, now, grid, cfg)
+        self.assertTrue(pub["active"])
+        self.assertEqual(pub["reference_source"], "solcast")
+        self.assertEqual(
+            (
+                pub["members_p10"],
+                pub["members_lower_bound"],
+                pub["members_ratio_scaled"],
+            ),
+            (1, 1, 1),
+        )
+        self.assertEqual(pub["ratio_scale_used"], 0.5)
+        # Today 11:00: own -> its lower 3.5, Open-Meteo -> 6 x 0.5, Solcast -> p10.
+        self.assertAlmostEqual(kw[1], (3.5 + 3.0 + 1.5) / 3)
+        self.assertLessEqual(lo[1], kw[1])
+        # Tomorrow untouched.
+        self.assertAlmostEqual(kw[2], (5.0 + 6.0 + 4.0) / 3)
+
+    def test_the_ratio_scale_is_floored_at_point_three(self):
+        fake, now, grid, cfg = self._with_other_members(400)  # ratio 0.1
+        (kw, _lo, _up), pub = self._build(fake, now, grid, cfg)
+        self.assertEqual(pub["ratio_scale_used"], 0.3)
+        self.assertAlmostEqual(kw[1], (3.5 + 6.0 * 0.3 + 1.5) / 3)
+
+    def test_solcast_without_p10_is_ratio_scaled_not_zeroed(self):
+        """A missing pv_estimate10 is filled with 0.0 by the shared
+        reshape; taking that as a lower bound would zero today's solar."""
         p50, p10 = _flat_daylight(4.0, 1.5)
         now = TODAY.replace(hour=10, minute=3)
         grid = [now, TODAY.replace(hour=11)]
-        fake = _Fake(_day(TODAY, p50, p10), history=_held(now, 500))
-        fake.states["sensor.home_energy_production_today"] = {
-            "watts": {TODAY.replace(hour=h).isoformat(): 6000.0 for h in range(24)}
-        }
-        (kw, _lo, _up), pub = self._build(fake, now, grid)
+        fake = _Fake(_day(TODAY, p50, p10, with_p10=False), history=_held(now, 2000))
+        (kw, lo, _up), pub = self._build(fake, now, grid)
         self.assertTrue(pub["active"])
-        self.assertAlmostEqual(kw[1], (6.0 + 1.5) / 2)
+        self.assertEqual(pub["members_ratio_scaled"], 1)
+        self.assertAlmostEqual(kw[1], 2.0)
+        self.assertLessEqual(lo[1], kw[1])
+
+
+def _const(v):
+    return lambda t: v
+
+
+class TestWithoutSolcastTheBlendIsTheReference(_Base):
+    """No Solcast on the install: the reference is the blended p50 itself,
+    remembered in process; the lagged value is the record 30-40 min ago."""
+
+    def _fake(self, value, history_w, now):
+        hours = [TODAY + timedelta(hours=h) for h in range(48)]
+        fake = _Fake([], history=_held(now, history_w))
+        fake.states = {
+            "sensor.own": {
+                "forecast": [
+                    {
+                        "time": t.isoformat(),
+                        "value": value(t),
+                        "lower": 0.6 * value(t),
+                    }
+                    for t in hours
+                ]
+            }
+        }
+        return fake
+
+    def _own_cfg(self):
+        return {
+            "solver_solar_forecast_sensor": "sensor.own",
+            "solver_solar_power_sensor": SENSOR,
+        }
+
+    def test_first_solve_cannot_judge_then_judges_from_memory(self):
+        first = TODAY.replace(hour=10)
+        _arrays, pub = self._build(
+            self._fake(_const(4.0), 1000, first),
+            first,
+            [first, first + timedelta(hours=1)],
+            self._own_cfg(),
+        )
+        self.assertEqual(pub["reason"], "no_reference")
+        self.assertEqual(pub["reference_source"], "blend")
+        self.assertFalse(pub["active"])
+        later = first + timedelta(minutes=30)
+        (kw, _lo, _up), pub = self._build(
+            self._fake(_const(4.0), 1000, later),
+            later,
+            [later, later + timedelta(hours=1)],
+            self._own_cfg(),
+        )
+        self.assertEqual(pub["reason"], "judged")
+        self.assertTrue(pub["active"])
+        self.assertEqual(pub["members_lower_bound"], 1)
+        self.assertAlmostEqual(kw[1], 2.4)  # its own lower bound, 0.6 x 4.0
+
+    def test_the_lag_rule_holds_on_the_blend_too(self):
+        """Rising morning: blend 2.2 kW 30 min ago, 4.0 now, actual 2.0 --
+        91 % of the lagged value, so off (50 % of now would trip it)."""
+        first = TODAY.replace(hour=7)
+        switch = TODAY.replace(hour=7, minute=30)
+
+        def rising(t):
+            return 2.2 if t < switch else 4.0
+
+        self._build(self._fake(rising, 0, first), first, [first], self._own_cfg())
+        later = first + timedelta(minutes=30)
+        _arrays, pub = self._build(
+            self._fake(rising, 2000, later), later, [later], self._own_cfg()
+        )
+        self.assertEqual(pub["reason"], "judged")
+        self.assertEqual(pub["reference_kw"], 2.2)
+        self.assertFalse(pub["active"])
+
+    def test_a_record_older_than_40_minutes_is_not_the_lag(self):
+        first = TODAY.replace(hour=10)
+        self._build(
+            self._fake(_const(4.0), 1000, first), first, [first], self._own_cfg()
+        )
+        later = first + timedelta(minutes=45)
+        _arrays, pub = self._build(
+            self._fake(_const(4.0), 1000, later), later, [later], self._own_cfg()
+        )
+        self.assertEqual(pub["reason"], "no_reference")
 
 
 class TestInertAndOff(_Base):
-    def test_without_a_solcast_p10_it_is_inert(self):
-        p50, p10 = _flat_daylight(4.0, 1.5)
+    def test_without_any_forecast_there_is_no_reference(self):
         now = TODAY.replace(hour=10)
-        grid = [now, now + timedelta(hours=1)]
-        fake = _Fake(_day(TODAY, p50, p10, with_p10=False), history=_held(now, 0))
-        (kw, _lo, _up), pub = self._build(fake, now, grid)
-        self.assertEqual(pub["reason"], "no_solcast_p10")
-        self.assertFalse(pub["active"])
-        self.assertAlmostEqual(kw[1], 4.0)
-        self.assertEqual(fake.history_calls, 0)
-
-    def test_without_solcast_in_the_blend_it_is_inert_and_says_so_once(self):
-        now = TODAY.replace(hour=10)
-        states = {
-            "sensor.other": {
-                "forecast": [{"time": now.isoformat(), "value": 4.0}],
-            }
-        }
-        cfg = {
-            "solver_solar_forecast_sensor": "sensor.other",
-            "solver_solar_power_sensor": SENSOR,
-        }
+        cfg = {"solver_solar_power_sensor": SENSOR}
         with (
             patch.object(
-                solver_writer,
-                "ha_get",
-                lambda e: {"attributes": states.get(e, {}), "state": "0"},
+                solver_writer, "ha_get", lambda e: {"attributes": {}, "state": "0"}
             ),
-            patch.object(solver_writer, "entity_exists", lambda e: e in states),
-            self.assertLogs(solver_shared._LOGGER, level="DEBUG") as logs,
+            patch.object(solver_writer, "entity_exists", lambda e: False),
         ):
             solar_inputs.build_solar_arrays(cfg, [now], 1, now)
-            solar_inputs.build_solar_arrays(cfg, [now], 1, now)
-        self.assertEqual(srl.published_result()["reason"], "no_solcast")
-        inert = [m for m in logs.output if "#1784" in m and "inert" in m]
-        self.assertEqual(len(inert), 1, logs.output)
+        self.assertEqual(srl.published_result()["reason"], "no_reference")
+        self.assertFalse(srl.published_result()["active"])
 
     def test_no_history_means_off_even_if_it_was_on(self):
         p50, p10 = _flat_daylight(4.0, 1.5)
@@ -480,7 +594,7 @@ class TestRestart(_Base):
 class TestPublishedShape(_Base):
     def test_every_reason_publishes_the_same_keys(self):
         keys = set(srl._gate_result("not_evaluated"))
-        for reason in ("off", "no_solcast", "no_history", "judged", "error"):
+        for reason in ("off", "no_reference", "no_history", "judged", "error"):
             self.assertEqual(set(srl._gate_result(reason)), keys)
         self.assertEqual(
             keys,
@@ -493,7 +607,12 @@ class TestPublishedShape(_Base):
                 "reference_kw",
                 "ratio",
                 "on_since",
-                "periods_on_p10",
+                "reference_source",
+                "periods_lowered",
+                "members_p10",
+                "members_lower_bound",
+                "members_ratio_scaled",
+                "ratio_scale_used",
             },
         )
 

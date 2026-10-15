@@ -277,11 +277,32 @@ price source's forecast series.
   on an install without Solcast's p10 in the blend or without
   `solver_solar_power_sensor`. A WARNING when it turns on and an INFO when
   it turns off, with the numbers. Three new numbers:
+- **Solar "running low": when measured PV runs well below the p50
+  forecast, the rest of today is planned on a lower forecast -- Solcast's
+  p10 where Solcast is there** (#1784, Mark Purcell). On overcast days
+  every day-ahead PV forecast runs far high (15 Oct: 38.3 kWh actual
+  against a Solcast p50 of 83.2), and a plan built on p50 holds the battery
+  for solar that never comes. Each solve compares the recorder's 30-minute
+  time-weighted mean of the solar power sensor with a reference: the lower
+  of the p50 for the current half-hour and for the half-hour 30 minutes
+  earlier, so a rising morning curve, which the mean trails, does not trip
+  it. It judges only while both p50s are at least 2 kW, turns on below
+  70 % of the reference and off above 90 %. The reference is Solcast's p50
+  whenever Solcast is installed; otherwise the solve's own blended forecast,
+  remembered from 30 minutes earlier (so it cannot judge in the first 30
+  minutes after a restart). While on, for the remaining periods of today
+  and before blending, each blend member is lowered: Solcast to its p10, a
+  member with a lower bound (Nimbus's own forecaster carries an 80 % band)
+  to that bound, and a member with none (Open-Meteo, or Solcast without
+  p10) by the measured ratio, never below 0.3 of its forecast. The current
+  period (the live anchor) and later days are untouched. The average comes
+  from the recorder, not an in-process average, so it is right straight
+  after a restart; without history the gate is off. A WARNING when it turns
+  on and an INFO when it turns off, with the numbers. Three new numbers:
   `number.nimbus_solver_solar_running_low_min_p50_kw` (2 kW; 0 = off),
-  `_on_percent` (70) and `_off_percent` (90). The state and evidence
-  (active, reason, 30-minute average, p50 now and 30 minutes earlier,
-  reference, ratio, since when, periods switched) are published as
-  `solve_diagnostics.solar_running_low`, which now has twenty-two keys.
+  `_on_percent` (70) and `_off_percent` (90). The state and evidence are
+  published as `solve_diagnostics.solar_running_low`, which now has
+  twenty-two keys.
 
 ## [0.94.457] - 2026-10-15
 

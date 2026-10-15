@@ -284,15 +284,16 @@ def build_solar_arrays(
     period, including "now" -- no special-cased override anywhere.
 
     nimbus issue #1784: before blending, the solar "running low" gate
-    (solar_running_low.py) is judged, and while it is on each Solcast
-    member plans the remaining periods of TODAY on its own p10. `now`
-    is main()'s local clock; omitted, grid_times[0] stands in.
+    (solar_running_low.py) is judged, and while it is on every member is
+    lowered for the remaining periods of TODAY (Solcast to its p10, others
+    to their lower bound or by the measured ratio). `now` is main()'s local
+    clock; omitted, grid_times[0] stands in.
     """
     sw = _solver_writer()
 
     solar_values, solar_lowers, solar_uppers = [], [], []
     # nimbus issue #1784: which members are Solcast's, by position, so the
-    # running-low gate can switch exactly those to p10 below.
+    # running-low gate can switch those to their p10 below.
     solar_is_solcast: list[bool] = []
 
     def _add_member(
@@ -512,38 +513,61 @@ def _apply_running_low_gate(
     solar_is_solcast: list[bool],
 ) -> None:
     """nimbus issue #1784: judge the solar running-low gate and, while it
-    is on, replace each Solcast member's value with its own lower bound
-    (Solcast's p10) for the remaining periods of today -- in place, before
-    blending, so everything downstream (blend, band, live anchor, #1259,
-    #128) sees p10 as that member's forecast.
+    is on, lower every blend member for the remaining periods of today --
+    in place, before blending, so everything downstream (blend, band, live
+    anchor, #1259, #128) sees the lowered forecast:
 
-    Only Solcast members move: the gate's evidence is Solcast's p50 against
-    measured PV, and p10 is Solcast's own number. A member's lower bound is
-    already min(p10, p50), so the band stays valid (lower <= value).
+    - Solcast with p10 -> its own p10 (Mark's path);
+    - a member with a genuine lower bound -> that lower bound;
+    - a member with none -> option (b), p50 x the measured ratio, clamped
+      to [0.3, 1.0] (solar_running_low.ratio_scale()).
 
-    Never raises: a failure records a "not judged" result and leaves every
+    Each member's lower bound is kept <= its new value, so the band stays
+    valid. See solar_running_low.py for the reasoning behind each choice.
+
+    Never raises: a failure records an "error" result and leaves every
     array exactly as fetched.
     """
+    srl = solar_running_low
+    blend_now = (
+        sum(float(v[0]) for v in solar_values) / len(solar_values)
+        if solar_values and len(solar_values[0])
+        else None
+    )
     try:
-        result = solar_running_low.evaluate_gate(
-            _solver_writer(), cfg, now, any(solar_is_solcast)
-        )
+        result, solcast_p10 = srl.evaluate_gate(_solver_writer(), cfg, now, blend_now)
     except Exception as e:  # noqa: BLE001 -- the gate must never break the real solve
         solver_shared._LOGGER.warning("Nimbus #1784: running-low gate failed: %s", e)
-        solar_running_low.record_result(solar_running_low._gate_result("error"))
+        srl.record_result(srl._gate_result("error"))
         return
-    switched = 0
-    if result["active"]:
-        mask = solar_running_low.remaining_today_mask(grid_times, now)
+    if result["active"] and solar_values:
+        mask = srl.remaining_today_mask(grid_times, now)
         idx = [i for i, m in enumerate(mask) if m and i < len(solar_values[0])]
+        scale = srl.ratio_scale(result["ratio"] if result["ratio"] is not None else 1.0)
+        counts = {srl.METHOD_P10: 0, srl.METHOD_LOWER_BOUND: 0, srl.METHOD_RATIO: 0}
         for k, is_solcast in enumerate(solar_is_solcast):
-            if not is_solcast:
-                continue
+            value, lower = solar_values[k], solar_lowers[k]
+            method = srl.member_method(
+                is_solcast=is_solcast,
+                solcast_p10=solcast_p10,
+                value=value,
+                lower=lower,
+                idx=idx,
+            )
+            counts[method] += 1
             for i in idx:
-                solar_values[k][i] = solar_lowers[k][i]
-        switched = len(idx)
-    result["periods_on_p10"] = switched
-    solar_running_low.record_result(result)
+                if method == srl.METHOD_RATIO:
+                    value[i] = value[i] * scale
+                else:
+                    value[i] = max(0.0, lower[i])
+                lower[i] = min(lower[i], value[i])
+        result["periods_lowered"] = len(idx)
+        result["members_p10"] = counts[srl.METHOD_P10]
+        result["members_lower_bound"] = counts[srl.METHOD_LOWER_BOUND]
+        result["members_ratio_scaled"] = counts[srl.METHOD_RATIO]
+        if counts[srl.METHOD_RATIO]:
+            result["ratio_scale_used"] = round(scale, 4)
+    srl.record_result(result)
 
 
 # nimbus issue #1259, placed here rather than in solver_writer.py. The size

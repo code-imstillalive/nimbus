@@ -13551,13 +13551,18 @@
        "solar_running_low": {
         "active": false,
         "actual_30min_avg_kw": null,
+        "members_lower_bound": 0,
+        "members_p10": 0,
+        "members_ratio_scaled": 0,
         "on_since": null,
         "p50_lagged_kw": null,
         "p50_now_kw": null,
-        "periods_on_p10": 0,
+        "periods_lowered": 0,
         "ratio": null,
-        "reason": "no_solcast",
-        "reference_kw": null
+        "ratio_scale_used": null,
+        "reason": "no_solar_power_sensor",
+        "reference_kw": null,
+        "reference_source": null
        },
        "solver_failures": 0,
        "solves_attempted": 1,

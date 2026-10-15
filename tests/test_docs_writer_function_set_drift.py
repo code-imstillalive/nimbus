@@ -1001,6 +1001,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # wants those first, as the same piece of work as the two solar
         # measurements above.
         "_apply_running_low_gate",
+        "_blend_at",
+        "_remember_blend",
+        "member_method",
+        "ratio_scale",
         "_idle_result",
         "_log_inert_once",
         "_gate_result",

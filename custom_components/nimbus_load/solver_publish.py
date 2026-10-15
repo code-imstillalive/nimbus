@@ -2951,12 +2951,13 @@ def publish_plan(
                 "unknown_retries_recovered": lp.UNKNOWN_RETRIES["recovered"],
                 # nimbus issue #1784: the solar running-low gate, judged by
                 # build_solar_arrays() this cycle. One fixed-shape dict of
-                # scalars (active, reason, the 30-minute actual average, p50
-                # now and 30 minutes earlier, the reference, the ratio, since
-                # when, periods switched to p10), so it cannot grow. `reason`
+                # scalars (active, reason, reference source, the 30-minute
+                # actual average, p50 now and 30 minutes earlier, the
+                # reference, the ratio, since when, periods lowered and how
+                # many members took each path), so it cannot grow. `reason`
                 # says why it was or was not judged ("judged", "off",
-                # "no_solcast", "no_solcast_p10", "no_solar_power_sensor",
-                # "no_reference", "below_minimum", "no_history").
+                # "no_solar_power_sensor", "no_reference", "below_minimum",
+                # "no_history", "error").
                 "solar_running_low": solar_running_low.published_result(),
             },
             "generated_at": now.isoformat(),

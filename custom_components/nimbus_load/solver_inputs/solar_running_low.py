@@ -6,11 +6,10 @@ runs far too high, Solcast's p50 included: on 15 Oct 2026 actual PV was
 45-70% of p50, close to Solcast's own p10. A plan built on p50 holds the
 battery for solar that never arrives.
 
-So, as Mark specified on the issue (option (a), the gate his ha-config runs
-for HAEO since 16 Oct 2026):
+## The gate (Mark's option (a), as specified on the issue)
 
 - Measure actual PV as a 30-minute mean of `solver_solar_power_sensor`.
-- Compare it with a REFERENCE: the lower of Solcast's p50 for the current
+- Compare it with a REFERENCE: the lower of the p50 forecast for the current
   30-minute period and for the period 30 minutes earlier. A 30-minute mean
   trails a rising morning curve by about its own length, so against the
   current p50 alone it trips every dawn (0.07 kW against 1.10 kW at 06:20 on
@@ -18,18 +17,50 @@ for HAEO since 16 Oct 2026):
   two also stops a falling afternoon curve, where the mean lags the other
   way, reading as low output.
 - Judge only while both p50s are at least a minimum (2 kW by default). The
-  first hour of production runs low and noisy against Solcast.
+  first hour of production runs low and noisy against the forecast.
 - Hysteresis: on below 70% of the reference, off above 90%, so passing
   clouds do not make it flap.
-- While on, the remaining periods of TODAY plan on Solcast p10 in place of
-  p50. Later days are untouched: same-day evidence says nothing about
-  tomorrow.
 
-Whenever the gate cannot judge (switched off, no Solcast p10, no PV sensor,
-no reference period, below the minimum, no history) it is OFF -- exactly
-the ha-config template, which returns false on every one of those. So the
-gate also switches itself off each evening once p50 falls under the
-minimum, and "today only" needs no date bookkeeping.
+Whenever the gate cannot judge (switched off, no PV sensor, no reference,
+below the minimum, no history) it is OFF -- exactly the ha-config template,
+which returns false on every one of those. So the gate also switches itself
+off each evening once p50 falls under the minimum, and "today only" needs no
+date bookkeeping.
+
+## Which forecast is the reference
+
+Mark's review on #1787 left the implementation to us, and the reference
+household's solve is NOT driven by Solcast alone: its source 1 is Nimbus's
+own learned forecast, with Solcast and Open-Meteo auto-included. So:
+
+1. **Solcast, whenever Solcast's `detailedForecast` exists on the install**
+   (in the blend or not). It is an independent, period-structured forecast
+   whose earlier half-hours are still in its attributes, so the lagged p50
+   is a read, not a memory. This is Mark's own reference.
+2. **Otherwise the blend itself**: the blended p50 for "now" is recorded in
+   process each solve, and the lagged value is the record from 30-40
+   minutes ago. Without one (the first 30 minutes after a restart) the gate
+   cannot judge and is off -- never a guess.
+
+## What changes while it is on
+
+The remaining periods of TODAY (index >= 1, local date) of each blend
+member, BEFORE blending, the band, the index-0 live anchor, #1259 and #128:
+
+- **Solcast with p10**: its own p10 (`pv_estimate10`). Mark's path.
+- **A member carrying a genuine lower bound** (a lower quantile below its
+  value -- Nimbus's own forecaster publishes an 80% band, so its lower is a
+  nominal p10): that lower bound.
+- **A member with no lower bound** (Open-Meteo's band is zero-width, and a
+  Solcast forecast without p10, whose missing p10 the shared reshape fills
+  with 0.0): option (b), its p50 scaled by the measured delivery ratio
+  (the gate's own 30-minute actual / reference), clamped to
+  [`RATIO_FLOOR`, 1.0] x p50. The floor is 0.3 because overcast days land
+  at 45-70% of p50 (the issue's table; the worst, 15 Oct, 0.46), so it does
+  not bind on a real dull day, while it stops one dark half-hour at ratio
+  ~0.1 from wiping solar out of the whole rest of the day.
+
+Later days are untouched: same-day evidence says nothing about tomorrow.
 
 ## Why recorder history and not an in-process EMA
 
@@ -37,28 +68,12 @@ ha-config's average is a template EMA updated every minute. That is the
 right tool in HA YAML, where a new integration needs a restart. Here the
 mean is computed from the recorder's own history of the PV sensor on every
 solve instead, for one reason: it is correct straight after a restart. An
-EMA held in this process would start from nothing (or from 0 W, the way the
-template does overnight) and read low for its first half hour -- exactly
-the "running low" signature -- after every HA restart or Nimbus reload.
-The recorder already holds the last 30 minutes, so nothing has to warm up.
-If that history cannot be read, the gate is off: a guessed average is the
-one input this gate must never act on.
+EMA held in this process would start from nothing and read low for its
+first half hour -- exactly the "running low" signature -- after every HA
+restart or Nimbus reload. If that history cannot be read, the gate is off.
 
-The gate's ON/OFF state itself is held in this process between solves, as
-the issue allows. After a restart it starts off and re-judges at the next
-solve, from the recorder's history -- so a genuinely dull day turns it back
-on at the first solve rather than after a warm-up.
-
-## How the plan changes
-
-`build_solar_arrays()` asks `evaluate_gate()` for a decision before it blends.
-When the gate is on, each Solcast member of the blend has its value
-replaced by its own lower bound (Solcast's p10, `pv_estimate10`) for the
-remaining periods of today, BEFORE blending, the confidence band, the live
-anchor at index 0, the #1259 nowcast measurement and the #128 delivery
-ratio. Other blend members (Open-Meteo, a configured generic source) are
-not touched: the gate measures Solcast and only Solcast's own p10 is the
-evidence-backed lower forecast.
+The gate's ON/OFF state is held in this process between solves, as the
+issue allows. After a restart it starts off and re-judges at the next solve.
 
 Prior art (per this repo's CHECK PRIOR ART directive): HAEO itself has
 none -- this is purcell-lab/ha-config's template around HAEO, ported. EMHASS:
@@ -70,7 +85,7 @@ Never raises: every failure path is a "not judged" result with a reason.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -89,7 +104,6 @@ except ImportError:  # pragma: no cover - standalone/cron path
 # new solver_inputs -> solver_writer exception to the import-linter layer
 # map.
 
-
 # Settings (number entities). Mark's own defaults on the issue.
 CFG_MIN_P50_KW = "solver_solar_running_low_min_p50_kw"
 CFG_ON_PERCENT = "solver_solar_running_low_on_percent"
@@ -104,12 +118,27 @@ DEFAULT_OFF_PERCENT = 90.0
 SOLCAST_PERIOD = timedelta(minutes=30)
 ACTUAL_WINDOW = timedelta(minutes=30)
 REFERENCE_LAG = timedelta(minutes=30)
+# The blend-reference memory: the record used for "30 minutes earlier" must
+# sit 30-40 minutes back; older than that is not the lagged period.
+BLEND_LAG_TOLERANCE = timedelta(minutes=10)
+BLEND_MEMORY_SPAN = timedelta(hours=2)
+# Option (b)'s floor, as a share of p50 -- see the module docstring.
+RATIO_FLOOR = 0.3
+
+REFERENCE_SOLCAST = "solcast"
+REFERENCE_BLEND = "blend"
+
+METHOD_P10 = "p10"
+METHOD_LOWER_BOUND = "lower_bound"
+METHOD_RATIO = "ratio_scaled"
 
 
 @dataclass
 class _GateState:
     active: bool = False
     on_since: datetime | None = None
+    # (time, blended p50 kW at that time) for the blend reference.
+    blend_memory: list[tuple[datetime, float]] = field(default_factory=list)
 
 
 # In-process, by design (see the module docstring). Starts off.
@@ -119,15 +148,17 @@ _INERT_LOGGED: set[str] = set()
 
 
 def reset_gate_state() -> None:
-    """Back to a fresh process: gate off, log-once set empty."""
+    """Back to a fresh process: gate off, no memory, log-once set empty."""
     _STATE.active = False
     _STATE.on_since = None
+    _STATE.blend_memory.clear()
     _INERT_LOGGED.clear()
 
 
 def _gate_result(
     reason: str,
     *,
+    reference_source: str | None = None,
     actual_kw: float | None = None,
     p50_now_kw: float | None = None,
     p50_lagged_kw: float | None = None,
@@ -151,15 +182,20 @@ def _gate_result(
     return {
         "active": _STATE.active,
         "reason": reason,
+        "reference_source": reference_source,
         "actual_30min_avg_kw": r(actual_kw),
         "p50_now_kw": r(p50_now_kw),
         "p50_lagged_kw": r(p50_lagged_kw),
         "reference_kw": r(reference),
         "ratio": round(ratio, 4) if ratio is not None else None,
         "on_since": _STATE.on_since.isoformat() if _STATE.on_since else None,
-        # Filled in by build_solar_arrays() once it knows how many periods
-        # it switched; 0 while off.
-        "periods_on_p10": 0,
+        # Filled in by build_solar_arrays() once it knows what it changed;
+        # 0 / None while off.
+        "periods_lowered": 0,
+        "members_p10": 0,
+        "members_lower_bound": 0,
+        "members_ratio_scaled": 0,
+        "ratio_scale_used": None,
     }
 
 
@@ -200,7 +236,7 @@ def _turn_off(reason: str, detail: str) -> None:
     _STATE.on_since = None
     solver_shared._LOGGER.info(
         "Nimbus #1784: solar running low OFF (%s): %s. The rest of today is "
-        "planned on Solcast p50 again.",
+        "planned on the full forecast again.",
         reason,
         detail,
     )
@@ -231,13 +267,17 @@ def decide_hysteresis(
     return actual_kw < on_fraction * reference_kw
 
 
+def ratio_scale(ratio: float) -> float:
+    """Option (b)'s multiplier on p50, for a member with no lower bound:
+    the measured delivery ratio, clamped to [RATIO_FLOOR, 1.0]."""
+    return min(1.0, max(RATIO_FLOOR, ratio))
+
+
 def read_solcast_points(sw: Any) -> tuple[list[tuple[datetime, float]], bool]:
     """(period_start, p50) for every Solcast detailedForecast period, and
     whether every one of them also carries a p10. Reads Solcast's own two
-    entities (the same ones the auto-include path reads). A missing,
-    malformed or p10-less forecast reads as "no p10", which makes the gate
-    inert: _solar_entries_from_attributes() fills a missing pv_estimate10
-    with 0.0, and planning on that would zero today's solar."""
+    entities (the same ones the auto-include path reads). A missing or
+    malformed forecast reads as no points."""
     points: list[tuple[datetime, float]] = []
     has_p10 = True
     try:
@@ -254,13 +294,32 @@ def read_solcast_points(sw: Any) -> tuple[list[tuple[datetime, float]], bool]:
                     has_p10 = False
                 else:
                     float(p10)
-    except Exception:  # noqa: BLE001 -- a bad or unreadable forecast is "no p10", never a crash
+    except Exception:  # noqa: BLE001 -- a bad or unreadable forecast is "no Solcast", never a crash
         solver_shared._LOGGER.debug(
             "Nimbus #1784: could not read Solcast's detailedForecast", exc_info=True
         )
         return [], False
     points.sort(key=lambda x: x[0])
     return points, bool(points) and has_p10
+
+
+def _remember_blend(now: datetime, blend_now_kw: float | None) -> None:
+    if blend_now_kw is None:
+        return
+    mem = _STATE.blend_memory
+    mem.append((now, float(blend_now_kw)))
+    cutoff = now - BLEND_MEMORY_SPAN
+    mem[:] = [(t, v) for t, v in mem if t >= cutoff]
+
+
+def _blend_at(when: datetime) -> float | None:
+    """The latest remembered blended p50 at or before `when`, if it is no
+    more than BLEND_LAG_TOLERANCE older than `when`."""
+    best: tuple[datetime, float] | None = None
+    for t, v in _STATE.blend_memory:
+        if when - BLEND_LAG_TOLERANCE <= t <= when and (best is None or t > best[0]):
+            best = (t, v)
+    return best[1] if best is not None else None
 
 
 def actual_30min_avg_kw(sw: Any, sensor: str, now: datetime) -> float | None:
@@ -289,53 +348,75 @@ def actual_30min_avg_kw(sw: Any, sensor: str, now: datetime) -> float | None:
 
 
 def evaluate_gate(
-    sw: Any, cfg: dict[str, Any], now: datetime, solcast_in_blend: bool
-) -> dict[str, Any]:
+    sw: Any,
+    cfg: dict[str, Any],
+    now: datetime,
+    blend_now_kw: float | None,
+) -> tuple[dict[str, Any], bool]:
     """Judge the gate for this solve, update the held state, log a change,
-    and return the evidence dict. Never raises. `sw` is the solver_writer
-    module (see the note above the settings)."""
+    and return (the evidence dict, whether Solcast's p10 is available).
+    `blend_now_kw` is the pre-gate blended forecast for now, used as the
+    reference only when Solcast is absent. Never raises. `sw` is the
+    solver_writer module (see the note above the settings)."""
     min_p50 = sw._cfg_num(cfg, CFG_MIN_P50_KW, DEFAULT_MIN_P50_KW)
     if min_p50 <= 0:
         _turn_off("off", "switched off (minimum p50 set to 0)")
-        return _gate_result("off")
-    if not solcast_in_blend:
-        _log_inert_once(
-            "no_solcast",
-            "no Solcast forecast is in the solar blend (another solar source)",
-        )
-        _turn_off("no_solcast", "no Solcast forecast in the blend")
-        return _gate_result("no_solcast")
-    points, has_p10 = read_solcast_points(sw)
-    if not has_p10:
-        _log_inert_once(
-            "no_solcast_p10",
-            "Solcast's detailedForecast carries no pv_estimate10 (p10) here",
-        )
-        _turn_off("no_solcast_p10", "Solcast p10 unavailable")
-        return _gate_result("no_solcast_p10")
+        return _gate_result("off"), False
     sensor = cfg.get("solver_solar_power_sensor")
     if not sensor:
         _log_inert_once("no_solar_power_sensor", "solver_solar_power_sensor is not set")
         _turn_off("no_solar_power_sensor", "no solar power sensor")
-        return _gate_result("no_solar_power_sensor")
+        return _gate_result("no_solar_power_sensor"), False
 
-    p50_now = solcast_p50_at(points, now)
-    p50_lag = solcast_p50_at(points, now - REFERENCE_LAG)
+    points, solcast_p10 = read_solcast_points(sw)
+    _remember_blend(now, blend_now_kw)
+    if points:
+        source = REFERENCE_SOLCAST
+        p50_now = solcast_p50_at(points, now)
+        p50_lag = solcast_p50_at(points, now - REFERENCE_LAG)
+    else:
+        source = REFERENCE_BLEND
+        p50_now = blend_now_kw
+        p50_lag = _blend_at(now - REFERENCE_LAG)
     if p50_now is None or p50_lag is None:
-        _turn_off("no_reference", "no Solcast period covers now or 30 min ago")
-        return _gate_result("no_reference", p50_now_kw=p50_now, p50_lagged_kw=p50_lag)
+        _turn_off("no_reference", f"no {source} forecast for now and 30 min ago")
+        return (
+            _gate_result(
+                "no_reference",
+                reference_source=source,
+                p50_now_kw=p50_now,
+                p50_lagged_kw=p50_lag,
+            ),
+            solcast_p10,
+        )
     if p50_now < min_p50 or p50_lag < min_p50:
         _turn_off(
             "below_minimum",
             f"p50 now {p50_now:.2f} kW, 30 min earlier {p50_lag:.2f} kW, "
             f"below the {min_p50:.2f} kW minimum",
         )
-        return _gate_result("below_minimum", p50_now_kw=p50_now, p50_lagged_kw=p50_lag)
+        return (
+            _gate_result(
+                "below_minimum",
+                reference_source=source,
+                p50_now_kw=p50_now,
+                p50_lagged_kw=p50_lag,
+            ),
+            solcast_p10,
+        )
 
     actual = actual_30min_avg_kw(sw, sensor, now)
     if actual is None:
         _turn_off("no_history", f"no recorder history for {sensor}")
-        return _gate_result("no_history", p50_now_kw=p50_now, p50_lagged_kw=p50_lag)
+        return (
+            _gate_result(
+                "no_history",
+                reference_source=source,
+                p50_now_kw=p50_now,
+                p50_lagged_kw=p50_lag,
+            ),
+            solcast_p10,
+        )
 
     on_pct = sw._cfg_num(cfg, CFG_ON_PERCENT, DEFAULT_ON_PERCENT)
     # An "off" threshold below "on" would flap every solve; treat it as
@@ -356,10 +437,11 @@ def evaluate_gate(
         _STATE.on_since = now
         solver_shared._LOGGER.warning(
             "Nimbus #1784: solar running LOW -- actual PV averaged %.2f kW over "
-            "the last 30 min against a Solcast p50 reference of %.2f kW (now "
+            "the last 30 min against a %s p50 reference of %.2f kW (now "
             "%.2f kW, 30 min earlier %.2f kW): ratio %.2f, below %.0f%%. The "
-            "rest of today is planned on Solcast p10.",
+            "rest of today is planned on the lower forecast.",
             actual,
+            source,
             reference,
             p50_now,
             p50_lag,
@@ -373,13 +455,20 @@ def evaluate_gate(
             f"{reference:.2f} kW (now {p50_now:.2f}, 30 min earlier "
             f"{p50_lag:.2f}): ratio {ratio:.2f}, above {off_pct:.0f}%",
         )
-    return _gate_result(
-        "judged", actual_kw=actual, p50_now_kw=p50_now, p50_lagged_kw=p50_lag
+    return (
+        _gate_result(
+            "judged",
+            reference_source=source,
+            actual_kw=actual,
+            p50_now_kw=p50_now,
+            p50_lagged_kw=p50_lag,
+        ),
+        solcast_p10,
     )
 
 
 def remaining_today_mask(grid_times: list[datetime], now: datetime) -> list[bool]:
-    """True for the periods p10 replaces: every period after the current
+    """True for the periods the gate lowers: every period after the current
     one (index 0, which the live anchor owns) that starts on today's local
     date. `now` carries the local timezone (main() builds it in LOCAL_TZ)."""
     today = now.date()
@@ -387,3 +476,22 @@ def remaining_today_mask(grid_times: list[datetime], now: datetime) -> list[bool
     return [
         i >= 1 and gt.astimezone(tz).date() == today for i, gt in enumerate(grid_times)
     ]
+
+
+def member_method(
+    *,
+    is_solcast: bool,
+    solcast_p10: bool,
+    value: list[float],
+    lower: list[float],
+    idx: list[int],
+) -> str:
+    """How one blend member is lowered while the gate is on (see the module
+    docstring): Solcast with p10 -> its p10; a member whose lower bound sits
+    genuinely below its value somewhere in today's remaining periods -> that
+    lower bound; anything else -> option (b), ratio-scaled."""
+    if is_solcast:
+        return METHOD_P10 if solcast_p10 else METHOD_RATIO
+    if any(lower[i] < value[i] - 1e-9 for i in idx):
+        return METHOD_LOWER_BOUND
+    return METHOD_RATIO
