@@ -40,6 +40,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   four keys, null and 0, and no plan value moved).
 
 ### Fixed
+- **Charge By now finishes an hour early, so it meets its target** (household,
+  15 Oct). The target only had to be met at the deadline, so the plan used
+  every minute of slack: the near-term price forecast runs below what settles
+  (#1749), so each re-plan waited, and the charge landed on the deadline itself.
+  On 15 Oct a Charge By of 14:00 / 100 % left the reference household's
+  battery at ~95 % at 14:00, on the charge taper. The target now also binds
+  one hour before the deadline (`CHARGE_BY_MARGIN_HOURS`; clamped at
+  midnight), so the taper or a short slot uses up that hour instead of the
+  target. A target out of reach is charged for at once. A closed-loop replay
+  on the reference household's captured inputs (re-planning every 30 minutes,
+  the current half hour 1.7c above forecast) reached 100 % at 14:00 for a
+  15:00 deadline, and at 15:00 without the margin. Off by default: plans
+  without Charge By are unchanged.
 - **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a
   restart** (#1634, Mark Purcell, 10 Oct). When no record can be built, the
   sensor publishes its reason once (#1635). If the first solve after a
