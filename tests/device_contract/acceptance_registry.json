@@ -329,7 +329,7 @@
         "DC-006"
       ],
       "status": {
-        "reference_oracle": "evidence_recorded",
+        "reference_oracle": "verified",
         "legacy_characterised": "not_started",
         "production_obligation": "pending"
       }

@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F08",
-    "revision": 1,
+    "revision": 2,
     "requirements": [
       "DC-R10",
       "DC-R08"
@@ -26,17 +26,34 @@
     "units": "kW and kWh",
     "pack_vs_charger": "EV pack power and DC charger energy are different measurement boundaries and are not compared as equal"
   },
+  "observed": {
+    "_note": "As published on #1465 (comment 6016381858). Counters are the Sigenergy grid import and export energy counters, MWh converted to kWh; 25 contiguous hourly records, no decrease. The five-minute directional grid-power integration is the second, independent meter reading on the same comment.",
+    "reconstructed_kwh": {"import": 71.579, "export": 88.642},
+    "meter_counters_kwh": {"import": 32.74, "export": 69.53},
+    "meter_power_integration_kwh": {"import": 32.981, "export": 69.774},
+    "stale_fraction": 0.0
+  },
   "expected": {
     "reproduces": "reconstructed site exchange disagrees with the meter; scoring must be marked unreliable or reconcile",
+    "verdict": {
+      "_note": "DC-003 decisions 1 and 2 applied as proposed: tolerance max(2 kWh, 10 % of metered throughput); the meter's declared sign (a directional counter pair declares itself); both signs tried only for a legacy binding with none.",
+      "status": "disagrees",
+      "tolerance_kwh": 10.227,
+      "import_residual_kwh": 38.839,
+      "export_residual_kwh": 19.112,
+      "legacy_no_sign_status": "disagrees",
+      "power_integration_status": "disagrees"
+    },
     "corrected_epr": "unresolved",
     "root_cause": "unresolved",
     "known_defect": "KD-1465-2026-10-05"
   },
   "comparison": {
-    "rounded_fields": "within half the last displayed decimal (rounding only, not physical agreement)"
+    "rounded_fields": "within half the last displayed decimal (rounding only, not physical agreement)",
+    "verdict_kwh_absolute_tolerance": 0.0005
   },
   "execution_status": {
-    "reference_oracle": "evidence_recorded",
+    "reference_oracle": "verified",
     "legacy_characterised": "not_started",
     "production_obligation": "pending (DC-003, DC-006)"
   },

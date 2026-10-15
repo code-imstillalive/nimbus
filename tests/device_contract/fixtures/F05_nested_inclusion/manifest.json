@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F05",
-    "revision": 1,
+    "revision": 2,
     "requirements": [
       "DC-R07",
       "DC-R08"
@@ -68,6 +68,35 @@
     },
     "demand_with_pool_schedule_kw": 17.0,
     "invalid_flat_sum_kw": 22.0
+  },
+  "time_series": {
+    "_note": "Per-interval residuals over a window (DC-003 decision 3, applied as proposed): an interval is negative when a node's residual is below -max(0.1 kW, 5 % of that node's own reading); the decomposition is refused when MORE than 10 % of the window's intervals are negative. The 0.1 kW, 5 % and 10 % figures are unmeasured proposals. Residuals are never clamped. Ten 5-minute intervals; each case changes the baseline (house 14, circuit 6, pool 2 kW) only where listed.",
+    "interval_hours": 0.08333333333333333,
+    "inside": {"house": null, "circuit": "house", "pool": "circuit"},
+    "baseline_kw": {"house": 14.0, "circuit": 6.0, "pool": 2.0},
+    "n_intervals": 10,
+    "cases": {
+      "clean": {"changes": [], "negative": {}, "refused": false},
+      "one_negative": {"changes": [{"t": 3, "pool": 6.6}], "negative": {"circuit": [3]}, "refused": false, "residual_check": {"node": "circuit", "t": 3, "kw": -0.6}},
+      "two_negative": {"changes": [{"t": 3, "pool": 6.6}, {"t": 7, "pool": 6.6}], "negative": {"circuit": [3, 7]}, "refused": true},
+      "within_tolerance": {"changes": [{"t": 3, "pool": 6.2}, {"t": 5, "house": 1.0, "circuit": 1.08, "pool": 0.5}], "negative": {}, "refused": false},
+      "small_parent_negative": {"changes": [{"t": 5, "house": 1.0, "circuit": 1.15, "pool": 0.5}], "negative": {"house": [5]}, "refused": false, "residual_check": {"node": "house", "t": 5, "kw": -0.15}}
+    }
+  },
+  "inclusion_boundaries": {
+    "_note": "Whether a declared included_in_measurement can hold (DC-003 'The three relationships'; decision 4 applied as proposed: a two-way child inside a parent that cannot read below zero is unsupported unless declared one-directional). Phases default to all three; signed defaults to true.",
+    "cases": {
+      "ac_circuit_in_ac_house": {"child": {"kind": "load", "domain": "ac"}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "consumption", "problems": []},
+      "single_phase_pool_in_house": {"child": {"kind": "load", "domain": "ac", "phases": ["L1"]}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "consumption", "problems": []},
+      "dc_charger_in_ac_house": {"child": {"kind": "battery", "domain": "dc"}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "consumption", "problems": ["inclusion_boundary_mismatch"]},
+      "phase_outside_parent": {"child": {"kind": "load", "domain": "ac", "phases": ["L1"]}, "parent": {"kind": "load", "domain": "ac", "phases": ["L2"]}, "quantity": "consumption", "problems": ["inclusion_boundary_mismatch"]},
+      "wrong_quantity": {"child": {"kind": "load", "domain": "ac"}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "generation", "problems": ["inclusion_quantity_mismatch"]},
+      "solar_inside_a_load": {"child": {"kind": "solar", "domain": "ac"}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "consumption", "problems": ["inclusion_quantity_mismatch"]},
+      "string_in_inverter_total": {"child": {"kind": "solar", "domain": "dc"}, "parent": {"kind": "solar", "domain": "dc"}, "quantity": "generation", "problems": []},
+      "v2h_ev_in_signed_house": {"child": {"kind": "battery", "domain": "ac"}, "parent": {"kind": "load", "domain": "ac"}, "quantity": "consumption", "problems": []},
+      "v2h_ev_in_magnitude_house": {"child": {"kind": "battery", "domain": "ac"}, "parent": {"kind": "load", "domain": "ac", "signed": false}, "quantity": "consumption", "problems": ["inclusion_sign_ambiguous"]},
+      "charge_only_ev_in_magnitude_house": {"child": {"kind": "battery", "domain": "ac", "one_directional": true}, "parent": {"kind": "load", "domain": "ac", "signed": false}, "quantity": "consumption", "problems": []}
+    }
   },
   "comparison": {
     "absolute_tolerance": 1e-09,

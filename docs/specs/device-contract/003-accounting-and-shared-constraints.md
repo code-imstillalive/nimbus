@@ -194,7 +194,7 @@ Tests live under `tests/device_contract/`, beside DC-000's oracles. Each names i
 
 ### DC-000 additions this needs
 
-Not every acceptance case above has a fixture or oracle today. Each is a DC-000 addition, made before DC-003's implementation is judged against it:
+**Status, 16 October 2026: all six are filled.** F02, the shared-limit oracle and the F07 variants landed in #1782 (`oracles_limits.py`). The rest are in `oracles_accounting.py`, with decisions 1–5 and 7 below applied as proposed after Mark asked for the gaps to be filled. The list is kept as the record of what was missing when this was drafted:
 - **F02 has no manifest and no oracle** (registry: `reference_oracle: not_started`). It needs the two-inverter, string-plus-total and shared-inverter-limit cases.
 - **No oracle exists for a shared limit** (DC-R09) in `oracles*.py`. It needs one function per `quantity`.
 - **No oracle produces a reconciliation verdict.** F08 is `evidence_recorded`, and F07 checks only the balance. It needs `reconcile(reconstructed, metered, tolerance)` stated independently of `meter_reconciliation.py`.

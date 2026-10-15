@@ -130,5 +130,20 @@ def test_two_inverters_are_both_counted() -> None:
     assert abs(site_grid_kw(partial) - EXP["two_inverters_one_missed_grid_kw"]) <= TOL
 
 
-def test_deferred_cases_are_named_not_silently_dropped() -> None:
-    assert "open decision" in F02["deferred"]["undeclared_string_and_total"]
+OVERLAP = F02["undeclared_overlap"]
+PAIRS = {p["name"]: p for p in OVERLAP["pairs"]}
+
+
+@pytest.mark.parametrize("name", sorted(PAIRS))
+def test_undeclared_overlap_is_evidence_only_where_it_should_be(name: str) -> None:
+    """DC-003 decision 5: a string inside its total is flagged; half a day,
+    two independent inverters, an unrelated series below the parent, and a
+    series that tracks but exceeds it are not."""
+    from tests.device_contract.oracles_accounting import possible_undeclared_inclusion
+
+    pair = PAIRS[name]
+    n = pair["first_hours"]
+    child = OVERLAP["series"][pair["child"]][:n]
+    parent = OVERLAP["series"][pair["parent"]][:n]
+    hours = [OVERLAP["hours"]] * n
+    assert possible_undeclared_inclusion(child, parent, hours) is pair["flagged"]
