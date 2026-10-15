@@ -1002,6 +1002,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # measurements above.
         "_apply_running_low_gate",
         "_blend_at",
+        "confirm_low",
         "_remember_blend",
         "member_method",
         "ratio_scale",

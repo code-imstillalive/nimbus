@@ -193,6 +193,7 @@ from .const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_SOLVER_SOLAR_POWER_SENSOR,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
     CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
     CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
     CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
@@ -491,10 +492,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_CHARGE_BY_HOUR,
     CONF_SOLVER_CHARGE_BY_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
-    # nimbus issue #1784: the solar running-low gate's three numbers.
+    # nimbus issue #1784: the solar running-low gate's four numbers.
     CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
     CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
     # nimbus issue #485: the household mode must be exposed here too,
     # or fetch_solver_config() never sees it and the solve-time resolver
     # has nothing to read -- the exact silent-no-op bug v0.94.283 shipped
@@ -606,6 +608,7 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
     CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
 )
 # Household, 11 Oct 2026: time-of-day settings live in time.py as clock
 # times; resolved to hours (05:30 -> 5.5) so the Solver reads them as before.

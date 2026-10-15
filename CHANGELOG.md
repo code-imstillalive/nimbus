@@ -286,8 +286,10 @@ price source's forecast series.
   time-weighted mean of the solar power sensor with a reference: the lower
   of the p50 for the current half-hour and for the half-hour 30 minutes
   earlier, so a rising morning curve, which the mean trails, does not trip
-  it. It judges only while both p50s are at least 2 kW, turns on below
-  70 % of the reference and off above 90 %. The reference is Solcast's p50
+  it. It judges only while both p50s are at least 2 kW, turns on once
+  every reading for 10 minutes has stayed below 70 % of the reference
+  (a late start on 16 Oct tripped the bare rule for 17 minutes), and turns
+  off above 90 %. The reference is Solcast's p50
   whenever Solcast is installed; otherwise the solve's own blended forecast,
   remembered from 30 minutes earlier (so it cannot judge in the first 30
   minutes after a restart). While on, for the remaining periods of today
@@ -298,9 +300,10 @@ price source's forecast series.
   period (the live anchor) and later days are untouched. The average comes
   from the recorder, not an in-process average, so it is right straight
   after a restart; without history the gate is off. A WARNING when it turns
-  on and an INFO when it turns off, with the numbers. Three new numbers:
+  on and an INFO when it turns off, with the numbers. Four new numbers:
   `number.nimbus_solver_solar_running_low_min_p50_kw` (2 kW; 0 = off),
-  `_on_percent` (70) and `_off_percent` (90). The state and evidence are
+  `_on_percent` (70), `_off_percent` (90) and `_confirm_minutes` (10;
+  0 = on at the first low reading). The state and evidence are
   published as `solve_diagnostics.solar_running_low`, which now has
   twenty-two keys.
 

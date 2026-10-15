@@ -1538,6 +1538,13 @@ CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT: Final = (
     "solver_solar_running_low_off_percent"
 )
 DEFAULT_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT: Final = 90.0
+# Minutes every judged reading must stay below ON % before the gate turns
+# on; 0 = on at the first low reading. Measured, 16 Oct 2026: a late start
+# tripped the bare gate for 17 minutes; 10 minutes of confirmation does not.
+CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES: Final = (
+    "solver_solar_running_low_confirm_minutes"
+)
+DEFAULT_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES: Final = 10.0
 CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
 DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
 CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"

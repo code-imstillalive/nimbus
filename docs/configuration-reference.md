@@ -253,6 +253,7 @@ fields are added.
 | `number.nimbus_solver_solar_running_low_min_p50_kw` | Solar Running Low Minimum P50: the gate judges only while the p50 forecast now and 30 minutes earlier are both at least this; 0 = off | 2.0 | 0-100 | kW |
 | `number.nimbus_solver_solar_running_low_on_percent` | Solar Running Low On Below: actual PV under this share of the p50 reference turns the gate on | 70.0 | 1-100 | % |
 | `number.nimbus_solver_solar_running_low_off_percent` | Solar Running Low Off Above: once on, actual PV over this share turns it off | 90.0 | 1-100 | % |
+| `number.nimbus_solver_solar_running_low_confirm_minutes` | Solar Running Low Confirm: every reading must stay below *On Below* for this long before it turns on; 0 = on at the first low reading | 10.0 | 0-60 | min |
 
 **Notes:**
 

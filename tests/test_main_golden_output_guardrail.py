@@ -391,6 +391,7 @@ _EXPECTED_ATTRS = {
             "reference_kw": None,
             "ratio": None,
             "on_since": None,
+            "pending_since": None,
             "periods_lowered": 0,
             "members_p10": 0,
             "members_lower_bound": 0,

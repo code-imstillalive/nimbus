@@ -107,9 +107,13 @@ def _held(now, watts):
 
 
 def _cfg(**overrides):
+    # The rule tests below test one rule each, so they run with the
+    # confirmation window off (0 = on at the first low reading);
+    # TestConfirmation tests the window, including its default.
     cfg = {
         "solver_auto_include_known_solar": True,
         "solver_solar_power_sensor": SENSOR,
+        "solver_solar_running_low_confirm_minutes": 0,
     }
     cfg.update(overrides)
     return cfg
@@ -385,6 +389,7 @@ class TestWithoutSolcastTheBlendIsTheReference(_Base):
         return {
             "solver_solar_forecast_sensor": "sensor.own",
             "solver_solar_power_sensor": SENSOR,
+            "solver_solar_running_low_confirm_minutes": 0,
         }
 
     def test_first_solve_cannot_judge_then_judges_from_memory(self):
@@ -542,6 +547,75 @@ class TestMarks16October(_Base):
         )
 
 
+class TestConfirmation(_Base):
+    """The gate turns on only once every judged reading for the confirmation
+    window (default 10 min) has stayed below the on threshold. Measured on
+    the reference household, 16 Oct 2026: a late start would have tripped
+    the bare gate at 07:30 (ratio 0.61) and released it at 07:47; the ratio
+    crossed 0.70 at 07:38, so a 10-minute window never trips."""
+
+    def _run(self, readings, cfg_extra=None):
+        """`readings`: (minute after 07:00, ratio) against a flat 4 kW p50.
+        Returns the `active` flag after each reading."""
+        p50, p10 = _flat_daylight(4.0, 1.5)
+        today = _day(TODAY, p50, p10)
+        cfg = {
+            "solver_auto_include_known_solar": True,
+            "solver_solar_power_sensor": SENSOR,
+            **(cfg_extra or {}),
+        }
+        out = []
+        for minute, ratio in readings:
+            now = TODAY.replace(hour=7) + timedelta(minutes=minute)
+            fake = _Fake(today, history=_held(now, ratio * 4000))
+            out.append(self._evaluate(fake, now, cfg)["active"])
+        return out
+
+    def test_the_16_october_late_start_does_not_trip_it(self):
+        """This morning's minute-by-minute ratios, 07:30-07:47."""
+        ratios = [0.610, 0.621, 0.632, 0.644, 0.656, 0.669, 0.680, 0.694]
+        ratios += [0.711, 0.729, 0.749, 0.771, 0.794, 0.814, 0.837, 0.859]
+        ratios += [0.881, 0.903]
+        readings = [(30 + i, r) for i, r in enumerate(ratios)]
+        self.assertEqual(self._run(readings), [False] * len(readings))
+        # The same morning trips the bare rule at 07:30 (the old behaviour).
+        bare = self._run(readings, {"solver_solar_running_low_confirm_minutes": 0})
+        self.assertTrue(bare[0])
+
+    def test_a_sustained_low_trips_at_ten_minutes(self):
+        readings = [(0, 0.55), (5, 0.57), (9, 0.56), (10, 0.58)]
+        self.assertEqual(self._run(readings), [False, False, False, True])
+
+    def test_a_low_that_recovers_inside_the_window_does_not_trip(self):
+        readings = [(0, 0.55), (5, 0.75), (10, 0.58), (15, 0.6)]
+        # 0.75 at 5 min ends the window; a new one starts at 10 min.
+        self.assertEqual(self._run(readings), [False, False, False, False])
+
+    def test_zero_is_immediate(self):
+        readings = [(0, 0.55)]
+        self.assertEqual(
+            self._run(readings, {"solver_solar_running_low_confirm_minutes": 0}),
+            [True],
+        )
+
+    def test_pending_since_is_published_and_cleared(self):
+        p50, p10 = _flat_daylight(4.0, 1.5)
+        today = _day(TODAY, p50, p10)
+        cfg = {"solver_solar_power_sensor": SENSOR}
+        t0 = TODAY.replace(hour=10)
+        result = self._evaluate(_Fake(today, history=_held(t0, 2000)), t0, cfg)
+        self.assertEqual(result["pending_since"], t0.isoformat())
+        self.assertFalse(result["active"])
+        t1 = t0 + timedelta(minutes=10)
+        result = self._evaluate(_Fake(today, history=_held(t1, 2000)), t1, cfg)
+        self.assertTrue(result["active"])
+        self.assertIsNone(result["pending_since"])
+
+    def test_release_stays_immediate(self):
+        readings = [(0, 0.5), (10, 0.5), (11, 0.95)]
+        self.assertEqual(self._run(readings), [False, True, False])
+
+
 class TestLogsOncePerChange(_Base):
     def test_one_warning_on_and_one_info_off(self):
         p50, p10 = _flat_daylight(4.0, 1.5)
@@ -607,6 +681,7 @@ class TestPublishedShape(_Base):
                 "reference_kw",
                 "ratio",
                 "on_since",
+                "pending_since",
                 "reference_source",
                 "periods_lowered",
                 "members_p10",

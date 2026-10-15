@@ -20,6 +20,16 @@ battery for solar that never arrives.
   first hour of production runs low and noisy against the forecast.
 - Hysteresis: on below 70% of the reference, off above 90%, so passing
   clouds do not make it flap.
+- Confirmation (ours, not in the ha-config template): it turns on only once
+  every judged reading for 10 minutes has stayed below 70%. Measured on the
+  reference household on 16 Oct 2026: a late start tripped the bare gate at
+  07:30 (ratio 0.61) and released it at 07:47, with actual above Solcast's
+  p90 by 08:07. The ratio crossed 0.70 at 07:38, so a 10-minute
+  confirmation never trips. On a really dull day it costs at most 10
+  minutes on a whole-day correction. One morning of evidence: neither
+  forecast's history is recorded, so the trip rate further back cannot be
+  measured. 0 = no confirmation (on at the first low reading). Release
+  stays immediate.
 
 Whenever the gate cannot judge (switched off, no PV sensor, no reference,
 below the minimum, no history) it is OFF -- exactly the ha-config template,
@@ -108,10 +118,12 @@ except ImportError:  # pragma: no cover - standalone/cron path
 CFG_MIN_P50_KW = "solver_solar_running_low_min_p50_kw"
 CFG_ON_PERCENT = "solver_solar_running_low_on_percent"
 CFG_OFF_PERCENT = "solver_solar_running_low_off_percent"
+CFG_CONFIRM_MINUTES = "solver_solar_running_low_confirm_minutes"
 # 0 = off, the repo's convention for a feature carried by a number.
 DEFAULT_MIN_P50_KW = 2.0
 DEFAULT_ON_PERCENT = 70.0
 DEFAULT_OFF_PERCENT = 90.0
+DEFAULT_CONFIRM_MINUTES = 10.0
 
 # Solcast's detailedForecast is 30-minute periods; the average spans the
 # same length, which is why the lagged reference is one period back.
@@ -137,6 +149,8 @@ METHOD_RATIO = "ratio_scaled"
 class _GateState:
     active: bool = False
     on_since: datetime | None = None
+    # First judged low reading of the current confirmation window, or None.
+    pending_since: datetime | None = None
     # (time, blended p50 kW at that time) for the blend reference.
     blend_memory: list[tuple[datetime, float]] = field(default_factory=list)
 
@@ -151,6 +165,7 @@ def reset_gate_state() -> None:
     """Back to a fresh process: gate off, no memory, log-once set empty."""
     _STATE.active = False
     _STATE.on_since = None
+    _STATE.pending_since = None
     _STATE.blend_memory.clear()
     _INERT_LOGGED.clear()
 
@@ -189,6 +204,9 @@ def _gate_result(
         "reference_kw": r(reference),
         "ratio": round(ratio, 4) if ratio is not None else None,
         "on_since": _STATE.on_since.isoformat() if _STATE.on_since else None,
+        "pending_since": (
+            _STATE.pending_since.isoformat() if _STATE.pending_since else None
+        ),
         # Filled in by build_solar_arrays() once it knows what it changed;
         # 0 / None while off.
         "periods_lowered": 0,
@@ -230,6 +248,8 @@ def _log_inert_once(reason: str, message: str) -> None:
 
 
 def _turn_off(reason: str, detail: str) -> None:
+    # Any reading that is not a judged low ends a confirmation window.
+    _STATE.pending_since = None
     if not _STATE.active:
         return
     _STATE.active = False
@@ -265,6 +285,24 @@ def decide_hysteresis(
     if was_active:
         return actual_kw < off_fraction * reference_kw
     return actual_kw < on_fraction * reference_kw
+
+
+def confirm_low(
+    *,
+    low: bool,
+    now: datetime,
+    pending_since: datetime | None,
+    confirm: timedelta,
+) -> bool:
+    """The confirmation rule, pure: a low reading turns the gate on only
+    when confirmation is off (0) or the current unbroken run of low readings
+    began at least `confirm` ago. The caller starts the run at the first low
+    reading and ends it at any reading that is not low."""
+    if not low:
+        return False
+    if confirm <= timedelta(0):
+        return True
+    return pending_since is not None and now - pending_since >= confirm
 
 
 def ratio_scale(ratio: float) -> float:
@@ -431,6 +469,24 @@ def evaluate_gate(
         on_fraction=on_pct / 100.0,
         off_fraction=off_pct / 100.0,
     )
+    if not was_active:
+        # While off, `active` here is "this reading is low"; the
+        # confirmation window decides whether it turns the gate on.
+        low = active
+        if not low:
+            _STATE.pending_since = None
+        elif _STATE.pending_since is None:
+            _STATE.pending_since = now
+        confirm = timedelta(
+            minutes=max(
+                0.0, sw._cfg_num(cfg, CFG_CONFIRM_MINUTES, DEFAULT_CONFIRM_MINUTES)
+            )
+        )
+        active = confirm_low(
+            low=low, now=now, pending_since=_STATE.pending_since, confirm=confirm
+        )
+        if active:
+            _STATE.pending_since = None
     ratio = actual / reference if reference > 0 else 0.0
     if active and not was_active:
         _STATE.active = True
