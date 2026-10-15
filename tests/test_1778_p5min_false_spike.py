@@ -159,11 +159,36 @@ def test_rule_a_prefers_a_ca_constraint_but_does_not_require_one():
 
 def test_threshold_is_5000_or_within_10_percent_of_the_cap():
     """Rule 2(a) threshold: >= $5,000/MWh, or 90% of the $23,200 cap when the
-    setting is higher; unset or non-positive is the default."""
+    setting is higher; unset is the default; 0 or below is off."""
     assert p5min_guard.threshold_kwh(5000.0) == 5.0
     assert p5min_guard.threshold_kwh(22000.0) == 20.88
     assert p5min_guard.threshold_kwh(None) == 5.0
-    assert p5min_guard.threshold_kwh(0.0) == 5.0
+    assert p5min_guard.threshold_kwh(float("nan")) == 5.0
+    assert p5min_guard.threshold_kwh(0.0) == float("inf")
+    assert p5min_guard.threshold_kwh(-1.0) == float("inf")
+
+
+def test_zero_turns_the_guard_off_over_the_real_event():
+    """Mark's review on #1779: a genuine off switch, "0 = off" like Charge By
+    and the reserve. Replayed over 15 Oct with the setting at 0, the guard
+    never raises, so no forward price is rewritten."""
+    g = p5min_guard.FalseSpikeGuard(threshold_mwh=0.0)
+    for run_path, disp_path in zip(RUNS, DISPATCH, strict=True):
+        end, price = _dispatch(disp_path)
+        g.on_dispatch(end, price, end - timedelta(minutes=4, seconds=56))
+        run, published = _run(run_path.stem[13:25])
+        g.on_run(run, published)
+        assert not g.active, run["run_datetime"]
+    assert g.last_release is None
+
+
+def test_the_setting_can_be_set_to_zero():
+    desc = next(
+        d
+        for d in number_mod._DESCRIPTIONS
+        if d.key == "solver_p5min_false_spike_threshold_mwh"
+    )
+    assert desc.min_value == 0
 
 
 # ---- rule (b): dispatch disagrees -------------------------------------------

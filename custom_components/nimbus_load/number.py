@@ -885,7 +885,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
         "P5MIN False Spike Threshold",
         DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
-        300,
+        0,  # 0 = off (#1779 review)
         23200,
         100,
         "AUD/MWh",

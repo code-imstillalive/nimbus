@@ -88,12 +88,14 @@ _KEEP_COMPARED = 12
 
 def threshold_kwh(threshold_mwh: float | None) -> float:
     """The spike threshold in $/kWh: the configured $/MWh, or 90% of the
-    cap when that is lower. A missing or non-positive setting is the
-    default."""
-    t = threshold_mwh if threshold_mwh and math.isfinite(threshold_mwh) else 0.0
-    if t <= 0:
-        t = DEFAULT_THRESHOLD_MWH
-    return min(t, CAP_PROXIMITY * MARKET_PRICE_CAP_MWH) / 1000.0
+    cap when that is lower. Unset (None or non-finite) is the default; 0 or
+    below is OFF (infinite threshold, so nothing is ever a spike), the same
+    "0 = off" convention as Charge By and the reserve (Mark's review, #1779)."""
+    if threshold_mwh is None or not math.isfinite(threshold_mwh):
+        threshold_mwh = DEFAULT_THRESHOLD_MWH
+    if threshold_mwh <= 0:
+        return math.inf
+    return min(threshold_mwh, CAP_PROXIMITY * MARKET_PRICE_CAP_MWH) / 1000.0
 
 
 def has_spike(rows: list[dict[str, Any]], threshold: float) -> bool:
