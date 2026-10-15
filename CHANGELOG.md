@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.457] - 2026-10-15
+
+Charge By finishes an hour before its deadline, so it meets its target;
+Amber Express installs learn the retail markup against Amber's own same-poll
+wholesale; a failed solve records what failed; the flex-telemetry sensor no
+longer sticks at `unknown` after a restart.
+
 ### Added
 - **Amber Express installs learn the retail markup against the wholesale in
   Amber's own response** (#1698, Mark Purcell). Beyond the retail
