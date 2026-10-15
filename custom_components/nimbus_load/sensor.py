@@ -172,6 +172,7 @@ from .const import (
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
@@ -467,6 +468,7 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # requirement as every field above -- caught by this file's own real
     # test_sensor_solver_config_keys.py before it ever shipped.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+    CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     # nimbus #1654/#1695: the soft reserve. In _SOLVER_NUMBER_ENTITY_KEYS /
     # _SOLVER_TIME_ENTITY_KEYS but never added here, so fetch_solver_config()
     # never saw them and the reserve was off on every install whatever the
@@ -579,6 +581,7 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # nimbus issue #452: same live-number-entity resolve path as every
     # field above, for the AEMO P5MIN disagreement threshold.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+    CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     # nimbus #1654: the soft reserve's two dashboard numbers. Without these
     # the sliders would be read from entry.options and do nothing (#538/#837).
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,

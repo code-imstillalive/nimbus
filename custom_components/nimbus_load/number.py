@@ -111,6 +111,7 @@ from .const import (
     CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+    CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
@@ -148,6 +149,7 @@ from .const import (
     DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
+    DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD,
@@ -875,6 +877,18 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         2,
         0.01,
         _CURRENCY_PER_KWH,
+    ),
+    # nimbus #1778: the P5MIN false-spike guard's threshold. AUD/MWh, not
+    # the install's currency: it is compared with AEMO's own prices (#1293's
+    # rule for genuinely single-currency market constants).
+    _SolverNumberDescription(
+        CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+        "P5MIN False Spike Threshold",
+        DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+        300,
+        23200,
+        100,
+        "AUD/MWh",
     ),
     # Real household finding (2026-09-08, NUC1's own first day of live
     # dispatch): a single solve's own battery_kw jumped mid-band (e.g.

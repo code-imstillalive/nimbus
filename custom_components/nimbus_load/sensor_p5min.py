@@ -4,8 +4,8 @@ install's NEM region, fetched by Nimbus itself every five minutes.
 nimbus #1653 / #1658. Nothing a NEM install normally has carries AEMO's
 5-minute pre-dispatch, and on 9 Oct 2026 it was the only published forecast
 that saw the 05:20 spike coming. This publishes it for every NEM install
-without a separate integration. It does NOT feed the solve: what the solver
-does with it is a separate, reviewed change (#1653).
+without a separate integration. Its prices do NOT feed the solve: what the
+solver does with them is a separate, reviewed change (#1653).
 
 Region: from the AEMO sensors already configured on the Solver
 (`sensor.nem_pd7day_qld1_...`), else the Companion App's geocoded location
@@ -18,6 +18,14 @@ kept so a consumer can ask whether two consecutive runs agree.
 `readiness_signal` is #1660's rule (two consecutive runs forecasting
 >= $500/MWh, held at most 60 minutes), in SHADOW: published so it can be
 checked against events and quiet mornings, never read by the solve.
+
+nimbus #1778: the run's violated constraints and violation totals are
+published too, and `false_spike_guard` is `p5min_guard.FalseSpikeGuard`'s
+state -- the one attribute the solve DOES read, to replace an Amber forward
+spike that an infeasible P5MIN run produced or dispatch contradicted. The
+dispatch side is the regional current-price sensor #452 already uses, read
+each minute. While the guard holds, `readiness_signal` is held off
+(`readiness_signal_suppressed`): on 15 Oct it fired on exactly such a spike.
 """
 
 from __future__ import annotations
@@ -33,10 +41,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import p5min, sensor_discovery
+from . import p5min, p5min_guard, price_intervals, sensor_discovery
 from .const import (
+    CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+    DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     DOMAIN,
 )
 
@@ -92,10 +102,24 @@ class NimbusP5MinForecastSensor(SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 4
     _attr_should_poll = False
-    _unrecorded_attributes = frozenset({"forecast", "previous_forecast"})
+    _unrecorded_attributes = frozenset(
+        {
+            "forecast",
+            "previous_forecast",
+            "violated_constraints",
+            "forecast_at_dispatch",
+        }
+    )
 
     def __init__(self, entry, region: str, sw_version: str | None) -> None:
         self._region = region
+        cfg = {**(entry.data or {}), **(entry.options or {})}
+        spot = cfg.get(CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR)
+        self._dispatch_sensor = spot if isinstance(spot, str) and spot else None
+        self._guard = p5min_guard.FalseSpikeGuard(
+            DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH
+        )
+        self._signal_suppressed = False
         self._attr_unique_id = f"{entry.entry_id}_p5min_forecast"
         self.entity_id = "sensor.nimbus_p5min_forecast"
         self._attr_device_info = DeviceInfo(
@@ -128,7 +152,49 @@ class NimbusP5MinForecastSensor(SensorEntity):
             return True
         return now >= datetime.fromisoformat(run) + _NEXT_RUN_DUE
 
+    def _threshold_mwh(self) -> float:
+        """The dashboard number, live; the default without one."""
+        if self.hass is not None:
+            state = self.hass.states.get(
+                f"number.nimbus_{CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH}"
+            )
+            try:
+                return (
+                    float(state.state)
+                    if state is not None
+                    else self._guard.threshold_mwh
+                )
+            except (TypeError, ValueError):
+                pass
+        return self._guard.threshold_mwh
+
+    def check_dispatch(self, now: datetime) -> None:
+        """#1778 rule (b) and the dispatch-spike release: the regional
+        current price is dispatch's price for the interval it was written
+        in (dispatch for T is published about 4m50s before T)."""
+        if self.hass is None or self._dispatch_sensor is None:
+            return
+        state = self.hass.states.get(self._dispatch_sensor)
+        if state is None:
+            return
+        try:
+            price = float(state.state) * price_intervals.price_unit_scale(
+                state.attributes.get("unit_of_measurement")
+            )
+        except (TypeError, ValueError):
+            return
+        was = self._guard.attribute()
+        self._guard.threshold_mwh = self._threshold_mwh()
+        self._guard.on_dispatch(
+            p5min_guard.interval_end(state.last_updated), price, now
+        )
+        self._guard.expire(now)
+        if self._guard.attribute() != was:
+            self._suppress_signal()
+            self.async_write_ha_state()
+
     async def _async_tick(self, _now=None) -> None:
+        self.check_dispatch(datetime.now(UTC))
         if not self.due(datetime.now(UTC)):
             return
         from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -149,7 +215,10 @@ class NimbusP5MinForecastSensor(SensorEntity):
             _LOGGER.debug("P5MIN fetch failed: %s", self._error)
             self.async_write_ha_state()
             return
-        self.apply(name, p5min.parse_region_solution(text, self._region))
+        run = await self.hass.async_add_executor_job(
+            p5min.parse_run, text, self._region
+        )
+        self.apply(name, run)
 
     def apply(self, name: str, run: dict | None) -> None:
         """Take one parsed run. Kept separate from the fetch so it is testable."""
@@ -165,13 +234,28 @@ class NimbusP5MinForecastSensor(SensorEntity):
             ):
                 self._previous = self._run
             self._run = run
-            self._update_signal(p5min.published_at(name))
+            published = p5min.published_at(name)
+            self._guard.threshold_mwh = self._threshold_mwh()
+            self._guard.on_run(run, published)
+            if self._guard.active:
+                _LOGGER.warning(self._guard.describe(run))
+            self._update_signal(published)
         if self.hass is not None:
             self.async_write_ha_state()
+
+    def _suppress_signal(self) -> bool:
+        """#1778: the readiness signal is held off while the false-spike
+        guard holds; on 15 Oct it fired on exactly such a spike."""
+        self._signal_suppressed = self._guard.active
+        if self._signal_suppressed:
+            self._signal_since = self._signal_peak = None
+        return self._signal_suppressed
 
     def _update_signal(self, published: datetime | None) -> None:
         """#1660, shadow only. The age runs from the run that first confirmed
         the episode; a repeat confirmation does not extend it."""
+        if self._suppress_signal():
+            return
         if self._signal_since is not None and (
             published is None or published - self._signal_since > p5min.SIGNAL_MAX_AGE
         ):
@@ -196,6 +280,7 @@ class NimbusP5MinForecastSensor(SensorEntity):
         rows = (self._run or {}).get("forecast") or []
         prev = (self._previous or {}).get("forecast") or []
         top, prev_top = p5min.peak(rows), p5min.peak(prev)
+        case = (self._run or {}).get("case") or {}
         return {
             "region": self._region,
             "run_datetime": (self._run or {}).get("run_datetime"),
@@ -212,6 +297,15 @@ class NimbusP5MinForecastSensor(SensorEntity):
             ),
             "readiness_signal_peak": self._signal_peak,
             "readiness_signal_mode": "shadow",
+            "readiness_signal_suppressed": self._signal_suppressed,
+            "total_generic_violation": case.get("total_generic_violation"),
+            "total_interconnector_violation": case.get(
+                "total_interconnector_violation"
+            ),
+            "max_violation": p5min.max_violation(self._run),
+            "violated_constraints": p5min.first_interval_violations(self._run),
+            p5min_guard.ATTRIBUTE: self._guard.attribute(),
+            "forecast_at_dispatch": list(self._guard.compared),
             "forecast": rows,
             "previous_forecast": prev,
         }

@@ -19,6 +19,11 @@ The file format, from a real file (PUBLIC_P5MIN_202610091150_*.CSV):
 `INTERVAL_DATETIME` is the interval's END, in NEM market time (UTC+10, no
 daylight saving, in every region). `RRP` is $/MWh. Column positions come from
 the `I` header row, not hard-coded, so an added column does not shift them.
+
+nimbus #1778 adds the run's infeasibility evidence: CASESOLUTION's violation
+totals and the CONSTRAINTSOLUTION rows with a positive `VIOLATIONDEGREE`
+(`parse_constraints`). `p5min_guard.py` uses them to distrust a spike that
+only an infeasible run produced.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ import csv
 import io
 import re
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 NEM_TIME = timezone(timedelta(hours=10))
 INTERVAL = timedelta(minutes=5)
@@ -53,7 +59,7 @@ def regions_in_entity_ids(entity_ids: list[str | None]) -> set[str]:
     the region. Empty means no evidence; more than one means the
     configuration contradicts itself -- the caller must tell those apart
     (DC-R13: ambiguous evidence is never silently activated)."""
-    found = set()
+    found: set[str] = set()
     for eid in entity_ids:
         if eid:
             found.update(m.group(1) for m in _REGION_IN_ID_RE.finditer(eid.lower()))
@@ -76,7 +82,7 @@ def _nem_time(value: str) -> datetime | None:
         return None
 
 
-def parse_region_solution(text: str, region: str) -> dict | None:
+def parse_region_solution(text: str, region: str) -> dict[str, Any] | None:
     """One region's forecast from a P5MIN CSV.
 
     Returns `{"run_datetime": iso, "forecast": [{start, end, value}]}` with
@@ -84,7 +90,7 @@ def parse_region_solution(text: str, region: str) -> dict | None:
     for the region. Only the non-intervention run (INTERVENTION 0) is used:
     that is the price the market settles on."""
     header: list[str] | None = None
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     run: datetime | None = None
     region = region.upper()
     for rec in csv.reader(io.StringIO(text)):
@@ -120,7 +126,95 @@ def parse_region_solution(text: str, region: str) -> dict | None:
     return {"run_datetime": run.isoformat(), "forecast": rows}
 
 
-def peak(forecast: list[dict]) -> dict | None:
+def _float(value: str | None) -> float | None:
+    try:
+        return float(value) if value not in (None, "") else None
+    except ValueError:
+        return None
+
+
+def parse_constraints(text: str) -> dict[str, Any]:
+    """The run's infeasibility evidence (nimbus #1778).
+
+    `case`: CASESOLUTION's `TOTALGENERICVIOLATION` and
+    `TOTALINTERCONNECTORVIOLATION`, or None when the file has no case row.
+    `violated`: every CONSTRAINTSOLUTION row with `VIOLATIONDEGREE > 0`, as
+    `{constraint_id, interval_end, rhs, marginal_value, violation}`, sorted
+    by interval end then largest violation. Non-intervention rows only, as
+    for prices.
+
+    On 15 Oct 2026 the generic total was 957-2,015 on runs with no violated
+    row and prices of $25-$103/MWh, so a non-zero total alone is not evidence
+    of an infeasible spike; the violated rows are."""
+    headers: dict[str, list[str]] = {}
+    case: dict[str, Any] | None = None
+    violated: list[dict[str, Any]] = []
+    for rec in csv.reader(io.StringIO(text)):
+        if len(rec) < 4 or rec[1] != "P5MIN":
+            continue
+        table = rec[2]
+        if table not in ("CASESOLUTION", "CONSTRAINTSOLUTION"):
+            continue
+        if rec[0] == "I":
+            headers[table] = rec
+            continue
+        header = headers.get(table)
+        if rec[0] != "D" or header is None or len(rec) != len(header):
+            continue
+        r = dict(zip(header, rec, strict=True))
+        if r.get("INTERVENTION") != "0":
+            continue
+        if table == "CASESOLUTION":
+            case = {
+                "total_generic_violation": _float(r.get("TOTALGENERICVIOLATION")),
+                "total_interconnector_violation": _float(
+                    r.get("TOTALINTERCONNECTORVIOLATION")
+                ),
+            }
+            continue
+        degree = _float(r.get("VIOLATIONDEGREE"))
+        end = _nem_time(r.get("INTERVAL_DATETIME", ""))
+        if degree is None or degree <= 0 or end is None:
+            continue
+        violated.append(
+            {
+                "constraint_id": r.get("CONSTRAINTID", ""),
+                "interval_end": end.isoformat(),
+                "rhs": _float(r.get("RHS")),
+                "marginal_value": _float(r.get("MARGINALVALUE")),
+                "violation": round(degree, 3),
+            }
+        )
+    violated.sort(key=lambda v: (v["interval_end"], -v["violation"]))
+    return {"case": case, "violated": violated}
+
+
+def parse_run(text: str, region: str) -> dict[str, Any] | None:
+    """`parse_region_solution` plus `parse_constraints`, as one run, or None
+    when the file holds no rows for the region. CPU-bound (a full file is
+    ~15,000 rows): call it off the event loop."""
+    run = parse_region_solution(text, region)
+    if run is None:
+        return None
+    return {**run, **parse_constraints(text)}
+
+
+def first_interval_violations(run: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The violated constraints of the run's first interval."""
+    rows = (run or {}).get("forecast") or []
+    if not rows:
+        return []
+    first = rows[0]["end"]
+    return [v for v in (run or {}).get("violated") or [] if v["interval_end"] == first]
+
+
+def max_violation(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The run's largest violated constraint row, or None."""
+    rows = (run or {}).get("violated") or []
+    return max(rows, key=lambda v: v["violation"]) if rows else None
+
+
+def peak(forecast: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The highest-priced row of a parsed forecast, or None when empty."""
     return max(forecast, key=lambda row: row["value"]) if forecast else None
 
@@ -142,12 +236,14 @@ def published_at(file_name: str) -> datetime | None:
     return datetime.strptime(m.group(2), "%Y%m%d%H%M%S").replace(tzinfo=NEM_TIME)
 
 
-def future_peak(run: dict | None) -> dict | None:
+def future_peak(run: dict[str, Any] | None) -> dict[str, Any] | None:
     """The highest row after the interval in progress, which is not a forecast."""
     return peak(((run or {}).get("forecast") or [])[1:])
 
 
-def spike_confirmed(run: dict | None, previous: dict | None) -> bool:
+def spike_confirmed(
+    run: dict[str, Any] | None, previous: dict[str, Any] | None
+) -> bool:
     """True when `run` and the run immediately before it both forecast a
     future interval at or above SIGNAL_THRESHOLD."""
     if not run or not previous:

@@ -351,8 +351,15 @@ def build_price_arrays(
         # household/Australian-NEM-specific and have no portable
         # equivalent yet (a real, honest, separately-tracked gap, not
         # pretended away).
+        # nimbus #1778: the false-spike threshold, so an Amber forecast's
+        # spike is replaced while the P5MIN flag holds.
+        spike_mwh = sw._cfg_num(
+            cfg,
+            "solver_p5min_false_spike_threshold_mwh",
+            sw.p5min_guard.DEFAULT_THRESHOLD_MWH,
+        )
         _import_fc = sw.resample_generic_price_forecast_with_coverage(
-            cfg["solver_import_price_sensor"], grid_times
+            cfg["solver_import_price_sensor"], grid_times, spike_mwh
         )
         # Real fee breakdown DOES apply to a generic install too, same
         # as LocalVolts -- see the "generic + real" fee application
@@ -367,7 +374,7 @@ def build_price_arrays(
             ] * n_periods
             import_real_mask = [True] * n_periods
         _export_fc = sw.resample_generic_price_forecast_with_coverage(
-            cfg["solver_export_price_sensor"], grid_times
+            cfg["solver_export_price_sensor"], grid_times, spike_mwh
         )
         if _export_fc is not None:
             spot_export, export_real_mask = _export_fc

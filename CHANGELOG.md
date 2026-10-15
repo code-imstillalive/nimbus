@@ -21,6 +21,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   dawn, against a planned 17.3 %. How to hold depends on the inverter's
   commands, so this only publishes the signal. Additive: `dispatch_direction`
   is unchanged (golden master: only the new key moved).
+- **A P5MIN false-spike guard** (#1778, Mark Purcell). On 15 Oct 2026 AEMO's
+  5-minute pre-dispatch priced QLD1 at the $23,200/MWh cap from 15:50 to
+  16:30 because it could not meet a Brisbane control-room constraint
+  (`CA_BRIS_...`) that dispatch met at about $100/MWh; Amber passed the cap
+  through as its forecast. `sensor.nimbus_p5min_forecast` now also publishes
+  the run's violated constraints and violation totals, and a
+  `false_spike_guard` flag. It is raised by a run that forecasts a spike (at
+  or above the new P5MIN False Spike Threshold, 5,000 AUD/MWh, or 90% of the
+  cap if lower) while violating a generic constraint, or when dispatch for
+  an interval P5MIN called a spike comes in below $1,000/MWh and below 30%
+  of the forecast. It releases on a real dispatch spike, a clean run, or
+  after 60 minutes. While it holds, the solve replaces future spike prices
+  from Amber Express and Amber Electric forecasts with the live price. The
+  current interval keeps its real price, and LocalVolts prices are not
+  touched. #1660's shadow readiness signal is held off while the flag holds.
 
 ## [0.94.457] - 2026-10-15
 

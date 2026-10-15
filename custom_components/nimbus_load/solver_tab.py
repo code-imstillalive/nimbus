@@ -220,9 +220,11 @@ _COSTS: _Card = (
         ),
         (
             "section",
-            "Value left at end: what a kWh still stored when the plan ends is worth to you.",
+            (
+                "Value left at end: worth of a kWh still stored at the plan's end. "
+                "Battery wear: replacement cost per kWh cycled."
+            ),
         ),
-        ("section", "Battery wear: the battery's replacement cost per kWh cycled."),
         ("solver_intraplan_smoothness_weight_kw", "Plan smoothness"),
         ("solver_proximal_weight_kw", "Stick to last plan"),
         ("solver_battery_charge_earliness_budget_kw", "Charge earliness"),
@@ -231,8 +233,9 @@ _COSTS: _Card = (
             "These three only break ties; 0.005 suits most.",
         ),
         ("solver_aemo_p5min_disagreement_threshold_dollars", "AEMO disagreement"),
+        ("solver_p5min_false_spike_threshold_mwh", "P5MIN false spike"),
     ],
-    "AEMO: warn when your price and AEMO's differ by more.",
+    "AEMO: warn past this gap. P5MIN false spike: level in AUD/MWh.",
 )
 
 _FEATURES: _Card = (
