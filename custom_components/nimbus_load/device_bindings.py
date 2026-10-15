@@ -577,7 +577,12 @@ def _resolve_derived(
     prov: dict[str, Any],
 ) -> Resolved:
     """Each dependency first; a run-time cycle is refused; any dependency
-    without a value makes the result missing, never a partial sum."""
+    without a value makes the result missing, never a partial sum.
+
+    A `stale` dependency makes the result `stale`. A `held` one does not:
+    `held` is current by the source's own rules (a change-only sensor whose
+    last change still stands), so the result is as current as one built
+    from `valid` inputs (Mark's question on #1774)."""
     calc = ctx.calculations.get(str(source.get("calculation")))
     if calc is None:
         return _missing(role, device_id, prov, "calculation_unknown")

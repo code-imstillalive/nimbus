@@ -905,6 +905,36 @@ def test_dc_r16_f01_a_missing_dependency_makes_the_result_missing() -> None:
     assert got.reason == "dependency_missing: solar_roof.power"  # not a partial sum
 
 
+@pytest.mark.parametrize(
+    ("pv_mode", "expected"),
+    [("change_only", db.VALID), ("sampled", db.STALE)],
+    ids=["held_dependency_stays_current", "stale_dependency_propagates"],
+)
+def test_dc_r16_a_held_dependency_is_current_a_stale_one_propagates(
+    pv_mode: str, expected: str
+) -> None:
+    """Mark's question on #1774: `held` is current by the source's own rules,
+    so a derived value built on it is as current as one built on `valid`
+    inputs; only `stale` carries through to the result."""
+    nine_hours_ago = (NOW - timedelta(hours=9)).isoformat()
+    doc = _balance_doc()
+    doc["devices"][2]["bindings"]["power"] = _entity(
+        "sensor.pv", freshness={"mode": pv_mode, "max_interval_s": 900}
+    )
+    rec = Recorder(
+        {
+            "sensor.house": _state("14", "kW"),
+            "sensor.pv": _state(
+                "0", "W", last_changed=nine_hours_ago, last_reported=nine_hours_ago
+            ),
+        }
+    )
+    pv = _resolve(doc, "solar_roof", "power", rec)
+    assert pv.state == (db.HELD if pv_mode == "change_only" else db.STALE)
+    got = _resolve(doc, "grid_main", "power", rec)
+    assert (got.state, got.value) == (expected, 14.0)
+
+
 # --- the divergence ledger for F04 (legacy price_intervals vs the oracle) ------------
 
 
