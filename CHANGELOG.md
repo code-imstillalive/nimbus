@@ -26,6 +26,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   install no longer needs the AEMO sensor for a markup. Installs without
   Amber Express change nothing (golden master: no plan value moved; the
   only difference is two more state reads per solve).
+- **A failed solve now says what failed, and a rescued one is counted**
+  (#1360). `sensor.nimbus_solver_solve_seconds` carries
+  `last_failure_raw_status` / `last_failure_at` (HiGHS's status and the time
+  of this process's last failed solve) and `unknown_retries` /
+  `unknown_retries_recovered` (#1723's retries after an Unknown, and how many
+  ended optimal), next to `solves_attempted` / `solver_failures`. The
+  reference household's 11-12 Oct episode, 41 of 427 solves failed between
+  20:45 and 07:26 AEST on v0.94.448, was found only from `solver_failures` in
+  recorder history: its warnings, which named the status, went with the next
+  restart's log. A rescued Unknown isn't a failure, so it left no record at
+  all. Observability only: nothing reads these values (golden master: the
+  four keys, null and 0, and no plan value moved).
 
 ### Fixed
 - **`sensor.nimbus_flex_telemetry` no longer sticks at `unknown` after a

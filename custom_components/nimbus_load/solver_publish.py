@@ -438,6 +438,12 @@ _PIN_MATCH_TOLERANCE_KW = 0.01
 # cycle is logged by solver_runtime as "solve cycle failed" and not counted.
 # On the standalone path each run is a new process, so both read 1/0 there.
 _CYCLE_COUNTS = {"solves_attempted": 0, "solver_failures": 0}
+# nimbus #1360 (15 Oct): which failure, and when. The reference household's
+# 11-12 Oct episode (41 of 427 cycles failed, 20:45-07:26 AEST, v0.94.448) is
+# readable afterwards only as a count: its warnings went with the next
+# restart's log. The last failure's HiGHS status and time ride on every later
+# healthy row, so the next episode says what it was.
+_LAST_FAILURE: dict[str, str | None] = {"raw_status": None, "at": None}
 
 _LOAD_FORECAST_SOURCE_KEYS = (
     "load_forecast_source_policy",
@@ -1731,6 +1737,8 @@ def publish_plan(
         save_plan_state(plan, period_hours_arr, grid_times[0])
     elif plan.solver_failed:
         _CYCLE_COUNTS["solver_failures"] += 1
+        _LAST_FAILURE["raw_status"] = plan.raw_status
+        _LAST_FAILURE["at"] = now.isoformat()
         # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
         # thing as a real infeasible model -- HiGHS gave up/hit a limit
         # without ever determining feasibility either way (see network.py's
@@ -2862,6 +2870,13 @@ def publish_plan(
                 # episode, readable from recorder history after a restart.
                 "solves_attempted": _CYCLE_COUNTS["solves_attempted"],
                 "solver_failures": _CYCLE_COUNTS["solver_failures"],
+                "last_failure_raw_status": _LAST_FAILURE["raw_status"],
+                "last_failure_at": _LAST_FAILURE["at"],
+                # nimbus #1360: an Unknown that #1723's retry rescued is not
+                # a failure, so without these a mitigated episode leaves no
+                # record once the log is gone.
+                "unknown_retries": lp.UNKNOWN_RETRIES["attempted"],
+                "unknown_retries_recovered": lp.UNKNOWN_RETRIES["recovered"],
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
