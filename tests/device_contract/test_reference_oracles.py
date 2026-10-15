@@ -14,7 +14,22 @@ from pathlib import Path
 
 import pytest
 
-from tests.device_contract.oracles import Flow, ac_side_kw, decompose, site_grid_kw
+from tests.device_contract.oracles import (
+    Flow,
+    Segment,
+    ac_side_kw,
+    decompose,
+    site_charge_kwh,
+    site_grid_kw,
+    site_grid_kwh,
+)
+from tests.device_contract.oracles_limits import (
+    Member,
+    SharedLimit,
+    combined_kw,
+    within,
+    within_copied_limits,
+)
 
 TOL = 1e-9
 F07 = json.loads(
@@ -100,3 +115,90 @@ def test_declared_losses_apply_on_the_ac_side() -> None:
     dc_ac = ac_side_kw(-2.0, 0.9)
     assert abs(dc_ac - (-2.0 / 0.9)) <= TOL
     assert abs(site_grid_kw(_flows(ev_dc=dc_ac)) - (2.0 / 0.9 - 2.0)) <= TOL
+
+
+# F07 variants (DC-000 §F07: partial-interval connection, two vehicles on one
+# charger, trip and reconnection) ------------------------------------------
+
+VARIANTS = F07["variants"]
+
+
+def _as_flows(raw: list[dict]) -> tuple[Flow, ...]:
+    return tuple(Flow(f["name"], f["role"], f["kw"], f.get("included_in")) for f in raw)
+
+
+def _segments(raw: list[dict]) -> list[Segment]:
+    return [Segment(s["hours"], _as_flows(s["flows"])) for s in raw]
+
+
+def test_partial_connection_counts_only_the_connected_part() -> None:
+    v = VARIANTS["partial_interval_connection"]
+    segs = _segments(v["segments"])
+    assert abs(site_grid_kwh(segs) - v["expected"]["grid_import_kwh"]) <= TOL
+    assert (
+        abs(site_charge_kwh(segs, "ev_dc") - v["expected"]["ev_dc_site_charge_kwh"])
+        <= TOL
+    )
+    # Treating the EV as connected all hour at its connected rate is wrong.
+    connected = segs[1]
+    whole = site_grid_kwh([Segment(1.0, connected.flows)])
+    assert abs(whole - v["expected"]["invalid_connected_all_interval_grid_kwh"]) <= TOL
+    assert abs(whole - site_grid_kwh(segs)) > TOL
+
+
+def test_partial_connection_matches_the_interval_mean() -> None:
+    """The site balance is linear, so the time-weighted segments equal the
+    balance of the interval's mean flows (the DC EV at -2 kW over the hour)."""
+    segs = _segments(VARIANTS["partial_interval_connection"]["segments"])
+    assert abs(site_grid_kwh(segs) - site_grid_kw(_flows())) <= TOL
+
+
+def _members(flows: tuple[Flow, ...], names: list[str]) -> list[Member]:
+    by = {f.name: f for f in flows}
+    return [Member(n, by[n].role, by[n].kw) for n in names]
+
+
+def test_two_vehicles_on_one_charger_count_once_and_share_one_limit() -> None:
+    v = VARIANTS["two_vehicles_one_charger"]
+    exp = v["expected"]
+    c = v["charger"]
+    limit = SharedLimit(
+        c["equipment"], c["quantity"], tuple(c["devices"]), c["limit_kw"]
+    )
+    both = _as_flows(v["both_connected"])
+    assert abs(site_grid_kw(both) - exp["both_connected_grid_kw"]) <= TOL
+    members = _members(both, c["devices"])
+    assert (
+        abs(combined_kw(c["quantity"], members) - exp["both_connected_charger_kw"])
+        <= TOL
+    )
+    assert within(limit, members) is exp["both_connected_within_charger"]
+    # The rating copied onto each vehicle would let 14 kW through a 12 kW charger.
+    assert (
+        within_copied_limits(members, c["limit_kw"])
+        is exp["both_connected_within_copied_limits"]
+    )
+    one = _as_flows(v["only_ev_a_drawing"])
+    assert abs(site_grid_kw(one) - exp["only_ev_a_grid_kw"]) <= TOL
+    assert within(limit, _members(one, c["devices"])) is exp["only_ev_a_within_charger"]
+
+
+def test_trip_and_reconnection_keep_driving_off_the_site() -> None:
+    v = VARIANTS["trip_and_reconnection"]
+    exp = v["expected"]
+    segs = _segments(v["segments"])
+    grid = site_grid_kwh(segs)
+    assert abs(grid - exp["grid_import_kwh"]) <= TOL
+    charged = site_charge_kwh(segs, "ev")
+    assert abs(charged - exp["ev_site_charge_kwh"]) <= TOL
+    pack_delta = v["pack_kwh"]["end"] - v["pack_kwh"]["start"]
+    # Lossless by declaration: what the site put in, less what the pack
+    # gained, left on the road.
+    assert abs((charged - pack_delta) - exp["driving_kwh_lossless"]) <= TOL
+    house_only = sum(f.kw * s.hours for s in segs for f in s.flows if f.name == "house")
+    from_pack = house_only + pack_delta
+    assert abs(from_pack - exp["invalid_pack_delta_as_site_grid_kwh"]) <= TOL
+    assert abs(from_pack - grid) > TOL
+    held = site_grid_kwh([Segment(s.hours, segs[0].flows) for s in segs])
+    assert abs(held - exp["invalid_setpoint_held_while_away_grid_kwh"]) <= TOL
+    assert abs(held - grid) > TOL

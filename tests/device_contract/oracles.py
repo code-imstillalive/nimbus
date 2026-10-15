@@ -67,6 +67,35 @@ def decompose(total: Flow, children: Iterable[Flow]) -> list[Flow]:
     return [Flow(total.name + " residual", "load", total.kw - embedded), *out]
 
 
+@dataclass(frozen=True)
+class Segment:
+    """Part of an interval during which the flows are constant. A vehicle
+    that is not connected to the site in a segment is simply not among its
+    flows: it exchanges nothing with the site there."""
+
+    hours: float
+    flows: tuple[Flow, ...]
+
+
+def site_grid_kwh(segments: Iterable[Segment]) -> float:
+    """Grid import energy over consecutive segments: each segment's balance,
+    weighted by its own duration. A flow present for part of an interval
+    counts only for that part."""
+    total = 0.0
+    for s in segments:
+        if s.hours <= 0:
+            raise ValueError("a segment must have a positive duration")
+        total += site_grid_kw(s.flows) * s.hours
+    return total
+
+
+def site_charge_kwh(segments: Iterable[Segment], name: str) -> float:
+    """Energy one battery or vehicle drew from the site (net of what it
+    returned) over the segments in which it was connected. Driving and
+    off-site charging change its pack but never appear here."""
+    return sum(-f.kw * s.hours for s in segments for f in s.flows if f.name == name)
+
+
 def ac_side_kw(dc_kw: float, efficiency: float) -> float:
     """AC power drawn (or delivered) for a DC transfer through a converter
     with the declared one-way efficiency: charging draws more than reaches
@@ -95,7 +124,7 @@ def validate_inclusion(flows: Iterable[Flow]) -> list[str]:
             problems.append(f"{f.name} included in undeclared {f.included_in}")
             continue
         seen = {f.name}
-        node = f.included_in
+        node: str | None = f.included_in
         while node is not None:
             if node in seen:
                 problems.append(f"inclusion cycle through {f.name}")
