@@ -19,7 +19,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _solver_path  # noqa: F401
@@ -32,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import number as number_mod
 from custom_components.nimbus_load import p5min, p5min_guard
 from custom_components.nimbus_load import sensor_p5min as sp
-from custom_components.nimbus_load.solver_inputs import prices
 
 NEM = p5min.NEM_TIME
 DIR = Path(__file__).resolve().parent / "fixtures" / "p5min" / "2026-10-15"
@@ -327,21 +326,19 @@ def test_release_on_a_real_dispatch_spike():
 
 def test_a_spike_dispatch_confirms_is_not_suppressed():
     """A genuine spike: P5MIN forecasts the cap with no violated constraint,
-    and dispatch prints the cap. Neither rule fires, and an Amber forecast
-    passes through untouched. Synthetic (the 16:15 run with its constraint
-    rows removed, and a $23,200 dispatch price): no fixture holds a
-    dispatch-confirmed spike."""
+    and dispatch prints the cap. Neither rule fires, and the scheduling
+    prices pass through untouched -- the same objects. Synthetic (the 16:15
+    run with its constraint rows removed, and a $23,200 dispatch price): no
+    fixture holds a dispatch-confirmed spike."""
     run, published = _run("202610151615")
     g = p5min_guard.FalseSpikeGuard()
     g.on_run(_no_constraints(run), published)
     g.on_dispatch(_t("16:15:00"), 23.2, _t("16:10:05"))
     assert not g.active and g.latched
-    grid, state = _amber_express([26.31] * 6)
-    with patch.object(solver_writer, "ha_get", _ha({**state, P5: _flag(g)})):
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            AMBER, grid, 5000.0
-        )
-    assert values == [26.31] * 6
+    grid = _grid(_t("16:10:00"), 6)
+    imp, exp = [0.42] + [26.31] * 5, [0.31] + [23.86] * 5
+    out = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, _ha({P5: _flag(g)}))
+    assert out[0] is imp and out[1] is exp
 
 
 def test_the_9_oct_spike_is_not_suppressed():
@@ -359,36 +356,17 @@ def test_the_9_oct_spike_is_not_suppressed():
     assert next(run for run, on in fired if on) == "04:30"
 
 
-# ---- the solver side ---------------------------------------------------------
+# ---- the solver side: Nimbus's scheduling prices ----------------------------
+# Mark Purcell on #1779: "This isn't an Amber vs Localvolts issue. Both carry
+# incorrect spike forecasts... This guard should be against the Nimbus
+# scheduling prices." So it acts on the final import/export arrays the plan is
+# solved against, whatever the source.
 
-AMBER = "sensor.amber_express_home_general_price"
-CORE = "sensor.home_general_forecast"
-LV = "sensor.localvolts_v2_buy_forecast"
 P5 = p5min_guard.P5MIN_ENTITY_ID
 
 
 def _grid(start: datetime, n: int, step: int = 5) -> list[datetime]:
     return [start + timedelta(minutes=step * i) for i in range(n)]
-
-
-def _amber_express(values, start=None, live="0.42"):
-    start = start or _t("16:10:00")
-    grid = _grid(start, len(values))
-    forecast = [{"time": t.isoformat(), "value": v} for t, v in zip(grid, values)]
-    detailed = [
-        {
-            "start_time": (t + timedelta(seconds=1)).isoformat(),
-            "end_time": (t + timedelta(minutes=5)).isoformat(),
-            "duration": 5,
-        }
-        for t in grid
-    ]
-    attrs = {
-        "forecast": forecast,
-        "detailedForecast": detailed,
-        "unit_of_measurement": "$/kWh",
-    }
-    return grid, {AMBER: {"state": live, "attributes": attrs}}
 
 
 def _flag(g: p5min_guard.FalseSpikeGuard) -> dict:
@@ -402,20 +380,87 @@ def _active_flag() -> dict:
 
 
 def _ha(states: dict):
-    read = MagicMock(side_effect=lambda eid: states[eid])
-    return read
+    return MagicMock(side_effect=lambda eid: states[eid])
 
 
-def test_amber_express_spikes_are_replaced_with_the_live_price():
-    """Act rule: while the flag holds, future spike intervals take the live
-    price. The flag was raised at 15:46:27, so it holds at 16:10."""
-    grid, state = _amber_express([26.31, 26.31, 26.31, 0.30, 26.31, 26.31])
-    with patch.object(solver_writer, "ha_get", _ha({**state, P5: _active_flag()})):
-        values, real = solver_writer.resample_generic_price_forecast_with_coverage(
-            AMBER, grid, 5000.0
-        )
-    assert values == [26.31, 0.42, 0.42, 0.30, 0.42, 0.42]
-    assert real[:5] == [True] * 5
+def _localvolts(grid, buy, sell):
+    """A LocalVolts v2 Flex Up forecast, read through the solver's own
+    LocalVolts reader into scheduling-price arrays."""
+    rows = [
+        {"time": t.isoformat(), "costsflexup": b, "earningsflexup": e}
+        for t, b, e in zip(grid, buy, sell)
+    ]
+    imp, _ = solver_writer.resample_price_with_extrapolation(
+        rows, "costsflexup", grid, [], {}
+    )
+    exp, _ = solver_writer.resample_price_with_extrapolation(
+        rows, "earningsflexup", grid, [], {}
+    )
+    return imp, exp
+
+
+def test_import_and_export_forward_spikes_are_replaced():
+    """Act rule, both sides: a high import price and a high POSITIVE feed-in
+    are spikes alike (the site's $/kWh, against the converted threshold).
+    Forward spikes take the current interval's price; the current interval
+    keeps its own. The flag was raised at 15:46:27, so it holds at 16:10."""
+    grid = _grid(_t("16:10:00"), 6)
+    imp = [0.42, 26.31, 26.31, 0.30, 26.31, 26.31]
+    exp = [0.31, 23.86, 23.86, 0.20, 23.86, 23.86]
+    out_imp, out_exp = p5min_guard.guard_schedule_prices(
+        imp, exp, grid, 5000.0, _ha({P5: _active_flag()})
+    )
+    assert out_imp == [0.42, 0.42, 0.42, 0.30, 0.42, 0.42]
+    assert out_exp == [0.31, 0.31, 0.31, 0.20, 0.31, 0.31]
+    assert imp[1] == 26.31  # the inputs are not mutated
+
+
+def test_a_localvolts_forward_spike_is_replaced_while_the_flag_holds():
+    """Act rule, LocalVolts included (Mark: LocalVolts carries incorrect
+    spike forecasts too). Replaced while the flag holds; kept with no flag,
+    with an expired flag, and with the guard set to 0 (off)."""
+    grid = _grid(_t("16:10:00"), 4)
+    imp, exp = _localvolts(grid, [0.42, 27.06, 27.06, 0.40], [0.31, 24.60, 24.60, 0.29])
+    flag = _ha({P5: _active_flag()})
+    out_imp, out_exp = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, flag)
+    assert out_imp == [0.42, 0.42, 0.42, 0.40]
+    assert out_exp == [0.31, 0.31, 0.31, 0.29]
+    no_flag = _ha({P5: {"state": "0.1", "attributes": {}}})
+    kept = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, no_flag)
+    assert kept == (imp, exp)
+    late = _grid(_t("16:50:00"), 4)  # raised 15:46:27, expires 16:46:27
+    kept = p5min_guard.guard_schedule_prices(imp, exp, late, 5000.0, flag)
+    assert kept == (imp, exp)
+    off = MagicMock(side_effect=AssertionError("the flag is not read when off"))
+    assert p5min_guard.guard_schedule_prices(imp, exp, grid, 0.0, off) == (imp, exp)
+
+
+def test_numpy_arrays_stay_numpy_arrays():
+    """The blend can hand back a numpy array; the guard keeps the type."""
+    import numpy as np
+
+    grid = _grid(_t("16:10:00"), 3)
+    imp = np.array([0.42, 26.31, 0.40])
+    exp = [0.31, 0.30, 0.29]
+    out_imp, out_exp = p5min_guard.guard_schedule_prices(
+        imp, exp, grid, 5000.0, _ha({P5: _active_flag()})
+    )
+    assert isinstance(out_imp, np.ndarray) and list(out_imp) == [0.42, 0.42, 0.40]
+    assert out_exp is exp
+
+
+def test_without_a_spike_the_flag_is_not_even_read():
+    """A solve with no forward spike reads nothing extra (the golden master
+    pins every read); a missing P5MIN sensor is no flag."""
+    grid = _grid(_t("16:10:00"), 3)
+    calm = [0.42, 0.40, 0.38]
+    read = MagicMock(side_effect=AssertionError("read"))
+    kept = p5min_guard.guard_schedule_prices(calm, calm, grid, 5000.0, read)
+    assert kept == (calm, calm)
+    spiky = [0.42, 26.31, 0.38]
+    missing = MagicMock(side_effect=KeyError(P5))
+    kept = p5min_guard.guard_schedule_prices(spiky, calm, grid, 5000.0, missing)
+    assert kept == (spiky, calm)
 
 
 def test_the_current_interval_is_never_replaced():
@@ -431,8 +476,8 @@ def test_the_current_interval_is_never_replaced():
     assert out == [26.31, 0.42, 0.42]
 
 
-def test_fallback_when_the_live_price_is_a_spike():
-    """Act rule: a spiking live price is not used; the current interval's
+def test_fallback_when_the_current_price_is_a_spike():
+    """Act rule: a spiking current price is not used; the current interval's
     calm price is, else the series' median calm price, else nothing."""
     grid = _grid(_t("16:10:00"), 4)
     out, _, fb = p5min_guard.replace_spikes([0.2, 26.0, 0.4, 26.0], grid, THR, 23.2)
@@ -443,94 +488,18 @@ def test_fallback_when_the_live_price_is_a_spike():
     assert out == [26.0] * 4 and n == 0 and fb is None
 
 
-def test_amber_electric_core_forecasts_are_guarded():
-    """Act rule: HA core Amber's `forecasts` rows are a guarded source."""
-    grid = _grid(_t("16:10:00"), 3)
-    rows = [
-        {
-            "start_time": (t + timedelta(seconds=1)).isoformat(),
-            "end_time": (t + timedelta(minutes=5)).isoformat(),
-            "duration": 5,
-            "per_kwh": 26.31,
-        }
-        for t in grid
-    ]
-    states = {
-        CORE: {
-            "state": "0.40",
-            "attributes": {"forecasts": rows, "unit_of_measurement": "$/kWh"},
-        },
-        P5: _active_flag(),
-    }
-    with patch.object(solver_writer, "ha_get", _ha(states)):
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            CORE, grid, 5000.0
-        )
-    assert values == [26.31, 0.40, 0.40]
+def test_main_guards_the_scheduling_prices_after_the_blend():
+    """Wiring: main() applies the guard to spot_import_raw/spot_export after
+    the blend and the settled-block re-assert, before fees, with the
+    dashboard threshold."""
+    import inspect
 
-
-def test_localvolts_prices_are_untouched():
-    """Act rule: LocalVolts is not a guarded source -- its forecast is never
-    rewritten and the flag is never even read for it."""
-    grid = _grid(_t("16:10:00"), 3)
-    forecast = [{"time": t.isoformat(), "value": 26.31} for t in grid]
-    states = {LV: {"state": "0.42", "attributes": {"forecast": forecast}}}
-    read = _ha({**states, P5: _active_flag()})
-    with patch.object(solver_writer, "ha_get", read):
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            LV, grid, 5000.0
-        )
-    assert values == [26.31] * 3
-    assert [c.args[0] for c in read.call_args_list] == [LV]
-    assert p5min_guard.source_kind(LV, states[LV]["attributes"]) is None
-
-
-def test_no_flag_or_an_expired_flag_changes_nothing():
-    """Act rule: the solver checks `expires_at` itself, and without a
-    threshold (any other caller) the reader is unchanged."""
-    grid, state = _amber_express([26.31] * 3, start=_t("16:50:00"))
-    with patch.object(solver_writer, "ha_get", _ha({**state, P5: _active_flag()})):
-        # raised 15:46:27, expires 16:46:27
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            AMBER, grid, 5000.0
-        )
-    assert values == [26.31] * 3
-    grid, state = _amber_express([26.31] * 3)
-    read = _ha({**state, P5: _active_flag()})
-    with patch.object(solver_writer, "ha_get", read):
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            AMBER, grid
-        )
-    assert values == [26.31] * 3
-    assert [c.args[0] for c in read.call_args_list] == [AMBER]
-    with patch.object(solver_writer, "ha_get", _ha(state)):  # no P5MIN sensor
-        values, _ = solver_writer.resample_generic_price_forecast_with_coverage(
-            AMBER, grid, 5000.0
-        )
-    assert values == [26.31] * 3
-
-
-def test_the_solver_reads_the_dashboard_threshold():
-    """The setting reaches the solve: the generic price branch passes
-    `solver_p5min_false_spike_threshold_mwh` to the reader."""
-    grid = _grid(datetime(2026, 10, 15, 6, 0, tzinfo=UTC), 3)
-    reader = MagicMock(return_value=([0.1] * 3, [True] * 3))
-    with patch.object(
-        prices._solver_writer(), "resample_generic_price_forecast_with_coverage", reader
-    ):
-        prices.build_price_arrays(
-            {
-                "solver_import_price_sensor": "sensor.i",
-                "solver_export_price_sensor": "sensor.e",
-                "solver_p5min_false_spike_threshold_mwh": 7000.0,
-            },
-            grid,
-            3,
-            grid[0],
-            False,
-            None,
-        )
-    assert [c.args[2] for c in reader.call_args_list] == [7000.0, 7000.0]
+    src = inspect.getsource(solver_writer.main)
+    guard = src.index("p5min_guard.guard_schedule_prices(")
+    assert src.index("blend_price_with_secondary_sources(") < guard
+    assert src.index('import_price_source[_i] = "primary"') < guard
+    assert '"solver_p5min_false_spike_threshold_mwh"' in src[guard : guard + 400]
+    assert "spot_import_raw, spot_export = p5min_guard" in src
 
 
 def test_the_threshold_is_a_dashboard_number_in_aud_per_mwh():

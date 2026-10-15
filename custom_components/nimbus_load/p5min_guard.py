@@ -25,12 +25,14 @@ no spike interval left, or 60 minutes after it was raised. After a timeout
 or a real dispatch spike it does not re-arm until a run is clean again, so
 the 60 minutes bound one episode rather than restarting every run.
 
-While it holds, `guard_reading()` replaces the solver's forward spike
-prices from the GUARDED_SOURCES (Amber Express, Amber Electric, and the
-P5MIN sensor itself) with the source's live price, or a non-spike fallback.
-The current 5-minute interval keeps its real price, so a spike that does
-arrive in dispatch is still sold into. LocalVolts is not in the set: its
-forecast never carried the cap on 15 Oct.
+While it holds, `guard_schedule_prices()` replaces forward spikes in
+Nimbus's SCHEDULING prices -- the import and export arrays the plan is
+solved against, after every source has been read and blended -- with the
+current interval's price, or a non-spike fallback. Whatever the source:
+Mark Purcell on #1779, "This isn't an Amber vs Localvolts issue. Both carry
+incorrect spike forecasts... This guard should be against the Nimbus
+scheduling prices." The current 5-minute interval keeps its real price, so a
+spike that does arrive in dispatch is still sold into.
 
 Pure: no `homeassistant` import. The sensor (`sensor_p5min.py`) holds the
 guard and publishes it as the `false_spike_guard` attribute; the solver
@@ -46,10 +48,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 try:
-    from . import p5min, price_intervals
+    from . import p5min
 except ImportError:  # pragma: no cover - standalone/cron path
     import p5min  # type: ignore[no-redef]
-    import price_intervals  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,13 +74,6 @@ REASON_DISPATCH = "dispatch_disagrees"
 RELEASE_DISPATCH_SPIKE = "dispatch_spiked"
 RELEASE_CLEAN = "forecast_clean"
 RELEASE_TIMEOUT = "timeout"
-
-SOURCE_AMBER_EXPRESS = "amber_express"
-SOURCE_AMBER_ELECTRIC = "amber_electric"
-SOURCE_P5MIN = "nimbus_p5min"
-# Which forward prices the flag rewrites. LocalVolts is deliberately absent
-# (#1778: its forecast did not carry the cap). Add a source here to guard it.
-GUARDED_SOURCES = frozenset({SOURCE_AMBER_EXPRESS, SOURCE_AMBER_ELECTRIC, SOURCE_P5MIN})
 
 _INTERVAL = timedelta(minutes=5)
 _KEEP_FORECASTS = 24  # two hours of interval ends
@@ -253,8 +247,8 @@ class FalseSpikeGuard:
             f"distrusted ({self.reason} since {self.since.isoformat() if self.since else None}): "
             f"constraint {head.get('constraint_id')} RHS {head.get('rhs')} MW violated by "
             f"{head.get('violation')} MW; forward spike prices >= "
-            f"{self.threshold:.2f}/kWh from {', '.join(sorted(GUARDED_SOURCES))} "
-            f"are replaced until it releases"
+            f"{self.threshold:.2f}/kWh in the scheduling prices are replaced "
+            f"until it releases"
         )
 
 
@@ -274,34 +268,19 @@ def holds(attr: Any, now: datetime) -> bool:
     return expires.tzinfo is not None and now < expires
 
 
-def source_kind(entity_id: str, attrs: Any) -> str | None:
-    """Which provider a price sensor is, from its own attributes."""
-    if entity_id == P5MIN_ENTITY_ID:
-        return SOURCE_P5MIN
-    if not isinstance(attrs, dict):
-        return None
-    if price_intervals.AMBER_EXPRESS_DETAILED_KEY in attrs:
-        return SOURCE_AMBER_EXPRESS
-    if price_intervals.is_amber_core_rows(
-        attrs.get(price_intervals.AMBER_CORE_ROWS_KEY)
-    ):
-        return SOURCE_AMBER_ELECTRIC
-    return None
-
-
 def replace_spikes(
-    values: list[float],
+    values: Any,
     grid_times: list[datetime],
     threshold: float,
     live_price: float | None,
-) -> tuple[list[float], int, float | None]:
+) -> tuple[Any, int, float | None]:
     """(values, replaced, fallback). Periods inside the current 5-minute
     interval keep their price. Later periods at or above `threshold` take
     the live price when it is not a spike, else the current interval's own
     non-spike price, else the median of the series' non-spike prices. With
     no non-spike price anywhere, nothing is replaced."""
-    if not values or not grid_times:
-        return list(values), 0, None
+    if len(values) == 0 or not grid_times:
+        return values, 0, None
     keep_until = interval_end(grid_times[0])
     current = [
         v for v, t in zip(values, grid_times) if t < keep_until and v < threshold
@@ -316,8 +295,8 @@ def replace_spikes(
     else:
         fallback = None
     if fallback is None:
-        return list(values), 0, None
-    out = list(values)
+        return values, 0, None
+    out = values.copy()  # a list or a numpy array, kept as it came
     replaced = 0
     for i, (v, t) in enumerate(zip(values, grid_times)):
         if t >= keep_until and v >= threshold:
@@ -326,58 +305,51 @@ def replace_spikes(
     return out, replaced, fallback
 
 
-def _state_price(state: dict[str, Any]) -> float | None:
-    try:
-        value = float(state["state"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    unit = (state.get("attributes") or {}).get("unit_of_measurement")
-    return value * price_intervals.price_unit_scale(unit)
+_LOGGED: set[str] = set()
 
 
-_LOGGED: set[tuple[str, str]] = set()
-
-
-def guard_reading(
-    entity_id: str,
-    state: dict[str, Any],
-    reading: tuple[list[float], list[bool]] | None,
+def guard_schedule_prices(
+    import_prices: Any,
+    export_prices: Any,
     grid_times: list[datetime],
     threshold_mwh: float | None,
     read_state: Callable[[str], dict[str, Any]],
-) -> tuple[list[float], list[bool]] | None:
-    """A price reader's (values, real) after the guard. Unchanged unless
-    `threshold_mwh` is given, the sensor is one of GUARDED_SOURCES, and the
-    P5MIN sensor's flag holds. Never raises: a failed read of the flag is
-    no flag."""
-    if reading is None or threshold_mwh is None or not grid_times:
-        return reading
-    attrs = state.get("attributes") if isinstance(state, dict) else None
-    if source_kind(entity_id, attrs) not in GUARDED_SOURCES:
-        return reading
+) -> tuple[Any, Any]:
+    """The scheduling import and export prices ($/kWh, the site's own) after
+    the guard. Unchanged -- the same objects -- unless a forward period is at
+    or above the threshold AND the P5MIN sensor's flag holds; the flag is
+    read only then, so a solve with no spike reads nothing extra. A high
+    positive feed-in is a spike on the export side exactly as a high import
+    price is on the import side. Never raises: a failed read is no flag."""
+    threshold = threshold_kwh(threshold_mwh)
+    if not grid_times or not any(
+        v >= threshold for prices in (import_prices, export_prices) for v in prices
+    ):
+        return import_prices, export_prices
     try:
         flag = (read_state(P5MIN_ENTITY_ID).get("attributes") or {}).get(ATTRIBUTE)
     except Exception:  # noqa: BLE001 -- no P5MIN sensor, no flag
-        return reading
+        return import_prices, export_prices
     if not isinstance(flag, dict) or not holds(flag, grid_times[0]):
-        return reading
-    values, replaced, fallback = replace_spikes(
-        list(reading[0]), grid_times, threshold_kwh(threshold_mwh), _state_price(state)
-    )
-    if replaced:
-        key = (str(flag.get("since")), entity_id)
-        if key not in _LOGGED:
+        return import_prices, export_prices
+    out = []
+    for side, prices in (("import", import_prices), ("export", export_prices)):
+        values, replaced, fallback = replace_spikes(prices, grid_times, threshold, None)
+        out.append(values if replaced else prices)
+        key = f"{flag.get('since')}|{side}"
+        if replaced and key not in _LOGGED:
             if len(_LOGGED) > 64:
                 _LOGGED.clear()
             _LOGGED.add(key)
             _LOGGER.warning(
-                "Nimbus #1778: %s: %d forward spike period(s) replaced with %.4f/kWh "
-                "while the P5MIN false-spike flag holds (%s since %s, until %s)",
-                entity_id,
+                "Nimbus #1778: %d forward %s spike period(s) replaced with "
+                "%.4f/kWh while the P5MIN false-spike flag holds (%s since %s, "
+                "until %s)",
                 replaced,
+                side,
                 fallback,
                 flag.get("reason"),
                 flag.get("since"),
                 flag.get("expires_at"),
             )
-    return values, reading[1]
+    return out[0], out[1]

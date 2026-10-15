@@ -13510,6 +13510,11 @@
     },
     {
      "method": "GET",
+     "path": "/api/states/sensor.nimbus_p5min_forecast",
+     "query": ""
+    },
+    {
+     "method": "GET",
      "path": "/api/states/sensor.fake_soc",
      "query": ""
     },

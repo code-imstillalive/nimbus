@@ -4691,9 +4691,7 @@ def _openadr_forecast_rows(entity_id: str) -> list | None:
 
 
 def resample_generic_price_forecast_with_coverage(
-    entity_id: str,
-    grid_times: list[datetime],
-    false_spike_threshold_mwh: float | None = None,
+    entity_id: str, grid_times: list[datetime]
 ) -> tuple[list[float], list[bool]] | None:
     """`_resample_generic_price_forecast_raw()` in $/kWh: its values scaled by
     the sensor's own `unit_of_measurement` (nimbus #1537), from the same single
@@ -4721,16 +4719,13 @@ def resample_generic_price_forecast_with_coverage(
         return _resample_generic_price_forecast_raw(entity_id, grid_times)
     r = _resample_generic_price_forecast_raw(entity_id, grid_times, state)
     attrs = state.get("attributes") or {}
-    if r is not None and not price_intervals.is_provider_shape(attrs):
-        scale = _price_scale_of_state(state)
-        if scale != 1.0:
-            r = ([v * scale for v in r[0]], r[1])
-    # nimbus #1778: while the P5MIN false-spike flag holds, an Amber (or
-    # P5MIN) forward spike is replaced; the current interval is kept. A no-op
-    # without a threshold, for any other source, or with no flag.
-    return p5min_guard.guard_reading(
-        entity_id, state, r, grid_times, false_spike_threshold_mwh, ha_get
-    )
+    if r is None or price_intervals.is_provider_shape(attrs):
+        return r
+    scale = _price_scale_of_state(state)
+    if scale == 1.0:
+        return r
+    values, real = r
+    return [v * scale for v in values], real
 
 
 def _resample_generic_price_forecast_raw(
@@ -4909,15 +4904,7 @@ def blend_price_with_secondary_sources(
     for key in secondary_keys:
         entity_id = cfg.get(key)
         if entity_id:
-            r = resample_generic_price_forecast_with_coverage(
-                entity_id,
-                grid_times,
-                _cfg_num(
-                    cfg,
-                    "solver_p5min_false_spike_threshold_mwh",
-                    p5min_guard.DEFAULT_THRESHOLD_MWH,
-                ),
-            )
+            r = resample_generic_price_forecast_with_coverage(entity_id, grid_times)
             if r is not None:
                 fc, mask = r
                 sources.append(np.array(fc, dtype=float))
@@ -9244,6 +9231,21 @@ def main() -> None:
         spot_export[_i] = spot_export_source[_i]
         import_price_source[_i] = "primary"
         export_price_source[_i] = "primary"
+
+    # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
+    # forward spikes in the SCHEDULING prices -- whatever the source, after
+    # blending -- are replaced; the current interval keeps its real price.
+    spot_import_raw, spot_export = p5min_guard.guard_schedule_prices(
+        spot_import_raw,
+        spot_export,
+        grid_times,
+        _cfg_num(
+            cfg,
+            "solver_p5min_false_spike_threshold_mwh",
+            p5min_guard.DEFAULT_THRESHOLD_MWH,
+        ),
+        ha_get,
+    )
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
