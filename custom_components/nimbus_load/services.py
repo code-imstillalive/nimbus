@@ -659,7 +659,8 @@ async def _async_handle_export_decision_inputs(
     `kinds` of just `head` returns every solve trimmed to its first two hours
     (a full-horizon record included, trimmed); just `horizon` returns only the
     full-horizon records. A window longer than 24 hours is refused: it would
-    be a very large response, and a caller can page.
+    be a very large response, and a caller can page. `series` (#1786) holds
+    the price-source forecast series the records' source lines name.
     """
     from .decision_inputs_store import async_export
 

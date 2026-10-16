@@ -27,18 +27,45 @@ This module is the pure half: which rows to keep, in what shape, and when.
 Rows are stored column-wise: one list per field. The same few keys repeated
 on every row are most of the bytes of the published attribute.
 
+## Each price source's own forecast series (nimbus #1786, step 1)
+
+On **full-horizon records** only, every price source the config names (import
+and export primaries and secondaries, the forecast array, the regional spot
+feeds, the P2P matched rate) plus Nimbus's own `sensor.nimbus_p5min_forecast`
+also carries its forecast series as the provider published it, so a
+consolidation rule other than the one the Solver used can be scored later
+against the same inputs. `source_series()` reads each shape with
+`price_intervals.py`'s own readers (AEMO NEM Data, NEM PD7DAY, Amber Electric
+`forecasts`, Amber Express `forecast` on `detailedForecast` boundaries),
+P5MIN's `{start, end, value}` rows, and the generic `{time, value}` /
+`calibrated` rows. The value is stored as published, never unit-converted;
+the body carries the sensor's `unit_of_measurement` and `to_dollars`, the
+factor the Solver itself applies to reach $/kWh (1 for a provider shape,
+whose adapter already reads $/kWh). OpenADR's forecast exists only behind an
+action and is not fetched here.
+
+A body is stored once per segment file under its fingerprint, the way configs
+are, and the source line names it (`series`), so an unchanged source costs
+one 16-character reference per record.
+
 ## What is NOT kept
 
-Provider-native rows before Nimbus resolves them. LocalVolts keeps its own for
-about three days and AEMO's are on NEMWEB, as #1658 records.
+Provider-native fields a reader does not use (Amber's `spot_per_kwh`,
+PD7DAY's `raw_value`, LocalVolts' per-row quality). LocalVolts keeps its own
+rows for about three days and AEMO's are on NEMWEB, as #1658 records.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from typing import Any
+
+from . import price_intervals as pi
+from .solver_shared import parse_iso
 
 HEAD_HOURS = 2.0
 HORIZON_EVERY = timedelta(minutes=30)
@@ -225,6 +252,140 @@ def source_line(
         line["forecast_first"] = _row_time(fc[0])
         line["forecast_last"] = _row_time(fc[-1])
     return line
+
+
+#: Of the source keys, the ones naming a PRICE input (#1786): solar, load and
+#: weather forecasts keep only their provenance line.
+_PRICE_KEY_HINTS = ("price", "spot", "matched_rate")
+#: Nimbus's own AEMO 5-minute pre-dispatch (#1653): a price source the config
+#: does not name, kept when the install publishes it.
+P5MIN_ENTITY = "sensor.nimbus_p5min_forecast"
+
+SHAPE_GENERIC = "time_value"
+SHAPE_START_END = "start_end_value"
+
+
+def price_source_entities(config: dict[str, Any]) -> list[str]:
+    """The price inputs among `source_entities()`, in the same order, then
+    `P5MIN_ENTITY`: the sources whose forecast series a horizon keeps."""
+    out = [
+        config[key]
+        for key in sorted(config)
+        if isinstance(config[key], str)
+        and config[key].startswith("sensor.")
+        and any(hint in key for hint in _SOURCE_KEY_HINTS)
+        and any(hint in key for hint in _PRICE_KEY_HINTS)
+    ]
+    out.append(P5MIN_ENTITY)
+    return list(dict.fromkeys(out))
+
+
+def _start_end_value_intervals(rows: Any) -> list[pi.PriceInterval]:
+    """`{start, end, value}` rows (P5MIN's own shape) -> intervals."""
+    parsed = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            start, end = parse_iso(row["start"]), parse_iso(row["end"])
+            value = float(row["value"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if math.isfinite(value) and end > start:
+            parsed.append(pi.PriceInterval(start, end, value))
+    parsed.sort(key=lambda i: i.start)
+    return parsed
+
+
+def _generic_points(rows: Any) -> list[tuple[datetime, float]]:
+    """The Solver's generic `{time, value}` rows (`calibrated` when `value` is
+    absent), read as `_resample_generic_price_forecast_raw()` reads them."""
+    points = []
+    for row in rows if isinstance(rows, list) else []:
+        try:
+            raw = row["value"] if "value" in row else row["calibrated"]
+            when, value = parse_iso(row["time"]), float(raw)
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if math.isfinite(value):
+            points.append((when, value))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+def _provider_series(attrs: dict[str, Any]) -> tuple[str, list[pi.PriceInterval]]:
+    """(shape, intervals) for a provider shape, in `price_intervals.
+    _provider_intervals()`'s own order; ("", []) when it is none of them."""
+    fc: Any = attrs.get("forecast")
+    if pi.is_aemo_nem_rows(fc):
+        return pi.AEMO_NEM_DOMAIN, pi.aemo_nem_intervals(fc)
+    if pi.is_pd7day_rows(fc):
+        return pi.PD7DAY_DOMAIN, pi.pd7day_intervals(fc)
+    if pi.is_amber_core_rows(fc):
+        return pi.AMBER_CORE_DOMAIN, pi.amber_core_intervals(fc)
+    rows: Any = attrs.get(pi.AMBER_CORE_ROWS_KEY)
+    if not fc and pi.is_amber_core_rows(rows):
+        return pi.AMBER_CORE_DOMAIN, pi.amber_core_intervals(rows)
+    if pi.AMBER_EXPRESS_DETAILED_KEY in attrs:
+        detailed = attrs[pi.AMBER_EXPRESS_DETAILED_KEY]
+        found = pi.amber_express_intervals(fc, detailed)
+        if found is not None:
+            return pi.AMBER_EXPRESS_DOMAIN, found
+    if isinstance(fc, list) and any(
+        isinstance(r, dict) and {"start", "end", "value"} <= r.keys() for r in fc
+    ):
+        return SHAPE_START_END, _start_end_value_intervals(fc)
+    return "", []
+
+
+def source_series(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A price source's forecast as published, or None when it has none.
+
+    `{shape, unit, to_dollars, t0, step_min, value, end}`: each row's start
+    as minutes after the previous row's (the first row's after `t0`, so 0;
+    a repeated 5 compresses to almost nothing, cumulative offsets do not),
+    its value exactly as the reader takes it from the provider (never
+    unit-converted), and `end` the final interval's end where the shape
+    states one. `to_dollars` is the factor the Solver applies to reach
+    $/kWh. `series_points()` decodes it."""
+    attrs = attributes or {}
+    shape, intervals = _provider_series(attrs)
+    points = [(i.start, i.value) for i in intervals]
+    end = intervals[-1].end if intervals else None
+    to_dollars = 1.0
+    if not shape:
+        shape, points = SHAPE_GENERIC, _generic_points(attrs.get("forecast"))
+        to_dollars = pi.price_unit_scale(attrs.get("unit_of_measurement"))
+    if not points:
+        return None
+    t0 = points[0][0]
+    starts = [t for t, _v in points]
+    steps = [(b - a).total_seconds() / 60.0 for a, b in pairwise([t0, *starts])]
+    return {
+        "shape": shape,
+        "unit": attrs.get("unit_of_measurement"),
+        "to_dollars": to_dollars,
+        "t0": t0.isoformat(),
+        "step_min": [int(m) if m == int(m) else round(m, 4) for m in steps],
+        "value": [v for _t, v in points],
+        "end": end.isoformat() if end is not None else None,
+    }
+
+
+def series_fingerprint(body: dict[str, Any]) -> str:
+    """A short, stable fingerprint of a series body's content."""
+    raw = json.dumps(body, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def series_points(body: dict[str, Any]) -> list[tuple[datetime, float]]:
+    """A stored series body back to (start, value) points."""
+    at = datetime.fromisoformat(str(body["t0"]))
+    points = []
+    for step, value in zip(
+        body.get("step_min") or [], body.get("value") or [], strict=True
+    ):
+        at += timedelta(minutes=float(step))
+        points.append((at, float(value)))
+    return points
 
 
 def _row_time(row: Any) -> str | None:

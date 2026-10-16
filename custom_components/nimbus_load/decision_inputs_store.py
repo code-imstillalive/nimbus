@@ -5,11 +5,15 @@
 `.storage/nimbus_load_<entry_id>_decision_inputs/{head,horizon}/<YYYYMMDDHH>.json.gz`,
 one gzip-JSON file per UTC hour per kind:
 
-    {"records": [...], "configs": {"<fingerprint>": {...}}}
+    {"records": [...], "configs": {"<fingerprint>": {...}},
+     "series": {"<fingerprint>": {...}}}
 
 A record names its config by fingerprint. The config body is stored in the
 same file the first time that fingerprint appears in it, so any one file can
-be read on its own.
+be read on its own. A horizon's price-source forecast series (#1786) works
+the same way: a source line names its series by fingerprint, and the body is
+stored in that file once. A file with no series (every head file, and any
+written before #1786) has no `series` key.
 
 Hourly files rather than one ring-buffer file: the current hour is the only
 file ever rewritten, so a write costs one hour of records rather than seven
@@ -66,6 +70,7 @@ class _Segment:
     key: str
     records: list[dict[str, Any]] = field(default_factory=list)
     configs: dict[str, Any] = field(default_factory=dict)
+    series: dict[str, Any] = field(default_factory=dict)
     loaded: bool = False
 
 
@@ -78,6 +83,11 @@ class _EntryState:
     last_horizon_at: datetime | None = None
     previous_class: str | None = None
     last_published_at: str | None = None
+    #: entity_id -> (its `last_updated`, series fingerprint, series body), so
+    #: an unchanged source is not re-read on every horizon.
+    series_cache: dict[str, tuple[str, str, dict[str, Any]]] = field(
+        default_factory=dict
+    )
 
 
 _STATE: dict[str, _EntryState] = {}
@@ -148,6 +158,7 @@ async def _segment_for(
     if existing:
         seg.records = list(existing.get("records") or [])
         seg.configs = dict(existing.get("configs") or {})
+        seg.series = dict(existing.get("series") or {})
     seg.loaded = True
     st.open[kind] = seg
     return seg
@@ -186,17 +197,6 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
     cfg_state = hass.states.get(_CONFIG_ENTITY)
     config = di.config_body(dict(cfg_state.attributes)) if cfg_state else {}
     fingerprint = di.config_fingerprint(config) if config else None
-    sources = []
-    for entity_id in di.source_entities(config):
-        src = hass.states.get(entity_id)
-        sources.append(
-            di.source_line(
-                entity_id,
-                src.state if src else None,
-                src.last_updated.isoformat() if src else None,
-                dict(src.attributes) if src else None,
-            )
-        )
 
     try:
         battery_now = float(rows[0].get("battery_kw"))
@@ -207,6 +207,7 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
         st.last_horizon_at, now, st.previous_class, current_class
     )
     kind = di.KIND_HORIZON if reason else di.KIND_HEAD
+    sources, bodies = _source_lines(hass, st, config, with_series=bool(reason))
 
     record = di.build_record(
         attrs,
@@ -231,6 +232,8 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
     seg.records.append(record)
     if fingerprint and fingerprint not in seg.configs:
         seg.configs[fingerprint] = config
+    for series_fp, body in bodies.items():
+        seg.series.setdefault(series_fp, body)
     st.dirty.add(kind)
     if reason:
         st.last_horizon_at = now
@@ -242,6 +245,41 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
     return kind
 
 
+def _source_lines(
+    hass: HomeAssistant, st: _EntryState, config: dict[str, Any], *, with_series: bool
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Each source's provenance line and, `with_series`, each price source's
+    forecast series (#1786): the line names it by fingerprint, and the bodies
+    come back keyed by fingerprint for the segment to store once. A source is
+    re-read only when its own `last_updated` has moved."""
+    lines: list[dict[str, Any]] = []
+    bodies: dict[str, dict[str, Any]] = {}
+    priced = set(di.price_source_entities(config)) if with_series else set()
+    entities = di.source_entities(config)
+    if with_series and di.P5MIN_ENTITY not in entities:
+        # Not named by the config; kept only where the install publishes it.
+        entities.append(di.P5MIN_ENTITY)
+    for entity_id in entities:
+        src = hass.states.get(entity_id)
+        if src is None and entity_id == di.P5MIN_ENTITY:
+            continue
+        updated = src.last_updated.isoformat() if src else None
+        attrs = dict(src.attributes) if src else None
+        line = di.source_line(entity_id, src.state if src else None, updated, attrs)
+        if entity_id in priced and src is not None and updated is not None:
+            cached = st.series_cache.get(entity_id)
+            if cached is None or cached[0] != updated:
+                body = di.source_series(attrs)
+                fp = di.series_fingerprint(body) if body else ""
+                cached = (updated, fp, body or {})
+                st.series_cache[entity_id] = cached
+            if cached[1]:
+                line["series"] = cached[1]
+                bodies[cached[1]] = cached[2]
+        lines.append(line)
+    return lines, bodies
+
+
 async def async_flush(hass: HomeAssistant, entry_id: str) -> None:
     """Write any unwritten records now. Never raises."""
     st = _STATE.get(entry_id)
@@ -249,7 +287,13 @@ async def async_flush(hass: HomeAssistant, entry_id: str) -> None:
         return
     try:
         segments = [
-            (kind, seg.key, {"records": seg.records, "configs": seg.configs})
+            (
+                kind,
+                seg.key,
+                # A file with no series (every head file) keeps #1676's shape.
+                {"records": seg.records, "configs": seg.configs}
+                | ({"series": seg.series} if seg.series else {}),
+            )
             for kind, seg in st.open.items()
             if kind in st.dirty
         ]
@@ -263,17 +307,19 @@ async def async_flush(hass: HomeAssistant, entry_id: str) -> None:
 
 def _read_window(
     root: Path, kinds: list[str], start: datetime, end: datetime
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     records: list[dict[str, Any]] = []
     configs: dict[str, Any] = {}
+    series: dict[str, Any] = {}
     for kind in kinds:
         for key in di.segments_overlapping(_list_keys(root, kind), start, end):
             data = _read_file(_path(root, kind, key)) or {}
             configs.update(data.get("configs") or {})
+            series.update(data.get("series") or {})
             records.extend(
                 r for r in data.get("records") or [] if di.in_window(r, start, end)
             )
-    return records, configs
+    return records, configs, series
 
 
 async def async_export(
@@ -284,7 +330,7 @@ async def async_export(
     kinds: list[str],
 ) -> dict[str, Any]:
     """Every stored record in [start, end) of the given kinds, oldest first,
-    with the config bodies they reference. Flushes first, so the answer
+    with the config bodies and source series they reference. Flushes first, so the answer
     includes the last few minutes."""
     if end <= start:
         raise ValueError("end must be after start")
@@ -294,7 +340,7 @@ async def async_export(
         )
     await async_flush(hass, entry_id)
     st = _state(hass, entry_id)
-    records, configs = await hass.async_add_executor_job(
+    records, configs, series = await hass.async_add_executor_job(
         _read_window, st.root, [di.KIND_HEAD, di.KIND_HORIZON], start, end
     )
     if di.KIND_HORIZON not in kinds:
@@ -303,6 +349,12 @@ async def async_export(
         records = [r for r in records if r.get("kind") == di.KIND_HORIZON]
     records.sort(key=lambda r: str(r.get("captured_at")))
     used = {r.get("config") for r in records}
+    used_series = {
+        line.get("series")
+        for r in records
+        for line in r.get("sources") or []
+        if isinstance(line, dict)
+    }
     return {
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -310,6 +362,8 @@ async def async_export(
         "count": len(records),
         "records": records,
         "configs": {k: v for k, v in configs.items() if k in used},
+        # #1786: each horizon's price-source forecast series, by fingerprint.
+        "series": {k: v for k, v in series.items() if k in used_series},
         "retention": {k: str(v) for k, v in di.KEEP.items()},
     }
 

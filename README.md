@@ -624,8 +624,10 @@ Edit inline on the dashboard without touching the wizard:
   two hours of rows (prices with their source, load, solar, battery, SoC,
   grid), the full horizon every 30 minutes and whenever the plan's period-0
   direction changed, the resolved settings, and the price and forecast
-  sources' own state at the time. Recorder does not keep the plan's rows, so
-  this is the only record of them. Kept 48 hours (heads) and 7 days (full
+  sources' own state at the time, and, on each full horizon, every price
+  source's own forecast series as published (`series`, by fingerprint), so
+  another way of combining the sources can be scored afterwards. Recorder
+  does not keep the plan's rows, so this is the only record of them. Kept 48 hours (heads) and 7 days (full
   horizons) under `.storage/`; at most 24 hours per call. Read-only.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is

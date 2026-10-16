@@ -39,6 +39,39 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   read and blended, whatever the source) with the current interval's price.
   The current interval keeps its real price, and 0 turns the guard off.
   #1660's shadow readiness signal is held off while the flag holds.
+- **A full-horizon decision-input record now keeps each price source's own
+  forecast series** (#1786 step 1, Mark Purcell). #1676's capture kept only a
+  summary of each source (value, `last_updated`, row count, first and last
+  time), so no consolidation rule other than the one the Solver used could
+  be scored afterwards. On every horizon record (the first solve, every 30
+  minutes, and every period-0 direction change; not on the every-solve
+  heads), each price source the config names (import and export primaries
+  and secondaries, the forecast array, the regional spot feeds, the P2P
+  matched rate) and Nimbus's own `sensor.nimbus_p5min_forecast` carry their
+  forecast as published: row starts and values in columns, read with
+  `price_intervals.py`'s own readers (AEMO NEM Data, NEM PD7DAY, Amber
+  Electric `forecasts`, Amber Express `forecast` on `detailedForecast`
+  boundaries), P5MIN's rows and the generic `{time, value}` rows. Values are
+  never unit-converted; each series records the sensor's
+  `unit_of_measurement` and the factor the Solver applies to reach $/kWh.
+  OpenADR's forecast, which exists only behind an action, is not fetched.
+  - **Stored once, referenced by fingerprint**, the way configs are: a source
+    line names its series (`series`), and an unchanged source costs one
+    reference, not another copy.
+  - **`nimbus_load.export_decision_inputs` returns a new `series` key** with
+    the bodies its records name. Every existing key and source-line field is
+    unchanged, files written before this read as before, and
+    `scripts/forecast_bias.py` reads the new export exactly as it read the
+    old one (tested).
+  - **Size, measured on synthetic jittered data (an upper bound):** eight
+    refreshed price sources add about 3.2 KB to a horizon record (about
+    6.2 KB without them), so about 2.2 MB over the 7-day retention at ~98
+    horizons a day. Heads are unchanged to the byte; series on every head
+    would have added ~1.5 MB per 48 h, the whole head budget agreed on
+    #1657, for versions the 30-minute horizons already sample. Retention is
+    unchanged (heads 48 h, horizons 7 days).
+  - Devhub validation: not claimed yet; a live export's real sizes are the
+    check.
 
 ## [0.94.457] - 2026-10-15
 

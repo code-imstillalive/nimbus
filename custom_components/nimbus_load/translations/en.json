@@ -539,7 +539,7 @@
     },
     "export_decision_inputs": {
       "name": "Export decision inputs",
-      "description": "Returns what the Solver decided on in a past window: each solve's first two hours of rows (prices with their source, load, solar, battery, SoC, grid), the full horizon every 30 minutes and whenever the dispatch direction changed, the resolved settings, and the price and forecast sources' state at the time. Kept 48 hours (heads) and 7 days (full horizons). Read-only; at most 24 hours per call.",
+      "description": "Returns what the Solver decided on in a past window: each solve's first two hours of rows (prices with their source, load, solar, battery, SoC, grid), the full horizon every 30 minutes and whenever the dispatch direction changed, the resolved settings, the price and forecast sources' state at the time, and on each full horizon every price source's own forecast series. Kept 48 hours (heads) and 7 days (full horizons). Read-only; at most 24 hours per call.",
       "fields": {
         "start": {
           "name": "Start",
