@@ -198,12 +198,16 @@ def test_the_target_binds_at_the_deadline_and_an_hour_before_each_day():
         datetime(2026, 10, 14, 0, 4, tzinfo=UTC), [(1, 1), (5, 5), (140, 30)]
     )
     found = solver_shared.charge_by_target_indices(times, hours, 15.0)
+    # The window's start, every period inside it, and the deadline (16 Oct).
     assert _ends_local(times, hours, found) == [
         "14 14:00",
+        "14 14:30",
         "14 15:00",
         "15 14:00",
+        "15 14:30",
         "15 15:00",
         "16 14:00",
+        "16 14:30",
         "16 15:00",
     ]
 
@@ -253,3 +257,76 @@ def test_the_plan_binds_the_target_with_the_margin():
     ).read_text(encoding="utf-8")
     assert "charge_by_period_indices=charge_by_target_indices(" in src
     assert "charge_by_period_indices=charge_by_period_indices(" not in src
+
+
+# --- held for the whole final hour (household, 16 Oct 2026) -----------------
+
+
+def test_inside_the_final_hour_every_period_binds():
+    """16 Oct, 14:34 AEST, Charge By 15:30: 'now' is past the margin's start
+    (14:30), so the two-instant rule kept only 15:30. Every period ending
+    between 14:30 and 15:30 binds now."""
+    times, hours = _grid(
+        datetime(2026, 10, 16, 4, 34, tzinfo=UTC), [(1, 1), (17, 5), (100, 30)]
+    )
+    found = solver_shared.charge_by_target_indices(times, hours, 15.5)
+    today = [e for e in _ends_local(times, hours, found) if e.startswith("16")]
+    assert today[0] == "16 14:35"
+    assert today[-1] == "16 15:30"
+    expected = {
+        i
+        for i, (t, h) in enumerate(zip(times, hours, strict=True))
+        if "16 14:30"
+        < solver_shared._local(t + timedelta(hours=h)).strftime("%d %H:%M")
+        <= "16 15:30"
+    }
+    assert expected <= found
+
+
+def _hold_plan(window):
+    """At the target already; this interval sells at 8.9c, the next two buy
+    at 0.7c. Three 20-minute periods, all inside the final hour."""
+    n = 3
+    return build_plan(
+        periods=PeriodGrid(hours=np.full(n, 1 / 3), start=START),
+        grid=GridConfig(
+            import_price=np.array([0.11, 0.007, 0.007]),
+            export_price=np.array([0.089, -0.005, -0.005]),
+            import_limit_kw=42.0,
+            export_limit_kw=40.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=CAP,
+                initial_soc_kwh=CAP,
+                min_soc_kwh=2.0,
+                max_soc_kwh=CAP,
+                max_charge_kw=40.0,
+                max_discharge_kw=40.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.005,
+                discharge_cost=0.01,
+                salvage_value=0.0,
+                charge_by_kwh=CAP,
+                charge_by_period_indices=window,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
+    )
+
+
+def test_the_deadline_alone_lets_it_sell_off_the_top_and_refill():
+    plan = _hold_plan(frozenset({2}))
+    assert plan.status == "optimal"
+    assert plan.battery_discharge_kw[0] > 1.0  # sells now ...
+    assert plan.battery_soc_kwh[2] >= CAP - 1e-6  # ... refills by the deadline
+
+
+def test_held_over_the_window_it_stays_full():
+    plan = _hold_plan(frozenset({0, 1, 2}))
+    assert plan.status == "optimal"
+    assert plan.battery_discharge_kw[0] < 1e-6
+    assert min(plan.battery_soc_kwh) >= CAP - 1e-6
