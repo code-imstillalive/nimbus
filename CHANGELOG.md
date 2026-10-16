@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The Solver tab's quality card shows the oracle EPR divides by** (#1797
+  review, 16 Oct 2026). EPR has divided by `j_star_evaluator`, the oracle's
+  plan repriced at real costs, since #1081. The card showed `j_star`, the raw
+  LP objective with its search penalties, so its three J figures did not
+  reproduce EPR.
+  - **The history rows:** keep `j_star` (no room under the attribute budget),
+    now documented as the LP objective; `quality_history_store` keeps both
+    figures for each day.
+  - **No score changes.**
+
 ## [0.94.460] - 2026-10-16
 
 The Solver tab shows the price guards at a glance; Charge By holds its

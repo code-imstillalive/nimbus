@@ -7481,6 +7481,13 @@ _QUALITY_HISTORY_FIELDS = (
     "epr",
     "j_ref",
     "j_ach",
+    # The raw LP objective, search penalties included -- NOT the oracle EPR
+    # divides by. EPR uses j_star_evaluator (#1081); a row has no room for it
+    # under the attribute budget (test_quality_report_attribute_size_budget),
+    # so recompute EPR from quality_history_store's records, which keep both.
+    # From a row, (j_ref - j_ach) / (j_ref - j_star) does not reproduce EPR,
+    # and on 17 Sep, 2 Oct and 7-8 Oct it looked as if the real result beat
+    # perfect foresight (#1797 review, 16 Oct 2026).
     "j_star",
     "regret_dollars",
 )
