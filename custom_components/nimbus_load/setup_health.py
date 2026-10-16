@@ -27,6 +27,8 @@ Conditions (stage 2):
   `pricing_autodetect` (#1564).
 - **a required Solver input is empty:** battery SoC, load forecast, solar
   forecast, import price, export price.
+- **no regional spot forecast on an Australian-NEM install** (16 Oct 2026):
+  from `pricing_autodetect.detect_missing_regional_forecast`.
 """
 
 from __future__ import annotations
@@ -68,6 +70,7 @@ KIND_FROZEN_PRICE = "frozen_price_input"
 KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
+KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
 
 # Required Solver inputs and the name the household sees for each.
 _REQUIRED_SOLVER_INPUTS: tuple[tuple[str, str], ...] = (
@@ -98,6 +101,7 @@ def evaluate_health(
     frozen_price_inputs: Iterable[tuple[str, str, str]] = (),
     fees_doubled: tuple[str, str] | None = None,
     fees_on_tariff: tuple[str, str] | None = None,
+    regional_forecast_missing: tuple[str, str] | None = None,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -204,6 +208,16 @@ def evaluate_health(
             )
         )
 
+    if regional_forecast_missing is not None:
+        found, where = regional_forecast_missing
+        issues.append(
+            HealthIssue(
+                key=KIND_NO_REGIONAL_FORECAST,
+                kind=KIND_NO_REGIONAL_FORECAST,
+                placeholders={"found": found, "where": where},
+            )
+        )
+
     missing = [label for key, label in _REQUIRED_SOLVER_INPUTS if not options.get(key)]
     if missing:
         issues.append(
@@ -235,6 +249,7 @@ async def async_refresh_health(
         from .pricing_autodetect import (
             detect_fees_doubled,
             detect_fees_on_pd7day_tariff,
+            detect_missing_regional_forecast,
         )
 
         store = hass.data.setdefault(DOMAIN, {}).setdefault("setup_health", {})
@@ -259,6 +274,9 @@ async def async_refresh_health(
             frozen_price_inputs=find_frozen_price_inputs(hass, dict(entry.options)),
             fees_doubled=detect_fees_doubled(hass, dict(entry.options)),
             fees_on_tariff=detect_fees_on_pd7day_tariff(hass, dict(entry.options)),
+            regional_forecast_missing=detect_missing_regional_forecast(
+                hass, dict(entry.options)
+            ),
         )
 
         current = set()

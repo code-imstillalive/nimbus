@@ -9,6 +9,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **A Repair when an Australian NEM install has no AEMO regional forecast.**
+  Without one, prices past the retailer's own forecast are one flat level,
+  and the stale-source fallback (#1793) has no AEMO price to switch to (seen
+  on a tester's install, 16 Oct). The Repair names the forecast Nimbus found,
+  or says to install NEM PD7DAY when none is installed, and clears itself
+  once the regional spot forecast is set. Never shown off the NEM.
 - **Calibrated solar p10 / p90 beside the envelope (#1807).** The solve's
   solar band (`lower_kw` / `upper_kw`) is an envelope: min/max across sources
   plus half their spread. On the reference household it read 0 all day and
