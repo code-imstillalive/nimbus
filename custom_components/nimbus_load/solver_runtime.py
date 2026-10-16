@@ -533,6 +533,11 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_PRICE_CONSOLIDATION_PATH",
         hass.config.path("nimbus_solver_price_consolidation.json"),
     )
+    # nimbus #1807: the solar forecast's error history survives restarts.
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_SOLAR_QUANTILES_PATH",
+        hass.config.path("nimbus_solver_solar_quantiles.json"),
+    )
 
 
 def _ensure_ready(hass: HomeAssistant):

@@ -1295,11 +1295,21 @@ class SolarConfig:
     this field existed). See network.py's CONFIDENCE-AWARE DISPATCH
     section for how `risk_aversion` turns this into an actually-used
     adjustment, not just decoration.
+
+    p10_kw/p90_kw (nimbus issue #1807): optional CALIBRATED quantiles of the
+    same forecast -- the actual should fall below p10 and above p90 about
+    10% of the time each (solver_inputs/solar_quantiles.py). Separate from
+    lower_kw/upper_kw on purpose: those are an envelope (min/max across
+    sources plus half their spread) and keep their existing meaning for the
+    risk band. Both None = not available. Nothing in the deterministic LP
+    reads them; they are for scenario-based consumers (#1805).
     """
 
     forecast_kw: NDArray[np.float64]
     lower_kw: NDArray[np.float64] | None = None
     upper_kw: NDArray[np.float64] | None = None
+    p10_kw: NDArray[np.float64] | None = None
+    p90_kw: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if np.any(self.forecast_kw < 0):
@@ -1307,6 +1317,9 @@ class SolarConfig:
             raise ValueError(msg)
         _validate_confidence_band(
             "Solar", self.forecast_kw, self.lower_kw, self.upper_kw
+        )
+        _validate_confidence_band(
+            "Solar quantile", self.forecast_kw, self.p10_kw, self.p90_kw
         )
 
 

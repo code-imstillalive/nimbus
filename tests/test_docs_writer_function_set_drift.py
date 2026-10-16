@@ -1019,6 +1019,23 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "remaining_today_mask",
         "reset_gate_state",
         "solcast_p50_at",
+        # nimbus issue #1807: calibrated solar p10/p90
+        # (solver_inputs/solar_quantiles.py) and the publish helper that puts
+        # them on each plan row. Open drift for the same reason as #1784
+        # above: grading the forecast reads the PV sensor's recorder history
+        # through fetch_entity_history_range + resample_history_mean +
+        # _kw_scale_factor, which the docs/cron copy does not carry.
+        "_actuals",
+        "_has_spread",
+        "_load",
+        "_quantiles",
+        "_rep_lead",
+        "_save",
+        "_solar_quantile_at",
+        "build_bands",
+        "interval_means",
+        "loo_coverage",
+        "update_and_build",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

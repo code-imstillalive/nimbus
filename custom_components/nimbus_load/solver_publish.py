@@ -1669,6 +1669,15 @@ def _consolidated_at(result, side: str, i: int) -> float | None:
     return None if v is None else round(float(v), 4)
 
 
+def _solar_quantile_at(result, key: str, i: int) -> float | None:
+    """nimbus issue #1807: one period of the calibrated solar p10/p90, or
+    None when no band was built this solve."""
+    values = (result or {}).get(key)
+    if not values or i >= len(values):
+        return None
+    return round(float(values[i]), 3)
+
+
 def _price_consolidation_attribute(result) -> dict | None:
     """nimbus #1786: the published summary, without the per-period series
     (those are on each row)."""
@@ -1766,6 +1775,8 @@ def publish_plan(
     price_source_freshness=None,
     # nimbus #1786: apply_price_consolidation()'s result, or None.
     price_consolidation=None,
+    # nimbus #1807: solar_quantiles.update_and_build()'s result, or None.
+    solar_quantiles=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -2288,6 +2299,9 @@ def publish_plan(
             "bonus_price": round(export_bonus_price[i], 4),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
+            # nimbus #1807: calibrated quantiles (None when not built).
+            "solar_p10_kw": _solar_quantile_at(solar_quantiles, "p10", i),
+            "solar_p90_kw": _solar_quantile_at(solar_quantiles, "p90", i),
             "dispatch_direction": dispatch_breakdown[i][0],
             # nimbus #1654 (Mark Purcell, 16 Oct): the battery idle while the
             # grid still flows means "hold": a dispatcher should preserve the
@@ -2557,6 +2571,10 @@ def publish_plan(
             "price_source_freshness": price_source_freshness,
             # nimbus #1786: mode, sources, method, spread and running error.
             "price_consolidation": _price_consolidation_attribute(price_consolidation),
+            # nimbus #1807: method, and per lead bucket the samples, the
+            # ratio quantiles and their leave-one-day-out coverage. Always
+            # present, so the key never appears and vanishes.
+            "solar_quantile_calibration": (solar_quantiles or {}).get("calibration"),
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
             **solver_shared.charge_by_summary(cfg, forecast),
