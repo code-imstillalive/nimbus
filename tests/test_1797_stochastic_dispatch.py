@@ -741,3 +741,54 @@ def test_the_joint_solve_never_runs_the_lex_or_calibrated_phases():
         res = sd.build_stochastic_plan(kw, blend_weight=1e-4)
     assert res.status == "optimal"
     assert res.objective_mode == "blended"
+
+
+# -- #1807: calibrated p10 / p90 before the envelope ---------------------------
+
+
+def _calibrated_solar_type():
+    """SolarConfig with #1807's p10_kw / p90_kw: the real one once #1809 is
+    merged, a test subclass carrying the same two fields before that."""
+    if any(f.name == "p10_kw" for f in dataclasses.fields(SolarConfig)):
+        return SolarConfig
+
+    @dataclasses.dataclass(frozen=True)
+    class _Calibrated(SolarConfig):
+        p10_kw: np.ndarray | None = None
+        p90_kw: np.ndarray | None = None
+
+    return _Calibrated
+
+
+def test_calibrated_quantiles_drive_the_scenarios_over_the_envelope():
+    """16 Oct 2026: the envelope's lower bound was 0 in every period, so its
+    p10 scenario was 'no sun all day'. With #1807's measured p10 / p90 present
+    the scenarios use them, and the summary says so."""
+    cal = _calibrated_solar_type()
+    solar = cal(
+        forecast_kw=np.array([2.0, 2.0, 4.0, 0.0]),
+        lower_kw=np.array([0.0, 0.0, 0.0, 0.0]),
+        upper_kw=np.array([9.0, 9.0, 17.0, 15.0]),
+        p10_kw=np.array([2.0, 2.0, 1.4, 0.0]),
+        p90_kw=np.array([2.0, 2.0, 5.2, 0.0]),
+    )
+    sc = sd.solar_scenarios(solar, k=2)
+    assert sc is not None and sc.band == "calibrated"
+    p10, _p50, p90 = sc.solar
+    assert list(p10.forecast_kw) == [2.0, 2.0, 1.4, 0.0]
+    assert list(p90.forecast_kw) == [2.0, 2.0, 5.2, 0.0]
+    for s in sc.solar:
+        assert s.lower_kw is None and s.upper_kw is None
+        assert s.p10_kw is None and s.p90_kw is None
+    # The night at index 3 has no calibrated spread, so it is not counted.
+    assert sc.no_sun_periods == 0
+
+
+def test_without_quantiles_the_envelope_is_used_and_labelled():
+    solar = SolarConfig(
+        forecast_kw=np.array([2.0, 2.0, 4.0, 0.0]),
+        lower_kw=np.array([1.0, 1.0, 1.0, 0.0]),
+        upper_kw=np.array([3.0, 3.0, 9.0, 5.0]),
+    )
+    sc = sd.solar_scenarios(solar, k=2)
+    assert sc is not None and sc.band == "envelope"

@@ -13596,6 +13596,7 @@
         "p50",
         "p90"
        ],
+       "solar_band": null,
        "stage1_battery_kw": null,
        "stage1_minutes": 30.0,
        "stage1_periods": 6,

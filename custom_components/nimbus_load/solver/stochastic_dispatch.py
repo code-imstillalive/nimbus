@@ -154,17 +154,44 @@ class SolarScenarios:
 
     solar: tuple[SolarConfig, SolarConfig, SolarConfig]
     no_sun_periods: int
+    # "calibrated" when the scenarios came from #1807's measured p10 / p90,
+    # "envelope" when they fell back to lower_kw / upper_kw.
+    band: str = "envelope"
+
+
+def _band(solar: SolarConfig) -> tuple[Any, Any, str]:
+    """#1807's calibrated p10 / p90 when the solve has them, else the
+    envelope. The envelope is the min/max across sources plus half their
+    spread: 0 in every period and 6-17 kW at midnight on 16 Oct, so its p10
+    scenario was "no sun all day". `getattr` so this reads correctly before
+    and after SolarConfig carries the fields."""
+    p10 = getattr(solar, "p10_kw", None)
+    p90 = getattr(solar, "p90_kw", None)
+    if p10 is not None and p90 is not None:
+        return p10, p90, "calibrated"
+    return solar.lower_kw, solar.upper_kw, "envelope"
+
+
+def _bandless(solar: SolarConfig, forecast: NDArray[np.float64]) -> SolarConfig:
+    """`solar` with `forecast` and no band of either kind: a scenario's
+    forecast sits on the band's edge, and SolarConfig validates the band
+    against the forecast."""
+    extra: dict[str, Any] = {}
+    if hasattr(solar, "p10_kw"):
+        extra = {"p10_kw": None, "p90_kw": None}
+    return replace(solar, forecast_kw=forecast, lower_kw=None, upper_kw=None, **extra)
 
 
 def solar_scenarios(solar: SolarConfig, k: int) -> SolarScenarios | None:
     """p10/p50/p90 bandless `SolarConfig`s, or None when there is no band
     (lower or upper missing) or no spread survives the rules in the module
     docstring -- the no-op case."""
-    if solar.lower_kw is None or solar.upper_kw is None:
+    band_lo, band_hi, band = _band(solar)
+    if band_lo is None or band_hi is None:
         return None
     f = np.asarray(solar.forecast_kw, dtype=np.float64)
-    lo = np.maximum(np.minimum(np.asarray(solar.lower_kw, dtype=np.float64), f), 0.0)
-    hi = np.maximum(np.asarray(solar.upper_kw, dtype=np.float64), f)
+    lo = np.maximum(np.minimum(np.asarray(band_lo, dtype=np.float64), f), 0.0)
+    hi = np.maximum(np.asarray(band_hi, dtype=np.float64), f)
     no_sun = f < NO_SUN_KW
     lo = np.where(no_sun, f, lo)
     hi = np.where(no_sun, f, hi)
@@ -175,15 +202,16 @@ def solar_scenarios(solar: SolarConfig, k: int) -> SolarScenarios | None:
         return None
     return SolarScenarios(
         solar=(
-            replace(solar, forecast_kw=lo, lower_kw=None, upper_kw=None),
-            replace(solar, forecast_kw=f.copy(), lower_kw=None, upper_kw=None),
-            replace(solar, forecast_kw=hi, lower_kw=None, upper_kw=None),
+            _bandless(solar, lo),
+            _bandless(solar, f.copy()),
+            _bandless(solar, hi),
         ),
         no_sun_periods=int(
             np.count_nonzero(
-                no_sun[k:] & (np.asarray(solar.upper_kw, dtype=np.float64)[k:] > f[k:])
+                no_sun[k:] & (np.asarray(band_hi, dtype=np.float64)[k:] > f[k:])
             )
         ),
+        band=band,
     )
 
 
@@ -433,6 +461,8 @@ class StochasticResult:
     scenario_costs: dict[str, float] = field(default_factory=dict)
     stage1_battery_kw: float | None = None
     no_sun_periods: int = 0
+    # SolarScenarios.band: "calibrated" (#1807) or "envelope".
+    solar_band: str | None = None
     n_joint_solves: int = 0
     n_joint_variables: int = 0
     n_nonanticipativity_rows: int = 0
@@ -534,6 +564,7 @@ def build_stochastic_plan(
             labels=SCENARIO_LABELS,
             solve_seconds=seconds,
             no_sun_periods=scenarios.no_sun_periods,
+            solar_band=scenarios.band,
             n_joint_solves=hook.n_joint_solves,
             raw_status=hook.last_raw_status,
             objective_mode=hook.objective_mode,
@@ -553,6 +584,7 @@ def build_stochastic_plan(
         scenario_costs=dict(hook.scenario_costs),
         stage1_battery_kw=net_battery_kw(plan),
         no_sun_periods=scenarios.no_sun_periods,
+        solar_band=scenarios.band,
         n_joint_solves=hook.n_joint_solves,
         n_joint_variables=hook.n_joint_variables,
         n_nonanticipativity_rows=hook.n_nonanticipativity_rows,
@@ -606,6 +638,7 @@ def summary_attribute(
             k: _rounded(v[0]) for k, v in result.scenario_stage1_battery_kw.items() if v
         },
         "no_sun_periods": int(result.no_sun_periods),
+        "solar_band": result.solar_band,
         "raw_status": result.raw_status,
         "objective_mode": result.objective_mode,
     }
