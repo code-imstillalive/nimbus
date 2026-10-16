@@ -239,6 +239,10 @@ try:
     from .solver_inputs import price_consolidation
 except ImportError:
     from solver_inputs import price_consolidation  # type: ignore[no-redef]
+try:
+    from .solver_inputs import solar_quantiles
+except ImportError:
+    from solver_inputs import solar_quantiles  # type: ignore[no-redef]
 # nimbus issue #1303 (Phase 4 of #1298): the `extra_batteries as
 # extra_batteries_inputs` import that used to sit here is gone. main()'s
 # plan-assembly span was its only reader in this module, and that span now lives
@@ -5287,6 +5291,16 @@ _PRICE_CONSOLIDATION_CACHE: dict[str, price_consolidation.SourceErrorTracker] | 
 )
 _PRICE_CONSOLIDATION_FAILED_LOGGED = False
 
+# nimbus issue #1807: the solar forecast's actual/p50 history by lead, from
+# which the calibrated p10/p90 are built (solver_inputs/solar_quantiles.py).
+# Same env-var convention; solver_runtime points it at HA's config directory.
+SOLAR_QUANTILES_PATH = os.environ.get(
+    "NIMBUS_SOLVER_SOLAR_QUANTILES_PATH",
+    "/opt/nimbus_solver_solar_quantiles.json",
+)
+_SOLAR_QUANTILES_CACHE: solar_quantiles.SolarErrorHistory | None = None
+_SOLAR_QUANTILES_SAVED = False
+
 
 def _load_price_trackers() -> dict[str, price_consolidation.SourceErrorTracker]:
     global _PRICE_CONSOLIDATION_CACHE
@@ -9154,8 +9168,19 @@ def main() -> None:
     # regressions each guard exists to prevent all live in
     # build_solar_arrays()'s own docstring rather than being restated
     # here in two places.
+    _solcast_band: list = []
     solar_kw, solar_lower_kw, solar_upper_kw = solar_inputs_solar.build_solar_arrays(
-        cfg, grid_times, n_periods, now
+        cfg, grid_times, n_periods, now, solcast_band_out=_solcast_band
+    )
+    # nimbus issue #1807: calibrated p10/p90 beside the envelope above.
+    solar_quantile_result = solar_quantiles.update_and_build(
+        sys.modules[__name__],
+        cfg,
+        now,
+        grid_times,
+        list(period_hours_arr),
+        solar_kw,
+        _solcast_band[0] if _solcast_band else None,
     )
 
     # Real household demand. OPTIONAL, richer path: sum a household's own
@@ -9701,6 +9726,8 @@ def main() -> None:
         load_lower_kw=load_lower_kw,
         load_upper_kw=load_upper_kw,
         previous_plan=previous_plan,
+        solar_p10_kw=solar_quantile_result["p10"],
+        solar_p90_kw=solar_quantile_result["p90"],
     )
     # Unpacked into the same names the inline span bound, so every line below
     # is byte-identical to before this phase.
@@ -9815,6 +9842,7 @@ def main() -> None:
         ),
         price_source_freshness=price_source_freshness,
         price_consolidation=price_consolidation_result,
+        solar_quantiles=solar_quantile_result,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
