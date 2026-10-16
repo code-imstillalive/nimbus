@@ -197,6 +197,7 @@ from .const import (
     CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
     CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
     CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
+    CONF_SOLVER_STOCHASTIC_DISPATCH,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -434,6 +435,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # nimbus #1786: solver_writer reads this off cfg every solve to decide
     # whether the consolidated price replaces the scheduling prices.
     CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
+    # nimbus #1797: solver_plan reads this off cfg every solve to decide
+    # whether the stochastic plan drives dispatch or runs in shadow.
+    CONF_SOLVER_STOCHASTIC_DISPATCH,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -665,6 +669,8 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     # nimbus #1786: the live switch for the consolidated price.
     CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
+    # nimbus #1797: the stochastic dispatch switch.
+    CONF_SOLVER_STOCHASTIC_DISPATCH,
 )
 # nimbus issue #485: select.py's own live string choices -- same
 # "resolve from a live entity, not entry.options" mechanism as the two

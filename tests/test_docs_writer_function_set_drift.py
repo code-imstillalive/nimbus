@@ -726,6 +726,16 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "source_updated",
         "aemo_series",
         "_stamp",
+        # nimbus #1797 -- two-stage stochastic dispatch in the main solve
+        # (shadow by default, a switch to drive). The model itself is in
+        # solver/stochastic_dispatch.py, which both copies can import; these
+        # are solver_plan.py's orchestration (switch, 5-minute shadow cadence,
+        # fallback). Native runtime first: the cron copy has no switch to
+        # read and, one process per solve, no in-process cadence to keep, so
+        # porting it needs a persisted cadence. Port next.
+        "run_stochastic_dispatch",
+        "reset_stochastic_state",
+        "_stochastic_fallback",
         # nimbus #1786 -- the consolidated price forecast and per-source
         # running error (shadow, with a live switch). Native runtime first;
         # the docs copy has no secondary-source coverage reader and no

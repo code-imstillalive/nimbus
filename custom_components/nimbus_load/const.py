@@ -1156,6 +1156,14 @@ DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = False
 # the plan; adoption follows measured least error, per Mark on #1786.
 CONF_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = "solver_price_consolidation_live"
 DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = False
+# nimbus #1797: two-stage stochastic dispatch (solar p10/p50/p90) in the main
+# solve. Off by default: the deterministic plan drives dispatch and the
+# stochastic solve runs in shadow, publishing only its `stochastic` summary.
+# On, the stochastic plan drives dispatch, falling back to the deterministic
+# plan for any cycle where it fails or is too slow. Off by default because it
+# changes dispatch; adopt it on days of shadow evidence, not on the model.
+CONF_SOLVER_STOCHASTIC_DISPATCH: Final = "solver_stochastic_dispatch"
+DEFAULT_SOLVER_STOCHASTIC_DISPATCH: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

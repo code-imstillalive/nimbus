@@ -2154,6 +2154,9 @@ def reset_flex_ranging_cadence() -> None:
     `main()` ranges and nothing is held over. For tests, which drive `main()`
     many times inside one interval; production never needs it."""
     solver_plan.reset_flex_ranging_state()
+    # nimbus #1797: the stochastic shadow solve's cadence is in-process state
+    # of the same kind, and tests drive main() many times inside one interval.
+    solver_plan.reset_stochastic_state()
     _LAST_FLEX_SIGNALS_POST.clear()
     solver_publish._LAST_FLEX_TELEMETRY_POST.clear()
 
@@ -9842,6 +9845,7 @@ def main() -> None:
         ),
         price_source_freshness=price_source_freshness,
         price_consolidation=price_consolidation_result,
+        stochastic=_assembly.stochastic,
         solar_quantiles=solar_quantile_result,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_

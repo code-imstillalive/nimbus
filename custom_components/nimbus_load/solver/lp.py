@@ -261,6 +261,24 @@ _LP_DUMP_DIR_ENV = "NIMBUS_LP_DUMP_DIR"
 _LP_DUMPED_PHASES: set[str] = set()
 
 
+# nimbus issue #1797: the two-stage stochastic joint solve (shadow, or a
+# drive cycle that falls back to the deterministic plan on failure) is
+# allowed to time out. Its failure is reported once, as a WARNING with a
+# `fallback_reason`, by its caller -- so on that solve this module's own
+# #773/#1179 diagnostics stay quiet: the slow/failed-call lines drop to
+# DEBUG, no model is dumped (which would also use up the once-per-process
+# dump slot the LIVE solve's own failures need), and a lex/calibration
+# failure does not start the module-wide cooldown that would skip the live
+# solve's calibration. Thread-local because the native runtime solves on
+# executor threads; set only by LPProblem.solve() for a problem whose
+# `quiet_diagnostics` is True.
+_QUIET = threading.local()
+
+
+def _diagnostics_quiet() -> bool:
+    return bool(getattr(_QUIET, "on", False))
+
+
 def _dump_failing_model(h: Any, label: str, *, issue: str = "773") -> str | None:
     """Write the model HiGHS is currently holding to an MPS file, once
     per label per process. Returns the path written, or None.
@@ -281,6 +299,8 @@ def _dump_failing_model(h: Any, label: str, *, issue: str = "773") -> str | None
     attached to the wrong issue by an operator doing exactly what the log
     line told them.
     """
+    if _diagnostics_quiet():
+        return None
     if label in _LP_DUMPED_PHASES:
         return None
     try:
@@ -621,7 +641,11 @@ def _timed_lp_call(
             alarming = elapsed >= _ALARMING_LP_CALL_SECONDS or (
                 status is not None and status != "Optimal"
             )
-            log = _LOGGER.warning if alarming else _LOGGER.debug
+            log = (
+                _LOGGER.warning
+                if alarming and not _diagnostics_quiet()
+                else _LOGGER.debug
+            )
             log(
                 "Nimbus #773 diag: HiGHS call %r took %.1fs "
                 "(threshold %.0fs, per-call limit %.0fs) -- "
@@ -649,7 +673,7 @@ def _timed_lp_call(
             # Gated on `alarming`, the same two-tier condition that
             # already decides WARNING vs DEBUG above, so a merely-slow
             # but healthy call writes nothing.
-            if alarming:
+            if alarming and not _diagnostics_quiet():
                 dump_path = _dump_failing_model(h, f"slow_{label}")
                 if dump_path is not None:
                     _LOGGER.warning(
@@ -1208,6 +1232,23 @@ class LPProblem:
     # a pure LP and _solve_highs() takes its original single-solve path
     # unchanged, byte-identical to before binaries existed.
     _binary: list[bool] = field(default_factory=list)
+    # nimbus issue #1797 (two-stage stochastic dispatch): a per-problem
+    # HiGHS time limit. None (the default, every existing caller) keeps
+    # DEFAULT_TIME_LIMIT_SECONDS exactly. The stochastic joint solve sets a
+    # tighter one so a slow joint MIP gives up and the cycle falls back to
+    # the deterministic plan instead of holding the executor thread.
+    time_limit_seconds: float | None = None
+    # nimbus issue #1797: see _QUIET. False (every existing caller) changes
+    # nothing.
+    quiet_diagnostics: bool = False
+    # nimbus issue #1805: on a BlendedOptions MIP that hits its time limit,
+    # keep HiGHS's incumbent when its MIP gap is at or below this. None
+    # (the default, every existing caller) keeps today's behaviour exactly:
+    # a timed-out MIP is an "error". Measured on devhub: the stochastic
+    # joint MIP stopped at 20 s with gap 3.7e-5, then failed only because
+    # HiGHS's time limit counts the whole Highs object's run time, so the
+    # instant pinned-LP refresh after it hit the same, already-spent limit.
+    accept_time_limited_mip_gap: float | None = None
 
     @property
     def is_mip(self) -> bool:
@@ -1343,6 +1384,91 @@ class LPProblem:
     def n_variables(self) -> int:
         return len(self._var_names)
 
+    def has_variable(self, name: str) -> bool:
+        """True when `name` is registered (nimbus issue #1797)."""
+        return name in self._var_index
+
+    def primary_cost_of(
+        self,
+        result: LPResult,
+        *,
+        within: LPProblem | None = None,
+        prefix: str = "",
+    ) -> float:
+        """This problem's own PRIMARY objective at `result`'s solution:
+        sum of `_cost[v] * x[v]` over this problem's variables only, at
+        this problem's own (unscaled) costs.
+
+        nimbus issue #1797: `result` may come from a larger problem this
+        one was absorbed into (see `absorb()`). `within` is that larger
+        problem and `prefix` the prefix this one was absorbed under; their
+        defaults read `result` as this problem's own. This is what gives one
+        scenario's cost out of the joint stochastic solve."""
+        if result.x is None:
+            msg = f"Cannot cost a non-optimal result (status={result.status!r})"
+            raise ValueError(msg)
+        index = (within or self)._var_index
+        x = result.x
+        return float(
+            sum(
+                cost * float(x[index[prefix + name]])
+                for name, cost in self._cost.items()
+            )
+        )
+
+    def absorb(self, other: LPProblem, *, prefix: str, cost_scale: float) -> None:
+        """Copy every variable, row and cost of `other` into this problem,
+        each variable renamed `prefix + name` and every primary and
+        secondary cost multiplied by `cost_scale` (nimbus issue #1797).
+
+        Used to build the two-stage stochastic joint problem: one complete
+        deterministic model per scenario in ONE problem. Rows keep their
+        given name with the prefix; an unnamed row is named the way
+        `_solve_highs()` would have auto-named it in `other` (`ub_{i}` /
+        `eq_{i}`), prefixed, so its dual stays findable and never collides
+        with this problem's own auto-named rows.
+
+        Absorbing into an EMPTY problem with `prefix=""` and
+        `cost_scale=1.0` reproduces `other` exactly, same variable order and
+        same row order -- which is what lets the joint result be read back
+        through `other`'s own `values_of()`.
+        """
+        if prefix == "" and self._var_names:
+            msg = "absorb(prefix='') is only allowed into an empty problem"
+            raise ValueError(msg)
+        for i, name in enumerate(other._var_names):
+            new = prefix + name
+            if new in self._var_index:
+                msg = f"Variable {new!r} already registered"
+                raise ValueError(msg)
+            self._var_index[new] = len(self._var_names)
+            self._var_names.append(new)
+            self._lb.append(other._lb[i])
+            self._ub.append(other._ub[i])
+            self._binary.append(other._binary[i])
+        for name, cost in other._cost.items():
+            self._cost[prefix + name] = self._cost.get(prefix + name, 0.0) + (
+                cost * cost_scale
+            )
+        for name, cost in other._secondary_cost.items():
+            self._secondary_cost[prefix + name] = self._secondary_cost.get(
+                prefix + name, 0.0
+            ) + (cost * cost_scale)
+        for i, ((terms, rhs), given) in enumerate(
+            zip(other._ub_rows, other._ub_row_names, strict=True)
+        ):
+            self._ub_rows.append(({prefix + v: c for v, c in terms.items()}, rhs))
+            self._ub_row_names.append(
+                given if prefix == "" else prefix + (given or f"ub_{i}")
+            )
+        for i, ((terms, rhs), given) in enumerate(
+            zip(other._eq_rows, other._eq_row_names, strict=True)
+        ):
+            self._eq_rows.append(({prefix + v: c for v, c in terms.items()}, rhs))
+            self._eq_row_names.append(
+                given if prefix == "" else prefix + (given or f"eq_{i}")
+            )
+
     def solve(
         self,
         *,
@@ -1394,9 +1520,18 @@ class LPProblem:
         decided by the primary-only MIP solve before any secondary cost
         is read.
         """
-        return _solve_highs(
-            self, ranging=ranging, keep_basis=keep_basis, options=options
-        )
+        if not self.quiet_diagnostics:
+            return _solve_highs(
+                self, ranging=ranging, keep_basis=keep_basis, options=options
+            )
+        previous = _diagnostics_quiet()
+        _QUIET.on = True
+        try:
+            return _solve_highs(
+                self, ranging=ranging, keep_basis=keep_basis, options=options
+            )
+        finally:
+            _QUIET.on = previous
 
     def value_of(self, result: LPResult, name: str) -> float:
         """Read one named variable's value out of a solved LPResult.
@@ -1597,7 +1732,7 @@ def _ensure_optimal_value(
                 dump_path,
                 _dump_location_note(),
             )
-        _LOGGER.error(
+        (_LOGGER.debug if _diagnostics_quiet() else _LOGGER.error)(
             "Nimbus #773 diag: lex/calibration phase %r failed to reach "
             "optimal (status=%r, n_vars=%s, n_binary=%s, mip_node_count=%s, "
             "mip_gap=%s, mip_dual_bound=%s, primal_solution_status=%s, "
@@ -1699,6 +1834,39 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
                 h.setOptionValue("primal_feasibility_tolerance", float(previous))
             except Exception:  # noqa: BLE001, S110 - restore is best-effort
                 pass
+
+
+# nimbus #1805: seconds the pinned-LP refresh gets after an accepted
+# timed-out MIP incumbent. That refresh is a pure LP at a fixed integer
+# point; measured on the joint stochastic problem it takes well under 1 s.
+PIN_REFRESH_SECONDS: float = 5.0
+
+
+def _accept_timed_out_incumbent(h: Any, problem: LPProblem) -> bool:
+    """True when `h` just stopped on its time limit holding a feasible
+    incumbent within `problem.accept_time_limited_mip_gap` (#1805).
+
+    Read before pinning: changing the model resets HiGHS's info, after
+    which `mip_gap` reads inf. False for every problem that leaves the
+    field None, so their timed-out MIPs stay errors exactly as before."""
+    limit = problem.accept_time_limited_mip_gap
+    if limit is None:
+        return False
+    if h.getModelStatus() != highspy.HighsModelStatus.kTimeLimit:
+        return False
+    info = h.getInfo()
+    feasible = int(info.primal_solution_status) == int(
+        highspy.SolutionStatus.kSolutionStatusFeasible
+    )
+    gap = float(info.mip_gap)
+    if not feasible or not gap <= limit:
+        return False
+    _LOGGER.info(
+        "Nimbus #1805: keeping a time-limited MIP incumbent (mip_gap=%.3g <= %.3g)",
+        gap,
+        limit,
+    )
+    return True
 
 
 def _pin_binaries_to_current_solution(
@@ -2177,8 +2345,13 @@ def _solve_with_options(
             n_binary=len(binary_cols),
         ):
             h.run()
+        accepted_timed_out_incumbent = _accept_timed_out_incumbent(h, problem)
         _pin_binaries_to_current_solution(h, var_array, binary_cols)
         if binary_cols:
+            if accepted_timed_out_incumbent:
+                # The time limit counts every run on `h`, so without this
+                # the pinned LP below starts already out of time (#1805).
+                h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
             # Refresh h's own live state on the now-continuous, pinned
             # problem -- same point as _ensure_optimal_value() would
             # make, but a blended-cost solve's result is never checked
@@ -2507,7 +2680,12 @@ def _solve_highs(
     # legitimately large problem, while still bounding a genuinely stuck
     # solve to a small fraction of even the fastest solve cadence this
     # project runs (the native runtime's own 1-minute timer).
-    h.setOptionValue("time_limit", DEFAULT_TIME_LIMIT_SECONDS)
+    h.setOptionValue(
+        "time_limit",
+        DEFAULT_TIME_LIMIT_SECONDS
+        if problem.time_limit_seconds is None
+        else float(problem.time_limit_seconds),
+    )
 
     # Real, confirmed live (2026-08-18): highspy's own batched
     # addVariables(n, lb=array, ub=array) form REJECTS per-variable array
@@ -2674,10 +2852,11 @@ def _solve_highs(
                     h, var_array, col_indices, problem, options, binary_cols
                 )
         except ValueError:
-            _lex_calibration_failed_until = (
-                time.monotonic() + _LEX_CALIBRATION_COOLDOWN_S
-            )
-            _LOGGER.warning(
+            if not _diagnostics_quiet():
+                _lex_calibration_failed_until = (
+                    time.monotonic() + _LEX_CALIBRATION_COOLDOWN_S
+                )
+            (_LOGGER.debug if _diagnostics_quiet() else _LOGGER.warning)(
                 "Nimbus #773: an intermediate lex/calibration phase failed "
                 "to reach optimal this cycle (see the ERROR line just above "
                 "for full HiGHS diagnostic detail) -- falling back to a "

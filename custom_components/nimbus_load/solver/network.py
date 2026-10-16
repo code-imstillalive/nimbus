@@ -274,7 +274,7 @@ import logging
 import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -294,6 +294,27 @@ from .elements import (
     ThermalLoadConfig,
 )
 from .lp import LPProblem, LPResult, SolveOptions, SweepRangingStep
+
+
+class LPSolveHook(Protocol):
+    """nimbus issue #1797: replaces `_build_plan_once()`'s one `p.solve()`.
+
+    Called with the fully built problem, the keyword arguments that solve
+    would have used (`ranging`, `keep_basis`, `options`), and the two
+    per-call build flags the `build_plan()` wrappers vary between calls, so
+    a hook that builds sibling problems (the stochastic scenarios) builds
+    them with the same flags. Returns the result `_build_plan_once()` then
+    reads back through `p`'s own variable names."""
+
+    def __call__(
+        self,
+        p: LPProblem,
+        solve_kwargs: dict[str, Any],
+        *,
+        thermal_hard_deadline: bool,
+        direction_binaries: frozenset[str],
+    ) -> LPResult: ...
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1746,6 +1767,7 @@ def _build_plan_once(
     solve_options: SolveOptions | None = None,
     thermal_hard_deadline: bool = True,
     direction_binaries: frozenset[str] = frozenset(),
+    lp_solve_hook: LPSolveHook | None = None,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -4075,10 +4097,24 @@ def _build_plan_once(
     # passed `solve_options=None` in the first place. `LPProblem.solve()`
     # itself now handles the MIP case (see its own docstring, #702) via
     # pin-and-relax, so there is no MIP-specific fallback left here.
-    result: LPResult = p.solve(
-        ranging=compute_signals,
-        keep_basis=compute_offer_curve,
-        options=solve_options if _use_secondary_costs else None,
+    solve_kwargs: dict[str, Any] = {
+        "ranging": compute_signals,
+        "keep_basis": compute_offer_curve,
+        "options": solve_options if _use_secondary_costs else None,
+    }
+    # nimbus issue #1797: `lp_solve_hook` is how the two-stage stochastic
+    # solve (solver/stochastic_dispatch.py) replaces this one solve with the
+    # joint, scenario-replicated problem. None (every other caller) is the
+    # ordinary solve, unchanged.
+    result: LPResult = (
+        p.solve(**solve_kwargs)
+        if lp_solve_hook is None
+        else lp_solve_hook(
+            p,
+            solve_kwargs,
+            thermal_hard_deadline=thermal_hard_deadline,
+            direction_binaries=direction_binaries,
+        )
     )
     if result.status != "optimal":
         return _infeasible_plan(
@@ -4740,6 +4776,7 @@ def _build_plan_thermal_fallback(
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     solve_options: SolveOptions | None = None,
     direction_binaries: frozenset[str] = frozenset(),
+    lp_solve_hook: LPSolveHook | None = None,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs -- the real
     public entry point every caller should use (see `_build_plan_once()`'s
@@ -4793,6 +4830,7 @@ def _build_plan_thermal_fallback(
         solve_options=solve_options,
         thermal_hard_deadline=True,
         direction_binaries=direction_binaries,
+        lp_solve_hook=lp_solve_hook,
     )
     if plan.status == "optimal" or not thermal_loads:
         return plan
@@ -4832,6 +4870,7 @@ def _build_plan_thermal_fallback(
         solve_options=solve_options,
         thermal_hard_deadline=False,
         direction_binaries=direction_binaries,
+        lp_solve_hook=lp_solve_hook,
     )
     if fallback_plan.status != "optimal":
         # Genuinely infeasible for reasons unrelated to the thermal
@@ -4943,6 +4982,7 @@ def build_plan(
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     solve_options: SolveOptions | None = None,
+    lp_solve_hook: LPSolveHook | None = None,
 ) -> Plan:
     """Build and solve the plan -- the public entry point every caller uses.
 
@@ -4968,6 +5008,11 @@ def build_plan(
     so they are not applied where they are not needed. See
     `_build_plan_thermal_fallback()` for the thermal-deadline retry this
     wraps.
+
+    `lp_solve_hook` (nimbus issue #1797) replaces each underlying solve with
+    the caller's own -- the two-stage stochastic dispatch
+    (`solver/stochastic_dispatch.py`) uses it to solve the joint scenario
+    problem. None, the default and every other caller, is the ordinary solve.
     """
     kwargs: dict[str, Any] = {
         "periods": periods,
@@ -4993,6 +5038,7 @@ def build_plan(
         "adequacy_semi_continuous": adequacy_semi_continuous,
         "battery_charge_earliness_budget_kw": battery_charge_earliness_budget_kw,
         "solve_options": solve_options,
+        "lp_solve_hook": lp_solve_hook,
     }
     plan = _build_plan_thermal_fallback(**kwargs)
     if plan.status != "optimal":
