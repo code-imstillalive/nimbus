@@ -1737,6 +1737,9 @@ def publish_plan(
     # its last covered period), from main()'s price coverage masks.
     import_price_provider_until=None,
     export_price_provider_until=None,
+    # nimbus #1793: the price source's refresh stamp, age and whether the
+    # plan fell back to AEMO; None when the source publishes no stamp.
+    price_source_freshness=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -2515,6 +2518,9 @@ def publish_plan(
             # provider's own forecast; later periods are Nimbus's estimate.
             "import_price_provider_until": import_price_provider_until,
             "export_price_provider_until": export_price_provider_until,
+            # nimbus #1793: always present (None when the source publishes
+            # no refresh stamp), so the key never appears and vanishes.
+            "price_source_freshness": price_source_freshness,
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
             **solver_shared.charge_by_summary(cfg, forecast),

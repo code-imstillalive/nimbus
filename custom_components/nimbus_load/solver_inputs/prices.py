@@ -33,6 +33,7 @@ sources of truth for one question.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -40,6 +41,10 @@ try:
     from .. import solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
+try:
+    from . import price_freshness
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver_inputs import price_freshness  # type: ignore[no-redef]
 
 
 def _solver_writer():
@@ -76,6 +81,10 @@ class PriceArrays:
     export_bonus_price: object
     match_fraction: object
     p2p_recent_volume_kwh: object
+    # nimbus #1793: the price source's refresh stamp and age, or None when it
+    # publishes none. `stale` True means every period above was priced from
+    # AEMO plus the learned markup instead of the source's own rows.
+    price_source_freshness: dict | None = None
 
 
 def build_price_arrays(
@@ -91,6 +100,7 @@ def build_price_arrays(
     """
     sw = _solver_writer()
 
+    price_source_freshness = None
     if has_price_forecast_array:
         # PRIMARY path -- richer than the generic fallback below whenever
         # this field is actually configured, unchanged in BEHAVIOUR from
@@ -183,6 +193,43 @@ def build_price_arrays(
             aemo_forecast,
             export_offset_by_5min,
         )
+        # nimbus #1793 (Mark Purcell): a source whose rows LocalVolts has not
+        # rebuilt for over an hour is not planned on. Every period, the
+        # current interval included, comes from AEMO plus the learned
+        # markup -- the rule already used beyond the source's horizon.
+        price_source_freshness = price_freshness.check(
+            sw.ha_get,
+            (
+                price_forecast_sensor,
+                cfg.get("solver_import_price_sensor"),
+                cfg.get("solver_export_price_sensor"),
+            ),
+            now,
+        )
+        if price_source_freshness and price_source_freshness["stale"]:
+            live_spot = None
+            spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
+            if spot_sensor:
+                try:
+                    live_spot = float(sw.price_now(spot_sensor, fallback=float("nan")))
+                except Exception:  # noqa: BLE001 -- no live spot is not an error
+                    live_spot = None
+                if live_spot is not None and math.isnan(live_spot):
+                    live_spot = None
+            fallback_import = price_freshness.aemo_series(
+                grid_times, aemo_forecast, import_offset_by_5min, sw._local, live_spot
+            )
+            fallback_export = price_freshness.aemo_series(
+                grid_times, aemo_forecast, export_offset_by_5min, sw._local, live_spot
+            )
+            if fallback_import is not None and fallback_export is not None:
+                spot_import_raw, spot_export = fallback_import, fallback_export
+                import_real_mask = [False] * len(grid_times)
+                export_real_mask = [False] * len(grid_times)
+                price_source_freshness = {**price_source_freshness, "fallback": "aemo"}
+                sw._warn_stale_price_source_once(price_source_freshness)
+            else:
+                price_source_freshness = {**price_source_freshness, "fallback": None}
         # nimbus #1537 item 5: the matched rate counts inside the household's
         # own configured blocks, not a fixed 17:00-24:00.
         # nimbus #1537 item 3: an optional second matched-rate source, used
@@ -427,4 +474,5 @@ def build_price_arrays(
         export_bonus_price=export_bonus_price,
         match_fraction=match_fraction,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
+        price_source_freshness=price_source_freshness,
     )

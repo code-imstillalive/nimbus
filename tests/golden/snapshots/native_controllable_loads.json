@@ -13084,6 +13084,7 @@
       "p2p_recent_avg_volume_kwh": 0.0,
       "p2p_volume_cap_shadow_price": -0.0,
       "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
+      "price_source_freshness": null,
       "price_spike_active": false,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
