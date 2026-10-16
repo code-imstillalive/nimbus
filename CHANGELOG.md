@@ -30,6 +30,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     stochastic dispatch (#1805).
   - A new state file, `nimbus_solver_solar_quantiles.json`, is written in
     the config directory.
+- **P5MIN false spikes: a dispatch-side RHS check, diagnostic only (#1778).**
+  On a new P5MIN run Nimbus also reads the latest DispatchIS interval. For
+  each constraint binding in dispatch (FCAS rows excluded), it compares
+  P5MIN's first-interval RHS. `sensor.nimbus_p5min_forecast` gains
+  `dispatch_rhs_check`: `rhs_suspect` when a ratio is under 0.6 or the
+  forecast violates what dispatch meets, with dispatch under $1,000/MWh, and
+  `flag` when P5MIN also spikes. One WARNING when the evidence appears. It
+  changes no price. Replayed on 15 and 16 Oct NEMWeb: 15 Oct flags
+  15:55-16:15 (missing 16:05, a constraint-id rollover); 16 Oct evidence
+  10:00-10:50, clearing on the 10:55 run AEMO corrected.
 
 ### Fixed
 - **The Solver tab's quality card shows the oracle EPR divides by** (#1797
