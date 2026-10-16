@@ -132,6 +132,37 @@ _EXPECTED_ATTRS = {
     # nimbus #1753: where the fixture's price forecast ends (its last covered
     # period), published for the Solver tab's Prices ahead card.
     "import_price_provider_until": "2026-09-10T19:30:00+10:00",
+    # nimbus #1786: the consolidation shadow. One source, so the median is
+    # the primary itself and no running error exists yet on a first solve.
+    "price_consolidation": {
+        "mode": "shadow",
+        "import": {
+            "sources": ["primary"],
+            "method": "median",
+            "spread_now": 0.0,
+            "mae_by_source_and_lead": {},
+            "samples": {},
+            "weights": {
+                "0-5 min": None,
+                "5-60 min": None,
+                "1-4 h": None,
+                "4-24 h": None,
+            },
+        },
+        "export": {
+            "sources": ["primary"],
+            "method": "median",
+            "spread_now": 0.0,
+            "mae_by_source_and_lead": {},
+            "samples": {},
+            "weights": {
+                "0-5 min": None,
+                "5-60 min": None,
+                "1-4 h": None,
+                "4-24 h": None,
+            },
+        },
+    },
     "export_price_provider_until": "2026-09-10T19:30:00+10:00",
     # nimbus #1793: the fixture's price sensors publish no refresh stamp.
     "price_source_freshness": None,

@@ -46,6 +46,14 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver_inputs import price_freshness  # type: ignore[no-redef]
 
+from . import price_consolidation
+
+
+def _bucket_5min(t):
+    """5-minute-of-day bucket, local time, as compute_5min_offset() keys it."""
+    lt = _solver_writer()._local(t)
+    return lt.hour * 12 + lt.minute // 5
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -85,6 +93,11 @@ class PriceArrays:
     # publishes none. `stale` True means every period above was priced from
     # AEMO plus the learned markup instead of the source's own rows.
     price_source_freshness: dict | None = None
+    # nimbus #1786: the regional wholesale forecast plus the learned retail
+    # markup, over the whole horizon, per side -- scored as a price source of
+    # its own by the consolidation shadow. None on the generic branch.
+    aemo_import_series: object = None
+    aemo_export_series: object = None
 
 
 def build_price_arrays(
@@ -152,6 +165,18 @@ def build_price_arrays(
             regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
             same_poll_wholesale=same_poll_wholesale,
         )
+        # nimbus #1786: AEMO plus markup as a source of its own. Never allowed
+        # to break the solve; None simply leaves it out of the consolidation.
+        try:
+            aemo_import_series = price_consolidation.aemo_markup_series(
+                grid_times, aemo_forecast, import_offset_by_5min, _bucket_5min
+            )
+            aemo_export_series = price_consolidation.aemo_markup_series(
+                grid_times, aemo_forecast, export_offset_by_5min, _bucket_5min
+            )
+        except Exception as e:  # noqa: BLE001 -- a shadow input must never break a solve
+            solver_shared._LOGGER.debug("Nimbus #1786: AEMO series failed: %s", e)
+            aemo_import_series = aemo_export_series = None
         # Real empirical price bands for price_risk_aversion (2026-08-21,
         # task #128 -- see compute_price_percentile_band()'s own docstring).
         # A SEPARATE, longer (14-day, vs the 5-day history already fetched
@@ -468,6 +493,7 @@ def build_price_arrays(
         # this-household-specific enhancement in the fallback branch above.
         import_price_upper_band = {}
         export_price_lower_band = {}
+        aemo_import_series = aemo_export_series = None
     return PriceArrays(
         spot_import_raw=spot_import_raw,
         spot_export=spot_export,
@@ -479,4 +505,6 @@ def build_price_arrays(
         match_fraction=match_fraction,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
         price_source_freshness=price_source_freshness,
+        aemo_import_series=aemo_import_series,
+        aemo_export_series=aemo_export_series,
     )

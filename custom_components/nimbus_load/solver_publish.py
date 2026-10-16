@@ -1653,6 +1653,24 @@ def _load_forecast_source_attributes(decision) -> dict:
     }
 
 
+def _consolidated_at(result, side: str, i: int) -> float | None:
+    """nimbus #1786: one period's consolidated price, rounded like the row's
+    other prices; None when consolidation did not run or had no source."""
+    if not result:
+        return None
+    values = result.get(f"consolidated_{side}_price") or []
+    v = values[i] if i < len(values) else None
+    return None if v is None else round(float(v), 4)
+
+
+def _price_consolidation_attribute(result) -> dict | None:
+    """nimbus #1786: the published summary, without the per-period series
+    (those are on each row)."""
+    if not result:
+        return None
+    return {k: v for k, v in result.items() if not k.startswith("consolidated_")}
+
+
 def publish_plan(
     *,
     cfg,
@@ -1740,6 +1758,8 @@ def publish_plan(
     # nimbus #1793: the price source's refresh stamp, age and whether the
     # plan fell back to AEMO; None when the source publishes no stamp.
     price_source_freshness=None,
+    # nimbus #1786: apply_price_consolidation()'s result, or None.
+    price_consolidation=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -2251,6 +2271,14 @@ def publish_plan(
             # Same #631 per-period source label as import_price_source
             # above, for the export side.
             "export_price_source": export_price_source[i],
+            # nimbus #1786: the consolidated forecast for this period, $/kWh,
+            # pre-fee like *_price_raw. Published in shadow and live alike.
+            "consolidated_import_price": _consolidated_at(
+                price_consolidation, "import", i
+            ),
+            "consolidated_export_price": _consolidated_at(
+                price_consolidation, "export", i
+            ),
             "bonus_price": round(export_bonus_price[i], 4),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
@@ -2521,6 +2549,8 @@ def publish_plan(
             # nimbus #1793: always present (None when the source publishes
             # no refresh stamp), so the key never appears and vanishes.
             "price_source_freshness": price_source_freshness,
+            # nimbus #1786: mode, sources, method, spread and running error.
+            "price_consolidation": _price_consolidation_attribute(price_consolidation),
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
             **solver_shared.charge_by_summary(cfg, forecast),
