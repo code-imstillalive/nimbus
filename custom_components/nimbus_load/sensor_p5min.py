@@ -41,7 +41,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import p5min, p5min_guard, price_intervals, sensor_discovery
+from . import dispatch_rhs, p5min, p5min_guard, price_intervals, sensor_discovery
 from .const import (
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
@@ -136,6 +136,10 @@ class NimbusP5MinForecastSensor(SensorEntity):
         self._error: str | None = None
         self._signal_since: datetime | None = None
         self._signal_peak: dict | None = None
+        # #1778, Mark's dispatch-side RHS test: diagnostic only.
+        self._rhs_check: dict | None = None
+        self._dispatch_file: str | None = None
+        self._dispatch_error: str | None = None
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -218,10 +222,51 @@ class NimbusP5MinForecastSensor(SensorEntity):
         run = await self.hass.async_add_executor_job(
             p5min.parse_run, text, self._region
         )
-        self.apply(name, run)
+        first = await self.hass.async_add_executor_job(
+            dispatch_rhs.first_interval_constraints, text
+        )
+        dispatch = await self._async_fetch_dispatch(session)
+        self.apply(name, run, dispatch=dispatch, forecast_first=first)
 
-    def apply(self, name: str, run: dict | None) -> None:
-        """Take one parsed run. Kept separate from the fetch so it is testable."""
+    async def _async_fetch_dispatch(self, session) -> dict | None:
+        """The latest DispatchIS interval for #1778's RHS check, or None. A
+        failure here never blocks the P5MIN run; it is recorded on its own."""
+        try:
+            async with session.get(dispatch_rhs.BASE_URL, timeout=_TIMEOUT) as resp:
+                resp.raise_for_status()
+                name = dispatch_rhs.latest_file_name(await resp.text())
+            if name is None:
+                self._dispatch_error = "no DispatchIS file listed"
+                return None
+            async with session.get(
+                dispatch_rhs.BASE_URL + name, timeout=_TIMEOUT
+            ) as resp:
+                resp.raise_for_status()
+                blob = await resp.read()
+            text = await self.hass.async_add_executor_job(_unzip_text, blob)
+            parsed = await self.hass.async_add_executor_job(
+                dispatch_rhs.parse_dispatch, text, self._region
+            )
+        except Exception as err:  # noqa: BLE001 -- a network fault is not a crash
+            self._dispatch_error = f"{type(err).__name__}: {err}"
+            _LOGGER.debug("DispatchIS fetch failed: %s", self._dispatch_error)
+            return None
+        self._dispatch_file = name
+        self._dispatch_error = (
+            None if parsed is not None else f"no {self._region} price in {name}"
+        )
+        return parsed
+
+    def apply(
+        self,
+        name: str,
+        run: dict | None,
+        *,
+        dispatch: dict | None = None,
+        forecast_first: dict | None = None,
+    ) -> None:
+        """Take one parsed run. Kept separate from the fetch so it is testable.
+        `dispatch` / `forecast_first` feed #1778's RHS check."""
         self._file = name
         self._fetched_at = datetime.now(UTC).isoformat()
         if run is None:
@@ -240,6 +285,7 @@ class NimbusP5MinForecastSensor(SensorEntity):
             if self._guard.active:
                 _LOGGER.warning(self._guard.describe(run))
             self._update_signal(published)
+            self._update_rhs_check(run, dispatch, forecast_first or {})
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -265,6 +311,43 @@ class NimbusP5MinForecastSensor(SensorEntity):
         ):
             self._signal_since = published
             self._signal_peak = p5min.future_peak(self._run)
+
+    def _update_rhs_check(
+        self, run: dict, dispatch: dict | None, forecast_first: dict
+    ) -> None:
+        """#1778: Mark's dispatch-side RHS comparison, published and logged
+        when its evidence changes. Changes no price."""
+        top = p5min.peak(run.get("forecast") or [])
+        was = (self._rhs_check or {}).get("rhs_suspect", False)
+        self._rhs_check = dispatch_rhs.compare(
+            dispatch,
+            forecast_first,
+            forecast_peak_mwh=round(top["value"] * 1000.0, 2) if top else None,
+            spike_mwh=p5min_guard.threshold_kwh(self._guard.threshold_mwh) * 1000.0,
+        )
+        now = self._rhs_check["rhs_suspect"]
+        if now and not was:
+            row = self._rhs_check["constraints"][0]
+            _LOGGER.warning(
+                "Nimbus #1778 (diagnostic): %s binds in dispatch at RHS %s but "
+                "P5MIN's run %s has it at %s (ratio %s, forecast violation %s); "
+                "dispatch %s $/MWh, P5MIN peak %s $/MWh. No price is changed.",
+                row["constraint_id"],
+                row["dispatch_rhs"],
+                run.get("run_datetime"),
+                row["forecast_rhs"],
+                row["ratio"],
+                row["forecast_violation"],
+                self._rhs_check["dispatch_rrp"],
+                self._rhs_check["forecast_peak"],
+            )
+        elif was and not now:
+            _LOGGER.info(
+                "Nimbus #1778 (diagnostic): forecast RHS matches dispatch again "
+                "(run %s, %s)",
+                run.get("run_datetime"),
+                self._rhs_check.get("reason"),
+            )
 
     @property
     def available(self) -> bool:
@@ -305,6 +388,9 @@ class NimbusP5MinForecastSensor(SensorEntity):
             "max_violation": p5min.max_violation(self._run),
             "violated_constraints": p5min.first_interval_violations(self._run),
             p5min_guard.ATTRIBUTE: self._guard.attribute(),
+            "dispatch_rhs_check": self._rhs_check,
+            "dispatch_rhs_source_file": self._dispatch_file,
+            "dispatch_rhs_last_error": self._dispatch_error,
             "forecast_at_dispatch": list(self._guard.compared),
             "forecast": rows,
             "previous_forecast": prev,
