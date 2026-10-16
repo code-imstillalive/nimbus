@@ -181,6 +181,8 @@ _EXPECTED_ATTRS = {
         "joint_variables": 0,
         "mode": "shadow",
         "no_sun_periods": 0,
+        # No band at all here, so neither the calibrated nor the envelope.
+        "solar_band": None,
         "nonanticipativity_rows": 0,
         "nonanticipativity_max_gap": None,
         "objective_mode": None,
