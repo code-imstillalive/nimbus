@@ -412,6 +412,10 @@ def test_every_row_has_a_short_name() -> None:
         if item in conditions:
             continue
         assert item.get("name"), item
+        if item["name"].startswith("${@name:"):
+            # Resolved per install to the entity's own short name
+            # ("SoC Our EV", sensor_battery_soc.py).
+            continue
         assert len(item["name"]) <= 32, item["name"]
         # The noise was the "Nimbus " prefix on every row; the chart legend's
         # "Nimbus plan (now)" names the plan line against "Measured" on purpose.

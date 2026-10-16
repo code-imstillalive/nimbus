@@ -48,6 +48,7 @@ from . import (
     done_condition,
     health,
     load_run_state,
+    sensor_battery_soc,
     sensor_discovery,
     sensor_flattened,
 )
@@ -1080,6 +1081,12 @@ async def async_setup_entry(
     # CURRENT in sensor_flattened.py for the declarative table.
     flattened_current_entities = sensor_flattened.create_flattened_entities_current(
         entry, sw_version
+    )
+    # Household, 16 Oct 2026: one SoC per battery on a multi-battery site
+    # (none on a single-battery one). Same forecast[0] fan-out; each takes
+    # its own battery from the plan's `batteries` (sensor_battery_soc.py).
+    flattened_current_entities = flattened_current_entities + list(
+        sensor_battery_soc.create(entry, sw_version)
     )
     battery_forecast._flattened_current_entities = flattened_current_entities
     # Issue #290 fix (2026-08-30) -- the two weather-mirror dashboard

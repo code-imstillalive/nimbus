@@ -761,6 +761,54 @@ def _breakdown_chart() -> dict[str, Any]:
 # --- Plan charts -----------------------------------------------------------
 
 
+# Household, 16 Oct 2026: on a site with more than one battery the fleet SoC
+# (every battery's kWh over all their capacity) matched no meter on the site,
+# so there each battery gets its own line instead. Slot 1 exists only there
+# (sensor_battery_soc.py), which is what selects one picture or the other.
+_MULTI_BATTERY = "@nimbus_solver_battery_1_soc_pct"
+_BATTERY_SOC_COLOURS = ("#3ddc84", "#ffd54f", "#ba68c8", "#4dd0e1")
+
+
+def _battery_soc_series(
+    past: dict[str, Any], ahead: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Measured-side and ahead SoC per battery slot. Unresolved on a
+    single-battery install, so resolve() drops every one of them there."""
+    series: list[dict[str, Any]] = []
+    for slot, colour in enumerate(_BATTERY_SOC_COLOURS):
+        key = f"nimbus_solver_battery_{slot}_soc_pct"
+        entity = f"@{key}"
+        # The battery's own name ("SoC Our EV"), from this install.
+        name = "${@name:" + key + "}"
+        series.append(
+            {
+                "entity": entity,
+                "name": name,
+                "type": "line",
+                "color": colour,
+                "stroke_width": 2,
+                "yaxis_id": "soc",
+                **past,
+            }
+        )
+        series.append(
+            {
+                "entity": entity,
+                "name": name,
+                "type": "line",
+                "color": colour,
+                "stroke_width": 2,
+                "stroke_dash": 4,
+                "yaxis_id": "soc",
+                "unit": "%",
+                "data_generator": _forecast_at_period_end("soc_pct"),
+                **ahead,
+                "show": {**ahead.get("show", {}), "in_legend": False},
+            }
+        )
+    return series
+
+
 def _chart() -> dict[str, Any]:
     """Past and plan on one axis, a Now line, step lines like the household's
     own "Nimbus vs Real" chart. Price is 5-minute detail behind Now (the buy
@@ -774,7 +822,9 @@ def _chart() -> dict[str, Any]:
         "to do at that moment (its first minute only); dashed: the plan "
         "ahead. Orange: the charge each plan held for later, before the next "
         "P2P block (% of battery); high and never worked off means the plan "
-        "keeps putting it off. Green: state of charge. Red: buy price.",
+        "keeps putting it off. Green: state of charge; with more than one "
+        "battery, one line each (the whole fleet's figure stays on Solver "
+        "Current SoC). Red: buy price.",
         [
             {
                 "entity": "@option:battery_sensor",
@@ -827,6 +877,7 @@ def _chart() -> dict[str, Any]:
                 "color": "#3ddc84",
                 "stroke_width": 1.5,
                 "yaxis_id": "soc",
+                "nimbus_unless": _MULTI_BATTERY,
                 **past,
             },
             {
@@ -839,8 +890,10 @@ def _chart() -> dict[str, Any]:
                 "yaxis_id": "soc",
                 "unit": "%",
                 "data_generator": _forecast_at_period_end("soc_pct"),
+                "nimbus_unless": _MULTI_BATTERY,
                 **ahead,
             },
+            *_battery_soc_series(past, ahead),
             {
                 "entity": "@nimbus_solver_current_import_price",
                 "name": "Buy price",
@@ -1444,6 +1497,13 @@ def resolve(value: Any, lookup: Callable[[str], str | None]) -> Any:
         refs = _TEXT_REF.findall(str(node.get("content", "")))
         if refs and not any(lookup(r) for r in refs):
             return None  # text about entities this install does not have
+        # `nimbus_unless: "@key"`: the node is for installs WITHOUT that
+        # entity (the fleet SoC lines, where per-battery ones replace them).
+        unless = node.get("nimbus_unless")
+        if isinstance(unless, str):
+            if lookup(unless.removeprefix("@")) is not None:
+                return None
+            node = {k: v for k, v in node.items() if k != "nimbus_unless"}
         node = {k: walk(v) for k, v in node.items()}
         if "entity" in node:
             target = one(node["entity"])
