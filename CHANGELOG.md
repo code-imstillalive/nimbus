@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **A stale price source is no longer planned on** (#1793, Mark Purcell).
+  On 16 Oct 2026 LocalVolts stopped rebuilding the reference household's
+  interval data at 10:01 AEST. Every poll succeeded and every entity looked
+  live, but the rows' `lastUpdate` stayed at 00:01:55Z for over two and a
+  half hours, still carrying AEMO's 10:01 false spike ($9-27/kWh,
+  13:00-16:00) after AEMO and Amber had withdrawn it. At 12:30 the plan sold
+  36-39 kW into a forecast $1.01/kWh while dispatch was ~5c/kWh.
+  - **How staleness is read:** Nimbus reads the source's own refresh stamp:
+    `source_updated` (purcell-lab/localvolts_v2#53), else `lastUpdate`, else,
+    for an LV v2 release before #53, `current_buy_rate`/`current_sell_rate`'s
+    `lastUpdate`. LV v2's `last_update` is its fetch time and is not used.
+  - **When it counts as stale:** over 60 minutes old. Measured over the
+    previous 30 hours, the stamp was 0-28.4 minutes old (median 0.9).
+  - **What the plan does then:** every period is priced from AEMO's forecast
+    plus the learned per-5-minute markup (the rule already used beyond a
+    source's horizon), and the current interval from AEMO's live dispatch
+    price plus the markup. Rows read `aemo_fallback`, and the plan publishes
+    `price_source_freshness` (stamp, age, entity, fallback).
+  - **Checked on production's live state at 12:42 AEST:** stale, 160
+    minutes; AEMO prices 13:00-16:00 at 7.8-11.1c before markup.
+  - **Unchanged:** an install whose provider publishes no refresh stamp.
+
 ## [0.94.458] - 2026-10-16
 
 The P5MIN false-spike guard: a forecast spike AEMO can only produce by

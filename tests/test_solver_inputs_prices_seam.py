@@ -55,6 +55,7 @@ EXPECTED_FIELDS = (
     "export_bonus_price",
     "match_fraction",
     "p2p_recent_volume_kwh",
+    "price_source_freshness",
 )
 
 

@@ -230,8 +230,10 @@ except ImportError:
         battery_soc as battery_soc_inputs,
     )
 try:
+    from .solver_inputs import price_freshness
     from .solver_inputs import prices as price_inputs
 except ImportError:
+    from solver_inputs import price_freshness  # type: ignore[no-redef]
     from solver_inputs import prices as price_inputs  # type: ignore[no-redef]
 # nimbus issue #1303 (Phase 4 of #1298): the `extra_batteries as
 # extra_batteries_inputs` import that used to sit here is gone. main()'s
@@ -5350,6 +5352,26 @@ def check_aemo_p5min_disagreement(
 _AEMO_P5MIN_LAST_WARNED_PERIOD: datetime | None = None
 
 
+# nimbus #1793: one warning per stale episode, keyed on the source's stamp.
+_STALE_PRICE_LAST_WARNED: str | None = None
+
+
+def _warn_stale_price_source_once(detail: dict) -> None:
+    global _STALE_PRICE_LAST_WARNED
+    if _STALE_PRICE_LAST_WARNED == detail.get("source_updated"):
+        return
+    _STALE_PRICE_LAST_WARNED = detail.get("source_updated")
+    _LOGGER.warning(
+        "Nimbus #1793: price source %s was last rebuilt at %s (%.0f min ago, "
+        "over %.0f); planning on AEMO's forecast plus the learned markup "
+        "until it refreshes (logged once per stale episode)",
+        detail.get("entity_id"),
+        detail.get("source_updated"),
+        detail.get("age_minutes", 0.0),
+        detail.get("stale_after_minutes", 0.0),
+    )
+
+
 def _warn_aemo_p5min_disagreement_once(period_start: datetime, detail: dict) -> None:
     global _AEMO_P5MIN_LAST_WARNED_PERIOD
     if _AEMO_P5MIN_LAST_WARNED_PERIOD == period_start:
@@ -9109,6 +9131,10 @@ def main() -> None:
     export_bonus_price = _prices.export_bonus_price
     match_fraction = _prices.match_fraction
     p2p_recent_volume_kwh = _prices.p2p_recent_volume_kwh
+    price_source_freshness = _prices.price_source_freshness
+    price_source_on_aemo = bool(
+        price_source_freshness and price_source_freshness.get("fallback") == "aemo"
+    )
 
     # The current settlement block must never be a forecast/blend value
     # (2026-08-27, nimbus repo issue #220, Mark Purcell): Amber,
@@ -9163,10 +9189,19 @@ def main() -> None:
     # simplification, not just a hardcode removal.
     settled_import_sensor = cfg["solver_import_price_sensor"]
     settled_export_sensor = cfg["solver_export_price_sensor"]
-    _settled_import_value = price_now(
-        settled_import_sensor, fallback=spot_import_raw[0]
-    )
-    _settled_export_value = price_now(settled_export_sensor, fallback=spot_export[0])
+    # nimbus #1793: a stale source's live state is the stale row too; on the
+    # AEMO fallback the current interval keeps the live AEMO price already
+    # set by build_price_arrays().
+    if price_source_on_aemo:
+        _settled_import_value = spot_import_raw[0]
+        _settled_export_value = spot_export[0]
+    else:
+        _settled_import_value = price_now(
+            settled_import_sensor, fallback=spot_import_raw[0]
+        )
+        _settled_export_value = price_now(
+            settled_export_sensor, fallback=spot_export[0]
+        )
     for _i in range(n_settled_periods):
         spot_import_raw[_i] = _settled_import_value
         spot_export[_i] = _settled_export_value
@@ -9231,6 +9266,14 @@ def main() -> None:
         spot_export[_i] = spot_export_source[_i]
         import_price_source[_i] = "primary"
         export_price_source[_i] = "primary"
+    if price_source_on_aemo:
+        # nimbus #1793: say on every row that the primary was not used.
+        for _i, _label in enumerate(import_price_source):
+            if _label == "primary":
+                import_price_source[_i] = price_freshness.FALLBACK_LABEL
+        for _i, _label in enumerate(export_price_source):
+            if _label == "primary":
+                export_price_source[_i] = price_freshness.FALLBACK_LABEL
 
     # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
     # forward spikes in the SCHEDULING prices -- whatever the source, after
@@ -9601,6 +9644,7 @@ def main() -> None:
         export_price_provider_until=provider_forecast_until(
             export_real_mask, grid_times
         ),
+        price_source_freshness=price_source_freshness,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
