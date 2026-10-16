@@ -407,6 +407,39 @@ def wait_for_stochastic_shadow(timeout: float | None = None) -> bool:
     return not thread.is_alive()
 
 
+def stochastic_settings(cfg: dict) -> dict[str, Any]:
+    """The stochastic solve's tuning dials (nimbus #1797), from the dashboard
+    numbers in `cfg`, each clamped to its entity's own range. The defaults are
+    the values these were hardcoded to before they became settings."""
+
+    def num(key: str, default: float, lo: float, hi: float) -> float:
+        return min(max(float(solver_shared._cfg_num(cfg, key, default)), lo), hi)
+
+    tail = num("solver_stochastic_tail_weight", 0.3, 0.05, 0.45)
+    return {
+        "weights": (tail, 1.0 - 2.0 * tail, tail),
+        "stage1_minutes": num(
+            "solver_stochastic_stage1_minutes",
+            stochastic_dispatch.STAGE1_MINUTES,
+            5.0,
+            120.0,
+        ),
+        "drive_budget_seconds": num(
+            "solver_stochastic_drive_budget_seconds",
+            STOCHASTIC_DRIVE_BUDGET_SECONDS,
+            2.0,
+            60.0,
+        ),
+        "interval_seconds": 60.0
+        * num(
+            "solver_stochastic_shadow_interval_minutes",
+            STOCHASTIC_SHADOW_INTERVAL_SECONDS / 60.0,
+            1.0,
+            60.0,
+        ),
+    }
+
+
 def run_stochastic_dispatch(
     cfg: dict,
     *,
@@ -440,9 +473,10 @@ def run_stochastic_dispatch(
         return plan, _stochastic_fallback(
             mode, now, "deterministic_not_optimal", plan, deterministic_seconds
         )
+    settings = stochastic_settings(cfg)
     if drive:
-        return _run_drive(now, plan, build_kwargs, deterministic_seconds)
-    return plan, _run_shadow(now, plan, build_kwargs, deterministic_seconds)
+        return _run_drive(now, plan, build_kwargs, deterministic_seconds, settings)
+    return plan, _run_shadow(now, plan, build_kwargs, deterministic_seconds, settings)
 
 
 def _due(now: datetime, wait: float) -> bool:
@@ -458,6 +492,7 @@ def _run_shadow(
     plan: network.Plan,
     build_kwargs: dict[str, Any],
     deterministic_seconds: float,
+    settings: dict[str, Any],
 ) -> dict | None:
     """Start a shadow solve when one is due and none is running; return the
     latest finished summary (or a placeholder before the first)."""
@@ -465,11 +500,7 @@ def _run_shadow(
     with _STOCHASTIC_LOCK:
         last_seconds = state["last_seconds"]
         slow = last_seconds is not None and last_seconds > STOCHASTIC_SLOW_SECONDS
-        wait = (
-            STOCHASTIC_SLOW_BACKOFF_SECONDS
-            if slow
-            else STOCHASTIC_SHADOW_INTERVAL_SECONDS
-        )
+        wait = STOCHASTIC_SLOW_BACKOFF_SECONDS if slow else settings["interval_seconds"]
         thread = state["thread"]
         running = thread is not None and thread.is_alive()
         start = not running and _due(now, wait)
@@ -484,7 +515,7 @@ def _run_shadow(
         if STOCHASTIC_SHADOW_IN_BACKGROUND:
             worker = threading.Thread(
                 target=_shadow_job,
-                args=(now, job_kwargs, blend_weight, det),
+                args=(now, job_kwargs, blend_weight, det, settings),
                 name="nimbus_stochastic_shadow",
                 daemon=True,
             )
@@ -492,7 +523,7 @@ def _run_shadow(
                 state["thread"] = worker
             worker.start()
         else:
-            _shadow_job(now, job_kwargs, blend_weight, det)
+            _shadow_job(now, job_kwargs, blend_weight, det, settings)
     with _STOCHASTIC_LOCK:
         summary = state["summary"]
     if summary is not None:
@@ -512,7 +543,11 @@ def _deterministic_facts(plan: network.Plan, deterministic_seconds: float) -> di
 
 
 def _shadow_job(
-    now: datetime, build_kwargs: dict[str, Any], blend_weight: float | None, det: dict
+    now: datetime,
+    build_kwargs: dict[str, Any],
+    blend_weight: float | None,
+    det: dict,
+    settings: dict[str, Any],
 ) -> None:
     """One shadow solve; never raises (it may run on its own thread)."""
     try:
@@ -520,6 +555,8 @@ def _shadow_job(
             build_kwargs,
             blend_weight=blend_weight,
             budget_seconds=STOCHASTIC_SHADOW_BUDGET_SECONDS,
+            weights=settings["weights"],
+            stage1_minutes=settings["stage1_minutes"],
         )
     except Exception as err:  # noqa: BLE001 -- a shadow failure must not escape its thread
         solver_shared._LOGGER.debug(
@@ -585,6 +622,7 @@ def _run_drive(
     plan: network.Plan,
     build_kwargs: dict[str, Any],
     deterministic_seconds: float,
+    settings: dict[str, Any],
 ) -> tuple[network.Plan, dict]:
     state = _STOCHASTIC_STATE
     with _STOCHASTIC_LOCK:
@@ -593,7 +631,7 @@ def _run_drive(
             0.0
             if n_fail == 0
             else min(
-                STOCHASTIC_SHADOW_INTERVAL_SECONDS * 2 ** (n_fail - 1),
+                settings["interval_seconds"] * 2 ** (n_fail - 1),
                 STOCHASTIC_SLOW_BACKOFF_SECONDS,
             )
         )
@@ -614,7 +652,9 @@ def _run_drive(
         result = stochastic_dispatch.build_stochastic_plan(
             build_kwargs,
             blend_weight=plan.calibration_weight_used,
-            budget_seconds=STOCHASTIC_DRIVE_BUDGET_SECONDS,
+            budget_seconds=settings["drive_budget_seconds"],
+            weights=settings["weights"],
+            stage1_minutes=settings["stage1_minutes"],
         )
     except Exception as err:  # noqa: BLE001 -- never break the deterministic plan
         solver_shared._LOGGER.debug(

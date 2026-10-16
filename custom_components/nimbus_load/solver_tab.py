@@ -499,16 +499,16 @@ def _stochastic_chart() -> dict[str, Any]:
             "stroke_width": 2,
             "stroke_dash": 5,
             "unit": "%",
-            "data_generator": _forecast_at_period_end("soc_pct"),
+            "data_generator": (
+                "if (!(entity.attributes.stochastic_paths || {}).soc_pct) "
+                "return []; " + _forecast_at_period_end("soc_pct")
+            ),
             **ahead,
         }
     )
     return _apex(
         "Battery ahead, three solar days",
-        "% of battery. The stochastic plan on a low (orange), middle (green) "
-        "and high (teal) solar day; dashed: the main plan. They agree on the "
-        "next 30 minutes by design; where they part later is the cover the "
-        "hedge buys.",
+        "% of battery: low, middle, high solar day; dashed: main plan.",
         series,
         height=300,
         graph_span="2d",
@@ -524,6 +524,23 @@ def _stochastic_chart() -> dict[str, Any]:
         ],
     )
 
+
+# The dials, under the status card in the same column: the switch, then
+# the four numbers (const.py says what each does).
+_STOCHASTIC_SETTINGS: _Card = (
+    "Stochastic settings",
+    [
+        ("solver_stochastic_dispatch", "Drive the battery"),
+        ("solver_stochastic_stage1_minutes", "Commit window"),
+        ("solver_stochastic_tail_weight", "Low and high day weight"),
+        ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
+        ("solver_stochastic_shadow_interval_minutes", "Check every"),
+    ],
+    (
+        "Off: it only checks. Weight: each of the low and high days; the "
+        "middle gets the rest."
+    ),
+)
 
 _STOCHASTIC_MONEY = {
     "type": "markdown",
@@ -1623,10 +1640,21 @@ def template() -> list[dict[str, Any]]:
             {"rows": 6},
         ),
         *_risk_row(),
-        # nimbus #1797: status, the three solar days' battery, their costs.
-        _section([_styled(_STOCHASTIC_STATUS, _FILL_NO_SCROLL)], 1, {"rows": 6}),
-        _section([_styled(_stochastic_chart(), _FILL)], 2, {"rows": 6}),
-        _section([_styled(_STOCHASTIC_MONEY, _FILL_NO_SCROLL)], 1, {"rows": 6}),
+        # nimbus #1797, one row: status with its settings under it, the
+        # three solar days' battery, their costs.
+        {
+            "type": "grid",
+            "column_span": 1,
+            "cards": [
+                {
+                    **_styled(_STOCHASTIC_STATUS, _FILL_NO_SCROLL),
+                    "grid_options": {"columns": "full", "rows": 4},
+                },
+                {**_card(_STOCHASTIC_SETTINGS), "grid_options": {"columns": "full"}},
+            ],
+        },
+        _section([_styled(_stochastic_chart(), _FILL)], 2, {"rows": 9}),
+        _section([_styled(_STOCHASTIC_MONEY, _FILL_NO_SCROLL)], 1, {"rows": 9}),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],

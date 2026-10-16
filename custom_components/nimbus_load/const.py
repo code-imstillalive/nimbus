@@ -1164,6 +1164,26 @@ DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = False
 # changes dispatch; adopt it on days of shadow evidence, not on the model.
 CONF_SOLVER_STOCHASTIC_DISPATCH: Final = "solver_stochastic_dispatch"
 DEFAULT_SOLVER_STOCHASTIC_DISPATCH: Final = False
+# nimbus #1797: the stochastic solve's tuning, each a dashboard number
+# (no hardcoded values). Commit window: how long the decision now must
+# hold across every solar day before the plan may react (the solar
+# forecasts update on a 30-minute grid). Low/high day weight: the weight
+# of each of the low and high solar days; the middle day gets the rest
+# (0.3 / 0.4 / 0.3, Swanson's rule, by default). Drive time limit: the
+# whole stochastic solve's budget when it drives; over it, that cycle uses
+# the main plan. Check every: how often the shadow solve runs.
+CONF_SOLVER_STOCHASTIC_STAGE1_MINUTES: Final = "solver_stochastic_stage1_minutes"
+DEFAULT_SOLVER_STOCHASTIC_STAGE1_MINUTES: Final = 30.0
+CONF_SOLVER_STOCHASTIC_TAIL_WEIGHT: Final = "solver_stochastic_tail_weight"
+DEFAULT_SOLVER_STOCHASTIC_TAIL_WEIGHT: Final = 0.3
+CONF_SOLVER_STOCHASTIC_DRIVE_BUDGET_SECONDS: Final = (
+    "solver_stochastic_drive_budget_seconds"
+)
+DEFAULT_SOLVER_STOCHASTIC_DRIVE_BUDGET_SECONDS: Final = 10.0
+CONF_SOLVER_STOCHASTIC_SHADOW_INTERVAL_MINUTES: Final = (
+    "solver_stochastic_shadow_interval_minutes"
+)
+DEFAULT_SOLVER_STOCHASTIC_SHADOW_INTERVAL_MINUTES: Final = 5.0
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

@@ -113,8 +113,12 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             assert not cards[0].get("text_only")  # outlined like a card
             layout.append([_block(cards[0])])
             continue
-        if len(cards) > 1:  # the daily summary: today and tomorrow, stacked
-            assert [_what(c) for c in cards] == ["Solver Daily Summary"] * 2
+        if len(cards) > 1:  # two cards stacked in one column
+            assert [_what(c) for c in cards] in (
+                ["Solver Daily Summary"] * 2,  # today and tomorrow
+                # nimbus #1797: the stochastic status, its settings under it.
+                ["markdown: Stochastic dispatch", "Stochastic settings"],
+            )
         layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
         [

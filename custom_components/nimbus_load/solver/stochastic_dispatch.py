@@ -575,6 +575,8 @@ class StochasticResult:
     objective_mode: str | None = None
     nonanticipativity_max_gap: float | None = None
     scenario_stage1_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # The commit window this solve used (minutes); K is its period count.
+    stage1_minutes: float = STAGE1_MINUTES
     # Every battery's SoC at the horizon's last period, per scenario: the
     # spread shows how much the terminal value is carrying (a cheap terminal
     # value lets a sunny scenario dump energy at the end).
@@ -652,6 +654,7 @@ def build_stochastic_plan(
             k=k,
             weights=tuple(weights),
             labels=SCENARIO_LABELS,
+            stage1_minutes=float(stage1_minutes),
             solve_seconds=time.monotonic() - started,
         )
     base = {key: v for key, v in build_kwargs.items() if key != "solar"}
@@ -685,6 +688,7 @@ def build_stochastic_plan(
             k=k,
             weights=tuple(weights),
             labels=SCENARIO_LABELS,
+            stage1_minutes=float(stage1_minutes),
             solve_seconds=seconds,
             no_sun_periods=scenarios.no_sun_periods,
             solar_band=scenarios.band,
@@ -702,6 +706,7 @@ def build_stochastic_plan(
         k=k,
         weights=tuple(weights),
         labels=SCENARIO_LABELS,
+        stage1_minutes=float(stage1_minutes),
         solve_seconds=seconds,
         expected_cost=float(expected),
         scenario_costs=dict(hook.scenario_costs),
@@ -749,7 +754,7 @@ def summary_attribute(
         "scenarios": list(result.labels),
         "weights": [float(w) for w in result.weights],
         "stage1_periods": int(result.k),
-        "stage1_minutes": STAGE1_MINUTES,
+        "stage1_minutes": result.stage1_minutes,
         "expected_cost": _rounded(result.expected_cost),
         "scenario_cost": {k: _rounded(v) for k, v in result.scenario_costs.items()},
         "deterministic_total_cost": _rounded(deterministic_plan.total_cost),

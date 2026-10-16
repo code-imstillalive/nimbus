@@ -758,6 +758,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_with_deterministic_signals",
         "_log_fallback_once",
         "stochastic_paths_for",
+        "stochastic_settings",
         # nimbus #1786 -- the consolidated price forecast and per-source
         # running error (shadow, with a live switch). Native runtime first;
         # the docs copy has no secondary-source coverage reader and no

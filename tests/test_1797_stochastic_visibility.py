@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -267,3 +267,74 @@ def test_the_paths_are_kept_out_of_the_recorder():
     ]
     assert owners
     assert all("stochastic_paths" in c._unrecorded_attributes for c in owners)
+
+
+# -- the tuning dials reach the solve ----------------------------------------
+
+
+def test_the_dials_reach_the_stochastic_solve():
+    kw = _tiered_inputs()
+    det = network.build_plan(**kw)
+    stoch = dataclasses.replace(sd.build_stochastic_plan(kw), solar_band="calibrated")
+    cfg = {
+        "solver_stochastic_dispatch": True,
+        "solver_stochastic_stage1_minutes": 15,
+        "solver_stochastic_tail_weight": 0.2,
+        "solver_stochastic_drive_budget_seconds": 7,
+    }
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+        solver_plan.run_stochastic_dispatch(
+            cfg, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
+        )
+    kwargs = spy.call_args.kwargs
+    assert kwargs["stage1_minutes"] == 15
+    assert kwargs["weights"] == pytest.approx((0.2, 0.6, 0.2))
+    assert kwargs["budget_seconds"] == 7
+
+
+def test_the_dials_are_clamped_and_default_to_the_old_constants():
+    s = solver_plan.stochastic_settings({})
+    assert s["weights"] == pytest.approx((0.3, 0.4, 0.3))
+    assert s["stage1_minutes"] == 30
+    assert s["drive_budget_seconds"] == 10
+    assert s["interval_seconds"] == 300
+    wild = solver_plan.stochastic_settings(
+        {
+            "solver_stochastic_tail_weight": 0.9,
+            "solver_stochastic_stage1_minutes": 0,
+            "solver_stochastic_shadow_interval_minutes": 999,
+        }
+    )
+    assert wild["weights"] == pytest.approx((0.45, 0.1, 0.45))
+    assert wild["stage1_minutes"] == 5
+    assert wild["interval_seconds"] == 3600
+
+
+def test_the_check_interval_dial_sets_the_shadow_cadence():
+    kw = _tiered_inputs()
+    det = network.build_plan(**kw)
+    stoch = sd.build_stochastic_plan(kw)
+    cfg = {"solver_stochastic_shadow_interval_minutes": 2}
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+        for seconds in (0, 119, 120):
+            solver_plan.run_stochastic_dispatch(
+                cfg,
+                now=T0 + timedelta(seconds=seconds),
+                plan=det,
+                build_kwargs=kw,
+                deterministic_seconds=0.5,
+            )
+    assert spy.call_count == 2
+
+
+def test_the_summary_reports_the_commit_window_used():
+    res = sd.build_stochastic_plan(_tiered_inputs(), stage1_minutes=15)
+    det = network.build_plan(**_tiered_inputs())
+    s = sd.summary_attribute(
+        res,
+        mode="shadow",
+        deterministic_plan=det,
+        deterministic_solve_seconds=0.5,
+        drives_dispatch=False,
+    )
+    assert s["stage1_minutes"] == 15
