@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **A Price safety row on the Solver tab** (household, 16 Oct 2026: "why
+  release features which are not visible"). Four equal cards under the price
+  chart, one per guard, each opening with a coloured band: green all well,
+  red a guard acting now, orange hold or live, grey not running.
+  - **False-spike guard** (#1778): watching, or holding a spike out, with the
+    reason, constraint and expiry.
+  - **Price source** (#1793): fresh, or stale and using AEMO, with how long
+    ago the provider rebuilt its forecast.
+  - **Battery hold** (#1654): whether the plan means "hold" now.
+  - **Consolidated prices** (#1786): shadow, or driving the plan.
+
 ## [0.94.459] - 2026-10-16
 
 A price source whose forecast has stopped refreshing is no longer planned on:
