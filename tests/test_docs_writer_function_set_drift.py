@@ -1026,6 +1026,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # through fetch_entity_history_range + resample_history_mean +
         # _kw_scale_factor, which the docs/cron copy does not carry.
         "_actuals",
+        "_enough",
         "_has_spread",
         "_load",
         "_quantiles",
@@ -1033,8 +1034,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_save",
         "_solar_quantile_at",
         "build_bands",
+        "cell_key",
         "interval_means",
         "loo_coverage",
+        "size_class",
         "update_and_build",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --

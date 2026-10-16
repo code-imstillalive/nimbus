@@ -13936,27 +13936,51 @@
       "solar_delivery_underperforming": false,
       "solar_quantile_calibration": {
        "buckets": {
-        "0-1 h": {
+        "0-1 h | p50 < 2 kW": {
          "days": 0,
          "samples": 0
         },
-        "1-4 h": {
+        "0-1 h | p50 >= 2 kW": {
          "days": 0,
          "samples": 0
         },
-        "12-24 h": {
+        "1-4 h | p50 < 2 kW": {
          "days": 0,
          "samples": 0
         },
-        "24-48 h": {
+        "1-4 h | p50 >= 2 kW": {
          "days": 0,
          "samples": 0
         },
-        "4-12 h": {
+        "12-24 h | p50 < 2 kW": {
          "days": 0,
          "samples": 0
         },
-        "48-96 h": {
+        "12-24 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 >= 2 kW": {
          "days": 0,
          "samples": 0
         }
