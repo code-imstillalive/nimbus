@@ -59,18 +59,41 @@ def test_16_oct_lv_v2_before_53_reads_the_sibling_stamp():
     assert got["age_minutes"] == 123.1
 
 
-def test_source_updated_is_preferred_and_the_newest_stamp_wins():
+def test_the_oldest_stamp_decides():
+    """Fresh stamps everywhere: not stale; the oldest is reported."""
     read = _reader(
         {
             LV2[0]: {"source_updated": "2026-10-16T01:32:00+00:00"},
-            LV2[1]: {"lastUpdate": STAMP},
+            LV2[1]: {"lastUpdate": "2026-10-16T01:40:00+00:00"},
             LV2[2]: {},
+            "sensor.localvolts_v2_current_buy_rate": {
+                "lastUpdate": "2026-10-16T01:35:00Z"
+            },
         }
     )
     got = pf.check(read, LV2, NOW)
     assert got["stale"] is False
     assert got["entity_id"] == LV2[0]
     assert got["age_minutes"] == 33.0
+
+
+def test_lv_v2_2_11_0_restamp_cannot_hide_the_stall():
+    """16 Oct: LV v2 2.11.0's `source_updated` took the newest stamp of all
+    rows, and LocalVolts restamped the elapsed rows at 00:30:34Z mid-stall
+    (Mark Purcell on #1793). The current row still read 00:01:56Z."""
+    read = _reader(
+        {
+            LV2[0]: {"source_updated": "2026-10-16T00:30:34+00:00"},
+            LV2[1]: {"source_updated": "2026-10-16T00:30:34+00:00"},
+            LV2[2]: {"source_updated": "2026-10-16T00:30:34+00:00"},
+            "sensor.localvolts_v2_current_buy_rate": {
+                "lastUpdate": "2026-10-16T00:01:56Z"
+            },
+        }
+    )
+    got = pf.check(read, LV2, NOW)
+    assert got["stale"] is True
+    assert got["entity_id"] == "sensor.localvolts_v2_current_buy_rate"
 
 
 def test_household_template_sensor_lastupdate():

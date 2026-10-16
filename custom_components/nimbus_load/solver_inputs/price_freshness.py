@@ -19,8 +19,16 @@ Where the stamp is read, in order, from each configured price entity:
    the newest `lastUpdate` among the rows.
 2. `lastUpdate` -- the household template sensors, and LV v2's
    `current_buy_rate` / `current_sell_rate`.
-3. For an LV v2 entity on a release before #53, which carries neither, its
-   siblings `sensor.localvolts_v2_current_buy_rate` / `_current_sell_rate`.
+3. For any LV v2 entity, its siblings `sensor.localvolts_v2_current_buy_rate`
+   / `_current_sell_rate` -- always, not only when the others are missing.
+
+The OLDEST stamp found decides. LV v2 2.11.0's `source_updated` could read
+a stall as fresh: during 16 Oct's stall LocalVolts restamped the elapsed
+rows at 00:30:34Z, and 2.11.0 took the newest stamp of all rows (fixed in
+2.11.1, purcell-lab/localvolts_v2#55; Mark Purcell on #1793). The current
+row's `lastUpdate` on `current_buy_rate` read 00:01:56Z at 12:42 that day,
+so checking it as well, and trusting the oldest, catches the stall on
+every LV v2 release.
 
 `last_update` (LV v2's FETCH time) is deliberately not read: it moved every
 poll on 16 Oct while the data underneath was hours old.
@@ -78,22 +86,25 @@ def _stamp(
 def source_updated(
     read_state: Callable[[str], dict[str, Any]], entity_ids: Iterable[str | None]
 ) -> tuple[datetime | None, str | None]:
-    """(newest refresh stamp, the entity it came from) across the price
-    entities, or (None, None) when none of them publishes one."""
+    """(oldest refresh stamp, the entity it came from) across the price
+    entities and, for LV v2, its current-rate siblings; (None, None) when
+    none of them publishes one."""
     ids = [e for e in entity_ids if e]
     found: list[tuple[datetime, str]] = []
     for entity_id in ids:
         stamp = _stamp(read_state, entity_id)
         if stamp is not None:
             found.append((stamp, entity_id))
-    if not found and any(e.startswith(LV_V2_PREFIX) for e in ids):
+    if any(e.startswith(LV_V2_PREFIX) for e in ids):
         for entity_id in LV_V2_STAMP_SIBLINGS:
+            if entity_id in ids:
+                continue
             stamp = _stamp(read_state, entity_id)
             if stamp is not None:
                 found.append((stamp, entity_id))
     if not found:
         return None, None
-    stamp, entity_id = max(found, key=lambda pair: pair[0])
+    stamp, entity_id = min(found, key=lambda pair: pair[0])
     return stamp, entity_id
 
 
