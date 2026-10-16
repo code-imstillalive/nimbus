@@ -338,6 +338,50 @@ _RISK_TEXT = (
 
 # --- Blocks ----------------------------------------------------------------
 
+# --- Plan: price safety (household, 16 Oct 2026: "why release features which
+# are not visible") -- the guards that keep a bad price out of the plan, at a
+# glance: the P5MIN false-spike guard (#1778), the price source's freshness
+# (#1793), the dispatch hold signal (#1654) and the consolidated forecast's
+# mode (#1786).
+_PRICE_SAFETY = {
+    "type": "markdown",
+    "content": (
+        "{% set g = state_attr('${@p5min_forecast}', 'false_spike_guard') %}"
+        "{% set f = state_attr('${@nimbus_solver_battery_forecast}', 'price_source_freshness') %}"
+        "{% set h = states('${@nimbus_solver_current_dispatch_hold}') %}"
+        "{% set c = states('${@solver_price_consolidation_live}') %}"
+        "**Price safety**\n\n"
+        "| Check | Now | Detail |\n|:---|:---|:---|\n"
+        "| False-spike guard | "
+        "{% if g is mapping and g.get('active') %}<font color='red'>**Holding a spike out**</font>"
+        "{% elif g is mapping %}<font color='lightgreen'>Watching</font>"
+        "{% else %}<font color='gray'>Not running</font>{% endif %} | "
+        "{% if g is mapping and g.get('active') %}{{ g.get('reason') }}"
+        "{% if g.get('detail', {}).get('constraint_id') %} · {{ g.detail.constraint_id }}{% endif %}"
+        "{% if g.get('expires_at') %} · until {{ as_timestamp(g.expires_at) | timestamp_custom('%H:%M') }}{% endif %}"
+        "{% elif g is mapping %}spikes over ${{ g.get('threshold') }}/kWh are checked against AEMO"
+        "{% else %}needs an AEMO region{% endif %} |\n"
+        "| Price source | "
+        "{% if f is mapping and f.get('stale') %}<font color='red'>**Stale — using AEMO**</font>"
+        "{% elif f is mapping %}<font color='lightgreen'>Fresh</font>"
+        "{% else %}<font color='gray'>No refresh time published</font>{% endif %} | "
+        "{% if f is mapping %}rebuilt {{ [f.get('age_minutes', 0), 0] | max | round(0) | int }} min ago"
+        " (stale after {{ f.get('stale_after_minutes', 60) | int }}){% else %}—{% endif %} |\n"
+        "| Battery hold | "
+        "{% if h == 'True' or h == 'on' %}<font color='orange'>Hold</font>"
+        "{% elif h in ['False', 'off'] %}<font color='lightgreen'>No hold</font>"
+        "{% else %}<font color='gray'>—</font>{% endif %} | "
+        "battery idle while the grid flows |\n"
+        "| Consolidated prices | "
+        "{% if c == 'on' %}<font color='orange'>Driving the plan</font>"
+        "{% elif c == 'off' %}<font color='gray'>Shadow</font>"
+        "{% else %}<font color='gray'>—</font>{% endif %} | "
+        "every price source combined, scored by error |\n\n"
+        "*Guards that keep a bad price out of the plan. Red means one is acting now.*"
+    ),
+}
+
+
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
     ("Performance", "info", "How it did, and what the plan ahead should earn."),
@@ -1331,6 +1375,7 @@ def template() -> list[dict[str, Any]]:
         banners["Plan"],
         _section([_chart()], 4),
         _section([_styled(_prices_chart(), _FILL)], 4, {"rows": 7}),
+        _section([_styled(_PRICE_SAFETY, _FILL_NO_SCROLL)], 4, {"rows": 4}),
         *(
             _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
             for k in range(4)
