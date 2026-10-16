@@ -9,15 +9,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
-- **Each scored day records the oracle EPR divides by** (#1797 review, 16 Oct
-  2026). EPR has divided by `j_star_evaluator`, the oracle's plan repriced at
-  real costs, since #1081. Each history row stored only `j_star`, the raw LP
-  objective with its search penalties, so `(j_ref - j_ach) / (j_ref - j_star)`
-  did not reproduce the published EPR, and on 17 Sep, 2 Oct and 7-8 Oct the
-  real result looked as if it beat perfect foresight.
-  - **The rows:** now carry `j_star_evaluator`.
-  - **The Solver tab's quality card:** shows it as the perfect-foresight
-    figure.
+- **The Solver tab's quality card shows the oracle EPR divides by** (#1797
+  review, 16 Oct 2026). EPR has divided by `j_star_evaluator`, the oracle's
+  plan repriced at real costs, since #1081. The card showed `j_star`, the raw
+  LP objective with its search penalties, so its three J figures did not
+  reproduce EPR.
+  - **The history rows:** keep `j_star` (no room under the attribute budget),
+    now documented as the LP objective; `quality_history_store` keeps both
+    figures for each day.
   - **No score changes.**
 
 ## [0.94.460] - 2026-10-16
