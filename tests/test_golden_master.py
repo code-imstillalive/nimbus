@@ -51,9 +51,12 @@ from golden import harness, scenarios
 SNAPSHOTS = Path(__file__).parent / "golden" / "snapshots"
 
 # Measured, not asserted: the solve's wall-clock duration, published as
-# ``solve_seconds``. The only such key in custom_components/nimbus_load; a
-# new timing field must be added here by name.
-VOLATILE_KEYS = frozenset({"solve_seconds"})
+# ``solve_seconds``. A new timing field must be added here by name: nimbus
+# #1797 added two inside the ``stochastic`` attribute, the stochastic and the
+# deterministic solve times.
+VOLATILE_KEYS = frozenset(
+    {"solve_seconds", "stochastic_solve_seconds", "deterministic_solve_seconds"}
+)
 
 
 def _stable_paths(text: str) -> str:

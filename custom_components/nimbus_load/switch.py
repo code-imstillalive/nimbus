@@ -53,6 +53,7 @@ from .const import (
     CONF_SOLVER_PRICE_EVENT_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+    CONF_SOLVER_STOCHASTIC_DISPATCH,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
@@ -64,6 +65,7 @@ from .const import (
     DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+    DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
     DOMAIN,
 )
 
@@ -304,6 +306,17 @@ async def async_setup_entry(
                 CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
                 "Price Consolidation Live",
                 DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus #1797: off, the two-stage stochastic solve runs in
+            # shadow; on, it drives dispatch. Read fresh off cfg every solve,
+            # like the switches above.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_STOCHASTIC_DISPATCH,
+                "Stochastic Dispatch",
+                DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
                 sw_version,
                 shared_store,
             ),

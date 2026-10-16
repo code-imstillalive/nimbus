@@ -1766,6 +1766,8 @@ def publish_plan(
     price_source_freshness=None,
     # nimbus #1786: apply_price_consolidation()'s result, or None.
     price_consolidation=None,
+    # nimbus #1797: solver_plan.run_stochastic_dispatch()'s summary, or None.
+    stochastic=None,
 ) -> None:
     """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
     own approved staged-extraction plan -- "please go ahead with step 2,
@@ -2557,6 +2559,15 @@ def publish_plan(
             "price_source_freshness": price_source_freshness,
             # nimbus #1786: mode, sources, method, spread and running error.
             "price_consolidation": _price_consolidation_attribute(price_consolidation),
+            # nimbus #1797: the two-stage stochastic solve -- in shadow it
+            # changes nothing else on this sensor; with
+            # switch.nimbus_solver_stochastic_dispatch on and the solve
+            # optimal, this plan IS its p50 trajectory. Always present (None
+            # until a first stochastic solve), so the keys never vanish.
+            "stochastic": stochastic,
+            "stochastic_period0_battery_kw": (stochastic or {}).get(
+                "stage1_battery_kw"
+            ),
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
             **solver_shared.charge_by_summary(cfg, forecast),

@@ -166,6 +166,35 @@ _EXPECTED_ATTRS = {
     "export_price_provider_until": "2026-09-10T19:30:00+10:00",
     # nimbus #1793: the fixture's price sensors publish no refresh stamp.
     "price_source_freshness": None,
+    # nimbus #1797: the stochastic shadow. This fixture's solar has no band,
+    # so the stochastic solve is a no-op and the plan is the deterministic
+    # one. Its two solve-time fields are wall-clock and compared nowhere (see
+    # the test body).
+    "stochastic": {
+        "computed_at": "2026-09-06T20:00:00+10:00",
+        "deterministic_period0_battery_kw": -5.0,
+        "deterministic_total_cost": 26.9874,
+        "drives_dispatch": False,
+        "expected_cost": None,
+        "fallback_reason": "no_solar_band",
+        "joint_solves": 0,
+        "joint_variables": 0,
+        "mode": "shadow",
+        "no_sun_periods": 0,
+        "nonanticipativity_rows": 0,
+        "nonanticipativity_max_gap": None,
+        "objective_mode": None,
+        "scenario_period0_battery_kw": {},
+        "raw_status": None,
+        "scenario_cost": {},
+        "scenarios": ["p10", "p50", "p90"],
+        "stage1_battery_kw": None,
+        "stage1_minutes": 30.0,
+        "stage1_periods": 6,
+        "status": "no_band",
+        "weights": [0.3, 0.4, 0.3],
+    },
+    "stochastic_period0_battery_kw": None,
     # Household, 14 Oct 2026: "charge by" is off in this fixture.
     "charge_by_time": None,
     "charge_by_target_pct": None,
@@ -628,6 +657,12 @@ class TestMainGoldenOutput:
         }
         actual_non_time.pop("forecast")
         actual_non_time.pop("batteries")
+        # nimbus #1797: wall-clock solve times inside the stochastic summary.
+        actual_non_time["stochastic"] = {
+            k: v
+            for k, v in actual_non_time["stochastic"].items()
+            if k not in ("stochastic_solve_seconds", "deterministic_solve_seconds")
+        }
         # nimbus #1360: cycles since the process started, so their values
         # depend on how many solves this test process has already run.
         # Pinned by shape here; their values by the isolated golden master.

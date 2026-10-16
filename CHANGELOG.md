@@ -41,6 +41,43 @@ refilling.
   dispatch.
 
 ### Added
+- **Two-stage stochastic dispatch inside the main solve, in shadow by
+  default, with a switch to drive** (#1797). The full model `build_plan()`
+  builds (every battery, load, controllable and thermal load, P2P block,
+  Charge By, reserve, stability term and binary) is built once per solar
+  scenario, p10 / p50 / p90 from the solar band, weighted 0.3 / 0.4 / 0.3,
+  all in one joint problem. Every decision in the first 30 minutes (battery,
+  grid, solar use, load power, binaries) is shared across the scenarios
+  (non-anticipativity), and the objective is the expected cost. The plan
+  published is the p50 scenario's, so period 0 is the shared decision.
+  `sensor.nimbus_solver_battery_forecast` carries `stochastic` (mode, status,
+  weights, stage-1 periods, expected cost and each scenario's cost, stage-1
+  battery kW against the deterministic period 0, both solve times, and the
+  non-anticipativity gap read back off the solution) and
+  `stochastic_period0_battery_kw`. **Off (the default), nothing else
+  changes**: the deterministic plan drives dispatch and the stochastic solve
+  runs after it at most once every 5 minutes (hourly after one slower than
+  20 s). `switch.nimbus_solver_stochastic_dispatch` on makes the stochastic
+  plan drive dispatch every cycle, falling back to the deterministic plan for
+  any cycle where it fails, is not optimal or takes longer than 30 s, and
+  saying why in `fallback_reason`. The joint problem is solved as one
+  blended solve at the deterministic solve's calibrated weight, never the
+  lex/calibrated phases, and a joint timeout is one WARNING with its
+  `fallback_reason`, not solver/lp.py's #773 ERROR (found on devhub's test
+  controllable loads, 4,128 joint binaries, #1805). No solar band, or no spread once night
+  periods are excluded, and it does nothing. Inside the scenarios the solar
+  half of `risk_aversion` does not apply (the scenarios are the solar
+  uncertainty); load and price risk aversion still do. Measured on the
+  reference household's live inputs (read-only replay, 16 Oct 2026, ~200
+  periods): 2.6-4.6 s against 0.5-1.5 s deterministic, and 11.2-14.2 s
+  against 3.0-5.2 s with two semi-continuous deferrable loads added (a MIP). On two
+  captured cycles at five starting SoCs each, the hedged stage-1 decision
+  equalled a p50 deterministic plan's in 8 of 10 cases and differed by up to
+  1.0 and 3.0 kW in the other two, worth $0.04 and $0.01 of expected cost;
+  against the live plan the larger difference (up to $0.51) is that plan's
+  solar risk aversion, not the hedge. A hand-built case in the tests shows
+  the hedge buying 8 kWh where p50 buys 3. Whether it earns more is not
+  shown: that needs days of the shadow summary scored against what happened.
 - **A Price safety row on the Solver tab** (household, 16 Oct 2026: "why
   release features which are not visible"). Four equal cards under the price
   chart, one per guard, each opening with a coloured band: green all well,

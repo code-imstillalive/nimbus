@@ -305,10 +305,11 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                     )
         self.assertEqual(
             calls,
-            6,
+            8,
             "expected the span's two #757 diagnostics, #489's "
-            "deferred-ranging DEBUG line, #1417's two diagnostic-failure lines "
-            "and #1577's blocker-explanation failure line",
+            "deferred-ranging DEBUG line, #1417's two diagnostic-failure lines, "
+            "#1577's blocker-explanation failure line and #1797's two "
+            "stochastic-dispatch warnings (a raised solve, a fallback)",
         )
         self.assertIsNotNone(solver_shared._LOGGER)
 
@@ -328,8 +329,26 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                 found = node
         self.assertIsNotNone(found, "no network.build_plan() call in solver_plan.py")
         self.assertEqual(found.args, [], "build_plan must be called keyword-only")
+        # nimbus #1797: the keywords are built once, by `_build_kwargs()`, so
+        # the deterministic solve and the stochastic one cannot be handed
+        # different inputs. The call is `build_plan(**_build_kwargs(...))`;
+        # the pinned set is that function's returned dict literal.
+        self.assertEqual(len(found.keywords), 1)
+        self.assertIsNone(found.keywords[0].arg, "expected **_build_kwargs(...)")
+        splat = found.keywords[0].value
+        self.assertIsInstance(splat, ast.Call)
+        self.assertEqual(splat.func.id, "_build_kwargs")
+        builder = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_build_kwargs"
+        )
+        returned = next(
+            node.value for node in ast.walk(builder) if isinstance(node, ast.Return)
+        )
+        self.assertIsInstance(returned, ast.Dict)
         self.assertEqual(
-            sorted(k.arg for k in found.keywords),
+            sorted(k.value for k in returned.keys),
             [
                 "adequacy_loads",
                 "batteries",
@@ -373,6 +392,8 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                 "plan",
                 "risk_aversion",
                 "solve_started",
+                # nimbus #1797: the stochastic summary publish_plan() carries.
+                "stochastic",
             ],
         )
 
