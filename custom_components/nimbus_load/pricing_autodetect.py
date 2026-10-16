@@ -709,6 +709,70 @@ async def _dismiss(hass: HomeAssistant, notification_id: str) -> None:
         _LOGGER.debug("Nimbus: could not dismiss notification %s", notification_id)
 
 
+# NEM retailers and feeds whose price makes an install Australian-NEM. A plain
+# template sensor named after one (the reference household's own LocalVolts
+# sensors) counts too, by entity_id.
+_NEM_PRICE_PLATFORMS = frozenset(
+    {
+        LV_V2_DOMAIN,
+        AMBER_CORE_DOMAIN,
+        AMBER_EXPRESS_DOMAIN,
+        PD7DAY_DOMAIN,
+        AEMO_NEM_DOMAIN,
+    }
+)
+_NEM_PRICE_NAME = re.compile(r"localvolts|amber|nem_pd7day|aemo")
+
+
+def _is_nem_price(hass: HomeAssistant, entity_id: Any) -> bool:
+    if not isinstance(entity_id, str) or not entity_id:
+        return False
+    reg = er.async_get(hass).async_get(entity_id)
+    if getattr(reg, "platform", None) in _NEM_PRICE_PLATFORMS:
+        return True
+    return _NEM_PRICE_NAME.search(entity_id) is not None
+
+
+def detect_missing_regional_forecast(
+    hass: HomeAssistant, options: dict[str, Any]
+) -> tuple[str, str] | None:
+    """(what was found, where to set it) when an Australian-NEM install has no
+    regional spot forecast, else None (16 Oct 2026, a tester's install).
+
+    Without one, prices past the retailer's own forecast are one flat level,
+    and the stale-source fallback (#1793) has no AEMO series to switch to. A
+    non-NEM install is never told about it. The existing setup notification
+    only fires when a forecast integration is already installed, and can be
+    dismissed; this one says what to install when none is, and clears itself
+    once the field is set."""
+    if options.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR):
+        return None
+    if not any(
+        _is_nem_price(hass, options.get(k))
+        for k in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR)
+    ):
+        return None
+    spot, source = detect_regional_spot_forecast(hass)
+    found = spot.get(CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR)
+    if found:
+        return (
+            f"Nimbus found `{found}` ({source}).",
+            (
+                "Choose it in Nimbus → Configure → Review pricing suggestions, "
+                "or set it as the regional spot forecast in Configure → Solver "
+                "settings."
+            ),
+        )
+    return (
+        "No regional forecast integration is installed.",
+        (
+            "Install NEM PD7DAY from HACS (purcell-lab/nem_pd7day), add it for "
+            "your region, restart, then choose its spot price forecast as the "
+            "regional spot forecast in Nimbus → Configure → Solver settings."
+        ),
+    )
+
+
 def _as_float(value: Any) -> float:
     try:
         return float(value or 0.0)

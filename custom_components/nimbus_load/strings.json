@@ -581,6 +581,10 @@
       "title": "Nimbus: network fees are counted twice",
       "description": "Your import price is `{tariff}`, a NEM PD7DAY tariff sensor, whose price already includes that tariff's network charge. Nimbus also adds its own fees on top ({fees}), so the plan sees grid energy as dearer than it is and imports less than it should. Set those fee rates to 0 on the Solver dashboard, or in Configure → Solver settings, or point the import price at the plain spot forecast instead. This message clears itself once fixed."
     },
+    "regional_forecast_missing": {
+      "title": "Nimbus: no AEMO regional forecast is set",
+      "description": "Your prices come from an Australian NEM retailer, but Nimbus has no regional spot forecast. So prices past the end of your retailer's own forecast are held at one flat level, and if your retailer's prices stop updating Nimbus has no AEMO price to fall back to. {found} {where} This message clears itself once the field is set."
+    },
     "solver_input_missing": {
       "title": "Nimbus: the Solver is missing an input",
       "description": "The Solver cannot plan properly without: **{inputs}**. Set them in Nimbus → Configure → Solver settings. This message clears itself once they are set."
