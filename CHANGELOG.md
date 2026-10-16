@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.459] - 2026-10-16
+
+A price source whose forecast has stopped refreshing is no longer planned on:
+past 60 minutes the plan prices every period from AEMO plus the learned
+markup, and says so. A consolidated price forecast across every source, with
+each source's running error by lead, is published in shadow, with a switch
+to let it drive the plan (off).
+
 ### Added
 - **A consolidated price forecast and each price source's running error, in
   shadow, with a live switch** (#1786, Mark Purcell). Every solve combines
