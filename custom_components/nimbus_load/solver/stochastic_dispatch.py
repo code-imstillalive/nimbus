@@ -89,12 +89,30 @@ that band is a fair p10/p90 is the Forecaster's question, not this one's.
   scenario's period-0 price would price the curve at `w_p50` of the real
   change. The caller keeps the deterministic plan's signals.
 - **No solar risk aversion.** The scenarios carry no band of their own, so
-  `risk_aversion`'s solar term (`_risk_adjusted`) is a no-op inside them: the
+  `risk_aversion` (`_risk_adjusted`, network.py) is a no-op inside them: the
   scenarios ARE the solar uncertainty, and pessimism on top would count it
-  twice. Load risk aversion and both price dials still apply in every
-  scenario.
+  twice. `risk_aversion` has no other application site -- plain and
+  sheddable loads plan on the point forecast (network.py, since 12 Oct) --
+  so with the stochastic plan driving, the household's "Solar forecast risk"
+  dial does nothing, and the summary says so (`solar_risk_aversion`). The
+  import / export price dials are a separate, one-sided price adjustment and
+  still apply in every scenario: price is not a scenario here.
 - **Load and price uncertainty** are not scenarios. Solar only, as #1797
   scoped it.
+
+## Shadow prices of a joint solve
+
+The joint problem holds one balance row per scenario per period, and p50's
+own row dual is not the plan's marginal: in stage 1 the non-anticipativity
+rows pass the other scenarios' marginals onto it (measured: 2.5x the
+expected marginal at period 0). Every dual and reduced cost the joint solve
+returns is therefore rewritten to the EXPECTED marginal before anything reads
+it (`_expected_marginals()`): for a row or variable `n`,
+`w_p50 * (d[n] + sum_s d[s::n])`, which is `sum_s w_s * lambda_s` in each
+scenario's own units. Every consumer -- `energy_shadow_price_now`, the
+adequacy marginal cost, the guard's shadow-price series, flex telemetry, the
+forced-import reduced costs -- then reads the stochastic plan's marginal
+value of energy in the same units as a deterministic plan's.
 """
 
 from __future__ import annotations
@@ -130,6 +148,10 @@ JOINT_TIME_LIMIT_SECONDS = 20.0
 # this relative gap of proven optimal (0.1%). Measured on devhub: 3.7e-5 at
 # 20 s (#1805). A wider gap still falls back to the deterministic plan.
 JOINT_ACCEPT_MIP_GAP = 1e-3
+# Largest |x - x'| over the non-anticipativity pairs that still counts as one
+# shared stage-1 decision (kW / binary). Above it the solution does not honour
+# its own constraint and is refused.
+NONANTICIPATIVITY_TOLERANCE = 1e-5
 _SCENARIO_SEPARATOR = "::"
 _CAPTURED = "captured_for_stochastic_joint_solve"
 
@@ -297,12 +319,21 @@ class _JointSolve:
     time_limit_seconds: float
     fixed_stage1: dict[str, float] | None = None
     blend_weight: float | None = None
+    # time.monotonic() after which no further joint call is started: the
+    # budget covers every call build_plan() makes (thermal retry,
+    # direction-exclusivity rounds), not each one. None: no budget.
+    deadline: float | None = None
     scenario_costs: dict[str, float] = field(default_factory=dict)
     objective_mode: str | None = None
     n_nonanticipativity_rows: int = 0
     n_joint_variables: int = 0
     n_joint_solves: int = 0
+    # Set by the optimal joint solve behind the returned plan only; a later
+    # failed call (a declined direction round) cannot overwrite it.
     last_raw_status: str | None = None
+    # The most recent failed call's status, for a non-optimal result.
+    last_failure_raw_status: str | None = None
+    scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
     # Read back off the optimal joint solution, as checks rather than
     # assumptions: the largest |x - x'| over every non-anticipativity pair
     # (0 to solver tolerance when the constraint holds), and each scenario's
@@ -318,6 +349,10 @@ class _JointSolve:
         thermal_hard_deadline: bool,
         direction_binaries: frozenset[str],
     ) -> LPResult:
+        remaining = None if self.deadline is None else self.deadline - time.monotonic()
+        if remaining is not None and remaining <= 0.0:
+            self.last_failure_raw_status = "stochastic_budget_exhausted"
+            return LPResult(status="error", raw_status=self.last_failure_raw_status)
         self.n_joint_solves += 1
         built: list[tuple[str, float, LPProblem]] = []
         for label, weight, solar in self.others:
@@ -330,8 +365,8 @@ class _JointSolve:
                 lp_solve_hook=capture,
             )
             if capture.problem is None:
-                self.last_raw_status = f"scenario_{label}_not_built"
-                return LPResult(status="error", raw_status=self.last_raw_status)
+                self.last_failure_raw_status = f"scenario_{label}_not_built"
+                return LPResult(status="error", raw_status=self.last_failure_raw_status)
             built.append((label, weight, capture.problem))
 
         joint = LPProblem()
@@ -362,16 +397,26 @@ class _JointSolve:
                     joint.add_eq_constraint(
                         {name: 1.0}, float(value), name=f"fixed_stage1::{name}"
                     )
-        joint.time_limit_seconds = self.time_limit_seconds
+        remaining = None if self.deadline is None else self.deadline - time.monotonic()
+        joint.time_limit_seconds = (
+            self.time_limit_seconds
+            if remaining is None
+            # The per-call limit always holds; the budget's remainder is
+            # floored at 50 ms so a call it admitted is not refused at once.
+            else min(self.time_limit_seconds, max(0.05, remaining))
+        )
         joint.quiet_diagnostics = True
         joint.accept_time_limited_mip_gap = JOINT_ACCEPT_MIP_GAP
+        # Fixed by the options and the blend weight, so the same on every
+        # call; set before the solve so a failed one still reports it.
         options, self.objective_mode = joint_options(
             solve_kwargs.get("options"), self.blend_weight
         )
         result = joint.solve(**{**solve_kwargs, "options": options})
-        self.last_raw_status = result.raw_status or result.status
         if result.status != "optimal":
+            self.last_failure_raw_status = result.raw_status or result.status
             return result
+        self.last_raw_status = result.raw_status or result.status
         costs = {self.anchor_label: p.primary_cost_of(result)}
         for label, _weight, q in built:
             costs[label] = q.primary_cost_of(
@@ -399,9 +444,54 @@ class _JointSolve:
                 for t in range(self.k)
             ]
         self.scenario_stage1_battery_kw = stage1
+        last_t = len(self.base_kwargs["periods"].hours) - 1
+        terminal: dict[str, float] = {}
+        for label in [self.anchor_label] + [b[0] for b in built]:
+            prefix = "" if label == self.anchor_label else label + _SCENARIO_SEPARATOR
+            names = [
+                f"{prefix}battery_soc_{b.name}_{last_t}"
+                for b in self.base_kwargs["batteries"]
+            ]
+            terminal[label] = sum(
+                joint.value_of(result, n) for n in names if joint.has_variable(n)
+            )
+        self.scenario_terminal_soc_kwh = terminal
         # The plan is p50's: its total_cost is p50's own cost, not the
-        # weighted joint objective.
-        return replace(result, objective=costs[self.anchor_label])
+        # weighted joint objective. Its duals and reduced costs are the
+        # expected marginals (module docstring).
+        return replace(
+            result,
+            objective=costs[self.anchor_label],
+            duals=_expected_marginals(
+                result.duals, [b[0] for b in built], self.anchor_weight
+            ),
+            reduced_costs=_expected_marginals(
+                result.reduced_costs, [b[0] for b in built], self.anchor_weight
+            ),
+        )
+
+
+def _expected_marginals(
+    values: dict[str, float], other_labels: list[str], anchor_weight: float
+) -> dict[str, float]:
+    """The joint solve's duals (or reduced costs) as the expected marginal of
+    each anchor-named row (or variable): `w_p50 * (v[n] + sum_s v[s::n])`.
+
+    The joint objective is `sum_s (w_s / w_p50) * cost_s`, so scenario s's own
+    row carries `(w_s / w_p50) * lambda_s`; the sum over the scenarios' copies
+    of one row, times `w_p50`, is `sum_s w_s * lambda_s`. Entries belonging to
+    a scenario copy or to the joint-only rows (non-anticipativity, pins) are
+    dropped, so the result has the deterministic model's keys."""
+    prefixes = [label + _SCENARIO_SEPARATOR for label in other_labels]
+    out: dict[str, float] = {}
+    for name, value in values.items():
+        if _SCENARIO_SEPARATOR in name:
+            continue
+        total = float(value)
+        for prefix in prefixes:
+            total += float(values.get(prefix + name, 0.0))
+        out[name] = anchor_weight * total
+    return out
 
 
 def joint_options(
@@ -470,6 +560,14 @@ class StochasticResult:
     objective_mode: str | None = None
     nonanticipativity_max_gap: float | None = None
     scenario_stage1_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # Every battery's SoC at the horizon's last period, per scenario: the
+    # spread shows how much the terminal value is carrying (a cheap terminal
+    # value lets a sunny scenario dump energy at the end).
+    scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
+    # Copied off the joint plan so the caller can refuse a plan weaker than
+    # the deterministic one: a relaxed thermal deadline, or two-way flows.
+    thermal_guarantee_relaxed: tuple[str, ...] = ()
+    direction_exclusivity: str | None = None
 
 
 def net_battery_kw(plan: network.Plan, t: int = 0) -> float:
@@ -503,6 +601,7 @@ def build_stochastic_plan(
     time_limit_seconds: float = JOINT_TIME_LIMIT_SECONDS,
     fixed_stage1: dict[str, float] | None = None,
     blend_weight: float | None = None,
+    budget_seconds: float | None = None,
 ) -> StochasticResult:
     """Solve the two-stage stochastic plan for the same inputs
     `network.build_plan(**build_kwargs)` would solve deterministically.
@@ -511,6 +610,9 @@ def build_stochastic_plan(
     (`Plan.calibration_weight_used`); see `joint_options()`.
     `fixed_stage1` pins named stage-1 variables (see
     `fixed_stage1_from_plan()`); measurement only, never the live path.
+    `budget_seconds` bounds the whole call -- every joint solve
+    `build_plan()` makes -- not just one HiGHS run; None leaves only the
+    per-call `time_limit_seconds`.
     Raises ValueError on invalid weights; every solver-side failure is a
     non-optimal `status`, never an exception."""
     if len(weights) != len(SCENARIO_LABELS):
@@ -550,6 +652,7 @@ def build_stochastic_plan(
         time_limit_seconds=time_limit_seconds,
         fixed_stage1=fixed_stage1,
         blend_weight=blend_weight,
+        deadline=None if budget_seconds is None else started + budget_seconds,
     )
     plan = network.build_plan(
         **base, solar=scenarios.solar[ANCHOR_INDEX], lp_solve_hook=hook
@@ -566,7 +669,7 @@ def build_stochastic_plan(
             no_sun_periods=scenarios.no_sun_periods,
             solar_band=scenarios.band,
             n_joint_solves=hook.n_joint_solves,
-            raw_status=hook.last_raw_status,
+            raw_status=hook.last_failure_raw_status or hook.last_raw_status,
             objective_mode=hook.objective_mode,
         )
     expected = sum(
@@ -592,6 +695,9 @@ def build_stochastic_plan(
         objective_mode=hook.objective_mode,
         nonanticipativity_max_gap=hook.nonanticipativity_max_gap,
         scenario_stage1_battery_kw=dict(hook.scenario_stage1_battery_kw),
+        scenario_terminal_soc_kwh=dict(hook.scenario_terminal_soc_kwh),
+        thermal_guarantee_relaxed=tuple(plan.thermal_guarantee_relaxed),
+        direction_exclusivity=plan.direction_exclusivity,
     )
 
 
@@ -641,6 +747,11 @@ def summary_attribute(
         "solar_band": result.solar_band,
         "raw_status": result.raw_status,
         "objective_mode": result.objective_mode,
+        "scenario_terminal_soc_kwh": {
+            k: _rounded(v) for k, v in result.scenario_terminal_soc_kwh.items()
+        },
+        "thermal_guarantee_relaxed": list(result.thermal_guarantee_relaxed),
+        "direction_exclusivity": result.direction_exclusivity,
     }
     if computed_at is not None:
         out["computed_at"] = computed_at

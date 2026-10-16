@@ -84,8 +84,10 @@ at 6 pre-existing findings; the whole-package job is advisory (`|| true`).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -271,42 +273,92 @@ def reset_flex_ranging_state() -> None:
 #
 # switch.nimbus_solver_stochastic_dispatch OFF (the default): the
 # deterministic plan drives dispatch exactly as before, and the stochastic
-# solve runs after it in SHADOW, at most once per
-# STOCHASTIC_SHADOW_INTERVAL_SECONDS, publishing only its summary. Measured on
-# the reference household's live inputs (16 Oct 2026, 204 periods): 2.6 s for
-# the stochastic solve against 0.5 s deterministic without the offer curve
-# (1.0 s with it), so a solve every 15 s would multiply the cycle's CPU by
-# ~4; every 5 minutes adds ~1%. A shadow solve slower than
-# STOCHASTIC_SLOW_SECONDS backs off to once an hour, so a pathological
-# install cannot spend its executor thread on a number nobody acts on.
+# solve runs in SHADOW, at most once per STOCHASTIC_SHADOW_INTERVAL_SECONDS,
+# publishing only its summary. Measured on the reference household's live
+# inputs (16 Oct 2026, 204 periods): 2.6 s for the stochastic solve against
+# 0.5 s deterministic without the offer curve, 11-14 s with two deferrable
+# loads (a MIP). The shadow solve runs on its own background thread, started
+# AFTER the cycle has its deterministic plan and returning immediately: the
+# plan the household dispatches on is never held back by a number nobody acts
+# on, and `solve_seconds` stays the live solve's. Each cycle publishes the
+# most recent finished summary (it carries its own `computed_at`), so the
+# attribute does not flicker between solves. A shadow solve slower than
+# STOCHASTIC_SLOW_SECONDS backs off to once an hour.
 #
 # ON: the stochastic plan replaces the deterministic one for publishing and
-# dispatch, every cycle. The deterministic solve still runs first, so there is
-# always a plan to fall back to: on a failed or non-optimal stochastic solve,
-# or one slower than STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS, that cycle publishes
-# the deterministic plan and says why (`fallback_reason`). After a slow one the
-# next STOCHASTIC_SHADOW_INTERVAL_SECONDS are deterministic too, so a slow
-# install is not slow every 15 s.
+# dispatch, every cycle, solved in-line under a total budget of
+# STOCHASTIC_DRIVE_BUDGET_SECONDS (every joint call build_plan() makes, not
+# one). The deterministic solve still runs first, so there is always a plan to
+# fall back to. A cycle publishes the deterministic plan, and says why in
+# `fallback_reason`, when the stochastic solve:
+#   * raises, is not optimal, or runs out of budget;
+#   * was built on the solar ENVELOPE rather than a calibrated p10/p90 (#1807)
+#     -- its "p10/p90" are nominal, so the hedge it computes is too;
+#   * relaxed a thermal deadline, or left flows two-way, where the
+#     deterministic plan did not -- drive never dispatches a weaker plan;
+#   * does not honour its own non-anticipativity (gap above tolerance) or has
+#     a non-finite scenario cost.
+# After any fallback the next attempt waits STOCHASTIC_SHADOW_INTERVAL_SECONDS,
+# doubling on each consecutive one up to STOCHASTIC_SLOW_BACKOFF_SECONDS, so an
+# install that cannot afford it (a large MIP) is not paying for it every 15 s.
+# Each reason is logged once until it changes or a stochastic plan drives.
+#
+# Switching modes resets the cadence: the next cycle is due at once, and no
+# summary from the other mode is ever re-published under the new one.
 #
 # In-process state, like _FLEX_RANGING_STATE above: the standalone/cron copy
 # runs one process per solve and has no stochastic solve.
 STOCHASTIC_SHADOW_INTERVAL_SECONDS = 300
 STOCHASTIC_SLOW_SECONDS = 20.0
 STOCHASTIC_SLOW_BACKOFF_SECONDS = 3600
-STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS = 30.0
+STOCHASTIC_DRIVE_BUDGET_SECONDS = 10.0
+# Shadow solves get the per-call limit and a total budget of their own; they
+# run off the dispatch path, so they can afford a MIP.
+STOCHASTIC_SHADOW_BUDGET_SECONDS = 30.0
+# Kept for the shadow slow-solve threshold's history: a drive solve is bounded
+# by STOCHASTIC_DRIVE_BUDGET_SECONDS instead.
+STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS = STOCHASTIC_DRIVE_BUDGET_SECONDS
+# False runs the shadow solve in-line (tests, and any caller that needs the
+# summary from this very call).
+STOCHASTIC_SHADOW_IN_BACKGROUND = True
+_STOCHASTIC_LOCK = threading.Lock()
 _STOCHASTIC_STATE: dict[str, Any] = {
+    "mode": None,
     "last_run": None,
     "last_seconds": None,
     "summary": None,
     "last_fallback": None,
+    "consecutive_fallbacks": 0,
+    "thread": None,
 }
 
 
 def reset_stochastic_state() -> None:
-    """Forget the last stochastic solve -- the next call is due."""
-    _STOCHASTIC_STATE.update(
-        last_run=None, last_seconds=None, summary=None, last_fallback=None
-    )
+    """Forget the last stochastic solve -- the next call is due. A shadow
+    solve still running finishes into the reset state harmlessly: its result
+    is dropped (see `_store_shadow_result`)."""
+    with _STOCHASTIC_LOCK:
+        _STOCHASTIC_STATE.update(
+            mode=None,
+            last_run=None,
+            last_seconds=None,
+            summary=None,
+            last_fallback=None,
+            consecutive_fallbacks=0,
+            thread=None,
+        )
+
+
+def wait_for_stochastic_shadow(timeout: float | None = None) -> bool:
+    """Block until the running shadow solve (if any) finishes. True when none
+    is running afterwards. For tests and orderly shutdown; the live cycle
+    never waits."""
+    with _STOCHASTIC_LOCK:
+        thread = _STOCHASTIC_STATE["thread"]
+    if thread is None:
+        return True
+    thread.join(timeout)
+    return not thread.is_alive()
 
 
 def run_stochastic_dispatch(
@@ -320,113 +372,308 @@ def run_stochastic_dispatch(
     """The plan to publish and the `stochastic` summary for it.
 
     Returns `plan` itself unless the switch is on and the stochastic solve
-    succeeded in time. See the comment above for the cadence and fallback
-    rules."""
+    produced a plan at least as safe as `plan`, in budget. See the comment
+    above for the cadence and fallback rules."""
     drive = bool(cfg.get("solver_stochastic_dispatch", False))
     mode = "drive" if drive else "shadow"
     state = _STOCHASTIC_STATE
+    with _STOCHASTIC_LOCK:
+        if state["mode"] != mode:
+            # A toggle: the other mode's summary and cadence do not carry over.
+            state.update(
+                mode=mode,
+                last_run=None,
+                last_seconds=None,
+                summary=None,
+                last_fallback=None,
+                consecutive_fallbacks=0,
+            )
     if plan.status != "optimal":
         return plan, _stochastic_fallback(
             mode, now, "deterministic_not_optimal", plan, deterministic_seconds
         )
-    last_run = state["last_run"]
-    last_seconds = state["last_seconds"]
-    elapsed = (now - last_run).total_seconds() if last_run is not None else None
-    slow = last_seconds is not None and last_seconds > (
-        STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS if drive else STOCHASTIC_SLOW_SECONDS
-    )
     if drive:
-        wait = STOCHASTIC_SHADOW_INTERVAL_SECONDS if slow else 0.0
-    else:
+        return _run_drive(now, plan, build_kwargs, deterministic_seconds)
+    return plan, _run_shadow(now, plan, build_kwargs, deterministic_seconds)
+
+
+def _due(now: datetime, wait: float) -> bool:
+    last_run = _STOCHASTIC_STATE["last_run"]
+    if last_run is None:
+        return True
+    elapsed = (now - last_run).total_seconds()
+    return elapsed < 0 or elapsed >= wait
+
+
+def _run_shadow(
+    now: datetime,
+    plan: network.Plan,
+    build_kwargs: dict[str, Any],
+    deterministic_seconds: float,
+) -> dict | None:
+    """Start a shadow solve when one is due and none is running; return the
+    latest finished summary (or a placeholder before the first)."""
+    state = _STOCHASTIC_STATE
+    with _STOCHASTIC_LOCK:
+        last_seconds = state["last_seconds"]
+        slow = last_seconds is not None and last_seconds > STOCHASTIC_SLOW_SECONDS
         wait = (
             STOCHASTIC_SLOW_BACKOFF_SECONDS
             if slow
             else STOCHASTIC_SHADOW_INTERVAL_SECONDS
         )
-    due = elapsed is None or elapsed < 0 or elapsed >= wait
-    if not due:
-        if not drive:
-            # Shadow: re-publish the last summary, which carries its own
-            # computed_at, so the attribute does not flicker between solves.
-            return plan, state["summary"]
-        return plan, _stochastic_fallback(
-            mode, now, "cooldown_after_slow_solve", plan, deterministic_seconds
-        )
+        thread = state["thread"]
+        running = thread is not None and thread.is_alive()
+        start = not running and _due(now, wait)
+        if start:
+            state["last_run"] = now
+    if start:
+        # The background solve reads copies: the cycle goes on to mutate its
+        # own plan (apply_commanded_state_guard) and may rebuild inputs.
+        job_kwargs = copy.deepcopy(build_kwargs)
+        det = _deterministic_facts(plan, deterministic_seconds)
+        blend_weight = plan.calibration_weight_used
+        if STOCHASTIC_SHADOW_IN_BACKGROUND:
+            worker = threading.Thread(
+                target=_shadow_job,
+                args=(now, job_kwargs, blend_weight, det),
+                name="nimbus_stochastic_shadow",
+                daemon=True,
+            )
+            with _STOCHASTIC_LOCK:
+                state["thread"] = worker
+            worker.start()
+        else:
+            _shadow_job(now, job_kwargs, blend_weight, det)
+    with _STOCHASTIC_LOCK:
+        summary = state["summary"]
+    if summary is not None:
+        return summary
+    return _stochastic_fallback(
+        "shadow", now, "shadow_solve_pending", plan, deterministic_seconds
+    )
+
+
+def _deterministic_facts(plan: network.Plan, deterministic_seconds: float) -> dict:
+    """What the summary needs from the deterministic plan, read now so a
+    background job never touches the live plan object."""
+    return {
+        "plan": copy.deepcopy(plan),
+        "seconds": float(deterministic_seconds),
+    }
+
+
+def _shadow_job(
+    now: datetime, build_kwargs: dict[str, Any], blend_weight: float | None, det: dict
+) -> None:
+    """One shadow solve; never raises (it may run on its own thread)."""
     try:
         result = stochastic_dispatch.build_stochastic_plan(
-            build_kwargs, blend_weight=plan.calibration_weight_used
+            build_kwargs,
+            blend_weight=blend_weight,
+            budget_seconds=STOCHASTIC_SHADOW_BUDGET_SECONDS,
         )
-    except Exception as err:  # noqa: BLE001 -- never break the deterministic plan
-        solver_shared._LOGGER.warning(
-            "Nimbus #1797: stochastic solve raised %s: %s "
-            "(fallback_reason=error:%s) -- %s",
-            type(err).__name__,
-            err,
-            type(err).__name__,
-            "publishing the deterministic plan" if drive else "shadow skipped",
+    except Exception as err:  # noqa: BLE001 -- a shadow failure must not escape its thread
+        reason = f"error:{type(err).__name__}"
+        _log_fallback_once(
+            reason, "shadow summary only; dispatch is unaffected", err=err
         )
-        state.update(last_run=now, last_seconds=None)
         summary = _stochastic_fallback(
-            mode, now, f"error:{type(err).__name__}", plan, deterministic_seconds
+            "shadow", now, reason, det["plan"], det["seconds"]
         )
-        state["summary"] = summary
-        return plan, summary
-    state.update(last_run=now, last_seconds=result.solve_seconds)
-    fallback: str | None = None
-    published = plan
-    if result.status == "no_band":
-        fallback = "no_solar_band"
-    elif result.status != "optimal" or result.plan is None:
-        fallback = f"stochastic_{result.status}"
-    elif drive and result.solve_seconds > STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS:
-        fallback = "stochastic_too_slow"
-    elif drive:
-        # The joint model is solved without ranging or an offer curve (see
-        # solver/stochastic_dispatch.py); the published signals stay the
-        # deterministic solve's, and the summary says so.
-        published = dataclasses.replace(
-            result.plan,
-            offer_curve_import=plan.offer_curve_import,
-            offer_curve_export=plan.offer_curve_export,
-            offer_curve_import_ranging=plan.offer_curve_import_ranging,
-            offer_curve_export_ranging=plan.offer_curve_export_ranging,
-            offer_curve_sweep_seconds=plan.offer_curve_sweep_seconds,
-            grid_signals=plan.grid_signals,
+        _store_shadow_result(now, None, summary, reason)
+        return
+    reason = _refusal_reason(result, det["plan"], drive=False)
+    if reason is not None and reason != "no_solar_band":
+        _log_fallback_once(
+            reason, "shadow summary only; dispatch is unaffected", result=result
         )
-    # Once per reason, in either mode: a joint timeout or failure is a
-    # WARNING here, with its fallback_reason, and nowhere else (solver/lp.py
-    # keeps its own #773/#1179 diagnostics quiet on the joint solve).
-    # "no_solar_band" is the ordinary no-op, not a failure.
-    if (
-        fallback is not None
-        and fallback != "no_solar_band"
-        and fallback != state["last_fallback"]
-    ):
-        solver_shared._LOGGER.warning(
-            "Nimbus #1797: stochastic solve did not produce a plan "
-            "(fallback_reason=%s, status=%s, raw_status=%s, %.2f s) -- %s",
-            fallback,
-            result.status,
-            result.raw_status,
-            result.solve_seconds,
-            "this cycle publishes the deterministic plan"
-            if drive
-            else "shadow summary only; dispatch is unaffected",
-        )
-    state["last_fallback"] = fallback
     summary = stochastic_dispatch.summary_attribute(
         result,
-        mode=mode,
+        mode="shadow",
+        deterministic_plan=det["plan"],
+        deterministic_solve_seconds=det["seconds"],
+        drives_dispatch=False,
+        fallback_reason=reason,
+        computed_at=now.isoformat(),
+    )
+    _store_shadow_result(now, result.solve_seconds, summary, reason)
+
+
+def _store_shadow_result(
+    started: datetime, seconds: float | None, summary: dict, reason: str | None
+) -> None:
+    with _STOCHASTIC_LOCK:
+        state = _STOCHASTIC_STATE
+        # A reset or a switch to drive since this job started: drop it.
+        if state["mode"] != "shadow" or state["last_run"] != started:
+            return
+        state.update(last_seconds=seconds, summary=summary, last_fallback=reason)
+
+
+def _run_drive(
+    now: datetime,
+    plan: network.Plan,
+    build_kwargs: dict[str, Any],
+    deterministic_seconds: float,
+) -> tuple[network.Plan, dict]:
+    state = _STOCHASTIC_STATE
+    with _STOCHASTIC_LOCK:
+        n_fail = int(state["consecutive_fallbacks"])
+        wait = (
+            0.0
+            if n_fail == 0
+            else min(
+                STOCHASTIC_SHADOW_INTERVAL_SECONDS * 2 ** (n_fail - 1),
+                STOCHASTIC_SLOW_BACKOFF_SECONDS,
+            )
+        )
+        due = _due(now, wait)
+        if due:
+            state["last_run"] = now
+        last_fallback = state["last_fallback"]
+    if not due:
+        return plan, _stochastic_fallback(
+            "drive",
+            now,
+            f"cooldown_after:{last_fallback}",
+            plan,
+            deterministic_seconds,
+        )
+    action = "this cycle publishes the deterministic plan"
+    try:
+        result = stochastic_dispatch.build_stochastic_plan(
+            build_kwargs,
+            blend_weight=plan.calibration_weight_used,
+            budget_seconds=STOCHASTIC_DRIVE_BUDGET_SECONDS,
+        )
+    except Exception as err:  # noqa: BLE001 -- never break the deterministic plan
+        reason = f"error:{type(err).__name__}"
+        _log_fallback_once(reason, action, err=err)
+        summary = _stochastic_fallback(
+            "drive", now, reason, plan, deterministic_seconds
+        )
+        _record_drive(None, reason)
+        return plan, summary
+    reason = _refusal_reason(result, plan, drive=True)
+    published = plan
+    if reason is None and result.plan is not None:
+        published = _with_deterministic_signals(result.plan, plan)
+    elif reason != "no_solar_band":
+        _log_fallback_once(reason, action, result=result)
+    _record_drive(result.solve_seconds, reason)
+    summary = stochastic_dispatch.summary_attribute(
+        result,
+        mode="drive",
         deterministic_plan=plan,
         deterministic_solve_seconds=deterministic_seconds,
         drives_dispatch=published is not plan,
-        fallback_reason=fallback,
+        fallback_reason=reason,
         computed_at=now.isoformat(),
     )
     if published is not plan:
         summary["signals_from"] = "deterministic"
-    state["summary"] = summary
     return published, summary
+
+
+def _record_drive(seconds: float | None, reason: str | None) -> None:
+    with _STOCHASTIC_LOCK:
+        state = _STOCHASTIC_STATE
+        state["last_seconds"] = seconds
+        if reason is None:
+            state["consecutive_fallbacks"] = 0
+            state["last_fallback"] = None
+        else:
+            # "no_solar_band" is the ordinary nothing-to-hedge case (night,
+            # no band): retry next cycle, not after a backoff.
+            if reason != "no_solar_band":
+                state["consecutive_fallbacks"] = int(state["consecutive_fallbacks"]) + 1
+            state["last_fallback"] = reason
+
+
+def _refusal_reason(
+    result: stochastic_dispatch.StochasticResult,
+    deterministic: network.Plan,
+    *,
+    drive: bool,
+) -> str | None:
+    """Why `result` must not be published (in drive) or be trusted (in
+    shadow, where the same reasons are reported), or None."""
+    if result.status == "no_band":
+        return "no_solar_band"
+    if result.status != "optimal" or result.plan is None:
+        return f"stochastic_{result.status}"
+    costs = list(result.scenario_costs.values())
+    if result.expected_cost is None or not all(
+        np.isfinite(c) for c in [*costs, result.expected_cost]
+    ):
+        return "scenario_cost_not_finite"
+    gap = result.nonanticipativity_max_gap
+    if gap is None or gap > stochastic_dispatch.NONANTICIPATIVITY_TOLERANCE:
+        return "nonanticipativity_violated"
+    if result.thermal_guarantee_relaxed and not deterministic.thermal_guarantee_relaxed:
+        return "thermal_guarantee_relaxed"
+    if result.direction_exclusivity in (
+        "declined",
+        "still_two_way",
+    ) and deterministic.direction_exclusivity not in ("declined", "still_two_way"):
+        return f"direction_{result.direction_exclusivity}"
+    if drive and result.solar_band != "calibrated":
+        return "solar_band_not_calibrated"
+    return None
+
+
+def _with_deterministic_signals(
+    stochastic_plan: network.Plan, deterministic: network.Plan
+) -> network.Plan:
+    """The joint model computes no ranging or offer curve (sweeping one
+    scenario's price would misprice it); every signal field is taken from the
+    deterministic solve, all from ONE source, so no published signal set mixes
+    the two."""
+    return dataclasses.replace(
+        stochastic_plan,
+        offer_curve_import=deterministic.offer_curve_import,
+        offer_curve_export=deterministic.offer_curve_export,
+        offer_curve_import_ranging=deterministic.offer_curve_import_ranging,
+        offer_curve_export_ranging=deterministic.offer_curve_export_ranging,
+        offer_curve_sweep_seconds=deterministic.offer_curve_sweep_seconds,
+        grid_signals=deterministic.grid_signals,
+        battery_signals=deterministic.battery_signals,
+        load_signals=deterministic.load_signals,
+    )
+
+
+def _log_fallback_once(
+    reason: str,
+    action: str,
+    *,
+    result: stochastic_dispatch.StochasticResult | None = None,
+    err: BaseException | None = None,
+) -> None:
+    """One WARNING per reason until it changes or a stochastic plan drives
+    (solver/lp.py keeps its own diagnostics quiet on the joint solve)."""
+    with _STOCHASTIC_LOCK:
+        if _STOCHASTIC_STATE["last_fallback"] == reason:
+            return
+        _STOCHASTIC_STATE["last_fallback"] = reason
+    if err is not None:
+        solver_shared._LOGGER.warning(
+            "Nimbus #1797: stochastic solve raised %s: %s (fallback_reason=%s) -- %s",
+            type(err).__name__,
+            err,
+            reason,
+            action,
+        )
+        return
+    solver_shared._LOGGER.warning(
+        "Nimbus #1797: stochastic plan not used "
+        "(fallback_reason=%s, status=%s, raw_status=%s, %.2f s) -- %s",
+        reason,
+        None if result is None else result.status,
+        None if result is None else result.raw_status,
+        0.0 if result is None else result.solve_seconds,
+        action,
+    )
 
 
 def _stochastic_fallback(

@@ -2616,7 +2616,13 @@ UNKNOWN_RETRIES: dict[str, int] = {"attempted": 0, "recovered": 0}
 
 def _note_unknown_retry(how: str) -> None:
     """One WARNING per retry kind per process (nimbus #1360); every retry is
-    counted in `UNKNOWN_RETRIES`."""
+    counted in `UNKNOWN_RETRIES`.
+
+    A `quiet_diagnostics` problem (the stochastic joint solve, #1797) is
+    neither counted nor logged: these counters are the LIVE solve's, and
+    `solve_diagnostics` publishes them as such."""
+    if _diagnostics_quiet():
+        return
     UNKNOWN_RETRIES["attempted"] += 1
     if how in _UNKNOWN_RETRY_NOTED:
         return
@@ -2823,7 +2829,13 @@ def _solve_highs(
         # every single cycle.
         global _lex_calibration_failed_until
         now = time.monotonic()
-        if now < _lex_calibration_failed_until:
+        # A BlendedOptions solve has no phases, so the phased path's cooldown
+        # has nothing to protect; gating it here silently turned the
+        # stochastic joint solve (#1797, its only user) into a primary-only
+        # solve still reported as "blended".
+        if now < _lex_calibration_failed_until and not isinstance(
+            options, BlendedOptions
+        ):
             _LOGGER.debug(
                 "Nimbus #773: skipping the phased lex/calibration solve "
                 "-- still within the %.0fs cooldown after a recent phase "
@@ -2906,11 +2918,11 @@ def _solve_highs(
             retried = _solve_highs(
                 problem, ranging=ranging, keep_basis=keep_basis, options=None
             )
-            if retried.status == "optimal":
+            if retried.status == "optimal" and not _diagnostics_quiet():
                 UNKNOWN_RETRIES["recovered"] += 1
             return retried
         status = _retry_unknown_with_ipm(h)
-        if status == highspy.HighsModelStatus.kOptimal:
+        if status == highspy.HighsModelStatus.kOptimal and not _diagnostics_quiet():
             UNKNOWN_RETRIES["recovered"] += 1
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
