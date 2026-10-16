@@ -16,6 +16,47 @@ including one beyond P5MIN's horizon, for as long as the evidence lasts; the
 plan says when the battery should hold; the decision-input capture keeps each
 price source's forecast series.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 2f47384e**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `release/0.94.458`) and restarted 11:45:35 AEST 16 Oct, then again at
+  11:49:26 after the control. The merge commit's `custom_components` is
+  byte-identical to 2f47384e.
+  - devhub's own entities stamp `0.94.458` (the other 118 are production's
+    mirrored entities on 0.94.457). All 147 `nimbus_load` entities are
+    available: 0.94.457's 145 plus this release's two new ones,
+    `number.nimbus_solver_p5min_false_spike_threshold_mwh` (5000) and
+    `sensor.nimbus_solver_current_dispatch_hold`.
+  - **No Traceback, and no ERROR line this release introduces.** Both starts
+    log 197 `nimbus_load` "does not generate unique IDs" errors. A
+    **v0.94.457** control, installed and restarted 11:47:34, logged the same
+    197 with 145 / 145 entities available.
+  - **The guard, against real data:** devhub has no AEMO region of its own,
+    so its P5MIN sensor does not run there. Instead, this release's
+    `p5min_guard` was replayed on 16 Oct's live public NEMWEB P5MIN and
+    DispatchIS files, 09:40-11:15 runs. It arms on the 09:55 run (published
+    09:50:38) with `control_room_constraint` / `CA_BRIS_59E3F2B6_1`, renews on
+    every run, and releases on the 10:55 run, the one in which AEMO moved to
+    dispatch's limit (Mark Purcell's timeline on #1778). It stays off for the
+    11:10 run's 79 MW violation at normal prices. Dispatch peaked at $75/MWh.
+  - **Not claimed:**
+    - the guard on a live solve: no install with a configured region has run
+      it yet;
+    - `dispatch_hold` driving an inverter: the release publishes the signal
+      only. The reference household's automation change is 116KAT-HA-AI #953.
+  - CI passed all 10 checks on #1779, #1785, #1788, #1790 and this release
+    PR (#1791), including the full pytest run.
+- Consumer check: an install whose price forecast carries a Brisbane
+  control-room false spike now plans around it; a stale provider forecast is
+  still not caught.
+  - **The guard:** an install on LocalVolts or Amber whose forecast carries a
+    Brisbane control-room false spike now plans around it once AEMO's 5-minute
+    forecast shows the constraint it cannot meet, even before the spike enters
+    P5MIN's horizon. A real spike with no `CA_` violation (9 Oct) is untouched.
+  - **Still missing:** a provider whose forecast goes stale after AEMO has
+    corrected. On 16 Oct LocalVolts' forecast carried AEMO's 10:01 run (with
+    the spike) past 12:00, after AEMO and Amber had dropped it; the guard
+    cannot see that, because AEMO's own data is clean (#1786).
+
 ### Fixed
 - **The P5MIN false-spike guard catches a spike beyond P5MIN's horizon, and
   holds for the whole episode** (#1778, Mark Purcell). On 16 Oct 2026 AEMO's
