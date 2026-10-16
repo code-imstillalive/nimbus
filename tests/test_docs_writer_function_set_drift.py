@@ -739,6 +739,17 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "run_stochastic_dispatch",
         "reset_stochastic_state",
         "_stochastic_fallback",
+        "wait_for_stochastic_shadow",
+        "_due",
+        "_run_shadow",
+        "_deterministic_facts",
+        "_shadow_job",
+        "_store_shadow_result",
+        "_run_drive",
+        "_record_drive",
+        "_refusal_reason",
+        "_with_deterministic_signals",
+        "_log_fallback_once",
         # nimbus #1786 -- the consolidated price forecast and per-source
         # running error (shadow, with a live switch). Native runtime first;
         # the docs copy has no secondary-source coverage reader and no

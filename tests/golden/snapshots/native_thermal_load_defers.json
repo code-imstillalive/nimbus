@@ -14042,6 +14042,7 @@
        "computed_at": "2026-09-06T20:00:00+10:00",
        "deterministic_period0_battery_kw": -5.0,
        "deterministic_total_cost": 35.1863,
+       "direction_exclusivity": null,
        "drives_dispatch": false,
        "expected_cost": null,
        "fallback_reason": "no_solar_band",
@@ -14055,6 +14056,7 @@
        "raw_status": null,
        "scenario_cost": {},
        "scenario_period0_battery_kw": {},
+       "scenario_terminal_soc_kwh": {},
        "scenarios": [
         "p10",
         "p50",
@@ -14065,6 +14067,7 @@
        "stage1_minutes": 30.0,
        "stage1_periods": 6,
        "status": "no_band",
+       "thermal_guarantee_relaxed": [],
        "weights": [
         0.3,
         0.4,

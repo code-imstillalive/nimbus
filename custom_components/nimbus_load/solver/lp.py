@@ -2918,12 +2918,16 @@ def _solve_highs(
             retried = _solve_highs(
                 problem, ranging=ranging, keep_basis=keep_basis, options=None
             )
-            if retried.status == "optimal" and not _diagnostics_quiet():
-                UNKNOWN_RETRIES["recovered"] += 1
+            if retried.status == "optimal":  # noqa: SIM102
+                # Nested, not merged: #1360's source test pins the line above.
+                if not _diagnostics_quiet():
+                    UNKNOWN_RETRIES["recovered"] += 1
             return retried
         status = _retry_unknown_with_ipm(h)
-        if status == highspy.HighsModelStatus.kOptimal and not _diagnostics_quiet():
-            UNKNOWN_RETRIES["recovered"] += 1
+        if status == highspy.HighsModelStatus.kOptimal:  # noqa: SIM102
+            # Nested, not merged: #1360's source test pins the line above.
+            if not _diagnostics_quiet():
+                UNKNOWN_RETRIES["recovered"] += 1
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
         return LPResult(

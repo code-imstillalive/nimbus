@@ -4844,8 +4844,7 @@ def _build_plan_thermal_fallback(
 
     relaxed_names = [tl.name for tl in thermal_loads]
     # The joint solve's own retries are its caller's to report (#1797).
-    _LOGGER.log(
-        logging.DEBUG if lp_solve_hook is not None else logging.WARNING,
+    (_LOGGER.debug if lp_solve_hook is not None else _LOGGER.warning)(
         "Nimbus network.py: hard-constrained thermal LP came back %s with "
         "thermal_loads %s configured -- retrying once with each load's own "
         "hard temperature deadline relaxed to a soft shortfall price "
@@ -5069,7 +5068,7 @@ def build_plan(
         [None] if len(opposing) > n_periods // 3 else [opposing, None]
     )
     # The joint solve's own re-solves are its caller's to report (#1797).
-    _log_level = logging.DEBUG if lp_solve_hook is not None else logging.WARNING
+    _warn = _LOGGER.debug if lp_solve_hook is not None else _LOGGER.warning
     for binaries in rounds:
         _LOGGER.log(
             logging.DEBUG if lp_solve_hook is not None else logging.INFO,
@@ -5083,8 +5082,7 @@ def build_plan(
             direction_binaries=binaries if binaries is not None else _ALL_DIRECTIONS,
         )
         if strict.status != "optimal":
-            _LOGGER.log(
-                _log_level,
+            _warn(
                 "Nimbus network.py: direction-exclusive re-solve came back %s; "
                 "keeping the previous plan, %d direction pair(s) still "
                 "two-way (nimbus issues #238, #1751)",
@@ -5100,8 +5098,7 @@ def build_plan(
         opposing = _opposing_flow_binaries(plan)
         if not opposing:
             return replace(plan, direction_exclusivity="enforced")
-    _LOGGER.log(
-        _log_level,
+    _warn(
         "Nimbus network.py: %d direction pair(s) still two-way after every "
         "direction-exclusive re-solve (nimbus issue #1751)",
         len(opposing),

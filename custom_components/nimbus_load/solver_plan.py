@@ -318,9 +318,10 @@ STOCHASTIC_SHADOW_BUDGET_SECONDS = 30.0
 # Kept for the shadow slow-solve threshold's history: a drive solve is bounded
 # by STOCHASTIC_DRIVE_BUDGET_SECONDS instead.
 STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS = STOCHASTIC_DRIVE_BUDGET_SECONDS
-# False runs the shadow solve in-line (tests, and any caller that needs the
-# summary from this very call).
-STOCHASTIC_SHADOW_IN_BACKGROUND = True
+# True runs the shadow solve on its own thread. solver_runtime._ensure_ready()
+# turns it on in Home Assistant; everywhere else (the cron copy, tests, the
+# golden master) the shadow solve stays in-line and deterministic.
+STOCHASTIC_SHADOW_IN_BACKGROUND = False
 _STOCHASTIC_LOCK = threading.Lock()
 _STOCHASTIC_STATE: dict[str, Any] = {
     "mode": None,
@@ -474,6 +475,9 @@ def _shadow_job(
             budget_seconds=STOCHASTIC_SHADOW_BUDGET_SECONDS,
         )
     except Exception as err:  # noqa: BLE001 -- a shadow failure must not escape its thread
+        solver_shared._LOGGER.debug(
+            "Nimbus #1797: shadow stochastic solve raised", exc_info=True
+        )
         reason = f"error:{type(err).__name__}"
         _log_fallback_once(
             reason, "shadow summary only; dispatch is unaffected", err=err
@@ -548,6 +552,9 @@ def _run_drive(
             budget_seconds=STOCHASTIC_DRIVE_BUDGET_SECONDS,
         )
     except Exception as err:  # noqa: BLE001 -- never break the deterministic plan
+        solver_shared._LOGGER.debug(
+            "Nimbus #1797: drive stochastic solve raised", exc_info=True
+        )
         reason = f"error:{type(err).__name__}"
         _log_fallback_once(reason, action, err=err)
         summary = _stochastic_fallback(
