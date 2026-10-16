@@ -338,6 +338,55 @@ _RISK_TEXT = (
 
 # --- Blocks ----------------------------------------------------------------
 
+# --- Plan: price safety (household, 16 Oct 2026: "why release features which
+# are not visible") -- four equal cards under the price chart, one per guard:
+# the P5MIN false-spike guard (#1778), the price source's freshness (#1793),
+# the dispatch hold signal (#1654) and the consolidated forecast (#1786). Each
+# opens with a coloured band: green all well, red a guard acting now, orange
+# hold or live, grey not running.
+_SAFETY_GUARD = {
+    "type": "markdown",
+    "content": (
+        "{% set g = state_attr('${@p5min_forecast}', 'false_spike_guard') %}"
+        "<ha-alert alert-type=\"{% if g is mapping and g.get('active') %}error{% elif g is mapping %}success{% else %}info{% endif %}\" title=\"False-spike guard\">{% if g is mapping and g.get('active') %}Holding a spike out{% elif g is mapping %}Watching{% else %}Not running{% endif %}</ha-alert>\n\n"
+        "{% if g is mapping and g.get('active') %}{{ g.get('reason') }}{% if g.get('detail', {}).get('constraint_id') %} · {{ g.detail.constraint_id }}{% endif %}{% if g.get('expires_at') %} · until {{ as_timestamp(g.expires_at) | timestamp_custom('%H:%M') }}{% endif %}{% elif g is mapping %}Forecast spikes over ${{ g.get('threshold') }}/kWh are checked against AEMO.{% else %}Needs an AEMO region.{% endif %}\n\n"
+        "*Keeps a forecast spike AEMO cannot deliver out of the plan.*"
+    ),
+}
+
+_SAFETY_SOURCE = {
+    "type": "markdown",
+    "content": (
+        "{% set f = state_attr('${@nimbus_solver_battery_forecast}', 'price_source_freshness') %}"
+        "<ha-alert alert-type=\"{% if f is mapping and f.get('stale') %}error{% elif f is mapping %}success{% else %}info{% endif %}\" title=\"Price source\">{% if f is mapping and f.get('stale') %}Stale, using AEMO{% elif f is mapping %}Fresh{% else %}No refresh time published{% endif %}</ha-alert>\n\n"
+        "{% if f is mapping %}Rebuilt {{ [f.get('age_minutes', 0), 0] | max | round(0) | int }} min ago; stale after {{ f.get('stale_after_minutes', 60) | int }}.{% else %}This provider does not say when it last updated.{% endif %}\n\n"
+        "*A frozen forecast is replaced by AEMO plus your markup.*"
+    ),
+}
+
+_SAFETY_HOLD = {
+    "type": "markdown",
+    "content": (
+        "{% set h = states('${@nimbus_solver_current_dispatch_hold}') %}"
+        "<ha-alert alert-type=\"{% if h in ['True', 'on'] %}warning{% elif h in ['False', 'off'] %}success{% else %}info{% endif %}\" title=\"Battery hold\">{% if h in ['True', 'on'] %}Hold{% elif h in ['False', 'off'] %}No hold{% else %}Unknown{% endif %}</ha-alert>\n\n"
+        "{% if h in ['True', 'on'] %}The plan keeps the battery idle while the grid supplies the house.{% else %}The plan is charging or discharging, or the grid is idle.{% endif %}\n\n"
+        "*Hold, not Self-Consume, when the plan leaves the battery idle.*"
+    ),
+}
+
+_SAFETY_CONSOLIDATION = {
+    "type": "markdown",
+    "content": (
+        "{% set c = states('${@solver_price_consolidation_live}') %}"
+        "<ha-alert alert-type=\"{% if c == 'on' %}warning{% else %}info{% endif %}\" title=\"Consolidated prices\">{% if c == 'on' %}Driving the plan{% elif c == 'off' %}Shadow{% else %}Unavailable{% endif %}</ha-alert>\n\n"
+        "{% if c == 'on' %}Every price source combined drives the plan.{% else %}Every price source combined and scored; the plan still uses your provider.{% endif %}\n\n"
+        "*Each source's running error decides its weight.*"
+    ),
+}
+
+_PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
+
+
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
     ("Performance", "info", "How it did, and what the plan ahead should earn."),
@@ -1334,6 +1383,10 @@ def template() -> list[dict[str, Any]]:
         *(
             _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
             for k in range(4)
+        ),
+        *(
+            _section([_styled(c, _FILL_NO_SCROLL)], 1, {"rows": 3})
+            for c in _PRICE_SAFETY
         ),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),

@@ -71,7 +71,9 @@ def _block(card) -> str | None:
     """A block's opening band: a markdown card holding a coloured ha-alert
     with the block's name as a heading (household, 11 Oct 2026)."""
     content = card.get("content", "")
-    if card.get("type") != "markdown" or "<ha-alert" not in content:
+    # A band is the alert alone; a price-safety card (16 Oct 2026) reads live
+    # state first and carries text under its alert.
+    if card.get("type") != "markdown" or not content.startswith("<ha-alert"):
         return None
     assert "<h2>" not in content  # does not survive HA's markdown
     return content.split('title="', 1)[1].split('"', 1)[0]
@@ -89,6 +91,10 @@ def _what(card):
         return card["title"]
     if card["type"] == "markdown" and card.get("content"):
         text = card["content"]
+        if "**" not in text and 'title="' in text:
+            # A card opening with a coloured ha-alert band (the price-safety
+            # cards) is named by the band's title.
+            return "markdown: " + text.split('title="', 1)[1].split('"', 1)[0]
         return "markdown: " + text[text.index("**") + 2 :].split("**", 1)[0]
     if card["type"] == "button":
         return f"button: {card['name']}"
@@ -142,7 +148,13 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             # nimbus #1753: the plan's prices for its whole horizon, then one
             # card per day.
             (4, "Prices ahead"),
+            # Household, 16 Oct 2026: "why release features which are not
+            # visible" -- the price-safety card under the price chart.
             *[(1, "markdown: {{ ns.bt }}")] * 4,
+            (1, "markdown: False-spike guard"),
+            (1, "markdown: Price source"),
+            (1, "markdown: Battery hold"),
+            (1, "markdown: Consolidated prices"),
             (2, "Solver Forecast — Whole Plan"),
             (1, "Nimbus Solver Quality (EPR / Regret)"),
             (1, "Solver Daily Summary"),
