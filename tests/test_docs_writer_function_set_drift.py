@@ -192,6 +192,13 @@ def _integration_paths() -> list[str]:
 # publish these reports TO outside of a real running HA instance.
 INTENTIONAL_NATIVE_ONLY = frozenset(
     {
+        # nimbus #1797: these serve Home Assistant readers only -- the
+        # response-only nimbus_load.get_stochastic_summary service, and the
+        # decision-input capture / diagnostics download reading this
+        # process's own posted plan. A cron process has no service, no
+        # capture and no diagnostics to serve.
+        "stochastic_snapshot",
+        "last_posted_at",
         # nimbus issue #1357: builds the EPR oracle's re-timeable
         # controllable-load inputs, which it can only do by reading the
         # config entry's own `controllable_load` SUBENTRIES off

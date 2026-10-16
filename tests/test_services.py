@@ -254,7 +254,7 @@ def test_async_register_services_registers_both_load_and_signal():
 
     services.async_register_services(hass)
 
-    assert hass.services.async_register.call_count == 7
+    assert hass.services.async_register.call_count == 8
     registered_names = {
         call.args[1] for call in hass.services.async_register.call_args_list
     }
@@ -266,6 +266,7 @@ def test_async_register_services_registers_both_load_and_signal():
         services.SERVICE_RESCORE_HISTORY,
         services.SERVICE_FLEX_TELEMETRY_RECORD,
         services.SERVICE_EXPORT_DECISION_INPUTS,
+        services.SERVICE_GET_STOCHASTIC_SUMMARY,
     }
     for call in hass.services.async_register.call_args_list:
         assert call.args[0] == services.DOMAIN
@@ -316,6 +317,7 @@ def test_async_unregister_services_removes_every_registered_service():
         services.SERVICE_FLEX_TELEMETRY_RECORD,
         services.SERVICE_RESCORE_HISTORY,
         services.SERVICE_EXPORT_DECISION_INPUTS,
+        services.SERVICE_GET_STOCHASTIC_SUMMARY,
     }
     for call in hass.services.async_remove.call_args_list:
         assert call.args[0] == services.DOMAIN

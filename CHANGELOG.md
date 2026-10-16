@@ -9,6 +9,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Seeing the stochastic solve** (#1797 programme, PR B).
+  - **Solver tab:** a Stochastic row after the risk sliders, two half-width
+    cards. *Stochastic dispatch* says shadow or drive, whether the
+    stochastic plan is driving, and in plain words why a cycle used the main
+    plan (no solar spread, an uncalibrated band, a backoff, ...), with the
+    band type and last solve time. *Stochastic against the main plan* puts
+    the battery command now and the plan cost beside the main plan's, then
+    each solar day's cost and battery at the horizon's end. Both render a
+    clear "Not running" / "No stochastic plan this cycle" before a solve.
+  - **`nimbus_load.get_stochastic_summary`** (response-only): the latest
+    summary, each scenario's fleet SoC and battery kW over the horizon, and
+    the cadence (last run, last fallback, backoff, a shadow solve running).
+    Read from the Solver itself, so it is this install's own solve even
+    where another install's mirrored plan sensor overwrites the entity.
+  - **Decision-input capture and the diagnostics download** read the plan
+    this install last posted before the state machine (diagnostics says
+    which, `plan_source`); the capture now keeps each row's calibrated
+    `solar_p10_kw` / `solar_p90_kw` and the `stochastic` summary, so a
+    stochastic cycle can be replayed.
 - **Two-stage stochastic dispatch inside the main solve, in shadow by
   default, with a switch to drive** (#1797). The full model `build_plan()`
   builds (every battery, load, controllable and thermal load, P2P block,

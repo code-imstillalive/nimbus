@@ -386,6 +386,96 @@ _SAFETY_CONSOLIDATION = {
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
 
+# --- Plan: two-stage stochastic dispatch (nimbus #1797) ----------------------
+# Two half-width cards after the risk sliders: what the stochastic solve is
+# doing (shadow or drive, and why a cycle fell back), then its numbers beside
+# the deterministic plan's. Both read the `stochastic` attribute the solve
+# publishes; the per-scenario paths are served by
+# nimbus_load.get_stochastic_summary, not drawn here (no room in the
+# attribute for three more horizons).
+_STOCHASTIC_REASONS = (
+    "{% set why = {"
+    "'no_solar_band': 'nothing to hedge: no solar spread right now', "
+    "'solar_band_not_calibrated': 'the solar band is not calibrated yet', "
+    "'shadow_solve_pending': 'first shadow solve running', "
+    "'deterministic_not_optimal': 'the main plan did not solve', "
+    "'thermal_guarantee_relaxed': 'it would have relaxed a hot-water deadline', "
+    "'nonanticipativity_violated': 'its scenarios disagreed on the decision now', "
+    "'scenario_cost_not_finite': 'a scenario cost was not a number'"
+    "} %}"
+)
+
+_STOCHASTIC_STATUS = {
+    "type": "markdown",
+    "content": (
+        "{% set s = state_attr('${@nimbus_solver_battery_forecast}', 'stochastic') %}"
+        + _STOCHASTIC_REASONS
+        + "{% set r = s.get('fallback_reason') if s is mapping else none %}"
+        "{% set reason = why.get(r, r) if r else '' %}"
+        "{% if r and r.startswith('cooldown_after:') %}"
+        "{% set reason = 'waiting before retrying (' ~ why.get(r[15:], r[15:]) ~ ')' %}"
+        "{% endif %}"
+        "{% if r and r.startswith('direction_') %}"
+        "{% set reason = 'its plan charged and discharged at once' %}{% endif %}"
+        '<ha-alert alert-type="{% if s is not mapping %}info'
+        "{% elif s.get('drives_dispatch') %}warning"
+        "{% elif s.get('mode') == 'drive' %}error"
+        "{% elif s.get('status') == 'optimal' %}success{% else %}info{% endif %}\""
+        ' title="Stochastic dispatch">'
+        "{% if s is not mapping %}Not running"
+        "{% elif s.get('drives_dispatch') %}Driving the plan"
+        "{% elif s.get('mode') == 'drive' %}Drive on, this cycle uses the main plan"
+        "{% elif s.get('status') == 'optimal' %}Shadow: hedge computed"
+        "{% else %}Shadow{% endif %}</ha-alert>\n\n"
+        "{% if s is mapping %}"
+        "{% if reason %}<b>Why:</b> {{ reason }}.\n\n{% endif %}"
+        "Solar band <b>{{ s.get('solar_band') or 'none' }}</b>"
+        "{% if s.get('stochastic_solve_seconds') is not none %}"
+        " · solved in {{ '%.1f' | format(s.stochastic_solve_seconds) }} s{% endif %}"
+        "{% if s.get('computed_at') %}"
+        " · {{ as_timestamp(s.computed_at) | timestamp_custom('%H:%M') }}{% endif %}"
+        "\n\n{% endif %}"
+        "*Plans a low, middle and high solar day at once and keeps the decision"
+        " now that suits all three. The Stochastic dispatch switch makes it"
+        " drive; off, it runs alongside as a check.*"
+    ),
+}
+
+_STOCHASTIC_NUMBERS = {
+    "type": "markdown",
+    "content": (
+        "**Stochastic against the main plan**\n\n"
+        "{% set s = state_attr('${@nimbus_solver_battery_forecast}', 'stochastic') %}"
+        "{% macro kw(v) %}{% if v is none %}—{% else %}"
+        "{{ '%+.1f' | format(v) }} kW{% endif %}{% endmacro %}"
+        "{% macro usd(v) %}{% if v is none %}—{% else %}"
+        "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        "{% if s is mapping and s.get('status') == 'optimal' %}"
+        "| | Battery now | Plan cost |\n|:---|---:|---:|\n"
+        "| Main plan | {{ kw(s.get('deterministic_period0_battery_kw')) }}"
+        " | {{ usd(s.get('deterministic_total_cost')) }} |\n"
+        "| Stochastic | {{ kw(s.get('stage1_battery_kw')) }}"
+        " | {{ usd(s.get('expected_cost')) }} expected |\n\n"
+        "{% set c = s.get('scenario_cost', {}) %}"
+        "{% set e = s.get('scenario_terminal_soc_kwh', {}) %}"
+        "| Solar day | Low | Middle | High |\n|:---|---:|---:|---:|\n"
+        "| Cost | {{ usd(c.get('p10')) }} | {{ usd(c.get('p50')) }}"
+        " | {{ usd(c.get('p90')) }} |\n"
+        "| Battery at the end |"
+        "{% for k in ['p10', 'p50', 'p90'] %}"
+        " {% if e.get(k) is not none %}{{ '%.0f' | format(e[k]) }} kWh"
+        "{% else %}—{% endif %} |{% endfor %}\n\n"
+        "*Battery now: + discharging, − charging. A positive cost is money"
+        " spent.*"
+        "{% else %}"
+        "No stochastic plan this cycle.\n\n"
+        "*The figures appear once a hedge is computed.*"
+        "{% endif %}"
+    ),
+}
+
+_STOCHASTIC_ROW = (_STOCHASTIC_STATUS, _STOCHASTIC_NUMBERS)
+
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
@@ -1452,6 +1542,10 @@ def template() -> list[dict[str, Any]]:
             {"rows": 6},
         ),
         *_risk_row(),
+        *(
+            _section([_styled(c, _FILL_NO_SCROLL)], 2, {"rows": 5})
+            for c in _STOCHASTIC_ROW
+        ),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],

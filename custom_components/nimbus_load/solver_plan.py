@@ -331,6 +331,10 @@ _STOCHASTIC_STATE: dict[str, Any] = {
     "last_fallback": None,
     "consecutive_fallbacks": 0,
     "thread": None,
+    # stochastic_dispatch.detail_attribute() of the solve behind `summary`:
+    # each scenario's SoC and battery path. Served by the response-only
+    # nimbus_load.get_stochastic_summary, never published as an attribute.
+    "detail": None,
 }
 
 
@@ -347,6 +351,31 @@ def reset_stochastic_state() -> None:
             last_fallback=None,
             consecutive_fallbacks=0,
             thread=None,
+            detail=None,
+        )
+
+
+def stochastic_snapshot() -> dict[str, Any]:
+    """A copy of the in-process stochastic state for the response-only
+    `nimbus_load.get_stochastic_summary` service: the latest summary, the
+    per-scenario detail behind it, and the cadence. Reads this process's
+    own state, so on an install whose plan sensor is overwritten by a
+    mirrored copy it still shows the install's own solve."""
+    with _STOCHASTIC_LOCK:
+        state = _STOCHASTIC_STATE
+        thread = state["thread"]
+        last_run = state["last_run"]
+        return copy.deepcopy(
+            {
+                "mode": state["mode"],
+                "summary": state["summary"],
+                "detail": state["detail"],
+                "last_run": None if last_run is None else last_run.isoformat(),
+                "last_fallback": state["last_fallback"],
+                "consecutive_fallbacks": state["consecutive_fallbacks"],
+                "shadow_running": thread is not None and thread.is_alive(),
+                "shadow_in_background": STOCHASTIC_SHADOW_IN_BACKGROUND,
+            }
         )
 
 
@@ -388,6 +417,7 @@ def run_stochastic_dispatch(
                 summary=None,
                 last_fallback=None,
                 consecutive_fallbacks=0,
+                detail=None,
             )
     if plan.status != "optimal":
         return plan, _stochastic_fallback(
@@ -485,7 +515,7 @@ def _shadow_job(
         summary = _stochastic_fallback(
             "shadow", now, reason, det["plan"], det["seconds"]
         )
-        _store_shadow_result(now, None, summary, reason)
+        _store_shadow_result(now, None, summary, reason, None)
         return
     reason = _refusal_reason(result, det["plan"], drive=False)
     if reason is not None and reason != "no_solar_band":
@@ -501,18 +531,30 @@ def _shadow_job(
         fallback_reason=reason,
         computed_at=now.isoformat(),
     )
-    _store_shadow_result(now, result.solve_seconds, summary, reason)
+    _store_shadow_result(
+        now,
+        result.solve_seconds,
+        summary,
+        reason,
+        stochastic_dispatch.detail_attribute(result),
+    )
 
 
 def _store_shadow_result(
-    started: datetime, seconds: float | None, summary: dict, reason: str | None
+    started: datetime,
+    seconds: float | None,
+    summary: dict,
+    reason: str | None,
+    detail: dict | None,
 ) -> None:
     with _STOCHASTIC_LOCK:
         state = _STOCHASTIC_STATE
         # A reset or a switch to drive since this job started: drop it.
         if state["mode"] != "shadow" or state["last_run"] != started:
             return
-        state.update(last_seconds=seconds, summary=summary, last_fallback=reason)
+        state.update(
+            last_seconds=seconds, summary=summary, last_fallback=reason, detail=detail
+        )
 
 
 def _run_drive(
@@ -580,6 +622,9 @@ def _run_drive(
     )
     if published is not plan:
         summary["signals_from"] = "deterministic"
+    with _STOCHASTIC_LOCK:
+        _STOCHASTIC_STATE["summary"] = summary
+        _STOCHASTIC_STATE["detail"] = stochastic_dispatch.detail_attribute(result)
     return published, summary
 
 

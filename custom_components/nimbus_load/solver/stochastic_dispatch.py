@@ -334,6 +334,11 @@ class _JointSolve:
     # The most recent failed call's status, for a non-optimal result.
     last_failure_raw_status: str | None = None
     scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
+    # Each scenario's whole path, fleet SoC (kWh, end of period) and net
+    # battery kW (discharge positive), for the response-only service: the
+    # plan attribute has no room for three more horizons.
+    scenario_soc_kwh: dict[str, list[float]] = field(default_factory=dict)
+    scenario_battery_kw: dict[str, list[float]] = field(default_factory=dict)
     # Read back off the optimal joint solution, as checks rather than
     # assumptions: the largest |x - x'| over every non-anticipativity pair
     # (0 to solver tolerance when the constraint holds), and each scenario's
@@ -444,18 +449,28 @@ class _JointSolve:
                 for t in range(self.k)
             ]
         self.scenario_stage1_battery_kw = stage1
-        last_t = len(self.base_kwargs["periods"].hours) - 1
-        terminal: dict[str, float] = {}
+        n = len(self.base_kwargs["periods"].hours)
+        soc_paths: dict[str, list[float]] = {}
+        battery_paths: dict[str, list[float]] = {}
         for label in [self.anchor_label] + [b[0] for b in built]:
             prefix = "" if label == self.anchor_label else label + _SCENARIO_SEPARATOR
-            names = [
-                f"{prefix}battery_soc_{b.name}_{last_t}"
-                for b in self.base_kwargs["batteries"]
-            ]
-            terminal[label] = sum(
-                joint.value_of(result, n) for n in names if joint.has_variable(n)
-            )
-        self.scenario_terminal_soc_kwh = terminal
+            soc = np.zeros(n)
+            net = np.zeros(n)
+            for bat in self.base_kwargs["batteries"]:
+                names = [f"{prefix}battery_soc_{bat.name}_{t}" for t in range(n)]
+                if all(joint.has_variable(x) for x in names):
+                    soc += joint.values_of(result, names)
+                dis = [f"{prefix}battery_discharge_{bat.name}_{t}" for t in range(n)]
+                chg = [f"{prefix}battery_charge_{bat.name}_{t}" for t in range(n)]
+                if all(joint.has_variable(x) for x in dis + chg):
+                    net += joint.values_of(result, dis) - joint.values_of(result, chg)
+            soc_paths[label] = [float(v) for v in soc]
+            battery_paths[label] = [float(v) for v in net]
+        self.scenario_soc_kwh = soc_paths
+        self.scenario_battery_kw = battery_paths
+        self.scenario_terminal_soc_kwh = {
+            label: path[-1] if path else 0.0 for label, path in soc_paths.items()
+        }
         # The plan is p50's: its total_cost is p50's own cost, not the
         # weighted joint objective. Its duals and reduced costs are the
         # expected marginals (module docstring).
@@ -564,6 +579,8 @@ class StochasticResult:
     # spread shows how much the terminal value is carrying (a cheap terminal
     # value lets a sunny scenario dump energy at the end).
     scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
+    scenario_soc_kwh: dict[str, list[float]] = field(default_factory=dict)
+    scenario_battery_kw: dict[str, list[float]] = field(default_factory=dict)
     # Copied off the joint plan so the caller can refuse a plan weaker than
     # the deterministic one: a relaxed thermal deadline, or two-way flows.
     thermal_guarantee_relaxed: tuple[str, ...] = ()
@@ -696,6 +713,8 @@ def build_stochastic_plan(
         nonanticipativity_max_gap=hook.nonanticipativity_max_gap,
         scenario_stage1_battery_kw=dict(hook.scenario_stage1_battery_kw),
         scenario_terminal_soc_kwh=dict(hook.scenario_terminal_soc_kwh),
+        scenario_soc_kwh=dict(hook.scenario_soc_kwh),
+        scenario_battery_kw=dict(hook.scenario_battery_kw),
         thermal_guarantee_relaxed=tuple(plan.thermal_guarantee_relaxed),
         direction_exclusivity=plan.direction_exclusivity,
     )
@@ -760,3 +779,26 @@ def summary_attribute(
 
 def _rounded(value: float | None) -> float | None:
     return None if value is None else round(float(value), 4)
+
+
+def detail_attribute(result: StochasticResult) -> dict[str, Any]:
+    """The per-period detail behind the summary, for the response-only
+    `nimbus_load.get_stochastic_summary` service: each scenario's fleet SoC
+    and net battery kW over the horizon, with the period grid. Empty without
+    an optimal joint solve. Plain JSON types only."""
+    if result.status != "optimal" or result.plan is None:
+        return {}
+    grid = result.plan.periods
+    starts = grid.period_starts
+    return {
+        "period_starts": None if starts is None else [t.isoformat() for t in starts],
+        "period_hours": [round(float(h), 6) for h in grid.hours],
+        "scenario_soc_kwh": {
+            k: [round(v, 3) for v in path]
+            for k, path in result.scenario_soc_kwh.items()
+        },
+        "scenario_battery_kw": {
+            k: [round(v, 3) for v in path]
+            for k, path in result.scenario_battery_kw.items()
+        },
+    }
