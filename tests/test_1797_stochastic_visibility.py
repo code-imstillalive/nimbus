@@ -338,3 +338,130 @@ def test_the_summary_reports_the_commit_window_used():
         drives_dispatch=False,
     )
     assert s["stage1_minutes"] == 15
+
+
+# -- sensor.nimbus_solver_stochastic ------------------------------------------
+
+
+def _sensor_mod():
+    _ha()
+    from custom_components.nimbus_load import sensor_stochastic
+
+    return sensor_stochastic
+
+
+@pytest.mark.parametrize(
+    ("summary", "expected"),
+    [
+        (None, "Not running"),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": -5.02,
+                "deterministic_period0_battery_kw": -5.0,
+            },
+            "Agrees with the main plan",
+        ),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": -7.2,
+                "deterministic_period0_battery_kw": -5.0,
+            },
+            "Holds 2.2 kW more in the battery",
+        ),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": 3.0,
+                "deterministic_period0_battery_kw": 1.5,
+            },
+            "Releases 1.5 kW more from the battery",
+        ),
+        (
+            {"status": "skipped", "fallback_reason": "no_solar_band"},
+            "Main plan: no solar spread",
+        ),
+        (
+            # Drive refused an optimal plan: the headline leads with why.
+            {
+                "status": "optimal",
+                "fallback_reason": "solar_band_not_calibrated",
+                "stage1_battery_kw": -7.2,
+                "deterministic_period0_battery_kw": -5.0,
+            },
+            "Main plan: solar band not calibrated yet",
+        ),
+        (
+            {"status": "error", "fallback_reason": "cooldown_after:stochastic_error"},
+            "Main plan: waiting to retry",
+        ),
+        (
+            {"status": "skipped", "fallback_reason": "error:RuntimeError"},
+            "Main plan: check failed",
+        ),
+    ],
+)
+def test_the_headline(summary, expected):
+    assert _sensor_mod().headline(summary) == expected
+
+
+def test_chart_rows_put_each_solar_day_beside_the_main_plan():
+    m = _sensor_mod()
+    plan = {
+        "forecast": [
+            {"time": "t0", "hours": 0.5, "soc_pct": 50.0},
+            {"time": "t1", "hours": 0.5, "soc_pct": 52.0},
+        ],
+        "stochastic_paths": {
+            "soc_pct": {"p10": [49.0, 50.0], "p50": [50.0, 52.0], "p90": [51.0, 55.0]}
+        },
+    }
+    rows = m.scenario_rows(plan)
+    assert rows == [
+        {
+            "time": "t0",
+            "hours": 0.5,
+            "main": 50.0,
+            "p10": 49.0,
+            "p50": 50.0,
+            "p90": 51.0,
+        },
+        {
+            "time": "t1",
+            "hours": 0.5,
+            "main": 52.0,
+            "p10": 50.0,
+            "p50": 52.0,
+            "p90": 55.0,
+        },
+    ]
+    # Without a stochastic plan, the main plan alone: what is actually driving.
+    alone = m.scenario_rows({"forecast": plan["forecast"]})
+    assert alone == [
+        {"time": "t0", "hours": 0.5, "main": 50.0},
+        {"time": "t1", "hours": 0.5, "main": 52.0},
+    ]
+
+
+def test_the_sensor_takes_its_data_from_this_installs_publish():
+    m = _sensor_mod()
+    entry = SimpleNamespace(entry_id="E", title="Nimbus", options={}, data={})
+    sensor = m.NimbusStochasticSensor(entry, "0.0")
+    sensor.hass = None  # not added to HA: update_from_parent skips the write
+    summary = {
+        "status": "optimal",
+        "stage1_battery_kw": -7.2,
+        "deterministic_period0_battery_kw": -5.0,
+    }
+    parent = {
+        "stochastic": summary,
+        "forecast": [{"time": "t0", "hours": 0.5, "soc_pct": 50.0}],
+        "stochastic_paths": {"soc_pct": {"p50": [50.0]}},
+    }
+    sensor.update_from_parent(parent["forecast"][0], parent)
+    assert sensor.native_value == "Holds 2.2 kW more in the battery"
+    attrs = sensor.extra_state_attributes
+    assert attrs["stochastic"] is summary
+    assert attrs["forecast"][0]["p50"] == 50.0
+    assert {"forecast", "stochastic"} <= set(sensor._unrecorded_attributes)

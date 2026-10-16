@@ -386,172 +386,38 @@ _SAFETY_CONSOLIDATION = {
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
 
-# --- Plan: two-stage stochastic dispatch (nimbus #1797) ----------------------
-# Two half-width cards after the risk sliders: what the stochastic solve is
-# doing (shadow or drive, and why a cycle fell back), then its numbers beside
-# the deterministic plan's. Both read the `stochastic` attribute the solve
-# publishes; the per-scenario paths are served by
-# nimbus_load.get_stochastic_summary, not drawn here (no room in the
-# attribute for three more horizons).
-_STOCHASTIC_REASONS = (
-    "{% set why = {"
-    "'no_solar_band': 'nothing to hedge: no solar spread right now', "
-    "'solar_band_not_calibrated': 'the solar band is not calibrated yet', "
-    "'shadow_solve_pending': 'first shadow solve running', "
-    "'deterministic_not_optimal': 'the main plan did not solve', "
-    "'thermal_guarantee_relaxed': 'it would have relaxed a hot-water deadline', "
-    "'nonanticipativity_violated': 'its scenarios disagreed on the decision now', "
-    "'scenario_cost_not_finite': 'a scenario cost was not a number'"
-    "} %}"
-)
-
-_STOCHASTIC_STATUS = {
+# --- Stochastic: the two-stage stochastic solve (nimbus #1797) -------------
+# Its own block, last on the tab, one row: Now (headline and what each solar
+# day costs), the battery on the three solar days, and its settings. Every
+# card reads sensor.nimbus_solver_stochastic, which this install's own solve
+# publishes (sensor_stochastic.py), so a mirrored plan sensor never stands in.
+_STOCHASTIC_NOW = {
     "type": "markdown",
     "content": (
-        "{% set s = state_attr('${@nimbus_solver_battery_forecast}', 'stochastic') %}"
-        + _STOCHASTIC_REASONS
-        + "{% set r = s.get('fallback_reason') if s is mapping else none %}"
-        "{% set reason = why.get(r, r) if r else '' %}"
-        "{% if r and r.startswith('cooldown_after:') %}"
-        "{% set reason = 'waiting before retrying (' ~ why.get(r[15:], r[15:]) ~ ')' %}"
-        "{% endif %}"
-        "{% if r and r.startswith('direction_') %}"
-        "{% set reason = 'its plan charged and discharged at once' %}{% endif %}"
-        '<ha-alert alert-type="{% if s is not mapping %}info'
+        "{% set e = '${@nimbus_solver_stochastic}' %}"
+        "{% set s = state_attr(e, 'stochastic') %}"
+        "{% set h = states(e) %}"
+        "{% macro usd(v) %}{% if v is none %}—{% else %}"
+        "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        '<ha-alert alert-type="'
+        "{% if s is not mapping %}info"
         "{% elif s.get('drives_dispatch') %}warning"
-        "{% elif s.get('mode') == 'drive' %}error"
-        "{% elif s.get('status') == 'optimal' %}success{% else %}info{% endif %}\""
-        ' title="Stochastic dispatch">'
-        "{% if s is not mapping %}Not running"
-        "{% elif s.get('drives_dispatch') %}Driving the battery"
-        "{% elif s.get('mode') == 'drive' %}Drive on, main plan this cycle"
-        "{% elif s.get('status') == 'optimal' %}Shadow: checking the main plan"
-        "{% else %}Shadow{% endif %}</ha-alert>\n\n"
-        "{% if s is mapping and s.get('status') == 'optimal' %}"
-        "{% set d = (s.get('stage1_battery_kw') or 0)"
-        " - (s.get('deterministic_period0_battery_kw') or 0) %}"
-        "{% if d | abs < 0.05 %}"
-        '<font color="#3ddc84">●</font> <b>Agrees with the main plan now</b>'
-        "{% elif d < 0 %}"
-        '<font color="#4FC3C7">●</font> <b>Hedging: keeps'
-        " {{ '%.1f' | format(d | abs) }} kW more in the battery now</b>"
-        "{% else %}"
-        '<font color="#ffa726">●</font> <b>Hedging: releases'
-        " {{ '%.1f' | format(d) }} kW more from the battery now</b>"
-        "{% endif %}\n\n"
-        "{% endif %}"
-        "{% if reason %}Why not: {{ reason }}.\n\n{% endif %}"
+        "{% elif s.get('status') == 'optimal' %}success"
+        "{% else %}info{% endif %}"
+        '" title="Now">{{ h }}</ha-alert>\n\n'
         "{% if s is mapping %}"
-        "Solar band {{ s.get('solar_band') or 'none' }}"
+        '<font color="#9aa0ac">'
+        "{{ 'Driving' if s.get('drives_dispatch') else ('Drive on' if s.get('mode') == 'drive' else 'Shadow') }}"
+        " · {{ s.get('solar_band') or 'no' }} band"
         "{% if s.get('stochastic_solve_seconds') is not none %}"
         " · {{ '%.1f' | format(s.stochastic_solve_seconds) }} s{% endif %}"
         "{% if s.get('computed_at') %}"
         " · {{ as_timestamp(s.computed_at) | timestamp_custom('%H:%M') }}{% endif %}"
-        "\n\n{% endif %}"
-        "*Plans a low, middle and high solar day at once and keeps the decision"
-        " now that suits all three. The Stochastic dispatch switch lets it"
-        " drive; off, it checks the main plan.*"
-    ),
-}
-
-
-def _scenario_path(label: str) -> str:
-    """A data_generator for one scenario's battery % (`stochastic_paths`),
-    each value at the end of the plan row it belongs to, like the Plan
-    chart's own SoC line."""
-    return (
-        "const f = entity.attributes.forecast || []; "
-        "const p = ((entity.attributes.stochastic_paths || {}).soc_pct || {})"
-        f"['{label}'] || []; "
-        "return p.map((v, i) => f[i] ? [new Date(f[i].time).getTime() + "
-        "(f[i].hours || 0) * 3600000, v] : null).filter(x => x);"
-    )
-
-
-def _stochastic_chart() -> dict[str, Any]:
-    """The battery ahead on each solar day the stochastic solve planned for,
-    with the main plan's own line: where they part is the hedge."""
-    plan = "@nimbus_solver_battery_forecast"
-    ahead = {"extend_to": False, "show": {"in_header": False}}
-    series = [
-        {
-            "entity": plan,
-            "name": name,
-            "type": "line",
-            "color": colour,
-            "stroke_width": width,
-            "unit": "%",
-            "data_generator": _scenario_path(label),
-            **ahead,
-        }
-        for name, label, colour, width in (
-            ("Low solar day", "p10", "#ff7043", 2),
-            ("Middle", "p50", "#3ddc84", 3),
-            ("High solar day", "p90", "#4FC3C7", 2),
-        )
-    ]
-    series.append(
-        {
-            "entity": plan,
-            "name": "Main plan",
-            "type": "line",
-            "color": "#e8eaf0",
-            "stroke_width": 2,
-            "stroke_dash": 5,
-            "unit": "%",
-            "data_generator": (
-                "if (!(entity.attributes.stochastic_paths || {}).soc_pct) "
-                "return []; " + _forecast_at_period_end("soc_pct")
-            ),
-            **ahead,
-        }
-    )
-    return _apex(
-        "Battery ahead, three solar days",
-        "% of battery: low, middle, high solar day; dashed: main plan.",
-        series,
-        height=300,
-        graph_span="2d",
-        span={"start": "hour"},
-        now={"show": True, "label": "Now", "color": "#ffffff"},
-        yaxis=[
-            {
-                "min": 0,
-                "max": 100,
-                "decimals": 0,
-                "apex_config": {"title": {"text": "%"}},
-            }
-        ],
-    )
-
-
-# The dials, under the status card in the same column: the switch, then
-# the four numbers (const.py says what each does).
-_STOCHASTIC_SETTINGS: _Card = (
-    "Stochastic settings",
-    [
-        ("solver_stochastic_dispatch", "Drive the battery"),
-        ("solver_stochastic_stage1_minutes", "Commit window"),
-        ("solver_stochastic_tail_weight", "Low and high day weight"),
-        ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
-        ("solver_stochastic_shadow_interval_minutes", "Check every"),
-    ],
-    (
-        "Off: it only checks. Weight: each of the low and high days; the "
-        "middle gets the rest."
-    ),
-)
-
-_STOCHASTIC_MONEY = {
-    "type": "markdown",
-    "content": (
-        "**What each solar day costs**\n\n"
-        "{% set s = state_attr('${@nimbus_solver_battery_forecast}', 'stochastic') %}"
-        "{% macro usd(v) %}{% if v is none %}—{% else %}"
-        "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        "</font>\n\n"
+        "{% endif %}"
         "{% if s is mapping and s.get('status') == 'optimal' %}"
         "{% set c = s.get('scenario_cost', {}) %}"
-        "{% set e = s.get('scenario_terminal_soc_kwh', {}) %}"
+        "{% set end = s.get('scenario_terminal_soc_kwh', {}) %}"
         "{% set vals = [c.get('p10'), c.get('p50'), c.get('p90')]"
         " | reject('none') | list %}"
         "{% set hi = vals | max %}{% set lo = vals | min %}"
@@ -560,20 +426,74 @@ _STOCHASTIC_MONEY = {
         "{% set v = c.get(k) %}"
         "| {{ label }} | <font color=\"{{ '#ff5a5a' if v == hi else"
         " ('#3ddc84' if v == lo else '#e8eaf0') }}\">{{ usd(v) }}</font>"
-        " | {% if e.get(k) is not none %}{{ '%.0f' | format(e[k]) }} kWh"
+        " | {% if end.get(k) is not none %}{{ '%.0f' | format(end[k]) }} kWh"
         "{% else %}—{% endif %} |\n"
-        "{% endfor %}\n"
-        "Expected **{{ usd(s.get('expected_cost')) }}** · spread"
-        " {{ usd(hi - lo) }}\n\n"
-        "*Main plan, on its own forecast: {{ usd(s.get('deterministic_total_cost')) }}."
-        " Costs cover the rest of the plan; positive is money spent.*"
-        "{% else %}"
-        "No stochastic plan this cycle.\n\n"
-        "*The costs appear once a hedge is computed.*"
+        "{% endfor %}"
+        "| <b>Expected</b> | <b>{{ usd(s.get('expected_cost')) }}</b> |"
+        " spread {{ usd(hi - lo) }} |\n"
         "{% endif %}"
     ),
 }
 
+
+def _stochastic_chart() -> dict[str, Any]:
+    """The battery on each solar day the stochastic solve planned for, with
+    the main plan's own line: where they part is the hedge. Without a
+    stochastic plan the rows carry the main plan alone."""
+    entity = "@nimbus_solver_stochastic"
+    ahead = {"extend_to": False, "show": {"in_header": False}}
+    series = [
+        {
+            "entity": entity,
+            "name": name,
+            "type": "line",
+            "color": colour,
+            "stroke_width": width,
+            "unit": "%",
+            "data_generator": _forecast_at_period_end(field),
+            **({"stroke_dash": 5} if field == "main" else {}),
+            **ahead,
+        }
+        for name, field, colour, width in (
+            ("Low solar day", "p10", "#ff7043", 2),
+            ("Middle", "p50", "#3ddc84", 3),
+            ("High solar day", "p90", "#4FC3C7", 2),
+            ("Main plan", "main", "#e8eaf0", 2),
+        )
+    ]
+    return _apex(
+        "Battery on three solar days",
+        "% of battery. Dashed: the main plan.",
+        series,
+        height=330,
+        graph_span="2d",
+        span={"start": "hour"},
+        now={"show": True, "label": "Now", "color": "#ffffff"},
+        yaxis=[
+            {
+                "min": 0,
+                "max": 100,
+                "decimals": 0,
+                "apex_config": {"tickAmount": 4},
+            }
+        ],
+    )
+
+
+# The switch, then the four numbers (const.py says what each does).
+_STOCHASTIC_SETTINGS: _Card = (
+    "Settings",
+    [
+        ("solver_stochastic_dispatch", "Drive the battery"),
+        ("solver_stochastic_stage1_minutes", "Commit window"),
+        ("solver_stochastic_tail_weight", "Low/high day weight"),
+        ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
+        ("solver_stochastic_shadow_interval_minutes", "Check every"),
+    ],
+    "Off: it only checks the main plan.",
+)
+
+_STOCHASTIC_ROW_SIZE = {"rows": 7}
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
@@ -582,6 +502,11 @@ _BANNERS = (
     ("Plan", "warning", "What the Solver intends to do with the battery."),
     ("Basic settings", "info", "Your battery, grid, fees and P2P. Set these first."),
     ("Advanced settings", "error", "Fine-tuning. The defaults suit most installs."),
+    (
+        "Stochastic",
+        "success",
+        "Plans for a low, middle and high solar day at once (nimbus #1797).",
+    ),
 )
 
 _MONEY_ROW = (_SCORED, _MONEY, _BREAKDOWN, _BATTERY_NOW)
@@ -1640,25 +1565,14 @@ def template() -> list[dict[str, Any]]:
             {"rows": 6},
         ),
         *_risk_row(),
-        # nimbus #1797, one row: status with its settings under it, the
-        # three solar days' battery, their costs.
-        {
-            "type": "grid",
-            "column_span": 1,
-            "cards": [
-                {
-                    **_styled(_STOCHASTIC_STATUS, _FILL_NO_SCROLL),
-                    "grid_options": {"columns": "full", "rows": 4},
-                },
-                {**_card(_STOCHASTIC_SETTINGS), "grid_options": {"columns": "full"}},
-            ],
-        },
-        _section([_styled(_stochastic_chart(), _FILL)], 2, {"rows": 9}),
-        _section([_styled(_STOCHASTIC_MONEY, _FILL_NO_SCROLL)], 1, {"rows": 9}),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],
         *(_section([_card(c)], 1) for c in _ADVANCED_ROW),
+        banners["Stochastic"],
+        _section([_styled(_STOCHASTIC_NOW, _FILL_NO_SCROLL)], 1, _STOCHASTIC_ROW_SIZE),
+        _section([_styled(_stochastic_chart(), _FILL)], 2, _STOCHASTIC_ROW_SIZE),
+        _section([_card(_STOCHASTIC_SETTINGS)], 1, _STOCHASTIC_ROW_SIZE),
     ]
 
 

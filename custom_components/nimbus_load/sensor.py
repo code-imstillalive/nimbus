@@ -51,6 +51,7 @@ from . import (
     sensor_battery_soc,
     sensor_discovery,
     sensor_flattened,
+    sensor_stochastic,
 )
 from .const import (
     ATTR_FORECAST,
@@ -1105,6 +1106,11 @@ async def async_setup_entry(
     # its own battery from the plan's `batteries` (sensor_battery_soc.py).
     flattened_current_entities = flattened_current_entities + list(
         sensor_battery_soc.create(entry, sw_version)
+    )
+    # nimbus #1797: the stochastic solve on an entity of its own, fed from
+    # this process's plan publish (sensor_stochastic.py).
+    flattened_current_entities = flattened_current_entities + list(
+        sensor_stochastic.create(entry, sw_version)
     )
     battery_forecast._flattened_current_entities = flattened_current_entities
     # Issue #290 fix (2026-08-30) -- the two weather-mirror dashboard

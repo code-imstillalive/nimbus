@@ -18,26 +18,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     *Check every* (5 min, the shadow cadence and drive's first backoff). Read
     every cycle through `sensor.nimbus_solver_config`, clamped to each
     entity's range; the summary's `stage1_minutes` is the window used.
-  - **Solver tab:** a Stochastic row after the risk sliders, one row of
-    1 + 2 + 1 columns.
-    - *Stochastic dispatch*, with *Stochastic settings* under it in the same
-      column (the Drive the battery switch and the four dials -- the switch
-      was on no tab before): shadow or drive, a one-line headline ("Agrees
-      with the main plan now", or "Hedging: keeps 2.2 kW more in the battery
-      now"), why a cycle used the main plan in plain words (no solar spread,
-      an uncalibrated band, a backoff, ...), band type and solve time.
-    - *Battery ahead, three solar days* (ApexCharts): the battery % on a low,
-      middle and high solar day, with the main plan's line dashed on top.
-      They agree over the commit window by design; where they part is the
-      cover the hedge buys. Empty (main plan included) when there is no
-      stochastic plan, so it never contradicts the cards beside it.
-    - *What each solar day costs*: each day's cost, red for the costliest and
-      green for the cheapest, battery at the horizon's end, the expected cost
-      and the spread.
-    - Each card renders a clear "Not running" / "No stochastic plan this
-      cycle" before a solve. Rendered on devhub's template engine against a
-      real devhub solve; the chart's data generator was run under Node and
-      lands on the main plan's own timestamps.
+  - **`sensor.nimbus_solver_stochastic`** (new): state is a one-line headline
+    ("Agrees with the main plan", "Holds 2.2 kW more in the battery", "Main
+    plan: no solar spread", "Not running"); attributes `stochastic` (the
+    summary) and `forecast` (each plan period's main-plan SoC beside each
+    solar day's, the main plan alone with no stochastic plan), both kept out
+    of the recorder. Fed from this install's own plan publish, like the
+    per-battery SoC sensors, so it is this install's solve even where a
+    mirrored plan sensor overwrites the plan entity.
+  - **Solver tab:** a **Stochastic** block, last on the tab, one row:
+    *Now* (the headline in a coloured band, mode, band, solve time and
+    time, then each solar day's cost -- red the costliest, green the
+    cheapest -- battery at the end, and the expected cost with its spread),
+    *Battery on three solar days* (ApexCharts, two columns: low, middle and
+    high solar day, the main plan dashed; where they part is the hedge),
+    and *Settings* (Drive the battery and the four dials; the switch was on
+    no tab before).
   - **`stochastic_paths`** on `sensor.nimbus_solver_battery_forecast`: each
     scenario's battery % per plan period, aligned with `forecast`, about
     2.4 KB, kept out of the recorder like `forecast`.
