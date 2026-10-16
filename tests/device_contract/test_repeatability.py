@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -38,26 +39,39 @@ def _node_ids() -> list[str]:
     return ids
 
 
+# The node ids go to the child in a file, not on its command line: past ~330
+# ids the command line exceeds Windows' 32,767-character limit (WinError 206).
+# The child is still a fresh interpreter running pytest in the given order.
+_RUNNER = (
+    "import sys, pytest; "
+    "ids = open(sys.argv[1], encoding='utf-8').read().splitlines(); "
+    "sys.exit(pytest.main([*sys.argv[2:], *ids]))"
+)
+
+
 def _outcomes(node_ids: list[str]) -> dict[str, str]:
     """Run the given tests, in the given order, in one fresh interpreter."""
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-q",
-            "-rA",
-            "-p",
-            "no:randomly",
-            *PLUGINS,
-            *node_ids,
-        ],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={**os.environ, "PYTHONHASHSEED": "0"},
-    )
+    with tempfile.TemporaryDirectory() as tmp:
+        ids_file = Path(tmp) / "node_ids.txt"
+        ids_file.write_text("\n".join(node_ids), encoding="utf-8")
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _RUNNER,
+                str(ids_file),
+                "-q",
+                "-rA",
+                "-p",
+                "no:randomly",
+                *PLUGINS,
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env={**os.environ, "PYTHONHASHSEED": "0"},
+        )
     outcomes: dict[str, str] = {}
     for line in proc.stdout.splitlines():
         word, _, rest = line.partition(" ")

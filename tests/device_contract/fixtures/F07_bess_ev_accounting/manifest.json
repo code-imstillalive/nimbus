@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F07",
-    "revision": 2,
+    "revision": 3,
     "requirements": [
       "DC-R07",
       "DC-R08",
@@ -63,7 +63,32 @@
     "decomposed_house_residual_kw": 4.0
   },
   "variants": {
-    "_note": "DC-000 §F07's listed variants. A vehicle not connected in a segment is absent from its flows. Connection is declared here, not inferred from location; what to do without connection evidence is DC-003's open decision 7 (#1781) and is not built.",
+    "_note": "DC-000 §F07's listed variants. A vehicle not connected in a segment is absent from its flows. Connection is declared here, not inferred from location; a vehicle with no connection evidence is the `mobility` case below (DC-003 decision 7, applied as proposed).",
+    "reconciliation": {
+      "_note": "The five-value verdict on F07's hour (DC-003 decisions 1 and 2, applied as proposed): tolerance max(2 kWh, 10 % of metered throughput); no verdict above 10 % stale periods; the declared meter sign is used, and both are tried only when none is declared. Energies in kWh over the one-hour interval.",
+      "cases": {
+        "balanced_against_an_idle_meter": {"reconstructed": [0.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.0, "status": "agrees", "tolerance_kwh": 2.0},
+        "double_counted_ac_ev": {"reconstructed": [10.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.0, "status": "disagrees", "tolerance_kwh": 2.0},
+        "export_hour_matches": {"reconstructed": [0.0, 4.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 4.3, "declared_sign": "positive_is_import"}, "stale_fraction": 0.0, "status": "agrees", "tolerance_kwh": 2.0},
+        "large_day_inside_ten_percent": {"reconstructed": [105.0, 92.0], "meter": {"positive_kwh": 100.0, "negative_kwh": 95.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.05, "status": "agrees", "tolerance_kwh": 19.5},
+        "stale_at_the_limit_still_judged": {"reconstructed": [0.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.1, "status": "agrees", "tolerance_kwh": 2.0},
+        "stale_above_the_limit": {"reconstructed": [0.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.25, "status": "insufficient_coverage"},
+        "coverage_unknown": {"reconstructed": [0.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": null, "status": "insufficient_coverage"},
+        "no_grid_measurement": {"reconstructed": [0.0, 0.0], "meter": null, "stale_fraction": null, "status": "not_checked"},
+        "reconstruction_unsupported": {"reconstructed": [0.0, 0.0], "meter": {"positive_kwh": 0.0, "negative_kwh": 0.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.0, "unsupported_reason": "mobility_unresolved", "status": "unsupported"},
+        "legacy_meter_read_backwards_is_rescued": {"reconstructed": [12.0, 3.0], "meter": {"positive_kwh": 3.0, "negative_kwh": 12.0, "declared_sign": null}, "stale_fraction": 0.0, "status": "agrees", "tolerance_kwh": 2.0, "meter_sign": "positive_is_export"},
+        "declared_sign_is_not_second_guessed": {"reconstructed": [12.0, 3.0], "meter": {"positive_kwh": 3.0, "negative_kwh": 12.0, "declared_sign": "positive_is_import"}, "stale_fraction": 0.0, "status": "disagrees", "tolerance_kwh": 2.0, "meter_sign": "positive_is_import"}
+      }
+    },
+    "mobility": {
+      "_note": "DC-003 decision 7, applied as proposed: a vehicle contributes to site exchange only in intervals with connection evidence; any interval without it makes the vehicle's share `mobility_unresolved`. Being at home is not evidence. Pack kW is canonical (+discharge).",
+      "cases": {
+        "connected_then_away": {"intervals": [{"hours": 1.0, "kw": -7.0, "connected": true}, {"hours": 1.0, "kw": 3.0, "connected": false}, {"hours": 1.0, "kw": -7.0, "connected": true}], "site_kwh": 14.0},
+        "never_connected": {"intervals": [{"hours": 1.0, "kw": -11.0, "connected": false, "at_home": false}], "site_kwh": 0.0},
+        "one_interval_without_evidence": {"intervals": [{"hours": 1.0, "kw": -7.0, "connected": true}, {"hours": 1.0, "kw": -7.0, "connected": null}], "site_kwh": "mobility_unresolved"},
+        "at_home_is_not_connected": {"intervals": [{"hours": 1.0, "kw": -7.0, "connected": null, "at_home": true}], "site_kwh": "mobility_unresolved"}
+      }
+    },
     "partial_interval_connection": {
       "purpose": "The DC EV is connected for the second half hour only: its charge counts for that half, not the whole hour.",
       "segments": [

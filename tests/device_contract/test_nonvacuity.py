@@ -138,3 +138,92 @@ def test_limit_mutation_stating_a_limit_twice_is_rejected() -> None:
     assert limit_problems(once, kinds) == []
     twice = [*once, SharedLimit("inv", "inverter_ac_power", ("pv", "bat"), 8.0)]
     assert any("twice" in p for p in limit_problems(twice, kinds))
+
+
+# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
+# overlap ----------------------------------------------------------------------
+
+
+def test_reconciliation_mutation_a_double_count_turns_agrees_into_disagrees() -> None:
+    from tests.device_contract.oracles_accounting import Meter, reconcile
+
+    meter = Meter(50.0, 40.0, "positive_is_import")
+    assert reconcile(51.0, 39.0, meter, 0.0).status == "agrees"
+    assert reconcile(51.0 + 10.0, 39.0, meter, 0.0).status == "disagrees"
+
+
+def test_reconciliation_mutation_equal_errors_cannot_hide_in_a_net() -> None:
+    from tests.device_contract.oracles_accounting import Meter, reconcile
+
+    meter = Meter(50.0, 40.0, "positive_is_import")
+    # +12 kWh on both directions leaves the net exactly right.
+    got = reconcile(62.0, 52.0, meter, 0.0)
+    assert (62.0 - 52.0) == (50.0 - 40.0)
+    assert got.status == "disagrees"
+
+
+def test_reconciliation_mutation_a_declared_sign_is_not_rescued() -> None:
+    from tests.device_contract.oracles_accounting import Meter, reconcile
+
+    backwards = Meter(3.0, 12.0, "positive_is_import")
+    legacy = Meter(3.0, 12.0, None)
+    assert reconcile(12.0, 3.0, legacy, 0.0).status == "agrees"
+    assert reconcile(12.0, 3.0, backwards, 0.0).status == "disagrees"
+
+
+def test_residual_mutation_clamping_breaks_the_inclusive_total() -> None:
+    from tests.device_contract.oracles_accounting import (
+        decomposition_verdict,
+        residual_series,
+    )
+
+    series = {"house": [14.0, 14.0], "circuit": [6.0, 6.0], "pool": [2.0, 6.6]}
+    inside = {"house": None, "circuit": "house", "pool": "circuit"}
+    res = residual_series(series, inside)
+    clamped = {k: [max(0.0, v) for v in vals] for k, vals in res.items()}
+    assert abs(sum(r[1] for r in res.values()) - 14.0) <= TOL
+    assert abs(sum(r[1] for r in clamped.values()) - 14.0) > TOL
+    assert decomposition_verdict(series, inside).negative == {"circuit": [1]}
+
+
+def test_boundary_mutation_moving_a_child_to_dc_is_rejected() -> None:
+    from tests.device_contract.oracles_accounting import Party, inclusion_problems
+
+    house = Party("house", "load", "ac")
+    ev = Party("ev", "battery", "ac")
+    assert inclusion_problems(ev, house, "consumption") == []
+    dc_ev = Party("ev", "battery", "dc")
+    assert inclusion_problems(dc_ev, house, "consumption") == [
+        "inclusion_boundary_mismatch"
+    ]
+    magnitude_house = Party("house", "load", "ac", signed=False)
+    assert inclusion_problems(ev, magnitude_house, "consumption") == [
+        "inclusion_sign_ambiguous"
+    ]
+
+
+def test_mobility_mutation_reading_at_home_as_connected_is_detected() -> None:
+    from tests.device_contract.oracles_accounting import (
+        VehicleInterval,
+        vehicle_site_kwh,
+    )
+
+    honest = [VehicleInterval(1.0, -7.0, None, at_home=True)]
+    as_if_connected = [VehicleInterval(1.0, -7.0, True, at_home=True)]
+    assert vehicle_site_kwh(honest) == "mobility_unresolved"
+    assert vehicle_site_kwh(as_if_connected) == 7.0
+
+
+def test_overlap_mutation_shuffling_the_child_removes_the_evidence() -> None:
+    import math
+
+    from tests.device_contract.oracles_accounting import possible_undeclared_inclusion
+
+    parent = [
+        10 * math.sin(math.pi * (h - 6) / 12) if 6 < h < 18 else 0.0 for h in range(24)
+    ]
+    child = [0.45 * p for p in parent]
+    hours = [1.0] * 24
+    assert possible_undeclared_inclusion(child, parent, hours)
+    shuffled = child[12:] + child[:12]  # same values, wrong hours
+    assert not possible_undeclared_inclusion(shuffled, parent, hours)

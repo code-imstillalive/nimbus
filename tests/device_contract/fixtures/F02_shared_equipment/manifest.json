@@ -1,7 +1,7 @@
 {
   "identity": {
     "fixture": "F02",
-    "revision": 1,
+    "revision": 2,
     "requirements": [
       "DC-R02",
       "DC-R03",
@@ -131,8 +131,26 @@
     "two_inverters_grid_kw": 0.0,
     "two_inverters_one_missed_grid_kw": 4.0
   },
+  "undeclared_overlap": {
+    "_note": "DC-003 decision 5, applied as proposed (Mark, #1574, 16 Oct: fill the DC-000 gaps): a candidate child is evidence of an undeclared inclusion when, over at least 24 h of paired readings, its excess over the parent totals no more than the reconciliation tolerance (max(2 kWh, 10 % of the parent's energy)) and the two correlate at 0.9 or more. Evidence for DC-005 only. Hourly kW, one synthetic day.",
+    "hours": 1.0,
+    "series": {
+      "pv_total": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.588, 5.0, 7.071, 8.66, 9.659, 10.0, 9.659, 8.66, 7.071, 5.0, 2.588, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "pv_string_1": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.215, 2.35, 3.182, 3.947, 4.447, 4.5, 4.397, 3.997, 3.182, 2.3, 1.265, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "inverter_east": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.736, 5.142, 6.928, 7.878, 7.878, 6.928, 5.142, 2.736, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "inverter_west": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.736, 5.142, 6.928, 7.878, 7.878, 6.928, 5.142, 2.736, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "below_but_unrelated": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.5, 2.0, 0.5, 2.0, 0.5, 2.0, 0.5, 2.0, 0.5, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+      "tracks_but_exceeds": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.882, 7.5, 10.607, 12.99, 14.489, 15.0, 14.489, 12.99, 10.607, 7.5, 3.882, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    },
+    "pairs": [
+      {"name": "string_inside_total", "child": "pv_string_1", "parent": "pv_total", "first_hours": 24, "flagged": true},
+      {"name": "string_inside_total_half_day", "child": "pv_string_1", "parent": "pv_total", "first_hours": 12, "flagged": false},
+      {"name": "two_independent_inverters", "child": "inverter_west", "parent": "inverter_east", "first_hours": 24, "flagged": false},
+      {"name": "below_but_unrelated", "child": "below_but_unrelated", "parent": "pv_total", "first_hours": 24, "flagged": false},
+      {"name": "tracks_but_exceeds", "child": "tracks_but_exceeds", "parent": "pv_total", "first_hours": 24, "flagged": false}
+    ]
+  },
   "deferred": {
-    "undeclared_string_and_total": "Detecting a string and its total bound as two unrelated solar devices needs readings over a window, and its test statistic is DC-003's open decision 5 (#1781). Not built until Mark has decided it.",
     "capacity_basis": "Nominal/usable capacity is structural and already checked by DC-001 (test_dc001_canonical_model.py: capacity_missing, capacity_basis_missing)."
   },
   "comparison": {
