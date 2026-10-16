@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The P5MIN false-spike guard now holds for the whole episode** (#1778).
+  On 16 Oct 2026 AEMO's forecasts carried a false Brisbane-constraint spike
+  from 13:00 to 16:00 (`CA_BRIS_59E3F2B6_1`, about half dispatch's limit).
+  The guard released 60 minutes after it was first raised, so it would have
+  let go before the 14:30-16:00 hours a plan sells into. Each P5MIN run that
+  still forecasts the spike and still violates a constraint now renews it;
+  the 60 minutes count from the last such run. A spike run with no violated
+  constraint does not renew it. `false_spike_guard` gains `renewed`, and
+  `expires_at` follows it.
+
 ### Added
 - **The plan says when the battery should hold** (#1654, Mark Purcell). Each
   plan row carries `dispatch_hold`, and period 0's is

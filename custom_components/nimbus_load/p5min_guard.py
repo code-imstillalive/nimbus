@@ -21,9 +21,14 @@ Two rules raise the flag, kept in `FalseSpikeGuard`:
   for that interval came in below $1,000/MWh AND below 30% of the forecast.
 
 It releases on a dispatch interval at or above the threshold, on a run with
-no spike interval left, or 60 minutes after it was raised. After a timeout
-or a real dispatch spike it does not re-arm until a run is clean again, so
-the 60 minutes bound one episode rather than restarting every run.
+no spike interval left, or 60 minutes after the last run that still met rule
+(a). Each run that still forecasts the spike AND still violates a constraint
+renews it: on 16 Oct 2026 the same false spike sat in the forecasts from
+13:00 to 16:00, so a fixed 60 minutes from the first flag would have let go
+before the hours an optimiser sells into. A spike run that no longer
+violates anything does not renew it, so the 60 minutes still bound how long
+an unconfirmed flag outlives its evidence. After a timeout or a real
+dispatch spike it does not re-arm until a run is clean again.
 
 While it holds, `guard_schedule_prices()` replaces forward spikes in
 Nimbus's SCHEDULING prices -- the import and export arrays the plan is
@@ -148,6 +153,9 @@ class FalseSpikeGuard:
         self.threshold_mwh = threshold_mwh
         self.max_age = max_age
         self.since: datetime | None = None
+        # The last run that met rule (a) while the flag held; the timeout
+        # counts from here (or from `since` when nothing has renewed it).
+        self.renewed: datetime | None = None
         self.reason: str | None = None
         self.detail: dict[str, Any] = {}
         self.latched = False
@@ -163,20 +171,25 @@ class FalseSpikeGuard:
     def active(self) -> bool:
         return self.since is not None
 
+    @property
+    def expires_at(self) -> datetime | None:
+        start = self.renewed or self.since
+        return start + self.max_age if start is not None else None
+
     def _activate(self, reason: str, at: datetime, detail: dict[str, Any]) -> None:
         self.since, self.reason, self.detail = at, reason, detail
+        self.renewed = None
 
     def _release(self, why: str, at: datetime) -> None:
         self.last_release = {"reason": why, "at": at.isoformat()}
         self.since, self.reason, self.detail = None, None, {}
+        self.renewed = None
 
     def expire(self, now: datetime | None) -> None:
-        """Release after `max_age`, and hold off re-arming until a clean run."""
-        if (
-            self.since is not None
-            and now is not None
-            and now - self.since >= self.max_age
-        ):
+        """Release `max_age` after the flag was raised or last renewed, and
+        hold off re-arming until a clean run."""
+        expires = self.expires_at
+        if expires is not None and now is not None and now >= expires:
             self._release(RELEASE_TIMEOUT, now)
             self.latched = True
 
@@ -194,10 +207,14 @@ class FalseSpikeGuard:
                 self._release(RELEASE_CLEAN, published)
             self.latched = False
             return
-        if self.active or self.latched or published is None:
+        if self.latched or published is None:
             return
         hit = infeasible_spike(run, self.threshold)
-        if hit is not None:
+        if hit is None:
+            return
+        if self.active:
+            self.renewed = published
+        else:
             self._activate(REASON_INFEASIBLE, published, hit)
 
     def on_dispatch(self, end: datetime, price: float, now: datetime) -> None:
@@ -227,11 +244,12 @@ class FalseSpikeGuard:
             )
 
     def attribute(self) -> dict[str, Any]:
-        expires = self.since + self.max_age if self.since is not None else None
+        expires = self.expires_at
         return {
             "active": self.active,
             "reason": self.reason,
             "since": self.since.isoformat() if self.since else None,
+            "renewed": self.renewed.isoformat() if self.renewed else None,
             "expires_at": expires.isoformat() if expires else None,
             "threshold": round(self.threshold, 4),
             "detail": dict(self.detail),

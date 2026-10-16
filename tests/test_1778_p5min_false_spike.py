@@ -281,8 +281,9 @@ def test_dispatch_never_spiked_on_15_oct():
 
 
 def test_release_on_timeout_and_no_rearm_until_clean():
-    """Release rule: 60 minutes after it was raised. A still-infeasible run
-    does not restart it; a clean run clears the latch."""
+    """Release rule: 60 minutes after it was raised when no run renews it.
+    After the timeout a still-infeasible run does not re-arm it; a clean run
+    clears the latch."""
     g = p5min_guard.FalseSpikeGuard()
     g.on_run(*_run("202610151550"))
     since = g.since
@@ -298,6 +299,41 @@ def test_release_on_timeout_and_no_rearm_until_clean():
     assert not g.latched
     g.on_run(*_run("202610151630"))
     assert g.active
+
+
+def test_a_still_infeasible_run_renews_the_flag():
+    """16 Oct 2026: the same false spike sat in the forecasts from 13:00 to
+    16:00. Each run that still forecasts the spike AND still violates a
+    constraint renews the flag, so the 60 minutes count from the last such
+    run, not from the first."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(*_run("202610151550"))
+    since = g.since
+    run, _ = _run("202610151630")
+    g.on_run(run, since + timedelta(minutes=50))
+    assert g.since == since and g.renewed == since + timedelta(minutes=50)
+    g.expire(since + timedelta(minutes=60))
+    assert g.active
+    attr = g.attribute()
+    assert attr["expires_at"] == (since + timedelta(minutes=110)).isoformat()
+    assert attr["renewed"] == (since + timedelta(minutes=50)).isoformat()
+    g.expire(since + timedelta(minutes=110))
+    assert not g.active and g.latched
+    assert g.last_release["reason"] == p5min_guard.RELEASE_TIMEOUT
+    assert g.attribute()["renewed"] is None
+
+
+def test_a_spike_run_with_no_violation_does_not_renew():
+    """Only rule (a)'s evidence renews: a spike run that no longer violates
+    any constraint leaves the 60 minutes running from the last one that did."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(*_run("202610151550"))
+    since = g.since
+    run, _ = _run("202610151630")
+    g.on_run(_no_constraints(run), since + timedelta(minutes=50))
+    assert g.active and g.renewed is None
+    g.expire(since + timedelta(minutes=60))
+    assert not g.active
 
 
 def test_release_on_clean_forecast():
