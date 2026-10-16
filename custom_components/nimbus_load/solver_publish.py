@@ -2588,7 +2588,9 @@ def publish_plan(
             "solar_quantile_calibration": (solar_quantiles or {}).get("calibration"),
             # Household, 14 Oct 2026: "charge by" -- the target, the next
             # deadline the plan reaches, and how far short it lands there.
-            **solver_shared.charge_by_summary(cfg, forecast),
+            **solver_shared.charge_by_summary(
+                cfg, forecast, _diag_757_battery_forecast
+            ),
             # Household, 14 Oct 2026: the charge this plan intends before the
             # next P2P block, so a plan that keeps deferring shows on the
             # Solver tab's chart (period 0 alone drew 0 all morning).

@@ -443,16 +443,22 @@ def _solver_resolver(hass: HomeAssistant) -> Any:
     # until time.py removes the number's: the time entity wins, or the tab
     # is written against the entity about to be deleted ("Entity not found").
     by_uid: dict[str, str] = {}
+    name_by_uid: dict[str, str] = {}
     for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id):
         if e.unique_id in by_uid and e.domain != "time":
             continue
         by_uid[e.unique_id] = e.entity_id
+        name_by_uid[e.unique_id] = e.name or e.original_name or e.entity_id
 
     mushroom = _has_lovelace_resource(hass, "mushroom")
 
     def lookup(key: str) -> str | None:
         if key == "card:mushroom":
             return "custom:mushroom-number-card" if mushroom else None
+        if key.startswith("name:"):
+            # `${@name:<key>}`: that entity's name, for a chart series
+            # labelled per install (one SoC line per battery).
+            return name_by_uid.get(f"{entry.entry_id}_{key.split(':', 1)[1]}")
         if key.startswith("option:"):
             value = entry.options.get(key.split(":", 1)[1])
             return value if isinstance(value, str) and value else None

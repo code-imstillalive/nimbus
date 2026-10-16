@@ -264,6 +264,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "charge_by_period_indices",
         "charge_by_target_indices",
         "charge_by_summary",
+        # 16 Oct 2026: charge_by_summary's home-battery rows on a multi-
+        # battery plan; the cron copy has no charge-by and no participants.
+        "_home_rows",
         # nimbus #1654: the plan's "hold" flag; the cron copy publishes no
         # per-period dispatch hints.
         "_dispatch_hold",
