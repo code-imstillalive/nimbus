@@ -281,8 +281,9 @@ def test_dispatch_never_spiked_on_15_oct():
 
 
 def test_release_on_timeout_and_no_rearm_until_clean():
-    """Release rule: 60 minutes after it was raised. A still-infeasible run
-    does not restart it; a clean run clears the latch."""
+    """Release rule: 60 minutes after it was raised when no run renews it.
+    After the timeout a still-infeasible run does not re-arm it; a clean run
+    clears the latch."""
     g = p5min_guard.FalseSpikeGuard()
     g.on_run(*_run("202610151550"))
     since = g.since
@@ -298,6 +299,135 @@ def test_release_on_timeout_and_no_rearm_until_clean():
     assert not g.latched
     g.on_run(*_run("202610151630"))
     assert g.active
+
+
+def test_a_still_infeasible_run_renews_the_flag():
+    """16 Oct 2026: the same false spike sat in the forecasts from 13:00 to
+    16:00. Each run that still forecasts the spike AND still violates a
+    constraint renews the flag, so the 60 minutes count from the last such
+    run, not from the first."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(*_run("202610151550"))
+    since = g.since
+    run, _ = _run("202610151630")
+    g.on_run(run, since + timedelta(minutes=50))
+    assert g.since == since and g.renewed == since + timedelta(minutes=50)
+    g.expire(since + timedelta(minutes=60))
+    assert g.active
+    attr = g.attribute()
+    assert attr["expires_at"] == (since + timedelta(minutes=110)).isoformat()
+    assert attr["renewed"] == (since + timedelta(minutes=50)).isoformat()
+    g.expire(since + timedelta(minutes=110))
+    assert not g.active and g.latched
+    assert g.last_release["reason"] == p5min_guard.RELEASE_TIMEOUT
+    assert g.attribute()["renewed"] is None
+
+
+def test_a_spike_run_with_no_violation_does_not_renew():
+    """Only rule (a)'s evidence renews: a spike run that no longer violates
+    any constraint leaves the 60 minutes running from the last one that did."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(*_run("202610151550"))
+    since = g.since
+    run, _ = _run("202610151630")
+    g.on_run(_no_constraints(run), since + timedelta(minutes=50))
+    assert g.active and g.renewed is None
+    g.expire(since + timedelta(minutes=60))
+    assert not g.active
+
+
+def _calm(run: dict) -> dict:
+    """The run with every forecast price at a normal 9c/kWh: the shape of
+    16 Oct 2026, when P5MIN violated CA_BRIS_59E3F2B6_1 by 560-980 MW at
+    normal prices while the 30-minute pre-dispatch carried the spike."""
+    return {**run, "forecast": [{**r, "value": 0.09} for r in run["forecast"]]}
+
+
+def test_rule_c_a_control_room_violation_at_normal_prices():
+    """Rule (c): the run's first interval violates a CA_ constraint, P5MIN
+    prices nothing high, and the latest dispatch price is normal."""
+    run, published = _run("202610151550")
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run(_calm(run), published)
+    assert g.active and g.reason == p5min_guard.REASON_CONTROL_ROOM
+    assert g.detail["constraint_id"].startswith("CA_BRIS_")
+
+
+def test_rule_c_needs_a_normal_dispatch_price():
+    """No dispatch price seen yet, or a dispatch spike: rule (c) does not fire."""
+    run, published = _run("202610151550")
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(_calm(run), published)
+    assert not g.active
+    g.on_dispatch(_t("15:50:00"), 1.5, _t("15:45:05"))
+    g.on_run(_calm(run), published)
+    assert not g.active
+
+
+def test_rule_c_needs_a_ca_constraint():
+    """A violated constraint that is not a control-room one is not rule (c)."""
+    run, published = _run("202610151550")
+    other = [
+        {**v, "constraint_id": "Q>>NIL_" + v["constraint_id"]} for v in run["violated"]
+    ]
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run({**_calm(run), "violated": other}, published)
+    assert not g.active
+
+
+def test_rule_c_renews_and_a_clean_run_releases():
+    """Each run that still violates the CA_ constraint renews the flag; the
+    first run with neither a spike nor a CA_ violation releases it."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    run, published = _run("202610151550")
+    g.on_run(_calm(run), published)
+    run2, published2 = _run("202610151555")
+    g.on_run(_calm(run2), published2)
+    assert g.renewed == published2
+    g.on_run(*_run("202610151635"))
+    assert not g.active
+    assert g.last_release["reason"] == p5min_guard.RELEASE_CLEAN
+
+
+def test_rule_c_needs_a_material_violation():
+    """16 Oct 11:10: CA_BRIS_59E3F2B6_1 RHS 1991 MW violated by 79 MW at
+    normal prices, ratio 0.96 -- not material. 15 Oct's spiked runs sit at
+    0.52-0.75."""
+    run, published = _run("202610151550")
+    first = p5min.first_interval_violations(run)
+    small = [{**v, "rhs": 1991.29, "violation": 79.368} for v in first]
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run({**_calm(run), "violated": small}, published)
+    assert not g.active
+    for path in RUNS:
+        hit = p5min_guard.control_room_violation(
+            p5min.parse_run(path.read_text(), "QLD1")
+        )
+        if hit is not None:
+            assert 0.5 < p5min_guard._ratio(hit) <= 0.76, path.name
+
+
+def test_no_9_oct_run_violates_a_control_room_constraint():
+    """9 Oct was a real spike: no run's first interval violates a CA_
+    constraint, so rule (c) cannot suppress it."""
+    for path in OCT9:
+        if "P5MIN" not in path.name:
+            continue
+        run = p5min.parse_run(path.read_text(), "QLD1")
+        assert p5min_guard.control_room_violation(run) is None, path.name
+
+
+def test_every_15_oct_spiked_run_violates_a_control_room_constraint():
+    for path in RUNS:
+        run = p5min.parse_run(path.read_text(), "QLD1")
+        spiked = p5min_guard.has_spike(run["forecast"], THR)
+        assert (p5min_guard.control_room_violation(run) is not None) == spiked, (
+            path.name
+        )
 
 
 def test_release_on_clean_forecast():

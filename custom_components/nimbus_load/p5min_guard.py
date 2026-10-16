@@ -10,7 +10,7 @@ its forecast ($26.31/kWh import, $23.86 feed-in, 16:15-17:59), and an
 optimiser reading it charged from the grid to sell into a spike that stayed
 one interval ahead until it vanished.
 
-Two rules raise the flag, kept in `FalseSpikeGuard`:
+Three rules raise the flag, kept in `FalseSpikeGuard`:
 
 * **(a) infeasible spike** -- a run with an interval at or above the spike
   threshold AND at least one violated generic constraint
@@ -19,11 +19,35 @@ Two rules raise the flag, kept in `FalseSpikeGuard`:
 * **(b) dispatch disagrees** -- the forecast recorded for an interval end
   (the last run that carried it before dispatch) was a spike, and dispatch
   for that interval came in below $1,000/MWh AND below 30% of the forecast.
+* **(c) control-room constraint the forecast cannot meet** -- the latest
+  run's first interval violates a `CA_` (AEMO control-room constraint
+  automation) constraint while the latest dispatch price is normal (below
+  $1,000/MWh), even when P5MIN itself prices nothing high. On 16 Oct 2026
+  P5MIN violated `CA_BRIS_59E3F2B6_1` by 560-980 MW from the 09:55 run at
+  ~9c/kWh, while the 30-minute pre-dispatch priced 13:00-16:00 at
+  $9-23/kWh and dispatch met the same constraint at ~$60/MWh (Mark Purcell,
+  #1778). The spike sat beyond P5MIN's horizon, so (a) could not fire until
+  it was too late to plan around. Measured on the fixtures: every 15 Oct
+  spiked run violates a `CA_BRIS` constraint and the first clean run does
+  not; no 9 Oct run (a real spike) violates any `CA_` constraint.
+  Only a material violation counts: RHS / (RHS + violation) at or below
+  0.8. Dispatch meets the constraint at its own limit, so that figure
+  approximates the forecast RHS over dispatch's, the ratio Mark measured at
+  0.38-0.49 through the 16 Oct spike and 1.00 once it cleared. Measured:
+  0.52-0.75 in every 15 Oct spiked run, 0.55-0.70 on 16 Oct 09:55-10:50,
+  0.96 for 16 Oct 11:10's 79 MW violation at normal prices.
+  The flag changes no price on its own: the solver replaces forward prices
+  only when they carry a spike, so a flag with no pending spike is inert.
 
 It releases on a dispatch interval at or above the threshold, on a run with
-no spike interval left, or 60 minutes after it was raised. After a timeout
-or a real dispatch spike it does not re-arm until a run is clean again, so
-the 60 minutes bound one episode rather than restarting every run.
+no spike interval left, or 60 minutes after the last run that still met rule
+(a). Each run that still forecasts the spike AND still violates a constraint
+renews it: on 16 Oct 2026 the same false spike sat in the forecasts from
+13:00 to 16:00, so a fixed 60 minutes from the first flag would have let go
+before the hours an optimiser sells into. A spike run that no longer
+violates anything does not renew it, so the 60 minutes still bound how long
+an unconfirmed flag outlives its evidence. After a timeout or a real
+dispatch spike it does not re-arm until a run is clean again.
 
 While it holds, `guard_schedule_prices()` replaces forward spikes in
 Nimbus's SCHEDULING prices -- the import and export arrays the plan is
@@ -71,6 +95,9 @@ MAX_AGE = timedelta(minutes=60)
 
 REASON_INFEASIBLE = "infeasible_spike"
 REASON_DISPATCH = "dispatch_disagrees"
+REASON_CONTROL_ROOM = "control_room_constraint"
+# Rule (c): RHS / (RHS + violation) at or below this is a material violation.
+CONTROL_ROOM_MAX_RATIO = 0.8
 RELEASE_DISPATCH_SPIKE = "dispatch_spiked"
 RELEASE_CLEAN = "forecast_clean"
 RELEASE_TIMEOUT = "timeout"
@@ -103,6 +130,30 @@ def _headline(run: dict[str, Any]) -> dict[str, Any] | None:
     ca = [v for v in rows if str(v.get("constraint_id", "")).startswith("CA_")]
     pool = ca or rows
     return max(pool, key=lambda v: v["violation"]) if pool else None
+
+
+def _ratio(row: dict[str, Any]) -> float | None:
+    rhs, violation = row.get("rhs"), row.get("violation")
+    if not isinstance(rhs, (int, float)) or not isinstance(violation, (int, float)):
+        return None
+    if rhs <= 0 or violation <= 0:
+        return None
+    return float(rhs) / (float(rhs) + float(violation))
+
+
+def control_room_violation(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Rule (c)'s evidence: the largest material `CA_` constraint violation
+    in the run's first interval, or None. Material: RHS / (RHS + violation)
+    at or below `CONTROL_ROOM_MAX_RATIO`; a row without a positive RHS does
+    not count."""
+    rows = [
+        v
+        for v in p5min.first_interval_violations(run or {}) or []
+        if str(v.get("constraint_id", "")).startswith("CA_")
+        and _ratio(v) is not None
+        and _ratio(v) <= CONTROL_ROOM_MAX_RATIO
+    ]
+    return max(rows, key=lambda v: v["violation"]) if rows else None
 
 
 def infeasible_spike(
@@ -148,11 +199,16 @@ class FalseSpikeGuard:
         self.threshold_mwh = threshold_mwh
         self.max_age = max_age
         self.since: datetime | None = None
+        # The last run that met rule (a) while the flag held; the timeout
+        # counts from here (or from `since` when nothing has renewed it).
+        self.renewed: datetime | None = None
         self.reason: str | None = None
         self.detail: dict[str, Any] = {}
         self.latched = False
         self.last_release: dict[str, str] | None = None
         self.forecast_by_end: dict[str, float] = {}
+        # The latest dispatch price ($/kWh): rule (c) needs it normal.
+        self.last_dispatch: float | None = None
         self.compared: list[dict[str, Any]] = []
 
     @property
@@ -163,20 +219,25 @@ class FalseSpikeGuard:
     def active(self) -> bool:
         return self.since is not None
 
+    @property
+    def expires_at(self) -> datetime | None:
+        start = self.renewed or self.since
+        return start + self.max_age if start is not None else None
+
     def _activate(self, reason: str, at: datetime, detail: dict[str, Any]) -> None:
         self.since, self.reason, self.detail = at, reason, detail
+        self.renewed = None
 
     def _release(self, why: str, at: datetime) -> None:
         self.last_release = {"reason": why, "at": at.isoformat()}
         self.since, self.reason, self.detail = None, None, {}
+        self.renewed = None
 
     def expire(self, now: datetime | None) -> None:
-        """Release after `max_age`, and hold off re-arming until a clean run."""
-        if (
-            self.since is not None
-            and now is not None
-            and now - self.since >= self.max_age
-        ):
+        """Release `max_age` after the flag was raised or last renewed, and
+        hold off re-arming until a clean run."""
+        expires = self.expires_at
+        if expires is not None and now is not None and now >= expires:
             self._release(RELEASE_TIMEOUT, now)
             self.latched = True
 
@@ -189,16 +250,33 @@ class FalseSpikeGuard:
         for old in sorted(self.forecast_by_end)[:-_KEEP_FORECASTS]:
             del self.forecast_by_end[old]
         self.expire(published)
-        if not has_spike(rows, self.threshold):
+        spike = has_spike(rows, self.threshold)
+        # The threshold at 0 turns the guard off, rule (c) included.
+        control_room = (
+            control_room_violation(run) if math.isfinite(self.threshold) else None
+        )
+        if not spike and control_room is None:
             if self.active and published is not None:
                 self._release(RELEASE_CLEAN, published)
             self.latched = False
             return
-        if self.active or self.latched or published is None:
+        if self.latched or published is None:
             return
-        hit = infeasible_spike(run, self.threshold)
-        if hit is not None:
-            self._activate(REASON_INFEASIBLE, published, hit)
+        reason = REASON_INFEASIBLE
+        hit = infeasible_spike(run, self.threshold) if spike else None
+        if (
+            hit is None
+            and control_room is not None
+            and self.last_dispatch is not None
+            and self.last_dispatch < DISPATCH_CEILING_KWH
+        ):
+            reason, hit = REASON_CONTROL_ROOM, dict(control_room)
+        if hit is None:
+            return
+        if self.active:
+            self.renewed = published
+        else:
+            self._activate(reason, published, hit)
 
     def on_dispatch(self, end: datetime, price: float, now: datetime) -> None:
         """One dispatch price ($/kWh) for the interval ending `end`. Keyed
@@ -211,6 +289,7 @@ class FalseSpikeGuard:
             {"end": key, "forecast": forecast, "dispatch": round(price, 6)}
         )
         del self.compared[:-_KEEP_COMPARED]
+        self.last_dispatch = price
         self.expire(now)
         if price >= self.threshold:
             if self.active:
@@ -227,11 +306,12 @@ class FalseSpikeGuard:
             )
 
     def attribute(self) -> dict[str, Any]:
-        expires = self.since + self.max_age if self.since is not None else None
+        expires = self.expires_at
         return {
             "active": self.active,
             "reason": self.reason,
             "since": self.since.isoformat() if self.since else None,
+            "renewed": self.renewed.isoformat() if self.renewed else None,
             "expires_at": expires.isoformat() if expires else None,
             "threshold": round(self.threshold, 4),
             "detail": dict(self.detail),
