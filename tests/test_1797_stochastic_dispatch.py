@@ -670,10 +670,16 @@ def test_a_joint_solve_that_hits_its_time_limit_logs_no_error(caplog):
 
     from solver import lp
 
+    # lp.py's calibration cooldown is module-wide: an earlier test that
+    # failed a calibration leaves it set, the deterministic solve then
+    # skips calibration, and there is no blend weight to hand on. CI hit
+    # exactly that ordering ("primary_only" != "blended").
+    lp._lex_calibration_failed_until = 0.0
     kw = _mip_inputs()
     kw["solve_options"] = lp.CalibratedOptions()
     det = network.build_plan(**kw)
     assert det.status == "optimal"
+    assert det.calibration_weight_used is not None
     dumps_before = set(lp._LP_DUMPED_PHASES)
     cooldown_before = lp._lex_calibration_failed_until
     real = sd.build_stochastic_plan

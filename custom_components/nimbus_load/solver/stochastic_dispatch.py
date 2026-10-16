@@ -126,6 +126,10 @@ NO_SUN_KW = 0.05
 # HiGHS time limit on each joint solve call. A slower joint solve comes back
 # non-optimal and the caller falls back to the deterministic plan.
 JOINT_TIME_LIMIT_SECONDS = 20.0
+# A joint MIP that hits the time limit is kept when its incumbent is within
+# this relative gap of proven optimal (0.1%). Measured on devhub: 3.7e-5 at
+# 20 s (#1805). A wider gap still falls back to the deterministic plan.
+JOINT_ACCEPT_MIP_GAP = 1e-3
 _SCENARIO_SEPARATOR = "::"
 _CAPTURED = "captured_for_stochastic_joint_solve"
 
@@ -332,6 +336,7 @@ class _JointSolve:
                     )
         joint.time_limit_seconds = self.time_limit_seconds
         joint.quiet_diagnostics = True
+        joint.accept_time_limited_mip_gap = JOINT_ACCEPT_MIP_GAP
         options, self.objective_mode = joint_options(
             solve_kwargs.get("options"), self.blend_weight
         )

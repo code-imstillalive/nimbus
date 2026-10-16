@@ -1241,6 +1241,14 @@ class LPProblem:
     # nimbus issue #1797: see _QUIET. False (every existing caller) changes
     # nothing.
     quiet_diagnostics: bool = False
+    # nimbus issue #1805: on a BlendedOptions MIP that hits its time limit,
+    # keep HiGHS's incumbent when its MIP gap is at or below this. None
+    # (the default, every existing caller) keeps today's behaviour exactly:
+    # a timed-out MIP is an "error". Measured on devhub: the stochastic
+    # joint MIP stopped at 20 s with gap 3.7e-5, then failed only because
+    # HiGHS's time limit counts the whole Highs object's run time, so the
+    # instant pinned-LP refresh after it hit the same, already-spent limit.
+    accept_time_limited_mip_gap: float | None = None
 
     @property
     def is_mip(self) -> bool:
@@ -1828,6 +1836,39 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
                 pass
 
 
+# nimbus #1805: seconds the pinned-LP refresh gets after an accepted
+# timed-out MIP incumbent. That refresh is a pure LP at a fixed integer
+# point; measured on the joint stochastic problem it takes well under 1 s.
+PIN_REFRESH_SECONDS: float = 5.0
+
+
+def _accept_timed_out_incumbent(h: Any, problem: LPProblem) -> bool:
+    """True when `h` just stopped on its time limit holding a feasible
+    incumbent within `problem.accept_time_limited_mip_gap` (#1805).
+
+    Read before pinning: changing the model resets HiGHS's info, after
+    which `mip_gap` reads inf. False for every problem that leaves the
+    field None, so their timed-out MIPs stay errors exactly as before."""
+    limit = problem.accept_time_limited_mip_gap
+    if limit is None:
+        return False
+    if h.getModelStatus() != highspy.HighsModelStatus.kTimeLimit:
+        return False
+    info = h.getInfo()
+    feasible = int(info.primal_solution_status) == int(
+        highspy.SolutionStatus.kSolutionStatusFeasible
+    )
+    gap = float(info.mip_gap)
+    if not feasible or not gap <= limit:
+        return False
+    _LOGGER.info(
+        "Nimbus #1805: keeping a time-limited MIP incumbent (mip_gap=%.3g <= %.3g)",
+        gap,
+        limit,
+    )
+    return True
+
+
 def _pin_binaries_to_current_solution(
     h: highspy.Highs, var_array: list[Any], binary_cols: list[int]
 ) -> None:
@@ -2304,8 +2345,13 @@ def _solve_with_options(
             n_binary=len(binary_cols),
         ):
             h.run()
+        accepted_timed_out_incumbent = _accept_timed_out_incumbent(h, problem)
         _pin_binaries_to_current_solution(h, var_array, binary_cols)
         if binary_cols:
+            if accepted_timed_out_incumbent:
+                # The time limit counts every run on `h`, so without this
+                # the pinned LP below starts already out of time (#1805).
+                h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
             # Refresh h's own live state on the now-continuous, pinned
             # problem -- same point as _ensure_optimal_value() would
             # make, but a blended-cost solve's result is never checked
