@@ -1358,6 +1358,22 @@ main, always follow up — and VALIDATE BEFORE TAGGING (nimbus #1447):**
    un-push the tag, and a production deploy is `git checkout vX.Y.Z`, which a refused
    tag would still satisfy. A Release exists only when the gate passed, so requiring it
    closes that gap for every install, HACS or git.
+6. **Update the living comparison, #1797, for the release** (household standing rule,
+   16 Oct 2026: "a permanent rule to update this with new releases... and keep the
+   score changing as we go"). The pinned issue scores Nimbus against HAEO and EMHASS,
+   per capability group, as of a named release. After every release's GitHub Release
+   is confirmed:
+   - re-score each capability row the release changes. A row moves to "present"
+     only when the code is in the release, never on a merge to `main` alone;
+   - update the score table, the overall and capability-only %, the title's
+     version, and the "Scored as of" line;
+   - add one comment saying which rows moved and why, with PR numbers. Mark
+     Purcell and anyone else review it there;
+   - a release that changes no capability still gets a one-line comment saying so.
+
+   **The scores follow the evidence, both ways.** A regression or a live incident
+   lowers a row as readily as a feature raises one. Count every live site
+   (reference household, Mark Purcell's, Chris testing), not one install.
 
 **Step 4 before step 3 no longer produces an installable release.** `release.yml` runs
 `.github/scripts/check_release_validated.py`, which refuses to publish the GitHub Release
