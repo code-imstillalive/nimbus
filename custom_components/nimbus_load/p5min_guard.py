@@ -30,6 +30,14 @@ Three rules raise the flag, kept in `FalseSpikeGuard`:
   it was too late to plan around. Measured on the fixtures: every 15 Oct
   spiked run violates a `CA_BRIS` constraint and the first clean run does
   not; no 9 Oct run (a real spike) violates any `CA_` constraint.
+  Only a material violation counts: RHS / (RHS + violation) at or below
+  0.8. Dispatch meets the constraint at its own limit, so that figure
+  approximates the forecast RHS over dispatch's, the ratio Mark measured at
+  0.38-0.49 through the 16 Oct spike and 1.00 once it cleared. Measured:
+  0.52-0.75 in every 15 Oct spiked run, 0.55-0.70 on 16 Oct 09:55-10:50,
+  0.96 for 16 Oct 11:10's 79 MW violation at normal prices.
+  The flag changes no price on its own: the solver replaces forward prices
+  only when they carry a spike, so a flag with no pending spike is inert.
 
 It releases on a dispatch interval at or above the threshold, on a run with
 no spike interval left, or 60 minutes after the last run that still met rule
@@ -88,6 +96,8 @@ MAX_AGE = timedelta(minutes=60)
 REASON_INFEASIBLE = "infeasible_spike"
 REASON_DISPATCH = "dispatch_disagrees"
 REASON_CONTROL_ROOM = "control_room_constraint"
+# Rule (c): RHS / (RHS + violation) at or below this is a material violation.
+CONTROL_ROOM_MAX_RATIO = 0.8
 RELEASE_DISPATCH_SPIKE = "dispatch_spiked"
 RELEASE_CLEAN = "forecast_clean"
 RELEASE_TIMEOUT = "timeout"
@@ -122,13 +132,26 @@ def _headline(run: dict[str, Any]) -> dict[str, Any] | None:
     return max(pool, key=lambda v: v["violation"]) if pool else None
 
 
+def _ratio(row: dict[str, Any]) -> float | None:
+    rhs, violation = row.get("rhs"), row.get("violation")
+    if not isinstance(rhs, (int, float)) or not isinstance(violation, (int, float)):
+        return None
+    if rhs <= 0 or violation <= 0:
+        return None
+    return float(rhs) / (float(rhs) + float(violation))
+
+
 def control_room_violation(run: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Rule (c)'s evidence: the largest `CA_` constraint violation in the
-    run's first interval, or None."""
+    """Rule (c)'s evidence: the largest material `CA_` constraint violation
+    in the run's first interval, or None. Material: RHS / (RHS + violation)
+    at or below `CONTROL_ROOM_MAX_RATIO`; a row without a positive RHS does
+    not count."""
     rows = [
         v
         for v in p5min.first_interval_violations(run or {}) or []
         if str(v.get("constraint_id", "")).startswith("CA_")
+        and _ratio(v) is not None
+        and _ratio(v) <= CONTROL_ROOM_MAX_RATIO
     ]
     return max(rows, key=lambda v: v["violation"]) if rows else None
 

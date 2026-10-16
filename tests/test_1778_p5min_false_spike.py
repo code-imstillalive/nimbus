@@ -392,6 +392,25 @@ def test_rule_c_renews_and_a_clean_run_releases():
     assert g.last_release["reason"] == p5min_guard.RELEASE_CLEAN
 
 
+def test_rule_c_needs_a_material_violation():
+    """16 Oct 11:10: CA_BRIS_59E3F2B6_1 RHS 1991 MW violated by 79 MW at
+    normal prices, ratio 0.96 -- not material. 15 Oct's spiked runs sit at
+    0.52-0.75."""
+    run, published = _run("202610151550")
+    first = p5min.first_interval_violations(run)
+    small = [{**v, "rhs": 1991.29, "violation": 79.368} for v in first]
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run({**_calm(run), "violated": small}, published)
+    assert not g.active
+    for path in RUNS:
+        hit = p5min_guard.control_room_violation(
+            p5min.parse_run(path.read_text(), "QLD1")
+        )
+        if hit is not None:
+            assert 0.5 < p5min_guard._ratio(hit) <= 0.76, path.name
+
+
 def test_no_9_oct_run_violates_a_control_room_constraint():
     """9 Oct was a real spike: no run's first interval violates a CA_
     constraint, so rule (c) cannot suppress it."""

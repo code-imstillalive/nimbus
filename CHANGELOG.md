@@ -20,6 +20,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   below $1,000/MWh. Replayed on 16 Oct's live NEMWEB files it arms at 09:50
   and holds; on the fixtures, every 15 Oct spiked run violates a `CA_BRIS`
   constraint and no 9 Oct run (a real spike) violates any `CA_` constraint.
+  Only a material violation counts: RHS / (RHS + violation) at or below
+  0.8, a proxy for the forecast-to-dispatch RHS ratio (0.52-0.75 in 15 Oct's
+  spiked runs, 0.55-0.70 on 16 Oct, 0.96 for 16 Oct 11:10's 79 MW violation
+  at normal prices). On 16 Oct's live runs it held from 09:50 until the
+  10:55 run, the one in which AEMO moved to dispatch's limit.
   The flag also renews on each run that still meets (a) or (c), so the 60
   minutes count from the last such run rather than from the first; before,
   it would have let go before the 14:30-16:00 hours a plan sells into.
