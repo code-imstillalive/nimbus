@@ -235,6 +235,10 @@ try:
 except ImportError:
     from solver_inputs import price_freshness  # type: ignore[no-redef]
     from solver_inputs import prices as price_inputs  # type: ignore[no-redef]
+try:
+    from .solver_inputs import price_consolidation
+except ImportError:
+    from solver_inputs import price_consolidation  # type: ignore[no-redef]
 # nimbus issue #1303 (Phase 4 of #1298): the `extra_batteries as
 # extra_batteries_inputs` import that used to sit here is gone. main()'s
 # plan-assembly span was its only reader in this module, and that span now lives
@@ -5271,6 +5275,141 @@ def collect_amber_spot(entity_ids, now: datetime) -> dict[int, tuple[datetime, f
     }
 
 
+# nimbus #1786 (Mark Purcell): a consolidated price forecast and each source's
+# running error by lead. Same env-var convention as AMBER_SPOT_PATH;
+# solver_runtime points it at HA's config directory for the native path.
+PRICE_CONSOLIDATION_PATH = os.environ.get(
+    "NIMBUS_SOLVER_PRICE_CONSOLIDATION_PATH",
+    "/opt/nimbus_solver_price_consolidation.json",
+)
+_PRICE_CONSOLIDATION_CACHE: dict[str, price_consolidation.SourceErrorTracker] | None = (
+    None
+)
+_PRICE_CONSOLIDATION_FAILED_LOGGED = False
+
+
+def _load_price_trackers() -> dict[str, price_consolidation.SourceErrorTracker]:
+    global _PRICE_CONSOLIDATION_CACHE
+    if _PRICE_CONSOLIDATION_CACHE is None:
+        data: dict = {}
+        try:
+            with open(PRICE_CONSOLIDATION_PATH, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError, TypeError):
+            data = {}
+        _PRICE_CONSOLIDATION_CACHE = {
+            side: price_consolidation.SourceErrorTracker.from_dict(data.get(side))
+            for side in ("import", "export")
+        }
+    return _PRICE_CONSOLIDATION_CACHE
+
+
+def _save_price_trackers(
+    trackers: dict[str, price_consolidation.SourceErrorTracker],
+) -> None:
+    try:
+        with open(PRICE_CONSOLIDATION_PATH, "w", encoding="utf-8") as f:
+            json.dump({side: t.to_dict() for side, t in trackers.items()}, f)
+    except OSError:
+        pass
+
+
+def _consolidation_sources(
+    cfg: dict,
+    grid_times: list[datetime],
+    side: str,
+    primary: list[float],
+    prices: object,
+) -> dict[str, list[float | None]]:
+    """Each price source's own $/kWh series on the plan grid for `side`
+    ("import"/"export"), None where that source has no real coverage. The
+    primary is its pre-blend series."""
+    primary_mask = getattr(prices, f"{side}_real_mask", None)
+    secondary_keys = (f"solver_{side}_price_sensor_2", f"solver_{side}_price_sensor_3")
+    aemo_series = getattr(prices, f"aemo_{side}_series", None)
+    mask = primary_mask if primary_mask is not None else [True] * len(primary)
+    out: dict[str, list[float | None]] = {
+        "primary": [
+            float(v) if (i < len(mask) and mask[i]) else None
+            for i, v in enumerate(primary)
+        ]
+    }
+    for n, key in enumerate(secondary_keys, start=2):
+        entity_id = cfg.get(key)
+        if not entity_id:
+            continue
+        r = resample_generic_price_forecast_with_coverage(entity_id, grid_times)
+        if r is not None:
+            fc, m = r
+            out[f"secondary_{n}"] = [
+                float(v) if m[i] else None for i, v in enumerate(fc)
+            ]
+    if aemo_series is not None and any(v is not None for v in aemo_series):
+        out["aemo_markup"] = list(aemo_series)
+    return out
+
+
+def apply_price_consolidation(
+    cfg: dict,
+    now: datetime,
+    grid_times: list[datetime],
+    period_hours: list[float],
+    n_settled_periods: int,
+    prices: object,
+    spot_import_source: list[float],
+    spot_export_source: list[float],
+    settled_import: float | None,
+    settled_export: float | None,
+    spot_import_raw: list[float],
+    spot_export: list[float],
+    import_price_source: list[str],
+    export_price_source: list[str],
+) -> dict | None:
+    """nimbus #1786: the consolidated series and each source's running error
+    (price_consolidation.consolidate_side()). With the live switch on, the
+    future periods' scheduling prices are replaced in place, never the settled
+    block, after both sides are computed. None on any failure; never raises."""
+    global _PRICE_CONSOLIDATION_FAILED_LOGGED
+    try:
+        pc = price_consolidation
+        ctx = (now, grid_times, period_hours, n_settled_periods)
+        live = bool(cfg.get("solver_price_consolidation_live", False))
+        trackers = _load_price_trackers()
+        result: dict = {"mode": "live" if live else "shadow"}
+        targets = {
+            "import": (spot_import_raw, import_price_source),
+            "export": (spot_export, export_price_source),
+        }
+        scored = False
+        for side, primary, settled in (
+            ("import", spot_import_source, settled_import),
+            ("export", spot_export_source, settled_export),
+        ):
+            series = _consolidation_sources(cfg, grid_times, side, primary, prices)
+            out = pc.consolidate_side(trackers[side], series, *ctx, settled)
+            values, result[side], side_scored = out
+            result[f"consolidated_{side}_price"] = values
+            scored = scored or side_scored
+        if live:
+            for side, (target, labels) in targets.items():
+                pc.replace_future(
+                    result[f"consolidated_{side}_price"],
+                    target,
+                    labels,
+                    n_settled_periods,
+                )
+        if scored:
+            _save_price_trackers(trackers)
+        return result
+    except Exception as e:  # noqa: BLE001 -- a shadow measurement must never break a solve
+        if not _PRICE_CONSOLIDATION_FAILED_LOGGED:
+            _PRICE_CONSOLIDATION_FAILED_LOGGED = True
+            _LOGGER.warning("Nimbus #1786: price consolidation failed: %s", e)
+        return None
+
+
 def check_aemo_p5min_disagreement(
     regional_spot_sensor: str | None,
     retail_price_now: float,
@@ -9275,6 +9414,29 @@ def main() -> None:
             if _label == "primary":
                 export_price_source[_i] = price_freshness.FALLBACK_LABEL
 
+    # nimbus #1786 (Mark Purcell): the consolidated price and each source's
+    # running error. Shadow (published only) unless
+    # switch.nimbus_solver_price_consolidation_live is on, which replaces the
+    # future periods' scheduling prices; the settled block is never touched,
+    # and the P5MIN guard below still runs after it.
+    price_consolidation_result = apply_price_consolidation(
+        cfg,
+        now,
+        grid_times,
+        period_hours_arr,
+        n_settled_periods,
+        _prices,
+        spot_import_source,
+        spot_export_source,
+        # A stale source's settled price is AEMO's (#1793): nothing to score.
+        None if price_source_on_aemo else _settled_import_value,
+        None if price_source_on_aemo else _settled_export_value,
+        spot_import_raw,
+        spot_export,
+        import_price_source,
+        export_price_source,
+    )
+
     # nimbus #1778 (Mark Purcell): while the P5MIN false-spike flag holds,
     # forward spikes in the SCHEDULING prices -- whatever the source, after
     # blending -- are replaced; the current interval keeps its real price.
@@ -9645,6 +9807,7 @@ def main() -> None:
             export_real_mask, grid_times
         ),
         price_source_freshness=price_source_freshness,
+        price_consolidation=price_consolidation_result,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None

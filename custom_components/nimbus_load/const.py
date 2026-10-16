@@ -1149,6 +1149,13 @@ CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = (
     "solver_score_controllable_loads_enabled"
 )
 DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = False
+# nimbus #1786 (Mark Purcell): the consolidated price forecast always runs and
+# is published in shadow. This switch, off by default, makes it LIVE: the
+# consolidated import/export replace the scheduling prices for every future
+# period (never the current settled block). Off by default because it changes
+# the plan; adoption follows measured least error, per Mark on #1786.
+CONF_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = "solver_price_consolidation_live"
+DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

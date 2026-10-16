@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **A consolidated price forecast and each price source's running error, in
+  shadow, with a live switch** (#1786, Mark Purcell). Every solve combines
+  the price sources Nimbus already reads (the primary's own forecast where it
+  is real, each configured secondary, and the regional AEMO forecast plus the
+  learned retail markup) into one import and one export series: the median of
+  the sources available in each period, or an inverse-error weighted mean
+  once every source has at least 50 settled samples at that lead. Each
+  source's forecast for each 5-minute interval is kept at four leads (0-5
+  min, 5-60 min, 1-4 h, 4-24 h) and scored against the primary's settled
+  price when the interval ends, as a running mean absolute error (EWMA,
+  alpha 0.05). Each plan row carries `consolidated_import_price` and
+  `consolidated_export_price`; `sensor.nimbus_solver_battery_forecast` carries
+  `price_consolidation` (mode, sources, method, spread now, error and sample
+  count by source and lead, and the weights). The error history survives a
+  restart (`nimbus_solver_price_consolidation.json` in the config directory).
+  **Shadow is the default and does not change prices or dispatch**: the
+  plan's scheduling prices are byte-identical with it present.
+  `switch.nimbus_solver_price_consolidation_live` (off by default) makes the
+  consolidated series the scheduling price for every future period, labelled
+  `consolidated`; the current settled 5-minute block is never replaced, and
+  the P5MIN false-spike guard still runs afterwards. Adopting it is to follow
+  measured least error, per Mark on #1786.
+
 ### Fixed
 - **A stale price source is no longer planned on** (#1793, Mark Purcell).
   On 16 Oct 2026 LocalVolts stopped rebuilding the reference household's

@@ -174,6 +174,7 @@ from .const import (
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
@@ -426,6 +427,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # the two comments above record -- without it the switch is a silent
     # no-op and the oracle never sees a Controllable Load.
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+    # nimbus #1786: solver_writer reads this off cfg every solve to decide
+    # whether the consolidated price replaces the scheduling prices.
+    CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -645,6 +649,8 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # the exact bug the flex-signals entry above documents.
     CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+    # nimbus #1786: the live switch for the consolidated price.
+    CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
 )
 # nimbus issue #485: select.py's own live string choices -- same
 # "resolve from a live entity, not entry.options" mechanism as the two

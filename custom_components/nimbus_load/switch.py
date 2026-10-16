@@ -49,6 +49,7 @@ from .const import (
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
     CONF_SOLVER_PRICE_EVENT_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
@@ -59,6 +60,7 @@ from .const import (
     DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
     DEFAULT_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
+    DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE,
     DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
@@ -291,6 +293,17 @@ async def async_setup_entry(
                 CONF_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
                 "Score Controllable Loads",
                 DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus #1786: the consolidated price drives the plan only while
+            # this is on; off, it is published in shadow. Read fresh off cfg
+            # every solve, like the switches above.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
+                "Price Consolidation Live",
+                DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE,
                 sw_version,
                 shared_store,
             ),

@@ -726,6 +726,24 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "source_updated",
         "aemo_series",
         "_stamp",
+        # nimbus #1786 -- the consolidated price forecast and per-source
+        # running error (shadow, with a live switch). Native runtime first;
+        # the docs copy has no secondary-source coverage reader and no
+        # provider adapters to feed it, so it is not ported yet.
+        "_available",
+        "_bucket_5min",
+        "_consolidated_at",
+        "_consolidation_sources",
+        "_load_price_trackers",
+        "_price_consolidation_attribute",
+        "_save_price_trackers",
+        "aemo_markup_series",
+        "apply_price_consolidation",
+        "consolidate",
+        "consolidate_side",
+        "interval_key",
+        "lead_bucket",
+        "replace_future",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there

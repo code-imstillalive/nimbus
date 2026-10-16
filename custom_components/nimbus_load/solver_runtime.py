@@ -528,6 +528,11 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_AMBER_SPOT_PATH",
         hass.config.path("nimbus_solver_amber_spot.json"),
     )
+    # nimbus #1786: the per-source price running error survives restarts.
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_PRICE_CONSOLIDATION_PATH",
+        hass.config.path("nimbus_solver_price_consolidation.json"),
+    )
 
 
 def _ensure_ready(hass: HomeAssistant):

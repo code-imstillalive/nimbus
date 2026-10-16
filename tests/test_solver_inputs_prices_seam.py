@@ -56,7 +56,15 @@ EXPECTED_FIELDS = (
     "match_fraction",
     "p2p_recent_volume_kwh",
     "price_source_freshness",
+    # nimbus #1786: AEMO plus markup, scored as a price source of its own.
+    "aemo_import_series",
+    "aemo_export_series",
 )
+
+
+#: Fields main() does not unpack: apply_price_consolidation() reads them off
+#: the PriceArrays main() passes it (nimbus #1786).
+_READ_THROUGH_CONSOLIDATION = frozenset({"aemo_import_series", "aemo_export_series"})
 
 
 def _module_source(mod):
@@ -161,8 +169,17 @@ class TestTheCallSite(unittest.TestCase):
         dead weight that reads as wired."""
         src = " ".join(_solver_writer_source().split())
         for field in EXPECTED_FIELDS:
+            if field in _READ_THROUGH_CONSOLIDATION:
+                continue
             with self.subTest(field=field):
                 self.assertIn(f"{field} = _prices.{field}", src)
+
+    def test_consolidation_fields_reach_it_through_the_whole_result(self):
+        """nimbus #1786: the AEMO series are read by apply_price_consolidation()
+        off the PriceArrays main() hands it, not unpacked in main()."""
+        src = " ".join(_solver_writer_source().split())
+        self.assertIn("n_settled_periods, _prices, spot_import_source,", src)
+        self.assertIn('getattr(prices, f"aemo_{side}_series", None)', src)
 
     def test_main_still_computes_the_flag_itself(self):
         """It is a parameter precisely because main() needs it after the
