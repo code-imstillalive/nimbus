@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.458] - 2026-10-16
+
+The P5MIN false-spike guard: a forecast spike AEMO can only produce by
+violating a Brisbane control-room constraint is kept out of the plan's prices,
+including one beyond P5MIN's horizon, for as long as the evidence lasts; the
+plan says when the battery should hold; the decision-input capture keeps each
+price source's forecast series.
+
 ### Fixed
 - **The P5MIN false-spike guard catches a spike beyond P5MIN's horizon, and
   holds for the whole episode** (#1778, Mark Purcell). On 16 Oct 2026 AEMO's
