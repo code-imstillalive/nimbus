@@ -9,15 +9,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
-- **The P5MIN false-spike guard now holds for the whole episode** (#1778).
-  On 16 Oct 2026 AEMO's forecasts carried a false Brisbane-constraint spike
-  from 13:00 to 16:00 (`CA_BRIS_59E3F2B6_1`, about half dispatch's limit).
-  The guard released 60 minutes after it was first raised, so it would have
-  let go before the 14:30-16:00 hours a plan sells into. Each P5MIN run that
-  still forecasts the spike and still violates a constraint now renews it;
-  the 60 minutes count from the last such run. A spike run with no violated
-  constraint does not renew it. `false_spike_guard` gains `renewed`, and
-  `expires_at` follows it.
+- **The P5MIN false-spike guard catches a spike beyond P5MIN's horizon, and
+  holds for the whole episode** (#1778, Mark Purcell). On 16 Oct 2026 AEMO's
+  30-minute pre-dispatch priced QLD1 at $9-23/kWh for 13:00-16:00 because it
+  applied a Brisbane control-room constraint (`CA_BRIS_59E3F2B6_1`) at about
+  half dispatch's limit. P5MIN violated the same constraint by 560-980 MW
+  from its 09:55 run at a normal ~9c/kWh, so rule (a) (a spike AND a
+  violation) never fired. New rule (c): the latest P5MIN run's first
+  interval violates a `CA_` constraint while the latest dispatch price is
+  below $1,000/MWh. Replayed on 16 Oct's live NEMWEB files it arms at 09:50
+  and holds; on the fixtures, every 15 Oct spiked run violates a `CA_BRIS`
+  constraint and no 9 Oct run (a real spike) violates any `CA_` constraint.
+  The flag also renews on each run that still meets (a) or (c), so the 60
+  minutes count from the last such run rather than from the first; before,
+  it would have let go before the 14:30-16:00 hours a plan sells into.
+  `false_spike_guard` gains `renewed`, and `expires_at` follows it.
 
 ### Added
 - **The plan says when the battery should hold** (#1654, Mark Purcell). Each

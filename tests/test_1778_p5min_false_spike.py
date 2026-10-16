@@ -336,6 +336,81 @@ def test_a_spike_run_with_no_violation_does_not_renew():
     assert not g.active
 
 
+def _calm(run: dict) -> dict:
+    """The run with every forecast price at a normal 9c/kWh: the shape of
+    16 Oct 2026, when P5MIN violated CA_BRIS_59E3F2B6_1 by 560-980 MW at
+    normal prices while the 30-minute pre-dispatch carried the spike."""
+    return {**run, "forecast": [{**r, "value": 0.09} for r in run["forecast"]]}
+
+
+def test_rule_c_a_control_room_violation_at_normal_prices():
+    """Rule (c): the run's first interval violates a CA_ constraint, P5MIN
+    prices nothing high, and the latest dispatch price is normal."""
+    run, published = _run("202610151550")
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run(_calm(run), published)
+    assert g.active and g.reason == p5min_guard.REASON_CONTROL_ROOM
+    assert g.detail["constraint_id"].startswith("CA_BRIS_")
+
+
+def test_rule_c_needs_a_normal_dispatch_price():
+    """No dispatch price seen yet, or a dispatch spike: rule (c) does not fire."""
+    run, published = _run("202610151550")
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_run(_calm(run), published)
+    assert not g.active
+    g.on_dispatch(_t("15:50:00"), 1.5, _t("15:45:05"))
+    g.on_run(_calm(run), published)
+    assert not g.active
+
+
+def test_rule_c_needs_a_ca_constraint():
+    """A violated constraint that is not a control-room one is not rule (c)."""
+    run, published = _run("202610151550")
+    other = [
+        {**v, "constraint_id": "Q>>NIL_" + v["constraint_id"]} for v in run["violated"]
+    ]
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    g.on_run({**_calm(run), "violated": other}, published)
+    assert not g.active
+
+
+def test_rule_c_renews_and_a_clean_run_releases():
+    """Each run that still violates the CA_ constraint renews the flag; the
+    first run with neither a spike nor a CA_ violation releases it."""
+    g = p5min_guard.FalseSpikeGuard()
+    g.on_dispatch(_t("15:50:00"), 0.06, _t("15:45:05"))
+    run, published = _run("202610151550")
+    g.on_run(_calm(run), published)
+    run2, published2 = _run("202610151555")
+    g.on_run(_calm(run2), published2)
+    assert g.renewed == published2
+    g.on_run(*_run("202610151635"))
+    assert not g.active
+    assert g.last_release["reason"] == p5min_guard.RELEASE_CLEAN
+
+
+def test_no_9_oct_run_violates_a_control_room_constraint():
+    """9 Oct was a real spike: no run's first interval violates a CA_
+    constraint, so rule (c) cannot suppress it."""
+    for path in OCT9:
+        if "P5MIN" not in path.name:
+            continue
+        run = p5min.parse_run(path.read_text(), "QLD1")
+        assert p5min_guard.control_room_violation(run) is None, path.name
+
+
+def test_every_15_oct_spiked_run_violates_a_control_room_constraint():
+    for path in RUNS:
+        run = p5min.parse_run(path.read_text(), "QLD1")
+        spiked = p5min_guard.has_spike(run["forecast"], THR)
+        assert (p5min_guard.control_room_violation(run) is not None) == spiked, (
+            path.name
+        )
+
+
 def test_release_on_clean_forecast():
     """Release rule: a run with no spike interval left."""
     g = p5min_guard.FalseSpikeGuard()
