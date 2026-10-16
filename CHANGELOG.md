@@ -8,6 +8,52 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.459] - 2026-10-16
+
+A price source whose forecast has stopped refreshing is no longer planned on:
+past 60 minutes the plan prices every period from AEMO plus the learned
+markup, and says so. A consolidated price forecast across every source, with
+each source's running error by lead, is published in shadow, with a switch
+to let it drive the plan (off).
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 03661fbb**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `release/0.94.459`) and restarted 13:55:47 AEST 16 Oct, then again at
+  13:59:05 after the control.
+  - devhub's own entities stamp `0.94.459` (one daily publisher still stamps
+    the 0.94.458 that computed its figures; the other 117 are production's
+    mirrored entities on 0.94.457). All 148 `nimbus_load` entities are
+    available: 0.94.458's 147 plus `switch.nimbus_solver_price_consolidation_live`,
+    which reads off.
+  - **No Traceback, and no ERROR line this release introduces.** Both starts
+    log 197 `nimbus_load` "does not generate unique IDs" errors. A
+    **v0.94.458** control, installed and restarted 13:57:26, logged the same
+    197 with 147 / 147 entities available.
+  - **The stale-source fallback, live:** the #1793 code, the same in this cut,
+    ran on devhub from 12:45 AEST against the reference household's
+    then-stale LocalVolts v2 sensors and logged "price source
+    sensor.localvolts_v2_current_buy_rate was last rebuilt at
+    2026-10-16T00:01:57+00:00 (163 min ago, over 60); planning on AEMO's
+    forecast plus the learned markup". LocalVolts recovered at 13:00:37; on
+    production's live state at 13:17 the check read fresh, 2.3 min.
+  - **The consolidation (#1795):** validated on devhub at 14fd9e31, restarted
+    13:36:26 (148 / 148, the same 197, no #1786 log line). Shadow by default:
+    the switch is off and the scheduling prices are byte-identical (tested
+    through the real `main()`).
+  - **Not claimed:**
+    - the fallback's or the consolidation's plan values on devhub: production's
+      mirrored plan sensor holds devhub's plan entity name there;
+    - the consolidation's live mode: off, and #1786's scoring (13:21) does not
+      yet support adopting a rule;
+    - excluding stall rows from the learned markup (follow-up).
+  - CI passed all 10 checks on #1794, #1795 and this release PR (#1796).
+- Consumer check: an install whose price provider stops rebuilding its
+  forecast now plans on AEMO plus its learned markup after 60 minutes instead
+  of the frozen rows; on 16 Oct that would have removed the stale
+  $9-27/kWh spike from 11:02 and the 12:30 sell. An install whose provider
+  publishes no refresh stamp is unchanged. The consolidated forecast changes
+  nothing unless its switch is turned on.
+
 ### Added
 - **A consolidated price forecast and each price source's running error, in
   shadow, with a live switch** (#1786, Mark Purcell). Every solve combines
