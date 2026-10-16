@@ -248,7 +248,6 @@ _FEATURES: _Card = (
         ("solver_offer_curve_enabled", "Offer curve"),
         ("solver_flex_signals_enabled", "Flex signals (slower)"),
         ("solver_score_controllable_loads_enabled", "Score controllable loads"),
-        ("solver_price_consolidation_live", "Consolidated price: live"),
         ("solver_dispatch_dry_run", "Own dispatcher: dry run"),
         # One line per setting above, in the same order (household, 11 Oct).
         ("section", "Load forecast source: off = Nimbus's own forecast."),
@@ -261,7 +260,6 @@ _FEATURES: _Card = (
             "Flex signals: publishes flexibility ranges, but each solve is about 9× slower.",
         ),
         ("section", "Score controllable loads: the score may re-time them."),
-        ("section", "Consolidated price: off = published only; on = the plan uses it."),
     ],
     "Dry run: Nimbus's own dispatcher sends nothing.",
 )

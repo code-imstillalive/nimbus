@@ -5319,13 +5319,16 @@ def _save_price_trackers(
 def _consolidation_sources(
     cfg: dict,
     grid_times: list[datetime],
+    side: str,
     primary: list[float],
-    primary_mask: list[bool] | None,
-    secondary_keys: tuple[str, str],
-    aemo_series: list[float | None] | None,
+    prices: object,
 ) -> dict[str, list[float | None]]:
-    """Each price source's own $/kWh series on the plan grid, None where that
-    source has no real coverage. The primary is its pre-blend series."""
+    """Each price source's own $/kWh series on the plan grid for `side`
+    ("import"/"export"), None where that source has no real coverage. The
+    primary is its pre-blend series."""
+    primary_mask = getattr(prices, f"{side}_real_mask", None)
+    secondary_keys = (f"solver_{side}_price_sensor_2", f"solver_{side}_price_sensor_3")
+    aemo_series = getattr(prices, f"aemo_{side}_series", None)
     mask = primary_mask if primary_mask is not None else [True] * len(primary)
     out: dict[str, list[float | None]] = {
         "primary": [
@@ -5364,85 +5367,39 @@ def apply_price_consolidation(
     import_price_source: list[str],
     export_price_source: list[str],
 ) -> dict | None:
-    """nimbus #1786: build the consolidated import/export series, update each
-    source's running error, and -- only with
-    switch.nimbus_solver_price_consolidation_live on -- replace the scheduling
-    price for every FUTURE period where a consolidated value exists (the
-    current settled block, indices < n_settled_periods, is never touched).
-    The replacement is in place on `spot_import_raw`/`spot_export` and the two
-    label lists; off, nothing passed in is modified.
-
-    Returns the per-row series and the published `price_consolidation`
-    attribute, or None on any failure (logged once). Never raises."""
+    """nimbus #1786: the consolidated series and each source's running error
+    (price_consolidation.consolidate_side()). With the live switch on, the
+    future periods' scheduling prices are replaced in place, never the settled
+    block, after both sides are computed. None on any failure; never raises."""
     global _PRICE_CONSOLIDATION_FAILED_LOGGED
     try:
+        pc = price_consolidation
+        ctx = (now, grid_times, period_hours, n_settled_periods)
         live = bool(cfg.get("solver_price_consolidation_live", False))
         trackers = _load_price_trackers()
         result: dict = {"mode": "live" if live else "shadow"}
-        sides = (
-            (
-                "import",
-                spot_import_source,
-                getattr(prices, "import_real_mask", None),
-                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
-                getattr(prices, "aemo_import_series", None),
-                settled_import,
-                spot_import_raw,
-                import_price_source,
-            ),
-            (
-                "export",
-                spot_export_source,
-                getattr(prices, "export_real_mask", None),
-                ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
-                getattr(prices, "aemo_export_series", None),
-                settled_export,
-                spot_export,
-                export_price_source,
-            ),
-        )
+        targets = {
+            "import": (spot_import_raw, import_price_source),
+            "export": (spot_export, export_price_source),
+        }
         scored = False
-        replacements: list[tuple[list[float | None], list[float], list[str]]] = []
-        for side, primary, mask, keys, aemo, settled, target, labels in sides:
-            tracker = trackers[side]
-            series = _consolidation_sources(cfg, grid_times, primary, mask, keys, aemo)
-            names = sorted(series)
-            values, spread, method = price_consolidation.consolidate(
-                series, tracker.weights_by_period(now, grid_times, names)
-            )
-            scored = tracker.observe_settled(now, settled) or scored
-            for name, s in series.items():
-                tracker.record_series(
-                    name,
-                    now,
-                    grid_times,
-                    period_hours,
-                    s,
-                    first_index=n_settled_periods,
-                )
-            replacements.append((values, target, labels))
-            summary = tracker.summary()
-            result[side] = {
-                "sources": names,
-                "method": method,
-                "spread_now": (
-                    round(spread[n_settled_periods], 5)
-                    if n_settled_periods < len(spread)
-                    and spread[n_settled_periods] is not None
-                    else None
-                ),
-                **summary,
-            }
+        for side, primary, settled in (
+            ("import", spot_import_source, settled_import),
+            ("export", spot_export_source, settled_export),
+        ):
+            series = _consolidation_sources(cfg, grid_times, side, primary, prices)
+            out = pc.consolidate_side(trackers[side], series, *ctx, settled)
+            values, result[side], side_scored = out
             result[f"consolidated_{side}_price"] = values
-        # Both sides computed before either is applied, so a failure part-way
-        # cannot leave one side consolidated and the other not.
+            scored = scored or side_scored
         if live:
-            for values, target, labels in replacements:
-                for i in range(n_settled_periods, min(len(values), len(target))):
-                    v = values[i]
-                    if v is not None:
-                        target[i] = float(v)
-                        labels[i] = "consolidated"
+            for side, (target, labels) in targets.items():
+                pc.replace_future(
+                    result[f"consolidated_{side}_price"],
+                    target,
+                    labels,
+                    n_settled_periods,
+                )
         if scored:
             _save_price_trackers(trackers)
         return result

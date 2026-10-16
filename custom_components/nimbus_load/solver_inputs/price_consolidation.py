@@ -364,3 +364,52 @@ class SourceErrorTracker:
                 for b in LEAD_BUCKETS
             },
         }
+
+
+def consolidate_side(
+    tracker: SourceErrorTracker,
+    series: dict[str, list[float | None]],
+    now: datetime,
+    grid_times: Sequence[datetime],
+    period_hours: Sequence[float],
+    n_settled: int,
+    settled: float | None,
+) -> tuple[list[float | None], dict[str, Any], bool]:
+    """One side's whole cycle: consolidate with the weights earned so far,
+    score the interval that just ended, record this solve's forecasts for
+    the future intervals (never the current settled block), and summarise.
+    Returns `(values, published summary, whether anything was scored)`."""
+    names = sorted(series)
+    values, spread, method = consolidate(
+        series, tracker.weights_by_period(now, grid_times, names)
+    )
+    scored = tracker.observe_settled(now, settled)
+    for name, s in series.items():
+        tracker.record_series(
+            name, now, grid_times, period_hours, s, first_index=n_settled
+        )
+    head = spread[n_settled] if n_settled < len(spread) else None
+    summary = {
+        "sources": names,
+        "method": method,
+        "spread_now": round(head, 5) if head is not None else None,
+        **tracker.summary(),
+    }
+    return values, summary, scored
+
+
+def replace_future(
+    values: Sequence[float | None],
+    target: list[float],
+    labels: list[str],
+    first_index: int,
+) -> None:
+    """Live mode: in place, every period from `first_index` on that has a
+    consolidated value takes it, labelled "consolidated". Periods before
+    `first_index` (the current settled block) and periods with no value are
+    left exactly as they are."""
+    for i in range(first_index, min(len(values), len(target))):
+        v = values[i]
+        if v is not None:
+            target[i] = float(v)
+            labels[i] = "consolidated"
