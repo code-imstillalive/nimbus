@@ -540,7 +540,14 @@ def _load(sw: Any) -> PriceErrorHistory:
     try:
         with open(sw.PRICE_ERROR_HISTORY_PATH, encoding="utf-8") as f:
             data = json.load(f)
+    except FileNotFoundError:
+        data = None
     except (OSError, ValueError, TypeError):
+        solver_shared._LOGGER.debug(
+            "Nimbus #1797: price error history at %s unreadable; starting empty",
+            sw.PRICE_ERROR_HISTORY_PATH,
+            exc_info=True,
+        )
         data = None
     hist = PriceErrorHistory.from_dict(data)
     sw._PRICE_ERROR_HISTORY_CACHE = hist
@@ -555,8 +562,13 @@ def _save(sw: Any, hist: PriceErrorHistory) -> None:
     try:
         with open(sw.PRICE_ERROR_HISTORY_PATH, "w", encoding="utf-8") as f:
             json.dump(payload, f, separators=(",", ":"))
-    except OSError:
-        pass
+    except OSError as e:
+        # Once per message: on the cron copy the default path is under a
+        # root-owned /opt, where a first write fails until the file is
+        # pre-created -- that must be seen, not lose every save silently.
+        _warn_once(
+            f"price error history not saved to {sw.PRICE_ERROR_HISTORY_PATH}: {e}"
+        )
 
 
 def update(
@@ -602,5 +614,20 @@ def update(
             **compact(_summary(hist)),
         }
     except Exception as e:  # noqa: BLE001 -- a recording must never break the solve
-        solver_shared._LOGGER.warning("Nimbus #1797: price error history failed: %s", e)
+        solver_shared._LOGGER.debug(
+            "Nimbus #1797: price error history failed", exc_info=True
+        )
+        _warn_once(f"price error history failed: {e}")
         return {"read_by_dispatch": False, "error": str(e)}
+
+
+_WARNED: set[str] = set()
+
+
+def _warn_once(message: str) -> None:
+    """One WARNING per distinct message per process: a persistent failure
+    would otherwise log every 15 s cycle."""
+    if message in _WARNED:
+        return
+    _WARNED.add(message)
+    solver_shared._LOGGER.warning("Nimbus #1797: %s", message)

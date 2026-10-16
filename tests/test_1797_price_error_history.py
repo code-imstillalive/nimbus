@@ -471,6 +471,30 @@ def test_a_failure_in_the_history_never_breaks_consolidation():
     assert result["error_history"] == {"read_by_dispatch": False, "error": "boom"}
 
 
+def test_a_persistent_failure_warns_once_not_every_cycle(caplog, monkeypatch):
+    """A failure that persists would otherwise log a WARNING every 15 s."""
+    monkeypatch.setattr(peh, "_WARNED", set())
+    with (
+        isolated_state_paths(solver_writer),
+        patch.object(peh, "summarise", side_effect=RuntimeError("boom")),
+    ):
+        for i in range(3):
+            _cycle(NOW + timedelta(minutes=5 * i))
+    assert caplog.text.count("price error history failed: boom") == 1
+
+
+def test_an_unwritable_state_file_is_reported_once(caplog, monkeypatch, tmp_path):
+    """The cron copy's default path is under a root-owned /opt, where a first
+    write fails until the file is pre-created. That used to be swallowed by
+    `except OSError: pass`, so the history silently never persisted."""
+    monkeypatch.setattr(peh, "_WARNED", set())
+    sw = SimpleNamespace(PRICE_ERROR_HISTORY_PATH=str(tmp_path / "missing" / "x.json"))
+    hist = peh.PriceErrorHistory.from_dict(None)
+    peh._save(sw, hist)
+    peh._save(sw, hist)
+    assert caplog.text.count("price error history not saved") == 1
+
+
 def test_a_stale_source_settled_price_is_not_graded():
     """apply_price_consolidation() is handed None when the source is on its
     AEMO fallback (#1793); nothing is graded, exactly as for the tracker."""
