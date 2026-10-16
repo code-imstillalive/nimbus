@@ -1097,10 +1097,30 @@ def charge_before_block_summary(
     return out
 
 
-def charge_by_summary(cfg: dict, forecast: list[dict]) -> dict:
+def _home_rows(batteries: list[dict] | None) -> list[dict] | None:
+    """The home battery's plan rows when the plan has more than one battery,
+    else None (the fleet figure IS the home battery's)."""
+    if not isinstance(batteries, list) or len(batteries) < 2:
+        return None
+    for b in batteries:
+        if isinstance(b, dict) and b.get("name") == "home":
+            rows = b.get("forecast")
+            return rows if isinstance(rows, list) else None
+    return None
+
+
+def charge_by_summary(
+    cfg: dict, forecast: list[dict], batteries: list[dict] | None = None
+) -> dict:
     """Household, 14 Oct 2026: what the published plan does about "charge
     by", from its own rows (soc_pct is the SoC at the end of each row). Every
-    key is always present, None when the setting is off (#589)."""
+    key is always present, None when the setting is off (#589).
+
+    Charge By binds the HOME battery (solver_plan: charge_by_kwh is the home
+    capacity times the %). `forecast[].soc_pct` is the fleet's, so on a site
+    with a battery participant it is read from the home battery's own rows
+    in `batteries` (16 Oct 2026: Chris's read 88.6 % "short" of 98 % from a
+    blend of home and EV)."""
     pct = float(_cfg_num(cfg, "solver_charge_by_percent", 0.0))
     hour = float(_cfg_num(cfg, "solver_charge_by_hour", 16.0))
     out: dict = {
@@ -1127,6 +1147,9 @@ def charge_by_summary(cfg: dict, forecast: list[dict]) -> dict:
         return out
     i = min(indices)
     soc = forecast[i].get("soc_pct")
+    home = _home_rows(batteries)
+    if home is not None:
+        soc = home[i].get("soc_pct") if i < len(home) else None
     out["charge_by_next"] = _local(times[i] + timedelta(hours=hours[i])).isoformat()
     if soc is not None:
         out["charge_by_next_soc_pct"] = round(float(soc), 1)

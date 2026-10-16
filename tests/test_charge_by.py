@@ -330,3 +330,25 @@ def test_held_over_the_window_it_stays_full():
     assert plan.status == "optimal"
     assert plan.battery_discharge_kw[0] < 1e-6
     assert min(plan.battery_soc_kwh) >= CAP - 1e-6
+
+
+def test_summary_reads_the_home_battery_when_the_plan_has_several():
+    """16 Oct 2026, Chris's site: Charge By binds the home battery, but the
+    summary read the fleet SoC (home + EV) and reported it short of 98 %."""
+    cfg = {"solver_charge_by_percent": 90, "solver_charge_by_hour": 14.5}
+    fleet = _rows([30, 45, 60, 70, 75, 80, 80, 80])
+    home = _rows([30, 50, 70, 85, 91, 95, 95, 95])
+    ev = _rows([30, 30, 30, 30, 30, 30, 30, 30])
+    out = solver_shared.charge_by_summary(
+        cfg,
+        fleet,
+        [{"name": "home", "forecast": home}, {"name": "Our EV", "forecast": ev}],
+    )
+    # The 14:00 row: home 85 % (5 short), where the fleet read 70 % (20).
+    assert out["charge_by_next_soc_pct"] == 85.0
+    assert out["charge_by_next_short_pct"] == pytest.approx(5.0)
+    # One battery: the fleet row is the home battery's, read as before.
+    alone = solver_shared.charge_by_summary(
+        cfg, fleet, [{"name": "home", "forecast": fleet}]
+    )
+    assert alone["charge_by_next_soc_pct"] == 70.0
