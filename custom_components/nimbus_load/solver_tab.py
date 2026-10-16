@@ -1381,12 +1381,12 @@ def template() -> list[dict[str, Any]]:
         _section([_chart()], 4),
         _section([_styled(_prices_chart(), _FILL)], 4, {"rows": 7}),
         *(
-            _section([_styled(c, _FILL_NO_SCROLL)], 1, {"rows": 3})
-            for c in _PRICE_SAFETY
-        ),
-        *(
             _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
             for k in range(4)
+        ),
+        *(
+            _section([_styled(c, _FILL_NO_SCROLL)], 1, {"rows": 3})
+            for c in _PRICE_SAFETY
         ),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),

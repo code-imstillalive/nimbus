@@ -150,11 +150,11 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (4, "Prices ahead"),
             # Household, 16 Oct 2026: "why release features which are not
             # visible" -- the price-safety card under the price chart.
+            *[(1, "markdown: {{ ns.bt }}")] * 4,
             (1, "markdown: False-spike guard"),
             (1, "markdown: Price source"),
             (1, "markdown: Battery hold"),
             (1, "markdown: Consolidated prices"),
-            *[(1, "markdown: {{ ns.bt }}")] * 4,
             (2, "Solver Forecast — Whole Plan"),
             (1, "Nimbus Solver Quality (EPR / Regret)"),
             (1, "Solver Daily Summary"),
