@@ -7482,6 +7482,12 @@ _QUALITY_HISTORY_FIELDS = (
     "j_ref",
     "j_ach",
     "j_star",
+    # The oracle EPR divides by (#1081): the oracle's plan repriced at real
+    # costs. Without it a row's j_star is the raw LP objective, search
+    # penalties included, so (j_ref - j_ach) / (j_ref - j_star) did not
+    # reproduce the published EPR, and on 17 Sep, 2 Oct and 7-8 Oct the real
+    # result looked as if it beat perfect foresight (#1797 review, 16 Oct).
+    "j_star_evaluator",
     "regret_dollars",
 )
 
