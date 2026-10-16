@@ -8,6 +8,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.460] - 2026-10-16
+
+The Solver tab shows the price guards at a glance; Charge By holds its
+target for the whole final hour instead of selling off the top and
+refilling.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 89b9e3d7**,
+  installed untagged via HACS from the PR branch (`installed_version`
+  `claude/price-safety-card`) and restarted 15:31:39 AEST 16 Oct. The
+  release's `custom_components/` is byte-identical to 89b9e3d7.
+  - devhub's own entities stamp the PR's manifest (0.94.459); 145 / 145
+    `nimbus_load` entities available. The four Price safety cards are in the
+    Solver tab, under the price-day cards.
+  - **No Traceback, and no ERROR line this release introduces.** The start
+    logs 200 `nimbus_load` "does not generate unique IDs" errors. A
+    **v0.94.459** control, installed and restarted 15:07:11, logged the same
+    200 with 145 / 145 entities. These are devhub-only: production logged
+    none after v0.94.459's restart.
+  - **The cards on real data:** each card's template was rendered against
+    production's live state (read-only `/api/template`): Watching / Fresh,
+    rebuilt 1 min ago / Hold / Shadow.
+  - **Charge By:** `tests/test_charge_by.py` reproduces 16 Oct's 14:34 plan.
+    The deadline alone sells off the top and refills; the final hour bound
+    stays full. Not claimed: a live charge window under the new rule (the
+    next is 17 Oct's).
+  - CI passed all 10 checks on #1802 and this release PR.
+- Consumer check: the Solver tab gains a row of four cards that show whether
+  a price guard is acting; Charge By, where set, is full an hour before its
+  deadline and stays full. An install without Charge By sees no change in
+  dispatch.
+
 ### Added
 - **A Price safety row on the Solver tab** (household, 16 Oct 2026: "why
   release features which are not visible"). Four equal cards under the price
