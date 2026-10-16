@@ -220,6 +220,7 @@ def build_solar_arrays(
     grid_times: list[datetime],
     n_periods: int,
     now: datetime | None = None,
+    solcast_band_out: list | None = None,
 ) -> tuple[list[float], list[float], list[float]]:
     """Fetch, blend, and live-anchor every configured solar source into
     the three `(solar_kw, solar_lower_kw, solar_upper_kw)` arrays the LP
@@ -288,6 +289,11 @@ def build_solar_arrays(
     lowered for the remaining periods of TODAY (Solcast to its p10, others
     to their lower bound or by the measured ratio). `now` is main()'s local
     clock; omitted, grid_times[0] stands in.
+
+    nimbus issue #1807: when `solcast_band_out` is a list, the first Solcast
+    member's own (p50, p10, p90) arrays are appended to it as fetched --
+    before the running-low gate lowers them -- for solar_quantiles.py's
+    fallback band. The return value is unchanged.
     """
     sw = _solver_writer()
 
@@ -306,6 +312,8 @@ def build_solar_arrays(
         if result is None:
             return
         v, lo, up = result
+        if is_solcast and solcast_band_out is not None and not solcast_band_out:
+            solcast_band_out.append(([*v], [*lo], [*up]))
         solar_values.append(np.array(v))
         solar_lowers.append(np.array(lo))
         solar_uppers.append(np.array(up))

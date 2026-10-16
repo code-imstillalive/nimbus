@@ -2805,6 +2805,8 @@
         "shadow_price": 0.3,
         "soc_pct": 56.02,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:00:00+10:00"
        },
        {
@@ -2858,6 +2860,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 57.03,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:05:00+10:00"
        },
        {
@@ -2911,6 +2915,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 58.05,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:10:00+10:00"
        },
        {
@@ -2964,6 +2970,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 59.06,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:15:00+10:00"
        },
        {
@@ -3017,6 +3025,8 @@
         "shadow_price": 0.3,
         "soc_pct": 60.08,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:20:00+10:00"
        },
        {
@@ -3070,6 +3080,8 @@
         "shadow_price": 0.3,
         "soc_pct": 61.09,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:25:00+10:00"
        },
        {
@@ -3123,6 +3135,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 62.11,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:30:00+10:00"
        },
        {
@@ -3176,6 +3190,8 @@
         "shadow_price": 0.3,
         "soc_pct": 63.12,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:35:00+10:00"
        },
        {
@@ -3229,6 +3245,8 @@
         "shadow_price": 0.3,
         "soc_pct": 64.14,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:40:00+10:00"
        },
        {
@@ -3282,6 +3300,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 65.15,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:45:00+10:00"
        },
        {
@@ -3335,6 +3355,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 66.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:50:00+10:00"
        },
        {
@@ -3388,6 +3410,8 @@
         "shadow_price": 0.3003,
         "soc_pct": 67.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:55:00+10:00"
        },
        {
@@ -3441,6 +3465,8 @@
         "shadow_price": 0.3,
         "soc_pct": 73.28,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T21:00:00+10:00"
        },
        {
@@ -3494,6 +3520,8 @@
         "shadow_price": 0.3,
         "soc_pct": 79.37,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T21:30:00+10:00"
        },
        {
@@ -3547,6 +3575,8 @@
         "shadow_price": 0.3,
         "soc_pct": 85.46,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T22:00:00+10:00"
        },
        {
@@ -3600,6 +3630,8 @@
         "shadow_price": 0.3,
         "soc_pct": 91.55,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T22:30:00+10:00"
        },
        {
@@ -3653,6 +3685,8 @@
         "shadow_price": 0.3,
         "soc_pct": 96.79,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T23:00:00+10:00"
        },
        {
@@ -3706,6 +3740,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T23:30:00+10:00"
        },
        {
@@ -3759,6 +3795,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T00:00:00+10:00"
        },
        {
@@ -3812,6 +3850,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T00:30:00+10:00"
        },
        {
@@ -3865,6 +3905,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T01:00:00+10:00"
        },
        {
@@ -3918,6 +3960,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T01:30:00+10:00"
        },
        {
@@ -3971,6 +4015,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T02:00:00+10:00"
        },
        {
@@ -4024,6 +4070,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T02:30:00+10:00"
        },
        {
@@ -4077,6 +4125,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T03:00:00+10:00"
        },
        {
@@ -4130,6 +4180,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T03:30:00+10:00"
        },
        {
@@ -4183,6 +4235,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T04:00:00+10:00"
        },
        {
@@ -4236,6 +4290,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T04:30:00+10:00"
        },
        {
@@ -4289,6 +4345,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T05:00:00+10:00"
        },
        {
@@ -4342,6 +4400,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T05:30:00+10:00"
        },
        {
@@ -4395,6 +4455,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T06:00:00+10:00"
        },
        {
@@ -4448,6 +4510,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T06:30:00+10:00"
        },
        {
@@ -4501,6 +4565,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T07:00:00+10:00"
        },
        {
@@ -4554,6 +4620,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T07:30:00+10:00"
        },
        {
@@ -4607,6 +4675,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T08:00:00+10:00"
        },
        {
@@ -4660,6 +4730,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T08:30:00+10:00"
        },
        {
@@ -4713,6 +4785,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T09:00:00+10:00"
        },
        {
@@ -4766,6 +4840,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T09:30:00+10:00"
        },
        {
@@ -4819,6 +4895,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T10:00:00+10:00"
        },
        {
@@ -4872,6 +4950,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T10:30:00+10:00"
        },
        {
@@ -4925,6 +5005,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T11:00:00+10:00"
        },
        {
@@ -4978,6 +5060,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T11:30:00+10:00"
        },
        {
@@ -5031,6 +5115,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T12:00:00+10:00"
        },
        {
@@ -5084,6 +5170,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T12:30:00+10:00"
        },
        {
@@ -5137,6 +5225,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T13:00:00+10:00"
        },
        {
@@ -5190,6 +5280,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T13:30:00+10:00"
        },
        {
@@ -5243,6 +5335,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T14:00:00+10:00"
        },
        {
@@ -5296,6 +5390,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T14:30:00+10:00"
        },
        {
@@ -5349,6 +5445,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T15:00:00+10:00"
        },
        {
@@ -5402,6 +5500,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T15:30:00+10:00"
        },
        {
@@ -5455,6 +5555,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T16:00:00+10:00"
        },
        {
@@ -5508,6 +5610,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T16:30:00+10:00"
        },
        {
@@ -5561,6 +5665,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T17:00:00+10:00"
        },
        {
@@ -5614,6 +5720,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T17:30:00+10:00"
        },
        {
@@ -5667,6 +5775,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T18:00:00+10:00"
        },
        {
@@ -5720,6 +5830,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T18:30:00+10:00"
        },
        {
@@ -5773,6 +5885,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T19:00:00+10:00"
        },
        {
@@ -5826,6 +5940,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T19:30:00+10:00"
        },
        {
@@ -5879,6 +5995,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T20:00:00+10:00"
        },
        {
@@ -5932,6 +6050,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T20:30:00+10:00"
        },
        {
@@ -5985,6 +6105,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T21:00:00+10:00"
        },
        {
@@ -6038,6 +6160,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T21:30:00+10:00"
        },
        {
@@ -6091,6 +6215,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T22:00:00+10:00"
        },
        {
@@ -6144,6 +6270,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T22:30:00+10:00"
        },
        {
@@ -6197,6 +6325,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T23:00:00+10:00"
        },
        {
@@ -6250,6 +6380,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T23:30:00+10:00"
        },
        {
@@ -6303,6 +6435,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T00:00:00+10:00"
        },
        {
@@ -6356,6 +6490,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T00:30:00+10:00"
        },
        {
@@ -6409,6 +6545,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T01:00:00+10:00"
        },
        {
@@ -6462,6 +6600,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T01:30:00+10:00"
        },
        {
@@ -6515,6 +6655,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T02:00:00+10:00"
        },
        {
@@ -6568,6 +6710,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T02:30:00+10:00"
        },
        {
@@ -6621,6 +6765,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T03:00:00+10:00"
        },
        {
@@ -6674,6 +6820,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T03:30:00+10:00"
        },
        {
@@ -6727,6 +6875,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T04:00:00+10:00"
        },
        {
@@ -6780,6 +6930,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T04:30:00+10:00"
        },
        {
@@ -6833,6 +6985,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T05:00:00+10:00"
        },
        {
@@ -6886,6 +7040,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T05:30:00+10:00"
        },
        {
@@ -6939,6 +7095,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T06:00:00+10:00"
        },
        {
@@ -6992,6 +7150,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T06:30:00+10:00"
        },
        {
@@ -7045,6 +7205,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T07:00:00+10:00"
        },
        {
@@ -7098,6 +7260,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T07:30:00+10:00"
        },
        {
@@ -7151,6 +7315,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T08:00:00+10:00"
        },
        {
@@ -7204,6 +7370,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T08:30:00+10:00"
        },
        {
@@ -7257,6 +7425,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T09:00:00+10:00"
        },
        {
@@ -7310,6 +7480,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T09:30:00+10:00"
        },
        {
@@ -7363,6 +7535,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T10:00:00+10:00"
        },
        {
@@ -7416,6 +7590,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T10:30:00+10:00"
        },
        {
@@ -7469,6 +7645,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T11:00:00+10:00"
        },
        {
@@ -7522,6 +7700,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T11:30:00+10:00"
        },
        {
@@ -7575,6 +7755,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T12:00:00+10:00"
        },
        {
@@ -7628,6 +7810,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T12:30:00+10:00"
        },
        {
@@ -7681,6 +7865,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T13:00:00+10:00"
        },
        {
@@ -7734,6 +7920,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T13:30:00+10:00"
        },
        {
@@ -7787,6 +7975,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T14:00:00+10:00"
        },
        {
@@ -7840,6 +8030,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T14:30:00+10:00"
        },
        {
@@ -7893,6 +8085,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T15:00:00+10:00"
        },
        {
@@ -7946,6 +8140,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T15:30:00+10:00"
        },
        {
@@ -7999,6 +8195,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T16:00:00+10:00"
        },
        {
@@ -8052,6 +8250,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T16:30:00+10:00"
        },
        {
@@ -8105,6 +8305,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T17:00:00+10:00"
        },
        {
@@ -8158,6 +8360,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T17:30:00+10:00"
        },
        {
@@ -8211,6 +8415,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T18:00:00+10:00"
        },
        {
@@ -8264,6 +8470,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T18:30:00+10:00"
        },
        {
@@ -8317,6 +8525,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T19:00:00+10:00"
        },
        {
@@ -8370,6 +8580,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T19:30:00+10:00"
        },
        {
@@ -8423,6 +8635,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T20:00:00+10:00"
        },
        {
@@ -8476,6 +8690,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T20:30:00+10:00"
        },
        {
@@ -8529,6 +8745,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T21:00:00+10:00"
        },
        {
@@ -8582,6 +8800,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T21:30:00+10:00"
        },
        {
@@ -8635,6 +8855,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T22:00:00+10:00"
        },
        {
@@ -8688,6 +8910,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T22:30:00+10:00"
        },
        {
@@ -8741,6 +8965,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T23:00:00+10:00"
        },
        {
@@ -8794,6 +9020,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T23:30:00+10:00"
        },
        {
@@ -8847,6 +9075,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T00:00:00+10:00"
        },
        {
@@ -8900,6 +9130,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T00:30:00+10:00"
        },
        {
@@ -8953,6 +9185,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T01:00:00+10:00"
        },
        {
@@ -9006,6 +9240,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T01:30:00+10:00"
        },
        {
@@ -9059,6 +9295,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T02:00:00+10:00"
        },
        {
@@ -9112,6 +9350,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T02:30:00+10:00"
        },
        {
@@ -9165,6 +9405,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T03:00:00+10:00"
        },
        {
@@ -9218,6 +9460,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T03:30:00+10:00"
        },
        {
@@ -9271,6 +9515,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T04:00:00+10:00"
        },
        {
@@ -9324,6 +9570,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T04:30:00+10:00"
        },
        {
@@ -9377,6 +9625,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T05:00:00+10:00"
        },
        {
@@ -9430,6 +9680,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T05:30:00+10:00"
        },
        {
@@ -9483,6 +9735,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T06:00:00+10:00"
        },
        {
@@ -9536,6 +9790,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T06:30:00+10:00"
        },
        {
@@ -9589,6 +9845,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T07:00:00+10:00"
        },
        {
@@ -9642,6 +9900,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T07:30:00+10:00"
        },
        {
@@ -9695,6 +9955,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T08:00:00+10:00"
        },
        {
@@ -9748,6 +10010,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T08:30:00+10:00"
        },
        {
@@ -9801,6 +10065,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T09:00:00+10:00"
        },
        {
@@ -9854,6 +10120,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T09:30:00+10:00"
        },
        {
@@ -9907,6 +10175,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T10:00:00+10:00"
        },
        {
@@ -9960,6 +10230,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T10:30:00+10:00"
        },
        {
@@ -10013,6 +10285,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T11:00:00+10:00"
        },
        {
@@ -10066,6 +10340,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T11:30:00+10:00"
        },
        {
@@ -10119,6 +10395,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T12:00:00+10:00"
        },
        {
@@ -10172,6 +10450,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T12:30:00+10:00"
        },
        {
@@ -10225,6 +10505,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T13:00:00+10:00"
        },
        {
@@ -10278,6 +10560,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T13:30:00+10:00"
        },
        {
@@ -10331,6 +10615,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T14:00:00+10:00"
        },
        {
@@ -10384,6 +10670,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T14:30:00+10:00"
        },
        {
@@ -10437,6 +10725,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T15:00:00+10:00"
        },
        {
@@ -10490,6 +10780,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T15:30:00+10:00"
        },
        {
@@ -10543,6 +10835,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T16:00:00+10:00"
        },
        {
@@ -10596,6 +10890,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T16:30:00+10:00"
        },
        {
@@ -10649,6 +10945,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T17:00:00+10:00"
        },
        {
@@ -10702,6 +11000,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T17:30:00+10:00"
        },
        {
@@ -10755,6 +11055,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T18:00:00+10:00"
        },
        {
@@ -10808,6 +11110,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T18:30:00+10:00"
        },
        {
@@ -10861,6 +11165,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T19:00:00+10:00"
        },
        {
@@ -10914,6 +11220,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T19:30:00+10:00"
        },
        {
@@ -10967,6 +11275,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T20:00:00+10:00"
        },
        {
@@ -11020,6 +11330,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T20:30:00+10:00"
        },
        {
@@ -11073,6 +11385,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T21:00:00+10:00"
        },
        {
@@ -11126,6 +11440,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T21:30:00+10:00"
        },
        {
@@ -11179,6 +11495,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T22:00:00+10:00"
        },
        {
@@ -11232,6 +11550,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T22:30:00+10:00"
        },
        {
@@ -11285,6 +11605,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T23:00:00+10:00"
        },
        {
@@ -11338,6 +11660,8 @@
         "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T23:30:00+10:00"
        },
        {
@@ -11391,6 +11715,8 @@
         "shadow_price": 0.3,
         "soc_pct": 97.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T00:00:00+10:00"
        },
        {
@@ -11444,6 +11770,8 @@
         "shadow_price": 0.3,
         "soc_pct": 95.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T00:30:00+10:00"
        },
        {
@@ -11497,6 +11825,8 @@
         "shadow_price": 0.3,
         "soc_pct": 93.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T01:00:00+10:00"
        },
        {
@@ -11550,6 +11880,8 @@
         "shadow_price": 0.3,
         "soc_pct": 91.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T01:30:00+10:00"
        },
        {
@@ -11603,6 +11935,8 @@
         "shadow_price": 0.3,
         "soc_pct": 89.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T02:00:00+10:00"
        },
        {
@@ -11656,6 +11990,8 @@
         "shadow_price": 0.3,
         "soc_pct": 87.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T02:30:00+10:00"
        },
        {
@@ -11709,6 +12045,8 @@
         "shadow_price": 0.3,
         "soc_pct": 85.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T03:00:00+10:00"
        },
        {
@@ -11762,6 +12100,8 @@
         "shadow_price": 0.3,
         "soc_pct": 83.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T03:30:00+10:00"
        },
        {
@@ -11815,6 +12155,8 @@
         "shadow_price": 0.3,
         "soc_pct": 81.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T04:00:00+10:00"
        },
        {
@@ -11868,6 +12210,8 @@
         "shadow_price": 0.3,
         "soc_pct": 79.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T04:30:00+10:00"
        },
        {
@@ -11921,6 +12265,8 @@
         "shadow_price": 0.3,
         "soc_pct": 77.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T05:00:00+10:00"
        },
        {
@@ -11974,6 +12320,8 @@
         "shadow_price": 0.3,
         "soc_pct": 75.19,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T05:30:00+10:00"
        },
        {
@@ -12027,6 +12375,8 @@
         "shadow_price": 0.3,
         "soc_pct": 73.19,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T06:00:00+10:00"
        },
        {
@@ -12080,6 +12430,8 @@
         "shadow_price": 0.3,
         "soc_pct": 71.19,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T06:30:00+10:00"
        },
        {
@@ -12133,6 +12485,8 @@
         "shadow_price": 0.3,
         "soc_pct": 69.19,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T07:00:00+10:00"
        },
        {
@@ -12186,6 +12540,8 @@
         "shadow_price": 0.3,
         "soc_pct": 67.2,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T07:30:00+10:00"
        },
        {
@@ -12239,6 +12595,8 @@
         "shadow_price": 0.3,
         "soc_pct": 65.2,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T08:00:00+10:00"
        },
        {
@@ -12292,6 +12650,8 @@
         "shadow_price": 0.3,
         "soc_pct": 63.2,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T08:30:00+10:00"
        },
        {
@@ -12345,6 +12705,8 @@
         "shadow_price": 0.3,
         "soc_pct": 61.2,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T09:00:00+10:00"
        },
        {
@@ -12398,6 +12760,8 @@
         "shadow_price": 0.3,
         "soc_pct": 59.21,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T09:30:00+10:00"
        },
        {
@@ -12451,6 +12815,8 @@
         "shadow_price": 0.3,
         "soc_pct": 57.21,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T10:00:00+10:00"
        },
        {
@@ -12504,6 +12870,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 55.21,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T10:30:00+10:00"
        },
        {
@@ -12557,6 +12925,8 @@
         "shadow_price": 0.3,
         "soc_pct": 53.21,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T11:00:00+10:00"
        },
        {
@@ -12610,6 +12980,8 @@
         "shadow_price": 0.3,
         "soc_pct": 51.21,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T11:30:00+10:00"
        },
        {
@@ -12663,6 +13035,8 @@
         "shadow_price": 0.3,
         "soc_pct": 49.22,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T12:00:00+10:00"
        },
        {
@@ -12716,6 +13090,8 @@
         "shadow_price": 0.3,
         "soc_pct": 47.22,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T12:30:00+10:00"
        },
        {
@@ -12769,6 +13145,8 @@
         "shadow_price": 0.3,
         "soc_pct": 45.22,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T13:00:00+10:00"
        },
        {
@@ -12822,6 +13200,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 43.22,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T13:30:00+10:00"
        },
        {
@@ -12875,6 +13255,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 41.23,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T14:00:00+10:00"
        },
        {
@@ -12928,6 +13310,8 @@
         "shadow_price": 0.3,
         "soc_pct": 39.23,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T14:30:00+10:00"
        },
        {
@@ -12981,6 +13365,8 @@
         "shadow_price": 0.3,
         "soc_pct": 37.23,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T15:00:00+10:00"
        },
        {
@@ -13034,6 +13420,8 @@
         "shadow_price": 0.3,
         "soc_pct": 35.23,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T15:30:00+10:00"
        },
        {
@@ -13087,6 +13475,8 @@
         "shadow_price": 0.3,
         "soc_pct": 33.23,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T16:00:00+10:00"
        },
        {
@@ -13140,6 +13530,8 @@
         "shadow_price": 0.3,
         "soc_pct": 31.24,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T16:30:00+10:00"
        },
        {
@@ -13193,6 +13585,8 @@
         "shadow_price": 0.3,
         "soc_pct": 29.24,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T17:00:00+10:00"
        },
        {
@@ -13246,6 +13640,8 @@
         "shadow_price": 0.3,
         "soc_pct": 27.24,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T17:30:00+10:00"
        },
        {
@@ -13299,6 +13695,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 25.24,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T18:00:00+10:00"
        },
        {
@@ -13352,6 +13750,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 23.25,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T18:30:00+10:00"
        },
        {
@@ -13405,6 +13805,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 21.25,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T19:00:00+10:00"
        },
        {
@@ -13458,6 +13860,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 19.25,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T19:30:00+10:00"
        }
       ],
@@ -13530,6 +13934,66 @@
       "solar_delivery_ratio": null,
       "solar_delivery_sample_count": 0,
       "solar_delivery_underperforming": false,
+      "solar_quantile_calibration": {
+       "buckets": {
+        "0-1 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "0-1 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "1-4 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "1-4 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "12-24 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "12-24 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        }
+       },
+       "keep_days": 21,
+       "method": null,
+       "min_days": 3,
+       "min_samples": 50,
+       "pending_intervals": 0,
+       "reason": "no_solar_power_sensor",
+       "target_above_p90_pct": 10.0,
+       "target_below_p10_pct": 10.0
+      },
       "solar_risk_effect_now_kw": 0.0,
       "solve_diagnostics": {
        "battery_effective_capacity_kwh": 40.0,
@@ -16738,6 +17202,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 56.02,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:05:00+10:00"
        },
        {
@@ -16791,6 +17257,8 @@
         "shadow_price": 0.3,
         "soc_pct": 57.03,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:10:00+10:00"
        },
        {
@@ -16844,6 +17312,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 58.05,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:15:00+10:00"
        },
        {
@@ -16897,6 +17367,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 59.06,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:20:00+10:00"
        },
        {
@@ -16950,6 +17422,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 60.08,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:25:00+10:00"
        },
        {
@@ -17003,6 +17477,8 @@
         "shadow_price": 0.3007,
         "soc_pct": 61.09,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:30:00+10:00"
        },
        {
@@ -17056,6 +17532,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 62.11,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:35:00+10:00"
        },
        {
@@ -17109,6 +17587,8 @@
         "shadow_price": 0.3007,
         "soc_pct": 63.12,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:40:00+10:00"
        },
        {
@@ -17162,6 +17642,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 64.14,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:45:00+10:00"
        },
        {
@@ -17215,6 +17697,8 @@
         "shadow_price": 0.3006,
         "soc_pct": 65.15,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:50:00+10:00"
        },
        {
@@ -17268,6 +17752,8 @@
         "shadow_price": 0.3003,
         "soc_pct": 66.17,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T20:55:00+10:00"
        },
        {
@@ -17321,6 +17807,8 @@
         "shadow_price": 0.3,
         "soc_pct": 72.26,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T21:00:00+10:00"
        },
        {
@@ -17374,6 +17862,8 @@
         "shadow_price": 0.3002,
         "soc_pct": 78.35,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T21:30:00+10:00"
        },
        {
@@ -17427,6 +17917,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 84.44,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T22:00:00+10:00"
        },
        {
@@ -17480,6 +17972,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 90.54,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T22:30:00+10:00"
        },
        {
@@ -17533,6 +18027,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 96.33,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T23:00:00+10:00"
        },
        {
@@ -17586,6 +18082,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-06T23:30:00+10:00"
        },
        {
@@ -17639,6 +18137,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T00:00:00+10:00"
        },
        {
@@ -17692,6 +18192,8 @@
         "shadow_price": 0.2998,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T00:30:00+10:00"
        },
        {
@@ -17745,6 +18247,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T01:00:00+10:00"
        },
        {
@@ -17798,6 +18302,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T01:30:00+10:00"
        },
        {
@@ -17851,6 +18357,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T02:00:00+10:00"
        },
        {
@@ -17904,6 +18412,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T02:30:00+10:00"
        },
        {
@@ -17957,6 +18467,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T03:00:00+10:00"
        },
        {
@@ -18010,6 +18522,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T03:30:00+10:00"
        },
        {
@@ -18063,6 +18577,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T04:00:00+10:00"
        },
        {
@@ -18116,6 +18632,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T04:30:00+10:00"
        },
        {
@@ -18169,6 +18687,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T05:00:00+10:00"
        },
        {
@@ -18222,6 +18742,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T05:30:00+10:00"
        },
        {
@@ -18275,6 +18797,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T06:00:00+10:00"
        },
        {
@@ -18328,6 +18852,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T06:30:00+10:00"
        },
        {
@@ -18381,6 +18907,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T07:00:00+10:00"
        },
        {
@@ -18434,6 +18962,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T07:30:00+10:00"
        },
        {
@@ -18487,6 +19017,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T08:00:00+10:00"
        },
        {
@@ -18540,6 +19072,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T08:30:00+10:00"
        },
        {
@@ -18593,6 +19127,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T09:00:00+10:00"
        },
        {
@@ -18646,6 +19182,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T09:30:00+10:00"
        },
        {
@@ -18699,6 +19237,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T10:00:00+10:00"
        },
        {
@@ -18752,6 +19292,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T10:30:00+10:00"
        },
        {
@@ -18805,6 +19347,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T11:00:00+10:00"
        },
        {
@@ -18858,6 +19402,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T11:30:00+10:00"
        },
        {
@@ -18911,6 +19457,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T12:00:00+10:00"
        },
        {
@@ -18964,6 +19512,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T12:30:00+10:00"
        },
        {
@@ -19017,6 +19567,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T13:00:00+10:00"
        },
        {
@@ -19070,6 +19622,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T13:30:00+10:00"
        },
        {
@@ -19123,6 +19677,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T14:00:00+10:00"
        },
        {
@@ -19176,6 +19732,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T14:30:00+10:00"
        },
        {
@@ -19229,6 +19787,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T15:00:00+10:00"
        },
        {
@@ -19282,6 +19842,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T15:30:00+10:00"
        },
        {
@@ -19335,6 +19897,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T16:00:00+10:00"
        },
        {
@@ -19388,6 +19952,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T16:30:00+10:00"
        },
        {
@@ -19441,6 +20007,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T17:00:00+10:00"
        },
        {
@@ -19494,6 +20062,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T17:30:00+10:00"
        },
        {
@@ -19547,6 +20117,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T18:00:00+10:00"
        },
        {
@@ -19600,6 +20172,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T18:30:00+10:00"
        },
        {
@@ -19653,6 +20227,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T19:00:00+10:00"
        },
        {
@@ -19706,6 +20282,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T19:30:00+10:00"
        },
        {
@@ -19759,6 +20337,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T20:00:00+10:00"
        },
        {
@@ -19812,6 +20392,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T20:30:00+10:00"
        },
        {
@@ -19865,6 +20447,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T21:00:00+10:00"
        },
        {
@@ -19918,6 +20502,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T21:30:00+10:00"
        },
        {
@@ -19971,6 +20557,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T22:00:00+10:00"
        },
        {
@@ -20024,6 +20612,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T22:30:00+10:00"
        },
        {
@@ -20077,6 +20667,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T23:00:00+10:00"
        },
        {
@@ -20130,6 +20722,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-07T23:30:00+10:00"
        },
        {
@@ -20183,6 +20777,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T00:00:00+10:00"
        },
        {
@@ -20236,6 +20832,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T00:30:00+10:00"
        },
        {
@@ -20289,6 +20887,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T01:00:00+10:00"
        },
        {
@@ -20342,6 +20942,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T01:30:00+10:00"
        },
        {
@@ -20395,6 +20997,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T02:00:00+10:00"
        },
        {
@@ -20448,6 +21052,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T02:30:00+10:00"
        },
        {
@@ -20501,6 +21107,8 @@
         "shadow_price": 0.2998,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T03:00:00+10:00"
        },
        {
@@ -20554,6 +21162,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T03:30:00+10:00"
        },
        {
@@ -20607,6 +21217,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T04:00:00+10:00"
        },
        {
@@ -20660,6 +21272,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T04:30:00+10:00"
        },
        {
@@ -20713,6 +21327,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T05:00:00+10:00"
        },
        {
@@ -20766,6 +21382,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T05:30:00+10:00"
        },
        {
@@ -20819,6 +21437,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T06:00:00+10:00"
        },
        {
@@ -20872,6 +21492,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T06:30:00+10:00"
        },
        {
@@ -20925,6 +21547,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T07:00:00+10:00"
        },
        {
@@ -20978,6 +21602,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T07:30:00+10:00"
        },
        {
@@ -21031,6 +21657,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T08:00:00+10:00"
        },
        {
@@ -21084,6 +21712,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T08:30:00+10:00"
        },
        {
@@ -21137,6 +21767,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T09:00:00+10:00"
        },
        {
@@ -21190,6 +21822,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T09:30:00+10:00"
        },
        {
@@ -21243,6 +21877,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T10:00:00+10:00"
        },
        {
@@ -21296,6 +21932,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T10:30:00+10:00"
        },
        {
@@ -21349,6 +21987,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T11:00:00+10:00"
        },
        {
@@ -21402,6 +22042,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T11:30:00+10:00"
        },
        {
@@ -21455,6 +22097,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T12:00:00+10:00"
        },
        {
@@ -21508,6 +22152,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T12:30:00+10:00"
        },
        {
@@ -21561,6 +22207,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T13:00:00+10:00"
        },
        {
@@ -21614,6 +22262,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T13:30:00+10:00"
        },
        {
@@ -21667,6 +22317,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T14:00:00+10:00"
        },
        {
@@ -21720,6 +22372,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T14:30:00+10:00"
        },
        {
@@ -21773,6 +22427,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T15:00:00+10:00"
        },
        {
@@ -21826,6 +22482,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T15:30:00+10:00"
        },
        {
@@ -21879,6 +22537,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T16:00:00+10:00"
        },
        {
@@ -21932,6 +22592,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T16:30:00+10:00"
        },
        {
@@ -21985,6 +22647,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T17:00:00+10:00"
        },
        {
@@ -22038,6 +22702,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T17:30:00+10:00"
        },
        {
@@ -22091,6 +22757,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T18:00:00+10:00"
        },
        {
@@ -22144,6 +22812,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T18:30:00+10:00"
        },
        {
@@ -22197,6 +22867,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T19:00:00+10:00"
        },
        {
@@ -22250,6 +22922,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T19:30:00+10:00"
        },
        {
@@ -22303,6 +22977,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T20:00:00+10:00"
        },
        {
@@ -22356,6 +23032,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T20:30:00+10:00"
        },
        {
@@ -22409,6 +23087,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T21:00:00+10:00"
        },
        {
@@ -22462,6 +23142,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T21:30:00+10:00"
        },
        {
@@ -22515,6 +23197,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T22:00:00+10:00"
        },
        {
@@ -22568,6 +23252,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T22:30:00+10:00"
        },
        {
@@ -22621,6 +23307,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T23:00:00+10:00"
        },
        {
@@ -22674,6 +23362,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-08T23:30:00+10:00"
        },
        {
@@ -22727,6 +23417,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T00:00:00+10:00"
        },
        {
@@ -22780,6 +23472,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T00:30:00+10:00"
        },
        {
@@ -22833,6 +23527,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T01:00:00+10:00"
        },
        {
@@ -22886,6 +23582,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T01:30:00+10:00"
        },
        {
@@ -22939,6 +23637,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T02:00:00+10:00"
        },
        {
@@ -22992,6 +23692,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T02:30:00+10:00"
        },
        {
@@ -23045,6 +23747,8 @@
         "shadow_price": 0.2998,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T03:00:00+10:00"
        },
        {
@@ -23098,6 +23802,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T03:30:00+10:00"
        },
        {
@@ -23151,6 +23857,8 @@
         "shadow_price": 0.2998,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T04:00:00+10:00"
        },
        {
@@ -23204,6 +23912,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T04:30:00+10:00"
        },
        {
@@ -23257,6 +23967,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T05:00:00+10:00"
        },
        {
@@ -23310,6 +24022,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T05:30:00+10:00"
        },
        {
@@ -23363,6 +24077,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T06:00:00+10:00"
        },
        {
@@ -23416,6 +24132,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T06:30:00+10:00"
        },
        {
@@ -23469,6 +24187,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T07:00:00+10:00"
        },
        {
@@ -23522,6 +24242,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T07:30:00+10:00"
        },
        {
@@ -23575,6 +24297,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T08:00:00+10:00"
        },
        {
@@ -23628,6 +24352,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T08:30:00+10:00"
        },
        {
@@ -23681,6 +24407,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T09:00:00+10:00"
        },
        {
@@ -23734,6 +24462,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T09:30:00+10:00"
        },
        {
@@ -23787,6 +24517,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T10:00:00+10:00"
        },
        {
@@ -23840,6 +24572,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T10:30:00+10:00"
        },
        {
@@ -23893,6 +24627,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T11:00:00+10:00"
        },
        {
@@ -23946,6 +24682,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T11:30:00+10:00"
        },
        {
@@ -23999,6 +24737,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T12:00:00+10:00"
        },
        {
@@ -24052,6 +24792,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T12:30:00+10:00"
        },
        {
@@ -24105,6 +24847,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T13:00:00+10:00"
        },
        {
@@ -24158,6 +24902,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T13:30:00+10:00"
        },
        {
@@ -24211,6 +24957,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T14:00:00+10:00"
        },
        {
@@ -24264,6 +25012,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T14:30:00+10:00"
        },
        {
@@ -24317,6 +25067,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T15:00:00+10:00"
        },
        {
@@ -24370,6 +25122,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T15:30:00+10:00"
        },
        {
@@ -24423,6 +25177,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T16:00:00+10:00"
        },
        {
@@ -24476,6 +25232,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T16:30:00+10:00"
        },
        {
@@ -24529,6 +25287,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T17:00:00+10:00"
        },
        {
@@ -24582,6 +25342,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T17:30:00+10:00"
        },
        {
@@ -24635,6 +25397,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T18:00:00+10:00"
        },
        {
@@ -24688,6 +25452,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T18:30:00+10:00"
        },
        {
@@ -24741,6 +25507,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T19:00:00+10:00"
        },
        {
@@ -24794,6 +25562,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T19:30:00+10:00"
        },
        {
@@ -24847,6 +25617,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T20:00:00+10:00"
        },
        {
@@ -24900,6 +25672,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T20:30:00+10:00"
        },
        {
@@ -24953,6 +25727,8 @@
         "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T21:00:00+10:00"
        },
        {
@@ -25006,6 +25782,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T21:30:00+10:00"
        },
        {
@@ -25059,6 +25837,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T22:00:00+10:00"
        },
        {
@@ -25112,6 +25892,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T22:30:00+10:00"
        },
        {
@@ -25165,6 +25947,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T23:00:00+10:00"
        },
        {
@@ -25218,6 +26002,8 @@
         "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-09T23:30:00+10:00"
        },
        {
@@ -25271,6 +26057,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 97.01,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T00:00:00+10:00"
        },
        {
@@ -25324,6 +26112,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 95.07,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T00:30:00+10:00"
        },
        {
@@ -25377,6 +26167,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 93.12,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T01:00:00+10:00"
        },
        {
@@ -25430,6 +26222,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 91.18,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T01:30:00+10:00"
        },
        {
@@ -25483,6 +26277,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 89.24,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T02:00:00+10:00"
        },
        {
@@ -25536,6 +26332,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 87.3,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T02:30:00+10:00"
        },
        {
@@ -25589,6 +26387,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 85.35,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T03:00:00+10:00"
        },
        {
@@ -25642,6 +26442,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 83.41,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T03:30:00+10:00"
        },
        {
@@ -25695,6 +26497,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 81.47,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T04:00:00+10:00"
        },
        {
@@ -25748,6 +26552,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 79.53,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T04:30:00+10:00"
        },
        {
@@ -25801,6 +26607,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 77.58,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T05:00:00+10:00"
        },
        {
@@ -25854,6 +26662,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 75.64,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T05:30:00+10:00"
        },
        {
@@ -25907,6 +26717,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 73.7,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T06:00:00+10:00"
        },
        {
@@ -25960,6 +26772,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 71.76,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T06:30:00+10:00"
        },
        {
@@ -26013,6 +26827,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 69.81,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T07:00:00+10:00"
        },
        {
@@ -26066,6 +26882,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 67.87,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T07:30:00+10:00"
        },
        {
@@ -26119,6 +26937,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 65.93,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T08:00:00+10:00"
        },
        {
@@ -26172,6 +26992,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 63.99,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T08:30:00+10:00"
        },
        {
@@ -26225,6 +27047,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 62.04,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T09:00:00+10:00"
        },
        {
@@ -26278,6 +27102,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 60.1,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T09:30:00+10:00"
        },
        {
@@ -26331,6 +27157,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 58.16,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T10:00:00+10:00"
        },
        {
@@ -26384,6 +27212,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 56.22,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T10:30:00+10:00"
        },
        {
@@ -26437,6 +27267,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 54.27,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T11:00:00+10:00"
        },
        {
@@ -26490,6 +27322,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 52.33,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T11:30:00+10:00"
        },
        {
@@ -26543,6 +27377,8 @@
         "shadow_price": 0.3,
         "soc_pct": 50.39,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T12:00:00+10:00"
        },
        {
@@ -26596,6 +27432,8 @@
         "shadow_price": 0.3002,
         "soc_pct": 48.44,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T12:30:00+10:00"
        },
        {
@@ -26649,6 +27487,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 46.5,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T13:00:00+10:00"
        },
        {
@@ -26702,6 +27542,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 44.56,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T13:30:00+10:00"
        },
        {
@@ -26755,6 +27597,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 42.62,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T14:00:00+10:00"
        },
        {
@@ -26808,6 +27652,8 @@
         "shadow_price": 0.3,
         "soc_pct": 40.67,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T14:30:00+10:00"
        },
        {
@@ -26861,6 +27707,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 38.73,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T15:00:00+10:00"
        },
        {
@@ -26914,6 +27762,8 @@
         "shadow_price": 0.3002,
         "soc_pct": 36.79,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T15:30:00+10:00"
        },
        {
@@ -26967,6 +27817,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 34.85,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T16:00:00+10:00"
        },
        {
@@ -27020,6 +27872,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 32.9,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T16:30:00+10:00"
        },
        {
@@ -27073,6 +27927,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 30.96,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T17:00:00+10:00"
        },
        {
@@ -27126,6 +27982,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 29.02,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T17:30:00+10:00"
        },
        {
@@ -27179,6 +28037,8 @@
         "shadow_price": 0.3,
         "soc_pct": 27.08,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T18:00:00+10:00"
        },
        {
@@ -27232,6 +28092,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 25.13,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T18:30:00+10:00"
        },
        {
@@ -27285,6 +28147,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 23.19,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T19:00:00+10:00"
        },
        {
@@ -27338,6 +28202,8 @@
         "shadow_price": 0.3,
         "soc_pct": 21.25,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T19:30:00+10:00"
        },
        {
@@ -27391,6 +28257,8 @@
         "shadow_price": 0.3001,
         "soc_pct": 19.25,
         "solar_kw": 0.0,
+        "solar_p10_kw": null,
+        "solar_p90_kw": null,
         "time": "2026-09-10T20:00:00+10:00"
        }
       ],
@@ -27463,6 +28331,66 @@
       "solar_delivery_ratio": null,
       "solar_delivery_sample_count": 0,
       "solar_delivery_underperforming": false,
+      "solar_quantile_calibration": {
+       "buckets": {
+        "0-1 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "0-1 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "1-4 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "1-4 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "12-24 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "12-24 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "24-48 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "4-12 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 < 2 kW": {
+         "days": 0,
+         "samples": 0
+        },
+        "48-96 h | p50 >= 2 kW": {
+         "days": 0,
+         "samples": 0
+        }
+       },
+       "keep_days": 21,
+       "method": null,
+       "min_days": 3,
+       "min_samples": 50,
+       "pending_intervals": 0,
+       "reason": "no_solar_power_sensor",
+       "target_above_p90_pct": 10.0,
+       "target_below_p10_pct": 10.0
+      },
       "solar_risk_effect_now_kw": 0.0,
       "solve_diagnostics": {
        "battery_effective_capacity_kwh": 40.0,

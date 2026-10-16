@@ -8,6 +8,40 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Calibrated solar p10 / p90 beside the envelope (#1807).** The solve's
+  solar band (`lower_kw` / `upper_kw`) is an envelope: min/max across sources
+  plus half their spread. On the reference household it read 0 all day and
+  6-17 kW at midnight. `SolarConfig` gains `p10_kw` / `p90_kw`, built in
+  `solver_inputs/solar_quantiles.py` from this install's own history of
+  `actual / p50`, by forecast lead and p50 size (< 2 kW, >= 2 kW). The
+  history fills from the solar power sensor over 21 days. While it is too
+  short, Solcast's own p10/p90 are used, widened to contain the blend p50;
+  with neither, both fields are None. Measured on 7 days of the reference
+  household's data, leave-one-day-out: 11.5% of actuals fell below p10 and
+  12.7% above p90. For comparison, Solcast's own band had 9.2% below and
+  29.6% above.
+  - Each plan row now carries `solar_p10_kw` / `solar_p90_kw`.
+    `sensor.nimbus_solver_battery_forecast` carries
+    `solar_quantile_calibration`: the method and, per cell, the samples, the
+    quantiles and their leave-one-day-out coverage.
+  - **Nothing in the deterministic solve reads the new fields.** The
+    envelope and the solar risk band are unchanged. They exist for the
+    stochastic dispatch (#1805).
+  - A new state file, `nimbus_solver_solar_quantiles.json`, is written in
+    the config directory.
+
+### Fixed
+- **The Solver tab's quality card shows the oracle EPR divides by** (#1797
+  review, 16 Oct 2026). EPR has divided by `j_star_evaluator`, the oracle's
+  plan repriced at real costs, since #1081. The card showed `j_star`, the raw
+  LP objective with its search penalties, so its three J figures did not
+  reproduce EPR.
+  - **The history rows:** keep `j_star` (no room under the attribute budget),
+    now documented as the LP objective; `quality_history_store` keeps both
+    figures for each day.
+  - **No score changes.**
+
 ## [0.94.460] - 2026-10-16
 
 The Solver tab shows the price guards at a glance; Charge By holds its

@@ -197,6 +197,23 @@ _EXPECTED_ATTRS = {
         "weights": [0.3, 0.4, 0.3],
     },
     "stochastic_period0_battery_kw": None,
+    # nimbus #1807: no PV sensor and no Solcast in this fixture, so no
+    # calibrated band: every bucket empty, nothing pending.
+    "solar_quantile_calibration": {
+        "method": None,
+        "reason": "no_solar_power_sensor",
+        "target_below_p10_pct": 10.0,
+        "target_above_p90_pct": 10.0,
+        "keep_days": 21,
+        "min_samples": 50,
+        "min_days": 3,
+        "pending_intervals": 0,
+        "buckets": {
+            f"{b} | p50 {z} 2 kW": {"samples": 0, "days": 0}
+            for b in ("0-1 h", "1-4 h", "4-12 h", "12-24 h", "24-48 h", "48-96 h")
+            for z in ("<", ">=")
+        },
+    },
     # Household, 14 Oct 2026: "charge by" is off in this fixture.
     "charge_by_time": None,
     "charge_by_target_pct": None,

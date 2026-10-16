@@ -872,6 +872,8 @@ def assemble_and_solve_plan(
     load_lower_kw: list[float],
     load_upper_kw: list[float],
     previous_plan: network.Plan | None,
+    solar_p10_kw: list[float] | None = None,
+    solar_p90_kw: list[float] | None = None,
 ) -> PlanAssembly:
     """Builds every `elements.*Config` from the resolved inputs and solves.
 
@@ -992,6 +994,13 @@ def assemble_and_solve_plan(
         forecast_kw=np.array(solar_kw),
         lower_kw=np.array(solar_lower_kw),
         upper_kw=np.array(solar_upper_kw),
+        # nimbus issue #1807: calibrated quantiles, both or neither.
+        p10_kw=np.array(solar_p10_kw)
+        if solar_p10_kw is not None and solar_p90_kw is not None
+        else None,
+        p90_kw=np.array(solar_p90_kw)
+        if solar_p10_kw is not None and solar_p90_kw is not None
+        else None,
     )
     loads = [
         elements.LoadConfig(

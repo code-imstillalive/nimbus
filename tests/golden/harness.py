@@ -79,6 +79,7 @@ def child_env(workdir: Path) -> dict[str, str]:
             "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH": str(
                 workdir / "solar_delivery.json"
             ),
+            "NIMBUS_SOLVER_SOLAR_QUANTILES_PATH": str(workdir / "solar_quantiles.json"),
             "GOLDEN_WORKDIR": str(workdir),
         }
     )

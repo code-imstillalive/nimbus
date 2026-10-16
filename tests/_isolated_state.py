@@ -75,6 +75,7 @@ PERSISTED_PATH_CONSTANTS = (
     "LOAD_FORECAST_ERROR_NOTIFIED_PATH",
     "AMBER_SPOT_PATH",
     "PRICE_CONSOLIDATION_PATH",
+    "SOLAR_QUANTILES_PATH",
 )
 
 #: Basenames inside the temp dir. Deliberately the same names production uses:
@@ -87,6 +88,7 @@ _BASENAMES = {
     "LOAD_FORECAST_ERROR_NOTIFIED_PATH": "nimbus_solver_load_forecast_error.txt",
     "AMBER_SPOT_PATH": "nimbus_solver_amber_spot.json",
     "PRICE_CONSOLIDATION_PATH": "nimbus_solver_price_consolidation.json",
+    "SOLAR_QUANTILES_PATH": "nimbus_solver_solar_quantiles.json",
 }
 
 
@@ -120,6 +122,11 @@ def isolated_state_paths(solver_writer: ModuleType) -> Iterator[str]:
         # nimbus #1786: the price-consolidation trackers are cached likewise.
         stack.enter_context(
             patch.object(solver_writer, "_PRICE_CONSOLIDATION_CACHE", None)
+        )
+        # nimbus #1807: the solar quantile history is cached likewise.
+        stack.enter_context(patch.object(solver_writer, "_SOLAR_QUANTILES_CACHE", None))
+        stack.enter_context(
+            patch.object(solver_writer, "_SOLAR_QUANTILES_SAVED", False)
         )
         for const in PERSISTED_PATH_CONSTANTS:
             stack.enter_context(
