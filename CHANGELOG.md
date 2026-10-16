@@ -19,6 +19,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     ago the provider rebuilt its forecast.
   - **Battery hold** (#1654): whether the plan means "hold" now.
   - **Consolidated prices** (#1786): shadow, or driving the plan.
+### Fixed
+- **Charge By holds the target for the whole final hour** (household, 16 Oct
+  2026: "no matter what I do it just defers"). The target bound at only two
+  instants: the deadline and an hour before it. Once "now" passed the
+  earlier one, the plan could sell off the top and refill. On 16 Oct, with
+  15:30 / 100%, the 14:34 plan sold 40 kW for a minute into an 8.9c interval
+  to buy back at a forecast 0.7c, and the battery hovered at 97-99% instead
+  of sitting at 100%, the taper making the last percent slow to recover.
+  Every period ending in the hour before the deadline now binds, so the
+  battery is full an hour early and stays full. A spike worth more than the
+  $2/kWh-per-period shortfall penalty can still be sold into.
 
 ## [0.94.459] - 2026-10-16
 

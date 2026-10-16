@@ -1021,16 +1021,37 @@ def charge_by_period_indices(
 def charge_by_target_indices(
     grid_times: list[datetime], period_hours: list[float], deadline_hour: float
 ) -> frozenset[int]:
-    """The periods the Charge By target binds at: each day's deadline period
-    and the one CHARGE_BY_MARGIN_HOURS earlier (clamped at midnight). With the
-    deadline alone the plan spent every minute of slack and landed on the
-    target exactly at the deadline, so the taper or one short slot missed it
-    (household, 15 Oct 2026). When the target is out of reach, the earlier
-    period's shortfall is already priced, so the plan charges at once."""
+    """The periods the Charge By target binds at: every period that ends
+    within the CHARGE_BY_MARGIN_HOURS before each day's deadline (clamped at
+    midnight), plus the deadline period and the one ending at the window's
+    start. The target therefore has to be met an hour early AND held until
+    the deadline.
+
+    Binding only the two instants (15 Oct) let the plan sell off the top and
+    refill once "now" passed the earlier one: on 16 Oct, with a 15:30 / 100%
+    target, the 14:34 plan sold 40 kW for a minute into an 8.9c interval to
+    buy back at a forecast 0.7c, the battery hovered at 97-99% instead of
+    sitting at 100%, and the taper made the last percent slow to recover
+    (household: "no matter what I do it just defers"). When the target is
+    out of reach, the window's shortfall is already priced, so the plan
+    charges at once."""
     early = max(0.0, float(deadline_hour) - CHARGE_BY_MARGIN_HOURS)
-    return charge_by_period_indices(
-        grid_times, period_hours, deadline_hour
-    ) | charge_by_period_indices(grid_times, period_hours, early)
+    out = set(charge_by_period_indices(grid_times, period_hours, deadline_hour))
+    out |= charge_by_period_indices(grid_times, period_hours, early)
+    if not grid_times:
+        return frozenset(out)
+    ends = [
+        _local(t) + timedelta(hours=float(h))
+        for t, h in zip(grid_times, period_hours, strict=False)
+    ]
+    for i, end in enumerate(ends):
+        midnight = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = midnight + timedelta(hours=early)
+        deadline = midnight + timedelta(hours=float(deadline_hour))
+        # Inside the window, and the plan reaches that day's deadline.
+        if start < end <= deadline and ends[-1] >= deadline:
+            out.add(i)
+    return frozenset(out)
 
 
 def charge_before_block_summary(
