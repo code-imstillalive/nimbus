@@ -335,6 +335,9 @@ _STOCHASTIC_STATE: dict[str, Any] = {
     # each scenario's SoC and battery path. Served by the response-only
     # nimbus_load.get_stochastic_summary, never published as an attribute.
     "detail": None,
+    # stochastic_dispatch.paths_attribute() of the same solve as `summary`,
+    # published as the `stochastic_paths` attribute.
+    "paths": None,
 }
 
 
@@ -352,7 +355,20 @@ def reset_stochastic_state() -> None:
             consecutive_fallbacks=0,
             thread=None,
             detail=None,
+            paths=None,
         )
+
+
+def stochastic_paths_for(summary: dict | None) -> dict | None:
+    """The scenario SoC paths of the solve behind `summary` (this exact
+    summary object), or None -- so a published `stochastic_paths` never
+    belongs to a different solve than the `stochastic` beside it."""
+    if summary is None:
+        return None
+    with _STOCHASTIC_LOCK:
+        if _STOCHASTIC_STATE["summary"] is summary:
+            return _STOCHASTIC_STATE["paths"]
+    return None
 
 
 def stochastic_snapshot() -> dict[str, Any]:
@@ -418,6 +434,7 @@ def run_stochastic_dispatch(
                 last_fallback=None,
                 consecutive_fallbacks=0,
                 detail=None,
+                paths=None,
             )
     if plan.status != "optimal":
         return plan, _stochastic_fallback(
@@ -515,7 +532,7 @@ def _shadow_job(
         summary = _stochastic_fallback(
             "shadow", now, reason, det["plan"], det["seconds"]
         )
-        _store_shadow_result(now, None, summary, reason, None)
+        _store_shadow_result(now, None, summary, reason, None, None)
         return
     reason = _refusal_reason(result, det["plan"], drive=False)
     if reason is not None and reason != "no_solar_band":
@@ -537,6 +554,7 @@ def _shadow_job(
         summary,
         reason,
         stochastic_dispatch.detail_attribute(result),
+        stochastic_dispatch.paths_attribute(result),
     )
 
 
@@ -546,6 +564,7 @@ def _store_shadow_result(
     summary: dict,
     reason: str | None,
     detail: dict | None,
+    paths: dict | None,
 ) -> None:
     with _STOCHASTIC_LOCK:
         state = _STOCHASTIC_STATE
@@ -553,7 +572,11 @@ def _store_shadow_result(
         if state["mode"] != "shadow" or state["last_run"] != started:
             return
         state.update(
-            last_seconds=seconds, summary=summary, last_fallback=reason, detail=detail
+            last_seconds=seconds,
+            summary=summary,
+            last_fallback=reason,
+            detail=detail,
+            paths=paths,
         )
 
 
@@ -625,6 +648,7 @@ def _run_drive(
     with _STOCHASTIC_LOCK:
         _STOCHASTIC_STATE["summary"] = summary
         _STOCHASTIC_STATE["detail"] = stochastic_dispatch.detail_attribute(result)
+        _STOCHASTIC_STATE["paths"] = stochastic_dispatch.paths_attribute(result)
     return published, summary
 
 
@@ -996,6 +1020,9 @@ class PlanAssembly:
     # it to hold their last payload instead of letting the sensors go stale --
     # which is exactly what they should NOT do when the switch is off.
     flex_ranging_deferred: bool = False
+    # nimbus #1797: the scenario SoC paths of the solve behind `stochastic`,
+    # published as `stochastic_paths`; None when there are none.
+    stochastic_paths: dict | None = None
     # nimbus #1797: run_stochastic_dispatch()'s summary, published as the
     # `stochastic` attribute; None when it has not run.
     stochastic: dict | None = None
@@ -1566,4 +1593,5 @@ def assemble_and_solve_plan(
         export_price_risk_aversion=export_price_risk_aversion,
         flex_ranging_deferred=flex_ranging_deferred,
         stochastic=stochastic_summary,
+        stochastic_paths=stochastic_paths_for(stochastic_summary),
     )

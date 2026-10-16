@@ -163,8 +163,9 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "nimbus:risk-slider"),
             (1, "markdown: What the sliders do"),
             # nimbus #1797: the two-stage stochastic solve, shadow or drive.
-            (2, "markdown: Stochastic dispatch"),
-            (2, "markdown: Stochastic against the main plan"),
+            (1, "markdown: Stochastic dispatch"),
+            (2, "Battery ahead, three solar days"),
+            (1, "markdown: What each solar day costs"),
         ],
         [
             "Basic settings",

@@ -10,14 +10,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ### Added
 - **Seeing the stochastic solve** (#1797 programme, PR B).
-  - **Solver tab:** a Stochastic row after the risk sliders, two half-width
-    cards. *Stochastic dispatch* says shadow or drive, whether the
-    stochastic plan is driving, and in plain words why a cycle used the main
-    plan (no solar spread, an uncalibrated band, a backoff, ...), with the
-    band type and last solve time. *Stochastic against the main plan* puts
-    the battery command now and the plan cost beside the main plan's, then
-    each solar day's cost and battery at the horizon's end. Both render a
-    clear "Not running" / "No stochastic plan this cycle" before a solve.
+  - **Solver tab:** a Stochastic row after the risk sliders, 1 + 2 + 1
+    columns.
+    - *Stochastic dispatch*: shadow or drive, a one-line headline ("Agrees
+      with the main plan now", or "Hedging: keeps 2.2 kW more in the battery
+      now"), why a cycle used the main plan in plain words (no solar spread,
+      an uncalibrated band, a backoff, ...), band type and solve time.
+    - *Battery ahead, three solar days* (ApexCharts): the battery % on a low,
+      middle and high solar day, with the main plan's line dashed on top.
+      They agree on the next 30 minutes by design; where they part is the
+      cover the hedge buys.
+    - *What each solar day costs*: each day's cost, red for the costliest and
+      green for the cheapest, battery at the horizon's end, the expected cost
+      and the spread.
+    - Each card renders a clear "Not running" / "No stochastic plan this
+      cycle" before a solve. Rendered on devhub's template engine against a
+      real devhub solve; the chart's data generator was run under Node and
+      lands on the main plan's own timestamps.
+  - **`stochastic_paths`** on `sensor.nimbus_solver_battery_forecast`: each
+    scenario's battery % per plan period, aligned with `forecast`, about
+    2.4 KB, kept out of the recorder like `forecast`.
   - **`nimbus_load.get_stochastic_summary`** (response-only): the latest
     summary, each scenario's fleet SoC and battery kW over the horizon, and
     the cadence (last run, last fallback, backoff, a shadow solve running).

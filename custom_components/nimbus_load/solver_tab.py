@@ -423,58 +423,139 @@ _STOCHASTIC_STATUS = {
         "{% elif s.get('status') == 'optimal' %}success{% else %}info{% endif %}\""
         ' title="Stochastic dispatch">'
         "{% if s is not mapping %}Not running"
-        "{% elif s.get('drives_dispatch') %}Driving the plan"
-        "{% elif s.get('mode') == 'drive' %}Drive on, this cycle uses the main plan"
-        "{% elif s.get('status') == 'optimal' %}Shadow: hedge computed"
+        "{% elif s.get('drives_dispatch') %}Driving the battery"
+        "{% elif s.get('mode') == 'drive' %}Drive on, main plan this cycle"
+        "{% elif s.get('status') == 'optimal' %}Shadow: checking the main plan"
         "{% else %}Shadow{% endif %}</ha-alert>\n\n"
+        "{% if s is mapping and s.get('status') == 'optimal' %}"
+        "{% set d = (s.get('stage1_battery_kw') or 0)"
+        " - (s.get('deterministic_period0_battery_kw') or 0) %}"
+        "{% if d | abs < 0.05 %}"
+        '<font color="#3ddc84">●</font> <b>Agrees with the main plan now</b>'
+        "{% elif d < 0 %}"
+        '<font color="#4FC3C7">●</font> <b>Hedging: keeps'
+        " {{ '%.1f' | format(d | abs) }} kW more in the battery now</b>"
+        "{% else %}"
+        '<font color="#ffa726">●</font> <b>Hedging: releases'
+        " {{ '%.1f' | format(d) }} kW more from the battery now</b>"
+        "{% endif %}\n\n"
+        "{% endif %}"
+        "{% if reason %}Why not: {{ reason }}.\n\n{% endif %}"
         "{% if s is mapping %}"
-        "{% if reason %}<b>Why:</b> {{ reason }}.\n\n{% endif %}"
-        "Solar band <b>{{ s.get('solar_band') or 'none' }}</b>"
+        "Solar band {{ s.get('solar_band') or 'none' }}"
         "{% if s.get('stochastic_solve_seconds') is not none %}"
-        " · solved in {{ '%.1f' | format(s.stochastic_solve_seconds) }} s{% endif %}"
+        " · {{ '%.1f' | format(s.stochastic_solve_seconds) }} s{% endif %}"
         "{% if s.get('computed_at') %}"
         " · {{ as_timestamp(s.computed_at) | timestamp_custom('%H:%M') }}{% endif %}"
         "\n\n{% endif %}"
         "*Plans a low, middle and high solar day at once and keeps the decision"
-        " now that suits all three. The Stochastic dispatch switch makes it"
-        " drive; off, it runs alongside as a check.*"
+        " now that suits all three. The Stochastic dispatch switch lets it"
+        " drive; off, it checks the main plan.*"
     ),
 }
 
-_STOCHASTIC_NUMBERS = {
+
+def _scenario_path(label: str) -> str:
+    """A data_generator for one scenario's battery % (`stochastic_paths`),
+    each value at the end of the plan row it belongs to, like the Plan
+    chart's own SoC line."""
+    return (
+        "const f = entity.attributes.forecast || []; "
+        "const p = ((entity.attributes.stochastic_paths || {}).soc_pct || {})"
+        f"['{label}'] || []; "
+        "return p.map((v, i) => f[i] ? [new Date(f[i].time).getTime() + "
+        "(f[i].hours || 0) * 3600000, v] : null).filter(x => x);"
+    )
+
+
+def _stochastic_chart() -> dict[str, Any]:
+    """The battery ahead on each solar day the stochastic solve planned for,
+    with the main plan's own line: where they part is the hedge."""
+    plan = "@nimbus_solver_battery_forecast"
+    ahead = {"extend_to": False, "show": {"in_header": False}}
+    series = [
+        {
+            "entity": plan,
+            "name": name,
+            "type": "line",
+            "color": colour,
+            "stroke_width": width,
+            "unit": "%",
+            "data_generator": _scenario_path(label),
+            **ahead,
+        }
+        for name, label, colour, width in (
+            ("Low solar day", "p10", "#ff7043", 2),
+            ("Middle", "p50", "#3ddc84", 3),
+            ("High solar day", "p90", "#4FC3C7", 2),
+        )
+    ]
+    series.append(
+        {
+            "entity": plan,
+            "name": "Main plan",
+            "type": "line",
+            "color": "#e8eaf0",
+            "stroke_width": 2,
+            "stroke_dash": 5,
+            "unit": "%",
+            "data_generator": _forecast_at_period_end("soc_pct"),
+            **ahead,
+        }
+    )
+    return _apex(
+        "Battery ahead, three solar days",
+        "% of battery. The stochastic plan on a low (orange), middle (green) "
+        "and high (teal) solar day; dashed: the main plan. They agree on the "
+        "next 30 minutes by design; where they part later is the cover the "
+        "hedge buys.",
+        series,
+        height=300,
+        graph_span="2d",
+        span={"start": "hour"},
+        now={"show": True, "label": "Now", "color": "#ffffff"},
+        yaxis=[
+            {
+                "min": 0,
+                "max": 100,
+                "decimals": 0,
+                "apex_config": {"title": {"text": "%"}},
+            }
+        ],
+    )
+
+
+_STOCHASTIC_MONEY = {
     "type": "markdown",
     "content": (
-        "**Stochastic against the main plan**\n\n"
+        "**What each solar day costs**\n\n"
         "{% set s = state_attr('${@nimbus_solver_battery_forecast}', 'stochastic') %}"
-        "{% macro kw(v) %}{% if v is none %}—{% else %}"
-        "{{ '%+.1f' | format(v) }} kW{% endif %}{% endmacro %}"
         "{% macro usd(v) %}{% if v is none %}—{% else %}"
         "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
         "{% if s is mapping and s.get('status') == 'optimal' %}"
-        "| | Battery now | Plan cost |\n|:---|---:|---:|\n"
-        "| Main plan | {{ kw(s.get('deterministic_period0_battery_kw')) }}"
-        " | {{ usd(s.get('deterministic_total_cost')) }} |\n"
-        "| Stochastic | {{ kw(s.get('stage1_battery_kw')) }}"
-        " | {{ usd(s.get('expected_cost')) }} expected |\n\n"
         "{% set c = s.get('scenario_cost', {}) %}"
         "{% set e = s.get('scenario_terminal_soc_kwh', {}) %}"
-        "| Solar day | Low | Middle | High |\n|:---|---:|---:|---:|\n"
-        "| Cost | {{ usd(c.get('p10')) }} | {{ usd(c.get('p50')) }}"
-        " | {{ usd(c.get('p90')) }} |\n"
-        "| Battery at the end |"
-        "{% for k in ['p10', 'p50', 'p90'] %}"
-        " {% if e.get(k) is not none %}{{ '%.0f' | format(e[k]) }} kWh"
-        "{% else %}—{% endif %} |{% endfor %}\n\n"
-        "*Battery now: + discharging, − charging. A positive cost is money"
-        " spent.*"
+        "{% set vals = [c.get('p10'), c.get('p50'), c.get('p90')]"
+        " | reject('none') | list %}"
+        "{% set hi = vals | max %}{% set lo = vals | min %}"
+        "| Solar day | Cost | Battery at end |\n|:---|---:|---:|\n"
+        "{% for k, label in [('p10', 'Low'), ('p50', 'Middle'), ('p90', 'High')] %}"
+        "{% set v = c.get(k) %}"
+        "| {{ label }} | <font color=\"{{ '#ff5a5a' if v == hi else"
+        " ('#3ddc84' if v == lo else '#e8eaf0') }}\">{{ usd(v) }}</font>"
+        " | {% if e.get(k) is not none %}{{ '%.0f' | format(e[k]) }} kWh"
+        "{% else %}—{% endif %} |\n"
+        "{% endfor %}\n"
+        "Expected **{{ usd(s.get('expected_cost')) }}** · spread"
+        " {{ usd(hi - lo) }}\n\n"
+        "*Main plan, on its own forecast: {{ usd(s.get('deterministic_total_cost')) }}."
+        " Costs cover the rest of the plan; positive is money spent.*"
         "{% else %}"
         "No stochastic plan this cycle.\n\n"
-        "*The figures appear once a hedge is computed.*"
+        "*The costs appear once a hedge is computed.*"
         "{% endif %}"
     ),
 }
-
-_STOCHASTIC_ROW = (_STOCHASTIC_STATUS, _STOCHASTIC_NUMBERS)
 
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
@@ -1542,10 +1623,10 @@ def template() -> list[dict[str, Any]]:
             {"rows": 6},
         ),
         *_risk_row(),
-        *(
-            _section([_styled(c, _FILL_NO_SCROLL)], 2, {"rows": 5})
-            for c in _STOCHASTIC_ROW
-        ),
+        # nimbus #1797: status, the three solar days' battery, their costs.
+        _section([_styled(_STOCHASTIC_STATUS, _FILL_NO_SCROLL)], 1, {"rows": 6}),
+        _section([_styled(_stochastic_chart(), _FILL)], 2, {"rows": 6}),
+        _section([_styled(_STOCHASTIC_MONEY, _FILL_NO_SCROLL)], 1, {"rows": 6}),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],

@@ -201,6 +201,8 @@ _EXPECTED_ATTRS = {
         "weights": [0.3, 0.4, 0.3],
     },
     "stochastic_period0_battery_kw": None,
+    # #1797 PR B: the envelope chart's scenario paths; none without a band.
+    "stochastic_paths": {},
     # nimbus #1807: no PV sensor and no Solcast in this fixture, so no
     # calibrated band: every bucket empty, nothing pending.
     "solar_quantile_calibration": {

@@ -581,6 +581,9 @@ class StochasticResult:
     scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
     scenario_soc_kwh: dict[str, list[float]] = field(default_factory=dict)
     scenario_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # Every battery's capacity, summed: scenario SoC paths as a % of it are
+    # on the same scale as the plan rows' own (fleet) `soc_pct`.
+    fleet_capacity_kwh: float = 0.0
     # Copied off the joint plan so the caller can refuse a plan weaker than
     # the deterministic one: a relaxed thermal deadline, or two-way flows.
     thermal_guarantee_relaxed: tuple[str, ...] = ()
@@ -715,6 +718,7 @@ def build_stochastic_plan(
         scenario_terminal_soc_kwh=dict(hook.scenario_terminal_soc_kwh),
         scenario_soc_kwh=dict(hook.scenario_soc_kwh),
         scenario_battery_kw=dict(hook.scenario_battery_kw),
+        fleet_capacity_kwh=float(sum(b.capacity_kwh for b in base["batteries"])),
         thermal_guarantee_relaxed=tuple(plan.thermal_guarantee_relaxed),
         direction_exclusivity=plan.direction_exclusivity,
     )
@@ -779,6 +783,27 @@ def summary_attribute(
 
 def _rounded(value: float | None) -> float | None:
     return None if value is None else round(float(value), 4)
+
+
+def paths_attribute(result: StochasticResult) -> dict[str, Any]:
+    """Each scenario's fleet SoC, % of every battery's capacity, one value
+    per plan period -- the same periods, in the same order, as the plan's
+    `forecast` rows, so a chart takes each row's time and end. Published as
+    `stochastic_paths` (unrecorded, like `forecast`): 3 x ~200 numbers, about
+    2.4 KB. Empty without an optimal joint solve."""
+    if (
+        result.status != "optimal"
+        or result.plan is None
+        or result.fleet_capacity_kwh <= 0.0
+    ):
+        return {}
+    cap = result.fleet_capacity_kwh
+    return {
+        "soc_pct": {
+            k: [round(100.0 * v / cap, 1) for v in path]
+            for k, path in result.scenario_soc_kwh.items()
+        }
+    }
 
 
 def detail_attribute(result: StochasticResult) -> dict[str, Any]:

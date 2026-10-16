@@ -14076,6 +14076,7 @@
         0.3
        ]
       },
+      "stochastic_paths": {},
       "stochastic_period0_battery_kw": null,
       "total_charge_kwh": 6.77,
       "total_cost": 141.4167,

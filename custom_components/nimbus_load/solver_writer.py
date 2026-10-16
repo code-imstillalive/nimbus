@@ -9846,6 +9846,7 @@ def main() -> None:
         price_source_freshness=price_source_freshness,
         price_consolidation=price_consolidation_result,
         stochastic=_assembly.stochastic,
+        stochastic_paths=_assembly.stochastic_paths,
         solar_quantiles=solar_quantile_result,
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_

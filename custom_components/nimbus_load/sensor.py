@@ -3385,7 +3385,9 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # per-period series, only present on sensor.nimbus_solver_battery_
     # forecast (harmless, unused key for sensor.nimbus_household_load_
     # total_forecast, the other _NimbusSolverPushSensor instance).
-    _unrecorded_attributes = frozenset({"forecast", "batteries"})
+    # "stochastic_paths" (nimbus #1797): three scenarios' battery % ahead,
+    # a projection like `forecast`.
+    _unrecorded_attributes = frozenset({"forecast", "batteries", "stochastic_paths"})
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry

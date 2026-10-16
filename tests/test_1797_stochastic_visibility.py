@@ -219,3 +219,51 @@ def test_decision_inputs_keep_the_band_and_the_stochastic_summary():
     assert "solar_p10_kw" in di.ROW_FIELDS
     assert "solar_p90_kw" in di.ROW_FIELDS
     assert "stochastic" in di.META_FIELDS
+
+
+# -- the envelope chart's data ------------------------------------------------
+
+
+def test_paths_are_percent_of_the_fleet_on_the_plan_periods():
+    kw = _tiered_inputs()
+    res = sd.build_stochastic_plan(kw)
+    paths = sd.paths_attribute(res)
+    n = len(kw["periods"].hours)
+    cap = sum(b.capacity_kwh for b in kw["batteries"])
+    assert set(paths["soc_pct"]) == {"p10", "p50", "p90"}
+    for label, series in paths["soc_pct"].items():
+        assert len(series) == n
+        assert series[-1] == pytest.approx(
+            100.0 * res.scenario_terminal_soc_kwh[label] / cap, abs=0.06
+        )
+    # p50's path is the published plan's own SoC.
+    plan_pct = 100.0 * np.asarray(res.plan.battery_soc_kwh) / cap
+    assert np.allclose(paths["soc_pct"]["p50"], plan_pct[-n:], atol=0.06)
+
+
+def test_no_paths_without_an_optimal_solve():
+    res = sd.build_stochastic_plan(_tiered_inputs(), budget_seconds=0.0)
+    assert sd.paths_attribute(res) == {}
+
+
+def test_published_paths_belong_to_the_published_summary():
+    _, summary = _shadow_once()
+    paths = solver_plan.stochastic_paths_for(summary)
+    assert set(paths["soc_pct"]) == {"p10", "p50", "p90"}
+    # A different summary object (another solve) never gets these paths.
+    assert solver_plan.stochastic_paths_for(dict(summary)) is None
+    assert solver_plan.stochastic_paths_for(None) is None
+
+
+def test_the_paths_are_kept_out_of_the_recorder():
+    _ha()
+    from custom_components.nimbus_load import sensor
+
+    owners = [
+        c
+        for c in vars(sensor).values()
+        if isinstance(c, type)
+        and "batteries" in getattr(c, "_unrecorded_attributes", frozenset())
+    ]
+    assert owners
+    assert all("stochastic_paths" in c._unrecorded_attributes for c in owners)
