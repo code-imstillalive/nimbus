@@ -250,6 +250,10 @@ fields are added.
 | `number.nimbus_solver_risk_aversion` | Risk Aversion | 0.25 | 0-1 | (none) |
 | `number.nimbus_solver_import_price_risk_aversion` | Import Price Risk Aversion | 0.0 | 0-1 | (none) |
 | `number.nimbus_solver_export_price_risk_aversion` | Export Price Risk Aversion | 0.0 | 0-1 | (none) |
+| `number.nimbus_solver_solar_running_low_min_p50_kw` | Solar Running Low Minimum P50: the gate judges only while the p50 forecast now and 30 minutes earlier are both at least this; 0 = off | 2.0 | 0-100 | kW |
+| `number.nimbus_solver_solar_running_low_on_percent` | Solar Running Low On Below: actual PV under this share of the p50 reference turns the gate on | 70.0 | 1-100 | % |
+| `number.nimbus_solver_solar_running_low_off_percent` | Solar Running Low Off Above: once on, actual PV over this share turns it off | 90.0 | 1-100 | % |
+| `number.nimbus_solver_solar_running_low_confirm_minutes` | Solar Running Low Confirm: every reading must stay below *On Below* for this long before it turns on; 0 = on at the first low reading | 10.0 | 0-60 | min |
 
 **Notes:**
 
@@ -267,6 +271,17 @@ fields are added.
 - **Network Fee** fields accept 6 decimal places (`step = 0.000001`), not 4
   — real retailer tariffs (e.g. a time-of-use network tariff) can need that
   precision to enter exactly without silent rounding.
+- **Solar Running Low** (nimbus #1784): when the recorder's 30-minute mean
+  of the solar power sensor runs below *On Below* % of the p50
+  reference (the lower of the current half-hour's p50 and the one 30
+  minutes earlier), the rest of **today** plans lower; it turns off again
+  above *Off Above* %. While on, a Solcast blend member uses its p10, a
+  member with a lower bound (Nimbus's own forecaster has an 80 % band) uses
+  that, and a member with none is scaled by the measured ratio (never below
+  0.3 x its forecast). Solcast is the reference when installed; otherwise
+  the blend itself, remembered from 30 minutes earlier (so not in the first
+  30 minutes after a restart). Needs `solver_solar_power_sensor`. Its state
+  and evidence are published as `solve_diagnostics.solar_running_low`.
 - **Risk Aversion / Import Price Risk Aversion / Export Price Risk
   Aversion** are unitless (0 = ignore forecast uncertainty entirely, 1 =
   fully hedge toward the pessimistic confidence bound). Import and export

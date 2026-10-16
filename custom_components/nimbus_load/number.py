@@ -120,6 +120,10 @@ from .const import (
     CONF_SOLVER_SALVAGE_VALUE,
     CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
     CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
@@ -159,6 +163,10 @@ from .const import (
     DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
     DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     DEFAULT_SOLVER_SOH_PERCENT,
+    DEFAULT_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
+    DEFAULT_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+    DEFAULT_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    DEFAULT_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     DOMAIN,
     SUBENTRY_TYPE_CONTROLLABLE_LOAD,
 )
@@ -1008,6 +1016,46 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         "kW",
         device_class=NumberDeviceClass.POWER,
+    ),
+    # nimbus issue #1784: the solar running-low gate (see const.py). The
+    # minimum is also its off switch: 0 = off.
+    _SolverNumberDescription(
+        CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+        "Solar Running Low Minimum P50",
+        DEFAULT_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+        0,
+        100,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
+        "Solar Running Low On Below",
+        DEFAULT_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
+        1,
+        100,
+        1,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+        "Solar Running Low Off Above",
+        DEFAULT_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+        1,
+        100,
+        1,
+        "%",
+    ),
+    # 0 = no confirmation (on at the first low reading). See const.py.
+    _SolverNumberDescription(
+        CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
+        "Solar Running Low Confirm",
+        DEFAULT_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
+        0,
+        60,
+        1,
+        "min",
     ),
 )
 

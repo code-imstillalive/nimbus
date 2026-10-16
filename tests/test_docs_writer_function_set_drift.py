@@ -991,6 +991,34 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # of work on the standalone copy's solar diagnostics, and both
         # are gated on config a bare cron install may not even have.
         "update_solar_nowcast_disagreement",
+        # nimbus issue #1784: the solar "running low" gate
+        # (solver_inputs/solar_running_low.py) and the hook in
+        # build_solar_arrays() that applies it. Open drift, not native-only:
+        # the logic is portable, but it reads the PV sensor's recorder
+        # history through fetch_entity_history_range +
+        # resample_history_mean + _kw_scale_factor, none of which the
+        # docs/cron copy carries (all three are listed above). Porting it
+        # wants those first, as the same piece of work as the two solar
+        # measurements above.
+        "_apply_running_low_gate",
+        "_blend_at",
+        "confirm_low",
+        "_remember_blend",
+        "member_method",
+        "ratio_scale",
+        "_idle_result",
+        "_log_inert_once",
+        "_gate_result",
+        "_turn_off",
+        "actual_30min_avg_kw",
+        "decide_hysteresis",
+        "evaluate_gate",
+        "published_result",
+        "read_solcast_points",
+        "record_result",
+        "remaining_today_mask",
+        "reset_gate_state",
+        "solcast_p50_at",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

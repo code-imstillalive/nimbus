@@ -58,6 +58,12 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import lp, network  # type: ignore[no-redef]
     from solver.regret import evaluate_realized_cost  # type: ignore[no-redef]
+# nimbus issue #1784: the solar running-low gate's evidence, published in
+# solve_diagnostics. A downward import into the solver_inputs layer.
+try:
+    from .solver_inputs import solar_running_low
+except ImportError:  # pragma: no cover - standalone/cron path
+    from solver_inputs import solar_running_low  # type: ignore[no-redef]
 
 
 def _solver_writer():
@@ -2943,6 +2949,16 @@ def publish_plan(
                 # record once the log is gone.
                 "unknown_retries": lp.UNKNOWN_RETRIES["attempted"],
                 "unknown_retries_recovered": lp.UNKNOWN_RETRIES["recovered"],
+                # nimbus issue #1784: the solar running-low gate, judged by
+                # build_solar_arrays() this cycle. One fixed-shape dict of
+                # scalars (active, reason, reference source, the 30-minute
+                # actual average, p50 now and 30 minutes earlier, the
+                # reference, the ratio, since when, periods lowered and how
+                # many members took each path), so it cannot grow. `reason`
+                # says why it was or was not judged ("judged", "off",
+                # "no_solar_power_sensor", "no_reference", "below_minimum",
+                # "no_history", "error").
+                "solar_running_low": solar_running_low.published_result(),
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,

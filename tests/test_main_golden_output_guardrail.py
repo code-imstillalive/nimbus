@@ -378,6 +378,26 @@ _EXPECTED_ATTRS = {
         "calibration_fallback_reason": None,
         "calibration_weight_used": 0.01,
         "simplex_iterations": 0,
+        # nimbus issue #1784: the solar running-low gate. This fixture
+        # configures no solar power sensor, so the gate cannot judge and
+        # says why; the plan above is unchanged by it.
+        "solar_running_low": {
+            "active": False,
+            "reason": "no_solar_power_sensor",
+            "reference_source": None,
+            "actual_30min_avg_kw": None,
+            "p50_now_kw": None,
+            "p50_lagged_kw": None,
+            "reference_kw": None,
+            "ratio": None,
+            "on_since": None,
+            "pending_since": None,
+            "periods_lowered": 0,
+            "members_p10": 0,
+            "members_lower_bound": 0,
+            "members_ratio_scaled": 0,
+            "ratio_scale_used": None,
+        },
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body

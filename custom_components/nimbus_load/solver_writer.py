@@ -9148,7 +9148,7 @@ def main() -> None:
     # build_solar_arrays()'s own docstring rather than being restated
     # here in two places.
     solar_kw, solar_lower_kw, solar_upper_kw = solar_inputs_solar.build_solar_arrays(
-        cfg, grid_times, n_periods
+        cfg, grid_times, n_periods, now
     )
 
     # Real household demand. OPTIONAL, richer path: sum a household's own

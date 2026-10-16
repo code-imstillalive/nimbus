@@ -13548,6 +13548,23 @@
        "n_sheddable_loads": 0,
        "n_thermal_loads": 0,
        "simplex_iterations": 0,
+       "solar_running_low": {
+        "active": false,
+        "actual_30min_avg_kw": null,
+        "members_lower_bound": 0,
+        "members_p10": 0,
+        "members_ratio_scaled": 0,
+        "on_since": null,
+        "p50_lagged_kw": null,
+        "p50_now_kw": null,
+        "pending_since": null,
+        "periods_lowered": 0,
+        "ratio": null,
+        "ratio_scale_used": null,
+        "reason": "no_solar_power_sensor",
+        "reference_kw": null,
+        "reference_source": null
+       },
        "solver_failures": 0,
        "solves_attempted": 1,
        "thermal_guarantee_relaxed": [],
@@ -13678,7 +13695,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 321746 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=293585B, batteries=23352B, cost_breakdown_by_day=683B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 322116 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=293585B, batteries=23352B, solve_diagnostics=963B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   },
@@ -27230,6 +27247,23 @@
        "n_sheddable_loads": 0,
        "n_thermal_loads": 0,
        "simplex_iterations": 54,
+       "solar_running_low": {
+        "active": false,
+        "actual_30min_avg_kw": null,
+        "members_lower_bound": 0,
+        "members_p10": 0,
+        "members_ratio_scaled": 0,
+        "on_since": null,
+        "p50_lagged_kw": null,
+        "p50_now_kw": null,
+        "pending_since": null,
+        "periods_lowered": 0,
+        "ratio": null,
+        "ratio_scale_used": null,
+        "reason": "no_solar_power_sensor",
+        "reference_kw": null,
+        "reference_source": null
+       },
        "solver_failures": 0,
        "solves_attempted": 2,
        "thermal_guarantee_relaxed": [],

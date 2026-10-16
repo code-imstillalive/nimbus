@@ -193,6 +193,10 @@ from .const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_SOLVER_SOLAR_POWER_SENSOR,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -488,6 +492,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_CHARGE_BY_HOUR,
     CONF_SOLVER_CHARGE_BY_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_END_HOUR,
+    # nimbus issue #1784: the solar running-low gate's four numbers.
+    CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
     # nimbus issue #485: the household mode must be exposed here too,
     # or fetch_solver_config() never sees it and the solve-time resolver
     # has nothing to read -- the exact silent-no-op bug v0.94.283 shipped
@@ -595,6 +604,11 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_CHARGE_BY_PERCENT,
     CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
     CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
+    # nimbus issue #1784: the solar running-low gate (see const.py).
+    CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
+    CONF_SOLVER_SOLAR_RUNNING_LOW_CONFIRM_MINUTES,
 )
 # Household, 11 Oct 2026: time-of-day settings live in time.py as clock
 # times; resolved to hours (05:30 -> 5.5) so the Solver reads them as before.
@@ -3300,7 +3314,7 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     defect: **if `recorder.db_schema` logs "State attributes for
     <one of these> exceed maximum size", the writer is not this entity.**
     Check `solve_diagnostics`' key count on the state -- current code
-    emits **twenty-one**; fewer means stale or external code wrote it, which
+    emits **twenty-two**; fewer means stale or external code wrote it, which
     is a deployment problem, not this class's. That check has caught three
     wrong conclusions about live behaviour in a single session.
 
