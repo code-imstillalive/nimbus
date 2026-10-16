@@ -718,6 +718,14 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #1793 -- a stale price source falls back to AEMO.
+        # Added urgently on 16 Oct 2026 to the native runtime first; the
+        # standalone copy still plans on its source unchecked. Port next.
+        "_warn_stale_price_source_once",
+        "check",
+        "source_updated",
+        "aemo_series",
+        "_stamp",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there

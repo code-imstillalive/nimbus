@@ -33,9 +33,12 @@ Pure apart from the `read_state` it is given: no `homeassistant` import.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 STALE_AFTER = timedelta(minutes=60)
 STAMP_ATTRIBUTES = ("source_updated", "lastUpdate")
@@ -62,7 +65,8 @@ def _stamp(
 ) -> datetime | None:
     try:
         attrs = (read_state(entity_id) or {}).get("attributes") or {}
-    except Exception:  # noqa: BLE001 -- an unreadable entity has no stamp
+    except Exception as err:  # noqa: BLE001 -- an unreadable entity has no stamp
+        _LOGGER.debug("Nimbus #1793: %s unreadable for freshness: %s", entity_id, err)
         return None
     for key in STAMP_ATTRIBUTES:
         stamp = _parse(attrs.get(key))
@@ -103,7 +107,8 @@ def check(
     Never raises."""
     try:
         stamp, entity_id = source_updated(read_state, entity_ids)
-    except Exception:  # noqa: BLE001 -- a freshness probe must never break a solve
+    except Exception as err:  # noqa: BLE001 -- a freshness probe must never break a solve
+        _LOGGER.warning("Nimbus #1793: price freshness check failed: %s", err)
         return None
     if stamp is None:
         return None

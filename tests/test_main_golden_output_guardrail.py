@@ -133,6 +133,8 @@ _EXPECTED_ATTRS = {
     # period), published for the Solver tab's Prices ahead card.
     "import_price_provider_until": "2026-09-10T19:30:00+10:00",
     "export_price_provider_until": "2026-09-10T19:30:00+10:00",
+    # nimbus #1793: the fixture's price sensors publish no refresh stamp.
+    "price_source_freshness": None,
     # Household, 14 Oct 2026: "charge by" is off in this fixture.
     "charge_by_time": None,
     "charge_by_target_pct": None,

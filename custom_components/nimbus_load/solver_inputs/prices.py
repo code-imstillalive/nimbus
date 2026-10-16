@@ -100,7 +100,6 @@ def build_price_arrays(
     """
     sw = _solver_writer()
 
-    price_source_freshness = None
     if has_price_forecast_array:
         # PRIMARY path -- richer than the generic fallback below whenever
         # this field is actually configured, unchanged in BEHAVIOUR from
@@ -212,7 +211,10 @@ def build_price_arrays(
             if spot_sensor:
                 try:
                     live_spot = float(sw.price_now(spot_sensor, fallback=float("nan")))
-                except Exception:  # noqa: BLE001 -- no live spot is not an error
+                except Exception as err:  # noqa: BLE001 -- no live spot is not an error
+                    solver_shared._LOGGER.debug(
+                        "Nimbus #1793: live AEMO spot unreadable: %s", err
+                    )
                     live_spot = None
                 if live_spot is not None and math.isnan(live_spot):
                     live_spot = None
@@ -386,6 +388,8 @@ def build_price_arrays(
             for i in range(n_periods)
         ]
     else:
+        # nimbus #1793: the generic arm reads no refresh stamp.
+        price_source_freshness = None
         # FALLBACK (2026-08-20, for anyone else): PREFERS a real, live
         # forecast if the configured sensor exposes one (2026-08-22, real
         # finding from Mark Purcell's own install -- see
