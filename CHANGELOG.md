@@ -14,13 +14,14 @@ The Solver tab shows the price guards at a glance; Charge By holds its
 target for the whole final hour instead of selling off the top and
 refilling.
 
-- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 89b9e3d7**,
-  installed untagged via HACS from the PR branch (`installed_version`
-  `claude/price-safety-card`) and restarted 15:31:39 AEST 16 Oct. The
-  release's `custom_components/` is byte-identical to 89b9e3d7.
-  - devhub's own entities stamp the PR's manifest (0.94.459); 145 / 145
-    `nimbus_load` entities available. The four Price safety cards are in the
-    Solver tab, under the price-day cards.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 99734957**,
+  installed untagged via HACS from the release cut's branch (`installed_version`
+  `release/0.94.460`) and restarted 15:53:52 AEST 16 Oct; the PR's head
+  (89b9e3d7) was validated the same way at 15:31:39.
+  - devhub's own entities stamp `0.94.460` (the other 119 are production's
+    mirrored entities on 0.94.459); 145 / 145 `nimbus_load` entities
+    available. The four Price safety cards are in the Solver tab, under the
+    price-day cards.
   - **No Traceback, and no ERROR line this release introduces.** The start
     logs 200 `nimbus_load` "does not generate unique IDs" errors. A
     **v0.94.459** control, installed and restarted 15:07:11, logged the same
