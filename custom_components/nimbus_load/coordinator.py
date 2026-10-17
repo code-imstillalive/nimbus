@@ -179,6 +179,27 @@ MAX_SANE_POWER_KW = 1000.0
 type NimbusConfigEntry = ConfigEntry[dict[str, NimbusCoordinator]]
 
 
+def band_limits(y_train: Any, *, allow_negative: bool) -> tuple[float, float]:
+    """The floor and ceiling a forecast's confidence band is clamped to: the
+    signal's own observed range plus a 20% margin (see the band code in
+    `_async_update_data` for why).
+
+    nimbus #1835 (TD944, 17 Oct 2026): a load whose history touches 0 got a
+    floor 20% of its range BELOW zero, so its band's lower bound read -0.2 kW,
+    which a load cannot draw. The floor is never below 0 for a signal that
+    cannot be negative (a Load), nor for one whose own history has never been
+    negative (a solar or whole-house Power Signal). Battery and grid, whose
+    history does go negative, keep the margin below their minimum."""
+    y_min = float(np.min(y_train))
+    y_max = float(np.max(y_train))
+    y_range = y_max - y_min
+    margin = y_range * 0.2 if y_range > 1e-9 else max(abs(y_max), 1.0) * 0.2
+    floor = y_min - margin
+    if not allow_negative or y_min >= 0.0:
+        floor = max(floor, 0.0)
+    return floor, y_max + margin
+
+
 class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns one load's model lifecycle and produces its published forecast
     payload. One instance per "load" subentry -- e.g. HWS L1, HWS L3, and
@@ -2078,12 +2099,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # way an arbitrary fixed kW constant wouldn't be: it's grounded
         # in this specific signal's own real data, works identically for
         # a 3kW load and a 44kW battery with zero per-entity tuning.
-        y_min = float(np.min(self._trained.y_train))
-        y_max = float(np.max(self._trained.y_train))
-        y_range = y_max - y_min
-        margin = y_range * 0.2 if y_range > 1e-9 else max(abs(y_max), 1.0) * 0.2
-        bound_floor = y_min - margin
-        bound_ceiling = y_max + margin
+        bound_floor, bound_ceiling = band_limits(
+            self._trained.y_train, allow_negative=self._allow_negative
+        )
 
         # calibrated_band()'s np.percentile() call only depends on
         # self._residuals, not on any single horizon point -- computed

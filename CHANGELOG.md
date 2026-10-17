@@ -20,6 +20,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   sit at the floor. Values are read from this hub's own number entities by
   unique_id.
 
+### Fixed
+- **A load forecast's lower bound no longer goes below zero** (#1835, reported
+  by TD944). The band is clamped to the signal's own observed range plus a 20%
+  margin, and for a load whose history touches 0 that floor sat below zero, so
+  the published `lower` read as low as -0.2 kW: a draw a load cannot have. The
+  GBRT winner's quantile bounds reached it unclamped. The floor is now never
+  below 0 for a Load, nor for a Power Signal whose own history has never been
+  negative (solar, whole-house). Battery and grid keep their margin below
+  their minimum. The forecast value itself was already clamped and is
+  unchanged.
+
 ## [0.94.462] - 2026-10-17
 
 A Help tab, so a new install can see what each tab needs before it stops
