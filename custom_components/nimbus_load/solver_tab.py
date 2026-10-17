@@ -511,6 +511,19 @@ def _stochastic_chart() -> dict[str, Any]:
 
 # The switch, then the four numbers (const.py says what each does), and the
 # one-line note every settings card ends with (household, 11 Oct 2026).
+# Household, 17 Oct 2026 (#1822): what each setting does, in two notes so the
+# card fits its 9-row cell (a note per setting overflowed it).
+_DRIVE_NOTE = (
+    "Drive the battery: off, it only plans beside the main plan; "
+    "on, it runs the battery unless it can't be trusted."
+)
+_DIALS_NOTE = (
+    "Commit window: how far ahead a choice must suit all 3 days. "
+    "Day weight: how much cloudy and sunny days count. Time limit: "
+    "past it, the main plan runs. Check every: re-plan gap while off."
+)
+
+
 def _stochastic_settings() -> dict[str, Any]:
     return {
         "type": "entities",
@@ -523,7 +536,8 @@ def _stochastic_settings() -> dict[str, Any]:
                 ("solver_stochastic_tail_weight", "Low/high day weight"),
                 ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
                 ("solver_stochastic_shadow_interval_minutes", "Check every"),
-                ("section", "Off: it only checks."),
+                ("section", _DRIVE_NOTE),
+                ("section", _DIALS_NOTE),
             ]
         ),
     }
