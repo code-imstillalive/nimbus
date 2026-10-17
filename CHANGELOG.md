@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.461] - 2026-10-17
+
+Two-stage stochastic dispatch, ready to drive and shipped in shadow: it plans
+for a low, middle and high solar day at once, shows that plan on the Solver
+tab beside the main one, and is switched on with **Drive the battery** when
+the household chooses (off by default; nothing about dispatch changes until
+then). A replay script measures whether it earns more on real days before
+that choice is made. Also: one car's unreachable departure target no longer
+fails the whole plan, and the Solver tab shows the quality card once, without
+a scrollbar, with the plan's days 3 and 4.
+
 ### Added
 - **Does stochastic earn more? A closed-loop paired replay** (#1797
   programme, PR C): `scripts/stochastic_replay.py`, read-only, on what
