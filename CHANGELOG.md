@@ -29,6 +29,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     salvage value and more), and **Setup wizard**: every screen in the
     wizard's own words from `strings.json`, required fields marked 🔴.
 
+### Changed
+- **The Stochastic block's Settings card says what each setting does**
+  (#1822, household, 17 Oct 2026). "Off: it only checks." is replaced by two
+  notes: Drive the battery (off, it only plans beside the main plan; on, it
+  runs the battery unless it can't be trusted), and one line each for the
+  commit window, the low/high day weight, the drive time limit and the shadow
+  check interval. Two notes rather than one per setting, so the card still
+  fits its row with no scrollbar.
+
 ## [0.94.461] - 2026-10-17
 
 Two-stage stochastic dispatch, ready to drive and shipped in shadow: it plans
