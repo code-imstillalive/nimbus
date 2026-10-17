@@ -15,6 +15,36 @@ being blank, with every setting explained. The Stochastic settings card says
 what each setting does. And a stale price source no longer counts in the
 daily score: 16 Oct's withdrawn LocalVolts spike is re-priced from AEMO.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 9704026e**,
+  installed untagged via HACS from `release/0.94.462` and restarted 18:29 AEST
+  17 Oct (a first install at 2ea65531, started 17:46, found the blocking read fixed by
+  #1829).
+  - devhub's own entities stamp `0.94.462`; 147 / 147 `nimbus_load` entities
+    available. No Traceback; the start logs the same devhub-only
+    duplicate-unique-ID errors as v0.94.461's validation (the production
+    mirror). No "Detected blocking call" after #1829 (two at 2ea65531).
+  - **Help tab:** view 8 of 9 on devhub's Nimbus dashboard, 13 sections, no
+    unresolved `${@` reference, What's new lists 0.94.462; every Solver-tab
+    setting row carries its "Solver tab → block → card" location.
+  - **Stochastic settings:** the two notes ("Drive the battery: off, it only
+    plans beside the main plan; ...") are on the Solver tab's Stochastic
+    Settings card.
+  - **Scoring (#1825):** devhub's own quality report re-scored on upgrade to
+    schema 4 (the #1496 path) and carries `price_stale_periods` 0,
+    `price_stale_repriced` false, `price_stale_unusable` false: devhub's price
+    source was fresh on 16 Oct. The re-pricing itself is evidenced by a
+    read-only replay of 16 Oct against the reference household's recorder
+    through `_compute_report_for_window()`: EPR 41.23% / $28.93 regret on
+    v0.94.461 code, 88.39% / $3.47 with this release, 11:30-13:30 re-priced,
+    and by `tests/test_1825_stale_price_scoring.py`.
+  - CI passed all 10 checks on #1824, #1826, #1827, #1828 and #1829.
+- Consumer check: a new Help tab, last on the Nimbus dashboard: a red band
+  saying a basic install leaves tabs blank, six setup steps with live ticks,
+  where everything is, every setting with its formula, a glossary, the wizard
+  screens, what's new and how to report a problem. The Stochastic settings
+  card explains its five settings. Yesterday's EPR no longer counts a stalled
+  price feed: the Regret card says how many minutes were re-priced from AEMO.
+
 ### Added
 - **A Help tab** (#1823, household, 17 Oct 2026), last on the Nimbus dashboard:
   set Nimbus up so every tab works, and what every figure and setting means.
