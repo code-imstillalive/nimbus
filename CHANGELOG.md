@@ -15,6 +15,37 @@ forecast whose lower bound can no longer dip below zero, and the decision
 records now keep the LocalVolts price array and any comparison price sources,
 for scoring how prices should be combined (#1786).
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 168e647d**,
+  installed untagged via HACS from `release/0.94.463` and restarted 08:15 AEST
+  18 Oct.
+  - 147 / 147 `nimbus_load` entities available; devhub's own entities stamp
+    `0.94.463` (the rest carry production's mirrored 0.94.461). No Nimbus
+    ERROR line; the start logs only the devhub-only baseline (duplicate
+    unique IDs from the production mirror, oversized attributes, the
+    synthetic test EV unreadable).
+  - **Comparison price sources:** set on devhub to its Amber Express general
+    and feed-in sensors and the AEMO QLD1 30-minute forecast; every other
+    option read back unchanged. The first horizon record after the reload
+    (08:20:15) carries 8 price series against 4 before: LocalVolts buy and
+    sell, the price array as `series_fields` `costsflexup` and
+    `earningsflexup` (fingerprints identical to the buy and sell series, so
+    stored once), PD7DAY, P5MIN, both Amber series (`amber_express`, 46 rows)
+    and AEMO (`aemo_nem`, 40 rows).
+  - **Battery-settings Repairs:** 0 Repairs, the correct answer for devhub's
+    real settings (122.2 kWh, 40 / 40 kW, 42 kW import, SoC 2-100%). The
+    firing path is not exercised on devhub, because that would mean writing
+    entities production shares; it is covered by
+    `tests/test_1800_placeholder_settings_repairs.py`.
+  - **Load band floor:** not claimed live, because devhub's forecast entities
+    are production's mirror; covered by
+    `tests/test_1835_load_band_never_negative.py`.
+  - CI passed every check on #1833, #1836, #1839 and #1841.
+- Consumer check: Settings → Repairs names a battery still on its 0.1
+  placeholders, or Min / Max / Charge By SoC that contradict, and clears
+  itself once fixed. A load's forecast band no longer dips below zero. Solver
+  settings → Sources → Advanced gains *price sources to record for comparison
+  only*; the plan never uses it.
+
 ### Added
 - **Price sources recorded for comparison** (#1786, Mark Purcell). The decision
   records behind price-rule scoring were missing the very sources that mattered.
