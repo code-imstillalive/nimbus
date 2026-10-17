@@ -1078,6 +1078,26 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "loo_coverage",
         "size_class",
         "update_and_build",
+        # nimbus #1797: the signed price-forecast error history
+        # (solver_inputs/price_error_history.py), fed from
+        # apply_price_consolidation(). Open drift for the same reason as the
+        # #1786 consolidation it hangs off (listed above): the docs copy has no
+        # consolidation sources to grade, so there is nothing to port it onto
+        # until #1786 is ported. `_load`, `_save`, `lead_bucket` and
+        # `_rep_lead` are already listed for #1807/#1786.
+        "_q3",
+        "_summary",
+        "cell_stats",
+        "classify",
+        "compact",
+        "loo_band_coverage",
+        "on_stride",
+        "spike_stats",
+        "spike_threshold",
+        "summarise",
+        "update",
+        "_warn_once",
+        "_record_price_errors",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under
