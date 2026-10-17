@@ -110,6 +110,11 @@ ROW_FIELDS = (
     # scenarios are built from, so a stochastic cycle can be replayed.
     "solar_p10_kw",
     "solar_p90_kw",
+    # nimbus #1797: what the LP counted on after the risk-aversion dials, so
+    # the replay (scripts/stochastic_replay.py) rebuilds the plan that ran.
+    "solar_effective_kw",
+    "import_price_effective",
+    "export_price_effective",
 )
 
 #: Top-level attributes of the published plan kept with each record.

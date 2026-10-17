@@ -759,6 +759,12 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_log_fallback_once",
         "stochastic_paths_for",
         "stochastic_settings",
+        # nimbus #1797 (PR C): the publish helper that puts what the LP
+        # counted on after the risk-aversion dials on each plan row, so
+        # scripts/stochastic_replay.py rebuilds the plan that ran. Ported
+        # with the orchestration above; the cron copy has no decision-input
+        # capture to read it yet.
+        "_effective_at",
         # nimbus #1786 -- the consolidated price forecast and per-source
         # running error (shadow, with a live switch). Native runtime first;
         # the docs copy has no secondary-source coverage reader and no
