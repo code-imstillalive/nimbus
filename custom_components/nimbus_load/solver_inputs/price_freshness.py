@@ -170,3 +170,76 @@ def aemo_series(
             return None
         out.append(float(value + markup))
     return out
+
+
+# ---- the same rule over a past day, for scoring (nimbus #1825) -------------
+#
+# On 16 Oct 2026 the daily quality report scored the reference household's
+# day against the stalled rows above as if they were real: about 40 kWh
+# "sold" into a $1-10/kWh spike that never existed, published as EPR 43.4%
+# and $28.93 regret, $33 of it from 12:00-13:00.
+#
+# The recorder keeps a row only when a state CHANGES, so a stamp's age is
+# read at the moment its row was recorded, never at the period being
+# scored: a buy rate that holds 0.0 all evening records nothing, and an age
+# measured from its last row would grow for hours while LocalVolts was
+# perfectly fresh (measured: 17:35-20:15 and 21:05-23:55 on 16 Oct read
+# "stale" that way). Read at its record time, 16 Oct is stale 11:10-13:20,
+# and 13-15 Oct never pass 57 minutes.
+
+
+def stale_period_mask(
+    stamp_rows: Iterable[Iterable[tuple[datetime, datetime]]],
+    grid_times: list[datetime],
+    stale_after: timedelta = STALE_AFTER,
+) -> list[bool]:
+    """Per period, whether the price source was stale.
+
+    `stamp_rows` holds, for each price entity, its recorded states as
+    (recorded at, refresh stamp). A period is stale when, for any entity,
+    the latest row at or before it carried a stamp more than `stale_after`
+    old when it was recorded: the oldest stamp decides, as in `check()`.
+    An entity with no row yet says nothing about that period."""
+    ages: list[list[tuple[datetime, timedelta]]] = [
+        sorted((recorded, recorded - stamp) for recorded, stamp in rows)
+        for rows in stamp_rows
+    ]
+    ages = [rows for rows in ages if rows]
+    out: list[bool] = []
+    cursor = [0] * len(ages)
+    latest: list[timedelta | None] = [None] * len(ages)
+    for gt in grid_times:
+        stale = False
+        for i, rows in enumerate(ages):
+            while cursor[i] < len(rows) and rows[cursor[i]][0] <= gt:
+                latest[i] = rows[cursor[i]][1]
+                cursor[i] += 1
+            age = latest[i]
+            if age is not None and age > stale_after:
+                stale = True
+        out.append(stale)
+    return out
+
+
+def stale_windows(
+    grid_times: list[datetime],
+    mask: list[bool],
+    step: timedelta,
+    local: Callable[[datetime], datetime],
+) -> list[str]:
+    """The stale runs as local "HH:MM-HH:MM" (end exclusive)."""
+    out: list[str] = []
+    start: datetime | None = None
+    for i, gt in enumerate(grid_times):
+        if mask[i] and start is None:
+            start = gt
+        if start is not None and (not mask[i] or i == len(grid_times) - 1):
+            end = gt if not mask[i] else gt + step
+            out.append(f"{local(start):%H:%M}-{local(end):%H:%M}")
+            start = None
+    return out
+
+
+def parse_stamp(value: Any) -> datetime | None:
+    """A refresh stamp as the recorder stored it, or None."""
+    return _parse(value)

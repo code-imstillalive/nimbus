@@ -89,6 +89,133 @@ except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
 
 
+# nimbus #1825: past this share of the day stale, a re-priced day is too much
+# estimate to read as a measurement -- 6 of 24 hours.
+PRICE_STALE_UNRELIABLE_SHARE = 0.25
+
+
+def _price_stamp_rows(
+    sw, entity_ids: list[str], day_start: datetime, day_end: datetime
+) -> list[list[tuple[datetime, datetime]]]:
+    """Each price entity's recorded (time, refresh stamp) rows for the day,
+    from the stamp attributes `price_freshness.check()` reads, plus the LV v2
+    current-rate siblings it also reads. The first attribute an entity
+    carries is used. History starts an hour early so the day's first period
+    has a row to read."""
+    price_freshness = sw.price_freshness
+    ids = list(dict.fromkeys(e for e in entity_ids if e))
+    if any(e.startswith(price_freshness.LV_V2_PREFIX) for e in ids):
+        ids += [e for e in price_freshness.LV_V2_STAMP_SIBLINGS if e not in ids]
+    out: list[list[tuple[datetime, datetime]]] = []
+    for entity_id in ids:
+        for attribute in price_freshness.STAMP_ATTRIBUTES:
+            rows = sw.fetch_entity_attribute_history_range(
+                entity_id,
+                attribute,
+                day_start - price_freshness.STALE_AFTER,
+                day_end,
+                convert=price_freshness.parse_stamp,
+            )
+            if rows:
+                out.append(rows)
+                break
+    return out
+
+
+def _reprice_stale_price_periods(
+    sw,
+    cfg: dict,
+    grid_times: list[datetime],
+    period_hours: float,
+    day_start: datetime,
+    day_end: datetime,
+    import_price: np.ndarray,
+    export_price: np.ndarray,
+) -> dict:
+    """nimbus #1825: periods priced from a stale price source are re-priced.
+
+    The rule is the Solver's own (#1793): a source whose refresh stamp is
+    more than an hour old is not trusted, and AEMO plus the learned
+    per-5-minute markup stands in -- here AEMO's recorded price for the
+    period rather than its forecast. `import_price` and `export_price` are
+    changed in place, so J_ref, J_ach and J_star all see the same prices.
+
+    Returns the `price_stale_*` report fields. `price_stale_unusable` is
+    True when stale periods could not be re-priced (no AEMO sensor, or no
+    AEMO history) or when more than PRICE_STALE_UNRELIABLE_SHARE of the day
+    was stale; the day's EPR is then not a measurement. A source that
+    publishes no refresh stamp is not checked, as in the Solver."""
+    # Reached through solver_writer: solver_reports may not import
+    # solver_inputs (pyproject.toml's nimbus-layers contract).
+    price_freshness = sw.price_freshness
+    import_sensor = cfg.get("solver_import_price_sensor")
+    export_sensor = cfg.get("solver_export_price_sensor")
+    result: dict = {
+        "price_stale_periods": 0,
+        "price_stale_minutes": 0,
+        "price_stale_windows": [],
+        "price_stale_repriced": False,
+        "price_stale_unusable": False,
+    }
+    try:
+        rows = _price_stamp_rows(sw, [import_sensor, export_sensor], day_start, day_end)
+        mask = price_freshness.stale_period_mask(rows, grid_times)
+    except Exception as err:  # noqa: BLE001 -- the check must never stop a day being scored
+        solver_shared._LOGGER.warning(
+            "Nimbus #1825: price freshness check for the scored day failed: %s", err
+        )
+        return result
+    stale = [i for i, flag in enumerate(mask) if flag]
+    if not stale:
+        return result
+    result["price_stale_periods"] = len(stale)
+    result["price_stale_minutes"] = round(len(stale) * period_hours * 60)
+    result["price_stale_windows"] = price_freshness.stale_windows(
+        grid_times, mask, timedelta(hours=period_hours), sw._local
+    )
+    share = len(stale) / len(grid_times)
+
+    spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
+    aemo_hist = (
+        sw.fetch_entity_history_range(
+            spot_sensor, day_start - timedelta(hours=1), day_end
+        )
+        if spot_sensor
+        else []
+    )
+    if not aemo_hist:
+        result["price_stale_unusable"] = True
+        return result
+    aemo = sw.resample_history_nearest(aemo_hist, grid_times, backfill_first=True)
+    import_offset = sw.compute_5min_offset(
+        sw.fetch_price_history(import_sensor) if import_sensor else [],
+        regional_spot_sensor=spot_sensor,
+    )
+    export_offset = sw.compute_5min_offset(
+        sw.fetch_price_history(export_sensor) if export_sensor else [],
+        regional_spot_sensor=spot_sensor,
+    )
+    for i in stale:
+        local = sw._local(grid_times[i])
+        bucket = local.hour * 12 + local.minute // 5
+        import_price[i] = (
+            aemo[i]
+            + import_offset.get(bucket, 0.0)
+            + sw.import_fee_rate(cfg, local.hour)
+        )
+        export_price[i] = aemo[i] + export_offset.get(bucket, 0.0)
+    result["price_stale_repriced"] = True
+    result["price_stale_unusable"] = share > PRICE_STALE_UNRELIABLE_SHARE
+    solver_shared._LOGGER.info(
+        "Nimbus #1825: %s scored with %d stale price period(s) (%s) re-priced "
+        "from AEMO plus the learned markup",
+        day_start.date().isoformat(),
+        len(stale),
+        ", ".join(result["price_stale_windows"]),
+    )
+    return result
+
+
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
     name) -- see this package's `__init__.py` for the full reasoning."""
@@ -525,6 +652,18 @@ def _compute_report_for_window(
         sw.resample_history_nearest(
             export_price_hist, grid_times, default=0.05, backfill_first=True
         )
+    )
+    # nimbus #1825: a stale price source's periods are re-priced before
+    # anything is priced on them -- see _reprice_stale_price_periods().
+    price_stale = _reprice_stale_price_periods(
+        sw,
+        cfg,
+        grid_times,
+        period_hours,
+        day_start,
+        day_end,
+        import_price,
+        export_price,
     )
 
     # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
@@ -1242,7 +1381,19 @@ def _compute_report_for_window(
         and achieved_feasibility.get("epr_reason") is None
     ):
         achieved_feasibility["epr_reason"] = "grid_meter_disagrees"
+    if (
+        price_stale["price_stale_unusable"]
+        and achieved_feasibility.get("epr_reason") is None
+    ):
+        achieved_feasibility["epr_reason"] = "price_source_stale"
     return {
+        # nimbus #1825: see _reprice_stale_price_periods(). Literal keys, so
+        # QUALITY_REPORT_SCHEMA's pin sees them.
+        "price_stale_periods": price_stale["price_stale_periods"],
+        "price_stale_minutes": price_stale["price_stale_minutes"],
+        "price_stale_windows": price_stale["price_stale_windows"],
+        "price_stale_repriced": price_stale["price_stale_repriced"],
+        "price_stale_unusable": price_stale["price_stale_unusable"],
         **nowcast_skill_attrs,
         **forecast_regret_attrs,
         # nimbus issue #1496: which shape of report this is. The "already
@@ -1609,6 +1760,7 @@ def _compute_report_for_window(
             achieved_feasibility["regret_reliable"],
             epr_denominator_reason,
             meter_reconciliation["status"],
+            price_stale["price_stale_unusable"],
         ),
         **achieved_feasibility,
     }
@@ -2384,13 +2536,15 @@ _QUALITY_HOLD_WARNED: set[str] = set()
 #   2  #1480's j_star_path_delta_explained / _unexplained, plus the stamp
 #   3  #1465's meter_reconciliation (the reconstructed grid checked against
 #      the grid meter; a disagreement makes epr_reliable false)
+#   4  #1825's price_stale_* (periods priced from a stale source, re-priced
+#      from AEMO plus the learned markup)
 #
 # Why it is needed: the "already scored" fast path below re-pushes a day's
 # published attributes verbatim on every later cycle. Measured on a real
 # install (Mark Purcell, #1496): 30 Sep was scored before v0.94.433 reached it,
 # and after the upgrade its sensor still read j_star_path_delta_explained=None
 # while a fresh compute_quality_report for the identical window returned 1.2357.
-QUALITY_REPORT_SCHEMA = 3
+QUALITY_REPORT_SCHEMA = 4
 
 # When each day was last re-scored for an older schema, as time.monotonic().
 # A failed re-score is RETRIED, but no more often than

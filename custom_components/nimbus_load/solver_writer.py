@@ -7292,6 +7292,7 @@ def _epr_reliability(
     regret_reliable: object,
     epr_denominator_reason: object = None,
     meter_reconciliation_status: object = None,
+    price_stale_unusable: object = False,
 ) -> bool | None:
     """Whether the published EPR/regret pair can be read as a
     measurement (nimbus issues #533, #956, #1089).
@@ -7331,6 +7332,11 @@ def _epr_reliability(
     if not regret_reliable:
         return False
     if epr_denominator_reason is not None:
+        return False
+    # nimbus #1825: the day was priced from a stale source that could not be
+    # re-priced, or too much of it was (solver_reports/quality.py's
+    # _reprice_stale_price_periods()).
+    if price_stale_unusable is True:
         return False
     # nimbus #1465: the reconstructed grid exchange the day was priced on
     # does not match the grid meter (solver/meter_reconciliation.py). Only
@@ -7625,6 +7631,7 @@ _RELIABILITY_SOC = "s"  # the reconstructed SoC disagrees with the sensor
 _RELIABILITY_ORACLE = "o"  # regret < 0: oracle "beaten", comparison void
 _RELIABILITY_DENOMINATOR = "d"  # EPR's denominator is not a positive quantity
 _RELIABILITY_METER = "m"  # reconstructed grid exchange disagrees with the meter (#1465)
+_RELIABILITY_PRICE = "f"  # priced from a stale (frozen) price source (#1825)
 _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 
 
@@ -7813,7 +7820,11 @@ def _epr_reliability_code(day_entry: dict) -> str | None:
     if reliable is None:
         return _RELIABILITY_UNKNOWN
     # False. Name the signal that decided it, in _epr_reliability()'s
-    # own order.
+    # own order -- except a stale price source (#1825), named first: wrong
+    # prices are the cause, and a "beaten" oracle or a bad denominator on
+    # that day is their consequence.
+    if day_entry.get("price_stale_unusable") is True:
+        return _RELIABILITY_PRICE
     if day_entry.get("regret_reliable") is False:
         return _RELIABILITY_ORACLE
     if day_entry.get("epr_denominator_reason") is not None:

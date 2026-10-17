@@ -532,6 +532,9 @@ class NimbusRegretCard extends HTMLElement {
     } else if (code === "m") {
       // nimbus #1465
       why = "the grid import and export it was priced on do not match the grid meter";
+    } else if (code === "f") {
+      // nimbus #1825
+      why = "it was priced from a price source that had stopped updating";
     } else {
       // An unrecognised code still has to surface. A newer writer with a
       // cause this card has no sentence for must not read as a clean day.
@@ -547,7 +550,12 @@ class NimbusRegretCard extends HTMLElement {
     if (attrs.epr_reliable === false) {
       const reason = String(attrs.epr_reason || "");
       let why;
-      if (reason.startsWith("achieved_soc_unreliable")) {
+      if (reason === "price_source_stale" || attrs.price_stale_unusable === true) {
+        // nimbus #1825
+        why = attrs.price_stale_repriced
+          ? "the price source had stopped updating for too much of the day to re-price"
+          : "the price source had stopped updating and AEMO prices were not available to re-price it";
+      } else if (reason.startsWith("achieved_soc_unreliable")) {
         const verdict = reason.split(":")[1];
         why = "the reconstructed battery SoC disagrees with the real sensor"
           + (verdict ? ` (${verdict})` : "");
@@ -566,6 +574,17 @@ class NimbusRegretCard extends HTMLElement {
         why = reason || "the report did not say why";
       }
       parts.push(`<b>This day's EPR is not a reliable measurement:</b> ${this._escape(why)}.`);
+    }
+    // nimbus #1825: re-priced periods are said, even on a reliable day, so a
+    // figure that is partly an estimate never reads as wholly measured.
+    const staleMin = Number(attrs.price_stale_minutes);
+    if (attrs.price_stale_repriced === true && Number.isFinite(staleMin) && staleMin > 0) {
+      const windows = (attrs.price_stale_windows || []).join(", ");
+      parts.push(
+        `<b>${staleMin} min re-priced</b> from AEMO plus your learned markup: the `
+        + `price source had stopped updating`
+        + (windows ? ` (${this._escape(windows)})` : "") + `.`
+      );
     }
     // nimbus issue #1172: there is deliberately no capacity sentence
     // here any more.

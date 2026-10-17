@@ -82,6 +82,7 @@ class TestTheSchemaIsPinnedToTheFieldSet(unittest.TestCase):
 _EXPECTED_HASHES = {
     2: "0bddf26959893096070fcb8208c89ca885835b611bbaa6c7bee2e9817747149b",
     3: "11f0ea93fda61d94b545172f6035e39af40a9edf38e1cf3dd26e33fe4488a64d",
+    4: "9ea656c1af6164288b86f941218fb1309d1fd0bf457f015c1b0c529ea64c522c",
 }
 
 

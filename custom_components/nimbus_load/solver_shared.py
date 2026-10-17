@@ -119,7 +119,9 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -1492,8 +1494,12 @@ def fetch_entity_history_range(
 
 
 def fetch_entity_attribute_history_range(
-    entity_id: str, attribute: str, start: datetime, end: datetime
-) -> list[tuple[datetime, float]]:
+    entity_id: str,
+    attribute: str,
+    start: datetime,
+    end: datetime,
+    convert: Callable[[Any], Any] = float,
+) -> list[tuple[datetime, Any]]:
     """nimbus issue #592: same shape as fetch_entity_history_range()
     just above, for the real case that function can't cover -- a
     water_heater/climate done_entity's own STATE is a mode string
@@ -1505,6 +1511,11 @@ def fetch_entity_attribute_history_range(
     `attribute` off each historical state instead of the state itself.
     Same dual native/REST mode, same degrade-to-[]-on-any-failure
     discipline as every other real-data fetch in this file.
+
+    nimbus #1825: `convert` turns each raw value into what is returned
+    (`float` by default); a value it rejects -- raising TypeError or
+    ValueError, or returning None -- is skipped. The scorer passes a
+    timestamp parser to read a price source's refresh stamps.
     """
     sw = _solver_writer()
     if NATIVE.hass is not None:
@@ -1526,7 +1537,14 @@ def fetch_entity_attribute_history_range(
                     False,  # no_attributes -- must be False, the whole point here
                 )
 
-            future = asyncio.run_coroutine_threadsafe(_fetch(), NATIVE.hass.loop)
+            coro = _fetch()
+            try:
+                future = asyncio.run_coroutine_threadsafe(coro, NATIVE.hass.loop)
+            except Exception:
+                # nimbus #1825: never scheduled, so close it rather than
+                # leave a never-awaited coroutine behind.
+                coro.close()
+                raise
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:
@@ -1538,14 +1556,16 @@ def fetch_entity_attribute_history_range(
                 exc_info=True,
             )
             return []
-        out: list[tuple[datetime, float]] = []
+        out: list[tuple[datetime, Any]] = []
         for s in states:
             raw = s.attributes.get(attribute)
             if raw is None:
                 continue
             try:
-                v = float(raw)
+                v = convert(raw)
             except (TypeError, ValueError):
+                continue
+            if v is None:
                 continue
             out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
@@ -1570,8 +1590,10 @@ def fetch_entity_attribute_history_range(
         if raw is None:
             continue
         try:
-            v = float(raw)
+            v = convert(raw)
         except (TypeError, ValueError):
+            continue
+        if v is None:
             continue
         out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
     return sorted(out, key=lambda x: x[0])

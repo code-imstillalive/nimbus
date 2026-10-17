@@ -17,6 +17,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   check interval. Two notes rather than one per setting, so the card still
   fits its row with no scrollbar.
 
+### Fixed
+- **A stale price source no longer counts in the daily score** (#1825, 16 Oct
+  2026). That day LocalVolts stopped rebuilding its rows at 10:01 AEST and
+  carried a withdrawn $1-10/kWh pre-dispatch spike until 13:01. The Solver
+  already refused to plan on it (#1793), but the next morning's quality report
+  scored the day against it: EPR 43.4%, $28.93 regret, for money that never
+  existed. The scorer now applies the Solver's own rule (refresh stamp over an
+  hour old) to every scored period, reading each stamp's age when its row was
+  recorded. Stale periods are re-priced from AEMO's recorded price plus the
+  learned markup, for J_ref, J_ach and J_star alike. New report fields:
+  `price_stale_periods`, `price_stale_minutes`, `price_stale_windows`,
+  `price_stale_repriced`, `price_stale_unusable`. The day is not a reliable
+  measurement (`epr_reason: price_source_stale`, history code `f`) when AEMO
+  history is missing or more than a quarter of the day was stale. The Regret
+  card says when periods were re-priced. Report schema 4, so the latest
+  published day is re-scored once on upgrade; older days with
+  `nimbus_load.rescore_history`.
+  - Replayed read-only against the reference household's recorder: 16 Oct goes
+    from EPR 41.23% / $28.93 regret (current code, regret matching the
+    published figure to the cent) to **88.39% / $3.47**, with 11:30-13:30
+    re-priced and nothing else changed. 13-15 Oct never pass 57 minutes.
+
 ## [0.94.461] - 2026-10-17
 
 Two-stage stochastic dispatch, ready to drive and shipped in shadow: it plans
