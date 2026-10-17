@@ -194,6 +194,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   10:00-10:50, clearing on the 10:55 run AEMO corrected.
 
 ### Fixed
+- **Solver tab: the quality card once, without a scrollbar, and the plan's
+  four days** (household, 17 Oct 2026). The EPR / Regret card was on the tab
+  twice, in Performance and again in the Plan row beside the whole-plan table,
+  and in Performance it scrolled by a few pixels. Its table rows are tighter,
+  so it fits its 8-row cell with no scrollbar and no gap below (10 rows,
+  tried first on devhub, left a gap); the three charts beside it keep the
+  same height, so the row ends on one line. In the Plan row the duplicate is replaced by the plan's days 3 and 4
+  (named by weekday) under the same daily summary, two to a column beside
+  Today and Tomorrow, ending level with the table. A day the plan only partly
+  covers says where it ends ("Wednesday (2026-10-21) -- plan ends 12:30").
+  Every install rewrites its Solver tab once.
 - **Two-stage stochastic dispatch: drive mode made safe to switch on, and
   the shadow solve taken off the dispatch path** (#1797 programme, PR A).
   Found by a line-by-line audit of #1805 and a probe that drove
