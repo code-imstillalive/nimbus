@@ -46,6 +46,10 @@ daily score: 16 Oct's withdrawn LocalVolts spike is re-priced from AEMO.
   fits its row with no scrollbar.
 
 ### Fixed
+- **The Help tab no longer reads a file on Home Assistant's event loop.**
+  Found validating this release on devhub: building the tab read
+  `strings.json` inline, and HA logged "Detected blocking call to read_text".
+  It is now read once, in the executor, before the dashboard is synced.
 - **A stale price source no longer counts in the daily score** (#1825, 16 Oct
   2026). That day LocalVolts stopped rebuilding its rows at 10:01 AEST and
   carried a withdrawn $1-10/kWh pre-dispatch spike until 13:01. The Solver

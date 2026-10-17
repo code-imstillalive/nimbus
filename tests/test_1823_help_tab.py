@@ -165,3 +165,19 @@ def test_a_new_install_gets_help_last() -> None:
     views, done = dash._sync_views([], {}, [], created=True, resolve=lambda v: v)
     assert views[-1]["title"] == "Help"
     assert "added:help" in done
+
+
+def test_strings_json_is_read_once_and_off_the_event_loop() -> None:
+    """v0.94.462 on devhub: HA logged a blocking read_text on the event loop
+    from the Help tab. The file is read once, by the executor, before the
+    dashboard sync builds the tab."""
+    import inspect
+    from unittest.mock import patch
+
+    help_tab._strings.cache_clear()
+    help_tab._strings()
+    with patch.object(Path, "read_text", side_effect=AssertionError("re-read")):
+        help_tab.template()  # served from the cache, no file read
+    src = inspect.getsource(dash.async_ensure_nimbus_dashboard)
+    warm = src.index("await hass.async_add_executor_job(help_tab._strings)")
+    assert warm < src.index("_sync_views(")

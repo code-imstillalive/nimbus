@@ -20,6 +20,7 @@ entry here, and `tests/test_1823_help_tab.py` fails if one is missing.
 
 from __future__ import annotations
 
+import functools
 import json
 from pathlib import Path
 from typing import Any
@@ -794,7 +795,12 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
+@functools.cache
 def _strings() -> dict[str, Any]:
+    """The wizard's own strings.json, read once. A file read, so it must not
+    run first on the event loop: async_ensure_nimbus_dashboard() loads it in
+    the executor before the Help tab is built (devhub, v0.94.462 validation:
+    HA logged "Detected blocking call to read_text" from here)."""
     path = Path(__file__).with_name("strings.json")
     return json.loads(path.read_text(encoding="utf-8"))
 

@@ -525,6 +525,9 @@ async def async_ensure_nimbus_dashboard(hass: HomeAssistant) -> list[str]:
 
     url_path, dashboard, config = target
     key = url_path or "default"
+    # The Help tab reads strings.json; read it here, off the event loop, so
+    # building the tab below only reads the cached copy.
+    await hass.async_add_executor_job(help_tab._strings)
     views, did = _sync_views(
         list(config.get("views") or []),
         memory.setdefault(key, {}),

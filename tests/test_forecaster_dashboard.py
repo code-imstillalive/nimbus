@@ -161,11 +161,17 @@ def ha(monkeypatch):
             "websocket_api": {
                 "lovelace/dashboards/create": (_ha_wrapped(ws.ws_create_item), None)
             },
-        }
+        },
+        async_add_executor_job=_executor_job,
     )
     return types.SimpleNamespace(
         hass=hass, dashboards=dashboards, key=key, collection=collection
     )
+
+
+async def _executor_job(fn, *args):
+    """HA's executor, run inline: the tests only need the call to happen."""
+    return fn(*args)
 
 
 def _run(mod, hass):
