@@ -396,6 +396,8 @@ class TestPlanAssemblyStructure(unittest.TestCase):
                 "solve_started",
                 # nimbus #1797: the stochastic summary publish_plan() carries.
                 "stochastic",
+                # nimbus #1797 PR B: the scenario paths beside that summary.
+                "stochastic_paths",
             ],
         )
 
