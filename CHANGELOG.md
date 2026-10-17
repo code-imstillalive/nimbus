@@ -106,6 +106,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   home battery's own rows. A single-battery install gets no new entities and
   an unchanged chart; `sensor.nimbus_solver_current_soc_pct` stays the fleet
   figure.
+- **A record of how each price forecast missed, kept for future price
+  scenarios (#1797).** The two-stage stochastic dispatch will need price
+  scenarios calibrated from this install's own forecast errors, and forecast
+  history cannot be backfilled, so recording starts now. Every solve, the
+  sources the #1786 consolidation already scores (the configured price
+  sensor, the optional second and third price sensors, and AEMO's forecast
+  plus the learned markup), on both import and export, are graded against
+  the same settled price that consolidation uses. Each pair keeps its sign
+  (`settled - forecast`), its lead (0-5 min, 5-60 min, 1-4 h, 4-24 h, and a
+  new 24-48 h bucket) and its regime: forecast at or above the spike
+  threshold, or below it. The threshold is an existing setting:
+  `number.nimbus_solver_price_spike_threshold` when set, else the P5MIN
+  false-spike threshold. Forecast spikes and unforecast spikes are always
+  kept. Of the ordinary pairs, one 5-minute interval in six is kept. History
+  is kept for 21 days.
+  - `sensor.nimbus_solver_battery_forecast`'s `price_consolidation`
+    attribute gains `error_history`. For each side, source and lead it
+    carries the count, the q10 / q50 / q90 of `settled - forecast`, the spike
+    hits, misses and surprises, and `p_hit`. `p_hit` is the chance a forecast
+    spike settles as one, with a Beta(1, 1) prior. The attribute is about
+    1.3 KB with two sources and three weeks of history.
+  - The full table is written to a new state file in the config directory,
+    `nimbus_solver_price_error_history.json`. It adds the
+    `settled / forecast` quantiles, the quantiles for the spike regime, and
+    leave-one-day-out coverage of each q10 / q90 band. The ratio is computed
+    only where the forecast is at least 1 c/kWh, and flagged where that
+    leaves fewer than 90% of a cell's pairs.
+  - **Nothing in dispatch reads it yet.** Plans are unchanged.
 - **A Repair when an Australian NEM install has no AEMO regional forecast.**
   Without one, prices past the retailer's own forecast are one flat level,
   and the stale-source fallback (#1793) has no AEMO price to switch to (seen
