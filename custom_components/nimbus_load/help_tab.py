@@ -162,6 +162,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.463",
+        "18 Oct 2026",
+        (
+            (
+                "**Repairs for a battery still on its placeholder settings,** "
+                "or with Min, Max or Charge By SoC that contradict each other."
+            ),
+            "**A load forecast's lower bound** no longer dips below zero.",
+            (
+                "**Comparison price sources:** list extra price sensors to record "
+                "for scoring how prices should be combined; the plan never uses them."
+            ),
+        ),
+    ),
+    (
         "0.94.462",
         "17 Oct 2026",
         (
