@@ -10,7 +10,7 @@ DC-001 onward land, there is an independent target to check them against.
 | `acceptance_registry.json` | every requirement DC-R01–DC-R18 with its owning spec(s) and fixtures; every fixture F01–F12 with an explicit status. Nothing is marked passed because code is absent. |
 | `known_defects.json` | defects observed in current behaviour, kept as evidence with why they are wrong. No corrected value or root cause is asserted until established. |
 | `oracles.py` | reference oracles written from first principles. **Never imports Nimbus production code**, so it cannot agree with a bug by construction. |
-| `fixtures/Fnn_*/manifest.json` | one per fixture with a started oracle: identity, origin, data semantics, expected result, tolerances, execution status, privacy. |
+| `fixtures/Fnn_*/fixture.json` | one per fixture with a started oracle: identity, origin, data semantics, expected result, tolerances, execution status, privacy. |
 | `test_traceability.py` | the gate: every P0 requirement mapped, every reference resolved, every status explicit, no production pass claimed. |
 | `test_reference_oracles.py` | F07, the exact-once BESS + DC EV + AC EV accounting oracle and its variants, including DC-000's partial-interval connection, two vehicles on one charger, and trip and reconnection. |
 | `oracles_limits.py` | F02 (and F07's shared charger) reference oracle: a shared limit is one combined quantity (`circuit_power`, `charger_power`, `inverter_ac_power`) constrained once; the rating copied onto each member misses what it should catch. |

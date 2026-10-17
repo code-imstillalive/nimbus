@@ -24,13 +24,13 @@ from tests.device_contract.oracles_signals import (
 TOL = 1e-9
 FIX = Path(__file__).parent / "fixtures"
 F04 = json.loads(
-    (FIX / "F04_price_intervals" / "manifest.json").read_text(encoding="utf-8")
+    (FIX / "F04_price_intervals" / "fixture.json").read_text(encoding="utf-8")
 )
 F09 = json.loads(
-    (FIX / "F09_units_and_samples" / "manifest.json").read_text(encoding="utf-8")
+    (FIX / "F09_units_and_samples" / "fixture.json").read_text(encoding="utf-8")
 )
 F03 = json.loads(
-    (FIX / "F03_provider_responses" / "manifest.json").read_text(encoding="utf-8")
+    (FIX / "F03_provider_responses" / "fixture.json").read_text(encoding="utf-8")
 )
 T = datetime.fromisoformat
 
