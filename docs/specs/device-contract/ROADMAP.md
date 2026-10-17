@@ -32,7 +32,7 @@ docs/specs/device-contract/
   008-installation-acceptance-and-rollout.md
 ```
 
-The roadmap and DC-000 were added in #1600, [DC-001](001-canonical-device-model.md) in #1651 and [DC-002](002-bindings-and-normalisation.md) in #1729. DC-003 is drafted for review in #1781; DC-004 onward are proposed, not existing files. Refer to the new specifications as **DC-000** through **DC-008**, leaving the existing `docs/specs/000-golden-master-and-gates.md` and numbered refactor series unchanged. The companion draft is [Spec DC-000](000-baseline-fixtures-and-gates.md).
+The roadmap and DC-000 were added in #1600, [DC-001](001-canonical-device-model.md) in #1651 and [DC-002](002-bindings-and-normalisation.md) in #1729. DC-003 is drafted for review in #1781 and [DC-004](004-migration-and-compatibility.md) in #1838; DC-005 onward are proposed, not existing files. Refer to the new specifications as **DC-000** through **DC-008**, leaving the existing `docs/specs/000-golden-master-and-gates.md` and numbered refactor series unchanged. The companion draft is [Spec DC-000](000-baseline-fixtures-and-gates.md).
 
 The repository's existing specification template provides the useful discipline of explicit responsibility, invariants, acceptance and rollback; the device programme adds new behaviour, so exact legacy equivalence applies only where compatibility is intended ([existing template](https://github.com/code-imstillalive/nimbus/blob/main/docs/specs/TEMPLATE.md)).
 
