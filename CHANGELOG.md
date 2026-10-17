@@ -9,6 +9,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Does stochastic earn more? A closed-loop paired replay** (#1797
+  programme, PR C): `scripts/stochastic_replay.py`, read-only, on what
+  `nimbus_load.export_decision_inputs` returns. Every full-horizon record is
+  one decision; each arm plans from it at the SoC its own replay has
+  reached, follows its plan until the next decision, and is settled against
+  what happened (each record's live row 0: solar, load and the price) at the
+  same prices, with the end SoC valued at the salvage value for every arm.
+  Three arms: `main` (the plan that ran), `stochastic` (drive's own rules,
+  falling back where drive would) and `p50` (no solar risk aversion), so the
+  hedge is not credited with what dropping the 25% solar derate alone would
+  do. Per-day differences and a moving-block bootstrap 95% interval. The
+  model is the household aggregate (one battery, one load, no EVs or P2P),
+  the same for every arm: the difference is the measurement, not the
+  dollars.
+  - **Each plan row now carries `solar_effective_kw`,
+    `import_price_effective` and `export_price_effective`**, the solar and
+    prices the LP counted on after the risk-aversion dials, and the
+    decision-input capture keeps them. Without them a replay cannot rebuild
+    the plan that ran: the solar envelope the derate leans toward is not on
+    the row. The plan attribute grows by three numbers per row; it is kept
+    out of the recorder.
 - **Seeing the stochastic solve** (#1797 programme, PR B).
   - **Tuning, as dashboard numbers** (each was a hardcoded constant; the
     defaults are those constants, so nothing moves until a dial does):
