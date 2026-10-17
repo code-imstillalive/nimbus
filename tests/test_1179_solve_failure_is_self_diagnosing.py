@@ -564,6 +564,7 @@ class TestTheHealthyCycleBaseRateIsPublished(unittest.TestCase):
             20: "twenty",
             21: "twenty-one",
             22: "twenty-two",
+            23: "twenty-three",
         }
         n = len(self.keys)
         self.assertIn(n, words, f"extend the number words for {n} keys")

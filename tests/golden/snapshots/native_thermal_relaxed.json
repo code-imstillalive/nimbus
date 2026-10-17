@@ -14630,6 +14630,7 @@
        "calibration_fallback_reason": null,
        "calibration_min_weight_fallback": false,
        "calibration_weight_used": null,
+       "departure_target_shortfall_kwh": {},
        "household_mode": null,
        "last_failure_at": null,
        "last_failure_raw_status": null,

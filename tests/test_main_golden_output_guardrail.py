@@ -423,6 +423,9 @@ _EXPECTED_ATTRS = {
         # reader of recorder history months later cannot otherwise tell
         # apart.
         "thermal_guarantee_relaxed": [],
+        # Empty: this fixture has no battery participant with a departure
+        # target, so nothing is unreachable and every target row is hard.
+        "departure_target_shortfall_kwh": {},
         # nimbus issue #485: None here is correct and meaningful -- this
         # fixture has no live select entity, and the honest answer is
         # "no mode was in force" rather than defaulting to "home" and

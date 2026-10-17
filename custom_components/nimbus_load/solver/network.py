@@ -1015,6 +1015,13 @@ class Plan:
     # a single internal solve on its own, so this field can never disagree
     # with whether a real relaxation actually happened.
     thermal_guarantee_relaxed: list[str] = field(default_factory=list)
+    # Battery name -> kWh still short of its departure target at the
+    # deadline, for every battery whose target was physically unreachable
+    # this solve (see the departure-deadline block in _build_plan_once()).
+    # Such a target is soft for that solve so the rest of the plan still
+    # solves; this says how far short the plan lands. Empty (the normal
+    # case) when every departure target is reachable and therefore hard.
+    departure_target_shortfall_kwh: dict[str, float] = field(default_factory=dict)
     # nimbus issue #491: see GridSignals'/BatterySignals' own docstrings.
     # None/empty (the default) on any Plan built before these fields
     # existed, constructed directly by a test, non-optimal, or reached
@@ -3637,6 +3644,7 @@ def _build_plan_once(
             else:
                 p.add_eq_constraint(terms, prev)
 
+    departure_shortfall_vars: dict[str, str] = {}
     # ---- Departure-deadline hard floor (nimbus issue #563 item 2) ----
     # soc[idx] >= must_have_soc_kwh, expressed as -soc[idx] <= -target
     # (LPProblem only has <=, same negation technique the adequacy
@@ -3663,10 +3671,43 @@ def _build_plan_once(
             continue
         if b.must_have_soc_by_period_index >= n:
             continue
+        deadline_idx = b.must_have_soc_by_period_index
+        reachable_kwh = _departure_reachable_soc_kwh(
+            p, b, charge_vars[b.name], hours, deadline_idx, batteries
+        )
+        if b.must_have_soc_kwh <= reachable_kwh + _DEPARTURE_REACH_TOLERANCE_KWH:
+            # Reachable: the hard floor, byte-identical to before.
+            p.add_ub_constraint(
+                {soc_vars[b.name][deadline_idx]: -1.0},
+                -b.must_have_soc_kwh,
+                name=f"battery_departure_deadline_{b.name}",
+            )
+            continue
+        # Unreachable even charging flat out in every period this battery
+        # can charge before the deadline. A hard row here makes the WHOLE
+        # plan infeasible -- every battery, every load, every period --
+        # which is what a test install's car at 5% with an 80%-by-08:00
+        # target did every morning from 04:40 (logged as #773's
+        # `phase1_primary` Infeasible, then the plain fallback infeasible
+        # too). Soft instead: soc[idx] + short >= target, short priced at
+        # the dominant soft-SoC rate, so the LP charges as much as it
+        # physically can before the deadline and still plans everything
+        # else. The shortfall is published, not hidden.
+        short = p.add_variable(f"battery_departure_shortfall_{b.name}", lb=0.0)
         p.add_ub_constraint(
-            {soc_vars[b.name][b.must_have_soc_by_period_index]: -1.0},
+            {soc_vars[b.name][deadline_idx]: -1.0, short: -1.0},
             -b.must_have_soc_kwh,
-            name=f"battery_departure_deadline_{b.name}",
+            name=f"battery_departure_deadline_soft_{b.name}",
+        )
+        p.set_cost(short, soft_soc_penalty_per_kwh)
+        departure_shortfall_vars[b.name] = short
+        starts = periods.period_starts
+        _warn_departure_target_unreachable(
+            b.name,
+            b.must_have_soc_kwh,
+            reachable_kwh,
+            deadline_idx,
+            starts[deadline_idx] if starts and deadline_idx < len(starts) else None,
         )
 
     # ---- Shared-charger group cap (nimbus issue #563 item 3) ----
@@ -4283,12 +4324,21 @@ def _build_plan_once(
     # that variable's own "set_cost" call sites) -- see Plan.soc_penalty_
     # cost's own docstring for why this needs to be its own explicit
     # number rather than silently folded into a residual.
+    # An unreachable departure target's shortfall is a SoC-state penalty
+    # priced at the same rate, so it is counted here too -- otherwise it
+    # would fall into cost_breakdown()'s terminal_value_credit residual,
+    # the #781 misattribution.
+    departure_target_shortfall_kwh = {
+        name: float(p.value_of(result, var))
+        for name, var in departure_shortfall_vars.items()
+    }
     soc_penalty_cost = soft_soc_penalty_per_kwh * float(
         sum(
             float(np.sum(_get(underfill_vars[b.name])))
             + float(np.sum(_get(overfill_vars[b.name])))
             for b in batteries
         )
+        + sum(departure_target_shortfall_kwh.values())
     )
 
     # nimbus issue #491 (Signals 2/7 of #489): grid-operator + per-battery
@@ -4747,6 +4797,7 @@ def _build_plan_once(
         offer_curve_import_ranging=offer_curve_import_ranging,
         offer_curve_export_ranging=offer_curve_export_ranging,
         offer_curve_sweep_seconds=offer_curve_sweep_seconds,
+        departure_target_shortfall_kwh=departure_target_shortfall_kwh,
     )
 
 
@@ -4946,6 +4997,92 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
 # is ~$17/kWh), so a spike can still be sold into. Not scaled by hours: it
 # prices the state, like the soft SoC bounds (#338).
 CHARGE_BY_SHORTFALL_PENALTY_PER_KWH = 2.0
+
+
+# A departure target within this many kWh of the most the battery can reach
+# keeps the hard floor. Float slack only: the reach sum below and HiGHS's own
+# row activity are computed independently, and a target sitting exactly on the
+# reachable maximum is still feasible to the solver's 1e-7 tolerance.
+_DEPARTURE_REACH_TOLERANCE_KWH = 1e-6
+
+# (battery, departure) pairs already warned about as unreachable, so the
+# WARNING is logged once per departure and not on every solve (the #601
+# discipline extra_batteries.py's SoC warning uses).
+_DEPARTURE_UNREACHABLE_WARNED: set[tuple[str, str]] = set()
+
+
+def _departure_reachable_soc_kwh(
+    p: LPProblem,
+    b: BatteryConfig,
+    charge_vars: list[str],
+    hours: NDArray[np.float64],
+    deadline_idx: int,
+    batteries: list[BatteryConfig],
+) -> float:
+    """The most energy battery `b` can hold at the END of period
+    `deadline_idx`: its initial SoC plus every period's charge ceiling at full
+    power, never discharging, capped at capacity.
+
+    Each period's ceiling is the charge variable's own registered upper bound,
+    so away/gated periods (ub 0), the P2P fixed-export gate and the spike pin
+    are all already in it. A shared-charger group's ceiling (the minimum any
+    member declares, as the group row uses) is applied too. Discharge is taken
+    as zero, its lower bound for every participant.
+
+    An upper bound, never an underestimate: constraints this leaves out (a
+    group's members charging at once, a power curve, a site limit) can only
+    lower the true reach. So a target above this figure is certainly
+    unreachable, and a target at or below it keeps the hard row exactly as
+    before."""
+    shared_cap: float | None = None
+    if b.shared_charger_group is not None:
+        declared = [
+            m.shared_charger_max_kw
+            for m in batteries
+            if m.shared_charger_group == b.shared_charger_group
+            and m.shared_charger_max_kw is not None
+        ]
+        if declared:
+            shared_cap = float(min(declared))
+    soc = float(b.initial_soc_kwh)
+    for t in range(deadline_idx + 1):
+        ceiling = float(p.upper_bound(charge_vars[t]))
+        if shared_cap is not None:
+            ceiling = min(ceiling, shared_cap)
+        soc = min(
+            soc + b.charge_efficiency * float(hours[t]) * max(ceiling, 0.0),
+            float(b.capacity_kwh),
+        )
+    return soc
+
+
+def _warn_departure_target_unreachable(
+    name: str,
+    target_kwh: float,
+    reachable_kwh: float,
+    deadline_idx: int,
+    deadline_start: datetime | None,
+) -> None:
+    """WARNING once per (battery, departure) -- the deadline period's own
+    start time identifies the departure, so the many solves of one cycle
+    (live, oracle, stochastic scenarios) and every later cycle before that
+    departure log at DEBUG, and the next morning's departure warns afresh."""
+    key = (name, deadline_start.isoformat() if deadline_start else str(deadline_idx))
+    log = _LOGGER.debug
+    if key not in _DEPARTURE_UNREACHABLE_WARNED:
+        _DEPARTURE_UNREACHABLE_WARNED.add(key)
+        log = _LOGGER.warning
+    log(
+        "Nimbus: battery '%s' cannot reach its departure target of %.2f kWh "
+        "by period %d -- at most %.2f kWh even charging at full power in "
+        "every period it can charge. Planning the most it can reach rather "
+        "than failing the whole plan; the shortfall is published as "
+        "departure_target_shortfall_kwh.",
+        name,
+        target_kwh,
+        deadline_idx,
+        reachable_kwh,
+    )
 
 
 def _add_charge_by(p, b, soc_vars: list[str], n: int) -> None:
