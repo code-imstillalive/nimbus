@@ -556,6 +556,12 @@ def _ensure_ready(hass: HomeAssistant):
     )
 
     _sw.set_native_hass(hass)
+    # nimbus #1797: in Home Assistant the stochastic shadow solve runs on its
+    # own thread, off the dispatch path. Everywhere else (the cron copy, tests,
+    # the golden master) it stays in-line and deterministic.
+    from . import solver_plan as _sp
+
+    _sp.STOCHASTIC_SHADOW_IN_BACKGROUND = True
     _solver_writer = _sw
     return _solver_writer
 
