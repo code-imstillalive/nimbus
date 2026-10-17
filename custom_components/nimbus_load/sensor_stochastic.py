@@ -53,19 +53,28 @@ def headline(summary: Any) -> str:
         main = summary.get("deterministic_period0_battery_kw")
         if stoch is None or main is None:
             return "Hedge computed"
-        diff = float(stoch) - float(main)
-        if abs(diff) < _AGREE_KW:
+        if abs(float(stoch) - float(main)) < _AGREE_KW:
             return "Agrees with the main plan"
-        # Battery kW is discharge-positive: lower keeps more energy in.
-        if diff < 0:
-            return f"Holds {abs(diff):.1f} kW more in the battery"
-        return f"Releases {diff:.1f} kW more from the battery"
+        # Both actions in plain words: a difference alone misleads when both
+        # plans charge (devhub, 17 Oct: "releases 36.8 kW more" meant
+        # "charges 3.2 kW where the main plan charges 40").
+        words = f"{_act(float(stoch))} where the main plan {_act(float(main))}"
+        return words[0].upper() + words[1:]
     reason = str(summary.get("fallback_reason") or "")
     if reason.startswith("cooldown_after:"):
         return "Main plan: waiting to retry"
     if reason.startswith("error:"):
         return "Main plan: check failed"
     return "Main plan: " + _REASONS.get(reason, reason.replace("_", " ") or "skipped")
+
+
+def _act(kw: float) -> str:
+    """A battery command in words; battery kW is discharge-positive."""
+    if kw > _AGREE_KW:
+        return f"discharges {kw:.1f} kW"
+    if kw < -_AGREE_KW:
+        return f"charges {-kw:.1f} kW"
+    return "holds"
 
 
 def scenario_rows(source: dict) -> list[dict[str, Any]]:

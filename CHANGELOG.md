@@ -19,7 +19,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     every cycle through `sensor.nimbus_solver_config`, clamped to each
     entity's range; the summary's `stage1_minutes` is the window used.
   - **`sensor.nimbus_solver_stochastic`** (new): state is a one-line headline
-    ("Agrees with the main plan", "Holds 2.2 kW more in the battery", "Main
+    ("Agrees with the main plan", "Charges 3.2 kW where the main plan charges
+    40.0 kW", "Main
     plan: no solar spread", "Not running"); attributes `stochastic` (the
     summary) and `forecast` (each plan period's main-plan SoC beside each
     solar day's, the main plan alone with no stochastic plan), both kept out

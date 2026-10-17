@@ -421,6 +421,13 @@ _STOCHASTIC_NOW = {
         "{% set vals = [c.get('p10'), c.get('p50'), c.get('p90')]"
         " | reject('none') | list %}"
         "{% set hi = vals | max %}{% set lo = vals | min %}"
+        # The decision being made now, main plan against stochastic: the
+        # headline's numbers. kW, + discharging, - charging.
+        "{% set m = s.get('deterministic_period0_battery_kw') %}"
+        "{% set k = s.get('stage1_battery_kw') %}"
+        "| Battery now | kW |\n|:---|---:|\n"
+        "| Main plan | {{ '%+.1f' | format(m) if m is not none else '—' }} |\n"
+        "| Stochastic | <b>{{ '%+.1f' | format(k) if k is not none else '—' }}</b> |\n\n"
         "| Solar day | Cost | Battery at end |\n|:---|---:|---:|\n"
         "{% for k, label in [('p10', 'Low'), ('p50', 'Middle'), ('p90', 'High')] %}"
         "{% set v = c.get(k) %}"
@@ -465,7 +472,7 @@ def _stochastic_chart() -> dict[str, Any]:
         "Battery on three solar days",
         "% of battery. Dashed: the main plan.",
         series,
-        height=330,
+        height=440,
         graph_span="2d",
         span={"start": "hour"},
         now={"show": True, "label": "Now", "color": "#ffffff"},
@@ -493,7 +500,7 @@ _STOCHASTIC_SETTINGS: _Card = (
     "Off: it only checks the main plan.",
 )
 
-_STOCHASTIC_ROW_SIZE = {"rows": 7}
+_STOCHASTIC_ROW_SIZE = {"rows": 8}
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (

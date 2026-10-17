@@ -368,7 +368,7 @@ def _sensor_mod():
                 "stage1_battery_kw": -7.2,
                 "deterministic_period0_battery_kw": -5.0,
             },
-            "Holds 2.2 kW more in the battery",
+            "Charges 7.2 kW where the main plan charges 5.0 kW",
         ),
         (
             {
@@ -376,7 +376,7 @@ def _sensor_mod():
                 "stage1_battery_kw": 3.0,
                 "deterministic_period0_battery_kw": 1.5,
             },
-            "Releases 1.5 kW more from the battery",
+            "Discharges 3.0 kW where the main plan discharges 1.5 kW",
         ),
         (
             {"status": "skipped", "fallback_reason": "no_solar_band"},
@@ -404,6 +404,31 @@ def _sensor_mod():
 )
 def test_the_headline(summary, expected):
     assert _sensor_mod().headline(summary) == expected
+
+
+def test_the_headline_when_the_plans_point_different_ways():
+    m = _sensor_mod()
+    # devhub, 17 Oct: both charging -- the case a bare difference misread.
+    assert (
+        m.headline(
+            {
+                "status": "optimal",
+                "stage1_battery_kw": -3.2,
+                "deterministic_period0_battery_kw": -40.0,
+            }
+        )
+        == "Charges 3.2 kW where the main plan charges 40.0 kW"
+    )
+    assert (
+        m.headline(
+            {
+                "status": "optimal",
+                "stage1_battery_kw": 0.0,
+                "deterministic_period0_battery_kw": 6.0,
+            }
+        )
+        == "Holds where the main plan discharges 6.0 kW"
+    )
 
 
 def test_chart_rows_put_each_solar_day_beside_the_main_plan():
@@ -460,7 +485,7 @@ def test_the_sensor_takes_its_data_from_this_installs_publish():
         "stochastic_paths": {"soc_pct": {"p50": [50.0]}},
     }
     sensor.update_from_parent(parent["forecast"][0], parent)
-    assert sensor.native_value == "Holds 2.2 kW more in the battery"
+    assert sensor.native_value == "Charges 7.2 kW where the main plan charges 5.0 kW"
     attrs = sensor.extra_state_attributes
     assert attrs["stochastic"] is summary
     assert attrs["forecast"][0]["p50"] == 50.0
