@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Bank solar first** (#1843, household, 18 Oct 2026). A switch on the
+  Solver tab's Battery card, off by default. On, solar the battery can take
+  goes into it before any is exported: period 0's charge is floored at
+  min(solar - load, max charge, room to Max SoC). Off, the plan may sell
+  solar now and refill later when power is forecast cheaper. That was
+  correct on the forecast at 08:28 that morning (10.5% and idle, 4.1 kW
+  exported at 2.6c, a 1.3c refill from 09:30), but it left the battery
+  waiting on the forecast. The floor is soft, at the plan's soft-SoC
+  penalty, so a price spike and a committed P2P period still sell, and it
+  adds no binaries.
+
 ## [0.94.463] - 2026-10-18
 
 Repairs that catch a battery still on its placeholder settings, a load

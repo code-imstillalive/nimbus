@@ -215,7 +215,7 @@ def _height(card) -> int:
         elif e["entity"].endswith("_policy"):
             total += _SELECT
         elif e["entity"].startswith("@solver_") and not e["entity"].endswith(
-            ("_enabled", "_dry_run", "_known_solar", "_armed")
+            ("_enabled", "_dry_run", "_known_solar", "_armed", "_bank_solar_first")
         ):
             total += _NUMBER
         else:
