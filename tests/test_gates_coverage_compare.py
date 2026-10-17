@@ -409,14 +409,15 @@ def test_fails_when_base_side_measured_zero_covered_lines(toy_repo: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow_gate
 def test_real_main_compared_to_itself_has_zero_regressions() -> None:
-    # No custom pytest marker: this repo runs with --strict-markers and
-    # registers none (confirmed by grepping pyproject.toml and every
-    # existing test file before adding one here). This test is inherently
-    # slower than the rest of the suite (it runs the real golden scenarios
-    # and the real stub-based suite, twice, under coverage) but is still the
-    # acceptance bar this tool's own PR is judged on, so it stays unmarked
-    # and always-on rather than opted out by default.
+    # nimbus #1837: marked `slow_gate`, the one marker pyproject.toml
+    # registers. It runs the real golden scenarios and the real stub-based
+    # suite, twice, under coverage: 1,078 s of a 29-minute CI job. On a PR
+    # it compares the tree with itself, so it cannot fail because of the
+    # PR's change. It still runs on every push to main and on any PR that
+    # changes the gate (ci.yml's "Which stub tests apply"), which keeps it
+    # the acceptance bar for the gate's own changes.
     proc = subprocess.run(
         [sys.executable, str(GATE), "--base", "HEAD", "--head", "HEAD"],
         cwd=REPO,
