@@ -24,8 +24,10 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import test_1786_decision_input_source_series as base
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Qualified, never bare: the sibling installs HA stubs at import time, and a
+# bare-name import would create a second copy of it (#1329).
+from tests import test_1786_decision_input_source_series as base
 
 di = base.di
 store = base.store
