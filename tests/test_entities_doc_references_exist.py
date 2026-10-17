@@ -96,6 +96,16 @@ _USER_FACING_DOCS = (
     "docs/dashboards.md",
     "docs/controllable-loads.md",
     "docs/setup-guide.md",
+    # nimbus #1801: the docs site's own pages.
+    "docs/index.md",
+    "docs/tabs.md",
+    "docs/safety.md",
+    "docs/troubleshooting.md",
+    "docs/providers/index.md",
+    "docs/providers/localvolts.md",
+    "docs/providers/amber.md",
+    "docs/providers/aemo-nem.md",
+    "docs/providers/generic.md",
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

@@ -129,7 +129,7 @@ Skip the Solver wizard and Solver acceptance checks on that route.
 **Required for all routes:**
 
 - **Home Assistant 2026.8.0 or later**, with HACS installed. This is the minimum
-  declared in [`hacs.json`](../hacs.json).
+  declared in [`hacs.json`](https://github.com/code-imstillalive/nimbus/blob/main/hacs.json).
 - **A measured power sensor** in W or kW for the quantity you want to forecast.
 - **Usable recorded measurements** for initial model training.
 
@@ -162,7 +162,7 @@ If you cannot identify total consumption, stop before creating its Power Signal.
 Check your equipment integration's documentation rather than choosing by name alone.
 
 **Architecture note:** Nimbus declares `highspy` as an installation requirement
-in its [manifest](../custom_components/nimbus_load/manifest.json).
+in its [manifest](https://github.com/code-imstillalive/nimbus/blob/main/custom_components/nimbus_load/manifest.json).
 Use a supported 64-bit Home Assistant installation.
 If this dependency cannot install, Nimbus setup can fail, including forecasting.
 Do not assume that the Forecaster remains available on an unsupported platform.
@@ -560,7 +560,7 @@ minimum stored energy = effective capacity × minimum SoC / 100
 maximum stored energy = effective capacity × maximum SoC / 100
 ```
 
-This follows the [capacity calculation](../custom_components/nimbus_load/solver_shared.py).
+This follows the [capacity calculation](https://github.com/code-imstillalive/nimbus/blob/main/custom_components/nimbus_load/solver_shared.py).
 The SoC limits apply after SoH derating.
 
 For example, `10 kWh` with `90%` SoH gives `9 kWh` effective capacity.
@@ -1360,7 +1360,7 @@ Its sign is fixed:
 
 The plan attributes declare `battery_kw_side: AC` and
 `battery_kw_sign_convention: positive_discharge_negative_charge`.
-These values come from the [plan publisher](../custom_components/nimbus_load/solver_publish.py).
+These values come from the [plan publisher](https://github.com/code-imstillalive/nimbus/blob/main/custom_components/nimbus_load/solver_publish.py).
 Compare the proposed direction with `sensor.nimbus_solver_current_dispatch_direction`.
 Your inverter's measurement and command signs can differ from Nimbus's sign.
 Verify the conversion against the hardware documentation.
@@ -1376,7 +1376,7 @@ Verify the conversion against the hardware documentation.
 **The dry-run switch is a recorder, not a global stop switch.**
 It does not disable external automations or controllable-load commands.
 The dashboard's `armed_entity` helper also needs an explicit check in your automation.
-See the [observation path](../custom_components/nimbus_load/solver_runtime.py)
+See the [observation path](https://github.com/code-imstillalive/nimbus/blob/main/custom_components/nimbus_load/solver_runtime.py)
 and [card configuration](dashboards.md) for these separate mechanisms.
 
 ### Control-readiness gate
