@@ -519,7 +519,7 @@ _DRIVE_NOTE = (
 )
 _DIALS_NOTE = (
     "Commit window: how far ahead a choice must suit all 3 days. "
-    "Day weight: how much cloudy and sunny days count. Time limit: "
+    "Day weight w: cloudy, sunny w each; middle 1-2w. Time limit: "
     "past it, the main plan runs. Check every: re-plan gap while off."
 )
 
