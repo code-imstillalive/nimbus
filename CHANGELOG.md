@@ -20,21 +20,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     entity's range; the summary's `stage1_minutes` is the window used.
   - **`sensor.nimbus_solver_stochastic`** (new): state is a one-line headline
     ("Agrees with the main plan", "Charges 3.2 kW where the main plan charges
-    40.0 kW", "Main
-    plan: no solar spread", "Not running"); attributes `stochastic` (the
+    40.0 kW", "Main plan: no solar spread", "Not running"); attributes
+    `stochastic` (the
     summary) and `forecast` (each plan period's main-plan SoC beside each
     solar day's, the main plan alone with no stochastic plan), both kept out
     of the recorder. Fed from this install's own plan publish, like the
     per-battery SoC sensors, so it is this install's solve even where a
     mirrored plan sensor overwrites the plan entity.
   - **Solver tab:** a **Stochastic** block, last on the tab, one row:
-    *Now* (the headline in a coloured band, mode, band, solve time and
-    time, then each solar day's cost -- red the costliest, green the
-    cheapest -- battery at the end, and the expected cost with its spread),
-    *Battery on three solar days* (ApexCharts, two columns: low, middle and
-    high solar day, the main plan dashed; where they part is the hedge),
-    and *Settings* (Drive the battery and the four dials; the switch was on
-    no tab before).
+    *Now* (the headline in a coloured band; mode, band, solve time; the
+    battery command now, main plan against stochastic; then each solar
+    day's **grid money** over the plan -- imports paid minus exports and P2P
+    earned, at the real prices, red the dearest and green the cheapest --
+    the expected figure and the main plan's on the same footing),
+    *Battery by how much sun* (ApexCharts, two columns, filling its cell:
+    low, middle and high solar, the main plan dashed; where they part is the
+    hedge), and *Settings* (Drive the battery and the four dials; the switch
+    was on no tab before).
+  - **Grid money in the summary:** `scenario_grid_cost`,
+    `expected_grid_cost` and `deterministic_grid_cost`, the same formula for
+    each (`grid_money()`), so the main plan and the stochastic plan finally
+    compare. `scenario_cost` / `expected_cost` stay the LP objective, which
+    carries penalty and tie-break terms and is not money (household
+    question, 17 Oct 2026: "what is this cost?").
   - **`stochastic_paths`** on `sensor.nimbus_solver_battery_forecast`: each
     scenario's battery % per plan period, aligned with `forecast`, about
     2.4 KB, kept out of the recorder like `forecast`.

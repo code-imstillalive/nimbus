@@ -388,7 +388,7 @@ _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDAT
 
 # --- Stochastic: the two-stage stochastic solve (nimbus #1797) -------------
 # Its own block, last on the tab, one row: Now (headline and what each solar
-# day costs), the battery on the three solar days, and its settings. Every
+# day costs), the battery by how much sun, and its settings. Every
 # card reads sensor.nimbus_solver_stochastic, which this install's own solve
 # publishes (sensor_stochastic.py), so a mirrored plan sensor never stands in.
 _STOCHASTIC_NOW = {
@@ -416,7 +416,10 @@ _STOCHASTIC_NOW = {
         "</font>\n\n"
         "{% endif %}"
         "{% if s is mapping and s.get('status') == 'optimal' %}"
-        "{% set c = s.get('scenario_cost', {}) %}"
+        # Grid money at the real prices (import cost minus export and P2P
+        # income), not the LP objective: that carries penalty and tie-break
+        # terms that are not money (household question, 17 Oct 2026).
+        "{% set c = s.get('scenario_grid_cost', {}) %}"
         "{% set end = s.get('scenario_terminal_soc_kwh', {}) %}"
         "{% set vals = [c.get('p10'), c.get('p50'), c.get('p90')]"
         " | reject('none') | list %}"
@@ -428,7 +431,7 @@ _STOCHASTIC_NOW = {
         "| Battery now | kW |\n|:---|---:|\n"
         "| Main plan | {{ '%+.1f' | format(m) if m is not none else '—' }} |\n"
         "| Stochastic | <b>{{ '%+.1f' | format(k) if k is not none else '—' }}</b> |\n\n"
-        "| Solar day | Cost | Battery at end |\n|:---|---:|---:|\n"
+        "| Solar day | Grid, 2 days | Battery at end |\n|:---|---:|---:|\n"
         "{% for k, label in [('p10', 'Low'), ('p50', 'Middle'), ('p90', 'High')] %}"
         "{% set v = c.get(k) %}"
         "| {{ label }} | <font color=\"{{ '#ff5a5a' if v == hi else"
@@ -436,11 +439,25 @@ _STOCHASTIC_NOW = {
         " | {% if end.get(k) is not none %}{{ '%.0f' | format(end[k]) }} kWh"
         "{% else %}—{% endif %} |\n"
         "{% endfor %}"
-        "| <b>Expected</b> | <b>{{ usd(s.get('expected_cost')) }}</b> |"
+        "| <b>Expected</b> | <b>{{ usd(s.get('expected_grid_cost')) }}</b> |"
         " spread {{ usd(hi - lo) }} |\n"
+        "| Main plan | {{ usd(s.get('deterministic_grid_cost')) }} | |\n\n"
+        '<font color="#9aa0ac">Grid: imports paid minus exports and P2P earned,'
+        " at your prices, over the plan.</font>"
         "{% endif %}"
     ),
 }
+
+
+# The Now card's tables span the card. They sit in ha-markdown's own shadow
+# root, so they are styled there (as the until-midnight card's are).
+def _stochastic_now_style() -> dict[str, str]:
+    return {
+        ".": _FILL_NO_SCROLL,
+        "ha-markdown$": (
+            "table { width: 100%; table-layout: fixed; } th, td { padding: 4px 8px; }"
+        ),
+    }
 
 
 def _stochastic_chart() -> dict[str, Any]:
@@ -469,7 +486,7 @@ def _stochastic_chart() -> dict[str, Any]:
         )
     ]
     return _apex(
-        "Battery on three solar days",
+        "Battery by how much sun",
         "% of battery. Dashed: the main plan.",
         series,
         height=440,
@@ -487,20 +504,27 @@ def _stochastic_chart() -> dict[str, Any]:
     )
 
 
-# The switch, then the four numbers (const.py says what each does).
-_STOCHASTIC_SETTINGS: _Card = (
-    "Settings",
-    [
-        ("solver_stochastic_dispatch", "Drive the battery"),
-        ("solver_stochastic_stage1_minutes", "Commit window"),
-        ("solver_stochastic_tail_weight", "Low/high day weight"),
-        ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
-        ("solver_stochastic_shadow_interval_minutes", "Check every"),
-    ],
-    "Off: it only checks the main plan.",
-)
+# The switch, then the four numbers (const.py says what each does), and the
+# one-line note every settings card ends with (household, 11 Oct 2026).
+def _stochastic_settings() -> dict[str, Any]:
+    return {
+        "type": "entities",
+        "title": "Settings",
+        "show_header_toggle": False,
+        "entities": _rows(
+            [
+                ("solver_stochastic_dispatch", "Drive the battery"),
+                ("solver_stochastic_stage1_minutes", "Commit window"),
+                ("solver_stochastic_tail_weight", "Low/high day weight"),
+                ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
+                ("solver_stochastic_shadow_interval_minutes", "Check every"),
+                ("section", "Off: it only checks."),
+            ]
+        ),
+    }
 
-_STOCHASTIC_ROW_SIZE = {"rows": 8}
+
+_STOCHASTIC_ROW_SIZE = {"rows": 9}
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
@@ -1577,9 +1601,16 @@ def template() -> list[dict[str, Any]]:
         banners["Advanced settings"],
         *(_section([_card(c)], 1) for c in _ADVANCED_ROW),
         banners["Stochastic"],
-        _section([_styled(_STOCHASTIC_NOW, _FILL_NO_SCROLL)], 1, _STOCHASTIC_ROW_SIZE),
-        _section([_styled(_stochastic_chart(), _FILL)], 2, _STOCHASTIC_ROW_SIZE),
-        _section([_card(_STOCHASTIC_SETTINGS)], 1, _STOCHASTIC_ROW_SIZE),
+        _section(
+            [_styled(_STOCHASTIC_NOW, _stochastic_now_style())], 1, _STOCHASTIC_ROW_SIZE
+        ),
+        # The chart fills its cell (the Performance charts' flex style).
+        _section(
+            [_styled(_stochastic_chart(), _CHART_FIGURES_BELOW)],
+            2,
+            _STOCHASTIC_ROW_SIZE,
+        ),
+        _section([_styled(_stochastic_settings(), _FILL)], 1, _STOCHASTIC_ROW_SIZE),
     ]
 
 

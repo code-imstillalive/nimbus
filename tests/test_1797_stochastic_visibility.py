@@ -490,3 +490,51 @@ def test_the_sensor_takes_its_data_from_this_installs_publish():
     assert attrs["stochastic"] is summary
     assert attrs["forecast"][0]["p50"] == 50.0
     assert {"forecast", "stochastic"} <= set(sensor._unrecorded_attributes)
+
+
+# -- grid money: the figure the cards show ------------------------------------
+
+
+def test_grid_money_is_imports_paid_minus_exports_and_bonus_earned():
+    grid = SimpleNamespace(
+        import_price=np.array([0.30, 0.10]),
+        export_price=np.array([0.05, 0.08]),
+        export_bonus_price=np.array([0.0, 0.20]),
+    )
+    hours = np.array([0.5, 1.0])
+    got = sd.grid_money(
+        grid,
+        hours,
+        import_kw=np.array([4.0, 0.0]),
+        export_kw=np.array([0.0, 5.0]),
+        bonus_kw=np.array([0.0, 2.0]),
+    )
+    # 0.5 h x 4 kW x 0.30 = 0.60 paid; 1 h x 5 kW x 0.08 = 0.40 and
+    # 1 h x 2 kW x 0.20 = 0.40 earned.
+    assert got == pytest.approx(0.60 - 0.40 - 0.40)
+
+
+def test_the_summary_carries_grid_money_on_the_same_footing():
+    kw = _tiered_inputs()
+    det = network.build_plan(**kw)
+    res = sd.build_stochastic_plan(kw)
+    s = sd.summary_attribute(
+        res,
+        mode="shadow",
+        deterministic_plan=det,
+        deterministic_solve_seconds=0.5,
+        drives_dispatch=False,
+        grid=kw["grid"],
+        hours=kw["periods"].hours,
+    )
+    g = s["scenario_grid_cost"]
+    assert set(g) == {"p10", "p50", "p90"}
+    w = dict(zip(sd.SCENARIO_LABELS, sd.SCENARIO_WEIGHTS, strict=True))
+    assert s["expected_grid_cost"] == pytest.approx(
+        sum(w[k] * v for k, v in g.items()), abs=1e-3
+    )
+    assert s["deterministic_grid_cost"] == pytest.approx(
+        sd.plan_grid_money(det, kw["grid"], kw["periods"].hours), abs=1e-4
+    )
+    # A dull day buys more from the grid than a sunny one.
+    assert g["p10"] >= g["p90"]

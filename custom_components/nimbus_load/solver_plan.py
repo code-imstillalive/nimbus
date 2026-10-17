@@ -584,6 +584,8 @@ def _shadow_job(
         drives_dispatch=False,
         fallback_reason=reason,
         computed_at=now.isoformat(),
+        grid=build_kwargs["grid"],
+        hours=build_kwargs["periods"].hours,
     )
     _store_shadow_result(
         now,
@@ -682,6 +684,8 @@ def _run_drive(
         drives_dispatch=published is not plan,
         fallback_reason=reason,
         computed_at=now.isoformat(),
+        grid=build_kwargs["grid"],
+        hours=build_kwargs["periods"].hours,
     )
     if published is not plan:
         summary["signals_from"] = "deterministic"

@@ -339,6 +339,9 @@ class _JointSolve:
     # plan attribute has no room for three more horizons.
     scenario_soc_kwh: dict[str, list[float]] = field(default_factory=dict)
     scenario_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # Each scenario's grid money over the horizon (grid_money()): what the
+    # household would actually pay, unlike the LP objective's penalties.
+    scenario_grid_cost: dict[str, float] = field(default_factory=dict)
     # Read back off the optimal joint solution, as checks rather than
     # assumptions: the largest |x - x'| over every non-anticipativity pair
     # (0 to solver tolerance when the constraint holds), and each scenario's
@@ -468,6 +471,30 @@ class _JointSolve:
             battery_paths[label] = [float(v) for v in net]
         self.scenario_soc_kwh = soc_paths
         self.scenario_battery_kw = battery_paths
+        grid = self.base_kwargs["grid"]
+        hours = np.asarray(self.base_kwargs["periods"].hours, dtype=np.float64)
+
+        def _vals(prefix: str, tmpl: str) -> NDArray[np.float64]:
+            names = [prefix + tmpl.format(t=t) for t in range(n)]
+            if not all(joint.has_variable(x) for x in names):
+                return np.zeros(n)
+            return joint.values_of(result, names)
+
+        money: dict[str, float] = {}
+        for label in [self.anchor_label] + [b[0] for b in built]:
+            prefix = "" if label == self.anchor_label else label + _SCENARIO_SEPARATOR
+            money[label] = grid_money(
+                grid,
+                hours,
+                import_kw=np.add(
+                    _vals(prefix, "grid_import_{t}"),
+                    _vals(prefix, "grid_import_excess_{t}"),
+                    dtype=np.float64,
+                ),
+                export_kw=_vals(prefix, "grid_export_{t}"),
+                bonus_kw=_vals(prefix, "export_bonus_{t}"),
+            )
+        self.scenario_grid_cost = money
         self.scenario_terminal_soc_kwh = {
             label: path[-1] if path else 0.0 for label, path in soc_paths.items()
         }
@@ -583,6 +610,7 @@ class StochasticResult:
     scenario_terminal_soc_kwh: dict[str, float] = field(default_factory=dict)
     scenario_soc_kwh: dict[str, list[float]] = field(default_factory=dict)
     scenario_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    scenario_grid_cost: dict[str, float] = field(default_factory=dict)
     # Every battery's capacity, summed: scenario SoC paths as a % of it are
     # on the same scale as the plan rows' own (fleet) `soc_pct`.
     fleet_capacity_kwh: float = 0.0
@@ -590,6 +618,46 @@ class StochasticResult:
     # the deterministic one: a relaxed thermal deadline, or two-way flows.
     thermal_guarantee_relaxed: tuple[str, ...] = ()
     direction_exclusivity: str | None = None
+
+
+def grid_money(
+    grid: Any,
+    hours: NDArray[np.float64],
+    *,
+    import_kw: NDArray[np.float64],
+    export_kw: NDArray[np.float64],
+    bonus_kw: NDArray[np.float64],
+) -> float:
+    """Money over the horizon at the grid's real prices, $ (positive is
+    spent): import cost, minus export income, minus the P2P bonus earned.
+    No risk adjustment, no LP penalty or tie-break term -- the figure a
+    household would see on a bill, for one plan."""
+    h = np.asarray(hours, dtype=np.float64)
+    imp = np.asarray(grid.import_price, dtype=np.float64)
+    exp = np.asarray(grid.export_price, dtype=np.float64)
+    total = float(np.sum(h * (imp * import_kw - exp * export_kw)))
+    bonus_price = getattr(grid, "export_bonus_price", None)
+    if bonus_price is not None:
+        total -= float(np.sum(h * np.asarray(bonus_price, dtype=np.float64) * bonus_kw))
+    return total
+
+
+def plan_grid_money(plan: network.Plan, grid: Any, hours: Any) -> float | None:
+    """grid_money() of a solved plan (the main plan's figure, on the same
+    footing as each scenario's), or None for a plan that did not solve."""
+    if plan.status != "optimal" or not len(plan.grid_import_kw):
+        return None
+    bonus = getattr(plan, "export_bonus_kw", None)
+    n = len(plan.grid_import_kw)
+    return grid_money(
+        grid,
+        np.asarray(hours, dtype=np.float64)[:n],
+        import_kw=np.asarray(plan.grid_import_kw, dtype=np.float64),
+        export_kw=np.asarray(plan.grid_export_kw, dtype=np.float64),
+        bonus_kw=np.zeros(n)
+        if bonus is None or not len(bonus)
+        else np.asarray(bonus, dtype=np.float64),
+    )
 
 
 def net_battery_kw(plan: network.Plan, t: int = 0) -> float:
@@ -723,6 +791,7 @@ def build_stochastic_plan(
         scenario_terminal_soc_kwh=dict(hook.scenario_terminal_soc_kwh),
         scenario_soc_kwh=dict(hook.scenario_soc_kwh),
         scenario_battery_kw=dict(hook.scenario_battery_kw),
+        scenario_grid_cost=dict(hook.scenario_grid_cost),
         fleet_capacity_kwh=float(sum(b.capacity_kwh for b in base["batteries"])),
         thermal_guarantee_relaxed=tuple(plan.thermal_guarantee_relaxed),
         direction_exclusivity=plan.direction_exclusivity,
@@ -738,8 +807,13 @@ def summary_attribute(
     drives_dispatch: bool,
     fallback_reason: str | None = None,
     computed_at: str | None = None,
+    grid: Any = None,
+    hours: Any = None,
 ) -> dict[str, Any]:
-    """The published `stochastic` attribute. Plain JSON types only."""
+    """The published `stochastic` attribute. Plain JSON types only.
+
+    `grid` and `hours` (the solve's own) give the main plan's grid money on
+    the same footing as the scenarios'; without them it is None."""
     det_kw = (
         net_battery_kw(deterministic_plan)
         if deterministic_plan.status == "optimal"
@@ -780,6 +854,26 @@ def summary_attribute(
         },
         "thermal_guarantee_relaxed": list(result.thermal_guarantee_relaxed),
         "direction_exclusivity": result.direction_exclusivity,
+        # Money at the real prices, $ over the horizon (grid_money()): the
+        # LP's `scenario_cost` above carries its penalty and tie-break terms
+        # and is not money.
+        "scenario_grid_cost": {
+            k: _rounded(v) for k, v in result.scenario_grid_cost.items()
+        },
+        "expected_grid_cost": _rounded(
+            sum(
+                w * result.scenario_grid_cost[k]
+                for k, w in zip(result.labels, result.weights, strict=True)
+                if k in result.scenario_grid_cost
+            )
+            if len(result.scenario_grid_cost) == len(result.labels)
+            else None
+        ),
+        "deterministic_grid_cost": _rounded(
+            plan_grid_money(deterministic_plan, grid, hours)
+            if grid is not None and hours is not None
+            else None
+        ),
     }
     if computed_at is not None:
         out["computed_at"] = computed_at
