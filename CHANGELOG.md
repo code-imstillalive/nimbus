@@ -48,6 +48,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   10:00-10:50, clearing on the 10:55 run AEMO corrected.
 
 ### Fixed
+- **A battery participant's unreachable departure target no longer makes the
+  whole plan infeasible.** On a test install a test EV sat at 5% (floor 20%)
+  with an 80%-by-08:00 target. 45 kWh at 12 kW takes about 3.9 hours, so
+  from about 04:10 on 17 Oct the hard row `soc[deadline] >= target` could not
+  be met. HiGHS rejected the model in presolve: from 04:40 the log shows
+  #773's `phase1_primary` Infeasible ERROR (`simplex_iterations=0`) on every
+  phased attempt, the plain fallback infeasible too, and the plan published
+  `status=infeasible` every cycle past 08:00, with no dispatch for any
+  battery or load. From
+  08:00 the 08:00 departure resolved to period 0 with the car away, the same
+  failure. This was not a lex/calibration fault or a HiGHS bug.
+  - **When the target is reachable** (at or below the most the battery can
+    hold by the deadline charging at full power in every period it may
+    charge, after away gates, the P2P charge gate and a shared charger's
+    ceiling), the hard row is built exactly as before.
+  - **When it is not,** the row is soft for that solve: the shortfall is
+    priced at the soft-SoC rate (10x the largest price in play), so the plan
+    charges as much as it can before the deadline and plans everything else.
+    The penalty is counted in `soc_penalty_cost`, not left in
+    `terminal_value_credit`.
+  - `solve_diagnostics` gains `departure_target_shortfall_kwh` (battery
+    name to kWh short at the deadline; empty when every target is
+    reachable). One WARNING per battery per departure.
 - **The Solver tab's quality card shows the oracle EPR divides by** (#1797
   review, 16 Oct 2026). EPR has divided by `j_star_evaluator`, the oracle's
   plan repriced at real costs, since #1081. The card showed `j_star`, the raw

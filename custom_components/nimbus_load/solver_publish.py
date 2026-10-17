@@ -2891,6 +2891,15 @@ def publish_plan(
                 "thermal_guarantee_relaxed": list(
                     getattr(plan, "thermal_guarantee_relaxed", []) or []
                 ),
+                # A battery whose departure target could not be reached
+                # even charging flat out, and how many kWh short the plan
+                # lands at the deadline. Empty = every target reachable.
+                "departure_target_shortfall_kwh": {
+                    name: round(float(kwh), 3)
+                    for name, kwh in (
+                        getattr(plan, "departure_target_shortfall_kwh", {}) or {}
+                    ).items()
+                },
                 # nimbus issue #485 acceptance criterion 3: "Diagnostics
                 # show household_mode alongside the plan" -- so a plan can
                 # be read knowing which mode produced it. Resolved live

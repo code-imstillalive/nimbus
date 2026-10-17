@@ -876,6 +876,12 @@ class BatteryConfig:
     # a real time, not a priced preference. Both None (the default) is a
     # real no-op. Both must be set together -- see __post_init__.
     #
+    # Except when the target is physically unreachable this solve (above
+    # the most the battery can hold by the deadline charging flat out):
+    # then network.py makes it soft, priced at the soft-SoC rate, so one
+    # car's target cannot make the whole plan infeasible. See
+    # Plan.departure_target_shortfall_kwh.
+    #
     # No-op for a solve whose own horizon doesn't reach the deadline
     # period yet (network.py skips the constraint entirely when the
     # index is out of range for THIS solve, not an error -- a household
