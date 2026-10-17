@@ -1678,6 +1678,14 @@ def _solar_quantile_at(result, key: str, i: int) -> float | None:
     return round(float(values[i]), 3)
 
 
+def _effective_at(values, i: int, digits: int) -> float | None:
+    """nimbus #1797: one period of what the LP was actually fed after the
+    risk-aversion dials (`Plan.effective_*`), or None on a plan without it."""
+    if values is None or i >= len(values):
+        return None
+    return round(float(values[i]), digits)
+
+
 def _price_consolidation_attribute(result) -> dict | None:
     """nimbus #1786: the published summary, without the per-period series
     (those are on each row)."""
@@ -2306,6 +2314,11 @@ def publish_plan(
             # nimbus #1807: calibrated quantiles (None when not built).
             "solar_p10_kw": _solar_quantile_at(solar_quantiles, "p10", i),
             "solar_p90_kw": _solar_quantile_at(solar_quantiles, "p90", i),
+            # nimbus #1797: the solar and prices the LP counted on after the
+            # risk-aversion dials, so a replay can rebuild the plan that ran.
+            "solar_effective_kw": _effective_at(plan.effective_solar_kw, i, 3),
+            "import_price_effective": _effective_at(plan.effective_import_price, i, 4),
+            "export_price_effective": _effective_at(plan.effective_export_price, i, 4),
             "dispatch_direction": dispatch_breakdown[i][0],
             # nimbus #1654 (Mark Purcell, 16 Oct): the battery idle while the
             # grid still flows means "hold": a dispatcher should preserve the
