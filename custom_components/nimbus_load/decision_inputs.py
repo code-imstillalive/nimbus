@@ -106,6 +106,10 @@ ROW_FIELDS = (
     "envelope_export_limit_kw",
     "shadow_price",
     "dispatch_direction",
+    # nimbus #1797: the calibrated solar band (#1807) the stochastic solve's
+    # scenarios are built from, so a stochastic cycle can be replayed.
+    "solar_p10_kw",
+    "solar_p90_kw",
 )
 
 #: Top-level attributes of the published plan kept with each record.
@@ -123,6 +127,8 @@ META_FIELDS = (
     "load_whole_house_live_now_kw",
     "load_forecast_source_used",
     "price_spike_active",
+    # nimbus #1797: shadow or drive, what it decided and why it fell back.
+    "stochastic",
 )
 
 #: Config keys whose entity is a decision input worth a provenance line.

@@ -177,6 +177,13 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Scoring"),
             (1, "Reserve and price spikes"),
         ],
+        # nimbus #1797: its own block, last, one row.
+        [
+            "Stochastic",
+            (1, "markdown: Now"),
+            (2, "Battery by how much sun"),
+            (1, "Settings"),
+        ],
     ]
 
 
@@ -482,6 +489,7 @@ def test_an_entities_card_with_nothing_left_is_dropped() -> None:
         ["Plan"],
         ["Basic settings"],
         ["Advanced settings"],
+        ["Stochastic"],
     ]
 
 

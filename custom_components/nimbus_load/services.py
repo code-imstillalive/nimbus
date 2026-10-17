@@ -109,6 +109,9 @@ SERVICE_RESCORE_HISTORY = "rescore_history"
 # window (see decision_inputs.py), so a replay can rebuild exactly what the LP
 # saw. Read-only; nothing is solved.
 SERVICE_EXPORT_DECISION_INPUTS = "export_decision_inputs"
+# nimbus #1797: the stochastic solve's own in-process state, readable on an
+# install whose plan sensor a mirror overwrites (devhub).
+SERVICE_GET_STOCHASTIC_SUMMARY = "get_stochastic_summary"
 
 # nimbus issue #495 (Signals 6/7 of #489): hands a caller the current
 # `nem-flex-telemetry` schema-v2.0 record as a service RESPONSE, so a
@@ -204,6 +207,8 @@ SERVICE_EXPORT_DECISION_INPUTS_SCHEMA = vol.Schema(
         vol.Optional("kinds", default=["head", "horizon"]): _coerce_kinds,
     }
 )
+
+SERVICE_GET_STOCHASTIC_SUMMARY_SCHEMA = vol.Schema({})
 
 SERVICE_RESCORE_HISTORY_SCHEMA = vol.Schema(
     {
@@ -679,6 +684,18 @@ async def _async_handle_export_decision_inputs(
         raise ServiceValidationError(f"nimbus_load.export_decision_inputs: {e}") from e
 
 
+async def _async_handle_get_stochastic_summary(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1797: the latest two-stage stochastic summary, each
+    scenario's SoC and battery path behind it, and the solve cadence --
+    read from this process, not from the plan sensor, so it is this install's
+    own solve even where a mirrored entity overwrites the sensor."""
+    from . import solver_plan
+
+    return solver_plan.stochastic_snapshot()
+
+
 async def _async_handle_set_controllable_load(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -842,6 +859,19 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.ONLY,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_STOCHASTIC_SUMMARY):
+
+        async def _handle_get_stochastic_summary(call: ServiceCall):
+            return await _async_handle_get_stochastic_summary(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_GET_STOCHASTIC_SUMMARY,
+            _handle_get_stochastic_summary,
+            schema=SERVICE_GET_STOCHASTIC_SUMMARY_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_FLEX_TELEMETRY_RECORD):
 
         async def _handle_flex_telemetry_record(call: ServiceCall):
@@ -907,6 +937,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         # sets from this module's own source instead.
         SERVICE_RESCORE_HISTORY,
         SERVICE_EXPORT_DECISION_INPUTS,
+        SERVICE_GET_STOCHASTIC_SUMMARY,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

@@ -175,11 +175,31 @@ async def async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
         return None
 
 
-async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
+def _own_plan(hass: HomeAssistant) -> tuple[dict | None, datetime | None]:
+    """This install's own latest plan and when it was published.
+
+    nimbus #1797: from what this process last posted, not from hass.states,
+    where a mirrored entity of another install can overwrite the id (devhub,
+    whose canonical plan sensor carries production's plan). The state
+    machine is the fallback before this process has posted (a restart)."""
+    from . import solver_shared
+
+    # Only a post made into THIS Home Assistant: the cache is process-wide.
+    own = solver_shared.NATIVE.hass is hass
+    posted = solver_shared.last_posted(_PLAN_ENTITY) if own else None
+    at = solver_shared.last_posted_at(_PLAN_ENTITY) if own else None
+    if posted is not None and at is not None:
+        return dict(posted[1]), at
     plan = hass.states.get(_PLAN_ENTITY)
     if plan is None:
+        return None, None
+    return dict(plan.attributes), plan.last_updated
+
+
+async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
+    attrs, published = _own_plan(hass)
+    if attrs is None or published is None:
         return None
-    attrs = dict(plan.attributes)
     rows = attrs.get("forecast")
     if not isinstance(rows, list) or not rows:
         return None
@@ -189,7 +209,7 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
     # boundary, so every solve inside one 5-minute period shares it. HA only
     # moves `last_updated` when a write changes something, so an unchanged
     # republish is (correctly) not filed again.
-    published_at = plan.last_updated.isoformat()
+    published_at = published.isoformat()
     if published_at == st.last_published_at:
         return None
 

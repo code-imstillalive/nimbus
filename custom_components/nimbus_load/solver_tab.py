@@ -386,6 +386,150 @@ _SAFETY_CONSOLIDATION = {
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
 
+# --- Stochastic: the two-stage stochastic solve (nimbus #1797) -------------
+# Its own block, last on the tab, one row: Now (headline and what each solar
+# day costs), the battery by how much sun, and its settings. Every
+# card reads sensor.nimbus_solver_stochastic, which this install's own solve
+# publishes (sensor_stochastic.py), so a mirrored plan sensor never stands in.
+_STOCHASTIC_NOW = {
+    "type": "markdown",
+    "content": (
+        "{% set e = '${@nimbus_solver_stochastic}' %}"
+        "{% set s = state_attr(e, 'stochastic') %}"
+        "{% set h = states(e) %}"
+        "{% macro usd(v) %}{% if v is none %}—{% else %}"
+        "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        # Grid money in words: negative is money earned (exports and P2P beat
+        # imports), so "$-96.93" reads "earns $96.93".
+        "{% macro net(v) %}{% if v is none %}—{% elif v < 0 %}"
+        "earns ${{ '%.2f' | format(-v) }}{% else %}"
+        "pays ${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        '<ha-alert alert-type="'
+        "{% if s is not mapping %}info"
+        "{% elif s.get('drives_dispatch') %}warning"
+        "{% elif s.get('status') == 'optimal' %}success"
+        "{% else %}info{% endif %}"
+        '" title="Now">{{ h }}</ha-alert>\n\n'
+        "{% if s is mapping %}"
+        '<font color="#9aa0ac">'
+        "{{ 'Driving' if s.get('drives_dispatch') else ('Drive on' if s.get('mode') == 'drive' else 'Shadow') }}"
+        " · {{ s.get('solar_band') or 'no' }} band"
+        "{% if s.get('stochastic_solve_seconds') is not none %}"
+        " · {{ '%.1f' | format(s.stochastic_solve_seconds) }} s{% endif %}"
+        "{% if s.get('computed_at') %}"
+        " · {{ as_timestamp(s.computed_at) | timestamp_custom('%H:%M') }}{% endif %}"
+        "</font>\n\n"
+        "{% endif %}"
+        "{% if s is mapping and s.get('status') == 'optimal' %}"
+        # Grid money at the real prices (import cost minus export and P2P
+        # income), not the LP objective: that carries penalty and tie-break
+        # terms that are not money (household question, 17 Oct 2026).
+        "{% set c = s.get('scenario_grid_cost', {}) %}"
+        "{% set end = s.get('scenario_terminal_soc_kwh', {}) %}"
+        "{% set vals = [c.get('p10'), c.get('p50'), c.get('p90')]"
+        " | reject('none') | list %}"
+        "{% set hi = vals | max %}{% set lo = vals | min %}"
+        # The decision being made now, main plan against stochastic: the
+        # headline's numbers. kW, + discharging, - charging.
+        "{% set m = s.get('deterministic_period0_battery_kw') %}"
+        "{% set k = s.get('stage1_battery_kw') %}"
+        "| Battery now | kW |\n|:---|---:|\n"
+        "| Main plan | {{ '%+.1f' | format(m) if m is not none else '—' }} |\n"
+        "| Stochastic | <b>{{ '%+.1f' | format(k) if k is not none else '—' }}</b> |\n\n"
+        "| Solar day | Grid, 2 days | Battery at end |\n|:---|---:|---:|\n"
+        "{% for k, label in [('p10', 'Low'), ('p50', 'Middle'), ('p90', 'High')] %}"
+        "{% set v = c.get(k) %}"
+        "| {{ label }} | <font color=\"{{ '#ff5a5a' if v == hi else"
+        " ('#3ddc84' if v == lo else '#e8eaf0') }}\">{{ net(v) }}</font>"
+        " | {% if end.get(k) is not none %}{{ '%.0f' | format(end[k]) }} kWh"
+        "{% else %}—{% endif %} |\n"
+        "{% endfor %}"
+        "| <b>Expected</b> | <b>{{ net(s.get('expected_grid_cost')) }}</b> |"
+        " spread {{ usd(hi - lo) }} |\n"
+        "| Main plan | {{ net(s.get('deterministic_grid_cost')) }} | |\n\n"
+        '<font color="#9aa0ac">Grid: imports paid minus exports and P2P earned,'
+        " at your prices, over the plan.</font>"
+        "{% endif %}"
+    ),
+}
+
+
+# The Now card's tables span the card. They sit in ha-markdown's own shadow
+# root, so they are styled there (as the until-midnight card's are).
+def _stochastic_now_style() -> dict[str, str]:
+    return {
+        ".": _FILL_NO_SCROLL,
+        "ha-markdown$": (
+            "table { width: 100%; table-layout: fixed; } th, td { padding: 4px 8px; }"
+        ),
+    }
+
+
+def _stochastic_chart() -> dict[str, Any]:
+    """The battery on each solar day the stochastic solve planned for, with
+    the main plan's own line: where they part is the hedge. Without a
+    stochastic plan the rows carry the main plan alone."""
+    entity = "@nimbus_solver_stochastic"
+    ahead = {"extend_to": False, "show": {"in_header": False}}
+    series = [
+        {
+            "entity": entity,
+            "name": name,
+            "type": "line",
+            "color": colour,
+            "stroke_width": width,
+            "unit": "%",
+            "data_generator": _forecast_at_period_end(field),
+            **({"stroke_dash": 5} if field == "main" else {}),
+            **ahead,
+        }
+        for name, field, colour, width in (
+            ("Low solar day", "p10", "#ff7043", 2),
+            ("Middle", "p50", "#3ddc84", 3),
+            ("High solar day", "p90", "#4FC3C7", 2),
+            ("Main plan", "main", "#e8eaf0", 2),
+        )
+    ]
+    return _apex(
+        "Battery by how much sun",
+        "% of battery. Dashed: the main plan.",
+        series,
+        height=440,
+        graph_span="2d",
+        span={"start": "hour"},
+        now={"show": True, "label": "Now", "color": "#ffffff"},
+        yaxis=[
+            {
+                "min": 0,
+                "max": 100,
+                "decimals": 0,
+                "apex_config": {"tickAmount": 4},
+            }
+        ],
+    )
+
+
+# The switch, then the four numbers (const.py says what each does), and the
+# one-line note every settings card ends with (household, 11 Oct 2026).
+def _stochastic_settings() -> dict[str, Any]:
+    return {
+        "type": "entities",
+        "title": "Settings",
+        "show_header_toggle": False,
+        "entities": _rows(
+            [
+                ("solver_stochastic_dispatch", "Drive the battery"),
+                ("solver_stochastic_stage1_minutes", "Commit window"),
+                ("solver_stochastic_tail_weight", "Low/high day weight"),
+                ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
+                ("solver_stochastic_shadow_interval_minutes", "Check every"),
+                ("section", "Off: it only checks."),
+            ]
+        ),
+    }
+
+
+_STOCHASTIC_ROW_SIZE = {"rows": 9}
 
 # (name, ha-alert type, one line). The alert type gives each band its colour.
 _BANNERS = (
@@ -394,6 +538,11 @@ _BANNERS = (
     ("Plan", "warning", "What the Solver intends to do with the battery."),
     ("Basic settings", "info", "Your battery, grid, fees and P2P. Set these first."),
     ("Advanced settings", "error", "Fine-tuning. The defaults suit most installs."),
+    (
+        "Stochastic",
+        "success",
+        "Plans for a low, middle and high solar day at once (nimbus #1797).",
+    ),
 )
 
 _MONEY_ROW = (_SCORED, _MONEY, _BREAKDOWN, _BATTERY_NOW)
@@ -1456,6 +1605,17 @@ def template() -> list[dict[str, Any]]:
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],
         *(_section([_card(c)], 1) for c in _ADVANCED_ROW),
+        banners["Stochastic"],
+        _section(
+            [_styled(_STOCHASTIC_NOW, _stochastic_now_style())], 1, _STOCHASTIC_ROW_SIZE
+        ),
+        # The chart fills its cell (the Performance charts' flex style).
+        _section(
+            [_styled(_stochastic_chart(), _CHART_FIGURES_BELOW)],
+            2,
+            _STOCHASTIC_ROW_SIZE,
+        ),
+        _section([_styled(_stochastic_settings(), _FILL)], 1, _STOCHASTIC_ROW_SIZE),
     ]
 
 

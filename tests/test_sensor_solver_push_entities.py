@@ -131,7 +131,9 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # projection, not a historical fact, so it's excluded from long-term
     # storage. "batteries" (nimbus issue #563 item 5) is the same kind
     # of per-cycle-churning series, per-participant.
-    assert cls._unrecorded_attributes == frozenset({"forecast", "batteries"})
+    assert cls._unrecorded_attributes == frozenset(
+        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+    )
 
 
 def test_household_load_total_forecast_has_required_sensor_entity_class_attributes():
@@ -147,7 +149,9 @@ def test_household_load_total_forecast_has_required_sensor_entity_class_attribut
     # "batteries" only ever appears on the battery-forecast sibling
     # above (this sensor never sets it), but both share the same base
     # class's frozenset -- harmless, unused key here.
-    assert cls._unrecorded_attributes == frozenset({"forecast", "batteries"})
+    assert cls._unrecorded_attributes == frozenset(
+        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+    )
 
 
 # --- __init__ preserves entity identity -----------------------------------

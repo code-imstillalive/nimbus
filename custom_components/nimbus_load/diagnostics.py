@@ -196,17 +196,35 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
     doesn't have that attribute, which a blind spread of solver_attrs
     alone can't express.
     """
+    from . import solver_shared
+
     solver_state = hass.states.get(_SOLVER_ENTITY_ID)
     load_state = hass.states.get(_HOUSEHOLD_LOAD_ENTITY_ID)
-    if solver_state is None and load_state is None:
+    # nimbus #1797: this install's own plan, as this process last posted it,
+    # before the state machine -- where another install's mirrored entity
+    # can overwrite the id (devhub carries production's plan there).
+    # Only a post made into THIS Home Assistant: the cache is process-wide.
+    posted = (
+        solver_shared.last_posted(_SOLVER_ENTITY_ID)
+        if solver_shared.NATIVE.hass is hass
+        else None
+    )
+    if solver_state is None and load_state is None and posted is None:
         return {"configured": False}
 
-    solver_attrs = solver_state.attributes if solver_state else {}
+    if posted is not None:
+        plan_state, solver_attrs = posted[0], posted[1]
+        plan_source = "this_install"
+    else:
+        plan_state = solver_state.state if solver_state else None
+        solver_attrs = solver_state.attributes if solver_state else {}
+        plan_source = "state_machine"
     load_attrs = load_state.attributes if load_state else {}
     return {
         "configured": True,
-        "entity_found": solver_state is not None,
-        "state": solver_state.state if solver_state else None,
+        "entity_found": solver_state is not None or posted is not None,
+        "state": plan_state,
+        "plan_source": plan_source,
         **dict(solver_attrs),
         # Real, direct answer to "is my load forecast actually feeding
         # the solver, or silently falling back to something wrong" --

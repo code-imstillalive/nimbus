@@ -38,6 +38,8 @@ rescore_history:
 
 flex_telemetry_record:
 
+get_stochastic_summary:
+
 export_decision_inputs:
   fields:
     start:

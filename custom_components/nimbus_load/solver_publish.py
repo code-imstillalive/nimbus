@@ -1777,6 +1777,8 @@ def publish_plan(
     price_consolidation=None,
     # nimbus #1797: solver_plan.run_stochastic_dispatch()'s summary, or None.
     stochastic=None,
+    # nimbus #1797: solver_plan.stochastic_paths_for()'s result, or None.
+    stochastic_paths=None,
     # nimbus #1807: solar_quantiles.update_and_build()'s result, or None.
     solar_quantiles=None,
 ) -> None:
@@ -2582,6 +2584,10 @@ def publish_plan(
             "stochastic_period0_battery_kw": (stochastic or {}).get(
                 "stage1_battery_kw"
             ),
+            # nimbus #1797: each solar scenario's battery % ahead, aligned
+            # with `forecast`'s rows (the Solver tab's envelope chart).
+            # Unrecorded, like `forecast`: a projection, not history.
+            "stochastic_paths": stochastic_paths,
             # nimbus #1807: method, and per lead bucket the samples, the
             # ratio quantiles and their leave-one-day-out coverage. Always
             # present, so the key never appears and vanishes.

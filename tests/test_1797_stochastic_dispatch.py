@@ -704,7 +704,8 @@ def test_a_shadow_job_finishing_after_a_switch_to_drive_is_dropped(monkeypatch):
     release.set()
     assert solver_plan.wait_for_stochastic_shadow(timeout=10)
     assert solver_plan._STOCHASTIC_STATE["mode"] == "drive"
-    assert solver_plan._STOCHASTIC_STATE["summary"] is None
+    # The late shadow job was dropped: the state holds drive's own summary.
+    assert solver_plan._STOCHASTIC_STATE["summary"]["mode"] == "drive"
     assert driven["mode"] == "drive"
 
 

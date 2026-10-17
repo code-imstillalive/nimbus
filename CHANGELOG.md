@@ -9,6 +9,53 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Seeing the stochastic solve** (#1797 programme, PR B).
+  - **Tuning, as dashboard numbers** (each was a hardcoded constant; the
+    defaults are those constants, so nothing moves until a dial does):
+    *Commit window* (30 min: how long the decision now must suit every solar
+    day), *Low and high day weight* (0.3: the middle day gets the rest),
+    *Drive time limit* (10 s for the whole stochastic solve when it drives),
+    *Check every* (5 min, the shadow cadence and drive's first backoff). Read
+    every cycle through `sensor.nimbus_solver_config`, clamped to each
+    entity's range; the summary's `stage1_minutes` is the window used.
+  - **`sensor.nimbus_solver_stochastic`** (new): state is a one-line headline
+    ("Agrees with the main plan", "Charges 3.2 kW where the main plan charges
+    40.0 kW", "Main plan: no solar spread", "Not running"); attributes
+    `stochastic` (the
+    summary) and `forecast` (each plan period's main-plan SoC beside each
+    solar day's, the main plan alone with no stochastic plan), both kept out
+    of the recorder. Fed from this install's own plan publish, like the
+    per-battery SoC sensors, so it is this install's solve even where a
+    mirrored plan sensor overwrites the plan entity.
+  - **Solver tab:** a **Stochastic** block, last on the tab, one row:
+    *Now* (the headline in a coloured band; mode, band, solve time; the
+    battery command now, main plan against stochastic; then each solar
+    day's **grid money** over the plan -- imports paid minus exports and P2P
+    earned, at the real prices, red the dearest and green the cheapest --
+    the expected figure and the main plan's on the same footing),
+    *Battery by how much sun* (ApexCharts, two columns, filling its cell:
+    low, middle and high solar, the main plan dashed; where they part is the
+    hedge), and *Settings* (Drive the battery and the four dials; the switch
+    was on no tab before).
+  - **Grid money in the summary:** `scenario_grid_cost`,
+    `expected_grid_cost` and `deterministic_grid_cost`, the same formula for
+    each (`grid_money()`), so the main plan and the stochastic plan finally
+    compare. `scenario_cost` / `expected_cost` stay the LP objective, which
+    carries penalty and tie-break terms and is not money (household
+    question, 17 Oct 2026: "what is this cost?").
+  - **`stochastic_paths`** on `sensor.nimbus_solver_battery_forecast`: each
+    scenario's battery % per plan period, aligned with `forecast`, about
+    2.4 KB, kept out of the recorder like `forecast`.
+  - **`nimbus_load.get_stochastic_summary`** (response-only): the latest
+    summary, each scenario's fleet SoC and battery kW over the horizon, and
+    the cadence (last run, last fallback, backoff, a shadow solve running).
+    Read from the Solver itself, so it is this install's own solve even
+    where another install's mirrored plan sensor overwrites the entity.
+  - **Decision-input capture and the diagnostics download** read the plan
+    this install last posted before the state machine (diagnostics says
+    which, `plan_source`); the capture now keeps each row's calibrated
+    `solar_p10_kw` / `solar_p90_kw` and the `stochastic` summary, so a
+    stochastic cycle can be replayed.
 - **Two-stage stochastic dispatch inside the main solve, in shadow by
   default, with a switch to drive** (#1797). The full model `build_plan()`
   builds (every battery, load, controllable and thermal load, P2P block,

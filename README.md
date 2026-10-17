@@ -629,6 +629,12 @@ Edit inline on the dashboard without touching the wizard:
   another way of combining the sources can be scored afterwards. Recorder
   does not keep the plan's rows, so this is the only record of them. Kept 48 hours (heads) and 7 days (full
   horizons) under `.storage/`; at most 24 hours per call. Read-only.
+- `nimbus_load.get_stochastic_summary`. Returns the two-stage stochastic
+  solve's latest summary (shadow or drive, why a cycle used the main plan),
+  each solar scenario's planned battery state of charge and battery power
+  over the horizon, and the solve cadence. Read from this install's own
+  Solver, not from a sensor, so it is this install's solve even where another
+  install's mirrored plan sensor overwrites the entity. Read-only.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.
