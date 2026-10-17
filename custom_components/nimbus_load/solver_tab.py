@@ -1409,6 +1409,14 @@ _UNTIL_MIDNIGHT_STYLE: Any = {
 # Chart cards fill their cell, title on top, figures at the bottom.
 _CHART_FIGURES_BELOW = "ha-card { height: 100%; box-sizing: border-box; display: flex; flex-direction: column; } #header { display: contents; } #header__title { order: 0; } #graph-wrapper { order: 1; flex: 1 1 auto; } #header__states { order: 2; margin-top: auto; }"
 _FILL = "ha-card { height: 100%; box-sizing: border-box; }"
+# The quality card in Performance (household, 17 Oct 2026): it overflowed its
+# 8-row cell by a few pixels and scrolled; at 10 rows it left a gap. Tighter
+# table rows fit it in 8. The table is in ha-markdown's own shadow root, so it
+# is styled there (as _UNTIL_MIDNIGHT_STYLE does).
+_QUALITY_STYLE: Any = {
+    ".": _FILL_NO_SCROLL,
+    "ha-markdown$": "th, td { padding-top: 2px; padding-bottom: 2px; }",
+}
 
 
 _DAILY_CALLS = (
@@ -1574,17 +1582,16 @@ def template() -> list[dict[str, Any]]:
     what the tab's design fingerprint is taken from, so it is the same on
     every install."""
     banners = {name: _banner(name, kind, line) for name, kind, line in _BANNERS}
-    # Household, 17 Oct 2026: the quality card scrolled at 8. 10 holds its
-    # table, footnote and the provisional-EPR warning; the three charts
-    # beside it fill the same height, so the row stays lined up.
-    row = {"rows": 10}
+    # Household, 17 Oct 2026: the quality card scrolled at 8 and left a gap
+    # at 10, so it stays 8 with a tighter table (_QUALITY_STYLE).
+    row = {"rows": 8}
     half = {"rows": 7}
     plan = {"rows": 12}
     return [
         *_top_row(),
         banners["Performance"],
         _section([_cost_chart()], 4, {"rows": 6}),
-        _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, row),
+        _section([_styled(_HOUSEHOLD_QUALITY, _QUALITY_STYLE)], 1, row),
         _section([_styled(_glance_chart(), _CHART_FIGURES_BELOW)], 1, row),
         _section([_styled(_score_chart(), _CHART_FIGURES_BELOW)], 1, row),
         _section([_styled(_breakdown_chart(), _CHART_FIGURES_BELOW)], 1, row),

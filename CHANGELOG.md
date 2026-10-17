@@ -176,10 +176,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Solver tab: the quality card once, without a scrollbar, and the plan's
   four days** (household, 17 Oct 2026). The EPR / Regret card was on the tab
   twice, in Performance and again in the Plan row beside the whole-plan table,
-  and in Performance it scrolled. Performance's row is 10 high instead of 8,
-  so the card holds its table, footnote and the provisional-EPR warning; the
-  three charts beside it fill the same height, so the row still ends on one
-  line. In the Plan row the duplicate is replaced by the plan's days 3 and 4
+  and in Performance it scrolled by a few pixels. Its table rows are tighter,
+  so it fits its 8-row cell with no scrollbar and no gap below (10 rows,
+  tried first on devhub, left a gap); the three charts beside it keep the
+  same height, so the row ends on one line. In the Plan row the duplicate is replaced by the plan's days 3 and 4
   (named by weekday) under the same daily summary, two to a column beside
   Today and Tomorrow, ending level with the table. A day the plan only partly
   covers says where it ends ("Wednesday (2026-10-21) -- plan ends 12:30").
