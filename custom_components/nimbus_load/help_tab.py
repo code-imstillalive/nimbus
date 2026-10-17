@@ -161,6 +161,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.462",
+        "17 Oct 2026",
+        (
+            (
+                "**This Help tab:** what each tab needs, where every setting is "
+                "and what it means."
+            ),
+            "**Stochastic settings explained** on their card.",
+            (
+                "**A stale price source no longer counts in the daily score:** "
+                "its periods are re-priced from AEMO plus your learned markup."
+            ),
+        ),
+    ),
+    (
         "0.94.461",
         "17 Oct 2026",
         (
