@@ -162,6 +162,31 @@ _EXPECTED_ATTRS = {
                 "4-24 h": None,
             },
         },
+        # nimbus #1797: the signed error history behind future price
+        # scenarios. A first solve has graded nothing; 575 future 5-minute
+        # intervals per side are pending (48 h of the horizon).
+        "error_history": {
+            "read_by_dispatch": False,
+            "threshold": 5.0,
+            "threshold_from": "solver_p5min_false_spike_threshold_mwh",
+            "keep_days": 21,
+            "normal_stride": 6,
+            "min_samples": 30,
+            "samples": 0,
+            "pending_intervals": 1150,
+            "columns": [
+                "n",
+                "d10",
+                "d50",
+                "d90",
+                "hits",
+                "misses",
+                "surprises",
+                "p_hit",
+            ],
+            "import": {},
+            "export": {},
+        },
     },
     "export_price_provider_until": "2026-09-10T19:30:00+10:00",
     # nimbus #1793: the fixture's price sensors publish no refresh stamp.
@@ -387,6 +412,9 @@ _EXPECTED_ATTRS = {
         # reader of recorder history months later cannot otherwise tell
         # apart.
         "thermal_guarantee_relaxed": [],
+        # Empty: this fixture has no battery participant with a departure
+        # target, so nothing is unreachable and every target row is hard.
+        "departure_target_shortfall_kwh": {},
         # nimbus issue #485: None here is correct and meaningful -- this
         # fixture has no live select entity, and the honest answer is
         # "no mode was in force" rather than defaulting to "home" and
