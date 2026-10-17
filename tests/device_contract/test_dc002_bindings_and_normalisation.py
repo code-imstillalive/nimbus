@@ -44,7 +44,7 @@ T = datetime.fromisoformat
 
 
 def _manifest(name: str) -> dict[str, Any]:
-    return json.loads((FIX / name / "manifest.json").read_text(encoding="utf-8"))
+    return json.loads((FIX / name / "fixture.json").read_text(encoding="utf-8"))
 
 
 F04 = _manifest("F04_price_intervals")

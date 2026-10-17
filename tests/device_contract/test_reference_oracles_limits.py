@@ -27,7 +27,7 @@ from tests.device_contract.oracles_structure import Device, site_problems
 TOL = 1e-9
 F02 = json.loads(
     (
-        Path(__file__).parent / "fixtures" / "F02_shared_equipment" / "manifest.json"
+        Path(__file__).parent / "fixtures" / "F02_shared_equipment" / "fixture.json"
     ).read_text(encoding="utf-8")
 )
 CASES = F02["cases"]

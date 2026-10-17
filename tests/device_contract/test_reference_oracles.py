@@ -34,7 +34,7 @@ from tests.device_contract.oracles_limits import (
 TOL = 1e-9
 F07 = json.loads(
     (
-        Path(__file__).parent / "fixtures" / "F07_bess_ev_accounting" / "manifest.json"
+        Path(__file__).parent / "fixtures" / "F07_bess_ev_accounting" / "fixture.json"
     ).read_text(encoding="utf-8")
 )
 

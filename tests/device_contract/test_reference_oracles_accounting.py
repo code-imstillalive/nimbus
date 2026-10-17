@@ -36,7 +36,7 @@ FIX = Path(__file__).parent / "fixtures"
 
 
 def _manifest(name: str) -> dict:
-    return json.loads((FIX / name / "manifest.json").read_text(encoding="utf-8"))
+    return json.loads((FIX / name / "fixture.json").read_text(encoding="utf-8"))
 
 
 F05 = _manifest("F05_nested_inclusion")

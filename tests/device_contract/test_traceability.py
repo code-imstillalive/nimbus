@@ -55,7 +55,7 @@ def test_a_started_oracle_has_a_manifest_that_agrees() -> None:
     for fid, f in REG["fixtures"].items():
         if f["status"]["reference_oracle"] == "not_started":
             continue
-        manifests = list((HERE / "fixtures").glob(f"{fid}_*/manifest.json"))
+        manifests = list((HERE / "fixtures").glob(f"{fid}_*/fixture.json"))
         assert len(manifests) == 1, fid
         manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
         assert manifest["identity"]["fixture"] == fid
@@ -74,7 +74,7 @@ def test_known_defects_point_at_real_fixtures_and_claim_no_fix() -> None:
 
 
 def test_a_manifest_names_every_requirement_the_registry_gives_it() -> None:
-    for path in sorted((HERE / "fixtures").glob("F*/manifest.json")):
+    for path in sorted((HERE / "fixtures").glob("F*/fixture.json")):
         manifest = json.loads(path.read_text(encoding="utf-8"))
         fid = manifest["identity"]["fixture"]
         assigned = {r["id"] for r in REG["requirements"] if fid in r["fixtures"]}
