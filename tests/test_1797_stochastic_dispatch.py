@@ -317,18 +317,26 @@ def test_a_failed_joint_solve_is_a_status_not_an_exception():
 
 
 @pytest.fixture(autouse=True)
-def _fresh_stochastic_state():
+def _fresh_stochastic_state(monkeypatch):
+    # In-line shadow solves, so a test reads the summary from the call that
+    # ran it; the background thread has its own tests below.
+    monkeypatch.setattr(solver_plan, "STOCHASTIC_SHADOW_IN_BACKGROUND", False)
     solver_plan.reset_stochastic_state()
     yield
+    assert solver_plan.wait_for_stochastic_shadow(timeout=60)
     solver_plan.reset_stochastic_state()
 
 
 def _det_and_stoch():
+    """The tiered case, deterministic and stochastic. The stochastic result
+    is labelled calibrated: drive refuses an envelope band (see
+    test_drive_refuses_an_envelope_band), and these tests are about what
+    happens once it is allowed."""
     kw = _tiered_inputs()
     det = network.build_plan(**kw)
     stoch = sd.build_stochastic_plan(kw)
     assert det.status == stoch.status == "optimal"
-    return kw, det, stoch
+    return kw, det, dataclasses.replace(stoch, solar_band="calibrated")
 
 
 def test_shadow_keeps_the_deterministic_plan_and_publishes_a_summary():
@@ -474,29 +482,230 @@ def test_drive_falls_back_on_an_exception(caplog):
     assert "boom" in caplog.text
 
 
-def test_drive_falls_back_when_too_slow_then_cools_down():
+def _drive(kw, det, seconds):
+    return solver_plan.run_stochastic_dispatch(
+        {"solver_stochastic_dispatch": True},
+        now=T0 + timedelta(seconds=seconds),
+        plan=det,
+        build_kwargs=kw,
+        deterministic_seconds=0.5,
+    )
+
+
+def test_drive_backs_off_exponentially_after_failures_and_logs_once(caplog):
+    """The audit's probe: four 21 s joint timeouts in a row were four retries
+    (a timeout came back under the old "slow" threshold). Any fallback now
+    waits 5 min, then 10, 20, ..., and is logged once."""
     kw, det, stoch = _det_and_stoch()
-    slow = dataclasses.replace(stoch, solve_seconds=31.0)
-    with patch.object(sd, "build_stochastic_plan", return_value=slow) as spy:
-        published, summary = solver_plan.run_stochastic_dispatch(
-            {"solver_stochastic_dispatch": True},
-            now=T0,
-            plan=det,
-            build_kwargs=kw,
-            deterministic_seconds=0.5,
-        )
+    timed_out = dataclasses.replace(
+        stoch, status="error", plan=None, raw_status="Time limit reached"
+    )
+    with patch.object(sd, "build_stochastic_plan", return_value=timed_out) as spy:
+        published, summary = _drive(kw, det, 0)
         assert published is det
-        assert summary["fallback_reason"] == "stochastic_too_slow"
+        assert summary["fallback_reason"] == "stochastic_error"
+        _, summary = _drive(kw, det, 15)
+        assert spy.call_count == 1
+        assert summary["fallback_reason"] == "cooldown_after:stochastic_error"
+        _drive(kw, det, 300)  # due: fails again
+        assert spy.call_count == 2
+        _drive(kw, det, 300 + 599)  # backoff now 10 min
+        assert spy.call_count == 2
+        _drive(kw, det, 300 + 600)
+        assert spy.call_count == 3
+    ours = [
+        r
+        for r in caplog.records
+        if "fallback_reason=stochastic_error" in r.getMessage()
+    ]
+    assert len(ours) == 1
+
+
+def test_drive_exceptions_back_off_and_log_once(caplog):
+    kw, det, _ = _det_and_stoch()
+    with patch.object(
+        sd, "build_stochastic_plan", side_effect=RuntimeError("boom")
+    ) as spy:
+        for s in (0, 15, 30):
+            published, _ = _drive(kw, det, s)
+            assert published is det
+        assert spy.call_count == 1
+        _drive(kw, det, 300)
+        assert spy.call_count == 2
+    assert caplog.text.count("boom") == 1
+
+
+def test_a_driven_plan_resets_the_backoff():
+    kw, det, stoch = _det_and_stoch()
+    bad = dataclasses.replace(stoch, status="error", plan=None)
+    with patch.object(sd, "build_stochastic_plan", return_value=bad):
+        _drive(kw, det, 0)
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+        published, _ = _drive(kw, det, 300)
+        assert published is not det
+        published, _ = _drive(kw, det, 315)
+        assert published is not det
+        assert spy.call_count == 2
+
+
+def test_drive_refuses_an_envelope_band(caplog):
+    """The envelope's p10 / p90 are nominal (p10 = 0 all day on 16 Oct), so
+    the hedge computed on them is too: shadow reports it, drive does not
+    dispatch it."""
+    kw, det, stoch = _det_and_stoch()
+    env = dataclasses.replace(stoch, solar_band="envelope")
+    with patch.object(sd, "build_stochastic_plan", return_value=env):
+        published, summary = _drive(kw, det, 0)
+    assert published is det
+    assert summary["fallback_reason"] == "solar_band_not_calibrated"
+    assert summary["drives_dispatch"] is False
+    solver_plan.reset_stochastic_state()
+    with patch.object(sd, "build_stochastic_plan", return_value=env):
+        _, summary = solver_plan.run_stochastic_dispatch(
+            {}, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
+        )
+    assert summary["status"] == "optimal"
+    assert summary["fallback_reason"] is None
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        ({"thermal_guarantee_relaxed": ("hws",)}, "thermal_guarantee_relaxed"),
+        ({"direction_exclusivity": "declined"}, "direction_declined"),
+        ({"direction_exclusivity": "still_two_way"}, "direction_still_two_way"),
+        ({"nonanticipativity_max_gap": 0.5}, "nonanticipativity_violated"),
+        ({"expected_cost": float("nan")}, "scenario_cost_not_finite"),
+    ],
+)
+def test_drive_never_dispatches_a_weaker_plan(change, reason):
+    kw, det, stoch = _det_and_stoch()
+    assert not det.thermal_guarantee_relaxed
+    assert det.direction_exclusivity not in ("declined", "still_two_way")
+    weaker = dataclasses.replace(stoch, **change)
+    with patch.object(sd, "build_stochastic_plan", return_value=weaker):
+        published, summary = _drive(kw, det, 0)
+    assert published is det
+    assert summary["fallback_reason"] == reason
+
+
+def test_a_relaxed_deterministic_plan_does_not_block_an_equally_relaxed_one():
+    kw, det, stoch = _det_and_stoch()
+    det = dataclasses.replace(det, thermal_guarantee_relaxed=["hws"])
+    same = dataclasses.replace(stoch, thermal_guarantee_relaxed=("hws",))
+    with patch.object(sd, "build_stochastic_plan", return_value=same):
+        published, summary = _drive(kw, det, 0)
+    assert published is not det
+    assert summary["fallback_reason"] is None
+
+
+def test_drive_takes_every_signal_from_the_deterministic_plan():
+    kw, det, stoch = _det_and_stoch()
+    det = dataclasses.replace(
+        det,
+        battery_signals=["det-battery"],
+        load_signals=["det-load"],
+        grid_signals="det-grid",
+        offer_curve_export=[(0.2, 1.0)],
+    )
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch):
+        published, _ = _drive(kw, det, 0)
+    assert published.battery_signals == ["det-battery"]
+    assert published.load_signals == ["det-load"]
+    assert published.grid_signals == "det-grid"
+    assert published.offer_curve_export == [(0.2, 1.0)]
+
+
+def test_switching_off_never_republishes_the_drive_summary():
+    """Audit probe: after switching drive off, the not-due shadow branch
+    re-published the drive summary (mode "drive", drives_dispatch True) for
+    up to 5 minutes while the deterministic plan was the one dispatched."""
+    kw, det, stoch = _det_and_stoch()
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch):
+        _, driven = _drive(kw, det, 0)
+        assert driven["mode"] == "drive" and driven["drives_dispatch"] is True
         published, summary = solver_plan.run_stochastic_dispatch(
-            {"solver_stochastic_dispatch": True},
+            {},
             now=T0 + timedelta(seconds=15),
             plan=det,
             build_kwargs=kw,
             deterministic_seconds=0.5,
         )
-        assert spy.call_count == 1
+    assert published is det
+    assert summary["mode"] == "shadow"
+    assert summary["drives_dispatch"] is False
+
+
+def test_the_shadow_solve_runs_off_the_dispatch_path(monkeypatch):
+    """The shadow solve used to run before publish, holding the dispatched
+    plan back 3-14 s every 5 minutes. It runs on its own thread now: the
+    cycle returns at once, and the summary arrives on a later cycle."""
+    import threading
+
+    monkeypatch.setattr(solver_plan, "STOCHASTIC_SHADOW_IN_BACKGROUND", True)
+    kw, det, stoch = _det_and_stoch()
+    release = threading.Event()
+
+    def _slow(*_a, **_k):
+        assert release.wait(10)
+        return stoch
+
+    with patch.object(sd, "build_stochastic_plan", side_effect=_slow) as spy:
+        published, first = solver_plan.run_stochastic_dispatch(
+            {}, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
+        )
         assert published is det
-        assert summary["fallback_reason"] == "cooldown_after_slow_solve"
+        assert first["status"] == "skipped"
+        assert first["fallback_reason"] == "shadow_solve_pending"
+        # Still running: a second cycle neither waits nor starts another.
+        _, again = solver_plan.run_stochastic_dispatch(
+            {},
+            now=T0 + timedelta(seconds=400),
+            plan=det,
+            build_kwargs=kw,
+            deterministic_seconds=0.5,
+        )
+        assert again["fallback_reason"] == "shadow_solve_pending"
+        release.set()
+        assert solver_plan.wait_for_stochastic_shadow(timeout=10)
+        assert spy.call_count == 1
+    _, done = solver_plan.run_stochastic_dispatch(
+        {},
+        now=T0 + timedelta(seconds=401),
+        plan=det,
+        build_kwargs=kw,
+        deterministic_seconds=0.5,
+    )
+    assert done["status"] == "optimal"
+    assert done["computed_at"] == T0.isoformat()
+
+
+def test_a_shadow_job_finishing_after_a_switch_to_drive_is_dropped(monkeypatch):
+    import threading
+
+    monkeypatch.setattr(solver_plan, "STOCHASTIC_SHADOW_IN_BACKGROUND", True)
+    kw, det, stoch = _det_and_stoch()
+    release = threading.Event()
+
+    def _slow(*_a, **_k):
+        assert release.wait(10)
+        return stoch
+
+    with patch.object(sd, "build_stochastic_plan", side_effect=_slow):
+        solver_plan.run_stochastic_dispatch(
+            {}, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
+        )
+    with patch.object(
+        sd,
+        "build_stochastic_plan",
+        return_value=dataclasses.replace(stoch, plan=None, status="error"),
+    ):
+        _, driven = _drive(kw, det, 15)
+    release.set()
+    assert solver_plan.wait_for_stochastic_shadow(timeout=10)
+    assert solver_plan._STOCHASTIC_STATE["mode"] == "drive"
+    assert solver_plan._STOCHASTIC_STATE["summary"] is None
+    assert driven["mode"] == "drive"
 
 
 def test_a_non_optimal_deterministic_plan_is_left_alone():
@@ -617,7 +826,22 @@ def test_main_shadow_leaves_the_plan_byte_identical(freezer):
 
 @pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
 def test_main_drive_publishes_the_stochastic_period0(freezer):
-    driven = _run_main({"solver_stochastic_dispatch": True})
+    """Drive needs a calibrated band (#1807). The fixture has no solar
+    history, so the measured p10 / p90 are supplied over the real
+    update_and_build()'s result."""
+    real = solver_writer.solar_quantiles.update_and_build
+
+    def _calibrated(sw, cfg, now, grid_times, period_hours, solar_kw, band):
+        out = dict(real(sw, cfg, now, grid_times, period_hours, solar_kw, band))
+        f = np.asarray(solar_kw, dtype=float)
+        out["p10"] = list(f * 0.6)
+        out["p90"] = list(f * 1.3)
+        return out
+
+    with patch.object(
+        solver_writer.solar_quantiles, "update_and_build", side_effect=_calibrated
+    ):
+        driven = _run_main({"solver_stochastic_dispatch": True})
     s = driven["stochastic"]
     assert s["mode"] == "drive"
     assert s["status"] == "optimal", s
@@ -792,3 +1016,124 @@ def test_without_quantiles_the_envelope_is_used_and_labelled():
     )
     sc = sd.solar_scenarios(solar, k=2)
     assert sc is not None and sc.band == "envelope"
+
+
+# -- the joint solve's shadow prices are the expected marginal (audit #1) -----
+
+
+def test_joint_duals_are_the_expected_marginal_not_the_p50_rows():
+    """p50's own balance-row dual in the joint problem carries the other
+    scenarios' marginals through non-anticipativity: measured 2.5x the
+    expected marginal at period 0. With a band too narrow to change any
+    decision, the stochastic plan's shadow prices must match the
+    deterministic plan's."""
+    kw = _tiered_inputs()
+    sun = kw["solar"].forecast_kw
+    kw["solar"] = SolarConfig(
+        forecast_kw=sun, lower_kw=sun * 0.999, upper_kw=sun * 1.001
+    )
+    det = network.build_plan(**kw)
+    res = sd.build_stochastic_plan(kw)
+    assert res.status == "optimal"
+    plan = res.plan
+    assert not any("::" in k for k in plan.duals)
+    assert not any("::" in k for k in plan.reduced_costs)
+    assert set(plan.duals) == set(det.duals)
+    for t in (0, 3, 8, 20):
+        name = f"power_balance_t{t}"
+        assert plan.duals[name] == pytest.approx(det.duals[name], rel=0.02, abs=1e-6), t
+
+
+def test_expected_marginals_weight_each_scenario_copy():
+    d = {"r": 1.0, "p10::r": 2.0, "p90::r": 3.0, "nonanticipativity::p10::x": 9.0}
+    out = sd._expected_marginals(d, ["p10", "p90"], 0.4)
+    assert out == {"r": pytest.approx(0.4 * 6.0)}
+
+
+# -- budget, thermal retry, logging, lp.py side effects ----------------------
+
+
+def test_the_budget_covers_the_whole_call():
+    res = sd.build_stochastic_plan(_tiered_inputs(), budget_seconds=0.0)
+    assert res.status != "optimal"
+    assert res.raw_status == "stochastic_budget_exhausted"
+
+
+def test_a_joint_solver_error_is_not_retried_with_thermal_relaxed():
+    """A joint timeout used to trigger network.py's thermal relax-and-retry,
+    spending the budget again and publishing a plan without the thermal
+    guarantee. A solver error on the hook path now returns as it is."""
+    from solver.elements import ThermalLoadConfig
+    from solver.lp import LPResult
+
+    kw = _tiered_inputs()
+    n = len(kw["periods"].hours)
+    kw["thermal_loads"] = [
+        ThermalLoadConfig(
+            name="hws",
+            max_power_kw=3.0,
+            initial_temperature_c=40.0,
+            target_temperature_c=55.0,
+            earliest_period=0,
+            deadline_period=n - 1,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.3,
+        )
+    ]
+    calls = []
+
+    def hook(p, solve_kwargs, *, thermal_hard_deadline, direction_binaries):
+        calls.append(thermal_hard_deadline)
+        return LPResult(status="error", raw_status="Time limit reached")
+
+    plan = network.build_plan(**kw, lp_solve_hook=hook)
+    assert plan.status == "error"
+    assert calls == [True]
+    assert not plan.thermal_guarantee_relaxed
+
+
+def test_the_cooldown_does_not_turn_a_blended_joint_solve_into_primary_only(caplog):
+    import logging
+    import time as _time
+
+    from solver import lp
+
+    kw = _mip_inputs()
+    kw["solve_options"] = lp.CalibratedOptions()
+    lp._lex_calibration_failed_until = _time.monotonic() + 600
+    try:
+        with caplog.at_level(
+            logging.DEBUG, logger="custom_components.nimbus_load.solver.lp"
+        ):
+            res = sd.build_stochastic_plan(kw, blend_weight=1e-4)
+    finally:
+        lp._lex_calibration_failed_until = 0.0
+    assert res.status == "optimal"
+    assert res.objective_mode == "blended"
+    assert "skipping the phased" not in caplog.text
+
+
+def test_quiet_solves_do_not_touch_the_live_unknown_retry_counters(monkeypatch):
+    from solver import lp
+
+    monkeypatch.setattr(lp, "UNKNOWN_RETRIES", {"attempted": 0, "recovered": 0})
+    lp._QUIET.on = True
+    try:
+        lp._note_unknown_retry("interior-point solve")
+    finally:
+        lp._QUIET.on = False
+    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
+
+
+def test_summary_reports_terminal_soc_and_safety_fields():
+    _kw, det, stoch = _det_and_stoch()
+    s = sd.summary_attribute(
+        stoch,
+        mode="shadow",
+        deterministic_plan=det,
+        deterministic_solve_seconds=0.5,
+        drives_dispatch=False,
+    )
+    assert set(s["scenario_terminal_soc_kwh"]) == {"p10", "p50", "p90"}
+    assert s["thermal_guarantee_relaxed"] == []
+    assert s["direction_exclusivity"] in ("not_needed", "enforced")

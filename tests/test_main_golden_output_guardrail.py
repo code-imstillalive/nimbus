@@ -212,6 +212,10 @@ _EXPECTED_ATTRS = {
         "nonanticipativity_max_gap": None,
         "objective_mode": None,
         "scenario_period0_battery_kw": {},
+        # #1797 PR A: the safety facts drive checks; empty with no band.
+        "scenario_terminal_soc_kwh": {},
+        "thermal_guarantee_relaxed": [],
+        "direction_exclusivity": None,
         "raw_status": None,
         "scenario_cost": {},
         "scenarios": ["p10", "p50", "p90"],
