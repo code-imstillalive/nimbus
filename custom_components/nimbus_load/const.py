@@ -1354,6 +1354,15 @@ CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: Final = (
 CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: Final = (
     "solver_p2p_matched_rate_forecast_sensor_2"
 )
+# nimbus #1786 (Mark Purcell): price sources recorded for comparison only.
+# The decision-input capture stores each one's forecast series with every
+# horizon record, so a consolidation rule can be scored against them later.
+# The solve never reads this field: a source listed here changes no price,
+# no plan and no dispatch. Read from the config entry's own options, not
+# the solver-config bridge sensor, so an install whose bridge entity is
+# written by another install still records its own list. Empty (the
+# default): only the sources the Solver uses are recorded, as before.
+CONF_SOLVER_PRICE_COMPARISON_SENSORS: Final = "solver_price_comparison_sensors"
 # Real forward temperature/humidity mirror for the dashboard's own
 # Forecaster chart (2026-08-25) -- points at a weather.* entity (Nimbus
 # calls weather.get_forecasts for you) or a sensor.* whose own 'forecast'

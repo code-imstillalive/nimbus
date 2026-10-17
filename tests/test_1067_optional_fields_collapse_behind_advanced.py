@@ -215,7 +215,8 @@ class TestTheWizardDidNotGrow(unittest.TestCase):
         )
         # 47 -> 48: nimbus #1537 item 3 added one optional Sources field,
         # the second P2P matched-rate source (see test_config_surface_budget).
-        self.assertEqual(total, 48)
+        # 48 -> 49: nimbus #1786's comparison-only price sources, optional.
+        self.assertEqual(total, 49)
 
 
 class TestTheTranslationsExist(unittest.TestCase):

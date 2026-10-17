@@ -365,10 +365,11 @@ class TestNoFieldWasAdded(unittest.TestCase):
         self.assertIsNotNone(m)
         count = len(re.findall(r"CONF_[A-Z0-9_]+", m.group(1)))
         # 27 -> 28: nimbus #1537 item 3 (second P2P matched-rate source),
-        # not this feature.
+        # not this feature. 28 -> 29: nimbus #1786's comparison-only price
+        # sources, not this feature either.
         self.assertEqual(
             count,
-            28,
+            29,
             "this feature must not add a wizard field; if the Solver wizard "
             "genuinely grew for another reason, update this number and say why",
         )

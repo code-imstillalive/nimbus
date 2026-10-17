@@ -38,7 +38,13 @@ against the same inputs. `source_series()` reads each shape with
 `price_intervals.py`'s own readers (AEMO NEM Data, NEM PD7DAY, Amber Electric
 `forecasts`, Amber Express `forecast` on `detailedForecast` boundaries),
 P5MIN's `{start, end, value}` rows, and the generic `{time, value}` /
-`calibrated` rows. The value is stored as published, never unit-converted;
+`calibrated` rows. The price forecast array's `{time, costsflexup,
+earningsflexup}` rows hold two prices, so each configured key is its own
+series, named on the line under `series_fields` (measured on devhub 18 Oct:
+before this, those rows matched no reader and the array was never kept).
+The entry's comparison-only sources (`solver_price_comparison_sensors`:
+Amber, AEMO pre-dispatch and the like, never read by the solve) are kept
+the same way. The value is stored as published, never unit-converted;
 the body carries the sensor's `unit_of_measurement` and `to_dollars`, the
 factor the Solver itself applies to reach $/kWh (1 for a provider shape,
 whose adapter already reads $/kWh). OpenADR's forecast exists only behind an
@@ -51,7 +57,10 @@ one 16-character reference per record.
 ## What is NOT kept
 
 Provider-native fields a reader does not use (Amber's `spot_per_kwh`,
-PD7DAY's `raw_value`, LocalVolts' per-row quality). LocalVolts keeps its own
+PD7DAY's `raw_value`, LocalVolts' per-row quality). The P2P matched rate's
+`{intervalEnd, matchedCost, volume, proportionP2P}` rows: a rate derived
+from settlement volumes, not a price forecast, and not a candidate for a
+consolidation rule; its provenance line is kept. LocalVolts keeps its own
 rows for about three days and AEMO's are on NEMWEB, as #1658 records.
 """
 
@@ -276,9 +285,12 @@ SHAPE_GENERIC = "time_value"
 SHAPE_START_END = "start_end_value"
 
 
-def price_source_entities(config: dict[str, Any]) -> list[str]:
+def price_source_entities(
+    config: dict[str, Any], comparison: list[str] | tuple[str, ...] = ()
+) -> list[str]:
     """The price inputs among `source_entities()`, in the same order, then
-    `P5MIN_ENTITY`: the sources whose forecast series a horizon keeps."""
+    `P5MIN_ENTITY`, then the install's comparison-only sources: the sources
+    whose forecast series a horizon keeps."""
     out = [
         config[key]
         for key in sorted(config)
@@ -288,7 +300,30 @@ def price_source_entities(config: dict[str, Any]) -> list[str]:
         and any(hint in key for hint in _PRICE_KEY_HINTS)
     ]
     out.append(P5MIN_ENTITY)
+    out.extend(e for e in comparison if isinstance(e, str) and e.startswith("sensor."))
     return list(dict.fromkeys(out))
+
+
+#: The price forecast array's row keys when the config names none, as the
+#: Solver defaults them (`solver_inputs/prices.py`).
+ARRAY_SENSOR_KEY = "solver_price_forecast_array_sensor"
+ARRAY_KEY_DEFAULTS = {
+    "solver_price_forecast_array_import_key": "costsflexup",
+    "solver_price_forecast_array_export_key": "earningsflexup",
+}
+
+
+def keyed_price_fields(config: dict[str, Any]) -> dict[str, list[str]]:
+    """{entity: [row key, ...]} for a source whose rows carry named price
+    fields instead of one `value` (#1786): the price forecast array, whose
+    `{time, costsflexup, earningsflexup}` rows hold the import and the
+    export price. The Solver reads each key as its own series, so each is
+    stored as its own series."""
+    entity = config.get(ARRAY_SENSOR_KEY)
+    if not (isinstance(entity, str) and entity.startswith("sensor.")):
+        return {}
+    keys = [config.get(k) or default for k, default in ARRAY_KEY_DEFAULTS.items()]
+    return {entity: list(dict.fromkeys(keys))}
 
 
 def _start_end_value_intervals(rows: Any) -> list[pi.PriceInterval]:
@@ -306,13 +341,20 @@ def _start_end_value_intervals(rows: Any) -> list[pi.PriceInterval]:
     return parsed
 
 
-def _generic_points(rows: Any) -> list[tuple[datetime, float]]:
+def _generic_points(
+    rows: Any, value_key: str | None = None
+) -> list[tuple[datetime, float]]:
     """The Solver's generic `{time, value}` rows (`calibrated` when `value` is
-    absent), read as `_resample_generic_price_forecast_raw()` reads them."""
+    absent), read as `_resample_generic_price_forecast_raw()` reads them, or
+    `{time, <value_key>}` rows as `resample_price_with_extrapolation()` reads
+    the price forecast array."""
     points = []
     for row in rows if isinstance(rows, list) else []:
         try:
-            raw = row["value"] if "value" in row else row["calibrated"]
+            if value_key is not None:
+                raw = row[value_key]
+            else:
+                raw = row["value"] if "value" in row else row["calibrated"]
             when, value = parse_iso(row["time"]), float(raw)
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
@@ -347,7 +389,9 @@ def _provider_series(attrs: dict[str, Any]) -> tuple[str, list[pi.PriceInterval]
     return "", []
 
 
-def source_series(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
+def source_series(
+    attributes: dict[str, Any] | None, value_key: str | None = None
+) -> dict[str, Any] | None:
     """A price source's forecast as published, or None when it has none.
 
     `{shape, unit, to_dollars, t0, step_min, value, end}`: each row's start
@@ -356,14 +400,19 @@ def source_series(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
     its value exactly as the reader takes it from the provider (never
     unit-converted), and `end` the final interval's end where the shape
     states one. `to_dollars` is the factor the Solver applies to reach
-    $/kWh. `series_points()` decodes it."""
+    $/kWh. `series_points()` decodes it. `value_key` reads one named field
+    of `{time, ...}` rows (`keyed_price_fields()`) instead."""
     attrs = attributes or {}
-    shape, intervals = _provider_series(attrs)
+    if value_key is not None:
+        shape, intervals = SHAPE_GENERIC, []
+    else:
+        shape, intervals = _provider_series(attrs)
     points = [(i.start, i.value) for i in intervals]
     end = intervals[-1].end if intervals else None
     to_dollars = 1.0
-    if not shape:
-        shape, points = SHAPE_GENERIC, _generic_points(attrs.get("forecast"))
+    if not shape or value_key is not None:
+        shape = SHAPE_GENERIC
+        points = _generic_points(attrs.get("forecast"), value_key)
         to_dollars = pi.price_unit_scale(attrs.get("unit_of_measurement"))
     if not points:
         return None

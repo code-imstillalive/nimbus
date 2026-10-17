@@ -443,9 +443,9 @@ def test_an_unchanged_source_is_not_re_read(rig, monkeypatch):
     calls: list[str] = []
     real = di.source_series
 
-    def counting(attrs):
+    def counting(attrs, value_key=None):
         calls.append("x")
-        return real(attrs)
+        return real(attrs, value_key)
 
     monkeypatch.setattr(di, "source_series", counting)
     rig.solve(T0 + timedelta(minutes=1))
@@ -553,7 +553,7 @@ def _hour(tmp: Path, monkeypatch, with_series: bool) -> dict[str, tuple[int, int
     clock = {"now": T0}
     monkeypatch.setattr(store, "dt_util", SimpleNamespace(utcnow=lambda: clock["now"]))
     if not with_series:
-        monkeypatch.setattr(di, "source_series", lambda _attrs: None)
+        monkeypatch.setattr(di, "source_series", lambda _attrs, _key=None: None)
     rig = _Rig(tmp, clock)
     for i in range(240):
         rig.solve(T0 + timedelta(seconds=15 * i), 3.0 if 80 <= i < 160 else -3.0)

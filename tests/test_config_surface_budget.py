@@ -90,7 +90,16 @@ EXPECTED_KEY_COUNTS = {
     # Matched Cost by unique_id (pricing_autodetect.LV_V2_PROFILE). Reusing
     # the first field for both sources would need a multi-entity selector
     # and change that field's saved shape on every install.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 28,
+    # nimbus #1786: 28 -> 29, one OPTIONAL field,
+    # `solver_price_comparison_sensors`: price sources recorded with the
+    # decision inputs for scoring consolidation rules, never read by the
+    # solve. #449's question: auto-discovery was checked first and cannot
+    # serve the install Mark named ("devhub should have all these price
+    # sources configured"): there, Amber Express and AEMO NEM Data reach HA
+    # through remote_homeassistant, so their registry platform is the mirror
+    # (measured 18 Oct) and pricing_autodetect's provider lookup finds
+    # neither. It names entities, so it cannot be a device config entity.
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 29,
 }
 
 # (required, optional) per schema builder. `_switchboard_schema` reads as
@@ -104,7 +113,8 @@ EXPECTED_SPLIT = {
     # are unchanged, which is the property this row exists to watch.
     "_solver_grid_schema": (2, 7),
     # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
-    "_solver_sources_schema": (2, 15),
+    # nimbus #1786: 15 -> 16 optional (comparison-only price sources).
+    "_solver_sources_schema": (2, 16),
     "_switchboard_schema": (0, 1),
 }
 
