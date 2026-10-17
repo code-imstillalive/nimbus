@@ -29,6 +29,15 @@ Conditions (stage 2):
   forecast, import price, export price.
 - **no regional spot forecast on an Australian-NEM install** (16 Oct 2026):
   from `pricing_autodetect.detect_missing_regional_forecast`.
+- **battery or grid numbers still at their placeholder** (#1800): capacity,
+  max charge, max discharge or max import still at the 0.1 floor a fresh
+  install starts on (number.py). Grid max export is left out on purpose: a
+  zero-export site can genuinely set it to the floor.
+- **contradictory battery settings** (#1800): Min SoC at or above Max SoC, or
+  a Charge By target above Max SoC.
+
+Both read the live number entities (the Solver tab's values), found by
+unique_id `<entry_id>_<key>`, never by entity_id.
 """
 
 from __future__ import annotations
@@ -41,19 +50,33 @@ from typing import Any
 
 try:
     from .const import (
+        CONF_SOLVER_BATTERY_CAPACITY_KWH,
+        CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+        CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
         CONF_SOLVER_BATTERY_SOC_SENSOR,
+        CONF_SOLVER_CHARGE_BY_PERCENT,
         CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        CONF_SOLVER_GRID_MAX_IMPORT_KW,
         CONF_SOLVER_IMPORT_PRICE_SENSOR,
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
+        CONF_SOLVER_MAX_CHARGE_KW,
+        CONF_SOLVER_MAX_DISCHARGE_KW,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
         DOMAIN,
     )
 except ImportError:  # pragma: no cover - standalone path
     from const import (  # type: ignore[no-redef]
+        CONF_SOLVER_BATTERY_CAPACITY_KWH,
+        CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+        CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
         CONF_SOLVER_BATTERY_SOC_SENSOR,
+        CONF_SOLVER_CHARGE_BY_PERCENT,
         CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        CONF_SOLVER_GRID_MAX_IMPORT_KW,
         CONF_SOLVER_IMPORT_PRICE_SENSOR,
         CONF_SOLVER_LOAD_FORECAST_SENSOR,
+        CONF_SOLVER_MAX_CHARGE_KW,
+        CONF_SOLVER_MAX_DISCHARGE_KW,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
         DOMAIN,
     )
@@ -71,6 +94,25 @@ KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
+KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
+KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
+
+# nimbus #1800: number.py's floor for these, which a fresh install starts on.
+PLACEHOLDER_FLOOR = 0.1
+# (key, what the household sees, where it is on the Solver tab).
+_PLACEHOLDER_SETTINGS: tuple[tuple[str, str, str], ...] = (
+    (CONF_SOLVER_BATTERY_CAPACITY_KWH, "Battery capacity", "Battery card"),
+    (CONF_SOLVER_MAX_CHARGE_KW, "Max charge power", "Battery card"),
+    (CONF_SOLVER_MAX_DISCHARGE_KW, "Max discharge power", "Battery card"),
+    (CONF_SOLVER_GRID_MAX_IMPORT_KW, "Grid max import", "Grid and fees card"),
+)
+# Every number the two checks read, for async_refresh_health.
+SETTING_KEYS: tuple[str, ...] = (
+    *(key for key, _label, _where in _PLACEHOLDER_SETTINGS),
+    CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
+    CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+    CONF_SOLVER_CHARGE_BY_PERCENT,
+)
 
 # Required Solver inputs and the name the household sees for each.
 _REQUIRED_SOLVER_INPUTS: tuple[tuple[str, str], ...] = (
@@ -102,6 +144,7 @@ def evaluate_health(
     fees_doubled: tuple[str, str] | None = None,
     fees_on_tariff: tuple[str, str] | None = None,
     regional_forecast_missing: tuple[str, str] | None = None,
+    settings: Mapping[str, float] | None = None,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -109,7 +152,8 @@ def evaluate_health(
     and Power Signal. `energy_unit_inputs` is power_input_check's
     (setting, entity_id, unit) list. `fees_doubled` is (flex_up entity, listed
     fees) from pricing_autodetect, or None; `fees_on_tariff` the same for a
-    NEM PD7DAY import tariff (#1581).
+    NEM PD7DAY import tariff (#1581). `settings` is the live value of each
+    `SETTING_KEYS` number that exists; a missing one is not checked (#1800).
     """
     issues: list[HealthIssue] = []
 
@@ -218,6 +262,8 @@ def evaluate_health(
             )
         )
 
+    issues += _settings_issues(settings or {})
+
     missing = [label for key, label in _REQUIRED_SOLVER_INPUTS if not options.get(key)]
     if missing:
         issues.append(
@@ -228,6 +274,71 @@ def evaluate_health(
             )
         )
     return issues
+
+
+def _settings_issues(settings: Mapping[str, float]) -> list[HealthIssue]:
+    """nimbus #1800: placeholder and contradictory battery / grid numbers."""
+    out: list[HealthIssue] = []
+    placeholders = [
+        f"- {label} ({where}) is {settings[key]:g}"
+        for key, label, where in _PLACEHOLDER_SETTINGS
+        if key in settings and settings[key] <= PLACEHOLDER_FLOOR
+    ]
+    if placeholders:
+        out.append(
+            HealthIssue(
+                key=KIND_PLACEHOLDER_SETTINGS,
+                kind=KIND_PLACEHOLDER_SETTINGS,
+                placeholders={"settings": "\n".join(placeholders)},
+            )
+        )
+
+    found: list[str] = []
+    low = settings.get(CONF_SOLVER_BATTERY_MIN_SOC_PERCENT)
+    high = settings.get(CONF_SOLVER_BATTERY_MAX_SOC_PERCENT)
+    if low is not None and high is not None and low >= high:
+        found.append(
+            f"- Min SoC ({low:g}%) is not below Max SoC ({high:g}%): the "
+            "battery has no room to work in."
+        )
+    target = settings.get(CONF_SOLVER_CHARGE_BY_PERCENT)
+    if target is not None and high is not None and 0 < high < target:
+        found.append(
+            f"- Charge By's target ({target:g}%) is above Max SoC ({high:g}%): "
+            "it can never be reached."
+        )
+    if found:
+        out.append(
+            HealthIssue(
+                key=KIND_CONTRADICTORY_SETTINGS,
+                kind=KIND_CONTRADICTORY_SETTINGS,
+                placeholders={"settings": "\n".join(found)},
+            )
+        )
+    return out
+
+
+def _live_settings(hass: Any, entry: Any) -> dict[str, float]:
+    """The live value of each SETTING_KEYS number, found by unique_id. Empty
+    when they cannot be read: the other checks still run."""
+    out: dict[str, float] = {}
+    try:
+        from homeassistant.helpers import entity_registry as er
+
+        registry = er.async_get(hass)
+        for key in SETTING_KEYS:
+            entity_id = registry.async_get_entity_id(
+                "number", DOMAIN, f"{entry.entry_id}_{key}"
+            )
+            state = hass.states.get(entity_id) if entity_id else None
+            try:
+                out[key] = float(state.state)
+            except (AttributeError, TypeError, ValueError):
+                continue  # absent, unknown or unavailable: not checked
+    except Exception:  # the settings checks are skipped, nothing else
+        _LOGGER.debug("Nimbus #1800: settings unreadable", exc_info=True)
+        return {}
+    return out
 
 
 def _issue_id(entry_id: str, key: str) -> str:
@@ -277,6 +388,7 @@ async def async_refresh_health(
             regional_forecast_missing=detect_missing_regional_forecast(
                 hass, dict(entry.options)
             ),
+            settings=_live_settings(hass, entry),
         )
 
         current = set()
