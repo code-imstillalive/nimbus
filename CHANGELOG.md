@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.462] - 2026-10-17
+
+A Help tab, so a new install can see what each tab needs before it stops
+being blank, with every setting explained. The Stochastic settings card says
+what each setting does. And a stale price source no longer counts in the
+daily score: 16 Oct's withdrawn LocalVolts spike is re-priced from AEMO.
+
 ### Added
 - **A Help tab** (#1823, household, 17 Oct 2026), last on the Nimbus dashboard:
   set Nimbus up so every tab works, and what every figure and setting means.
