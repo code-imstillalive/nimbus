@@ -13893,6 +13893,28 @@
       "p2p_volume_cap_shadow_price": -0.0,
       "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
       "price_consolidation": {
+       "error_history": {
+        "columns": [
+         "n",
+         "d10",
+         "d50",
+         "d90",
+         "hits",
+         "misses",
+         "surprises",
+         "p_hit"
+        ],
+        "export": {},
+        "import": {},
+        "keep_days": 21,
+        "min_samples": 30,
+        "normal_stride": 6,
+        "pending_intervals": 22,
+        "read_by_dispatch": false,
+        "samples": 0,
+        "threshold": 5.0,
+        "threshold_from": "solver_p5min_false_spike_threshold_mwh"
+       },
        "export": {
         "mae_by_source_and_lead": {},
         "method": "median",
@@ -15371,6 +15393,223 @@
    ],
    "period_start": "2026-09-06T20:00:00+10:00",
    "status": "optimal"
+  },
+  "price_error_history.json": {
+   "last_interval": {
+    "export": 5962296,
+    "import": 5962296
+   },
+   "last_settled": {
+    "export": 0.05,
+    "import": 0.3
+   },
+   "pending": {
+    "export": {
+     "5962297": {
+      "primary": {
+       "5-60 min": [
+        5.0,
+        0.095
+       ]
+      }
+     },
+     "5962298": {
+      "primary": {
+       "5-60 min": [
+        10.0,
+        0.075
+       ]
+      }
+     },
+     "5962299": {
+      "primary": {
+       "5-60 min": [
+        15.0,
+        0.055
+       ]
+      }
+     },
+     "5962300": {
+      "primary": {
+       "5-60 min": [
+        20.0,
+        0.035
+       ]
+      }
+     },
+     "5962301": {
+      "primary": {
+       "5-60 min": [
+        25.0,
+        0.015
+       ]
+      }
+     },
+     "5962302": {
+      "primary": {
+       "5-60 min": [
+        30.0,
+        0.025
+       ]
+      }
+     },
+     "5962303": {
+      "primary": {
+       "5-60 min": [
+        35.0,
+        0.045
+       ]
+      }
+     },
+     "5962304": {
+      "primary": {
+       "5-60 min": [
+        40.0,
+        0.065
+       ]
+      }
+     },
+     "5962305": {
+      "primary": {
+       "5-60 min": [
+        45.0,
+        0.085
+       ]
+      }
+     },
+     "5962306": {
+      "primary": {
+       "5-60 min": [
+        50.0,
+        0.105
+       ]
+      }
+     },
+     "5962307": {
+      "primary": {
+       "5-60 min": [
+        55.0,
+        0.125
+       ]
+      }
+     }
+    },
+    "import": {
+     "5962297": {
+      "primary": {
+       "5-60 min": [
+        5.0,
+        0.345
+       ]
+      }
+     },
+     "5962298": {
+      "primary": {
+       "5-60 min": [
+        10.0,
+        0.325
+       ]
+      }
+     },
+     "5962299": {
+      "primary": {
+       "5-60 min": [
+        15.0,
+        0.305
+       ]
+      }
+     },
+     "5962300": {
+      "primary": {
+       "5-60 min": [
+        20.0,
+        0.285
+       ]
+      }
+     },
+     "5962301": {
+      "primary": {
+       "5-60 min": [
+        25.0,
+        0.265
+       ]
+      }
+     },
+     "5962302": {
+      "primary": {
+       "5-60 min": [
+        30.0,
+        0.275
+       ]
+      }
+     },
+     "5962303": {
+      "primary": {
+       "5-60 min": [
+        35.0,
+        0.295
+       ]
+      }
+     },
+     "5962304": {
+      "primary": {
+       "5-60 min": [
+        40.0,
+        0.315
+       ]
+      }
+     },
+     "5962305": {
+      "primary": {
+       "5-60 min": [
+        45.0,
+        0.335
+       ]
+      }
+     },
+     "5962306": {
+      "primary": {
+       "5-60 min": [
+        50.0,
+        0.355
+       ]
+      }
+     },
+     "5962307": {
+      "primary": {
+       "5-60 min": [
+        55.0,
+        0.375
+       ]
+      }
+     }
+    }
+   },
+   "samples": {
+    "export": {},
+    "import": {}
+   },
+   "summary": {
+    "columns": [
+     "n",
+     "days",
+     "d10",
+     "d50",
+     "d90",
+     "d_below_pct",
+     "d_above_pct",
+     "r_n",
+     "r10",
+     "r50",
+     "r90",
+     "r_below_pct",
+     "r_above_pct",
+     "ratio_ok"
+    ],
+    "export": {},
+    "import": {}
+   },
+   "threshold": 5.0
   },
   "store.nimbus_load_golden_hub_entry_load_run_state.json": {
    "golden_thermal": {
