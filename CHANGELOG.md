@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **A Help tab** (#1823, household, 17 Oct 2026), last on the Nimbus dashboard:
+  set Nimbus up so every tab works, and what every figure and setting means.
+  - **Start here**, under a red band: *a basic install leaves some tabs
+    blank*. Six steps, each with the tab it unlocks, exactly where to go, and
+    a live tick for this install (Solver configured, battery numbers set, a
+    Power Signal or Load, a real Power Source, a day scored, the solar band
+    calibrated).
+  - **Where things are**: the integration page and its + Add buttons, the
+    Configure menu's screens, the Solver tab's blocks, Repairs, diagnostics.
+  - **Common traps**, **Report a problem** (links to GitHub issues, and what to
+    include) and **What's new** (the last releases; a release that does not add
+    its entry fails `tests/test_1823_help_tab.py`).
+  - **Each tab**: what it shows and what it needs before it is not blank.
+  - **Settings**: all 102 figures and dials on the Solver tab, each with where
+    it is ("Solver tab → Basic settings → Battery card"), what it does and its
+    formula or an example. The test fails if a Solver-tab row has no entry.
+  - **Glossary** with formulas (EPR, regret, p10 / p90, risk aversion,
+    salvage value and more), and **Setup wizard**: every screen in the
+    wizard's own words from `strings.json`, required fields marked 🔴.
+
 ## [0.94.461] - 2026-10-17
 
 Two-stage stochastic dispatch, ready to drive and shipped in shadow: it plans
