@@ -113,7 +113,7 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             assert not cards[0].get("text_only")  # outlined like a card
             layout.append([_block(cards[0])])
             continue
-        if len(cards) > 1:  # the daily summary: today and tomorrow, stacked
+        if len(cards) > 1:  # the daily summaries: two days to a column
             assert [_what(c) for c in cards] == ["Solver Daily Summary"] * 2
         layout[-1].append((section["column_span"], _what(cards[0])))
     assert layout == [
@@ -156,7 +156,9 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "markdown: Battery hold"),
             (1, "markdown: Consolidated prices"),
             (2, "Solver Forecast — Whole Plan"),
-            (1, "Nimbus Solver Quality (EPR / Regret)"),
+            # Household, 17 Oct 2026: the quality card is in Performance
+            # only; the plan's four days fill its old place.
+            (1, "Solver Daily Summary"),
             (1, "Solver Daily Summary"),
             (1, "nimbus:risk-slider"),
             (1, "nimbus:risk-slider"),
@@ -285,11 +287,16 @@ def _row(title_or_header: str) -> list[dict]:
 def test_each_row_is_one_height_and_fills_it() -> None:
     """Household, 12 Oct 2026: cards side by side end on one line; chart
     cards fill their cell; nothing scrolls but the until-midnight table."""
-    for first in (
-        "Nimbus Solver Quality (EPR / Regret)",
-        "Solver Forecast — Whole Plan",
-    ):
-        row = [s for s in _row(first) if len(s["cards"]) == 1][:2]
+    # Household, 17 Oct 2026: the plan's four days, two stacked to a column,
+    # end on the whole-plan table's line.
+    table, *days = _row("Solver Forecast — Whole Plan")[:3]
+    assert len(days) == 2 and all(len(d["cards"]) == 2 for d in days)
+    for column in days:
+        stacked = sum(c["grid_options"]["rows"] for c in column["cards"])
+        assert stacked == table["cards"][0]["grid_options"]["rows"]
+    for first in ("Nimbus Solver Quality (EPR / Regret)",):
+        row = [s for s in _row(first) if len(s["cards"]) == 1][:4]
+        assert len(row) == 4
         heights = {
             json.dumps(s["cards"][0]["grid_options"])
             for s in row

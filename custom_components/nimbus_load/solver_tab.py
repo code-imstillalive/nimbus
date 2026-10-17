@@ -1391,7 +1391,7 @@ _HOUSEHOLD_UNTIL_MIDNIGHT = {
 _HOUSEHOLD_DAILY = {
     "type": "markdown",
     "title": "Solver Daily Summary (Forecast Only)",
-    "content": "{% macro day_table(day_label, day_str, periods) %}\n{% set ns = namespace(import_cost=0, import_kwh=0, spot_earn=0, spot_kwh=0, p2p_earn=0, p2p_kwh=0, net=0, socs=[], batt=[], found=false) %}\n{% for p in periods %}\n{% if p.time[:10] == day_str %}\n{% set ns.found = true %}\n{% set ns.import_cost = ns.import_cost + p.grid_import_kw * p.hours * p.import_price %}\n{% set ns.import_kwh = ns.import_kwh + p.grid_import_kw * p.hours %}\n{% set ns.spot_earn = ns.spot_earn + p.grid_export_kw * p.hours * p.export_price %}\n{% set ns.spot_kwh = ns.spot_kwh + p.grid_export_kw * p.hours %}\n{% set ns.p2p_earn = ns.p2p_earn + p.export_bonus_kw * p.hours * p.bonus_price %}\n{% set ns.p2p_kwh = ns.p2p_kwh + p.export_bonus_kw * p.hours %}\n{% set ns.net = ns.net + p.net_cost %}\n{% set ns.socs = ns.socs + [p.soc_pct] %}\n{% set ns.batt = ns.batt + [p.battery_kw] %}\n{% endif %}\n{% endfor %}\n**{{ day_label }} ({{ day_str }})**\n\n{% if ns.found %}\n| Metric | Value |\n|---|---:|\n| Import Cost | -${{ ns.import_cost | round(2) }} ({{ ns.import_kwh | round(1) }} kWh) |\n| Spot Export Earnings | +${{ ns.spot_earn | round(2) }} ({{ ns.spot_kwh | round(1) }} kWh) |\n| P2P Bonus Earnings | +${{ ns.p2p_earn | round(2) }} ({{ ns.p2p_kwh | round(1) }} kWh) |\n| Total Export Earnings | +${{ (ns.spot_earn + ns.p2p_earn) | round(2) }} |\n| Net $ (forecast) | <font color='{{ \"lightgreen\" if ns.net < 0 else \"orange\" }}'>${{ ns.net | round(2) }}</font> |\n| SoC Range | {{ (ns.socs | min) | round(0) | int }}% - {{ (ns.socs | max) | round(0) | int }}% |\n| Peak Charge / Discharge | {{ (ns.batt | min) | round(1) }} / {{ (ns.batt | max) | round(1) }} kW |\n{% else %}\n*No forecast periods for this day.*\n{% endif %}\n\n{% endmacro %}\n{% set fc = states.${@nimbus_solver_battery_forecast} %}\n{% if fc and fc.attributes.get('forecast') %}\n{% set periods = fc.attributes.forecast %}\n{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime('%Y-%m-%d'), periods) }}\n{% else %}\n*No Solver forecast yet.*\n{% endif %}",
+    "content": "{% macro day_table(day_label, day_str, periods) %}\n{% set ns = namespace(import_cost=0, import_kwh=0, spot_earn=0, spot_kwh=0, p2p_earn=0, p2p_kwh=0, net=0, socs=[], batt=[], found=false, end_min=0) %}\n{% for p in periods %}\n{% if p.time[:10] == day_str %}\n{% set ns.found = true %}\n{% set ns.import_cost = ns.import_cost + p.grid_import_kw * p.hours * p.import_price %}\n{% set ns.import_kwh = ns.import_kwh + p.grid_import_kw * p.hours %}\n{% set ns.spot_earn = ns.spot_earn + p.grid_export_kw * p.hours * p.export_price %}\n{% set ns.spot_kwh = ns.spot_kwh + p.grid_export_kw * p.hours %}\n{% set ns.p2p_earn = ns.p2p_earn + p.export_bonus_kw * p.hours * p.bonus_price %}\n{% set ns.p2p_kwh = ns.p2p_kwh + p.export_bonus_kw * p.hours %}\n{% set ns.net = ns.net + p.net_cost %}\n{% set ns.socs = ns.socs + [p.soc_pct] %}\n{% set ns.batt = ns.batt + [p.battery_kw] %}\n{% set ns.end_min = (p.time[11:13] | int) * 60 + (p.time[14:16] | int) + p.hours * 60 %}\n{% endif %}\n{% endfor %}\n**{{ day_label }} ({{ day_str }})**{% if ns.found and ns.end_min < 1439 %} -- plan ends {{ '%02d:%02d' % ((ns.end_min // 60) | int, (ns.end_min % 60) | int) }}{% endif %}\n\n{% if ns.found %}\n| Metric | Value |\n|---|---:|\n| Import Cost | -${{ ns.import_cost | round(2) }} ({{ ns.import_kwh | round(1) }} kWh) |\n| Spot Export Earnings | +${{ ns.spot_earn | round(2) }} ({{ ns.spot_kwh | round(1) }} kWh) |\n| P2P Bonus Earnings | +${{ ns.p2p_earn | round(2) }} ({{ ns.p2p_kwh | round(1) }} kWh) |\n| Total Export Earnings | +${{ (ns.spot_earn + ns.p2p_earn) | round(2) }} |\n| Net $ (forecast) | <font color='{{ \"lightgreen\" if ns.net < 0 else \"orange\" }}'>${{ ns.net | round(2) }}</font> |\n| SoC Range | {{ (ns.socs | min) | round(0) | int }}% - {{ (ns.socs | max) | round(0) | int }}% |\n| Peak Charge / Discharge | {{ (ns.batt | min) | round(1) }} / {{ (ns.batt | max) | round(1) }} kW |\n{% else %}\n*No forecast periods for this day.*\n{% endif %}\n\n{% endmacro %}\n{% set fc = states.${@nimbus_solver_battery_forecast} %}\n{% if fc and fc.attributes.get('forecast') %}\n{% set periods = fc.attributes.forecast %}\n{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime('%Y-%m-%d'), periods) }}\n{% else %}\n*No Solver forecast yet.*\n{% endif %}",
 }
 
 # Cards in one row share one height and never scroll (household, 12 Oct
@@ -1411,24 +1411,35 @@ _CHART_FIGURES_BELOW = "ha-card { height: 100%; box-sizing: border-box; display:
 _FILL = "ha-card { height: 100%; box-sizing: border-box; }"
 
 
-def _daily(day: str) -> dict[str, Any]:
-    """The household's daily summary for one day ("Today" / "Tomorrow"):
-    their card with the other day's table left out, title without
-    "(Forecast Only)" (household, 12 Oct 2026)."""
-    calls = {
-        "Today": "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n",
-        "Tomorrow": (
-            "{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime"
-            "('%Y-%m-%d'), periods) }}\n"
-        ),
-    }
-    other = calls["Tomorrow" if day == "Today" else "Today"]
+_DAILY_CALLS = (
+    "{{ day_table('Today', now().strftime('%Y-%m-%d'), periods) }}\n",
+    (
+        "{{ day_table('Tomorrow', (now() + timedelta(days=1)).strftime"
+        "('%Y-%m-%d'), periods) }}\n"
+    ),
+)
+
+
+def _daily(offset: int) -> dict[str, Any]:
+    """The household's daily summary for one day of the plan, `offset` days
+    from today: their card with one day's table, title without "(Forecast
+    Only)" (household, 12 Oct 2026). Days 0 and 1 are "Today" and
+    "Tomorrow"; later days are named by weekday (household, 17 Oct 2026:
+    the plan runs about four days, so days 3 and 4 fill the Plan row)."""
     content = _HOUSEHOLD_DAILY["content"]
-    assert calls[day] in content and other in content
+    assert all(call in content for call in _DAILY_CALLS)
+    when = f"(now() + timedelta(days={offset}))" if offset else "now()"
+    label = (
+        ("'Today'", "'Tomorrow'")[offset]
+        if offset < len(_DAILY_CALLS)
+        else f"{when}.strftime('%A')"
+    )
+    call = f"{{{{ day_table({label}, {when}.strftime('%Y-%m-%d'), periods) }}}}\n"
+    first, second = _DAILY_CALLS
     return {
         **_HOUSEHOLD_DAILY,
         "title": "Solver Daily Summary",
-        "content": content.replace(other, ""),
+        "content": content.replace(first + second, call),
     }
 
 
@@ -1563,7 +1574,10 @@ def template() -> list[dict[str, Any]]:
     what the tab's design fingerprint is taken from, so it is the same on
     every install."""
     banners = {name: _banner(name, kind, line) for name, kind, line in _BANNERS}
-    row = {"rows": 8}
+    # Household, 17 Oct 2026: the quality card scrolled at 8. 10 holds its
+    # table, footnote and the provisional-EPR warning; the three charts
+    # beside it fill the same height, so the row stays lined up.
+    row = {"rows": 10}
     half = {"rows": 7}
     plan = {"rows": 12}
     return [
@@ -1591,14 +1605,15 @@ def template() -> list[dict[str, Any]]:
             for c in _PRICE_SAFETY
         ),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
-        _section([_styled(_HOUSEHOLD_QUALITY, _FILL_NO_SCROLL)], 1, plan),
-        _section(
-            [
-                _styled(_daily("Today"), _FILL_NO_SCROLL),
-                _styled(_daily("Tomorrow"), _FILL_NO_SCROLL),
-            ],
-            1,
-            {"rows": 6},
+        # Household, 17 Oct 2026: the quality card was here a second time.
+        # The plan's four days instead, two to a column.
+        *(
+            _section(
+                [_styled(_daily(d), _FILL_NO_SCROLL) for d in days],
+                1,
+                {"rows": 6},
+            )
+            for days in ((0, 1), (2, 3))
         ),
         *_risk_row(),
         banners["Basic settings"],
