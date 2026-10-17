@@ -514,6 +514,8 @@ def test_a_new_install_gets_solver_second() -> None:
         "Topology",
         "Control Panel",
         "Regret",
+        # nimbus #1823: Help, last.
+        "Help",
     ]
     assert "added:solver" in done
 
@@ -594,6 +596,7 @@ def test_without_a_matching_tab_it_goes_at_the_end() -> None:
     assert [v["title"] for v in views][1] == "Solver" or views[-1]["title"] in (
         "Solver",
         "Regret",
+        "Help",
     )
     assert any(v["title"] == "Solver" for v in views)
 

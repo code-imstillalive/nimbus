@@ -4,7 +4,7 @@ Registering a card is not the same as it reaching a screen (#550/#552): a
 tester updated, restarted and found nothing new to look at. So Nimbus keeps
 the standard tabs on the install's Nimbus dashboard, in this order:
 
-    Forecaster, Solver, Topology, Control Panel, Regret
+    Forecaster, Solver, Topology, Control Panel, Regret, Help
 
 Every card discovers its own entities -- the Control Panel's blank fields
 follow the Solver config, and the Solver tab (nimbus #1594, `solver_tab.py`)
@@ -83,8 +83,9 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 try:
-    from . import solver_tab
+    from . import help_tab, solver_tab
 except ImportError:  # pragma: no cover - loaded as a top-level module in tests
+    import help_tab  # type: ignore[no-redef]
     import solver_tab  # type: ignore[no-redef]
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,7 +139,20 @@ STANDARD_VIEWS: tuple[dict[str, Any], ...] = (
         "title": "Regret",
         "path": "regret",
     },
+    {
+        # nimbus #1823: setting Nimbus up so every tab works, and what every
+        # figure and setting means. Built from help_tab.template() and
+        # resolved like the Solver tab, so its live ticks are this install's.
+        "key": "help",
+        "title": "Help",
+        "path": "help",
+        "sections_template": "help",
+        "match": ("sensor.nimbus_solver_lp_status",),
+    },
 )
+
+#: Which module builds each templated tab's sections.
+_TEMPLATES = {True: solver_tab.template, "help": help_tab.template}
 
 _NIMBUS_CARD_MARKERS = ('"custom:nimbus-', '"custom:switchboard-topology-card"')
 
@@ -154,7 +168,7 @@ def _view_for(spec: dict[str, Any], path: str | None = None) -> dict[str, Any]:
             "path": path or spec["path"],
             "type": "sections",
             "max_columns": 4,
-            "sections": solver_tab.template(),
+            "sections": _TEMPLATES[spec["sections_template"]](),
         }
     return {
         "title": spec["title"],

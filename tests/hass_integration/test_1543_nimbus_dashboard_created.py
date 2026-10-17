@@ -47,6 +47,7 @@ async def test_a_new_install_gets_the_nimbus_dashboard(
         "Topology",
         "Control Panel",
         "Regret",
+        "Help",
     ]
     assert all("icon" not in v for v in config["views"])
     # nimbus #1594: the Solver tab is written with this install's entity_ids,
@@ -54,6 +55,8 @@ async def test_a_new_install_gets_the_nimbus_dashboard(
     import json
 
     assert '"@' not in json.dumps(config["views"][1])
+    # nimbus #1823: so is the Help tab.
+    assert '"@' not in json.dumps(config["views"][-1])
 
     # Listed where the UI lists dashboards: created through HA's own collection.
     client = await hass_ws_client(hass)
@@ -128,6 +131,7 @@ async def test_untouched_and_edited_survive_a_real_storage_round_trip(
         "Topology",
         "Control Panel",
         "Regret",
+        "Help",
     ]
     edited = views[2]
     assert edited["sections"][0]["cards"][-1] == {"type": "markdown", "content": "mine"}
