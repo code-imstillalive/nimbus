@@ -712,6 +712,16 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "compute_daily_flex_report",
         "_compute_flex_report_for_window",
         "publish_daily_flex_report",
+        # nimbus #1825: the daily quality scorer re-prices periods scored on
+        # a stale price source. Same native-only reasoning as
+        # compute_daily_quality_report() above -- these serve that scorer
+        # alone and read fetch_entity_attribute_history_range(), also
+        # native-only here.
+        "_price_stamp_rows",
+        "_reprice_stale_price_periods",
+        "stale_period_mask",
+        "stale_windows",
+        "parse_stamp",
     }
 )
 
