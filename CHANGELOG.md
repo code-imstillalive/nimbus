@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Repairs for placeholder and contradictory battery settings** (part of
+  #1800). A fresh install starts battery capacity, max charge, max discharge
+  and grid max import at the 0.1 floor, and until now said so only in a
+  one-off notification: the Solver ran on a 0.1 kWh battery without an error.
+  Settings → Repairs now lists each one still at the floor, with the Solver-tab
+  card it is on, and clears itself once they are real. A second Repair names
+  contradictions: Min SoC at or above Max SoC, or a Charge By target above Max
+  SoC. Grid max export is not checked, because a zero-export site can genuinely
+  sit at the floor. Values are read from this hub's own number entities by
+  unique_id.
+
 ## [0.94.462] - 2026-10-17
 
 A Help tab, so a new install can see what each tab needs before it stops

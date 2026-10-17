@@ -638,6 +638,14 @@
     "setup_fill_blocked": {
       "title": "Nimbus: {field} cannot be filled from {sensor}",
       "description": "Nimbus could fill the **{field}** from `{sensor}`, which you already chose elsewhere, but {reason}.\n\nPick a power sensor (W or kW) in Nimbus → Configure, or set the {field} yourself in Solver settings. This message clears itself once that is fixed."
+    },
+    "placeholder_settings": {
+      "title": "Nimbus: battery or grid numbers are still placeholders",
+      "description": "These are still at the 0.1 placeholder a new install starts on, so the plan is for a tiny battery or grid connection, not yours:\n{settings}\n\nSet your real values on the Nimbus dashboard's **Solver tab → Basic settings** (the card named on each line). This message clears itself once they are set."
+    },
+    "contradictory_settings": {
+      "title": "Nimbus: battery settings contradict each other",
+      "description": "{settings}\n\nFix them on the Nimbus dashboard's **Solver tab → Basic settings → Battery card**. This message clears itself once they agree."
     }
   }
 }
