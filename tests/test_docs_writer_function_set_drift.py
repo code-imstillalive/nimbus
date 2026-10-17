@@ -1071,6 +1071,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "summarise",
         "update",
         "_warn_once",
+        "_record_price_errors",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

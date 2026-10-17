@@ -5399,10 +5399,9 @@ def apply_price_consolidation(
     import_price_source: list[str],
     export_price_source: list[str],
 ) -> dict | None:
-    """nimbus #1786: the consolidated series and each source's running error
-    (price_consolidation.consolidate_side()). With the live switch on, the
-    future periods' scheduling prices are replaced in place, never the settled
-    block, after both sides are computed. None on any failure; never raises."""
+    """nimbus #1786: each side's consolidate_side() series and running error.
+    With the live switch on, the future scheduling prices are replaced in place
+    (never the settled block) after both sides. None on failure; never raises."""
     global _PRICE_CONSOLIDATION_FAILED_LOGGED
     try:
         pc = price_consolidation
@@ -5410,10 +5409,6 @@ def apply_price_consolidation(
         live = bool(cfg.get("solver_price_consolidation_live", False))
         trackers = _load_price_trackers()
         result: dict = {"mode": "live" if live else "shadow"}
-        targets = {
-            "import": (spot_import_raw, import_price_source),
-            "export": (spot_export, export_price_source),
-        }
         scored = False
         series_by_side: dict[str, dict[str, list[float | None]]] = {}
         for side, primary, settled in (
@@ -5426,17 +5421,14 @@ def apply_price_consolidation(
             values, result[side], side_scored = out
             result[f"consolidated_{side}_price"] = values
             scored = scored or side_scored
-        # nimbus #1797: the same series and settled prices, kept as signed
-        # pairs for price scenarios. Recorded only; nothing reads it yet.
-        result["error_history"] = price_error_history.update(
-            sys.modules[__name__],
-            cfg,
-            *ctx,
-            series_by_side,
-            {"import": settled_import, "export": settled_export},
+        result["error_history"] = _record_price_errors(
+            cfg, ctx, series_by_side, settled_import, settled_export
         )
         if live:
-            for side, (target, labels) in targets.items():
+            for side, target, labels in (
+                ("import", spot_import_raw, import_price_source),
+                ("export", spot_export, export_price_source),
+            ):
                 pc.replace_future(
                     result[f"consolidated_{side}_price"],
                     target,
@@ -5451,6 +5443,25 @@ def apply_price_consolidation(
             _PRICE_CONSOLIDATION_FAILED_LOGGED = True
             _LOGGER.warning("Nimbus #1786: price consolidation failed: %s", e)
         return None
+
+
+def _record_price_errors(
+    cfg: dict,
+    ctx: tuple,
+    series_by_side: dict[str, dict[str, list[float | None]]],
+    settled_import: float | None,
+    settled_export: float | None,
+) -> dict:
+    """nimbus #1797: the consolidation's own series and settled prices,
+    kept as signed pairs for price scenarios (price_error_history.py).
+    Recorded only; nothing reads it yet. Never raises."""
+    return price_error_history.update(
+        sys.modules[__name__],
+        cfg,
+        *ctx,
+        series_by_side,
+        {"import": settled_import, "export": settled_export},
+    )
 
 
 def check_aemo_p5min_disagreement(
