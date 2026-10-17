@@ -19,6 +19,51 @@ that choice is made. Also: one car's unreachable departure target no longer
 fails the whole plan, and the Solver tab shows the quality card once, without
 a scrollbar, with the plan's days 3 and 4.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at e856b95f**,
+  installed untagged via HACS from the release cut's branch
+  (`release/0.94.461`) and restarted 14:02 AEST 17 Oct.
+  - devhub's own entities stamp `0.94.461` (the 123 on 0.94.460 are
+    production's mirrored ones); 157 / 157 `nimbus_load` entities available.
+  - **No Traceback, no phase-1 Infeasible ERROR.** The start logs the same
+    200 "does not generate unique IDs" errors as v0.94.460's validation
+    (devhub-only, the production mirror). One `solve_now did not produce a
+    successful solve` WARNING: the request landed while the first slow
+    post-restart cycle was still running ("previous cycle still in progress"
+    logged just before it).
+  - **Stochastic, in shadow, on devhub's own inputs:** the 14:04 shadow solve
+    was `optimal` on the calibrated band, non-anticipativity gap 0, run on
+    its own thread (`shadow_in_background`), 89 s against a 28 s main solve
+    on devhub's hardware (so shadow backs off to hourly there, as designed).
+    `sensor.nimbus_solver_stochastic` read "Agrees with the main plan" with
+    201 chart rows (`main`, `p10`, `p50`, `p90`);
+    `nimbus_load.get_stochastic_summary` returned the summary, detail and
+    cadence.
+  - **Solver tab:** rewritten from the release; the quality card is on it
+    once (it was twice). The household checked it on devhub: no scrollbar,
+    no gap, the row lined up, and days 3 and 4 beside the whole-plan table.
+  - **Departure targets:** the test EV still sat at 5% and devhub's own solve
+    was optimal, where the same EV made every solve infeasible this morning.
+    The soft path was not exercised (the 08:00 target is reachable from the
+    afternoon); its evidence is the 11 tests in
+    `tests/test_departure_target_unreachable_stays_feasible.py`.
+  - **Not claimed: the Drive the battery switch reaching the solve.** The
+    switch was turned on 14:06 and off again 14:15, and the 14:10 cycle
+    stayed in shadow, because devhub's solve reads `sensor.nimbus_solver_
+    config` by name and on devhub that entity is production's mirrored copy
+    (devhub has no config entity of its own; #1396). The path is covered by
+    `tests/test_1797_stochastic_dispatch.py` (the switch is in the config
+    bridge; `main()` with it on publishes the driven plan) and
+    `tests/test_sensor_solver_config_keys.py`. On the reference install the
+    check is read-only after the deploy: its `sensor.nimbus_solver_config`
+    must carry `solver_stochastic_dispatch`.
+  - CI passed all 10 checks on #1814-#1820.
+- Consumer check: the Solver tab gains a Stochastic block (what the low,
+  middle and high solar days would earn or pay, the battery by how much sun,
+  and five settings including Drive the battery); dispatch is unchanged while
+  the switch is off. The quality card shows once, without a scrollbar, and
+  the daily summaries cover the plan's four days. A car whose departure
+  target cannot be reached no longer stops the whole plan.
+
 ### Added
 - **Does stochastic earn more? A closed-loop paired replay** (#1797
   programme, PR C): `scripts/stochastic_replay.py`, read-only, on what
