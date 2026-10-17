@@ -53,7 +53,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from . import decision_inputs as di
-from .const import DOMAIN
+from .const import CONF_SOLVER_PRICE_COMPARISON_SENSORS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -227,7 +227,13 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
         st.last_horizon_at, now, st.previous_class, current_class
     )
     kind = di.KIND_HORIZON if reason else di.KIND_HEAD
-    sources, bodies = _source_lines(hass, st, config, with_series=bool(reason))
+    sources, bodies = _source_lines(
+        hass,
+        st,
+        config,
+        with_series=bool(reason),
+        comparison=_comparison_sources(hass, entry_id) if reason else None,
+    )
 
     record = di.build_record(
         attrs,
@@ -266,38 +272,75 @@ async def _async_capture(hass: HomeAssistant, entry_id: str) -> str | None:
 
 
 def _source_lines(
-    hass: HomeAssistant, st: _EntryState, config: dict[str, Any], *, with_series: bool
+    hass: HomeAssistant,
+    st: _EntryState,
+    config: dict[str, Any],
+    *,
+    with_series: bool,
+    comparison: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     """Each source's provenance line and, `with_series`, each price source's
     forecast series (#1786): the line names it by fingerprint, and the bodies
-    come back keyed by fingerprint for the segment to store once. A source is
-    re-read only when its own `last_updated` has moved."""
+    come back keyed by fingerprint for the segment to store once. A source
+    whose rows carry named price fields (the price forecast array) names one
+    series per field under `series_fields`. `comparison` sources are recorded
+    with a series and are never Solver inputs. A source is re-read only when
+    its own `last_updated` has moved."""
     lines: list[dict[str, Any]] = []
     bodies: dict[str, dict[str, Any]] = {}
-    priced = set(di.price_source_entities(config)) if with_series else set()
+    extra = list(comparison or []) if with_series else []
+    priced = set(di.price_source_entities(config, extra)) if with_series else set()
+    keyed = di.keyed_price_fields(config) if with_series else {}
     entities = di.source_entities(config)
-    if with_series and di.P5MIN_ENTITY not in entities:
-        # Not named by the config; kept only where the install publishes it.
-        entities.append(di.P5MIN_ENTITY)
+    optional: set[str] = set()
+    if with_series:
+        for entity_id in [di.P5MIN_ENTITY, *extra]:
+            if entity_id not in entities:
+                # Not named by the config; kept only where the install
+                # publishes it.
+                entities.append(entity_id)
+                optional.add(entity_id)
     for entity_id in entities:
         src = hass.states.get(entity_id)
-        if src is None and entity_id == di.P5MIN_ENTITY:
+        if src is None and entity_id in optional:
             continue
         updated = src.last_updated.isoformat() if src else None
         attrs = dict(src.attributes) if src else None
         line = di.source_line(entity_id, src.state if src else None, updated, attrs)
         if entity_id in priced and src is not None and updated is not None:
-            cached = st.series_cache.get(entity_id)
-            if cached is None or cached[0] != updated:
-                body = di.source_series(attrs)
-                fp = di.series_fingerprint(body) if body else ""
-                cached = (updated, fp, body or {})
-                st.series_cache[entity_id] = cached
-            if cached[1]:
-                line["series"] = cached[1]
+            fields = keyed.get(entity_id) or [None]
+            named: dict[str, str] = {}
+            for field in fields:
+                cache_key = entity_id if field is None else f"{entity_id}#{field}"
+                cached = st.series_cache.get(cache_key)
+                if cached is None or cached[0] != updated:
+                    body = di.source_series(attrs, field)
+                    fp = di.series_fingerprint(body) if body else ""
+                    cached = (updated, fp, body or {})
+                    st.series_cache[cache_key] = cached
+                if not cached[1]:
+                    continue
                 bodies[cached[1]] = cached[2]
+                if field is None:
+                    line["series"] = cached[1]
+                else:
+                    named[field] = cached[1]
+            if named:
+                line["series_fields"] = named
         lines.append(line)
     return lines, bodies
+
+
+def _comparison_sources(hass: HomeAssistant, entry_id: str) -> list[str]:
+    """The entry's own comparison-only price sources (#1786), read from its
+    options rather than the solver-config bridge sensor, which another
+    install may be writing."""
+    entries = getattr(hass, "config_entries", None)
+    entry = entries.async_get_entry(entry_id) if entries is not None else None
+    value = entry.options.get(CONF_SOLVER_PRICE_COMPARISON_SENSORS) if entry else None
+    if isinstance(value, str):
+        value = [value]
+    return [e for e in value or [] if isinstance(e, str)]
 
 
 async def async_flush(hass: HomeAssistant, entry_id: str) -> None:
@@ -370,10 +413,11 @@ async def async_export(
     records.sort(key=lambda r: str(r.get("captured_at")))
     used = {r.get("config") for r in records}
     used_series = {
-        line.get("series")
+        fp
         for r in records
         for line in r.get("sources") or []
         if isinstance(line, dict)
+        for fp in [line.get("series"), *(line.get("series_fields") or {}).values()]
     }
     return {
         "start": start.isoformat(),
