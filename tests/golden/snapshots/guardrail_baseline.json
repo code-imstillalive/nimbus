@@ -14062,11 +14062,13 @@
       "status": "optimal",
       "stochastic": {
        "computed_at": "2026-09-06T20:00:00+10:00",
+       "deterministic_grid_cost": 33.5016,
        "deterministic_period0_battery_kw": -5.0,
        "deterministic_total_cost": 26.9874,
        "direction_exclusivity": null,
        "drives_dispatch": false,
        "expected_cost": null,
+       "expected_grid_cost": null,
        "fallback_reason": "no_solar_band",
        "joint_solves": 0,
        "joint_variables": 0,
@@ -14077,6 +14079,7 @@
        "objective_mode": null,
        "raw_status": null,
        "scenario_cost": {},
+       "scenario_grid_cost": {},
        "scenario_period0_battery_kw": {},
        "scenario_terminal_soc_kwh": {},
        "scenarios": [
@@ -14096,6 +14099,7 @@
         0.3
        ]
       },
+      "stochastic_paths": {},
       "stochastic_period0_battery_kw": null,
       "total_charge_kwh": 12.7,
       "total_cost": 26.9874,
@@ -14218,7 +14222,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 333021 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=302473B, batteries=23352B, solve_diagnostics=963B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 333135 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=302473B, batteries=23352B, solve_diagnostics=963B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }

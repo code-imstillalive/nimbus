@@ -100,8 +100,8 @@ class TestUnloadResetsSolverRuntimeGlobals:
         # guards the property; this line stays because it is the only check
         # that async_unload_entry() calls the teardown at all.
         assert (
-            hass.services.async_remove.call_count == 7
-        )  # + export_decision_inputs (#1657)
+            hass.services.async_remove.call_count == 8
+        )  # + export_decision_inputs (#1657), get_stochastic_summary (#1797)
 
     def test_failed_platform_unload_does_not_reset_globals(self):
         # A failed unload_platforms() means entities/timers may still be

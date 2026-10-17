@@ -760,12 +760,22 @@ def _note_managed_publish_delivered(entity_id: str) -> None:
 # reference household, 9 Oct 04:25:31: the dry-run line logged 1.10 kW while
 # the plan just published, and dispatched, was 36.0 kW.
 _LAST_POSTED: dict[str, tuple[object, dict]] = {}
+# nimbus #1797: when each of those was posted. A reader that needs THIS
+# install's own plan (the decision-input capture, the diagnostics download)
+# cannot take it from hass.states where a mirrored entity overwrites the id
+# (devhub), and needs a timestamp in place of the state's last_updated.
+_LAST_POSTED_AT: dict[str, datetime] = {}
 
 
 def last_posted(entity_id: str) -> tuple[object, dict] | None:
     """`(state, attributes)` this process last passed to ha_post_state()
     for `entity_id`, or None if it has not published it yet."""
     return _LAST_POSTED.get(entity_id)
+
+
+def last_posted_at(entity_id: str) -> datetime | None:
+    """When this process last passed `entity_id` to ha_post_state()."""
+    return _LAST_POSTED_AT.get(entity_id)
 
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
@@ -775,6 +785,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
     (#1634: the no-record reason was dropped at startup and never re-sent)."""
     sw = _solver_writer()
     _LAST_POSTED[entity_id] = (state, attributes)
+    _LAST_POSTED_AT[entity_id] = datetime.now(UTC)
     if NATIVE.hass is not None:
         # Dispatch-table shortcut (2026-08-23, issue #55): if a real
         # SensorEntity has registered itself as the handler for this

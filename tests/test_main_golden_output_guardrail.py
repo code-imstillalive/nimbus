@@ -216,6 +216,11 @@ _EXPECTED_ATTRS = {
         "scenario_terminal_soc_kwh": {},
         "thermal_guarantee_relaxed": [],
         "direction_exclusivity": None,
+        # #1797 PR B: grid money at the real prices; the main plan's still
+        # computes with no band, the scenarios' do not.
+        "scenario_grid_cost": {},
+        "expected_grid_cost": None,
+        "deterministic_grid_cost": 33.5016,
         "raw_status": None,
         "scenario_cost": {},
         "scenarios": ["p10", "p50", "p90"],
@@ -226,6 +231,8 @@ _EXPECTED_ATTRS = {
         "weights": [0.3, 0.4, 0.3],
     },
     "stochastic_period0_battery_kw": None,
+    # #1797 PR B: the envelope chart's scenario paths; none without a band.
+    "stochastic_paths": {},
     # nimbus #1807: no PV sensor and no Solcast in this fixture, so no
     # calibrated band: every bucket empty, nothing pending.
     "solar_quantile_calibration": {

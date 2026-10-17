@@ -51,6 +51,7 @@ from . import (
     sensor_battery_soc,
     sensor_discovery,
     sensor_flattened,
+    sensor_stochastic,
 )
 from .const import (
     ATTR_FORECAST,
@@ -199,6 +200,10 @@ from .const import (
     CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT,
     CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT,
     CONF_SOLVER_STOCHASTIC_DISPATCH,
+    CONF_SOLVER_STOCHASTIC_DRIVE_BUDGET_SECONDS,
+    CONF_SOLVER_STOCHASTIC_SHADOW_INTERVAL_MINUTES,
+    CONF_SOLVER_STOCHASTIC_STAGE1_MINUTES,
+    CONF_SOLVER_STOCHASTIC_TAIL_WEIGHT,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -482,6 +487,10 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # test_sensor_solver_config_keys.py before it ever shipped.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+    CONF_SOLVER_STOCHASTIC_STAGE1_MINUTES,
+    CONF_SOLVER_STOCHASTIC_TAIL_WEIGHT,
+    CONF_SOLVER_STOCHASTIC_DRIVE_BUDGET_SECONDS,
+    CONF_SOLVER_STOCHASTIC_SHADOW_INTERVAL_MINUTES,
     # nimbus #1654/#1695: the soft reserve. In _SOLVER_NUMBER_ENTITY_KEYS /
     # _SOLVER_TIME_ENTITY_KEYS but never added here, so fetch_solver_config()
     # never saw them and the reserve was off on every install whatever the
@@ -600,6 +609,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # field above, for the AEMO P5MIN disagreement threshold.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+    CONF_SOLVER_STOCHASTIC_STAGE1_MINUTES,
+    CONF_SOLVER_STOCHASTIC_TAIL_WEIGHT,
+    CONF_SOLVER_STOCHASTIC_DRIVE_BUDGET_SECONDS,
+    CONF_SOLVER_STOCHASTIC_SHADOW_INTERVAL_MINUTES,
     # nimbus #1654: the soft reserve's two dashboard numbers. Without these
     # the sliders would be read from entry.options and do nothing (#538/#837).
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
@@ -1093,6 +1106,11 @@ async def async_setup_entry(
     # its own battery from the plan's `batteries` (sensor_battery_soc.py).
     flattened_current_entities = flattened_current_entities + list(
         sensor_battery_soc.create(entry, sw_version)
+    )
+    # nimbus #1797: the stochastic solve on an entity of its own, fed from
+    # this process's plan publish (sensor_stochastic.py).
+    flattened_current_entities = flattened_current_entities + list(
+        sensor_stochastic.create(entry, sw_version)
     )
     battery_forecast._flattened_current_entities = flattened_current_entities
     # Issue #290 fix (2026-08-30) -- the two weather-mirror dashboard
@@ -3385,7 +3403,9 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # per-period series, only present on sensor.nimbus_solver_battery_
     # forecast (harmless, unused key for sensor.nimbus_household_load_
     # total_forecast, the other _NimbusSolverPushSensor instance).
-    _unrecorded_attributes = frozenset({"forecast", "batteries"})
+    # "stochastic_paths" (nimbus #1797): three scenarios' battery % ahead,
+    # a projection like `forecast`.
+    _unrecorded_attributes = frozenset({"forecast", "batteries", "stochastic_paths"})
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry

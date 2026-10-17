@@ -14062,11 +14062,13 @@
       "status": "optimal",
       "stochastic": {
        "computed_at": "2026-09-06T20:00:00+10:00",
+       "deterministic_grid_cost": 39.5661,
        "deterministic_period0_battery_kw": -5.0,
        "deterministic_total_cost": 35.1863,
        "direction_exclusivity": null,
        "drives_dispatch": false,
        "expected_cost": null,
+       "expected_grid_cost": null,
        "fallback_reason": "no_solar_band",
        "joint_solves": 0,
        "joint_variables": 0,
@@ -14077,6 +14079,7 @@
        "objective_mode": null,
        "raw_status": null,
        "scenario_cost": {},
+       "scenario_grid_cost": {},
        "scenario_period0_battery_kw": {},
        "scenario_terminal_soc_kwh": {},
        "scenarios": [
@@ -14096,6 +14099,7 @@
         0.3
        ]
       },
+      "stochastic_paths": {},
       "stochastic_period0_battery_kw": null,
       "total_charge_kwh": 6.77,
       "total_cost": 35.1863,
