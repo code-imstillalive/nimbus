@@ -399,6 +399,11 @@ _STOCHASTIC_NOW = {
         "{% set h = states(e) %}"
         "{% macro usd(v) %}{% if v is none %}—{% else %}"
         "${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
+        # Grid money in words: negative is money earned (exports and P2P beat
+        # imports), so "$-96.93" reads "earns $96.93".
+        "{% macro net(v) %}{% if v is none %}—{% elif v < 0 %}"
+        "earns ${{ '%.2f' | format(-v) }}{% else %}"
+        "pays ${{ '%.2f' | format(v) }}{% endif %}{% endmacro %}"
         '<ha-alert alert-type="'
         "{% if s is not mapping %}info"
         "{% elif s.get('drives_dispatch') %}warning"
@@ -435,13 +440,13 @@ _STOCHASTIC_NOW = {
         "{% for k, label in [('p10', 'Low'), ('p50', 'Middle'), ('p90', 'High')] %}"
         "{% set v = c.get(k) %}"
         "| {{ label }} | <font color=\"{{ '#ff5a5a' if v == hi else"
-        " ('#3ddc84' if v == lo else '#e8eaf0') }}\">{{ usd(v) }}</font>"
+        " ('#3ddc84' if v == lo else '#e8eaf0') }}\">{{ net(v) }}</font>"
         " | {% if end.get(k) is not none %}{{ '%.0f' | format(end[k]) }} kWh"
         "{% else %}—{% endif %} |\n"
         "{% endfor %}"
-        "| <b>Expected</b> | <b>{{ usd(s.get('expected_grid_cost')) }}</b> |"
+        "| <b>Expected</b> | <b>{{ net(s.get('expected_grid_cost')) }}</b> |"
         " spread {{ usd(hi - lo) }} |\n"
-        "| Main plan | {{ usd(s.get('deterministic_grid_cost')) }} | |\n\n"
+        "| Main plan | {{ net(s.get('deterministic_grid_cost')) }} | |\n\n"
         '<font color="#9aa0ac">Grid: imports paid minus exports and P2P earned,'
         " at your prices, over the plan.</font>"
         "{% endif %}"
