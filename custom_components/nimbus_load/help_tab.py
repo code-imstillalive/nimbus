@@ -468,9 +468,27 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "trusted on a cycle (too slow, or its solar band is not calibrated), "
             "the main plan runs that cycle.\n\n"
             "**Needs.** Some days of solar history to calibrate the band; until "
-            "then it says why it is waiting."
+            "then it says why it is waiting.\n\n"
+            "**Reading it** (the picture below, left to right):\n\n"
+            "- **Now**: whether the stochastic plan agrees with the main plan "
+            "this minute. Under it: shadow or driving, whether the solar band "
+            "is calibrated, how long the solve took and when.\n"
+            "- **Battery now**: the battery power each plan wants this period, "
+            "in kW (− = charging).\n"
+            "- **Solar day**: for a low, middle and high solar day, the grid "
+            "money over the next two days (imports paid minus exports and P2P "
+            "earned) and the battery left at the end. **Expected** weighs the "
+            "three days (low / middle / high = w / 1−2w / w); **spread** is "
+            "high minus low, how much the weather alone moves the result. "
+            "**Main plan** is the ordinary plan, for comparison.\n"
+            "- **Battery by how much sun**: the battery, in %, under each solar "
+            "day; dashed is the main plan. Lines that lie on top of each other "
+            "mean the weather barely changes what the battery should do.\n"
+            "- **Settings**: Drive the battery, the commit window, the low / "
+            "high day weight (w), the drive time limit, and how often it "
+            "re-plans while off."
         ),
-        None,
+        "tabs/stochastic.png",
     ),
     (
         "The daily score: EPR and regret",
