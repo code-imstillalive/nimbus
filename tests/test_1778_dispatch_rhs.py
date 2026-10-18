@@ -93,7 +93,7 @@ def test_a_dispatched_spike_is_not_called_false() -> None:
 def test_no_dispatch_is_reported_not_raised() -> None:
     r = dr.compare(None, {}, forecast_peak_mwh=None, spike_mwh=5000.0)
     assert r["flag"] is False and r["reason"] == "no_dispatch"
-    assert r["mode"] == "diagnostic"
+    assert r["mode"] == "control_room_live"
 
 
 def test_latest_file_name_picks_the_newest() -> None:
@@ -141,7 +141,7 @@ def test_the_p5min_sensor_publishes_the_check_and_logs_once(caplog) -> None:
                 forecast_first=dr.first_interval_constraints(p5),
             )
     check = s.extra_state_attributes["dispatch_rhs_check"]
-    assert check["flag"] is True and check["mode"] == "diagnostic"
+    assert check["flag"] is True and check["mode"] == "control_room_live"
     assert check["forecast_peak"] == 23200.0
     warnings = [r for r in caplog.records if "#1778 (diagnostic)" in r.getMessage()]
     assert len(warnings) == 1 and warnings[0].levelno == logging.WARNING

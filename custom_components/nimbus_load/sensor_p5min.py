@@ -281,11 +281,11 @@ class NimbusP5MinForecastSensor(SensorEntity):
             self._run = run
             published = p5min.published_at(name)
             self._guard.threshold_mwh = self._threshold_mwh()
-            self._guard.on_run(run, published)
+            self._update_rhs_check(run, dispatch, forecast_first or {})
+            self._guard.on_run(run, published, rhs=self._rhs_check)
             if self._guard.active:
                 _LOGGER.warning(self._guard.describe(run))
             self._update_signal(published)
-            self._update_rhs_check(run, dispatch, forecast_first or {})
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -316,7 +316,8 @@ class NimbusP5MinForecastSensor(SensorEntity):
         self, run: dict, dispatch: dict | None, forecast_first: dict
     ) -> None:
         """#1778: Mark's dispatch-side RHS comparison, published and logged
-        when its evidence changes. Changes no price."""
+        when its evidence changes. Its `control_room_suspect` feeds the
+        guard's rule (d); the comparison itself changes no price."""
         top = p5min.peak(run.get("forecast") or [])
         was = (self._rhs_check or {}).get("rhs_suspect", False)
         self._rhs_check = dispatch_rhs.compare(
@@ -331,7 +332,8 @@ class NimbusP5MinForecastSensor(SensorEntity):
             _LOGGER.warning(
                 "Nimbus #1778 (diagnostic): %s binds in dispatch at RHS %s but "
                 "P5MIN's run %s has it at %s (ratio %s, forecast violation %s); "
-                "dispatch %s $/MWh, P5MIN peak %s $/MWh. No price is changed.",
+                "dispatch %s $/MWh, P5MIN peak %s $/MWh. Only a CA_ row arms the "
+                "false-spike guard (rule d).",
                 row["constraint_id"],
                 row["dispatch_rhs"],
                 run.get("run_datetime"),
