@@ -279,8 +279,8 @@ def test_buying_part_of_the_limit_prices_energy_at_the_buy_price(site):
     for t in range(len(hours)):
         imp = plan.grid_import_kw[t]
         if 1e-3 < imp < site["import_limit"] - 1e-3 and plan.grid_export_kw[t] <= 1e-6:
-            # The balance row's dual is minus the price in this LP's sign.
-            assert abs(lam[t] + site["import_price"][t]) < 1e-5, t
+            # One more kW of demand is bought at this period's price.
+            assert abs(lam[t] - site["import_price"][t]) < 1e-5, t
     if plan.adequacy_loads:
         (ap,) = plan.adequacy_loads
         expected = float(np.sum(lam * ap.power_kw * hours))
