@@ -10,7 +10,10 @@ promises, not against an example's expected numbers:
 - every flow within its limit, SoC within its bounds;
 - no charge with discharge, and no import with export, in one period
   (#238, #1535);
-- a battery never makes the plan dearer than leaving it idle.
+- a battery never makes the plan dearer than leaving it idle;
+- an adequacy load (hot water, a deferrable) stays within its power and
+  window, its delivered and shortfall energy add up to its target, and it
+  meets a target it can reach when a shortfall is dear.
 
 Each property states the issue numbers whose single-case pins it subsumes,
 so `git grep '#NNN'` still finds them.
@@ -22,6 +25,7 @@ import numpy as np
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from solver.elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -47,59 +51,62 @@ def sites(draw):
     # Export never above import in this generator: the spread case is its
     # own property below.
     discount = np.array(
-        draw(
-            st.lists(
-                st.floats(min_value=0.0, max_value=0.3), min_size=n, max_size=n
-            )
-        )
+        draw(st.lists(st.floats(min_value=0.0, max_value=0.3), min_size=n, max_size=n))
     )
     export_price = import_price - discount
     load = np.array(
-        draw(
-            st.lists(
-                st.floats(min_value=0.0, max_value=8.0), min_size=n, max_size=n
-            )
-        )
+        draw(st.lists(st.floats(min_value=0.0, max_value=8.0), min_size=n, max_size=n))
     )
     solar = np.array(
-        draw(
-            st.lists(
-                st.floats(min_value=0.0, max_value=12.0), min_size=n, max_size=n
-            )
-        )
+        draw(st.lists(st.floats(min_value=0.0, max_value=12.0), min_size=n, max_size=n))
     )
     capacity = draw(st.floats(min_value=1.0, max_value=40.0))
     lo = draw(st.floats(min_value=0.0, max_value=0.3)) * capacity
     hi = draw(st.floats(min_value=0.7, max_value=1.0)) * capacity
     initial = draw(st.floats(min_value=lo, max_value=hi))
-    battery = dict(
-        name="b",
-        capacity_kwh=capacity,
-        initial_soc_kwh=initial,
-        min_soc_kwh=lo,
-        max_soc_kwh=hi,
-        max_charge_kw=draw(st.floats(min_value=0.5, max_value=20.0)),
-        max_discharge_kw=draw(st.floats(min_value=0.5, max_value=20.0)),
-        charge_efficiency=draw(st.floats(min_value=0.8, max_value=0.99)),
-        discharge_efficiency=draw(st.floats(min_value=0.8, max_value=0.99)),
-        charge_cost=0.005,
-        discharge_cost=draw(st.floats(min_value=0.005, max_value=0.1)),
-        salvage_value=draw(st.floats(min_value=0.0, max_value=0.3)),
-    )
+    battery = {
+        "name": "b",
+        "capacity_kwh": capacity,
+        "initial_soc_kwh": initial,
+        "min_soc_kwh": lo,
+        "max_soc_kwh": hi,
+        "max_charge_kw": draw(st.floats(min_value=0.5, max_value=20.0)),
+        "max_discharge_kw": draw(st.floats(min_value=0.5, max_value=20.0)),
+        "charge_efficiency": draw(st.floats(min_value=0.8, max_value=0.99)),
+        "discharge_efficiency": draw(st.floats(min_value=0.8, max_value=0.99)),
+        "charge_cost": 0.005,
+        "discharge_cost": draw(st.floats(min_value=0.005, max_value=0.1)),
+        "salvage_value": draw(st.floats(min_value=0.0, max_value=0.3)),
+    }
     # Import limit always covers the load, so every generated site is
     # feasible without the battery.
     import_limit = float(load.max()) + draw(st.floats(min_value=0.0, max_value=30.0))
     export_limit = draw(st.floats(min_value=0.0, max_value=30.0))
-    return dict(
-        hours=np.full(n, width),
-        import_price=import_price,
-        export_price=export_price,
-        import_limit=import_limit,
-        export_limit=export_limit,
-        load=load,
-        solar=solar,
-        battery=battery,
-    )
+    adequacy = None
+    if draw(st.booleans()):
+        earliest = draw(st.integers(min_value=0, max_value=n - 1))
+        deadline = draw(st.integers(min_value=earliest, max_value=n - 1))
+        adequacy = {
+            "name": "hws",
+            "max_power_kw": draw(st.floats(min_value=0.5, max_value=5.0)),
+            "target_kwh": draw(st.floats(min_value=0.0, max_value=10.0)),
+            "earliest_period": earliest,
+            "deadline_period": deadline,
+            "shortfall_price": draw(st.sampled_from([0.05, 0.5, 20.0])),
+        }
+        # The import limit also covers the adequacy load at full power.
+        import_limit += adequacy["max_power_kw"]
+    return {
+        "adequacy": adequacy,
+        "hours": np.full(n, width),
+        "import_price": import_price,
+        "export_price": export_price,
+        "import_limit": import_limit,
+        "export_limit": export_limit,
+        "load": load,
+        "solar": solar,
+        "battery": battery,
+    }
 
 
 def _solve(site, **battery_overrides):
@@ -114,7 +121,16 @@ def _solve(site, **battery_overrides):
         batteries=[BatteryConfig(**{**site["battery"], **battery_overrides})],
         solar=SolarConfig(forecast_kw=site["solar"]),
         loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+        adequacy_loads=(
+            [AdequacyLoadConfig(**site["adequacy"])] if site["adequacy"] else None
+        ),
     )
+
+
+def _demand(site, plan):
+    """The house load plus whatever the adequacy load draws."""
+    extra = sum(a.power_kw for a in plan.adequacy_loads) if plan.adequacy_loads else 0.0
+    return site["load"] + extra
 
 
 @SETTINGS
@@ -130,7 +146,7 @@ def test_every_period_balances(site):
         - plan.battery_charge_kw
         + plan.solar_used_kw
     )
-    np.testing.assert_allclose(supply, site["load"], atol=TOL)
+    np.testing.assert_allclose(supply, _demand(site, plan), atol=TOL)
     np.testing.assert_allclose(
         plan.solar_used_kw + plan.solar_curtailed_kw, site["solar"], atol=TOL
     )
@@ -188,3 +204,34 @@ def test_a_battery_never_costs_more_than_leaving_it_idle(site):
     assert plan.total_cost <= idle.total_cost + 1e-6
     assert (idle.battery_charge_kw <= TOL).all()
     assert (idle.battery_discharge_kw <= TOL).all()
+
+
+@SETTINGS
+@given(sites())
+def test_an_adequacy_load_keeps_to_its_power_window_and_target(site):
+    """Hot water and deferrables (#613): power in [0, max] and none before
+    the earliest period; delivered + shortfall covers the target; a target
+    the load can reach is met when a shortfall costs $20/kWh."""
+    a = site["adequacy"]
+    if a is None:
+        return
+    plan = _solve(site)
+    assert plan.status == "optimal"
+    (ap,) = plan.adequacy_loads
+    hours = site["hours"]
+    assert (ap.power_kw >= -TOL).all()
+    assert (ap.power_kw <= a["max_power_kw"] + TOL).all()
+    assert (ap.power_kw[: a["earliest_period"]] <= TOL).all()
+    by_deadline = float(
+        np.sum(
+            ap.power_kw[: a["deadline_period"] + 1] * hours[: a["deadline_period"] + 1]
+        )
+    )
+    assert abs(ap.delivered_by_deadline_kwh - by_deadline) < 1e-4
+    assert ap.delivered_by_deadline_kwh + ap.shortfall_kwh >= a["target_kwh"] - 1e-4
+    window = hours[a["earliest_period"] : a["deadline_period"] + 1].sum()
+    if (
+        a["shortfall_price"] >= 20.0
+        and a["max_power_kw"] * window >= a["target_kwh"] + 1e-6
+    ):
+        assert ap.shortfall_kwh <= 1e-4
