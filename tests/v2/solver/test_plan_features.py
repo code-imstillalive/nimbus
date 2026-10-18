@@ -20,6 +20,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver.elements import (
+    MIN_CHARGE_DISCHARGE_COST_SPREAD,
     AdequacyLoadConfig,
     AdequacyWindow,
     BatteryConfig,
@@ -1023,3 +1024,103 @@ def test_an_adequacy_deadline_past_the_plan_is_refused_naming_the_plan(n, past):
         )
     msg = str(refused.value)
     assert "'pool'" in msg and f"({deadline})" in msg and f"(0..{n - 1})" in msg
+
+
+@SETTINGS
+@given(plain_sites())
+def test_the_loss_tie_break_costs_what_its_rate_says(site):
+    """The round-trip loss tie-break (#732): each kWh charged costs the import
+    price x (1 - charge efficiency), each kWh discharged the import price x
+    (1 / discharge efficiency - 1), each capped at the 1c minimum spread, and
+    the plan reports exactly that."""
+    plan = _solve(site)
+    b = site["battery"]
+    h = site["hours"]
+    price = site["import_price"]
+    cap = MIN_CHARGE_DISCHARGE_COST_SPREAD
+    charge_rate = np.minimum(price * (1.0 - b["charge_efficiency"]), cap)
+    discharge_rate = np.minimum(price * (1.0 / b["discharge_efficiency"] - 1.0), cap)
+    expected = float(
+        np.sum(plan.battery_charge_kw * charge_rate * h)
+        + np.sum(plan.battery_discharge_kw * discharge_rate * h)
+    )
+    assert abs(plan.battery_loss_tiebreak_cost - expected) < 1e-9
+
+
+def _pool_plan(n, width, power, price, threshold, windows=None):
+    return build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=np.full(n, 0.0),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=power,
+                target_kwh=power * width,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+                min_deferral_saving_dollars=threshold,
+                windows=windows,
+            )
+        ],
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=4, max_value=12),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    _num(0.5, 3.0),
+    _num(0.02, 0.2),
+)
+def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(n, width, power, cut):
+    """`min_deferral_saving_dollars` (#769): when waiting for the cheaper half
+    of the day saves less than the threshold, the load runs at its earliest
+    period instead; with the threshold set well under the saving, it waits."""
+    half = n // 2
+    price = np.array([0.3] * half + [0.3 - cut] * (n - half))
+    saving = cut * power * width
+    held = _pool_plan(n, width, power, price, threshold=saving * 10.0)
+    assert held.status == "optimal"
+    assert float(np.sum(held.adequacy_loads[0].power_kw[:half])) > 1e-6
+    waits = _pool_plan(n, width, power, price, threshold=saving * 0.01)
+    assert float(np.sum(waits.adequacy_loads[0].power_kw[:half])) <= 1e-6
+
+
+@SETTINGS
+@given(st.integers(min_value=2, max_value=12), st.integers(min_value=0, max_value=5))
+def test_an_adequacy_window_past_the_plan_is_refused_naming_the_plan(n, past):
+    """A window whose deadline lies past the plan is refused before solving,
+    and the message names the window's deadline and the plan's range."""
+    deadline = n + past
+    window = (
+        AdequacyWindow(earliest_period=0, deadline_period=deadline, target_kwh=0.5),
+    )
+    with pytest.raises(ValueError) as refused:
+        _pool_plan(n, 0.5, 1.0, np.full(n, 0.3), 0.0, windows=window)
+    msg = str(refused.value)
+    assert f"({deadline})" in msg and f"(0..{n - 1})" in msg
