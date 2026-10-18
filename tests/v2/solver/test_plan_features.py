@@ -1290,3 +1290,136 @@ def test_a_run_once_load_stays_in_one_block_even_when_splitting_is_cheaper(width
     pool = plan.adequacy_loads[0]
     on = np.flatnonzero(pool.power_kw > 1e-6)
     assert len(on) == 4 and on[-1] - on[0] == 3, on
+
+
+def _thermal_plan(n, width, thermal, price=None):
+    return build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.5) if price is None else price,
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        thermal_loads=[ThermalLoadConfig(**thermal)],
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=2, max_value=12),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    _num(30.0, 60.0),
+    _num(0.01, 0.2),
+    _num(0.5, 15.0),
+)
+def test_a_tank_in_warmer_air_does_not_cool(n, width, start, coeff, warmer):
+    """Ambient coupling (#481): the loss is the gap to the outdoor air, and a
+    heating load is never credited with warmth from a hot day, so a tank
+    already at its target, in air warmer than it, holds its temperature
+    without heating."""
+    plan = _thermal_plan(
+        n,
+        width,
+        {
+            "name": "hws",
+            "max_power_kw": 3.0,
+            "initial_temperature_c": start,
+            "target_temperature_c": start,
+            "earliest_period": 0,
+            "deadline_period": n - 1,
+            "heating_rate_c_per_kwh": 5.0,
+            "idle_decay_c_per_hour": 1.0,
+            "loss_coeff_per_h": coeff,
+            "ambient_c": tuple([start + warmer] * n),
+        },
+    )
+    assert plan.status == "optimal"
+    (tp,) = plan.thermal_loads
+    assert (tp.power_kw <= TOL).all()
+    np.testing.assert_allclose(tp.temperature_c, np.full(n, start), atol=1e-6)
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=2, max_value=8),
+    st.sampled_from([0.25, 0.5]),
+    _num(1.0, 3.0),
+)
+def test_an_unreachable_thermal_target_still_heats_flat_out(n, width, power):
+    """A thermal target the load can't reach by its deadline (#774's
+    fallback): the guarantee is relaxed, and each degree it falls short is
+    priced at the adequacy shortfall price per kWh of heating. At $7.50/kWh,
+    under that $10, heating is still worth it, so the load runs at full power
+    up to the deadline."""
+    rate, start = 2.0, 20.0
+    reach = start + rate * power * width * n
+    price = np.full(n, 7.5)
+    plan = _thermal_plan(
+        n,
+        width,
+        {
+            "name": "hws",
+            "max_power_kw": power,
+            "initial_temperature_c": start,
+            "target_temperature_c": min(round(reach + 10.0, 4), 98.0),
+            "earliest_period": 0,
+            "deadline_period": n - 1,
+            "heating_rate_c_per_kwh": rate,
+            "idle_decay_c_per_hour": 0.0,
+        },
+        price=price,
+    )
+    assert plan.status == "optimal"
+    assert plan.thermal_guarantee_relaxed == ["hws"]
+    np.testing.assert_allclose(plan.thermal_loads[0].power_kw, power, atol=1e-5)
+
+
+@pytest.mark.parametrize("width", [0.25, 0.5, 1.0])
+def test_a_comfort_floor_is_worth_heating_to_when_it_costs_more(width):
+    """A comfort floor (`comfort_floor_c`, never above the target): each
+    degree-period under it costs `comfort_floor_cost`. Heating now instead of
+    at the deadline costs 0.75 of that per degree more, so a tank under the
+    floor is heated to the floor now rather than later."""
+    rate, start, floor, cost = 5.0, 40.0, 45.0, 1.0
+    later = 0.5
+    price = np.array([later + 0.75 * cost * rate, later])
+    power = (floor - start) / (rate * width)
+    plan = _thermal_plan(
+        2,
+        width,
+        {
+            "name": "hws",
+            "max_power_kw": power * 2.0,
+            "initial_temperature_c": start,
+            "target_temperature_c": floor,
+            "earliest_period": 0,
+            "deadline_period": 1,
+            "heating_rate_c_per_kwh": rate,
+            "idle_decay_c_per_hour": 0.0,
+            "comfort_floor_c": floor,
+            "comfort_floor_cost": cost,
+        },
+        price=price,
+    )
+    assert plan.status == "optimal"
+    assert abs(plan.thermal_loads[0].temperature_c[0] - floor) < 1e-5
