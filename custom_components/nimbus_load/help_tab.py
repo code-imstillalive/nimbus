@@ -293,6 +293,297 @@ _TABS = (
     "| **Help** | This page. | Never. |"
 )
 
+# ---- features, explained -------------------------------------------------------
+#
+# Household, 18 Oct 2026: "make sure all new features are described in the help
+# section... it needs a lot more detail... preferably with some images". One
+# entry per feature: what it does, when to use it, how to turn it on, what you
+# see, and its limits. Images are this repo's own screenshots under
+# docs/images/, served from GitHub (HACS installs only the integration folder);
+# `tests/test_1823_help_tab.py` fails if one is missing.
+
+IMAGES_URL = (
+    "https://raw.githubusercontent.com/code-imstillalive/nimbus/main/docs/images"
+)
+
+#: (title, body, image path under docs/images or None). Bodies are markdown.
+FEATURES: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "The plan: how the Solver decides",
+        (
+            "**What it does.** Plans the battery, the grid and any controllable "
+            "loads about four days ahead, at the lowest total cost: 5-minute steps "
+            "for the first hour, 30-minute steps after.\n\n"
+            "**What is acted on.** Only the current step. The plan is solved again "
+            "on its own cycle, at once with **Solve now** (top of the Solver tab), "
+            "and on every price update if *Re-plan on price change* is on.\n\n"
+            "**What you see.** Solver tab → Plan: the battery plan against what "
+            "really happened, prices ahead, each day's totals. *Plan status* "
+            "should read `optimal`; anything else names its reason.\n\n"
+            "**Limits.** The plan is only as good as its forecasts and prices; the "
+            "price safety checks and risk sliders below are how it hedges."
+        ),
+        None,
+    ),
+    (
+        "Price safety: stale feeds and false spikes",
+        (
+            "**Stale price feed.** If your price provider has not rebuilt its "
+            "forecast for **60 minutes**, those periods are planned from AEMO's "
+            "price plus your own learned retail markup instead, and the daily score "
+            "re-prices them the same way. Solver tab → Plan → Price safety shows "
+            "when this is in force.\n\n"
+            "**False spikes.** AEMO's 5-minute pre-dispatch (P5MIN) can forecast "
+            "the price cap from a constraint that real dispatch never applies. "
+            "When a forecast spike at or above the *P5MIN false spike* level "
+            "(default $5,000/MWh, Advanced settings → Costs and stability) comes "
+            "from a run that breaks its own constraints, the spike is held back "
+            "until real dispatch confirms it.\n\n"
+            "**Limits.** A real spike that arrives in dispatch is still sold into. "
+            "A provider that publishes no refresh time cannot be checked for "
+            "staleness."
+        ),
+        None,
+    ),
+    (
+        "Charge By: a SoC by a time of day",
+        (
+            "**When to use.** You need the battery at least X% by a set time every "
+            "day, for example before an evening P2P block.\n\n"
+            "**How.** Solver tab → Basic settings → Battery card: *Charge by* "
+            "(time) and *Charge to* (%). 0% = off.\n\n"
+            "**How it works.** Soft, never infeasible: each kWh short at the "
+            "deadline costs $2.00 in the plan, so it charges in the cheapest "
+            "periods before the deadline and holds the target through the final "
+            "hour."
+        ),
+        None,
+    ),
+    (
+        "Reserve and price spikes",
+        (
+            "**Reserve.** The bottom share of the battery is kept back between "
+            "*Hold from* and *Release at*, and sold only when the price beats the "
+            "*Release margin*. 0% = off. Advanced settings → Reserve and price "
+            "spikes.\n\n"
+            "**Price spikes.** A buy price at or above the *Spike threshold* "
+            "($/kWh, 0 = off) is a spike. With *Spike override armed* on, the "
+            "battery sells at the *Spike discharge* power, a steady rate rather "
+            "than an instant dump on a long spike. Off, Nimbus only shows the "
+            "spike."
+        ),
+        None,
+    ),
+    (
+        "Household mode",
+        (
+            "**What it does.** One switch for home, away, guests or economy. Each "
+            "load can carry different targets per mode, for example no hot-water "
+            "deadline while away, or a bigger target with guests.\n\n"
+            "**Where.** Solver tab → More settings → Household and re-planning.\n\n"
+            "**Limits.** It changes what the plan aims for. It does not tell the "
+            "load forecast that nobody is home; that is issue #1847."
+        ),
+        None,
+    ),
+    (
+        "Re-plan on price change",
+        (
+            "**What it does.** Solves again as soon as a configured price sensor "
+            "updates, instead of waiting for the next cycle. Updates within the "
+            "*Re-plan delay* (default 5 s) make one solve.\n\n"
+            "**Where.** Solver tab → More settings → Household and re-planning. "
+            "*Price to plan time* shows how long the last one took.\n\n"
+            "**When to use.** Prices that move within a 5-minute block (Amber, "
+            "LocalVolts). Off by default."
+        ),
+        None,
+    ),
+    (
+        "Pricing source",
+        (
+            "**What it does.** Lists every price provider Nimbus finds on this "
+            "install (LocalVolts v2, Amber Express, Amber Electric) plus Manual. "
+            "Picking one switches the import and export prices together, after "
+            "checking every sensor it needs is reporting; a failed check changes "
+            "nothing and says which sensor failed.\n\n"
+            "**Where.** Solver tab → More settings → Household and re-planning. "
+            "*Manual* changes nothing: prices stay as saved in the wizard."
+        ),
+        None,
+    ),
+    (
+        "Charging near full (taper)",
+        (
+            "**What it does.** A battery cannot take full charge power near full. "
+            "From *Taper starts at* (default 90% SoC) the plan's charge limit falls "
+            "in a straight line to *Power at full* (default 10% of max charge) at "
+            "100%.\n\n"
+            "**Where.** Solver tab → More settings → Charging near full. Taper "
+            "starts at 100 = off.\n\n"
+            "**Why.** Without it the plan expects a full battery sooner than it "
+            "can happen and arrives at an evening block short."
+        ),
+        None,
+    ),
+    (
+        "Solar running low",
+        (
+            "**What it does.** While measured solar runs below *On below* "
+            "(default 70%) of the solar forecast's middle estimate (p50) for "
+            "*Confirm for* (default 10 min), the rest of today is planned on the "
+            "low estimate (p10). Back above *Off above* (default 90%), it plans on "
+            "p50 again. Judged only while p50 is at least *Judge above* "
+            "(default 2 kW).\n\n"
+            "**Where.** Solver tab → More settings → Solar running low. Judge "
+            "above 0 = off.\n\n"
+            "**When it helps.** A cloudy afternoon the forecast missed: the plan "
+            "stops counting on solar that is not coming."
+        ),
+        None,
+    ),
+    (
+        "Risk sliders",
+        (
+            "**Import price risk / Export price risk.** 0 trusts the price "
+            "forecast; toward 1 the plan prices each side at its historical "
+            "worst case for that time of day, and acts now instead of waiting "
+            "for a forecast better price.\n\n"
+            "**Solar forecast risk.** 0 trusts the solar forecast; toward 1 the "
+            "plan assumes less solar and more load, and keeps more in the "
+            "battery.\n\n"
+            "**Where.** Solver tab → Plan, the three sliders. The *effect now* "
+            "figures beside them show what each one is changing."
+        ),
+        None,
+    ),
+    (
+        "Stochastic dispatch",
+        (
+            "**What it does.** Plans a low, middle and high solar day at once, so "
+            "the next stretch of decisions suits all three.\n\n"
+            "**Off by default (shadow).** It only plans beside the main plan, "
+            "shown in its own block at the end of the Solver tab. Turn on "
+            "**Drive the battery** to let it run the battery; if it cannot be "
+            "trusted on a cycle (too slow, or its solar band is not calibrated), "
+            "the main plan runs that cycle.\n\n"
+            "**Needs.** Some days of solar history to calibrate the band; until "
+            "then it says why it is waiting."
+        ),
+        None,
+    ),
+    (
+        "The daily score: EPR and regret",
+        (
+            "**What it is.** Each morning at about 06:17, yesterday is scored "
+            "from real data against doing nothing and against perfect hindsight. "
+            "*EPR* is the share of the possible saving captured; *regret* is the "
+            "money left on the table. See the Glossary for the formulas.\n\n"
+            "**Re-score a day** (after a release that changes scoring, or once a "
+            "settlement arrives): Developer tools → Actions → "
+            '`nimbus_load.rescore_history` with `date: "2026-10-16"`. Only '
+            "yesterday is re-scored automatically.\n\n"
+            "**Reliability.** A day whose inputs were not trustworthy (a stalled "
+            "price feed, SoC sensors that disagree) is flagged with the reason, "
+            "not hidden."
+        ),
+        "setup/regret.png",
+    ),
+    (
+        "Repairs: setup problems, found for you",
+        (
+            "**Where.** Settings → Repairs. Each Nimbus repair says what is wrong "
+            "and how to fix it, and clears itself once fixed.\n\n"
+            "**Includes.** A Solver field left empty that a sensor you already "
+            "chose could fill (one click), a power field given an energy sensor, "
+            "battery settings still on their 0.1 placeholders (capacity, max "
+            "charge, max discharge, grid max import), and settings that "
+            "contradict (Min SoC at or above Max SoC, or a Charge By target above "
+            "Max SoC)."
+        ),
+        None,
+    ),
+    (
+        "Forecaster: your load and power signals",
+        (
+            "**What it does.** Learns each Power Signal and Load from its own "
+            "history (k-NN and gradient-boosted models, picked on held-out "
+            "accuracy) and forecasts it with a confidence band. Retrains each "
+            "night at the retrain hour (default 3 am).\n\n"
+            "**How.** Integration page → **+ Add power signal** for your measured "
+            "whole-house load, then **+ Add load** per circuit you want learned. "
+            "Needs ApexCharts Card from HACS for the chart.\n\n"
+            "**Reading the band.** A load's lower edge never goes below 0; a "
+            "battery's or grid's can, because they really do."
+        ),
+        "setup/forecaster-chart.png",
+    ),
+    (
+        "Topology: your switchboard",
+        (
+            "**What it does.** Draws your inverters, PV strings, battery towers, "
+            "loads and grid with live flow arrows.\n\n"
+            "**How.** Integration page → **+ Add power source** (one per "
+            "inverter), then **+ Add PV string** and **+ Add battery tower** under "
+            "it. Loads appear by themselves. Until then it shows a stand-in "
+            "inverter from the Solver's sensors."
+        ),
+        "setup/topology.png",
+    ),
+    (
+        "Price records and comparison sources",
+        (
+            "**What it does.** Nimbus records each price source's forecast with "
+            "the plan it fed, so ways of combining sources can be scored later "
+            "against what prices really were.\n\n"
+            "**Comparison sources.** Solver settings → Sources → Advanced → "
+            "*price sources to record for comparison only*: list extra price "
+            "sensors (another retailer, AEMO's 30-minute forecast). They are "
+            "recorded only; the plan never uses them.\n\n"
+            "**Reading them.** Developer tools → Actions → "
+            "`nimbus_load.export_decision_inputs` with a start and end time."
+        ),
+        None,
+    ),
+)
+
+
+def features_markdown() -> str:
+    """Every feature, collapsible, with its picture where there is one."""
+    parts = ["**Every feature, explained**\n"]
+    for title, body, image in FEATURES:
+        parts.append(f"<details><summary><b>{title}</b></summary>\n")
+        parts.append(body)
+        if image:
+            parts.append(
+                f'\n<img src="{IMAGES_URL}/{image}" alt="{title}" width="100%">\n'
+            )
+        parts.append("\n</details>")
+    return "\n".join(parts)
+
+
+#: Screenshots of the setup screens, shown under Start here.
+SETUP_PICTURES: tuple[tuple[str, str], ...] = (
+    ("The Nimbus integration page and its + Add buttons", "setup/integration-page.png"),
+    ("Adding a Power Signal", "setup/add-power-signal.png"),
+    ("Solver settings, screen 1: Battery", "setup/solver-wizard-1-battery.png"),
+    ("Solver settings, screen 2: Grid Prices", "setup/solver-wizard-2-prices.png"),
+    (
+        "Solver settings, screen 3: Solar & Load Forecasts",
+        "setup/solver-wizard-3-forecasts.png",
+    ),
+)
+
+
+def setup_pictures_markdown() -> str:
+    parts = ["**The setup screens, in pictures**\n"]
+    for caption, image in SETUP_PICTURES:
+        parts.append(f"<details><summary><b>{caption}</b></summary>\n")
+        parts.append(f'<img src="{IMAGES_URL}/{image}" alt="{caption}" width="100%">')
+        parts.append("\n</details>")
+    return "\n".join(parts)
+
+
 # ---- glossary ---------------------------------------------------------------
 
 #: (term, meaning, formula or example). Kept short; the formula is the detail.
@@ -998,10 +1289,13 @@ def template() -> list[dict[str, Any]]:
     return [
         _banner("Start here", "error", "Set Nimbus up so every tab works."),
         _full([_markdown(_START_HERE)]),
+        _full([_markdown(setup_pictures_markdown())]),
         _full([_markdown(_WHERE)]),
         _full([_markdown(_TRAPS)]),
         _full([_markdown(_REPORT)]),
         _full([_markdown(whats_new_markdown())]),
+        _banner("Features", "success", "What each feature does, and how to use it."),
+        _full([_markdown(features_markdown())]),
         _banner("Each tab", "info", "What every view shows, and what it needs."),
         _full([_markdown(_TABS)]),
         _banner("Settings", "warning", "Every figure and dial, with its formula."),
