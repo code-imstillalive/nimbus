@@ -2231,6 +2231,21 @@ def _build_plan_once(
         spike_override_value = (
             spike_override_kw if spike_override_kw is not None else 0.0
         )
+        # Period 0's floor is at most what the same-period wash-trade guard
+        # lets this battery draw: initial SoC above min_soc_kwh (see the
+        # "Same-period wash-trade prevention" rows below). A hard floor above
+        # that cap made the whole plan infeasible, so an armed spike with the
+        # battery within one period of its minimum published no plan at all
+        # (found by tests/v2's spike property, #1837). It discharges what it
+        # can instead; at the floor, nothing.
+        spike_floor_value = spike_override_value
+        if n > 0 and float(hours[0]) > 0:
+            spike_floor_value = min(
+                spike_override_value,
+                max(0.0, b.initial_soc_kwh - b.min_soc_kwh)
+                * b.discharge_efficiency
+                / float(hours[0]),
+            )
         charge_vars[b.name] = [
             p.add_variable(
                 f"battery_charge_{b.name}_{t}",
@@ -2286,7 +2301,7 @@ def _build_plan_once(
                 # different in shape; only one of them had been taught
                 # about the mask.
                 lb=(
-                    spike_override_value
+                    spike_floor_value
                     if spike_active_now and t == 0 and t not in gated_periods
                     else 0.0
                 ),
