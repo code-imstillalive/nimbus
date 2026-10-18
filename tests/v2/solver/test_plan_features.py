@@ -13,6 +13,8 @@ slack constraint.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 from hypothesis import given
@@ -862,3 +864,113 @@ def test_the_main_battery_never_charges_inside_a_committed_export_window(
         assert main.charge_kw[t] <= TOL, t
     # The ungated battery does charge from the spare sun in the window.
     assert max(second.charge_kw[t] for t in window) > 1e-3
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=2, max_value=10),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    st.integers(min_value=0, max_value=9),
+    st.sampled_from([0.3, 0.7, 1.0, 1.2]),
+)
+def test_a_departure_target_is_met_when_reachable_and_warned_only_when_not(
+    n, width, by, share
+):
+    """An EV departure target (#563, unreachable since #1818): a target at
+    or under what full-power charging can reach by its period is met there,
+    with no 'unreachable' warning. One above it is charged as far as it can
+    go, the plan stays solvable, and the warning names it. Charging costs
+    money here, so only the target makes the battery charge."""
+    by = min(by, n - 1)
+    hours = np.full(n, width)
+    initial, cap, rate, eff = 2.0, 40.0, 3.0, 0.95
+    reachable = min(cap, initial + rate * eff * width * (by + 1))
+    target = round(initial + share * (reachable - initial), 6)
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    log = logging.getLogger("solver.network")
+    log.addHandler(handler)
+    log.setLevel(logging.DEBUG)
+    try:
+        plan = build_plan(
+            periods=PeriodGrid(hours),
+            grid=GridConfig(
+                import_price=np.full(n, 0.4),
+                export_price=np.full(n, 0.0),
+                import_limit_kw=20.0,
+                export_limit_kw=0.0,
+            ),
+            batteries=[
+                BatteryConfig(
+                    name="ev",
+                    capacity_kwh=cap,
+                    initial_soc_kwh=initial,
+                    min_soc_kwh=0.0,
+                    max_soc_kwh=cap,
+                    max_charge_kw=rate,
+                    max_discharge_kw=rate,
+                    charge_efficiency=eff,
+                    discharge_efficiency=eff,
+                    charge_cost=0.006,
+                    discharge_cost=0.006,
+                    salvage_value=0.0,
+                    must_have_soc_by_period_index=by,
+                    must_have_soc_kwh=target,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        )
+    finally:
+        log.removeHandler(handler)
+    assert plan.status == "optimal"
+    soc = plan.battery_soc_kwh[by]
+    warned = any("ev" in r.getMessage() and "reach" in r.getMessage() for r in records)
+    if target <= reachable + 1e-9:
+        assert soc >= target - 1e-4
+        assert not warned
+    else:
+        assert abs(soc - reachable) < 1e-4
+        assert warned
+
+
+@SETTINGS
+@given(plain_sites(), st.integers(min_value=0, max_value=23), _num(0.5, 15.0))
+def test_a_short_p2p_block_costs_its_penalty_on_every_missing_kwh(site, at, kw):
+    """A committed P2P block (#1761): each kWh it falls short costs more than
+    the release valve plus the best any kWh could earn, so the plan's cost is
+    its flows plus that rate on every kWh the export misses the block by,
+    whatever the plan chose."""
+    n = len(site["hours"])
+    fixed = np.full(n, np.nan)
+    window = [t for t in range(at, min(at + 2, n))]
+    for t in window:
+        fixed[t] = kw
+    site["export_limit"] = max(site["export_limit"], kw)
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+            fixed_export_kw=fixed,
+        ),
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+        sheddable_loads=(
+            [SheddableLoadConfig(**site["sheddable"])] if site["sheddable"] else None
+        ),
+    )
+    assert plan.status == "optimal"
+    h = site["hours"]
+    excess_rate = max(10.0 * float(np.max(site["import_price"])), 5.0)
+    rate = (
+        excess_rate
+        + float(np.max(np.abs(site["import_price"])))
+        + float(np.max(np.abs(site["export_price"])))
+    )
+    short = sum(max(0.0, kw - plan.grid_export_kw[t]) * h[t] for t in window)
+    assert abs(plan.total_cost - (_parts(site, plan) + rate * short)) < 1e-6
