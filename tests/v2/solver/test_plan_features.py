@@ -806,3 +806,59 @@ def test_with_no_threshold_a_load_waits_for_any_real_saving(n, width, power, cut
     (ap,) = plan.adequacy_loads
     assert float(np.sum(ap.power_kw[:half])) <= 1e-6
     assert abs(float(np.sum(ap.power_kw * width)) - power * width) < 1e-6
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=4, max_value=10),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    st.integers(min_value=0, max_value=2),
+    _num(0.5, 2.0),
+)
+def test_the_main_battery_never_charges_inside_a_committed_export_window(
+    n, width, start, committed
+):
+    """A P2P fixed export window (household finding, 2026-08-20): the first battery's charging is shut
+    in every committed period, even when the sun is up and charging pays, so
+    the committed export can't be bought back through it. A second battery
+    is not gated."""
+    window = range(start, min(start + 2, n))
+    fixed = np.full(n, np.nan)
+    for t in window:
+        fixed[t] = committed
+
+    def battery(name):
+        return BatteryConfig(
+            name=name,
+            capacity_kwh=20.0,
+            initial_soc_kwh=2.0,
+            min_soc_kwh=1.0,
+            max_soc_kwh=19.0,
+            max_charge_kw=3.0,
+            max_discharge_kw=3.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            charge_cost=0.006,
+            discharge_cost=0.006,
+            salvage_value=0.5,
+        )
+
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.3),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=10.0,
+            export_limit_kw=10.0,
+            fixed_export_kw=fixed,
+        ),
+        batteries=[battery("main"), battery("second")],
+        solar=SolarConfig(forecast_kw=np.full(n, 12.0)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+    )
+    assert plan.status == "optimal"
+    main, second = plan.batteries
+    for t in window:
+        assert main.charge_kw[t] <= TOL, t
+    # The ungated battery does charge from the spare sun in the window.
+    assert max(second.charge_kw[t] for t in window) > 1e-3
