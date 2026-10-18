@@ -5399,15 +5399,15 @@ def apply_price_consolidation(
     import_price_source: list[str],
     export_price_source: list[str],
 ) -> dict | None:
-    """nimbus #1786: each side's consolidate_side() series and running error.
-    With the live switch on, the future scheduling prices are replaced in place
-    (never the settled block) after both sides. None on failure; never raises."""
+    """nimbus #1786: both sides' consolidated series and running error; live, the
+    future scheduling prices are replaced (never the settled block). Never raises."""
     global _PRICE_CONSOLIDATION_FAILED_LOGGED
     try:
         pc = price_consolidation
         ctx = (now, grid_times, period_hours, n_settled_periods)
         live = bool(cfg.get("solver_price_consolidation_live", False))
         trackers = _load_price_trackers()
+        spike = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)  # #1786: keep spikes
         result: dict = {"mode": "live" if live else "shadow"}
         scored = False
         series_by_side: dict[str, dict[str, list[float | None]]] = {}
@@ -5417,14 +5417,7 @@ def apply_price_consolidation(
         ):
             series = _consolidation_sources(cfg, grid_times, side, primary, prices)
             series_by_side[side] = series
-            out = pc.consolidate_side(
-                trackers[side],
-                series,
-                *ctx,
-                settled,
-                # #1786 dry run: a spike any source forecasts is kept.
-                _cfg_num(cfg, "solver_price_spike_threshold", 0.0),
-            )
+            out = pc.consolidate_side(trackers[side], series, *ctx, settled, spike)
             values, result[side], side_scored = out
             result[f"consolidated_{side}_price"] = values
             scored = scored or side_scored
