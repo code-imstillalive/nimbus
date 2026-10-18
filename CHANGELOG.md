@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Control Panel on a phone: the page no longer jumps while you scroll**
+  (household, 18 Oct 2026). The dispatch card rebuilt its whole content
+  every 3 s, including the forecast table's scroll box, so the element under
+  your finger was replaced mid-swipe and the page snapped back. After the
+  first build the card now updates the existing elements in place: only
+  changed text and numbers are written, so what you are scrolling stays put.
+  Checked in Chrome with a fake Home Assistant updating every 300 ms: before,
+  the table and buttons were new elements after every rebuild; after, the
+  same elements, the chart still redrawn and each tap handled once. Not
+  checked on a phone yet.
+
 ## [0.94.464] - 2026-10-18
 
 A switch to bank solar in the battery before exporting any, a More
