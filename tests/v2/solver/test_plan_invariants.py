@@ -1,0 +1,190 @@
+"""Layer 1 of the rebuilt suite (#1837): properties every solved plan holds.
+
+Hypothesis generates sites (one battery, solar, a load, prices, limits) and
+each plan from `build_plan` is checked against physics and the LP's own
+promises, not against an example's expected numbers:
+
+- energy balance in every period;
+- solar used plus curtailed equals the forecast;
+- SoC follows the charge and discharge flows through the efficiencies;
+- every flow within its limit, SoC within its bounds;
+- no charge with discharge, and no import with export, in one period
+  (#238, #1535);
+- a battery never makes the plan dearer than leaving it idle.
+
+Each property states the issue numbers whose single-case pins it subsumes,
+so `git grep '#NNN'` still finds them.
+"""
+
+from __future__ import annotations
+
+import numpy as np
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SolarConfig,
+)
+from solver.network import build_plan
+
+TOL = 1e-5
+SETTINGS = settings(
+    max_examples=40,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+
+
+@st.composite
+def sites(draw):
+    n = draw(st.integers(min_value=2, max_value=24))
+    width = draw(st.sampled_from([5 / 60, 0.25, 0.5, 1.0]))
+    price = st.floats(min_value=-0.2, max_value=2.0, allow_nan=False)
+    import_price = np.array(draw(st.lists(price, min_size=n, max_size=n)))
+    # Export never above import in this generator: the spread case is its
+    # own property below.
+    discount = np.array(
+        draw(
+            st.lists(
+                st.floats(min_value=0.0, max_value=0.3), min_size=n, max_size=n
+            )
+        )
+    )
+    export_price = import_price - discount
+    load = np.array(
+        draw(
+            st.lists(
+                st.floats(min_value=0.0, max_value=8.0), min_size=n, max_size=n
+            )
+        )
+    )
+    solar = np.array(
+        draw(
+            st.lists(
+                st.floats(min_value=0.0, max_value=12.0), min_size=n, max_size=n
+            )
+        )
+    )
+    capacity = draw(st.floats(min_value=1.0, max_value=40.0))
+    lo = draw(st.floats(min_value=0.0, max_value=0.3)) * capacity
+    hi = draw(st.floats(min_value=0.7, max_value=1.0)) * capacity
+    initial = draw(st.floats(min_value=lo, max_value=hi))
+    battery = dict(
+        name="b",
+        capacity_kwh=capacity,
+        initial_soc_kwh=initial,
+        min_soc_kwh=lo,
+        max_soc_kwh=hi,
+        max_charge_kw=draw(st.floats(min_value=0.5, max_value=20.0)),
+        max_discharge_kw=draw(st.floats(min_value=0.5, max_value=20.0)),
+        charge_efficiency=draw(st.floats(min_value=0.8, max_value=0.99)),
+        discharge_efficiency=draw(st.floats(min_value=0.8, max_value=0.99)),
+        charge_cost=0.005,
+        discharge_cost=draw(st.floats(min_value=0.005, max_value=0.1)),
+        salvage_value=draw(st.floats(min_value=0.0, max_value=0.3)),
+    )
+    # Import limit always covers the load, so every generated site is
+    # feasible without the battery.
+    import_limit = float(load.max()) + draw(st.floats(min_value=0.0, max_value=30.0))
+    export_limit = draw(st.floats(min_value=0.0, max_value=30.0))
+    return dict(
+        hours=np.full(n, width),
+        import_price=import_price,
+        export_price=export_price,
+        import_limit=import_limit,
+        export_limit=export_limit,
+        load=load,
+        solar=solar,
+        battery=battery,
+    )
+
+
+def _solve(site, **battery_overrides):
+    return build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+        ),
+        batteries=[BatteryConfig(**{**site["battery"], **battery_overrides})],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+
+
+@SETTINGS
+@given(sites())
+def test_every_period_balances(site):
+    """Import - export + discharge - charge + solar used = load (#390)."""
+    plan = _solve(site)
+    assert plan.status == "optimal"
+    supply = (
+        plan.grid_import_kw
+        - plan.grid_export_kw
+        + plan.battery_discharge_kw
+        - plan.battery_charge_kw
+        + plan.solar_used_kw
+    )
+    np.testing.assert_allclose(supply, site["load"], atol=TOL)
+    np.testing.assert_allclose(
+        plan.solar_used_kw + plan.solar_curtailed_kw, site["solar"], atol=TOL
+    )
+
+
+@SETTINGS
+@given(sites())
+def test_soc_follows_the_flows(site):
+    """soc[t] is the end of period t: soc[t-1] + (charge * eff_c -
+    discharge / eff_d) * hours[t], starting from the initial SoC."""
+    plan = _solve(site)
+    b = site["battery"]
+    step = (
+        plan.battery_charge_kw * b["charge_efficiency"]
+        - plan.battery_discharge_kw / b["discharge_efficiency"]
+    ) * site["hours"]
+    expected = b["initial_soc_kwh"] + np.cumsum(step)
+    np.testing.assert_allclose(plan.battery_soc_kwh, expected, atol=1e-4)
+
+
+@SETTINGS
+@given(sites())
+def test_every_flow_and_soc_within_bounds(site):
+    plan = _solve(site)
+    b = site["battery"]
+    for arr, cap in (
+        (plan.battery_charge_kw, b["max_charge_kw"]),
+        (plan.battery_discharge_kw, b["max_discharge_kw"]),
+        (plan.grid_import_kw, site["import_limit"]),
+        (plan.grid_export_kw, site["export_limit"]),
+    ):
+        assert (arr >= -TOL).all() and (arr <= cap + TOL).all()
+    for soc in plan.battery_soc_kwh:
+        assert b["min_soc_kwh"] - 1e-4 <= soc <= b["max_soc_kwh"] + 1e-4
+    assert plan.soc_penalty_cost <= TOL
+
+
+@SETTINGS
+@given(sites())
+def test_no_opposing_flows_in_one_period(site):
+    """One grid connection, one current direction (#238, #1535)."""
+    plan = _solve(site)
+    assert (np.minimum(plan.battery_charge_kw, plan.battery_discharge_kw) <= TOL).all()
+    assert (np.minimum(plan.grid_import_kw, plan.grid_export_kw) <= TOL).all()
+
+
+@SETTINGS
+@given(sites())
+def test_a_battery_never_costs_more_than_leaving_it_idle(site):
+    """Idle is a feasible plan, so the optimum can only be as cheap or
+    cheaper."""
+    plan = _solve(site)
+    idle = _solve(site, available=False)
+    assert idle.status == "optimal"
+    assert plan.total_cost <= idle.total_cost + 1e-6
+    assert (idle.battery_charge_kw <= TOL).all()
+    assert (idle.battery_discharge_kw <= TOL).all()
