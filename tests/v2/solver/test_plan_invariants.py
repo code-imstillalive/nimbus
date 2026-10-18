@@ -237,3 +237,22 @@ def test_an_adequacy_load_keeps_to_its_power_window_and_target(site):
         and a["max_power_kw"] * window >= a["target_kwh"] + 1e-6
     ):
         assert ap.shortfall_kwh <= 1e-4
+
+
+@SETTINGS
+@given(sites(), _num(0.0, 1.0))
+def test_a_battery_below_its_floor_never_sinks_further(site, depth):
+    """Soft SoC bounds (#328, #781): a battery starting below its minimum
+    is never planned lower than it starts, and the penalty is zero exactly
+    when every period's SoC is within bounds."""
+    b = site["battery"]
+    start = b["min_soc_kwh"] * depth
+    plan = _solve(site, initial_soc_kwh=start)
+    assert plan.status == "optimal"
+    soc = plan.battery_soc_kwh
+    assert soc.min() >= min(start, b["min_soc_kwh"]) - 1e-4
+    inside = bool(
+        (soc >= b["min_soc_kwh"] - 1e-6).all()
+        and (soc <= b["max_soc_kwh"] + 1e-6).all()
+    )
+    assert (plan.soc_penalty_cost <= 1e-6) == inside
