@@ -132,6 +132,7 @@ from ..const import (
 from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
 from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
+from . import live_numbers
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
 _GRID_VISIBLE_PRICE_FIELDS = frozenset(
@@ -1393,6 +1394,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         # `None` here is a genuine "not yet seeded" sentinel, not an
         # empty dict -- see _ensure_solver_data_seeded() below.
         self._solver_data: dict[str, Any] | None = None
+        # nimbus #1800: battery/grid numbers answered in this wizard run,
+        # written to their live number entities when it finishes.
+        self._live_numbers: dict[str, float] = {}
 
     def _ensure_solver_data_seeded(self) -> None:
         """Seed self._solver_data from self.config_entry.options on first
@@ -1638,6 +1642,13 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             step_id="switchboard", data_schema=_switchboard_schema(form_defaults)
         )
 
+    def _pending_live_numbers(self) -> dict[str, float]:
+        """nimbus #1800: the battery/grid numbers answered this wizard run.
+        Created on first use, so a flow built without __init__ (tests) works."""
+        if not hasattr(self, "_live_numbers"):
+            self._live_numbers = {}
+        return self._live_numbers
+
     def _absorb_step(self, schema: vol.Schema, user_input: dict[str, Any]) -> None:
         """Merge one Solver-wizard step's submission into self._solver_data,
         distinguishing "this step's own key was genuinely cleared" from "a
@@ -1672,6 +1683,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     ) -> Any:
         self._ensure_solver_data_seeded()
         if user_input is not None:
+            # nimbus #1800: the battery numbers go to their live entities at
+            # the end of the wizard, never into options.
+            self._pending_live_numbers().update(live_numbers.pop_values(user_input))
             self._absorb_step(_solver_battery_schema({}), user_input)
             return await self.async_step_solver_grid()
         # Same Group B suggestion mechanism as async_step_forecaster above
@@ -1690,13 +1704,20 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         form_defaults = {**suggestions, **energy_dashboard, **existing}
         return self.async_show_form(
             step_id="solver_battery",
-            data_schema=_solver_battery_schema(form_defaults),
+            data_schema=_solver_battery_schema(form_defaults).extend(
+                live_numbers.schema_fields(
+                    self.hass,
+                    getattr(self.config_entry, "entry_id", None),
+                    "solver_battery",
+                )
+            ),
         )
 
     async def async_step_solver_grid(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
+            self._pending_live_numbers().update(live_numbers.pop_values(user_input))
             # nimbus #1067: the SAME wrapping as the form below. A
             # mismatch here means the null sweep walks a different shape
             # than the submission, which is how a silent wipe happens.
@@ -1740,7 +1761,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                         # A refused submission keeps what was entered.
                         **(self._solver_data if errors else {}),
                     }
-                )
+                ).extend(
+                    live_numbers.schema_fields(
+                        self.hass,
+                        getattr(self.config_entry, "entry_id", None),
+                        "solver_grid",
+                    )
+                ),
+                keep_visible=(live_numbers.GRID_IMPORT_FIELD,),
             ),
         )
 
@@ -1783,6 +1811,10 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 )
             except Exception:  # noqa: BLE001, S110 -- see comment above: dismissing a notification must never block a real save; nothing to log or react to beyond that
                 pass
+            if self._pending_live_numbers():
+                await live_numbers.async_apply(
+                    self.hass, self.config_entry.entry_id, self._pending_live_numbers()
+                )
             return self.async_create_entry(title="", data=merged)
         single_candidates, summable_candidates = (
             _discover_nimbus_load_forecast_candidates(self.hass)

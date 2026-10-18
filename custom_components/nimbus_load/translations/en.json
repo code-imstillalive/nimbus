@@ -55,14 +55,20 @@
       },
       "solver_battery": {
         "title": "Solver: Battery (1 of 3)",
-        "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there. 🔴 = required.",
+        "description": "Which sensor reports your battery's live State of Charge, and the battery's size and power limits. These numbers are also on the Solver tab, where you can change them any time without re-running this wizard. 🔴 = required.",
         "data": {
           "solver_battery_soc_sensor": "🔴 Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
-          "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)"
+          "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)",
+          "live_solver_battery_capacity_kwh": "Battery capacity (kWh)",
+          "live_solver_max_charge_kw": "Max charge power (kW)",
+          "live_solver_max_discharge_kw": "Max discharge power (kW)"
         },
         "data_description": {
           "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard.",
-          "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install."
+          "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install.",
+          "live_solver_battery_capacity_kwh": "Usable capacity of the whole system. Blank keeps the current value.",
+          "live_solver_max_charge_kw": "The system's AC charge limit, from the inverter. Blank keeps the current value.",
+          "live_solver_max_discharge_kw": "The system's AC discharge limit, from the inverter. Blank keeps the current value."
         }
       },
       "solver_grid": {
@@ -77,7 +83,8 @@
           "solver_export_price_sensor_3": "Optional: third export price source to blend",
           "solver_price_event_sensor": "Optional: price-event simulation sensor -- a step-point $/kWh delta for testing a price-cap or negative-price event",
           "solver_envelope_import_limit_entity": "Optional: a live DNSP dynamic import limit (e.g. Open Dynamic Export's opModImpLimW) -- bounds the plan per period on top of your static import limit",
-          "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit"
+          "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit",
+          "live_solver_grid_max_import_kw": "Grid max import (kW)"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
@@ -88,7 +95,8 @@
           "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price.",
           "solver_price_event_sensor": "Optional, and a TEST tool rather than a pricing input. Point this at your own sensor whose `forecast` attribute is a list of step points, each with a time field and a value field, where the value is a $/kWh DELTA -- e.g. +20 from 18:00 to 20:00 to simulate a NEM Market Price Cap event (the real cap is $23.20/kWh), or -1 from 11:00 to 15:00 for a Minimum System Load negative-price floor. The delta is added to BOTH your import and export prices, because a real wholesale price event moves the whole market. End every window with an explicit value of 0 -- a step value holds forward, so a window that is never closed keeps shifting prices on every future solve (Nimbus logs a warning if it sees that). Nothing happens until you also arm switch.nimbus_solver_price_event_enabled, and leaving this blank is a complete no-op.",
           "solver_envelope_import_limit_entity": "Optional. A dynamic connection agent's own live import-limit entity (e.g. Open Dynamic Export's opModImpLimW, published over MQTT once you point HA at it) -- read as a live value, or as a forecast schedule if the entity has one. Leave blank to use only your static import limit above -- a complete no-op.",
-          "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW)."
+          "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW).",
+          "live_solver_grid_max_import_kw": "Your connection's import limit. Blank keeps the current value."
         },
         "sections": {
           "advanced": {
