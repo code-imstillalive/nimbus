@@ -462,6 +462,30 @@ _LOAD_FORECAST_SOURCE_KEYS = (
 )
 
 
+def _reserve_shadow_now(plan) -> dict[str, object]:
+    """nimbus #1654, option C. Period 0's soft-reserve rows' duals, apart
+    from the energy price: `reserve_binding_now` is True when either row
+    binds, and `reserve_shadow_price_now` ($/kWh of stored energy, summed
+    over batteries) is what one more kWh above the reserve is worth to the
+    plan. Both are False / 0.0 with no reserve set."""
+    duals = getattr(plan, "duals", None) or {}
+    values = [
+        float(v)
+        for k, v in duals.items()
+        if k.startswith(("battery_reserve_floor_", "battery_reserve_draw_"))
+        and k.endswith("_0")
+    ]
+    floor = sum(
+        float(v)
+        for k, v in duals.items()
+        if k.startswith("battery_reserve_floor_") and k.endswith("_0")
+    )
+    return {
+        "reserve_binding_now": any(abs(v) > 1e-9 for v in values),
+        "reserve_shadow_price_now": round(abs(floor), 4),
+    }
+
+
 def _risk_aversion_effect_now(
     plan: network.Plan,
     solar_kw: list[float],
@@ -2579,6 +2603,9 @@ def publish_plan(
                 plan, "direction_exclusivity", "not_checked"
             ),
             "direction_two_way_pairs": getattr(plan, "direction_two_way_pairs", 0),
+            # nimbus #1654: what the period-0 direction hysteresis did.
+            "period0_hysteresis": getattr(plan, "period0_hysteresis", "off"),
+            "period0_hysteresis_delta": getattr(plan, "period0_hysteresis_delta", None),
             # nimbus #1753: the last period each side's price comes from the
             # provider's own forecast; later periods are Nimbus's estimate.
             "import_price_provider_until": import_price_provider_until,
@@ -3029,6 +3056,10 @@ def publish_plan(
                 plan.duals.get("power_balance_t0", 0.0) / period_hours_arr[0], 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+            # nimbus #1654, option C: the soft reserve's own value now. At the
+            # reserve floor the energy price above is the reserve talking
+            # (18 Oct 05:26-05:31: $9.29 and $45.66/kWh), not a market price.
+            **_reserve_shadow_now(plan),
             # nimbus issue #493 (Signals 4/7 of #489, item 1): period 0's
             # own copy of the per-period envelope_import_limit_kw/
             # envelope_export_limit_kw fields above -- same "period 0

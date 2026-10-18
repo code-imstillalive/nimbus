@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The battery keeps its direction unless a switch is worth it** (#1654,
+  option A). 18 Oct 05:25-06:56, with SoC a few tenths above the 10%
+  overnight reserve, consecutive plans flipped between discharging ~0.85 kW
+  and holding, each flip worth a fraction of a cent, and the inverter got 26
+  mode commands in 91 minutes. Now, when a new plan's period 0 changes
+  between charge, hold and discharge (the dispatch deadband's classes), the
+  plan is re-solved with the previous plan's power for now pinned (#1417's
+  re-solve), and kept when it costs at most the new **Direction change
+  margin** more (default $0.01 over the plan; 0 = off; Solver tab, Costs
+  and stability). Not over a P2P period-0 pin. Every plan reports what it
+  did in `period0_hysteresis` (`kept`, `switched`, `same_direction`, `off`,
+  `no_previous`) and the cost difference in `period0_hysteresis_delta`.
+  Reproduced on the real LP: with the current interval's price alternating
+  as it did that morning, the plan changes direction on every solve with the
+  margin off and holds one direction with it at 1c.
+
+### Added
+- **The reserve's own value, apart from the energy price** (#1654, option
+  C). `reserve_binding_now` and `reserve_shadow_price_now` on the battery
+  forecast: when the soft reserve binds in period 0, the energy shadow
+  price is the reserve's, not a market price (18 Oct: $9.29 and $45.66/kWh).
+
 ### Fixed
 - **Control Panel on an iPhone: no more reset while you scroll** (household,
   18 Oct 2026, after 0.94.465: "still resetting. Less dramatic but

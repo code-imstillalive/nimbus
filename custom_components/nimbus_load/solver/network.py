@@ -931,6 +931,13 @@ class Plan:
     #   "still_two_way" every re-solve was optimal and pairs are still two-way
     direction_exclusivity: str = "not_checked"
     direction_two_way_pairs: int = 0
+    # nimbus issue #1654 (option A): what the period-0 direction hysteresis
+    # did on this solve. One of "off", "no_previous", "same_direction",
+    # "kept" (the previous direction, pinned, cost within the margin),
+    # "switched" (the switch saved more than the margin, or the pin was
+    # infeasible). `period0_hysteresis_delta` is pinned minus free cost, $.
+    period0_hysteresis: str = "off"
+    period0_hysteresis_delta: float | None = None
     # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit
     # leaking into terminal_value_credit that #781's own soc_penalty fix
     # didn't touch). Root cause: grid_import_excess[t]'s own LP cost is
@@ -4978,15 +4985,25 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
     ]
     initial = min(max(float(b.initial_soc_kwh), 0.0), reserve)
     for t in range(n):
-        # held[t] - soc[t] <= 0
-        p.add_ub_constraint({held[t]: 1.0, soc_vars[t]: -1.0}, 0.0)
+        # held[t] - soc[t] <= 0. Named so the reserve's own shadow price can
+        # be published apart from the energy price (#1654, option C).
+        p.add_ub_constraint(
+            {held[t]: 1.0, soc_vars[t]: -1.0},
+            0.0,
+            name=f"battery_reserve_floor_{b.name}_{t}",
+        )
         if not active[t]:
             continue  # outside the window: no reserve, nothing to draw
         # held[t-1] - held[t] - drawn[t] <= 0
+        draw_name = f"battery_reserve_draw_{b.name}_{t}"
         if t == 0:
-            p.add_ub_constraint({held[0]: -1.0, drawn[0]: -1.0}, -initial)
+            p.add_ub_constraint(
+                {held[0]: -1.0, drawn[0]: -1.0}, -initial, name=draw_name
+            )
         else:
-            p.add_ub_constraint({held[t - 1]: 1.0, held[t]: -1.0, drawn[t]: -1.0}, 0.0)
+            p.add_ub_constraint(
+                {held[t - 1]: 1.0, held[t]: -1.0, drawn[t]: -1.0}, 0.0, name=draw_name
+            )
         p.set_cost(drawn[t], price)
 
 

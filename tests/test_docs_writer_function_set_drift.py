@@ -261,6 +261,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # own `logger.set_level` service on its dedicated logger, which only
         # exists in-process; the standalone/cron copy has no way to turn it on.
         "period0_crossing_delta",
+        # nimbus #1654, option A: the period-0 direction hysteresis re-solves
+        # with #1417's period-0 pin, which the cron copy never builds.
+        "period0_direction_hysteresis",
+        # nimbus #1654, option C: the reserve's own dual. The cron copy builds
+        # no BatteryConfig reserve (see reserve_window_indices below).
+        "_reserve_shadow_now",
         # nimbus #1654: hours-of-day -> period indices for the reserve window,
         # in solver_plan.py beside the battery it configures; the cron copy
         # builds no BatteryConfig reserve at all.
