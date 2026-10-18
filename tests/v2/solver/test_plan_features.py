@@ -1441,7 +1441,7 @@ def test_the_export_bonus_is_claimed_on_real_export_within_its_cap(
     export that happened, the volume claimed stays within the cap, and the
     premium the plan collects is what the bonus's own settlement
     (`realized_export_bonus_credit`) pays for that export, the dearest
-    periods first."""
+    periods first, and the plan's cost counts the premium exactly once."""
     n = len(site["hours"])
     bonus_price = np.array(premiums[:n])
     plan = build_plan(
@@ -1477,6 +1477,11 @@ def test_the_export_bonus_is_claimed_on_real_export_within_its_cap(
         grid_export_kw=plan.grid_export_kw, hours=h, grid=grid, period_starts=None
     )
     assert abs(collected - settled) < 1e-5
+    # The objective counts the premium once: the plan costs its flows less the
+    # premium collected, up to the bonus's latest-preferred tie-break (a few
+    # hundredths of a cent at most).
+    site = {**site, "sheddable": None}
+    assert abs(plan.total_cost - (_parts(site, plan) - collected)) < 1e-3
 
 
 @SETTINGS
