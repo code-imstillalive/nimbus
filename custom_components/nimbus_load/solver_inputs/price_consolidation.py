@@ -78,6 +78,7 @@ def _available(
 def consolidate(
     series_by_source: dict[str, Sequence[float | None]],
     weights: Weights | Sequence[Weights | None] | None = None,
+    spike_threshold: float | None = None,
 ) -> tuple[list[float | None], list[float | None], str]:
     """Combine several per-period price series into one.
 
@@ -86,6 +87,13 @@ def consolidate(
     weights give a positive weight to EVERY source available in that
     period; otherwise it uses the median of the available sources. A period
     with no source is None in both returned lists.
+
+    `spike_threshold` (household, 18 Oct 2026; dry run on #1786): a period
+    where ANY source forecasts at or above it takes the highest source
+    instead. Missing a real spike costs far more than acting on a false one,
+    and a median or weighted mean drops a spike only one source carries: in
+    the dry run the median lost $257 on a real $15 spike only LocalVolts saw.
+    None or <= 0 = off.
 
     Returns `(values, spread, method)`, where `method` is "weighted" when
     every valued period was weighted, "median" when none was, and "mixed"
@@ -108,7 +116,14 @@ def consolidate(
             w = weights
         else:
             w = weights[i] if i < len(weights) else None
-        if w and all(w.get(name, 0.0) > 0.0 for name in avail):
+        top = max(avail.values())
+        if (
+            spike_threshold is not None
+            and spike_threshold > 0
+            and top >= spike_threshold
+        ):
+            values.append(top)
+        elif w and all(w.get(name, 0.0) > 0.0 for name in avail):
             total = sum(w[name] for name in avail)
             values.append(sum(avail[name] * w[name] for name in avail) / total)
             n_weighted += 1
@@ -374,6 +389,7 @@ def consolidate_side(
     period_hours: Sequence[float],
     n_settled: int,
     settled: float | None,
+    spike_threshold: float | None = None,
 ) -> tuple[list[float | None], dict[str, Any], bool]:
     """One side's whole cycle: consolidate with the weights earned so far,
     score the interval that just ended, record this solve's forecasts for
@@ -381,7 +397,7 @@ def consolidate_side(
     Returns `(values, published summary, whether anything was scored)`."""
     names = sorted(series)
     values, spread, method = consolidate(
-        series, tracker.weights_by_period(now, grid_times, names)
+        series, tracker.weights_by_period(now, grid_times, names), spike_threshold
     )
     scored = tracker.observe_settled(now, settled)
     for name, s in series.items():

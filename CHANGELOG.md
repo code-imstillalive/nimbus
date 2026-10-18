@@ -63,6 +63,21 @@ published. The Control Panel no longer resets on an iPhone.
   the only pointer. They are not stored in the integration's options, so each
   setting still has one place it lives. A blank field keeps the current value.
 
+- **The combined price forecast keeps a spike that any source sees** (#1786).
+  When several price sources are configured, Nimbus builds a combined
+  forecast: the median of the sources, or an error-weighted mean once there's
+  enough history. It runs in shadow unless its switch is on. Now any period
+  where a source forecasts at or above the Price Spike Threshold takes the
+  highest source. In a dry run with made-up spikes, on a production-shaped
+  battery and scored in money (`scripts/price_consolidation_dryrun.py`):
+  - the plain median dropped a real $15 spike that only LocalVolts forecast,
+    and lost $257;
+  - keeping spikes was never worse than LocalVolts alone, and it kept the
+    +$90 when only Amber and P5MIN saw a spike coming.
+
+  Shadow by default as before, so nothing changes unless
+  `switch.nimbus_solver_price_consolidation_live` is turned on.
+
 ### Fixed
 - **An armed price-spike override no longer leaves Nimbus without a plan
   when the battery is near its minimum.** The override (#567) forced period
