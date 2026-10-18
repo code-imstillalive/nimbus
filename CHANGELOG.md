@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Control Panel on an iPhone: no more reset while you scroll** (household,
+  18 Oct 2026, after 0.94.465: "still resetting. Less dramatic but
+  definitely does in a very similar way"). Two causes were left. After each
+  update the card still wrote the table's saved scroll position back onto
+  the same box, and on iOS that stops a swipe's momentum. And the update
+  matched elements by position only, so a note appearing above the table
+  moved the table onto another element. The card now leaves a kept box
+  alone and matches elements by kind and name. Not yet checked on an iPhone.
+
 ## [0.94.465] - 2026-10-18
 
 The P5MIN false-spike guard now also arms on Mark Purcell's dispatch-side
