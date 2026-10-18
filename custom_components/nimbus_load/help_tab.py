@@ -92,9 +92,10 @@ _START_HERE = (
     % "plan and (plan.attributes.get('solve_diagnostics') or {}).get("
     "'battery_effective_capacity_kwh', 0) > 1"
     + " | **2. Your battery and grid numbers** (basic) | Solver | "
-    "**Solver tab → Basic settings → Battery card** (capacity, SoH, min / max "
-    "SoC, max charge / discharge) and **→ Grid and fees card** (max import / "
-    "export). The defaults are placeholders. |\n"
+    "Solver settings screen 1 asks for capacity, max charge and max discharge, "
+    "screen 2 for grid max import (#1800). The rest (SoH, min / max SoC, max "
+    "export) is on the **Solver tab → Basic settings**. A placeholder 0.1 "
+    "shows in the table below and in Repairs. |\n"
     + "| "
     + _TICK % "forecasts | count > 0"
     + " | **3. A whole-house Power Signal**, then Loads | Forecaster, Topology | "
@@ -118,6 +119,58 @@ _START_HERE = (
     + "\n{% if plan %}Nimbus {{ plan.attributes.get('nimbus_version') }} · "
     "plan {{ plan.attributes.get('status') }}{% endif %}"
 )
+
+# nimbus #1800: the basic inputs, live. Each row reads the hub option or the
+# number entity the Solver itself reads, so it says what is configured now
+# and what still needs the user; Repairs say why, with what to fix.
+_OPT = "${@option:%s}"
+_NUM = "${@%s}"
+
+
+def _input_row(label: str, ref: str, *, number: bool = False, unit: str = "") -> str:
+    if number:
+        ok = "states(e) | float(0) > 0.1"
+        now = (
+            "(states(e) ~ ' " + unit + "') if states(e) | float(0) > 0.1 "
+            "else 'placeholder 0.1'"
+        )
+    else:
+        ok = "e != '' and states(e) not in ['unknown', 'unavailable']"
+        now = (
+            "(e ~ ': ' ~ states(e) ~ ' ' ~ (state_attr(e, 'unit_of_measurement') "
+            "or '')) if e != '' else 'not set'"
+        )
+    return (
+        "{% set e = '" + ref + "' %}"
+        "| {{ '✅' if (" + ok + ") else '⬜' }} | " + label + " | {{ " + now + " }} |\n"
+    )
+
+
+_BASIC_INPUTS = (
+    "**Basic inputs, live**\n\n"
+    "| | Input | Now |\n|:---:|:---|:---|\n"
+    + _input_row("Battery State of Charge", _OPT % "solver_battery_soc_sensor")
+    + _input_row("Import price", _OPT % "solver_import_price_sensor")
+    + _input_row("Export price", _OPT % "solver_export_price_sensor")
+    + _input_row("Solar forecast", _OPT % "solver_solar_forecast_sensor")
+    + _input_row(
+        "Battery capacity",
+        _NUM % "solver_battery_capacity_kwh",
+        number=True,
+        unit="kWh",
+    )
+    + _input_row("Max charge", _NUM % "solver_max_charge_kw", number=True, unit="kW")
+    + _input_row(
+        "Max discharge", _NUM % "solver_max_discharge_kw", number=True, unit="kW"
+    )
+    + _input_row(
+        "Grid max import", _NUM % "solver_grid_max_import_kw", number=True, unit="kW"
+    )
+    + "\nPrice sensors Nimbus found (LocalVolts, Amber) are offered under "
+    "**Configure → Review pricing suggestions**, applied only when you submit. "
+    "Anything else it spots is under **Settings → Repairs**, saying what to fix."
+)
+
 
 _TRAPS = (
     "**Common traps**\n\n"
@@ -1392,6 +1445,7 @@ def template() -> list[dict[str, Any]]:
     return [
         _banner("Start here", "error", "Set Nimbus up so every tab works."),
         _full([_markdown(_START_HERE)]),
+        _full([_markdown(_BASIC_INPUTS)]),
         _full([_markdown(setup_pictures_markdown())]),
         _full([_markdown(_WHERE)]),
         _full([_markdown(_TRAPS)]),

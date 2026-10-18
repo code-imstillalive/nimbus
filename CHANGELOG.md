@@ -9,6 +9,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **The Help tab lists your basic inputs, live** (#1800). Under Start here,
+  next to the step checklist, a table shows what the Solver reads now: State
+  of Charge, import and export price, solar forecast, battery capacity, max
+  charge, max discharge and grid max import. Each row is ✅ with its current
+  reading, or ⬜ with "not set" or "placeholder 0.1". It points to Review
+  pricing suggestions for detected price sensors and to Repairs for anything
+  else. Step 2 of the checklist now says the wizard asks for the battery
+  numbers (#1868).
+
+### Added
 - **User docs site** at code-imstillalive.github.io/nimbus (#1801). The
   setup guide, each price provider, every setting, the tabs, safety and
   troubleshooting are published from `docs/` on every merge. Worklogs,
