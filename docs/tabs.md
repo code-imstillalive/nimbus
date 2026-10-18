@@ -17,6 +17,10 @@ the new design is added beside yours.
     Inside Home Assistant, the **Help** tab is the most complete reference for
     your own install. Its ticks show which steps are done, and it lists every
     Solver-tab setting with its location and formula.
+    Under **Start here** it also lists the basic inputs live (State of
+    Charge, prices, solar forecast, battery capacity and limits, grid import):
+    ✅ when set, ⬜ with "not set" or "placeholder 0.1" when not
+    ([#1800](https://github.com/code-imstillalive/nimbus/issues/1800)).
 
 More on each card, and how to build your own dashboard instead:
 [Dashboards and cards](dashboards.md). Every setting, field by field:
