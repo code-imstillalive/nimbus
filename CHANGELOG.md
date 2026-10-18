@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **User docs site** at code-imstillalive.github.io/nimbus (#1801). The
+  setup guide, each price provider, every setting, the tabs, safety and
+  troubleshooting are published from `docs/` on every merge. Worklogs,
+  handover notes and specs stay out. The settings table gained the 21
+  settings it was missing (the reserve, the spike override, the direction
+  change margin and the charge taper among them), and a test now fails when a
+  setting is added or removed without its row.
+
 ### Fixed
 - **An armed price-spike override no longer leaves Nimbus without a plan
   when the battery is near its minimum.** The override (#567) forced period
