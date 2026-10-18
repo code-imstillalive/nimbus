@@ -409,16 +409,16 @@ def test_a_battery_that_is_away_neither_charges_nor_discharges(site, until, away
 @SETTINGS
 @given(sites(), _num(0.0, 1.0))
 def test_an_armed_price_spike_discharges_at_its_rate_now(site, share):
-    """The spike override (#567, #694): period 0 discharges exactly the set
-    rate and does not charge. The rate is kept within what period 0 can take
-    (house load plus the export limit, and the energy stored), so the plan
-    stays feasible."""
+    """The spike override (#567, #694, #1865): period 0 discharges the set
+    rate, down to Min SoC and never below it, and does not charge. The rate
+    is kept within what period 0 can take (house load plus the export limit),
+    so the energy has somewhere to go."""
     b = site["battery"]
     sink = float(site["load"][0]) + site["export_limit"]
-    # ... and within what is stored: SoC's hard floor is 0.
-    stored = b["initial_soc_kwh"] * b["discharge_efficiency"] / site["hours"][0]
-    rate = round(share * min(b["max_discharge_kw"], sink, stored), 4)
+    rate = round(share * min(b["max_discharge_kw"], sink), 4)
     plan = _solve(site, spike_override_discharge_kw=rate)
     assert plan.status == "optimal"
-    assert abs(plan.battery_discharge_kw[0] - rate) < 1e-5
+    above_min = max(0.0, b["initial_soc_kwh"] - b["min_soc_kwh"])
+    allowed = above_min * b["discharge_efficiency"] / site["hours"][0]
+    assert abs(plan.battery_discharge_kw[0] - min(rate, allowed)) < 1e-5
     assert plan.battery_charge_kw[0] <= TOL
