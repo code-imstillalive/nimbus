@@ -14497,6 +14497,8 @@
       "p2p_match_fraction": 0.65,
       "p2p_recent_avg_volume_kwh": 60.0,
       "p2p_volume_cap_shadow_price": -0.0,
+      "period0_hysteresis": "no_previous",
+      "period0_hysteresis_delta": null,
       "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
       "price_consolidation": {
        "error_history": {
@@ -14555,6 +14557,8 @@
       },
       "price_source_freshness": null,
       "price_spike_active": false,
+      "reserve_binding_now": false,
+      "reserve_shadow_price_now": 0,
       "risk_aversion": 0.25,
       "risk_aversion_active": true,
       "salvage_value": 0.15,

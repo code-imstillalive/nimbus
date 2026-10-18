@@ -129,6 +129,9 @@ _EXPECTED_ATTRS = {
     # solve is already one-way.
     "direction_exclusivity": "not_needed",
     "direction_two_way_pairs": 0,
+    # nimbus #1654: the first solve has no previous plan to hold to.
+    "period0_hysteresis": "no_previous",
+    "period0_hysteresis_delta": None,
     # nimbus #1753: where the fixture's price forecast ends (its last covered
     # period), published for the Solver tab's Prices ahead card.
     "import_price_provider_until": "2026-09-10T19:30:00+10:00",
@@ -508,6 +511,9 @@ _EXPECTED_ATTRS = {
     "binding_constraint_shadow_price": 0.3022,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
+    # nimbus #1654 (C): no reserve set in this fixture.
+    "reserve_binding_now": False,
+    "reserve_shadow_price_now": 0,
     # nimbus issue #567: this fixture configures no spike threshold/
     # alert entity -- honest, expected False, matching every other
     # "unconfigured means off" field in this fixture.
