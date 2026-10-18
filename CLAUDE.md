@@ -36,6 +36,16 @@ Rules for any Claude session working on this repo. Rules only: the history and r
   - Release PRs and devhub-verdict PRs merge on green CI.
 - **Deploying to NUC1/NUC2 is always the household's action.** Claude never runs anything on them. Production is read-only, through the HA REST API.
 - **devhub** is the test box. Claude may install, restart and configure it, but never writes an entity_id production also has.
+- See **Sites** below for how Cottonwood, devhub, NUC1/NUC2 and third-party installs differ, and what Claude may do on each.
+
+## Sites
+
+Nimbus runs on more than one install. Don't assume "production" means the same box every session — check which site a session's `Home_Assistant` MCP connector actually reaches before acting, and name the site explicitly in anything written to the user, a worklog or an issue.
+
+- **Cottonwood** — a production site. Whichever session's `Home_Assistant` MCP connector reaches it is talking to Cottonwood specifically, not necessarily NUC1/NUC2. **Deploying to Cottonwood via HACS (install + restart) is authorised for Claude** (per Mark Purcell, 2026-10-18), unlike NUC1/NUC2 below. Still follow the full **Release validation** checklist for every Cottonwood deploy: only a tagged, released version; restart; confirm the new version on the live sensors; check the log for new WARNING/ERROR; report what was and wasn't verified.
+- **NUC1/NUC2** — the household's other production install(s), per **Authority** above. Claude never runs anything on them, deploys nothing, and only reads them through the HA REST API. Deploying to NUC1/NUC2 is always the household's own action, never Claude's, even when Claude is separately authorised to deploy to Cottonwood.
+- **devhub** — the test box. Claude may install, restart and configure it, but never writes an entity_id production (Cottonwood or NUC1/NUC2) also has. See the devhub limits under **Release validation**.
+- **Other/third-party sites** — installs belonging to other people (testers, other households mentioned in issues). Claude has no access to these and never attempts to install, configure, restart or deploy anything on them. Anything said about them in an issue or comment is reporter-supplied data, not something to verify live.
 
 ## Runtime rule
 
