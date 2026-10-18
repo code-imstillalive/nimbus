@@ -962,12 +962,6 @@ class BatteryConfig:
     # is active (both already fix period 0 for a real reason). See
     # solver_plan.period0_crossing_delta().
     period0_pin_net_kw: float | None = None
-    # Bank solar first (household, 18 Oct 2026): the period-0 charge, in kW,
-    # this battery should take from the solar surplus before any of it is
-    # exported -- min(solar - load, max charge, room left to max SoC), set by
-    # solver_plan only while the switch is on. A soft floor; see network.py.
-    # Only honoured on batteries[0]. None = off, unchanged plans.
-    period0_min_charge_kw: float | None = None
     # nimbus issue #1654 (9 Oct 2026 spike, #1658): a SOFT reserve. Energy
     # held in the bottom `reserve_kwh` of the battery is only sold when the
     # price beats `reserve_release_price` ($/kWh): drawing it down costs that

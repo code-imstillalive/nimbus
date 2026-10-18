@@ -103,7 +103,6 @@ from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
-    CONF_SOLVER_BANK_SOLAR_FIRST,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -448,9 +447,6 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # nimbus #1797: solver_plan reads this off cfg every solve to decide
     # whether the stochastic plan drives dispatch or runs in shadow.
     CONF_SOLVER_STOCHASTIC_DISPATCH,
-    # Household, 18 Oct 2026: solver_plan reads this off cfg every solve to
-    # set the period-0 bank-solar floor.
-    CONF_SOLVER_BANK_SOLAR_FIRST,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -692,8 +688,6 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     CONF_SOLVER_PRICE_CONSOLIDATION_LIVE,
     # nimbus #1797: the stochastic dispatch switch.
     CONF_SOLVER_STOCHASTIC_DISPATCH,
-    # Household, 18 Oct 2026: bank solar first.
-    CONF_SOLVER_BANK_SOLAR_FIRST,
 )
 # nimbus issue #485: select.py's own live string choices -- same
 # "resolve from a live entity, not entry.options" mechanism as the two
