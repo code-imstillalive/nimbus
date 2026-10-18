@@ -5417,7 +5417,14 @@ def apply_price_consolidation(
         ):
             series = _consolidation_sources(cfg, grid_times, side, primary, prices)
             series_by_side[side] = series
-            out = pc.consolidate_side(trackers[side], series, *ctx, settled)
+            out = pc.consolidate_side(
+                trackers[side],
+                series,
+                *ctx,
+                settled,
+                # #1786 dry run: a spike any source forecasts is kept.
+                _cfg_num(cfg, "solver_price_spike_threshold", 0.0),
+            )
             values, result[side], side_scored = out
             result[f"consolidated_{side}_price"] = values
             scored = scored or side_scored
