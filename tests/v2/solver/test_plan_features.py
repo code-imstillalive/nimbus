@@ -1103,7 +1103,7 @@ def _pool_plan(n, width, power, price, threshold, windows=None, earliest=0):
     st.sampled_from([0.25, 0.5, 1.0]),
     _num(0.5, 3.0),
     _num(0.02, 0.2),
-    st.integers(min_value=1, max_value=3),
+    st.integers(min_value=0, max_value=3),
 )
 def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(
     n, width, power, cut, earliest
@@ -1111,7 +1111,8 @@ def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(
     """`min_deferral_saving_dollars` (#769): when waiting for the cheaper half
     of the day saves less than the threshold, the load runs before it
     instead; with the threshold well under the saving, it waits. The window
-    starts after period 0, so its hours must be measured from its own start."""
+    starts at period 0 or later, and its hours are measured from its own
+    start."""
     half = n // 2
     earliest = min(earliest, half - 1)
     price = np.array([0.3] * half + [0.3 - cut] * (n - half))
