@@ -1706,7 +1706,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             step_id="solver_battery",
             data_schema=_solver_battery_schema(form_defaults).extend(
                 live_numbers.schema_fields(
-                    self.hass, self.config_entry.entry_id, "solver_battery"
+                    self.hass,
+                    getattr(self.config_entry, "entry_id", None),
+                    "solver_battery",
                 )
             ),
         )
@@ -1761,7 +1763,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     }
                 ).extend(
                     live_numbers.schema_fields(
-                        self.hass, self.config_entry.entry_id, "solver_grid"
+                        self.hass,
+                        getattr(self.config_entry, "entry_id", None),
+                        "solver_grid",
                     )
                 ),
                 keep_visible=(live_numbers.GRID_IMPORT_FIELD,),

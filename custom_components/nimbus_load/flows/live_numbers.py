@@ -7,9 +7,9 @@ setup, with a Repair (#1833) the only pointer. #1800's bar is "a valid plan
 without editing number entities by hand".
 
 The wizard now shows them, pre-filled from the entity's current value (blank
-while it still sits on the placeholder). On submit they are written through
-each entity's own `number.set_value`, so its bounds and its storage stay the
-only path. They are never stored in the config entry's options: a second copy
+while it still sits on the placeholder). On submit each is written through
+the Nimbus number entity's own `async_set_native_value`, so its bounds and its
+storage stay the only path. They are never stored in the config entry's options: a second copy
 there would be two masters for one setting, the conflict DC-004 names
 (`conflict_setting_copies`).
 """
@@ -70,9 +70,12 @@ def current_value(hass: Any, entry_id: str, key: str) -> float | None:
     return value
 
 
-def schema_fields(hass: Any, entry_id: str, step: str) -> dict[Any, Any]:
-    """The extra fields for `step`, each pre-filled from its live entity."""
+def schema_fields(hass: Any, entry_id: str | None, step: str) -> dict[Any, Any]:
+    """The extra fields for `step`, each pre-filled from its live entity.
+    None without an entry id (a flow built without one): no fields."""
     fields: dict[Any, Any] = {}
+    if not entry_id:
+        return fields
     for key, unit, lo, hi, step_size in STEP_NUMBERS.get(step, ()):
         fields[
             vol.Optional(
@@ -103,15 +106,26 @@ def pop_values(user_input: dict[str, Any]) -> dict[str, float]:
 
 
 async def async_apply(hass: Any, entry_id: str, values: dict[str, float]) -> list[str]:
-    """Write each value through its entity's own `number.set_value`. Returns
-    the keys whose entity was not found (nothing is written for those)."""
-    missing: list[str] = []
+    """Write each value through Nimbus's own number entity
+    (`async_set_native_value`, so its bounds and its store stay the only
+    path). Returns the keys not written: entity missing, not loaded, or not a
+    `nimbus_load` entity.
+
+    Not the generic `number.set_value` service, on purpose: DC-R15's
+    inventory guard (the device-contract tests) allows no control-capable
+    service call outside solver dispatch, so setup can never operate
+    equipment. This writes only an entity the registry says belongs to this
+    integration -- a Nimbus setting, never a device.
+    """
+    component = hass.data.get("entity_components", {}).get("number")
+    registry = er.async_get(hass)
+    skipped: list[str] = []
     for key, value in values.items():
         eid = _entity_id(hass, entry_id, key)
-        if eid is None:
-            missing.append(key)
+        reg_entry = registry.async_get(eid) if eid else None
+        entity = component.get_entity(eid) if component is not None and eid else None
+        if reg_entry is None or reg_entry.platform != DOMAIN or entity is None:
+            skipped.append(key)
             continue
-        await hass.services.async_call(
-            "number", "set_value", {"entity_id": eid, "value": value}, blocking=True
-        )
-    return missing
+        await entity.async_set_native_value(float(value))
+    return skipped
