@@ -19,6 +19,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from solver.elements import (
     AdequacyLoadConfig,
+    AdequacyWindow,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -27,7 +28,7 @@ from solver.elements import (
     SolarConfig,
     ThermalLoadConfig,
 )
-from solver.network import build_plan
+from solver.network import DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW, build_plan
 from test_plan_invariants import SETTINGS, TOL, _num, sites
 
 
@@ -168,7 +169,7 @@ def push_sites(draw, direction):
     """A battery the prices push one way as hard as it can: paid to import
     (charge), or a rich export with room to sell (discharge). No load or
     solar, so nothing else competes for the flow."""
-    n = draw(st.integers(min_value=2, max_value=12))
+    n = draw(st.integers(min_value=1, max_value=12))
     width = draw(st.sampled_from([5 / 60, 0.25, 0.5, 1.0]))
     capacity = draw(_num(5.0, 40.0))
     lo = round(draw(_num(0.0, 0.2)) * capacity, 4)
@@ -566,3 +567,185 @@ def test_a_tiered_terminal_value_is_counted_at_each_of_its_periods(
         value += _tiered_value(soc[t] - b["min_soc_kwh"], tiers) / len(extra)
     flat = -b["salvage_value"] * soc[-1]
     assert abs(plan.total_cost - (_parts(site, plan) - flat - value)) < 1e-6
+
+
+@SETTINGS
+@given(plain_sites())
+def test_charge_earliness_costs_what_its_rate_says(site):
+    """The charge-earliness tie-break (#692, #1480): each kWh charged in a
+    period costs budget / horizon hours x the hours elapsed before it, and
+    the plan reports exactly that."""
+    plan = _solve(site)
+    h = site["hours"]
+    elapsed = np.concatenate(([0.0], np.cumsum(h)[:-1]))
+    rate = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW / float(np.sum(h))
+    expected = float(np.sum(rate * elapsed * h * plan.battery_charge_kw))
+    assert abs(plan.battery_charge_earliness_cost - expected) < 1e-9
+
+
+@SETTINGS
+@given(push_sites("discharge"), _num(0.05, 1.0))
+def test_a_battery_below_its_floor_never_discharges(site, depth):
+    """Below Min SoC (#328, #781): even with selling at $4/kWh, a battery
+    that starts under its floor discharges nothing, in any period."""
+    b = site["battery"]
+    b["discharge_power_curve"] = None
+    b["min_soc_kwh"] = round(max(b["min_soc_kwh"], 1.0), 4)
+    start = round(b["min_soc_kwh"] * (1.0 - depth), 4)
+    plan = _solve(site, initial_soc_kwh=start)
+    assert plan.status == "optimal"
+    assert (plan.battery_discharge_kw <= TOL).all()
+
+
+@SETTINGS
+@given(push_sites("discharge"), _num(0.5, 1.5))
+def test_two_batteries_on_one_charger_share_it_discharging(site, share):
+    """A shared charger (#467) caps discharging too: two full batteries paid
+    to sell move no more than its limit together in any period, and over the
+    plan sell the lesser of what the charger can carry and what they hold
+    above Min SoC."""
+    b = dict(site["battery"])
+    b["discharge_power_curve"] = None
+    ceiling = round(b["max_discharge_kw"] * share, 4)
+    pair = [
+        BatteryConfig(
+            **{
+                **b,
+                "name": name,
+                "shared_charger_group": "g",
+                "shared_charger_max_kw": ceiling,
+            }
+        )
+        for name in ("a", "c")
+    ]
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=4.0 * b["max_discharge_kw"],
+        ),
+        batteries=pair,
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    together = sum(pb.charge_kw + pb.discharge_kw for pb in plan.batteries)
+    assert (together <= ceiling + 1e-5).all()
+    h = site["hours"]
+    held = 2 * (b["initial_soc_kwh"] - b["min_soc_kwh"]) * b["discharge_efficiency"]
+    carried = min(ceiling, 2 * b["max_discharge_kw"]) * float(np.sum(h))
+    sold = float(np.sum(together * h))
+    assert abs(sold - min(held, carried)) < 1e-4
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=4, max_value=16),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    _num(0.5, 3.0),
+    st.integers(min_value=1, max_value=2),
+    st.integers(min_value=1, max_value=2),
+)
+def test_each_window_meets_a_target_it_can_reach(n, width, power, k1, k2):
+    """Several windows (#1059): each window's target is whole periods of
+    full power inside it, so with a dear shortfall every one is met and no
+    shortfall is planned."""
+    half = n // 2
+    windows = (
+        AdequacyWindow(
+            earliest_period=0,
+            deadline_period=half - 1,
+            target_kwh=power * width * min(k1, half),
+        ),
+        AdequacyWindow(
+            earliest_period=half,
+            deadline_period=n - 1,
+            target_kwh=power * width * min(k2, n - half),
+        ),
+    )
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.3),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=power,
+                target_kwh=sum(w.target_kwh for w in windows),
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+                windows=windows,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (ap,) = plan.adequacy_loads
+    assert ap.shortfall_kwh <= 1e-4
+    hours = np.full(n, width)
+    for w in windows:
+        span = slice(w.earliest_period, w.deadline_period + 1)
+        assert float(np.sum(ap.power_kw[span] * hours[span])) >= w.target_kwh - 1e-4
+
+
+@pytest.mark.parametrize("width", [5 / 60, 0.5, 1.0])
+@pytest.mark.parametrize("above", [0.0, 0.1, 0.4])
+def test_a_one_period_spike_near_min_soc_stays_feasible(width, above):
+    """The spike override (#1865) on a one-period plan, the shortest a solve
+    can be: period 0 discharges only what sits above Min SoC, never the set
+    rate, so the plan stays feasible."""
+    plan = build_plan(
+        periods=PeriodGrid(np.array([width])),
+        grid=GridConfig(
+            import_price=np.array([5.0]),
+            export_price=np.array([4.0]),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=1.0 + above,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                spike_override_discharge_kw=10.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(1)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(1))],
+    )
+    assert plan.status == "optimal"
+    assert abs(plan.battery_discharge_kw[0] - above * 0.95 / width) < 1e-5
