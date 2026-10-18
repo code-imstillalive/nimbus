@@ -32,6 +32,7 @@ from solver.elements import (
     ThermalLoadConfig,
 )
 from solver.network import DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW, build_plan
+from solver.p2p_export import realized_export_bonus_credit
 from test_plan_invariants import SETTINGS, TOL, _num, sites
 
 
@@ -1424,3 +1425,55 @@ def test_a_comfort_floor_is_worth_heating_to_when_it_costs_more(width):
     )
     assert plan.status == "optimal"
     assert abs(plan.thermal_loads[0].temperature_c[0] - floor) < 1e-5
+
+
+@SETTINGS
+@given(
+    plain_sites(),
+    st.lists(_num(0.0, 0.5), min_size=24, max_size=24),
+    _num(0.5, 10.0),
+)
+def test_the_export_bonus_is_claimed_on_real_export_within_its_cap(
+    site, premiums, volume
+):
+    """The two-tier export bonus (P2P): a premium on top of the export price
+    for up to `export_bonus_volume_kwh`. The bonus is only ever claimed on
+    export that happened, the volume claimed stays within the cap, and the
+    premium the plan collects is what the bonus's own settlement
+    (`realized_export_bonus_credit`) pays for that export, the dearest
+    periods first."""
+    n = len(site["hours"])
+    bonus_price = np.array(premiums[:n])
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+            export_bonus_price=bonus_price,
+            export_bonus_volume_kwh=volume,
+        ),
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    h = site["hours"]
+    bonus = plan.export_bonus_kw
+    assert (bonus >= -TOL).all()
+    assert (bonus <= plan.grid_export_kw + 1e-6).all()
+    assert float(np.sum(bonus * h)) <= volume + 1e-6
+    collected = float(np.sum(bonus_price * bonus * h))
+    grid = GridConfig(
+        import_price=site["import_price"],
+        export_price=site["export_price"],
+        import_limit_kw=site["import_limit"],
+        export_limit_kw=site["export_limit"],
+        export_bonus_price=bonus_price,
+        export_bonus_volume_kwh=volume,
+    )
+    settled = realized_export_bonus_credit(
+        grid_export_kw=plan.grid_export_kw, hours=h, grid=grid, period_starts=None
+    )
+    assert abs(collected - settled) < 1e-5
