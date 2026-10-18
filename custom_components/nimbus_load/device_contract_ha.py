@@ -166,23 +166,29 @@ async def _async_write_views(
         )
         if skipped:
             return "number_not_written", changed
+
+    def _own(update: Any) -> None:
+        # HA starts listener tasks eagerly, inside the update call itself, so
+        # the count is in place before it and taken back if nothing changed
+        # (then no listener fires).
+        if listening:
+            own[entry.entry_id] = own.get(entry.entry_id, 0) + 1
+        if not update() and listening:
+            own[entry.entry_id] -= 1
+
     for sid, fields in writes["subentries"].items():
         sub = entry.subentries[sid]
-        if (
-            hass.config_entries.async_update_subentry(
+        _own(
+            lambda sub=sub, fields=fields: hass.config_entries.async_update_subentry(
                 entry, sub, data={**sub.data, **fields}
             )
-            and listening
-        ):
-            own[entry.entry_id] = own.get(entry.entry_id, 0) + 1
-    if (
-        hass.config_entries.async_update_entry(
+        )
+    _own(
+        lambda: hass.config_entries.async_update_entry(
             entry,
             options={**entry.options, **writes["options"], VIEW_REVISION_KEY: revision},
         )
-        and listening
-    ):
-        own[entry.entry_id] = own.get(entry.entry_id, 0) + 1
+    )
     return None, changed
 
 
