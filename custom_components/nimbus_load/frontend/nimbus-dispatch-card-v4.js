@@ -1469,9 +1469,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
     // Restore the forecast table's own scroll position immediately -- see
     // the comment at the top of _render() for why this is needed at all.
+    // Only when the box is a new node. Household, 18 Oct 2026 (iPhone,
+    // after the patch shipped): "still resetting. Less dramatic". Writing
+    // scrollTop on the node being swiped, even to its own value, stops
+    // iOS's momentum scroll, so a kept node is left alone.
     const newWrap = this.shadowRoot.querySelector('.ftable-wrap');
-    if (newWrap && prevScrollTop) newWrap.scrollTop = prevScrollTop;
-    if (newWrap && prevScrollLeft) newWrap.scrollLeft = prevScrollLeft;
+    if (newWrap && newWrap !== prevWrap) {
+      if (prevScrollTop) newWrap.scrollTop = prevScrollTop;
+      if (prevScrollLeft) newWrap.scrollLeft = prevScrollLeft;
+    }
 
     this.shadowRoot.querySelectorAll('.mode-chip').forEach(btn => {
       if (fresh(btn)) btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
@@ -1505,19 +1511,39 @@ class NimbusDispatchCardV4 extends HTMLElement {
 // every node whose type and tag still match, so a re-render keeps the nodes
 // a user is scrolling, touching or typing into. Replaced only where the
 // structure differs. Household phone report, 18 Oct 2026.
+// Matching key: tag, id and first class. A section that appears or goes
+// above the table (a banner, a note) would otherwise shift every later
+// sibling onto the wrong node, and the table's scroll box was rebuilt anyway.
+function nimbusPatchKey(n) {
+  if (n.nodeType !== 1) return '#' + n.nodeType;
+  const cls = (n.getAttribute('class') || '').trim().split(/\s+/)[0] || '';
+  return n.nodeName + '#' + (n.getAttribute('id') || '') + '.' + cls;
+}
+
 function nimbusPatchChildren(target, source) {
   const want = Array.from(source.childNodes);
   for (let i = 0; i < want.length; i++) {
     const next = want[i];
-    const cur = target.childNodes[i];
+    let cur = target.childNodes[i];
     if (!cur) {
       target.appendChild(next);
       continue;
     }
-    const same = cur.nodeType === next.nodeType && cur.nodeName === next.nodeName;
-    if (!same) {
-      target.replaceChild(next, cur);
-      continue;
+    const key = nimbusPatchKey(next);
+    if (nimbusPatchKey(cur) !== key) {
+      // A matching node further on means the ones before it are gone:
+      // remove those, so the match itself is never detached (moving a node
+      // loses its scroll position). No match means this one is new.
+      let j = -1;
+      for (let k = i + 1; k < target.childNodes.length; k++) {
+        if (nimbusPatchKey(target.childNodes[k]) === key) { j = k; break; }
+      }
+      if (j < 0) {
+        target.insertBefore(next, cur);
+        continue;
+      }
+      for (let k = i; k < j; k++) target.removeChild(target.childNodes[i]);
+      cur = target.childNodes[i];
     }
     if (cur.nodeType !== 1) {
       if (cur.nodeValue !== next.nodeValue) cur.nodeValue = next.nodeValue;
