@@ -1212,6 +1212,31 @@ def charge_taper_curve(
     ]
 
 
+def bank_solar_floor_kw(
+    *,
+    solar_kw: float,
+    load_kw: float,
+    max_charge_kw: float,
+    headroom_kwh: float,
+    charge_efficiency: float,
+    hours0: float,
+) -> float:
+    """Bank solar first (household, 18 Oct 2026): the period-0 charge, kW,
+    that keeps the solar surplus out of the grid while the battery has room.
+
+    The least of the surplus (solar - load), the battery's max charge, and
+    the power that fills the room left to max SoC within period 0
+    (headroom / (efficiency * hours)). 0 when any of them is 0. It is sized
+    from the surplus so that meeting it means exporting less; the LP meets
+    it whichever way is cheaper, which is cutting export whenever the export
+    price is below the import price."""
+    surplus = max(0.0, float(solar_kw) - float(load_kw))
+    if hours0 <= 0 or charge_efficiency <= 0:
+        return 0.0
+    room = max(0.0, float(headroom_kwh)) / (float(charge_efficiency) * float(hours0))
+    return max(0.0, min(surplus, float(max_charge_kw), room))
+
+
 def assemble_and_solve_plan(
     cfg: dict,
     *,
@@ -1322,6 +1347,19 @@ def assemble_and_solve_plan(
             _cfg_num(cfg, "solver_charge_by_hour", 16.0),
         ),
         spike_override_discharge_kw=spike_override_kw,
+        # Household, 18 Oct 2026: bank solar first; None = off.
+        period0_min_charge_kw=(
+            bank_solar_floor_kw(
+                solar_kw=solar_kw[0] if len(solar_kw) else 0.0,
+                load_kw=load_kw[0] if len(load_kw) else 0.0,
+                max_charge_kw=max_charge_kw,
+                headroom_kwh=soc_envelope.max_soc_kwh - soc_envelope.initial_soc_kwh,
+                charge_efficiency=soc_envelope.charge_discharge_efficiency,
+                hours0=float(period_hours_arr[0]) if len(period_hours_arr) else 0.0,
+            )
+            if cfg.get("solver_bank_solar_first", False)
+            else None
+        ),
         charge_power_curve=charge_taper_curve(
             cfg,
             capacity_kwh,

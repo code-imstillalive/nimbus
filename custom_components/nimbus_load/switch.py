@@ -44,6 +44,7 @@ from homeassistant.loader import async_get_integration
 from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    CONF_SOLVER_BANK_SOLAR_FIRST,
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
@@ -56,6 +57,7 @@ from .const import (
     CONF_SOLVER_STOCHASTIC_DISPATCH,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    DEFAULT_SOLVER_BANK_SOLAR_FIRST,
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
@@ -317,6 +319,17 @@ async def async_setup_entry(
                 CONF_SOLVER_STOCHASTIC_DISPATCH,
                 "Stochastic Dispatch",
                 DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
+                sw_version,
+                shared_store,
+            ),
+            # Household, 18 Oct 2026: bank solar into the battery before
+            # exporting it. Read fresh off cfg every solve, like the
+            # switches above.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_BANK_SOLAR_FIRST,
+                "Bank Solar First",
+                DEFAULT_SOLVER_BANK_SOLAR_FIRST,
                 sw_version,
                 shared_store,
             ),

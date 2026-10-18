@@ -2311,6 +2311,30 @@ def _build_plan_once(
                 max(pin, 0.0),
                 name=f"period0_pin_discharge_{b.name}",
             )
+        # Bank solar first (household, 18 Oct 2026): charge at least this
+        # much in period 0, so solar the battery can take is banked rather
+        # than exported on a forecast that buying it back later is cheaper.
+        # Only period 0 is dispatched and the plan re-solves every cycle, so
+        # one row is enough. SOFT, at the soft-SoC penalty (10x the dearest
+        # price in the horizon): a committed export or a physical limit can
+        # still win instead of turning the solve infeasible. Capped at
+        # period 0's own charge ceiling, so a P2P charge gate, an
+        # unavailable battery or a spike override adds nothing.
+        floor_kw = b.period0_min_charge_kw
+        if b_idx == 0 and b.available and floor_kw is not None and n > 0:
+            floor_kw = min(float(floor_kw), p.upper_bound(charge_vars[b.name][0]))
+            if floor_kw > 1e-9:
+                shortfall = p.add_variable(
+                    f"period0_bank_shortfall_{b.name}",
+                    lb=0.0,
+                    ub=floor_kw,
+                    cost=soft_soc_penalty_per_kwh * float(hours[0]),
+                )
+                p.add_ub_constraint(
+                    {charge_vars[b.name][0]: -1.0, shortfall: -1.0},
+                    -floor_kw,
+                    name=f"period0_bank_solar_{b.name}",
+                )
         # nimbus issue #328 (Mark Purcell): soc[t]'s only HARD bound is
         # now the true physical range [0, capacity_kwh] -- min_soc_kwh/
         # max_soc_kwh are enforced as a SOFT preference via underfill/

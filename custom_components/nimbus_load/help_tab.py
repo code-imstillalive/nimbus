@@ -901,6 +901,14 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "Charge By: the target.",
         "80% by 07:00 → at least 80% from 06:00. 0 = off.",
     ),
+    "solver_bank_solar_first": (
+        "Bank solar first: solar the battery can take goes into it before any is sold.",
+        (
+            "Off, the plan may sell solar now and refill later when power is "
+            "forecast cheaper. On: charge ≥ min(solar − load, max charge, room "
+            "to Max SoC) this period. A price spike or a P2P block still sells."
+        ),
+    ),
     "solver_max_charge_kw": ("Your inverter's charging limit.", "kW, AC side."),
     "solver_max_discharge_kw": ("Your inverter's discharging limit.", "kW, AC side."),
     "solver_efficiency_percent": (
