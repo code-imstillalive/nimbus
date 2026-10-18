@@ -162,6 +162,18 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.465",
+        "18 Oct 2026",
+        (
+            (
+                "**False price spikes:** the P5MIN guard also catches a wrong "
+                "control-room limit by comparing it with dispatch's."
+            ),
+            "**Control Panel on a phone** no longer jumps back while you scroll.",
+            "**Bank solar first** is removed; its switch is deleted on start.",
+        ),
+    ),
+    (
         "0.94.464",
         "18 Oct 2026",
         (

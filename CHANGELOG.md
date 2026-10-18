@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.465] - 2026-10-18
+
+The P5MIN false-spike guard now also arms on Mark Purcell's dispatch-side
+test for control-room constraints, the Control Panel no longer jumps while
+you scroll on a phone, and the Bank solar first switch is gone.
+
 ### Removed
 - **Bank solar first** (household decision, 18 Oct 2026, after Mark
   Purcell's review on #1844: "A switch corrupts the plan. The LP already
@@ -54,6 +60,37 @@ A switch to bank solar in the battery before exporting any, a More
 settings band on the Solver tab with the controls only one household's
 dashboard showed, and a Help tab that explains every feature with
 screenshots.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at dad69c1d**,
+  installed untagged via HACS from `release/0.94.464` and restarted 11:08 AEST
+  18 Oct.
+  - 148 / 148 `nimbus_load` entities available, one more than v0.94.463: the
+    new `switch.nimbus_solver_bank_solar_first`, reading `off` (its default).
+    devhub's own solve outputs stamp `0.94.464`; the rest carry production's
+    mirrored 0.94.463. `nimbus_load.solve_now` ran without error at 11:38.
+  - **Log:** no Nimbus ERROR of its own; the start logs the devhub-only
+    baseline (duplicate unique IDs from the production mirror, oversized
+    attributes, forecast renames blocked by mirrored names, residual-drift
+    notes on synthetic loads). Also seen: "previous cycle still in progress
+    -- skipping this tick (consecutive skips: 2)" every 5 minutes from
+    11:10, the stochastic shadow's interval. Not attributed to this release:
+    with the switch off no solve code differs from v0.94.463, and the
+    reference production install on v0.94.463 logs none. Not compared with
+    v0.94.463 on devhub itself, because the previous boot's log is gone.
+  - **Solver tab:** the Battery card carries *Bank solar first*; the More
+    settings band and its four cards are present.
+  - **Help tab:** the Features band renders all entries with their pictures,
+    which load from GitHub (HTTP 200 for each sampled), and the More
+    settings rows are in the settings reference.
+  - **Bank solar first, on:** not claimed live. Turning it on changes the
+    plan, and devhub's plan outputs are production's mirrored entities, so
+    the effect cannot be read there; covered by
+    `tests/test_bank_solar_first.py` (9 tests).
+  - CI passed every check on #1844, #1848, #1850 and #1852.
+- Consumer check: the Solver tab's Battery card has a *Bank solar first*
+  switch, off by default; a More settings band holds household mode,
+  pricing source, re-planning, charge taper, the solar check and
+  diagnostics; the Help tab explains each feature with screenshots.
 
 ### Added
 - **Bank solar first** (#1843, household, 18 Oct 2026). A switch on the
