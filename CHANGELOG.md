@@ -23,9 +23,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   hub's settings (Grid, whole-house Load, Battery, Solar, their sensors and
   limits) into the DC-001 device document. Where today's settings disagree it
   names the conflict instead of picking a value: two different sensors for
-  one role, or an option and its live number saying different things. Every
-  subentry is kept and reported; mapping them is the next step. **Nothing
-  reads the document yet** and nothing is stored, so no install changes.
+  one role, or an option and its live number saying different things.
+  Subentries map too:
+  - each Load becomes a circuit with its schedule;
+  - a grid, battery or solar Power Signal becomes that device's sensor,
+    conflict-checked;
+  - each EV participant becomes its own battery;
+  - each Controllable Load becomes an appliance, keeping its control only
+    where it already commands a device entity.
+
+  A Power Signal of role "other", and the topology equipment (inverters,
+  strings, towers), are kept and reported rather than guessed. **Nothing reads
+  the document yet** and nothing is stored, so no install changes.
 
 ### Added
 - **User docs site** at code-imstillalive.github.io/nimbus (#1801). The

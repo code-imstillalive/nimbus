@@ -249,15 +249,10 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
             }
         )
 
-    unmapped = [
-        {
-            "code": "unmapped_subentry",
-            "subentry_id": sub.get("subentry_id"),
-            "subentry_type": sub.get("subentry_type"),
-            "title": sub.get("title"),
-        }
-        for sub in snapshot.get("subentries") or ()
-    ]
+    unmapped: list[dict[str, Any]] = []
+    authorised = _map_subentries(
+        snapshot.get("subentries") or (), devices, conflicts, unmapped
+    )
 
     document: dict[str, Any] = {
         "schema_version": dc.SCHEMA_VERSION,
@@ -266,10 +261,10 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
             "name": site_in.get("name") or "Home",
             "timezone": site_in.get("timezone"),
             "currency": site_in.get("currency"),
-            # Imported authority stays as it is: nothing here grants control
-            # (household, 18 Oct 2026). Controllable-load authority is mapped
-            # with the subentries.
-            "control_policy": "observation_only",
+            # Imported authority stays as it is (household, 18 Oct 2026):
+            # `authorised` only where a Controllable Load already commands a
+            # device entity; nothing here grants new control.
+            "control_policy": "authorised" if authorised else "observation_only",
         },
         "devices": devices,
         "relationships": [{"kind": "supplies", "from": "grid", "to": "load_house"}],
@@ -288,3 +283,226 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
         unmapped=unmapped,
         problems=dc.validate(document),
     )
+
+
+# --- step 2: subentries ------------------------------------------------------
+
+
+def _slug(text: Any, fallback: str) -> str:
+    out = "".join(c if c.isalnum() else "_" for c in str(text or "").lower())
+    out = "_".join(part for part in out.split("_") if part)
+    if not out or not out[0].isalpha():
+        out = f"{fallback}_{out}" if out else fallback
+    return out[:40]
+
+
+def _unique(base: str, taken: set[str]) -> str:
+    ident, n = base, 2
+    while ident in taken:
+        ident, n = f"{base}_{n}", n + 1
+    taken.add(ident)
+    return ident
+
+
+def _entity_binding(sub: dict[str, Any], key: str, entity: str) -> dict[str, Any]:
+    return {
+        "source": {"kind": "entity_state", "entity_id": entity},
+        "provenance": {
+            "origin": "legacy_import",
+            "source_path": f"subentry:{sub.get('subentry_id')}.{key}",
+            "confirmed": False,
+        },
+    }
+
+
+def _is_num(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+#: A Power Signal's role -> the hub device it measures.
+_SIGNAL_DEVICE = {"grid": "grid", "battery": "battery", "solar": "solar"}
+
+
+def _map_subentries(
+    subentries: Any,
+    devices: list[dict[str, Any]],
+    conflicts: list[Conflict],
+    unmapped: list[dict[str, Any]],
+) -> bool:
+    """Subentries onto the document, in creation order (DC-004 step 2).
+    Returns whether any device keeps imported control authority.
+
+    Kept as `unmapped`, never guessed:
+    - a Power Signal of role "other" (the whole house, or a circuit: the
+      household's call), temperature or humidity;
+    - a battery Power Signal with no battery device to bind to (a battery
+      needs a capacity, DC-001);
+    - topology equipment (power source, PV string, battery tower): DC-005.
+    """
+    by_id = {d["id"]: d for d in devices}
+    taken = set(by_id) | {"site"}
+    authorised = False
+
+    def keep(sub: dict[str, Any], code: str) -> None:
+        unmapped.append(
+            {
+                "code": code,
+                "subentry_id": sub.get("subentry_id"),
+                "subentry_type": sub.get("subentry_type"),
+                "title": sub.get("title"),
+            }
+        )
+
+    for sub in subentries:
+        kind = sub.get("subentry_type")
+        data = dict(sub.get("data") or {})
+        sid = sub.get("subentry_id")
+        if kind == "power_signal":
+            role = data.get("signal_role")
+            entity = _text(data.get("load_sensor"))
+            if entity is None or role not in _SIGNAL_DEVICE:
+                keep(sub, "unmapped_signal_role")
+                continue
+            target = by_id.get(_SIGNAL_DEVICE[role])
+            if target is None:
+                if role == "battery":
+                    keep(sub, "unmapped_battery_without_capacity")
+                    continue
+                target = {
+                    "id": role,
+                    "kind": role,
+                    "name": role.title(),
+                    "bindings": {},
+                    "constraints": {},
+                }
+                devices.append(target)
+                by_id[role] = target
+            existing = target["bindings"].get("power")
+            if existing is None:
+                binding = _entity_binding(sub, "load_sensor", entity)
+                binding["history_subentry_id"] = sid
+                target["bindings"]["power"] = binding
+            elif existing["source"].get("entity_id") != entity:
+                conflicts.append(
+                    Conflict(
+                        "conflict_role_sources",
+                        f"devices.{target['id']}.bindings.power",
+                        (
+                            (
+                                existing["provenance"]["source_path"],
+                                existing["source"]["entity_id"],
+                            ),
+                            (f"subentry:{sid}.load_sensor", entity),
+                        ),
+                    )
+                )
+                del target["bindings"]["power"]
+            else:
+                existing["history_subentry_id"] = sid
+        elif kind == "load":
+            ident = _unique(_slug(sub.get("title"), "load"), taken)
+            device: dict[str, Any] = {
+                "id": ident,
+                "kind": "load",
+                "name": sub.get("title") or ident,
+                "load_class": "circuit",
+                "bindings": {},
+                "flexibility": {"mode": "none"},
+                "constraints": {},
+                "history_subentry_id": sid,
+            }
+            entity = _text(data.get("load_sensor"))
+            if entity:
+                device["bindings"]["power"] = _entity_binding(
+                    sub, "load_sensor", entity
+                )
+            start, end = data.get("schedule_start_hour"), data.get("schedule_end_hour")
+            if start is not None and end is not None:
+                device["constraints"]["fixed_hours"] = {
+                    "start": start,
+                    "end": end,
+                    "expected_kw": data.get("expected_load_kw"),
+                }
+            # Inclusion in the whole-house total is not assumed (DC-003): the
+            # household confirms it. Accounting stays inclusive on the house.
+            devices.append(device)
+            by_id[ident] = device
+        elif kind == "battery_participant":
+            name = data.get("battery_participant_name") or sub.get("title")
+            ident = _unique(_slug(name, "battery"), taken)
+            device = {
+                "id": ident,
+                "kind": "battery",
+                "name": name or ident,
+                "bindings": {},
+                "constraints": {},
+                "history_subentry_id": sid,
+            }
+            soc = _text(data.get("battery_participant_soc_sensor"))
+            if soc:
+                device["bindings"]["soc"] = _entity_binding(
+                    sub, "battery_participant_soc_sensor", soc
+                )
+            power = _text(data.get("battery_participant_power_sensor"))
+            if power:
+                binding = _entity_binding(
+                    sub, "battery_participant_power_sensor", power
+                )
+                binding["normalization"] = {
+                    "target_unit": "kW",
+                    "positive_direction": "discharge",
+                    "native_positive_direction": "charge"
+                    if data.get("battery_participant_power_positive_is_charge")
+                    else "discharge",
+                }
+                device["bindings"]["power"] = binding
+            cap = data.get("battery_participant_capacity_kwh")
+            if _is_num(cap):
+                device["capacity"] = {"value": cap, "unit": "kWh", "basis": "usable"}
+            for key, name_ in (
+                ("battery_participant_min_soc_percent", "soc_min"),
+                ("battery_participant_max_soc_percent", "soc_max"),
+                ("battery_participant_max_charge_kw", "charge_limit"),
+                ("battery_participant_max_discharge_kw", "discharge_limit"),
+            ):
+                if _is_num(data.get(key)):
+                    device["constraints"][name_] = data[key]
+            devices.append(device)
+            by_id[ident] = device
+        elif kind == "controllable_load":
+            name = data.get("controllable_load_name") or sub.get("title")
+            ident = _unique(_slug(name, "load"), taken)
+            device = {
+                "id": ident,
+                "kind": "load",
+                "name": name or ident,
+                "load_class": "appliance",
+                "bindings": {},
+                "flexibility": {"mode": data.get("controllable_load_kind") or "none"},
+                "constraints": {},
+                "history_subentry_id": sid,
+            }
+            power = _text(data.get("controllable_load_power_sensor"))
+            if power:
+                device["bindings"]["power"] = _entity_binding(
+                    sub, "controllable_load_power_sensor", power
+                )
+            endpoint = _text(data.get("controllable_load_device_entity"))
+            if endpoint:
+                # Existing authority, carried across unchanged (household,
+                # 18 Oct 2026): Nimbus already commands this entity.
+                device["control"] = {
+                    "entity_id": endpoint,
+                    "authorised": True,
+                    "provenance": _entity_binding(
+                        sub, "controllable_load_device_entity", endpoint
+                    )["provenance"],
+                }
+                authorised = True
+            devices.append(device)
+            by_id[ident] = device
+        elif kind in ("power_source", "pv_string", "battery_tower"):
+            keep(sub, "unmapped_topology_equipment")
+        else:
+            keep(sub, "unmapped_subentry")
+    return authorised

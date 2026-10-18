@@ -146,21 +146,146 @@ def test_a_minimal_site_is_grid_and_house_only():
     assert res.problems == []
 
 
-def test_every_subentry_is_kept_as_unmapped_never_dropped():
+def _sub(sid, kind, title, **data):
+    return {"subentry_id": sid, "subentry_type": kind, "title": title, "data": data}
+
+
+def test_every_subentry_is_mapped_or_kept_never_dropped():
     subs = [
-        {"subentry_id": "a1", "subentry_type": "load", "title": "Pool", "data": {}},
-        {
-            "subentry_id": "b2",
-            "subentry_type": "power_source",
-            "title": "Inv 1",
-            "data": {},
-        },
+        _sub("a1", "load", "Pool pump", load_sensor="sensor.pool_power"),
+        _sub("b2", "power_source", "Inverter 1"),
+        _sub(
+            "c3",
+            "power_signal",
+            "House",
+            load_sensor="sensor.house",
+            signal_role="other",
+        ),
+        _sub("d4", "pv_string", "String 1"),
+        _sub("e5", "battery_tower", "Tower 1"),
+        _sub("f6", "mystery", "Future type"),
     ]
     res = di.import_legacy(_snapshot(subentries=subs))
-    assert [(u["code"], u["subentry_id"]) for u in res.unmapped] == [
-        ("unmapped_subentry", "a1"),
-        ("unmapped_subentry", "b2"),
+    mapped = {d.get("history_subentry_id") for d in res.document["devices"]}
+    kept = {u["subentry_id"]: u["code"] for u in res.unmapped}
+    assert mapped & {s["subentry_id"] for s in subs} == {"a1"}
+    assert kept == {
+        "b2": "unmapped_topology_equipment",
+        "c3": "unmapped_signal_role",
+        "d4": "unmapped_topology_equipment",
+        "e5": "unmapped_topology_equipment",
+        "f6": "unmapped_subentry",
+    }
+    assert res.problems == []
+
+
+def test_a_load_becomes_a_circuit_with_its_schedule_and_no_assumed_inclusion():
+    res = di.import_legacy(
+        _snapshot(
+            subentries=[
+                _sub(
+                    "a1",
+                    "load",
+                    "Pool pump",
+                    load_sensor="sensor.pool_power",
+                    schedule_start_hour=8,
+                    schedule_end_hour=15,
+                    expected_load_kw=1.3,
+                )
+            ]
+        )
+    )
+    pool = _device(res.document, "pool_pump")
+    assert pool["load_class"] == "circuit"
+    assert pool["bindings"]["power"]["source"]["entity_id"] == "sensor.pool_power"
+    assert pool["constraints"]["fixed_hours"] == {
+        "start": 8,
+        "end": 15,
+        "expected_kw": 1.3,
+    }
+    assert not [
+        r
+        for r in res.document["relationships"]
+        if r.get("kind") == "included_in_measurement"
     ]
+    assert res.document["accounting"]["demand"]["root_load_id"] == "load_house"
+
+
+def test_two_loads_with_one_name_get_suffixed_ids_in_creation_order():
+    subs = [_sub("a1", "load", "Pool"), _sub("a2", "load", "Pool")]
+    res = di.import_legacy(_snapshot(subentries=subs))
+    ids = [d["id"] for d in res.document["devices"] if d.get("history_subentry_id")]
+    assert ids == ["pool", "pool_2"]
+
+
+def test_a_power_signal_matching_the_hub_sensor_adds_a_history_link_only():
+    sub = _sub(
+        "g1",
+        "power_signal",
+        "Grid",
+        load_sensor="sensor.meter_power",
+        signal_role="grid",
+    )
+    res = di.import_legacy(_snapshot(subentries=[sub]))
+    power = _device(res.document, "grid")["bindings"]["power"]
+    assert power["source"]["entity_id"] == "sensor.meter_power"
+    assert power["history_subentry_id"] == "g1"
+    assert res.conflicts == []
+
+
+def test_a_power_signal_on_another_sensor_is_a_conflict():
+    sub = _sub(
+        "g1",
+        "power_signal",
+        "Grid",
+        load_sensor="sensor.other_meter",
+        signal_role="grid",
+    )
+    res = di.import_legacy(_snapshot(subentries=[sub]))
+    (c,) = res.conflicts
+    assert c.code == "conflict_role_sources" and c.path == "devices.grid.bindings.power"
+    assert "power" not in _device(res.document, "grid")["bindings"]
+
+
+def test_an_ev_participant_is_its_own_battery():
+    sub = _sub(
+        "ev1",
+        "battery_participant",
+        "Car",
+        battery_participant_name="Car",
+        battery_participant_capacity_kwh=60,
+        battery_participant_soc_sensor="sensor.car_soc",
+        battery_participant_power_sensor="sensor.car_power",
+        battery_participant_power_positive_is_charge=True,
+        battery_participant_max_charge_kw=11,
+    )
+    res = di.import_legacy(_snapshot(subentries=[sub]))
+    car = _device(res.document, "car")
+    assert car["kind"] == "battery" and car["capacity"]["value"] == 60
+    assert (
+        car["bindings"]["power"]["normalization"]["native_positive_direction"]
+        == "charge"
+    )
+    assert car["constraints"] == {"charge_limit": 11}
+    assert res.problems == []
+
+
+def test_control_is_authorised_only_where_a_device_entity_exists():
+    with_entity = _sub(
+        "h1",
+        "controllable_load",
+        "Hot water",
+        controllable_load_name="Hot water",
+        controllable_load_device_entity="switch.hws",
+    )
+    without = _sub("h2", "controllable_load", "Dryer", controllable_load_name="Dryer")
+    res = di.import_legacy(_snapshot(subentries=[without]))
+    assert res.document["site"]["control_policy"] == "observation_only"
+    assert "control" not in _device(res.document, "dryer")
+    res = di.import_legacy(_snapshot(subentries=[without, with_entity]))
+    assert res.document["site"]["control_policy"] == "authorised"
+    assert _device(res.document, "hot_water")["control"]["entity_id"] == "switch.hws"
+    assert "control" not in _device(res.document, "dryer")
 
 
 def test_a_repair_confirmed_field_says_so():
