@@ -112,6 +112,7 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+    CONF_SOLVER_PERIOD0_HYSTERESIS,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
@@ -158,6 +159,7 @@ from .const import (
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
     DEFAULT_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
+    DEFAULT_SOLVER_PERIOD0_HYSTERESIS,
     DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD,
@@ -309,7 +311,7 @@ class _CurrencyUnitMixin:
     @property
     def native_unit_of_measurement(self) -> str | None:
         unit = self._desc.unit
-        if unit not in (_CURRENCY_PER_KWH, _CURRENCY_PER_DAY):
+        if unit not in (_CURRENCY_PER_KWH, _CURRENCY_PER_DAY, _CURRENCY):
             return unit
         hass = getattr(self, "hass", None)
         if hass is None:
@@ -317,6 +319,8 @@ class _CurrencyUnitMixin:
         currency = hass.config.currency
         if not currency:
             return None
+        if unit == _CURRENCY:
+            return currency
         return f"{currency}/kWh" if unit == _CURRENCY_PER_KWH else f"{currency}/day"
 
 
@@ -326,6 +330,8 @@ class _CurrencyUnitMixin:
 #: issue #1293). Named to match sensor_flattened.py's own sentinels.
 _CURRENCY_PER_KWH = "__nimbus_currency_per_kwh__"
 _CURRENCY_PER_DAY = "__nimbus_currency_per_day__"
+# A money amount, not a rate (nimbus #1654's direction change margin).
+_CURRENCY = "__nimbus_currency__"
 # A time of day, as an hour (5.5 = 05:30): no unit. "h"/"hour" read as a
 # duration -- "Hold from 0 h" (household, 11 Oct 2026).
 _CLOCK_HOUR = None
@@ -421,6 +427,16 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         20,
         0.01,
         _CURRENCY_PER_KWH,
+    ),
+    # nimbus issue #1654, option A: period-0 direction hysteresis (const.py).
+    _SolverNumberDescription(
+        CONF_SOLVER_PERIOD0_HYSTERESIS,
+        "Direction Change Margin",
+        DEFAULT_SOLVER_PERIOD0_HYSTERESIS,
+        0,
+        1,
+        0.005,
+        _CURRENCY,
     ),
     # Household, 12 Oct 2026: the charge taper near full (see const.py).
     _SolverNumberDescription(

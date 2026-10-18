@@ -918,6 +918,53 @@ def _anchor_target_kw(plan, previous_plan) -> tuple[int | None, float | None]:
     return idx, _period0_net_kw(previous_plan, idx)
 
 
+def period0_direction_hysteresis(plan, previous_plan, resolve_pinned, margin):
+    """nimbus issue #1654, option A: keep the previous direction when a
+    switch is worth less than `margin` ($ over the horizon).
+
+    The previous direction is what the previous plan scheduled for the new
+    period 0's start (the proximal anchor's own alignment), in the dispatch
+    deadband's three classes. When the new plan's class differs, the problem
+    is re-solved with batteries[0] pinned at that previous kW
+    (`resolve_pinned`, the #1417 instrument's re-solve), and the pinned plan
+    is kept when it costs at most `margin` more. 18 Oct 05:25-06:56: every
+    flip at the reserve floor was under 1c, and the inverter got 26 mode
+    commands. Returns the plan to publish, with `period0_hysteresis` set.
+    Never raises: on any failure the free plan stands.
+    """
+    if margin <= 0:
+        return dataclasses.replace(plan, period0_hysteresis="off")
+    if previous_plan is None or getattr(plan, "status", None) != "optimal":
+        return dataclasses.replace(plan, period0_hysteresis="no_previous")
+    _idx, prev_kw = _anchor_target_kw(plan, previous_plan)
+    new_kw = _period0_net_kw(plan)
+    if prev_kw is None or new_kw is None:
+        return dataclasses.replace(plan, period0_hysteresis="no_previous")
+    if _deadband_class(prev_kw) == _deadband_class(new_kw):
+        return dataclasses.replace(plan, period0_hysteresis="same_direction")
+    try:
+        pinned = resolve_pinned(prev_kw)
+    except Exception:  # noqa: BLE001 - a stability aid must not fail a solve
+        solver_shared._LOGGER.debug(
+            "Nimbus #1654 period0 hysteresis: pinned re-solve raised", exc_info=True
+        )
+        return dataclasses.replace(plan, period0_hysteresis="switched")
+    if (
+        getattr(pinned, "status", None) != "optimal"
+        or pinned.total_cost is None
+        or plan.total_cost is None
+    ):
+        return dataclasses.replace(plan, period0_hysteresis="switched")
+    delta = float(pinned.total_cost) - float(plan.total_cost)
+    if delta <= margin:
+        return dataclasses.replace(
+            pinned, period0_hysteresis="kept", period0_hysteresis_delta=round(delta, 4)
+        )
+    return dataclasses.replace(
+        plan, period0_hysteresis="switched", period0_hysteresis_delta=round(delta, 4)
+    )
+
+
 def period0_crossing_delta(
     plan,
     previous_plan,
@@ -1605,6 +1652,26 @@ def assemble_and_solve_plan(
         ),
         pin_participant=all_batteries[0].name,
     )
+    # nimbus issue #1654, option A. Not over an existing period-0 pin (a P2P
+    # commitment): that pin already decides period 0.
+    if all_batteries and all_batteries[0].period0_pin_net_kw is None:
+        plan = period0_direction_hysteresis(
+            plan,
+            previous_plan,
+            lambda pin_kw: _build(
+                [
+                    dataclasses.replace(all_batteries[0], period0_pin_net_kw=pin_kw),
+                    *all_batteries[1:],
+                ],
+                compute_offer_curve=offer_curve_enabled,
+                compute_signals=flex_signals_enabled,
+            ),
+            _cfg_num(
+                cfg,
+                "solver_period0_hysteresis",
+                0.01,  # const.DEFAULT_SOLVER_PERIOD0_HYSTERESIS
+            ),
+        )
     if flex_signals_enabled and plan.grid_signals is not None:
         _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)
     # nimbus #1797: shadow (default) or drive. After #1417's instrument above,

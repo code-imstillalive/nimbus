@@ -1533,6 +1533,13 @@ CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
     "solver_battery_reserve_release_price"
 )
 DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
+# nimbus issue #1654, option A: keep the battery's period-0 direction
+# (charge / hold / discharge, the dispatch deadband's three classes) unless
+# switching saves more than this ($ over the horizon). 18 Oct 05:25-06:56 the
+# plan flipped between discharge and hold for fractions of a cent at the
+# reserve floor, and the inverter got 26 mode commands. 0 = off.
+CONF_SOLVER_PERIOD0_HYSTERESIS: Final = "solver_period0_hysteresis"
+DEFAULT_SOLVER_PERIOD0_HYSTERESIS: Final = 0.01
 # Household, 12 Oct 2026: a battery cannot take full charge power near full
 # (the CC->CV taper). From `taper start` percent SoC the plan's charge ceiling
 # falls in a straight line to `power at full` percent of max charge at 100%.

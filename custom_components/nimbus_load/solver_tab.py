@@ -228,14 +228,11 @@ _COSTS: _Card = (
         ("solver_intraplan_smoothness_weight_kw", "Plan smoothness"),
         ("solver_proximal_weight_kw", "Stick to last plan"),
         ("solver_battery_charge_earliness_budget_kw", "Charge earliness"),
-        (
-            "section",
-            "These three only break ties; 0.005 suits most.",
-        ),
+        ("solver_period0_hysteresis", "Direction change margin"),
         ("solver_aemo_p5min_disagreement_threshold_dollars", "AEMO disagreement"),
         ("solver_p5min_false_spike_threshold_mwh", "P5MIN false spike"),
     ],
-    "AEMO: warn past this gap. P5MIN false spike: level in AUD/MWh.",
+    "Ties: 0.005 suits most. AEMO: warn past gap. P5MIN: AUD/MWh.",
 )
 
 _FEATURES: _Card = (

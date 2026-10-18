@@ -1110,6 +1110,10 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "The reserve is sold only when the price beats this margin.",
         "$/kWh.",
     ),
+    "solver_period0_hysteresis": (
+        "Keeps the battery charging, holding or discharging unless a switch saves more than this.",
+        "$ over the plan; 0 = off.",
+    ),
     "solver_battery_reserve_start_hour": (
         "The reserve is held from this time.",
         "Local time.",
