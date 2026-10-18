@@ -304,7 +304,10 @@ jobs:
           if [ "$EVENT" != "pull_request" ]; then
             echo "Full suite: $EVENT"
             echo "marker=" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+          # Three dots: only what the PR itself changed since it branched.
+          # Two dots also listed main's own later changes, so a PR branched
+          # before #1845 merged still ran the slow test (#1848, 18 Oct 2026).
+          elif git diff --name-only "$BASE_SHA...$HEAD_SHA" \
                | grep -qE '^(tests/gates/coverage_compare\.py|tests/test_gates_coverage_compare\.py|pyproject\.toml)$'; then
             echo "Full suite: this PR changes the coverage gate or pytest's config"
             echo "marker=" >> "$GITHUB_OUTPUT"
