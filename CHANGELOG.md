@@ -41,8 +41,13 @@ published. The Control Panel no longer resets on an iPhone.
     where it already commands a device entity.
 
   A Power Signal of role "other", and the topology equipment (inverters,
-  strings, towers), are kept and reported rather than guessed. **Nothing reads
-  the document yet** and nothing is stored, so no install changes.
+  strings, towers), are kept and reported rather than guessed. A store for
+  the document (`device_storage.py`) keeps one revisioned copy per install.
+  Commits are compare-and-swap, so two editors can't overwrite each other;
+  every commit is validated, and the last 10 revisions are kept for revert.
+  The mode (legacy, shadow, active) is stored, never inferred. **Nothing
+  reads the document yet** and nothing writes the store, so no install
+  changes.
 
 ### Added
 - **User docs site** at code-imstillalive.github.io/nimbus (#1801). The
