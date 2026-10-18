@@ -179,6 +179,13 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "Scoring"),
             (1, "Reserve and price spikes"),
         ],
+        [
+            "More settings",
+            (1, "Household and re-planning"),
+            (1, "Charging near full"),
+            (1, "Solar running low"),
+            (1, "Diagnostics"),
+        ],
         # nimbus #1797: its own block, last, one row.
         [
             "Stochastic",
@@ -205,6 +212,13 @@ def test_solve_now_calls_the_solver() -> None:
 _NUMBER, _OTHER, _SELECT = 67, 44, 60
 
 
+# Keys whose entity is not what its name suggests to the rule below: two
+# selects, one number, and two readings whose key starts with solver_.
+_SELECTS = {"@household_mode", "@pricing_source"}
+_NUMBERS = {"@solve_on_price_change_debounce_s"}
+_READINGS = {"@solver_price_response_latency", "@solver_config"}
+
+
 def _height(card) -> int:
     total = 0
     for e in card["entities"]:
@@ -212,8 +226,12 @@ def _height(card) -> int:
             continue
         if e.get("type") == "section":
             total += 38 + 21 * -(-len(e["label"]) // 62)
-        elif e["entity"].endswith("_policy"):
+        elif e["entity"].endswith("_policy") or e["entity"] in _SELECTS:
             total += _SELECT
+        elif e["entity"] in _NUMBERS:
+            total += _NUMBER
+        elif e["entity"] in _READINGS:
+            total += _OTHER
         elif e["entity"].startswith("@solver_") and not e["entity"].endswith(
             ("_enabled", "_dry_run", "_known_solar", "_armed")
         ):
@@ -496,6 +514,7 @@ def test_an_entities_card_with_nothing_left_is_dropped() -> None:
         ["Plan"],
         ["Basic settings"],
         ["Advanced settings"],
+        ["More settings"],
         ["Stochastic"],
     ]
 
