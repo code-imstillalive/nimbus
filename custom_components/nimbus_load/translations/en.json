@@ -568,6 +568,20 @@
           "description": "'head' (every solve, first two hours) and/or 'horizon' (full plans only). Default: both."
         }
       }
+    },
+    "device_contract_preview": {
+      "name": "Preview device setup",
+      "description": "Dry run of moving this install's settings into the device model: the devices it would build, every setting that would change (none, on a clean result), and any conflict to resolve first. Writes nothing."
+    },
+    "device_contract_set_mode": {
+      "name": "Set device setup mode",
+      "description": "legacy (today's settings, the default) or shadow (the device model is stored and compared; today's settings stay in charge). Shadow is refused unless the dry run is clean. Active is not available yet. Writes only the device store, never your settings.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "legacy, shadow or active."
+        }
+      }
     }
   },
   "issues": {

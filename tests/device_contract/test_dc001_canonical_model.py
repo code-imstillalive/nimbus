@@ -474,11 +474,19 @@ def test_parse_refuses_a_non_object() -> None:
 # --- no consumer reads it yet (until DC-006) ------------------------------------
 
 
-#: DC-004's import and store are the only modules allowed to use the
-#: contract before DC-006: they build and keep documents that nothing reads
-#: yet. No consumer (the solve, the cards, the forecaster) may import them.
+#: The modules allowed to use the contract before DC-006. DC-004 builds and
+#: keeps documents (import, store) and lets the household preview it and set
+#: its mode (device_contract_ha, registered in services.py); none of them
+#: feeds a document to a consumer. The solve, the cards and the forecaster
+#: may not import any of them.
 _DC_BUILDERS = frozenset(
-    {"device_contract.py", "device_import.py", "device_storage.py"}
+    {
+        "device_contract.py",
+        "device_import.py",
+        "device_storage.py",
+        "device_contract_ha.py",
+        "services.py",
+    }
 )
 
 

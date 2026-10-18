@@ -61,3 +61,17 @@ export_decision_inputs:
           options:
             - head
             - horizon
+
+device_contract_preview:
+  fields: {}
+
+device_contract_set_mode:
+  fields:
+    mode:
+      required: true
+      selector:
+        select:
+          options:
+            - legacy
+            - shadow
+            - active

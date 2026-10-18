@@ -635,6 +635,15 @@ Edit inline on the dashboard without touching the wizard:
   over the horizon, and the solve cadence. Read from this install's own
   Solver, not from a sensor, so it is this install's solve even where another
   install's mirrored plan sensor overwrites the entity. Read-only.
+- `nimbus_load.device_contract_preview`. The dry run of the device model
+  (#1574) on this install: the devices it would build from today's settings,
+  any conflict between them, anything it could not map, and every setting
+  that would change (none, on a clean install). Changes nothing.
+- `nimbus_load.device_contract_set_mode` (`mode`: `legacy`, `shadow` or
+  `active`). `shadow` saves the device document alongside today's settings
+  and is refused unless the dry run is clean; `legacy` goes back. Today's
+  options, subentries and number entities stay the master and are never
+  written. `active` is refused until DC-004 step 5b.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.
