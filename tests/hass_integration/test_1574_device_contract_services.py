@@ -5,6 +5,7 @@ Household, 18 Oct 2026: "Make sure u do not break nimbus. Test deep and
 thoroughly." So this pins what must NOT change: the config entry's options,
 every subentry's data and every number entity's state are identical after a
 preview, a move to shadow and back, and no service is called at all (DC-R15).
+Active mode has its own tests (test_1574_device_contract_active.py).
 Only the device store is written. Synthetic settings only (household: "100%
 safe").
 """
@@ -122,8 +123,6 @@ async def test_preview_shadow_and_back_change_no_setting_and_call_no_service(
 
         shadow = await device_contract_ha.async_set_mode(hass, entry, "shadow")
         assert shadow == {"ok": True, "code": None, "mode": "shadow", "revision": 1}
-        active = await device_contract_ha.async_set_mode(hass, entry, "active")
-        assert active["ok"] is False and active["code"] == "active_not_available_yet"
         back = await device_contract_ha.async_set_mode(hass, entry, "legacy")
         assert back["ok"] is True and back["mode"] == "legacy"
     assert calls.call_count == 0
