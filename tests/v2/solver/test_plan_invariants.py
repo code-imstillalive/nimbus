@@ -375,3 +375,50 @@ def test_a_thermal_load_follows_its_model_and_meets_its_target(site):
     expected = th["initial_temperature_c"] + np.cumsum(step)
     np.testing.assert_allclose(tp.temperature_c, expected, atol=1e-3)
     assert tp.temperature_c[th["deadline_period"]] >= th["target_temperature_c"] - 1e-3
+
+
+@SETTINGS
+@given(
+    sites(), st.integers(min_value=0, max_value=24), st.frozensets(st.integers(0, 23))
+)
+def test_a_battery_that_is_away_neither_charges_nor_discharges(site, until, away):
+    """An away battery (#467, #779, #953): `available=False` with
+    `unavailable_until_period_index` gates that prefix of periods (it is read
+    only when the battery is unavailable); `unavailable_period_indices` adds
+    a per-period mask. In a gated period the battery is idle and its SoC is
+    unchanged."""
+    plan = _solve(
+        site,
+        available=until == 0,
+        unavailable_until_period_index=until or None,
+        unavailable_period_indices=away,
+    )
+    assert plan.status == "optimal"
+    n = len(site["hours"])
+    gated = [t for t in range(n) if t < until or t in away]
+    for t in gated:
+        assert plan.battery_charge_kw[t] <= TOL and plan.battery_discharge_kw[t] <= TOL
+        before = (
+            site["battery"]["initial_soc_kwh"]
+            if t == 0
+            else plan.battery_soc_kwh[t - 1]
+        )
+        assert abs(plan.battery_soc_kwh[t] - before) < 1e-4
+
+
+@SETTINGS
+@given(sites(), _num(0.0, 1.0))
+def test_an_armed_price_spike_discharges_at_its_rate_now(site, share):
+    """The spike override (#567, #694): period 0 discharges exactly the set
+    rate and does not charge. The rate is kept within what period 0 can take
+    (house load plus the export limit, and the energy stored), so the plan
+    stays feasible."""
+    b = site["battery"]
+    sink = float(site["load"][0]) + site["export_limit"]
+    # ... and within what is stored: SoC's hard floor is 0.
+    stored = b["initial_soc_kwh"] * b["discharge_efficiency"] / site["hours"][0]
+    rate = round(share * min(b["max_discharge_kw"], sink, stored), 4)
+    plan = _solve(site, spike_override_discharge_kw=rate)
+    assert plan.status == "optimal"
+    assert abs(plan.battery_discharge_kw[0] - rate) < 1e-5
+    assert plan.battery_charge_kw[0] <= TOL
