@@ -38,7 +38,8 @@ PHASES = frozenset({"L1", "L2", "L3"})
 LOAD_CLASSES = frozenset({"aggregate", "circuit", "appliance"})
 CAPACITY_BASES = frozenset({"nominal", "usable"})
 PROVENANCE_ORIGINS = frozenset(
-    {"manual", "energy_dashboard", "provider_profile", "derived"}
+    # `legacy_import`: DC-004's import of today's settings (device_import.py).
+    {"manual", "energy_dashboard", "provider_profile", "derived", "legacy_import"}
 )
 RELATIONSHIP_KINDS = frozenset(
     {"supplies", "included_in_measurement", "shares_equipment"}
