@@ -162,6 +162,11 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.466",
+        "18 Oct 2026",
+        ("**Control Panel on an iPhone** stays where you scrolled it.",),
+    ),
+    (
         "0.94.465",
         "18 Oct 2026",
         (

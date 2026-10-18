@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.466] - 2026-10-18
+
+The Control Panel no longer resets while you scroll on an iPhone.
+
 ### Fixed
 - **Control Panel on an iPhone: no more reset while you scroll** (household,
   18 Oct 2026, after 0.94.465: "still resetting. Less dramatic but
@@ -16,13 +20,45 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the same box, and on iOS that stops a swipe's momentum. And the update
   matched elements by position only, so a note appearing above the table
   moved the table onto another element. The card now leaves a kept box
-  alone and matches elements by kind and name. Not yet checked on an iPhone.
+  alone and matches elements by kind and name. Checked by the household on
+  an iPhone against devhub: "it works on devhub now, no more reset". (#1860)
 
 ## [0.94.465] - 2026-10-18
 
 The P5MIN false-spike guard now also arms on Mark Purcell's dispatch-side
 test for control-room constraints, the Control Panel no longer jumps while
 you scroll on a phone, and the Bank solar first switch is gone.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 8eba3b02**,
+  installed untagged via HACS from `release/0.94.465` and restarted 15:41 AEST
+  18 Oct.
+  - 147 / 147 `nimbus_load` entities available, none unavailable. devhub's
+    own entities stamp `0.94.465`; the rest carry production's mirrored
+    0.94.464.
+  - **Log:** no Nimbus ERROR of its own; the start logs the devhub-only
+    baseline (duplicate unique IDs from the production mirror, oversized
+    attributes, "previous cycle still in progress" at the stochastic
+    shadow's interval), as on v0.94.464. `nimbus_load.solve_now` was
+    dispatched at 15:43 with no error logged.
+  - **Bank solar first removed:** no `nimbus_load` registry row for the
+    switch remains on devhub. The two `bank_solar_first` ids devhub still
+    shows are production's mirror (a state with no registry row, and a
+    `remote_homeassistant` row), not Nimbus's, so they are left alone. The
+    registry clean-up itself is covered by
+    `tests/hass_integration/test_retired_switch_removed.py` on CI.
+  - **P5MIN rule (d):** not claimed live. devhub's own P5MIN sensor cannot
+    register, because the production mirror holds its unique ID, so
+    `dispatch_rhs_check.mode` reads production's `diagnostic`. Covered by
+    `tests/test_1778_rule_d_control_room_rhs.py` (8 tests on the 16 Oct
+    NEMWeb rows) and the 13-16 Oct replay recorded on #1778.
+  - **Control Panel scroll:** not checked on a phone or a browser from
+    here; the workstation cannot reach devhub's UI. Covered by
+    `tests/frontend/test_dispatch_card_keeps_nodes_on_rerender.py` and the
+    Chrome check recorded in #1856.
+  - CI passed every check on #1855, #1856, #1857 and #1858.
+- Consumer check: the Solver tab's Battery card no longer has *Bank solar
+  first*; the P5MIN guard can now arm on a control-room constraint read at
+  half its dispatch limit; the Control Panel stays where you scrolled it.
 
 ### Removed
 - **Bank solar first** (household decision, 18 Oct 2026, after Mark
