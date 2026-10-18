@@ -474,12 +474,21 @@ def test_parse_refuses_a_non_object() -> None:
 # --- no consumer reads it yet (until DC-006) ------------------------------------
 
 
+#: DC-004's pure import is the one module allowed to use the contract
+#: before DC-006: it builds documents and is read by nothing yet. No consumer
+#: (the solve, the cards, the forecaster) may import it.
+_DC_BUILDERS = frozenset({"device_contract.py", "device_import.py"})
+
+
 def test_no_module_imports_the_device_contract_yet() -> None:
     offenders = [
         str(p.relative_to(_PKG))
         for p in _PKG.rglob("*.py")
-        if p.name != "device_contract.py"
-        and "device_contract" in p.read_text(encoding="utf-8")
+        if p.name not in _DC_BUILDERS
+        and (
+            "device_contract" in p.read_text(encoding="utf-8")
+            or "device_import" in p.read_text(encoding="utf-8")
+        )
     ]
     assert offenders == []
 

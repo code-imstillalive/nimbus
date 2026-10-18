@@ -18,6 +18,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   else. Step 2 of the checklist now says the wizard asks for the battery
   numbers (#1868).
 
+- **Device setup groundwork: today's settings read into the device model**
+  (#1574, DC-004 step 1). A new pure module, `device_import.py`, reads the
+  hub's settings (Grid, whole-house Load, Battery, Solar, their sensors and
+  limits) into the DC-001 device document. Where today's settings disagree it
+  names the conflict instead of picking a value: two different sensors for
+  one role, or an option and its live number saying different things. Every
+  subentry is kept and reported; mapping them is the next step. **Nothing
+  reads the document yet** and nothing is stored, so no install changes.
+
 ### Added
 - **User docs site** at code-imstillalive.github.io/nimbus (#1801). The
   setup guide, each price provider, every setting, the tabs, safety and
