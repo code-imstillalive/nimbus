@@ -244,6 +244,9 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          # The test selection below diffs the PR against its base.
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -283,9 +286,39 @@ jobs:
       # entry-point name is what actually isolates the stub suite, and a
       # second invocation without the flag is what gives the
       # hass_integration tests the real fixtures.
+      # nimbus #1837 (Mark Purcell: "Please raise pr to rationalise testing
+      # suite"): the coverage gate's self-compare
+      # (test_gates_coverage_compare.py, marker `slow_gate`) was 1,078 s of a
+      # 29-minute job on every PR, and on a PR it compares the tree with
+      # itself, so it cannot fail because of the PR's change. A PR now runs
+      # it only when the gate, its test or pytest's config changes; every
+      # push to main and every manual run still runs the whole suite, so
+      # the gate's pipeline is still proven end to end on each merge.
+      - name: Which stub tests apply
+        id: selection
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "Full suite: $EVENT"
+            echo "marker=" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+               | grep -qE '^(tests/gates/coverage_compare\.py|tests/test_gates_coverage_compare\.py|pyproject\.toml)$'; then
+            echo "Full suite: this PR changes the coverage gate or pytest's config"
+            echo "marker=" >> "$GITHUB_OUTPUT"
+          else
+            echo "Without slow_gate: on a PR it compares the tree with itself (#1837)"
+            echo "marker=not slow_gate" >> "$GITHUB_OUTPUT"
+          fi
       - name: Run pytest (stub-based, fast)
+        env:
+          MARKER: ${{ steps.selection.outputs.marker }}
         run: |
           pytest tests/ --ignore=tests/hass_integration/ \
+            ${MARKER:+-m "$MARKER"} \
+            -n auto \
             -p no:homeassistant \
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \

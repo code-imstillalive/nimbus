@@ -749,6 +749,67 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "You allow Nimbus to sell into a spike now.",
         "Off = it only shows the spike.",
     ),
+    # More settings (household, 18 Oct 2026)
+    "household_mode": (
+        "Household mode: home, away, guests or economy.",
+        "Switches each load to its mode's targets, e.g. no hot-water deadline away.",
+    ),
+    "pricing_source": (
+        "Which provider's prices the Solver uses.",
+        "Picking one switches import and export together; Manual changes nothing.",
+    ),
+    "solve_on_price_change": (
+        "Re-plan as soon as a configured price sensor updates.",
+        "Off: the plan re-solves on its own cycle only.",
+    ),
+    "solve_on_price_change_debounce_s": (
+        "Re-plan delay: price updates within this many seconds make one solve.",
+        "Seconds; stops a burst of updates from solving several times.",
+    ),
+    "solver_price_response_latency": (
+        "How long from a price update to the new plan.",
+        "Seconds, last measured.",
+    ),
+    "solver_charge_taper_start_percent": (
+        "SoC at which the charge limit starts to fall.",
+        "% SoC. 100 = off, full power right up to Max SoC.",
+    ),
+    "solver_charge_power_at_full_percent": (
+        "Charge power left at 100% SoC, as % of max charge.",
+        "The limit falls in a straight line from Taper starts at to this.",
+    ),
+    "solver_solar_running_low_min_p50_kw": (
+        "Solar running low: judged only while forecast p50 is at least this.",
+        "kW; 0 = the check is off.",
+    ),
+    "solver_solar_running_low_on_percent": (
+        "Measured solar below this % of p50: the rest of today plans on p10.",
+        "% of the forecast p50.",
+    ),
+    "solver_solar_running_low_off_percent": (
+        "Measured solar back above this % of p50: plans on p50 again.",
+        "% of the forecast p50.",
+    ),
+    "solver_solar_running_low_confirm_minutes": (
+        "Minutes solar must stay low before the check turns on.",
+        "0 = at the first low reading.",
+    ),
+    "solver_config": (
+        "Whether the Solver has the settings it needs.",
+        "configured once the setup wizard is complete.",
+    ),
+    "nimbus_solver_discharge_efficiency": (
+        "One leg of the round-trip efficiency.",
+        "√ of round trip: 95% → 0.975 each way.",
+    ),
+    "nimbus_solver_dispatch_dry_run": (
+        "What Nimbus's own dispatcher would command now, in dry run.",
+        "kW; it commands nothing while dry run is on.",
+    ),
+    "nimbus_counterfactual_soc": (
+        "Yesterday's real end-of-day battery SoC.",
+        "%; its attributes add what Nimbus alone would have reached.",
+    ),
     # Stochastic settings
     "solver_stochastic_dispatch": (
         "Drive the battery: off, the stochastic plan only runs beside the main plan.",

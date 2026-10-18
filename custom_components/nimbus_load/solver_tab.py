@@ -561,13 +561,81 @@ _BANNERS = (
     ("Basic settings", "info", "Your battery, grid, fees and P2P. Set these first."),
     ("Advanced settings", "error", "Fine-tuning. The defaults suit most installs."),
     (
+        "More settings",
+        "info",
+        "Household mode, re-planning, charge taper, solar check.",
+    ),
+    (
         "Stochastic",
         "success",
         "Plans for a low, middle and high solar day at once (nimbus #1797).",
     ),
 )
 
+# --- More settings (household, 18 Oct 2026): every Nimbus control and reading
+# the reference household's own dashboard used that this tab did not show, so
+# every install has them, not one household.
+
+_HOUSEHOLD: _Card = (
+    "Household and re-planning",
+    [
+        ("household_mode", "Household mode"),
+        ("pricing_source", "Pricing source"),
+        ("solve_on_price_change", "Re-plan on price change"),
+        ("solve_on_price_change_debounce_s", "Re-plan delay"),
+        ("solver_price_response_latency", "Price to plan time"),
+        ("section", "Household mode: home, away, guests or economy presets."),
+        ("section", "Pricing source: switches both prices to one provider."),
+    ],
+    "Re-plan on price change: solve when a price sensor updates.",
+)
+
+_TAPER: _Card = (
+    "Charging near full",
+    [
+        ("solver_charge_taper_start_percent", "Taper starts at"),
+        ("solver_charge_power_at_full_percent", "Power at full"),
+        ("section", "From Taper starts at, the charge limit falls in a line."),
+        ("section", "Power at full: % of max charge left at 100% SoC."),
+        ("section", "Taper starts at 100 = off: full power to Max SoC."),
+        (
+            "section",
+            "Measured on a 40 kW battery: about 24 kW at 92-96% SoC, 6 kW at 99.5%.",
+        ),
+    ],
+    "A battery cannot take full charge power near full.",
+)
+
+_SOLAR_LOW: _Card = (
+    "Solar running low",
+    [
+        ("solver_solar_running_low_min_p50_kw", "Judge above"),
+        ("solver_solar_running_low_on_percent", "On below"),
+        ("solver_solar_running_low_off_percent", "Off above"),
+        ("solver_solar_running_low_confirm_minutes", "Confirm for"),
+        ("section", "Measured solar under On below % of forecast p50: plan on p10."),
+        ("section", "Confirm for: minutes it must stay low first; 0 = at once."),
+    ],
+    "Judge above: kW of p50 needed to judge at all; 0 = off.",
+)
+
+_DIAGNOSTICS: _Card = (
+    "Diagnostics",
+    [
+        ("solver_config", "Solver config"),
+        ("nimbus_solver_discharge_efficiency", "Discharge efficiency"),
+        ("nimbus_solver_dispatch_dry_run", "Own dispatcher would set"),
+        ("nimbus_counterfactual_soc", "Counterfactual SoC"),
+        ("section", "Solver config: configured once the wizard is complete."),
+        ("section", "Own dispatcher: what it would command, in dry run."),
+        ("section", "Counterfactual SoC: yesterday's real closing SoC."),
+        ("section", "Discharge efficiency: one leg of the round trip."),
+    ],
+    "Readings only, for checking the plan.",
+)
+
 _MONEY_ROW = (_SCORED, _MONEY, _BREAKDOWN, _BATTERY_NOW)
+_MORE_ROW = (_HOUSEHOLD, _TAPER, _SOLAR_LOW, _DIAGNOSTICS)
 _BASIC_ROW = (_BATTERY, _GRID, _P2P, _P2P_HOURS)
 _ADVANCED_ROW = (_COSTS, _FEATURES, _SCORING, _RESERVE)
 
@@ -1649,6 +1717,8 @@ def template() -> list[dict[str, Any]]:
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],
         *(_section([_card(c)], 1) for c in _ADVANCED_ROW),
+        banners["More settings"],
+        *(_section([_card(c)], 1) for c in _MORE_ROW),
         banners["Stochastic"],
         _section(
             [_styled(_STOCHASTIC_NOW, _stochastic_now_style())], 1, _STOCHASTIC_ROW_SIZE
