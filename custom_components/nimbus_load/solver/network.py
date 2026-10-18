@@ -2114,6 +2114,11 @@ def _build_plan_once(
                 candidate_rates.append(
                     max(rate for _width, rate in b.terminal_value_breakpoints)
                 )
+            # The flat salvage is a terminal-value rate too. Left out, a
+            # salvage above 10x every price overfills Max SoC to earn it:
+            # 0.80 kWh against 0.75 at zero prices and a $0.25 salvage (found
+            # by tests/v2's bounds property, #1837).
+            candidate_rates.append(float(b.salvage_value))
         soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
             *candidate_rates, 0.01
         )
