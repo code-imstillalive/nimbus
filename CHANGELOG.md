@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Removed
+- **Bank solar first** (household decision, 18 Oct 2026, after Mark
+  Purcell's review on #1844: "A switch corrupts the plan. The LP already
+  knows the value"). The switch added in 0.94.464 is gone. Production's
+  shadow stochastic plans for 08:00-08:30 that morning, solved over the
+  low, middle and high solar cases, chose the same as the plan did: hold
+  and export, because refilling from the grid later at about 1.3c is cheap
+  whatever the solar does. The risk the switch guarded against was midday
+  prices above forecast; the import-price risk aversion setting weighs
+  that inside the LP. Its entity is removed from the registry on the first
+  start of this version.
+
 ### Fixed
 - **Control Panel on a phone: the page no longer jumps while you scroll**
   (household, 18 Oct 2026). The dispatch card rebuilt its whole content

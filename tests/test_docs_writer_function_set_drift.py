@@ -271,10 +271,6 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "charge_by_period_indices",
         "charge_by_target_indices",
         "charge_by_summary",
-        # Household, 18 Oct 2026, "bank solar first": the period-0 charge
-        # floor, in solver_plan.py beside the battery it configures; the cron
-        # copy builds no such floor.
-        "bank_solar_floor_kw",
         # 16 Oct 2026: charge_by_summary's home-battery rows on a multi-
         # battery plan; the cron copy has no charge-by and no participants.
         "_home_rows",

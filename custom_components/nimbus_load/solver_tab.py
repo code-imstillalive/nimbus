@@ -126,17 +126,12 @@ _BATTERY: _Card = (
         # Household, 14 Oct 2026: beside Maximum SoC, the two together.
         ("solver_charge_by_hour", "Charge by"),
         ("solver_charge_by_percent", "Charge to"),
-        # Household, 18 Oct 2026: bank solar before exporting it.
-        ("solver_bank_solar_first", "Bank solar first"),
         ("solver_max_charge_kw", "Max charge"),
         ("solver_max_discharge_kw", "Max discharge"),
         ("solver_efficiency_percent", "Round-trip efficiency"),
         ("solver_inverter_self_consumption_kw", "Inverter self-use"),
     ],
-    (
-        "Charge to: SoC to hold by Charge by each day; 0 = off. "
-        "Bank solar first: solar fills the battery before any is sold."
-    ),
+    "Charge to: SoC to hold by Charge by each day; 0 = off.",
 )
 
 _GRID: _Card = (
@@ -170,7 +165,6 @@ _GRID: _Card = (
         ("solver_fixed_daily_charge", "Fixed daily charge"),
         ("section", "Max import and export: your connection's limits."),
         ("section", "Fee blocks: extra per kWh within set hours; 0 = unused."),
-        ("section", "Flat fee: on every kWh bought. Daily charge: plan unaffected."),
     ],
     "Fees are added to the buy price.",
 )
@@ -188,7 +182,6 @@ _P2P: _Card = (
         ("solver_post_window_self_consume_hours", "Self-consume after midnight"),
         ("section", "Amount: the kW sold through each block; 0 = unused."),
         ("section", "Bonus: paid above the sell price on P2P volume."),
-        ("section", "Bonus volume: kWh a day that earns the bonus."),
     ],
     (
         "Self-consume after midnight: after a block ending at midnight, "
@@ -210,7 +203,6 @@ _P2P_HOURS: _Card = (
         ("nimbus_solver_p2p_recent_avg_volume_kwh", "Matched volume"),
         ("section", "Start lead time (P2P card) begins each block early."),
         ("section", "Matched volume: average kWh sold to peers lately."),
-        ("section", "Block times are local; each sells its Amount in kW."),
     ],
     "Matched: export recently sold to a peer.",
 )

@@ -1156,13 +1156,6 @@ DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED: Final = False
 # the plan; adoption follows measured least error, per Mark on #1786.
 CONF_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = "solver_price_consolidation_live"
 DEFAULT_SOLVER_PRICE_CONSOLIDATION_LIVE: Final = False
-# Household, 18 Oct 2026: bank solar first. On, solar the battery can take is
-# charged into it before any is exported, instead of selling it now on a
-# forecast that buying back later is cheaper. A soft period-0 floor (see
-# solver_plan.bank_solar_floor_kw and network.py); a price spike and a
-# committed P2P period still win. Off by default because it changes the plan.
-CONF_SOLVER_BANK_SOLAR_FIRST: Final = "solver_bank_solar_first"
-DEFAULT_SOLVER_BANK_SOLAR_FIRST: Final = False
 # nimbus #1797: two-stage stochastic dispatch (solar p10/p50/p90) in the main
 # solve. Off by default: the deterministic plan drives dispatch and the
 # stochastic solve runs in shadow, publishing only its `stochastic` summary.

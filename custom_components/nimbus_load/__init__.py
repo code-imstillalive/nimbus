@@ -355,6 +355,29 @@ async def _async_rename_stale_forecast_entities(
         registry.async_update_entity(current_entity_id, new_entity_id=correct_entity_id)
 
 
+# Switches a release added and a later one removed: their registry rows are
+# deleted on setup so they do not linger as "unavailable". Keyed by the
+# switch's config key; the unique_id is f"{entry_id}_{key}".
+# - solver_bank_solar_first: v0.94.464, removed for v0.94.465 (Mark Purcell
+#   on #1844, 18 Oct 2026: "A switch corrupts the plan"; household decision).
+RETIRED_SWITCH_KEYS: tuple[str, ...] = ("solver_bank_solar_first",)
+
+
+def _async_remove_retired_switches(
+    hass: HomeAssistant, entry: NimbusConfigEntry
+) -> None:
+    """Delete this entry's registry rows for switches no release creates any
+    more. Only exact unique_ids built from `RETIRED_SWITCH_KEYS`."""
+    registry = er.async_get(hass)
+    for key in RETIRED_SWITCH_KEYS:
+        entity_id = registry.async_get_entity_id(
+            "switch", DOMAIN, f"{entry.entry_id}_{key}"
+        )
+        if entity_id is not None:
+            registry.async_remove(entity_id)
+            _LOGGER.info("Nimbus: removed the retired switch %s", entity_id)
+
+
 async def _async_report_orphaned_forecast_entities(
     hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> None:
@@ -733,6 +756,7 @@ async def _async_setup_entry_impl(
     # derived entity_id, so the platform sees "already exactly this" and
     # reconciles cleanly instead of a rename racing entity creation.
     try:
+        _async_remove_retired_switches(hass, entry)
         await _async_rename_stale_forecast_entities(hass, entry)
         # nimbus #1270. Runs AFTER the rename, deliberately: clearing an
         # orphan frees the entity_id it was squatting, but the rename pass

@@ -396,8 +396,6 @@ _ADDED_AFTER_REFERENCE = {
     # reserve.
     "charge_by_kwh": 0.0,
     "charge_by_period_indices": None,
-    # Household, 18 Oct 2026: bank solar first, primary battery only.
-    "period0_min_charge_kw": None,
 }
 
 
