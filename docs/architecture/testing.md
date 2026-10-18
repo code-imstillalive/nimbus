@@ -6,7 +6,7 @@ Written for #1837 (Mark Purcell, 17-18 Oct 2026: "the pytest suite needs rationa
 
 | job | what | time |
 |---|---|---|
-| Unit Tests (pytest), stub run | `tests/` except `hass_integration/`, against `tests/_ha_stubs.py`, under coverage | ~29 min before #1837; ~11 min on a PR expected without `slow_gate` (estimated from #1837's timings, not yet measured) |
+| Unit Tests (pytest), stub run | `tests/` except `hass_integration/`, against `tests/_ha_stubs.py`, under coverage, in parallel (`-n auto`, pytest-xdist) | ~29 min before #1837; ~11 min on a PR expected without `slow_gate` (estimated from #1837's timings, not yet measured) |
 | Unit Tests (pytest), real HA run | `tests/hass_integration/`, the real `pytest-homeassistant-custom-component` harness; carries the `--cov-fail-under` ratchet | ~1.3 min |
 | No-op Patch Gate | patches that no longer reach their reader (#1316); full mode when the PR touches `custom_components/`, canary otherwise | ~7 min |
 | Lint, mypy, manifest, hassfest, HACS | static checks | minutes |
@@ -46,3 +46,11 @@ Nothing removed one before; at 192 files the default is still to keep them. A pi
 4. **No golden, guard or IV&V finding is retired this way.** Those are not issue pins.
 
 Measuring 1 needs a coverage-context run of the whole suite, which is much heavier than CI. That is the next step on #1837, not part of this change.
+
+## Parallel runs
+
+The stub run uses `pytest -n auto`. Measured on the household's 16-thread machine: 14.7 min against ~56 min serial for the same selection. A test must therefore not depend on running in one process:
+
+- A subtest's labels travel between processes, so pass strings (`repr(x)`), not objects.
+- A test that starts pytest in a child process strips `PYTEST_*` from the child's environment, so the child is not taken for an xdist worker. It also gives the child its own `--basetemp`, because a child on the shared one prunes the oldest numbered temp directory, which can belong to another worker.
+

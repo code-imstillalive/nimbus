@@ -248,7 +248,8 @@ class TestItNeverCorrects(unittest.TestCase):
             (SignVerdict.AGREES, False),
             (SignVerdict.INSUFFICIENT_EVIDENCE, False),
         ):
-            with self.subTest(verdict=verdict):
+            # repr: pytest-xdist sends subtest labels between processes (#1837).
+            with self.subTest(verdict=repr(verdict)):
                 self.assertIs(
                     SignConventionResult(verdict=verdict).is_actionable, expected
                 )

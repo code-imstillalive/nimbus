@@ -116,7 +116,8 @@ class TestTheFalsyCase(unittest.TestCase):
             cls_._currency_per_kwh_selector(None),
             bps._currency_per_kwh_selector(None),
         ):
-            with self.subTest(sel=sel):
+            # repr: pytest-xdist sends subtest labels between processes (#1837).
+            with self.subTest(sel=repr(sel)):
                 self.assertIsNone(_unit(sel))
 
     def test_it_never_renders_the_string_None_per_kwh(self):
