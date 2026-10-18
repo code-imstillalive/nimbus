@@ -16,6 +16,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   (legacy, shadow, active) is stored, never inferred. **Nothing writes the
   store yet**, so no install changes.
 
+- **Device setup: a dry run of today's settings** (#1574, DC-004 step 4).
+  `preview` imports today's settings, regenerates them from the device
+  document and lists every owned setting that would change. On a fully
+  configured synthetic install the list is empty, and a conflict blocks the
+  move to shadow. Each view writes back only where a value came from, so an
+  empty field stays empty. Nothing calls it yet.
+
 - **The combined price forecast keeps a spike that any source sees** (#1786).
   When several price sources are configured, Nimbus builds a combined
   forecast: the median of the sources, or an error-weighted mean once there's
