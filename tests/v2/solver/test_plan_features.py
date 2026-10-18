@@ -1477,3 +1477,48 @@ def test_the_export_bonus_is_claimed_on_real_export_within_its_cap(
         grid_export_kw=plan.grid_export_kw, hours=h, grid=grid, period_starts=None
     )
     assert abs(collected - settled) < 1e-5
+
+
+@SETTINGS
+@given(
+    plain_sites(),
+    st.integers(min_value=0, max_value=23),
+    _num(0.5, 6.0),
+    st.one_of(st.none(), _num(0.0, 6.0)),
+)
+def test_a_committed_export_window_shuts_import_and_caps_export_at_its_band(
+    site, at, kw, extra
+):
+    """A P2P fixed export window (2026-08-20, household finding): no import
+    within the limit in a committed period, so the commitment can't be met by
+    buying power to sell back, and export never above the commitment, or
+    above `fixed_export_max_kw` where a band is set."""
+    n = len(site["hours"])
+    window = list(range(at % n, min(at % n + 2, n)))
+    fixed = np.full(n, np.nan)
+    band = None if extra is None else np.full(n, np.nan)
+    for t in window:
+        fixed[t] = kw
+        if band is not None:
+            band[t] = round(kw + extra, 4)
+    site["export_limit"] = max(site["export_limit"], kw + (extra or 0.0) + 1.0)
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+            fixed_export_kw=fixed,
+            fixed_export_max_kw=band,
+        ),
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    within = plan.grid_import_kw - plan.grid_import_excess_kw
+    for t in window:
+        assert within[t] <= TOL, t
+        cap = kw if band is None else max(kw, float(band[t]))
+        assert plan.grid_export_kw[t] <= cap + 1e-6, t
