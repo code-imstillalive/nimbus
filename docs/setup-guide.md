@@ -1350,7 +1350,7 @@ From Developer Tools → Actions, or any automation:
 | `nimbus_load.rescore_history` | Re-score the last N days after a formula change. **Each day is a full oracle solve: start with 2 or 3** |
 | `nimbus_load.flex_telemetry_record` | Returns a nem-flex-telemetry v2.0 record. Needs `switch.nimbus_solver_flex_signals_enabled` on, which costs real solve time |
 | `nimbus_load.device_contract_preview` | A dry run of the new device setup on your install: which devices it would build, any conflict between your settings, and every setting that would change (none, on a clean install). Changes nothing |
-| `nimbus_load.device_contract_set_mode` | `shadow` keeps a copy of the device setup alongside your settings, and is refused unless the dry run is clean. `legacy` goes back. Your settings stay in charge either way; `active` isn't available yet |
+| `nimbus_load.device_contract_set_mode` | `shadow` keeps a copy of the device setup alongside your settings, and is refused unless the dry run is clean. `legacy` goes back. `active` (from `shadow`, on a clean dry run) puts the device setup in charge; entering it changes no setting. Going back to `legacy` leaves your settings as they are |
 
 ## 20. Actually driving your battery with the plan
 

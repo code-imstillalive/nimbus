@@ -605,6 +605,32 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
+def view_writes(view: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Only the owned keys whose current value differs from `view`, in the
+    view's own shape: what writing the view would actually change. An empty
+    result means the settings already are the view."""
+    options = snapshot.get("options") or {}
+    numbers = snapshot.get("numbers") or {}
+    subs = {
+        s["subentry_id"]: s.get("data") or {} for s in snapshot.get("subentries") or ()
+    }
+    out: dict[str, Any] = {"options": {}, "numbers": {}, "subentries": {}}
+    for key, value in view.get("options", {}).items():
+        if options.get(key) != value:
+            out["options"][key] = value
+    for key, value in view.get("numbers", {}).items():
+        if numbers.get(key) != value:
+            out["numbers"][key] = value
+    for sid, data in view.get("subentries", {}).items():
+        current = subs.get(sid)
+        if current is None:
+            continue  # a view never creates a subentry
+        changed = {k: v for k, v in data.items() if current.get(k) != v}
+        if changed:
+            out["subentries"][sid] = changed
+    return out
+
+
 @dataclass
 class Preview:
     document: dict[str, Any]

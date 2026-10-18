@@ -184,3 +184,25 @@ def test_the_dry_run_does_not_mutate_its_input():
     before = copy.deepcopy(snap)
     di.preview(snap)
     assert snap == before
+
+
+def test_view_writes_lists_only_what_differs_and_never_adds_a_subentry():
+    """DC-004 step 5b: an active commit writes only the owned keys whose
+    value differs from the view. F10's own view against F10 is nothing; one
+    changed option, number and subentry field are exactly those three; a
+    subentry the install doesn't have is never created."""
+    view = di.legacy_view(di.import_legacy(F10).document)
+    assert di.view_writes(view, F10) == {"options": {}, "numbers": {}, "subentries": {}}
+    edited = copy.deepcopy(view)
+    edited["options"]["grid_sensor"] = "sensor.meter2"
+    key = next(iter(edited["numbers"]))
+    edited["numbers"][key] = 123.0
+    sid = next(iter(edited["subentries"]))
+    field = next(iter(edited["subentries"][sid]))
+    edited["subentries"][sid][field] = "changed"
+    edited["subentries"]["sub_not_here"] = {"x": 1}
+    assert di.view_writes(edited, F10) == {
+        "options": {"grid_sensor": "sensor.meter2"},
+        "numbers": {key: 123.0},
+        "subentries": {sid: {field: "changed"}},
+    }

@@ -154,3 +154,16 @@ def test_the_store_key_is_per_entry():
 def test_the_logic_imports_no_home_assistant_at_module_level():
     head = Path(ds.__file__).read_text(encoding="utf-8").split("def ha_backend")[0]
     assert "homeassistant" not in head
+
+
+def test_the_view_marker_follows_the_stored_revision_only():
+    """DC-004 step 5b, commit order step 3: the store records which revision
+    the legacy views hold, and refuses a revision it does not hold, so the
+    marker can never run ahead of the document."""
+    store = ds.ContractStore(Memory())
+    first = run(store.async_commit(0, _doc(), origin="legacy_import", now=NOW))
+    ahead = run(store.async_set_view_revision(first.revision + 1))
+    assert ahead.ok is False and ahead.code == "revision_conflict"
+    assert "view_revision" not in run(store.async_read())
+    assert run(store.async_set_view_revision(first.revision)).ok
+    assert run(store.async_read())["view_revision"] == first.revision

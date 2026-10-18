@@ -147,6 +147,18 @@ class ContractStore:
             await self._backend.async_save(state)
             return Result(True, revision=state["revision"])
 
+    async def async_set_view_revision(self, revision: int) -> Result:
+        """Record that the legacy views now hold `revision` (DC-004 "Commit
+        order in `active` mode", step 3). Refused for a revision the store
+        does not hold, so the marker can never run ahead of the document."""
+        async with self._lock:
+            state = await self.async_read()
+            if revision != state["revision"]:
+                return Result(False, "revision_conflict", revision=state["revision"])
+            state["view_revision"] = revision
+            await self._backend.async_save(state)
+            return Result(True, revision=revision)
+
     async def async_revert(
         self, expected_revision: int, to_revision: int, *, now: datetime
     ) -> Result:
