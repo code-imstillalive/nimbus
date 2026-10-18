@@ -150,7 +150,12 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
         if found:
             path, entity_id = found[0]
             key = path.split(".", 1)[1]
-            bindings[device][role] = _binding(entity_id, path, key in confirmed_keys)
+            binding = _binding(entity_id, path, key in confirmed_keys)
+            if len(found) > 1:
+                # Every key that held this value, so a view writes back to
+                # exactly those and never fills one that was empty.
+                binding["provenance"]["also_source_paths"] = [p for p, _v in found[1:]]
+            bindings[device][role] = binding
 
     # Battery sign: Solver's own declaration (Forecaster declares none).
     battery_power = bindings["battery"].get("power")
@@ -399,6 +404,9 @@ def _map_subentries(
                 del target["bindings"]["power"]
             else:
                 existing["history_subentry_id"] = sid
+                existing["provenance"].setdefault("also_source_paths", []).append(
+                    f"subentry:{sid}.load_sensor"
+                )
         elif kind == "load":
             ident = _unique(_slug(sub.get("title"), "load"), taken)
             device: dict[str, Any] = {
@@ -506,3 +514,188 @@ def _map_subentries(
         else:
             keep(sub, "unmapped_subentry")
     return authorised
+
+
+# --- step 4: compatibility views and the dry run -----------------------------
+
+#: Hub constraints -> the live number each came from (and goes back to).
+_HUB_NUMBERS = {(d, c): k for d, c, k in _CONSTRAINTS}
+#: Battery-participant constraints -> its subentry keys.
+_PARTICIPANT_KEYS = {
+    "soc_min": "battery_participant_min_soc_percent",
+    "soc_max": "battery_participant_max_soc_percent",
+    "charge_limit": "battery_participant_max_charge_kw",
+    "discharge_limit": "battery_participant_max_discharge_kw",
+}
+
+
+def _write(view: dict[str, Any], path: str, value: Any) -> None:
+    """Put `value` at a provenance path: options.<key> or subentry:<id>.<key>."""
+    if path.startswith("options."):
+        view["options"][path.split(".", 1)[1]] = value
+    elif path.startswith("subentry:"):
+        sid, key = path[len("subentry:") :].split(".", 1)
+        view["subentries"].setdefault(sid, {})[key] = value
+
+
+def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
+    """Today's settings generated from `document`: one way, owned keys only
+    (DC-004 "Compatibility views"). Each binding goes back to exactly the
+    key(s) it was imported from, so a field that was empty stays empty. No
+    subentry is created or removed: a device without a source subentry
+    writes nothing."""
+    view: dict[str, Any] = {"options": {}, "numbers": {}, "subentries": {}}
+    hub_ids = set(_IDS.values())
+    for device in document.get("devices") or ():
+        sid = device.get("history_subentry_id")
+        hub = device["id"] in hub_ids
+        for binding in (device.get("bindings") or {}).values():
+            prov = binding.get("provenance") or {}
+            entity = (binding.get("source") or {}).get("entity_id")
+            paths = [prov.get("source_path"), *(prov.get("also_source_paths") or [])]
+            for path in paths:
+                if path:
+                    _write(view, path, entity)
+            native = (binding.get("normalization") or {}).get(
+                "native_positive_direction"
+            )
+            if native is None or device["kind"] != "battery":
+                continue
+            if prov.get("source_path") == "options.solver_battery_power_sensor":
+                view["options"]["solver_battery_power_positive_is_charge"] = (
+                    native == "charge"
+                )
+            elif sid and not hub:
+                view["subentries"].setdefault(sid, {})[
+                    "battery_participant_power_positive_is_charge"
+                ] = native == "charge"
+        constraints = device.get("constraints") or {}
+        capacity = (device.get("capacity") or {}).get("value")
+        if hub:
+            short = next((k for k, v in _IDS.items() if v == device["id"]), None)
+            for name, value in constraints.items():
+                key = _HUB_NUMBERS.get((short, name))
+                if key:
+                    view["numbers"][key] = value
+            if device["kind"] == "battery" and capacity is not None:
+                view["numbers"]["solver_battery_capacity_kwh"] = capacity
+            continue
+        if not sid:
+            continue
+        sub = view["subentries"].setdefault(sid, {})
+        if device["kind"] == "battery":
+            for name, key in _PARTICIPANT_KEYS.items():
+                if name in constraints:
+                    sub[key] = constraints[name]
+            if capacity is not None:
+                sub["battery_participant_capacity_kwh"] = capacity
+        hours = constraints.get("fixed_hours")
+        if hours:
+            sub["schedule_start_hour"] = hours.get("start")
+            sub["schedule_end_hour"] = hours.get("end")
+            sub["expected_load_kw"] = hours.get("expected_kw")
+        control = device.get("control")
+        if control:
+            sub["controllable_load_device_entity"] = control.get("entity_id")
+    view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
+    return view
+
+
+@dataclass
+class Preview:
+    document: dict[str, Any]
+    conflicts: list[Conflict]
+    unmapped: list[dict[str, Any]]
+    problems: list[dc.Problem]
+    #: (path, today's value, the view's value) for every owned key that would
+    #: change. Empty = migration changes no consumer's input.
+    effective_diff: list[tuple[str, Any, Any]]
+
+    @property
+    def clean(self) -> bool:
+        return not (self.effective_diff or self.conflicts or self.problems)
+
+
+_SUBENTRY_OWNED: dict[str, tuple[str, ...]] = {
+    "load": (
+        "load_sensor",
+        "schedule_start_hour",
+        "schedule_end_hour",
+        "expected_load_kw",
+    ),
+    "power_signal": ("load_sensor",),
+    "battery_participant": (
+        "battery_participant_soc_sensor",
+        "battery_participant_power_sensor",
+        "battery_participant_power_positive_is_charge",
+        "battery_participant_capacity_kwh",
+        *_PARTICIPANT_KEYS.values(),
+    ),
+    "controllable_load": (
+        "controllable_load_power_sensor",
+        "controllable_load_device_entity",
+    ),
+}
+
+
+def owned_keys(snapshot: dict[str, Any]) -> list[str]:
+    """Every key path a view may write for this snapshot. Keys outside it
+    (tunables, unmapped subentries) are never touched."""
+    paths = {f"options.{k}" for _d, _r, keys in _ROLE_SOURCES for k in keys}
+    paths.add("options.solver_battery_power_positive_is_charge")
+    paths |= {f"numbers.{k}" for _d, _c, k in _CONSTRAINTS}
+    paths.add("numbers.solver_battery_capacity_kwh")
+    for sub in snapshot.get("subentries") or ():
+        kind = sub.get("subentry_type")
+        keys = _SUBENTRY_OWNED.get(kind, ())
+        role = (sub.get("data") or {}).get("signal_role")
+        if kind == "power_signal" and role not in _SIGNAL_DEVICE:
+            keys = ()  # an unmapped Power Signal is left alone
+        paths |= {f"subentry:{sub.get('subentry_id')}.{k}" for k in keys}
+    return sorted(paths)
+
+
+def _today(snapshot: dict[str, Any], path: str) -> Any:
+    options = snapshot.get("options") or {}
+    if path.startswith("options."):
+        return options.get(path.split(".", 1)[1])
+    if path.startswith("numbers."):
+        key = path.split(".", 1)[1]
+        return _number(snapshot.get("numbers") or {}, options, key)
+    sid, key = path[len("subentry:") :].split(".", 1)
+    for sub in snapshot.get("subentries") or ():
+        if sub.get("subentry_id") == sid:
+            return (sub.get("data") or {}).get(key)
+    return None
+
+
+def _from_view(view: dict[str, Any], path: str) -> Any:
+    if path.startswith("options."):
+        return view["options"].get(path.split(".", 1)[1])
+    if path.startswith("numbers."):
+        return view["numbers"].get(path.split(".", 1)[1])
+    sid, key = path[len("subentry:") :].split(".", 1)
+    return view["subentries"].get(sid, {}).get(key)
+
+
+def _same(a: Any, b: Any) -> bool:
+    if a in (None, "", []) and b in (None, "", []):
+        return True
+    if a in (None, False) and b in (None, False):
+        return True  # an unset flag and False mean the same to every reader
+    if _is_num(a) and _is_num(b):
+        return float(a) == float(b)
+    return bool(a == b)
+
+
+def preview(snapshot: dict[str, Any]) -> Preview:
+    """The dry run (DC-004): import, generate the views, compare every owned
+    key with today's value. Writes nothing."""
+    res = import_legacy(snapshot)
+    view = legacy_view(res.document)
+    diff = [
+        (path, before, after)
+        for path in owned_keys(snapshot)
+        if not _same(before := _today(snapshot, path), after := _from_view(view, path))
+    ]
+    return Preview(res.document, res.conflicts, res.unmapped, res.problems, diff)
