@@ -35,9 +35,10 @@ from solver.network import DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW, build_pla
 from test_plan_invariants import SETTINGS, TOL, _num, sites
 
 
-def _solve(site, *, solar_band=None, **battery_overrides):
+def _solve(site, *, solar_band=None, plan_options=None, **battery_overrides):
     lower, upper = solar_band if solar_band is not None else (None, None)
     return build_plan(
+        **(plan_options or {}),
         periods=PeriodGrid(site["hours"]),
         grid=GridConfig(
             import_price=site["import_price"],
@@ -1166,3 +1167,27 @@ def test_a_period0_pin_holds_the_battery_at_its_rate(site, share):
     assert plan.status == "optimal"
     assert abs(plan.battery_discharge_kw[0] - max(pin, 0.0)) < 1e-5
     assert abs(plan.battery_charge_kw[0] - max(-pin, 0.0)) < 1e-5
+
+
+@SETTINGS
+@given(plain_sites())
+def test_the_grid_flex_signals_agree_with_the_lp(site):
+    """The grid flex signals (#491, opt-in `compute_signals`): each kWh headroom is its kW headroom x
+    the period's hours, and each forced cost is the LP's own reduced cost on
+    that period's import or export, per hour."""
+    plan = _solve(site, plan_options={"compute_signals": True})
+    sig = plan.grid_signals
+    if sig is None:  # HiGHS ranging not valid for this solve (e.g. a MILP)
+        return
+    h = site["hours"]
+    np.testing.assert_allclose(
+        sig.grid_import_headroom_kwh, sig.grid_import_headroom_kw * h, atol=1e-9
+    )
+    np.testing.assert_allclose(
+        sig.grid_export_headroom_kwh, sig.grid_export_headroom_kw * h, atol=1e-9
+    )
+    for t in range(len(h)):
+        rc_in = plan.reduced_costs.get(f"grid_import_{t}", 0.0)
+        rc_out = plan.reduced_costs.get(f"grid_export_{t}", 0.0)
+        assert abs(sig.forced_import_cost[t] * h[t] - rc_in) < 1e-9, t
+        assert abs(sig.forced_export_cost[t] * h[t] - rc_out) < 1e-9, t
