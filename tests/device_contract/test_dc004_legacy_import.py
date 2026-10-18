@@ -290,7 +290,7 @@ def test_control_is_authorised_only_where_a_device_entity_exists():
 
 def test_a_repair_confirmed_field_says_so():
     res = di.import_legacy(
-        _snapshot(setup_builder_done=["solver_solar_forecast_sensor"])
+        _snapshot(setup_builder_done=["option:solver_solar_forecast_sensor"])
     )
     prov = _device(res.document, "solar")["bindings"]["generation_forecast"][
         "provenance"

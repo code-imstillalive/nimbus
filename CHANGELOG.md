@@ -23,6 +23,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   move to shadow. Each view writes back only where a value came from, so an
   empty field stays empty. Nothing calls it yet.
 
+- **Device setup: try the new device model on your install, without it taking
+  over** (#1574, DC-004 step 5a). Two services:
+  - `nimbus_load.device_contract_preview` runs the dry run on your install's
+    real settings and returns it: the devices it would build, any conflict,
+    anything it couldn't map, and every setting that would change. It changes
+    nothing.
+  - `nimbus_load.device_contract_set_mode` moves between `legacy` and
+    `shadow`. Shadow saves the device document alongside your settings, and is
+    refused unless the dry run is clean. Your options, subentries and number
+    entities stay the master and are never written. `active` is refused until
+    step 5b.
+
+  Also fixed in the import: a Setup Builder step stored as `option:<key>` now
+  counts as confirmed. A real-HA test checks that the options, every subentry
+  and every number are unchanged after a preview, shadow and back, and that no
+  service is called.
+
 - **The combined price forecast keeps a spike that any source sees** (#1786).
   When several price sources are configured, Nimbus builds a combined
   forecast: the median of the sources, or an error-weighted mean once there's

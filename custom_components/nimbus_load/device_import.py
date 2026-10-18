@@ -129,7 +129,11 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
     """Today's hub-level settings as a DC-001 document (module docstring)."""
     options = dict(snapshot.get("options") or {})
     numbers = dict(snapshot.get("numbers") or {})
-    confirmed_keys = set(snapshot.get("setup_builder_done") or ())
+    # setup_builder records a confirmed fill as "option:<key>" (setup_builder.py).
+    confirmed_keys = {
+        str(k).split(":", 1)[1] if str(k).startswith("option:") else str(k)
+        for k in snapshot.get("setup_builder_done") or ()
+    }
     site_in = snapshot.get("site") or {}
     conflicts: list[Conflict] = []
 
