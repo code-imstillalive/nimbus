@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **An armed price-spike override no longer leaves Nimbus without a plan
+  when the battery is near its minimum.** The override (#567) forced period
+  0's discharge to the set rate. A separate guard stops a battery
+  discharging below Min SoC within the period. Within one period's draw of
+  the minimum, the two contradicted each other, the solve came back
+  infeasible, and no plan was published. Example: 0.27 kWh stored against a
+  0.25 kWh minimum, override 0.5 kW. Now the forced rate is capped at what
+  the guard allows: near the floor it discharges what it can (0.21 kW
+  there), at the floor nothing, and it still plans. With room, it
+  discharges the full set rate as before. Found by the new property tests
+  (#1837).
+
 ### Changed
 - **The battery keeps its direction unless a switch is worth it** (#1654,
   option A). 18 Oct 05:25-06:56, with SoC a few tenths above the 10%
