@@ -26,7 +26,11 @@ IMAGES = REPO / "docs" / "images"
 
 
 def _image_paths() -> list[str]:
-    paths = [image for _t, _b, image in help_tab.FEATURES if image]
+    paths = [
+        image
+        for _t, _b, images in help_tab.FEATURES
+        for image in help_tab.feature_images(images)
+    ]
     paths += [image for _c, image in help_tab.SETUP_PICTURES]
     return paths
 
@@ -60,3 +64,10 @@ def test_the_features_band_sits_before_each_tab() -> None:
         if help_tab._banner_name(section)
     ]
     assert names.index("Features") == names.index("Each tab") - 1
+
+
+def test_a_feature_with_several_pictures_shows_each_in_order() -> None:
+    """The plan's prices entry carries two pictures; both must render."""
+    rendered = help_tab.features_markdown()
+    first = rendered.index("tabs/plan-prices-ahead.png")
+    assert rendered.index("tabs/plan-days.png") > first

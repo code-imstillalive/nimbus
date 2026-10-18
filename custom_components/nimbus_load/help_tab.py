@@ -306,8 +306,9 @@ IMAGES_URL = (
     "https://raw.githubusercontent.com/code-imstillalive/nimbus/main/docs/images"
 )
 
-#: (title, body, image path under docs/images or None). Bodies are markdown.
-FEATURES: tuple[tuple[str, str, str | None], ...] = (
+#: (title, body, pictures). Pictures are paths under docs/images: one, a
+#: tuple shown in order, or None. Bodies are markdown.
+FEATURES: tuple[tuple[str, str, str | tuple[str, ...] | None], ...] = (
     (
         "The plan: how the Solver decides",
         (
@@ -320,10 +321,36 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "**What you see.** Solver tab → Plan: the battery plan against what "
             "really happened, prices ahead, each day's totals. *Plan status* "
             "should read `optimal`; anything else names its reason.\n\n"
+            "**Reading the battery chart** (Plan, *Battery: plan against measured*). "
+            "kW, up is discharging. White: what the battery really did. Teal: "
+            "what each plan said to do at that moment (its first minute only); "
+            "dashed teal: the plan ahead. Orange: the charge the plan is holding "
+            "for the next P2P block, as % of the battery; high and never worked "
+            "off means the plan keeps putting it off. Green and yellow: state of "
+            "charge, one line per battery. Red: the buy price, dashed ahead. The "
+            "tiles above the chart are the same series, now.\n\n"
             "**Limits.** The plan is only as good as its forecasts and prices; the "
             "price safety checks and risk sliders below are how it hedges."
         ),
-        None,
+        "tabs/plan-battery.png",
+    ),
+    (
+        "Prices ahead, and each day's prices",
+        (
+            "**What it shows.** Solver tab → Plan. The chart is the buy (red) "
+            "and sell (blue) price the plan works with, c/kWh, fees included. "
+            "Solid: your price provider's own forecast. Dashed: Nimbus's "
+            "estimate past the end of it, the wholesale forecast plus the markup "
+            "learned from your own price history.\n\n"
+            "**The day cards.** One per day: lowest, average and highest buy "
+            "and sell, the 17:00-21:00 evening average, the cheapest time to buy "
+            "and the best time to sell. The last line says where the prices "
+            "came from: the provider, the provider then Nimbus's estimate from "
+            "a named time, or Nimbus's estimate only.\n\n"
+            "**Limits.** Days past the provider's forecast are an estimate; "
+            "the risk sliders decide how far the plan trusts them."
+        ),
+        ("tabs/plan-prices-ahead.png", "tabs/plan-days.png"),
     ),
     (
         "Price safety: stale feeds and false spikes",
@@ -503,9 +530,15 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "yesterday is re-scored automatically.\n\n"
             "**Reliability.** A day whose inputs were not trustworthy (a stalled "
             "price feed, SoC sensors that disagree) is flagged with the reason, "
-            "not hidden."
+            "not hidden.\n\n"
+            "**Where.** Solver tab → Performance: the rings (EPR last day, battery "
+            "now, P2P matched, each out of 100), *Score by day* (EPR as the line, "
+            "regret in dollars as bars) and where the plan's cost comes from. "
+            "Money, below it: the last day scored, the plan ahead's cost with "
+            "its likely best and worst case, the five parts that add up to it, "
+            "and the plan's cost by day. Negative cost means the plan earns."
         ),
-        "setup/regret.png",
+        ("tabs/score-overview.png", "tabs/score-money.png"),
     ),
     (
         "Repairs: setup problems, found for you",
@@ -580,13 +613,20 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
 )
 
 
+def feature_images(images: str | tuple[str, ...] | None) -> tuple[str, ...]:
+    """A feature's pictures as a tuple, whichever form it was written in."""
+    if images is None:
+        return ()
+    return (images,) if isinstance(images, str) else images
+
+
 def features_markdown() -> str:
     """Every feature, collapsible, with its picture where there is one."""
     parts = ["**Every feature, explained**\n"]
-    for title, body, image in FEATURES:
+    for title, body, images in FEATURES:
         parts.append(f"<details><summary><b>{title}</b></summary>\n")
         parts.append(body)
-        if image:
+        for image in feature_images(images):
             parts.append(
                 f'\n<img src="{IMAGES_URL}/{image}" alt="{title}" width="100%">\n'
             )
