@@ -256,3 +256,29 @@ def test_a_battery_below_its_floor_never_sinks_further(site, depth):
         and (soc <= b["max_soc_kwh"] + 1e-6).all()
     )
     assert (plan.soc_penalty_cost <= 1e-6) == inside
+
+
+@SETTINGS
+@given(sites())
+def test_buying_part_of_the_limit_prices_energy_at_the_buy_price(site):
+    """LP duality (#662): in a period where the plan imports some but not all
+    it could, and exports nothing, the energy balance's shadow price per kWh
+    is that period's buy price. An adequacy load's marginal cost is that
+    price times what it draws."""
+    plan = _solve(site)
+    hours = site["hours"]
+    lam = np.array(
+        [
+            plan.duals.get(f"power_balance_t{t}", 0.0) / hours[t]
+            for t in range(len(hours))
+        ]
+    )
+    for t in range(len(hours)):
+        imp = plan.grid_import_kw[t]
+        if 1e-3 < imp < site["import_limit"] - 1e-3 and plan.grid_export_kw[t] <= 1e-6:
+            # The balance row's dual is minus the price in this LP's sign.
+            assert abs(lam[t] + site["import_price"][t]) < 1e-5, t
+    if plan.adequacy_loads:
+        (ap,) = plan.adequacy_loads
+        expected = float(np.sum(lam * ap.power_kw * hours))
+        assert abs(ap.marginal_cost - expected) < 1e-6
