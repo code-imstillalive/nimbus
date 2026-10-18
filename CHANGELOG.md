@@ -32,6 +32,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   price is the reserve's, not a market price (18 Oct: $9.29 and $45.66/kWh).
 
 ### Fixed
+- **A high salvage value no longer overfills Max SoC.** The default soft-SoC
+  penalty (#328) is 10 x the largest $/kWh signal in play: import, export
+  and terminal-value breakpoints. It left out the battery's flat salvage
+  value, so when salvage was more than 10 x every price, the plan charged past
+  Max SoC to earn it. At zero prices with a $0.25 salvage, it planned 0.80 kWh
+  against a 0.75 kWh maximum. Salvage now counts. On ordinary prices
+  nothing changes: every golden-master scenario is identical. Found by the
+  new property tests (#1837).
+
+### Fixed
 - **Control Panel on an iPhone: no more reset while you scroll** (household,
   18 Oct 2026, after 0.94.465: "still resetting. Less dramatic but
   definitely does in a very similar way"). Two causes were left. After each
