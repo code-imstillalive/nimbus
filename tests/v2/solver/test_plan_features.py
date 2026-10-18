@@ -18,12 +18,14 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver.elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
     PeriodGrid,
     SheddableLoadConfig,
     SolarConfig,
+    ThermalLoadConfig,
 )
 from solver.network import build_plan
 from test_plan_invariants import SETTINGS, TOL, _num, sites
@@ -340,3 +342,227 @@ def test_a_terminal_value_index_outside_the_grid_is_refused(n, past):
             terminal_value_breakpoints=[(8.0, 0.1)],
             terminal_value_period_indices=[n + past],
         )
+
+
+@SETTINGS
+@given(plain_sites())
+def test_a_battery_reports_the_headroom_its_plan_leaves(site):
+    """The flex signals (#495): a battery can still move up by its charge
+    limit less what it charges plus what it discharges, and down the other
+    way round, in every period."""
+    plan = _solve(site)
+    b = site["battery"]
+    (sig,) = plan.battery_signals
+    np.testing.assert_allclose(
+        sig.available_up_kw,
+        b["max_charge_kw"] - plan.battery_charge_kw + plan.battery_discharge_kw,
+        atol=1e-9,
+    )
+    np.testing.assert_allclose(
+        sig.available_down_kw,
+        b["max_discharge_kw"] - plan.battery_discharge_kw + plan.battery_charge_kw,
+        atol=1e-9,
+    )
+
+
+@SETTINGS
+@given(push_sites("charge"), _num(0.5, 1.5))
+def test_two_batteries_on_one_charger_share_its_limit(site, share):
+    """A shared charger (#467): two batteries in one group never move more
+    than its limit together, and when charging pays they use all of it
+    while either still has room."""
+    b = dict(site["battery"])
+    b["charge_power_curve"] = None
+    ceiling = round(b["max_charge_kw"] * share, 4)
+    pair = [
+        BatteryConfig(
+            **{
+                **b,
+                "name": name,
+                "shared_charger_group": "g",
+                "shared_charger_max_kw": ceiling,
+            }
+        )
+        for name in ("a", "c")
+    ]
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=4.0 * b["max_charge_kw"],
+            export_limit_kw=site["export_limit"],
+        ),
+        batteries=pair,
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    together = sum(pb.charge_kw + pb.discharge_kw for pb in plan.batteries)
+    assert (together <= ceiling + 1e-5).all()
+    h = site["hours"]
+    room = sum(b["max_soc_kwh"] - pb.soc_kwh for pb in plan.batteries)
+    # The first period: both start empty, so the charger's limit binds unless
+    # the batteries' own limits or their room bind first.
+    first = min(
+        ceiling,
+        2 * b["max_charge_kw"],
+        2 * (b["max_soc_kwh"] - b["initial_soc_kwh"]) / (b["charge_efficiency"] * h[0]),
+    )
+    assert abs(together[0] - first) < 1e-4
+    assert (room >= -1e-4).all()
+
+
+@SETTINGS
+@given(sites(), st.integers(min_value=1, max_value=23), _num(0.01, 0.2))
+def test_a_short_weather_forecast_holds_its_last_value(site, known, coeff):
+    """Ambient coupling (#481): an outdoor forecast shorter than the plan
+    holds its last value to the end, so the plan is the one a forecast padded
+    that way by hand gives."""
+    th = site["thermal"]
+    if th is None:
+        return
+    n = len(site["hours"])
+    known = min(known, n)
+    ambient = tuple(round(5.0 + 2.0 * i, 4) for i in range(known))
+    padded = ambient + (ambient[-1],) * (n - known)
+
+    def plan_with(series):
+        return build_plan(
+            periods=PeriodGrid(site["hours"]),
+            grid=GridConfig(
+                import_price=site["import_price"],
+                export_price=site["export_price"],
+                import_limit_kw=site["import_limit"],
+                export_limit_kw=site["export_limit"],
+            ),
+            batteries=[BatteryConfig(**site["battery"])],
+            solar=SolarConfig(forecast_kw=site["solar"]),
+            loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+            thermal_loads=[
+                ThermalLoadConfig(**th, loss_coeff_per_h=coeff, ambient_c=series)
+            ],
+        )
+
+    short, full = plan_with(ambient), plan_with(padded)
+    assert short.status == full.status == "optimal"
+    np.testing.assert_allclose(
+        short.thermal_loads[0].temperature_c,
+        full.thermal_loads[0].temperature_c,
+        atol=1e-6,
+    )
+    assert abs(short.total_cost - full.total_cost) < 1e-6
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=2, max_value=16),
+    st.sampled_from([5 / 60, 0.25, 0.5, 1.0]),
+    st.integers(min_value=0, max_value=4),
+    _num(0.5, 4.0),
+    st.integers(min_value=1, max_value=16),
+    _num(0.05, 5.0),
+)
+def test_a_deferral_threshold_runs_a_load_as_early_as_it_can(
+    n, width, earliest, power, periods, threshold
+):
+    """`min_deferral_saving_dollars` (#769): with the same price all day
+    there is nothing to save by waiting, so the load runs from its earliest
+    period at full power until its target is met. (A load runs on or off at
+    full power, so the target here is whole periods of it.)"""
+    earliest = min(earliest, n - 1)
+    hours = np.full(n, width)
+    periods = min(periods, n - earliest)
+    target = power * width * periods
+    plan = build_plan(
+        periods=PeriodGrid(hours),
+        grid=GridConfig(
+            import_price=np.full(n, 0.3),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=earliest,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+                min_deferral_saving_dollars=threshold,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (ap,) = plan.adequacy_loads
+    delivered = np.cumsum(ap.power_kw * hours)
+    for t in range(n):
+        reach = power * width * max(0, t - earliest + 1)
+        assert abs(delivered[t] - min(target, reach)) < 1e-4, t
+
+
+def _tiered_value(above, tiers):
+    """What a concave terminal value pays for `above` kWh over Min SoC: the
+    dearest tier first, then the next."""
+    total = 0.0
+    for width, rate in tiers:
+        take = min(width, max(0.0, above))
+        total += take * rate
+        above -= take
+    return total
+
+
+@SETTINGS
+@given(
+    plain_sites(),
+    st.lists(_num(0.1, 1.0), min_size=1, max_size=3),
+    st.lists(_num(0.0, 0.5), min_size=3, max_size=3),
+    st.frozensets(st.integers(0, 23), max_size=3),
+)
+def test_a_tiered_terminal_value_is_counted_at_each_of_its_periods(
+    site, shares, rates, extra
+):
+    """Terminal value tiers (v0.28.0, v0.42.0): the SoC above Min SoC at the last period
+    is worth the tiers, dearest first, in place of the flat salvage; each
+    extra period listed counts the same curve, split evenly between them."""
+    b = site["battery"]
+    span = b["max_soc_kwh"] - b["min_soc_kwh"]
+    if span <= 1e-3:
+        return
+    widths = [span * s / sum(shares) for s in shares]
+    widths[-1] = span - sum(widths[:-1])
+    tiers = list(zip(widths, sorted(rates[: len(widths)], reverse=True), strict=True))
+    n = len(site["hours"])
+    extra = sorted(t for t in extra if t < n - 1)
+    plan = _solve(
+        site,
+        terminal_value_breakpoints=tiers,
+        terminal_value_period_indices=extra + [n - 1] if extra else None,
+    )
+    assert plan.status == "optimal"
+    soc = plan.battery_soc_kwh
+    value = _tiered_value(soc[-1] - b["min_soc_kwh"], tiers)
+    for t in extra:
+        value += _tiered_value(soc[t] - b["min_soc_kwh"], tiers) / len(extra)
+    flat = -b["salvage_value"] * soc[-1]
+    assert abs(plan.total_cost - (_parts(site, plan) - flat - value)) < 1e-6
