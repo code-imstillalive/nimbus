@@ -215,6 +215,28 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.466",
+        "19 Oct 2026",
+        (
+            (
+                "**Battery direction:** it switches between charging and "
+                "discharging only when the switch is worth more than "
+                "*Direction Change Margin*."
+            ),
+            (
+                "**Price spikes near Min SoC:** the spike override discharges "
+                "what is left instead of leaving Nimbus without a plan."
+            ),
+            (
+                "**Setup:** the Solver wizard asks for battery capacity, charge "
+                "and discharge limits and grid import; Help shows your basic "
+                "inputs live."
+            ),
+            "**Control Panel on an iPhone** no longer resets while you scroll.",
+            "**User docs** are published at code-imstillalive.github.io/nimbus.",
+        ),
+    ),
+    (
         "0.94.465",
         "18 Oct 2026",
         (
