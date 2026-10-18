@@ -384,7 +384,7 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "**Limits.** It changes what the plan aims for. It does not tell the "
             "load forecast that nobody is home; that is issue #1847."
         ),
-        None,
+        "tabs/more-settings-household.png",
     ),
     (
         "Re-plan on price change",
@@ -424,7 +424,7 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "**Why.** Without it the plan expects a full battery sooner than it "
             "can happen and arrives at an evening block short."
         ),
-        None,
+        "tabs/more-settings-taper.png",
     ),
     (
         "Solar running low",
@@ -440,7 +440,7 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "**When it helps.** A cloudy afternoon the forecast missed: the plan "
             "stops counting on solar that is not coming."
         ),
-        None,
+        "tabs/more-settings-solar-low.png",
     ),
     (
         "Risk sliders",
@@ -547,6 +547,20 @@ FEATURES: tuple[tuple[str, str, str | None], ...] = (
             "inverter from the Solver's sensors."
         ),
         "setup/topology.png",
+    ),
+    (
+        "Diagnostics readings",
+        (
+            "**What they are.** Readings for checking the plan, nothing to set. "
+            "Solver tab → More settings → Diagnostics.\n\n"
+            "**Each one.** *Solver config* reads `configured` once the setup "
+            "wizard is complete. *Discharge efficiency* is one leg of the round "
+            "trip (0.9263 here: about 86% round trip). *Own dispatcher would set* "
+            "is what Nimbus's own dispatcher would command now, in dry run; it "
+            "commands nothing. *Counterfactual SoC* is yesterday's real closing "
+            "SoC, with what Nimbus alone would have reached in its attributes."
+        ),
+        "tabs/more-settings-diagnostics.png",
     ),
     (
         "Price records and comparison sources",
