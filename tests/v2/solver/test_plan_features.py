@@ -974,3 +974,52 @@ def test_a_short_p2p_block_costs_its_penalty_on_every_missing_kwh(site, at, kw):
     )
     short = sum(max(0.0, kw - plan.grid_export_kw[t]) * h[t] for t in window)
     assert abs(plan.total_cost - (_parts(site, plan) + rate * short)) < 1e-6
+
+
+@SETTINGS
+@given(st.integers(min_value=2, max_value=12), st.integers(min_value=0, max_value=5))
+def test_an_adequacy_deadline_past_the_plan_is_refused_naming_the_plan(n, past):
+    """An adequacy load whose deadline lies at or past the plan's last
+    period is refused before solving, and the message names the load, its
+    deadline and the plan's own range."""
+    deadline = n + past
+    with pytest.raises(ValueError) as refused:
+        build_plan(
+            periods=PeriodGrid(np.full(n, 0.5)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.3),
+                export_price=np.full(n, 0.05),
+                import_limit_kw=10.0,
+                export_limit_kw=5.0,
+            ),
+            batteries=[
+                BatteryConfig(
+                    name="b",
+                    capacity_kwh=10.0,
+                    initial_soc_kwh=5.0,
+                    min_soc_kwh=1.0,
+                    max_soc_kwh=9.0,
+                    max_charge_kw=3.0,
+                    max_discharge_kw=3.0,
+                    charge_efficiency=0.95,
+                    discharge_efficiency=0.95,
+                    charge_cost=0.006,
+                    discharge_cost=0.006,
+                    salvage_value=0.0,
+                    available=False,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+            adequacy_loads=[
+                AdequacyLoadConfig(
+                    name="pool",
+                    max_power_kw=1.0,
+                    target_kwh=1.0,
+                    deadline_period=deadline,
+                    shortfall_price=1.0,
+                )
+            ],
+        )
+    msg = str(refused.value)
+    assert "'pool'" in msg and f"({deadline})" in msg and f"(0..{n - 1})" in msg
