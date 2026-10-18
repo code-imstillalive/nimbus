@@ -1047,7 +1047,7 @@ def test_the_loss_tie_break_costs_what_its_rate_says(site):
     assert abs(plan.battery_loss_tiebreak_cost - expected) < 1e-9
 
 
-def _pool_plan(n, width, power, price, threshold, windows=None):
+def _pool_plan(n, width, power, price, threshold, windows=None, earliest=0):
     return build_plan(
         periods=PeriodGrid(np.full(n, width)),
         grid=GridConfig(
@@ -1080,7 +1080,7 @@ def _pool_plan(n, width, power, price, threshold, windows=None):
                 name="pool",
                 max_power_kw=power,
                 target_kwh=power * width,
-                earliest_period=0,
+                earliest_period=earliest,
                 deadline_period=n - 1,
                 shortfall_price=20.0,
                 min_deferral_saving_dollars=threshold,
@@ -1096,18 +1096,29 @@ def _pool_plan(n, width, power, price, threshold, windows=None):
     st.sampled_from([0.25, 0.5, 1.0]),
     _num(0.5, 3.0),
     _num(0.02, 0.2),
+    st.integers(min_value=1, max_value=3),
 )
-def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(n, width, power, cut):
+def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(
+    n, width, power, cut, earliest
+):
     """`min_deferral_saving_dollars` (#769): when waiting for the cheaper half
-    of the day saves less than the threshold, the load runs at its earliest
-    period instead; with the threshold set well under the saving, it waits."""
+    of the day saves less than the threshold, the load runs before it
+    instead; with the threshold well under the saving, it waits. The window
+    starts after period 0, so its hours must be measured from its own start."""
     half = n // 2
+    earliest = min(earliest, half - 1)
     price = np.array([0.3] * half + [0.3 - cut] * (n - half))
     saving = cut * power * width
-    held = _pool_plan(n, width, power, price, threshold=saving * 10.0)
+    window_h = width * (n - 1 - earliest)
+    late_h = width * (half - earliest)
+    # The lateness cost of waiting to `half` is threshold x late_h / window_h;
+    # these thresholds put it just above the saving (1.1x), so a window
+    # measured wrongly flips the decision, and at a hundredth of it.
+    blocking = saving * 1.1 * window_h / late_h
+    held = _pool_plan(n, width, power, price, blocking, earliest=earliest)
     assert held.status == "optimal"
     assert float(np.sum(held.adequacy_loads[0].power_kw[:half])) > 1e-6
-    waits = _pool_plan(n, width, power, price, threshold=saving * 0.01)
+    waits = _pool_plan(n, width, power, price, saving * 0.01, earliest=earliest)
     assert float(np.sum(waits.adequacy_loads[0].power_kw[:half])) <= 1e-6
 
 
@@ -1124,3 +1135,34 @@ def test_an_adequacy_window_past_the_plan_is_refused_naming_the_plan(n, past):
         _pool_plan(n, 0.5, 1.0, np.full(n, 0.3), 0.0, windows=window)
     msg = str(refused.value)
     assert f"({deadline})" in msg and f"(0..{n - 1})" in msg
+
+
+@SETTINGS
+@given(plain_sites(), _num(-1.0, 1.0))
+def test_a_period0_pin_holds_the_battery_at_its_rate(site, share):
+    """The period-0 pin (#1417, behind #1654's direction hysteresis): a pinned
+    net rate is what period 0 does, discharging for a positive pin and
+    charging for a negative one, within what the battery and the site can
+    take that period."""
+    b = site["battery"]
+    h0 = float(site["hours"][0])
+    if share >= 0:
+        room = min(
+            b["max_discharge_kw"],
+            max(0.0, b["initial_soc_kwh"] - b["min_soc_kwh"])
+            * b["discharge_efficiency"]
+            / h0,
+            float(site["load"][0]) + site["export_limit"],
+        )
+    else:
+        room = min(
+            b["max_charge_kw"],
+            max(0.0, b["max_soc_kwh"] - b["initial_soc_kwh"])
+            / (b["charge_efficiency"] * h0),
+            site["import_limit"] - float(site["load"][0]),
+        )
+    pin = round(share * max(0.0, room) * 0.99, 4)
+    plan = _solve(site, period0_pin_net_kw=pin)
+    assert plan.status == "optimal"
+    assert abs(plan.battery_discharge_kw[0] - max(pin, 0.0)) < 1e-5
+    assert abs(plan.battery_charge_kw[0] - max(-pin, 0.0)) < 1e-5
