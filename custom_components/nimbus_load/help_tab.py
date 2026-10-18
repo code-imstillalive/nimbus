@@ -162,6 +162,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.464",
+        "18 Oct 2026",
+        (
+            (
+                "**Bank solar first:** a switch on the Battery card that charges "
+                "solar into the battery before any is exported."
+            ),
+            (
+                "**More settings** on the Solver tab: household mode, pricing "
+                "source, re-planning, charge taper and the solar check."
+            ),
+            "**Features, explained** below, with pictures.",
+        ),
+    ),
+    (
         "0.94.463",
         "18 Oct 2026",
         (

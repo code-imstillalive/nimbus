@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.464] - 2026-10-18
+
+A switch to bank solar in the battery before exporting any, a More
+settings band on the Solver tab with the controls only one household's
+dashboard showed, and a Help tab that explains every feature with
+screenshots.
+
 ### Added
 - **Bank solar first** (#1843, household, 18 Oct 2026). A switch on the
   Solver tab's Battery card, off by default. On, solar the battery can take
@@ -19,6 +26,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   waiting on the forecast. The floor is soft, at the plan's soft-SoC
   penalty, so a price spike and a committed P2P period still sell, and it
   adds no binaries.
+- **More settings band on the Solver tab** (household, 18 Oct 2026). Every
+  Nimbus control and reading the reference household's own dashboard used
+  that the Solver tab did not show, so every install has them: household
+  mode, pricing source, re-plan on price change and its delay, price-to-plan
+  time; charge taper (start and power at full); solar running low (judge
+  above, on below, off above, confirm for); and a Diagnostics card
+  (solver config, discharge efficiency, dispatch dry run, counterfactual
+  SoC). Each has its Help entry. (#1848)
+- **Help tab: every feature explained, with pictures** (household, 18 Oct
+  2026). A Features band before Each tab: one folded entry per feature,
+  saying what it does, where it is, how to use it and its limits, with
+  screenshots (the battery plan, prices ahead and each day's prices, the
+  daily score, Stochastic and the More settings cards). The setup screens
+  are pictured under Start here. Pictures are served from this repo, and a
+  test fails if one is missing. (#1850)
+
+### Changed
+- **Tests run faster on pull requests** (#1837, Mark Purcell). The
+  18-minute coverage-gate self-compare runs on a PR only when the PR changes
+  the gate or pytest's config, and the stub suite runs in parallel. A PR's
+  stub tests went from 26 min to under 3 min; every push to `main` still
+  runs the full suite. No shipped code changed. (#1845, #1849, #1851)
 
 ## [0.94.463] - 2026-10-18
 
@@ -26,6 +55,37 @@ Repairs that catch a battery still on its placeholder settings, a load
 forecast whose lower bound can no longer dip below zero, and the decision
 records now keep the LocalVolts price array and any comparison price sources,
 for scoring how prices should be combined (#1786).
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 168e647d**,
+  installed untagged via HACS from `release/0.94.463` and restarted 08:15 AEST
+  18 Oct.
+  - 147 / 147 `nimbus_load` entities available; devhub's own entities stamp
+    `0.94.463` (the rest carry production's mirrored 0.94.461). No Nimbus
+    ERROR line; the start logs only the devhub-only baseline (duplicate
+    unique IDs from the production mirror, oversized attributes, the
+    synthetic test EV unreadable).
+  - **Comparison price sources:** set on devhub to its Amber Express general
+    and feed-in sensors and the AEMO QLD1 30-minute forecast; every other
+    option read back unchanged. The first horizon record after the reload
+    (08:20:15) carries 8 price series against 4 before: LocalVolts buy and
+    sell, the price array as `series_fields` `costsflexup` and
+    `earningsflexup` (fingerprints identical to the buy and sell series, so
+    stored once), PD7DAY, P5MIN, both Amber series (`amber_express`, 46 rows)
+    and AEMO (`aemo_nem`, 40 rows).
+  - **Battery-settings Repairs:** 0 Repairs, the correct answer for devhub's
+    real settings (122.2 kWh, 40 / 40 kW, 42 kW import, SoC 2-100%). The
+    firing path is not exercised on devhub, because that would mean writing
+    entities production shares; it is covered by
+    `tests/test_1800_placeholder_settings_repairs.py`.
+  - **Load band floor:** not claimed live, because devhub's forecast entities
+    are production's mirror; covered by
+    `tests/test_1835_load_band_never_negative.py`.
+  - CI passed every check on #1833, #1836, #1839 and #1841.
+- Consumer check: Settings → Repairs names a battery still on its 0.1
+  placeholders, or Min / Max / Charge By SoC that contradict, and clears
+  itself once fixed. A load's forecast band no longer dips below zero. Solver
+  settings → Sources → Advanced gains *price sources to record for comparison
+  only*; the plan never uses it.
 
 ### Added
 - **Price sources recorded for comparison** (#1786, Mark Purcell). The decision
