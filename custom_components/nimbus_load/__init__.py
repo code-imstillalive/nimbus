@@ -1399,7 +1399,16 @@ async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) 
     async_update_and_abort / subentry deletion) triggers this automatically
     -- this is what makes adding load #2 through #18 take effect immediately
     with no restart, matching HAEO's own hot-add behaviour for its elements.
+
+    nimbus #1574 (DC-004 step 5b): not while the device model is writing its
+    views. It writes a number, subentry fields and the options in turn, and a
+    reload mid-way would start from half-written settings; it reloads once
+    itself when it has finished, and only if a setting changed.
     """
+    from . import device_contract_ha
+
+    if device_contract_ha.writing_views(hass, entry.entry_id):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

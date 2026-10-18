@@ -119,37 +119,71 @@ async def async_preview(hass: Any, entry: Any) -> dict[str, Any]:
     }
 
 
+#: hass.data key: per entry, how many update-listener calls the view
+#: write itself caused and the listener should let pass without a reload.
+_OWN_UPDATES = f"{DOMAIN}_device_contract_own_updates"
+
+
+def writing_views(hass: Any, entry_id: str) -> bool:
+    """Called by the update listener: True (and counted off) when this call
+    was caused by a view write, which reloads once itself when it is done.
+    HA fires the listeners once per update that changed something, and the
+    view write counts exactly those, so nothing depends on timing."""
+    pending = hass.data.get(_OWN_UPDATES, {})
+    if pending.get(entry_id, 0) > 0:
+        pending[entry_id] -= 1
+        return True
+    return False
+
+
 def _store(hass: Any, entry: Any) -> device_storage.ContractStore:
     return device_storage.ContractStore(device_storage.ha_backend(hass, entry.entry_id))
 
 
 async def _async_write_views(
     hass: Any, entry: Any, document: dict[str, Any], revision: int
-) -> str | None:
+) -> tuple[str | None, bool]:
     """Step 2 of the commit order: write every owned key that differs from the
     view of `document`, then the options with the marker last, so the marker
-    is set only once the rest is written. Returns an error code, or None."""
+    is set only once the rest is written. Each update the listener will see
+    is counted, so the listener lets those pass instead of reloading
+    half-way; the caller reloads once afterwards if a setting changed.
+    Returns (error code or None, whether a setting changed); a marker-only
+    write changes no setting."""
     from .flows import live_numbers
 
     writes = device_import.view_writes(
         device_import.legacy_view(document), snapshot(hass, entry)
     )
+    changed = any(writes[part] for part in ("options", "numbers", "subentries"))
+    own = hass.data.setdefault(_OWN_UPDATES, {})
+    # Count only what a listener will see: at start-up recovery none is
+    # registered yet, and a stray count would swallow a real edit later.
+    listening = bool(getattr(entry, "update_listeners", None))
     if writes["numbers"]:
         skipped = await live_numbers.async_apply(
             hass, entry.entry_id, writes["numbers"]
         )
         if skipped:
-            return "number_not_written"
-    for sid, changed in writes["subentries"].items():
+            return "number_not_written", changed
+    for sid, fields in writes["subentries"].items():
         sub = entry.subentries[sid]
-        hass.config_entries.async_update_subentry(
-            entry, sub, data={**sub.data, **changed}
+        if (
+            hass.config_entries.async_update_subentry(
+                entry, sub, data={**sub.data, **fields}
+            )
+            and listening
+        ):
+            own[entry.entry_id] = own.get(entry.entry_id, 0) + 1
+    if (
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, **writes["options"], VIEW_REVISION_KEY: revision},
         )
-    hass.config_entries.async_update_entry(
-        entry,
-        options={**entry.options, **writes["options"], VIEW_REVISION_KEY: revision},
-    )
-    return None
+        and listening
+    ):
+        own[entry.entry_id] = own.get(entry.entry_id, 0) + 1
+    return None, changed
 
 
 async def async_commit_active(
@@ -171,10 +205,12 @@ async def async_commit_active(
     )
     if not committed.ok:
         return {"ok": False, "code": committed.code, "mode": "active"}
-    code = await _async_write_views(hass, entry, document, committed.revision)
+    code, changed = await _async_write_views(hass, entry, document, committed.revision)
     if code:
         return {"ok": False, "code": code, "mode": "active"}
     await store.async_set_view_revision(committed.revision)
+    if changed:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
     return {
         "ok": True,
         "code": committed.code,
@@ -216,16 +252,17 @@ async def async_recover(hass: Any, entry: Any) -> str:
         )
         return "fell_back"
     behind = marker is None or int(marker) < state["revision"]
+    changed = False
     if behind:
-        code = await _async_write_views(
+        code, changed = await _async_write_views(
             hass, entry, state["document"], state["revision"]
         )
         if code:
             return code
     if behind or state.get("view_revision") != state["revision"]:
         await store.async_set_view_revision(state["revision"])
-        # Only a write to the settings needs the components to reload.
-        return "regenerated" if behind else "marked"
+        # Only a change to a setting needs the components to reload.
+        return "regenerated" if changed else "marked"
     return "none"
 
 
@@ -262,7 +299,7 @@ async def async_set_mode(hass: Any, entry: Any, mode: str) -> dict[str, Any]:
     if result.ok and mode == "active":
         # The dry run was clean, so the views equal today's settings: this
         # writes the marker and nothing else.
-        code = await _async_write_views(
+        code, _changed = await _async_write_views(
             hass, entry, state["document"], state["revision"]
         )
         if code:
