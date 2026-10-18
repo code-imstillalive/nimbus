@@ -55,6 +55,12 @@ def _solve(site, *, solar_band=None, plan_options=None, **battery_overrides):
     )
 
 
+def _solve_with_adequacy(site):
+    from test_plan_invariants import _solve as solve_all
+
+    return solve_all(site)
+
+
 @st.composite
 def plain_sites(draw):
     """`sites()` without the adequacy and thermal loads (their penalties add
@@ -1191,3 +1197,96 @@ def test_the_grid_flex_signals_agree_with_the_lp(site):
         rc_out = plan.reduced_costs.get(f"grid_export_{t}", 0.0)
         assert abs(sig.forced_import_cost[t] * h[t] - rc_in) < 1e-9, t
         assert abs(sig.forced_export_cost[t] * h[t] - rc_out) < 1e-9, t
+
+
+@SETTINGS
+@given(plain_sites())
+def test_export_comes_only_from_solar_and_the_battery(site):
+    """No power bought from the grid is sold back to it: in every period the
+    export is at most the solar used plus the battery's discharge."""
+    plan = _solve(site)
+    assert (
+        plan.grid_export_kw <= plan.solar_used_kw + plan.battery_discharge_kw + 1e-6
+    ).all()
+
+
+@SETTINGS
+@given(plain_sites())
+def test_with_no_export_import_reaches_its_own_limit_before_the_valve(site):
+    """With export shut (limit 0) and the load above the import limit, import
+    within the limit is used to the full before the release valve: the
+    combined import + export cap must never squeeze import below its own
+    limit."""
+    site["export_limit"] = 0.0
+    site["import_limit"] = round(float(site["load"].max()) * 0.5, 4)
+    plan = _solve(site, available=False)
+    assert plan.status == "optimal"
+    within = plan.grid_import_kw - plan.grid_import_excess_kw
+    for t in np.flatnonzero(plan.grid_import_excess_kw > 1e-6):
+        assert within[t] >= site["import_limit"] - 1e-5, t
+
+
+@SETTINGS
+@given(sites())
+def test_a_run_once_load_runs_in_one_unbroken_block(site):
+    """Adequacy loads are run-once by default (#616, `adequacy_semi_continuous`):
+    the load is on in one unbroken run of periods, at full power, never split
+    into two runs however the prices fall."""
+    if site["adequacy"] is None:
+        return
+    plan = _solve_with_adequacy(site)
+    assert plan.status == "optimal"
+    on = np.flatnonzero(plan.adequacy_loads[0].power_kw > 1e-6)
+    if len(on):
+        assert on[-1] - on[0] + 1 == len(on), on
+
+
+@pytest.mark.parametrize("width", [0.25, 0.5, 1.0])
+def test_a_run_once_load_stays_in_one_block_even_when_splitting_is_cheaper(width):
+    """Two cheap pairs of periods with dear ones between: one run of four
+    periods has to cross the dear ones, two runs would not. A run-once load
+    (#616) still runs in one unbroken block."""
+    price = np.array([0.05, 0.05, 1.0, 1.0, 0.05, 0.05, 1.0, 1.0])
+    n = len(price)
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=np.zeros(n),
+            import_limit_kw=10.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=2.0,
+                target_kwh=2.0 * width * 4,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    pool = plan.adequacy_loads[0]
+    on = np.flatnonzero(pool.power_kw > 1e-6)
+    assert len(on) == 4 and on[-1] - on[0] == 3, on
