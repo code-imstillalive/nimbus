@@ -35,8 +35,11 @@ from solver.elements import (
 from solver.network import build_plan
 
 TOL = 1e-5
+# derandomize: the same generated sites on every run, so a mutation
+# comparison (scripts/mutation_compare.py) measures the code, not the draw.
 SETTINGS = settings(
     max_examples=40,
+    derandomize=True,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow],
 )
