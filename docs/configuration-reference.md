@@ -204,9 +204,9 @@ optional; fill in whichever your hardware exposes:
 ## Live Solver tuning knobs (`number.nimbus_solver_*`)
 
 Every plain numeric Solver setting is its own dashboard-editable entity —
-tune these directly, no need to re-run the wizard. Auto-generated from
-`number.py`'s own real `_DESCRIPTIONS` table, so this stays accurate as
-fields are added.
+tune these directly, no need to re-run the wizard. Every entry in
+`number.py`'s `_DESCRIPTIONS` table must have a row here:
+`tests/test_docs_every_number_setting_listed.py` fails otherwise.
 
 | Entity | Purpose | Default | Range | Unit |
 |---|---|---|---|---|
@@ -254,6 +254,27 @@ fields are added.
 | `number.nimbus_solver_solar_running_low_on_percent` | Solar Running Low On Below: actual PV under this share of the p50 reference turns the gate on | 70.0 | 1-100 | % |
 | `number.nimbus_solver_solar_running_low_off_percent` | Solar Running Low Off Above: once on, actual PV over this share turns it off | 90.0 | 1-100 | % |
 | `number.nimbus_solver_solar_running_low_confirm_minutes` | Solar Running Low Confirm: every reading must stay below *On Below* for this long before it turns on; 0 = on at the first low reading | 10.0 | 0-60 | min |
+| `number.nimbus_solver_battery_reserve_percent` | Battery Reserve: The bottom share of the battery kept back between the hold times | 0.0 | 0-100 | % |
+| `number.nimbus_solver_battery_reserve_release_price` | Battery Reserve Release Price: The reserve is sold only when the price beats this margin | 0.0 | 0-20 | $/kWh |
+| `number.nimbus_solver_period0_hysteresis` | Direction Change Margin: Keeps the battery charging, holding or discharging unless a switch saves more than this | 0.01 | 0-1 | $ |
+| `number.nimbus_solver_charge_taper_start_percent` | Charge Taper Start: SoC at which the charge limit starts to fall | 90.0 | 50-100 | % |
+| `number.nimbus_solver_charge_power_at_full_percent` | Charge Power at Full: Charge power left at 100% SoC, as % of max charge | 10.0 | 0-100 | % |
+| `number.nimbus_solver_fixed_daily_charge` | Fixed Daily Charge: Your daily supply charge | 0.0 | 0-50 | $/day |
+| `number.nimbus_solver_post_window_self_consume_hours` | Post-Window Self-Consume Hours: After a P2P block closes at midnight, the battery only self-consumes this long | 4 | 0-24 | h |
+| `number.nimbus_solver_inverter_self_consumption_kw` | Inverter Self-Consumption: Power the inverter uses itself, always on | 0.0 | 0-5 | kW |
+| `number.nimbus_solver_p2p_block_lead_time_minutes` | P2P Block Lead Time: Starts each block this many minutes early | 0 | 0-59 | min |
+| `number.nimbus_solve_on_price_change_debounce_s` | Solve on Price Change Debounce: Re-plan delay: price updates within this many seconds make one solve | 5.0 | 0.1-60 | s |
+| `number.nimbus_solver_aemo_p5min_disagreement_threshold_dollars` | AEMO P5MIN Disagreement Threshold: Flags when your retail price departs from AEMO's live price by more than usual | 0.1 | 0-2 | $/kWh |
+| `number.nimbus_solver_p5min_false_spike_threshold_mwh` | P5MIN False Spike Threshold: A forecast price at or above this counts as a spike the guard checks | 5000.0 | 0-23200 | AUD/MWh |
+| `number.nimbus_solver_stochastic_stage1_minutes` | Stochastic Commit Window: Commit window: how far ahead a decision must suit all three solar days | 30.0 | 5-120 | min |
+| `number.nimbus_solver_stochastic_tail_weight` | Stochastic Low High Day Weight: Day weight w for the low and high solar days | 0.3 | 0.05-0.45 | (none) |
+| `number.nimbus_solver_stochastic_drive_budget_seconds` | Stochastic Drive Time Limit: Drive time limit: past it, the main plan runs that cycle | 10.0 | 2-60 | s |
+| `number.nimbus_solver_stochastic_shadow_interval_minutes` | Stochastic Check Every: How often it re-plans while off (shadow) | 5.0 | 1-60 | min |
+| `number.nimbus_solver_intraplan_smoothness_weight_kw` | Intra-Plan Smoothness Weight: Penalty on battery power changing between periods | 0.005 | 0-0.1 | $/kWh |
+| `number.nimbus_solver_proximal_weight_kw` | Cross-Solve Proximal Weight: Penalty on changing the plan from the last solve | 0.005 | 0-0.1 | $/kWh |
+| `number.nimbus_solver_battery_charge_earliness_budget_kw` | Battery Charge Earliness Weight: Tie-break toward charging earlier when two plans cost the same | 0.005 | 0-0.1 | $/kWh |
+| `number.nimbus_solver_price_spike_threshold` | Price Spike Threshold: A price at or above this is a spike | 0.0 | 0-20 | $/kWh |
+| `number.nimbus_solver_price_spike_discharge_kw` | Price Spike Discharge Rate: How hard to sell into a spike when armed | 0.0 | 0-100 | kW |
 
 **Notes:**
 
@@ -282,6 +303,20 @@ fields are added.
   the blend itself, remembered from 30 minutes earlier (so not in the first
   30 minutes after a restart). Needs `solver_solar_power_sensor`. Its state
   and evidence are published as `solve_diagnostics.solar_running_low`.
+- **Battery Reserve** (#1654): the bottom *Reserve* % of the battery is kept
+  between *Hold from* and *Release at*, and sold only above *Release Price*.
+  It is soft: a price above the release price, or an armed price spike,
+  goes through it.
+- **Direction Change Margin** (#1654): a new plan only switches the battery
+  between charging, holding and discharging when the switch saves more than
+  this over the plan. It stops the battery flipping modes for fractions of a
+  cent. 0 = off.
+- **Price Spike Threshold / Discharge Rate** (#567, #694): with the override
+  armed and the current price at or above the threshold, the battery
+  discharges at the set rate now, down to Min SoC (never below), through any
+  reserve. Inside a P2P block on a spike day the block's rate drops to its
+  matched volume + 10 % and becomes a floor; everything above it is free for
+  the spike, re-planned every solve.
 - **Risk Aversion / Import Price Risk Aversion / Export Price Risk
   Aversion** are unitless (0 = ignore forecast uncertainty entirely, 1 =
   fully hedge toward the pessimistic confidence bound). Import and export

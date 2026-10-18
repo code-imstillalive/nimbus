@@ -67,7 +67,8 @@ Before designing a solver, load-model, scoring or output mechanism:
    - a `## [X.Y.Z]` CHANGELOG section;
    - the `manifest.json` version bump;
    - a `help_tab.WHATS_NEW` entry;
-   - the previous release's `Devhub validation:` and `Consumer check:` lines carried back to `main`.
+   - the previous release's `Devhub validation:` and `Consumer check:` lines carried back to `main`;
+   - the user docs (`docs/`, published at code-imstillalive.github.io/nimbus) updated for every change in it a user would see: a new, changed or removed setting, entity, tab or behaviour. Household, 18 Oct 2026: "make sure these are kept up to date each release". `tests/test_docs_every_number_setting_listed.py` catches a missing or removed setting; other changes are checked by hand.
 2. Cut `release/X.Y.Z` from the merge commit. Install it on devhub untagged via HACS, restart, and validate.
 3. Merge a verdict PR into `release/X.Y.Z`, carrying `Devhub validation: ... at <commit>` and `Consumer check:`. "Devhub validation: not claimed, because X" is a valid answer.
 4. Tag the head of `release/X.Y.Z`, never `main`'s tip. `release.yml`'s gate publishes the GitHub Release only when the lines are present and `custom_components/` matches the validated commit.
@@ -84,6 +85,7 @@ Before designing a solver, load-model, scoring or output mechanism:
 5. If a subentry or wizard field changed, exercise the reload path.
 6. Open the card or page a household member would use, and say what they would see.
 7. Write what was verified in the CHANGELOG, and what was not, with the reason.
+   After the release, open the published docs page for each changed feature and confirm it says what the release does.
 8. For a callable surface (a service, a field, a wizard step), exercise it with a realistic partial input and read back what was persisted.
 9. Confirm the touched issues are in the state you intended.
 
