@@ -873,6 +873,25 @@ async def _async_setup_entry_impl(
         monotonic() - _forward_started,
     )
 
+    # nimbus #1574 (DC-004 step 5b): an entry in the device model's `active`
+    # mode regenerates its settings if a commit was interrupted. After the
+    # platforms, so the number entities exist; before the update listener, so
+    # its own write does not reload mid-setup. If it wrote anything, one
+    # reload follows so every component reads the recovered settings, and that
+    # second start finds nothing to do. Every entry today is `legacy`, where
+    # this reads one store and returns.
+    from . import device_contract_ha
+
+    try:
+        recovered = await device_contract_ha.async_recover(hass, entry)
+    except Exception:  # a recovery fault must not stop the rest of setup
+        _LOGGER.exception(
+            "Nimbus: device setup recovery failed; it runs again at the next start"
+        )
+        recovered = "error"
+    if recovered == "regenerated":
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     # After the platforms, not before (11 Oct 2026): the Solver tab resolves

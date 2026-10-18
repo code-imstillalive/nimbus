@@ -9,6 +9,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Device setup: active mode** (#1574, DC-004 step 5b).
+  `nimbus_load.device_contract_set_mode` now accepts `active`, from
+  `shadow` only and on a clean dry run. Entering it changes no setting: the
+  dry run already showed the settings equal the device document, so it
+  records only `device_contract_view_revision` in the options. A later
+  commit in active mode follows the spec's order:
+  1. the store;
+  2. the changed numbers, subentry fields and options, with the marker last;
+  3. the store's own marker.
+
+  Each start checks that order. If the store is ahead (an interrupted
+  commit), it rewrites the settings from the stored document and reloads
+  once. If the options are ahead, which the order never produces, it falls
+  back to shadow and raises a Repair rather than guess. Going back to
+  `legacy` leaves the settings as they are. Every install is `legacy`
+  today, where the start-up check reads one store and returns.
+
+  Not in this step: drift Repairs and number write-through (step 5c).
+
 - **Device setup: a store for the device document** (#1574, DC-004 step 3).
   `device_storage.py` keeps one revisioned copy per install. Commits are
   compare-and-swap, so two editors can't overwrite each other; every commit
@@ -32,8 +51,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - `nimbus_load.device_contract_set_mode` moves between `legacy` and
     `shadow`. Shadow saves the device document alongside your settings, and is
     refused unless the dry run is clean. Your options, subentries and number
-    entities stay the master and are never written. `active` is refused until
-    step 5b.
+    entities stay the master and are never written.
 
   Also fixed in the import: a Setup Builder step stored as `option:<key>` now
   counts as confirmed. A real-HA test checks that the options, every subentry

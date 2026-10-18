@@ -486,6 +486,8 @@ _DC_BUILDERS = frozenset(
         "device_storage.py",
         "device_contract_ha.py",
         "services.py",
+        # DC-004 step 5b: the start-up recovery call, nothing else.
+        "__init__.py",
     }
 )
 

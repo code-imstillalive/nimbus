@@ -643,7 +643,11 @@ Edit inline on the dashboard without touching the wizard:
   `active`). `shadow` saves the device document alongside today's settings
   and is refused unless the dry run is clean; `legacy` goes back. Today's
   options, subentries and number entities stay the master and are never
-  written. `active` is refused until DC-004 step 5b.
+  written. `active`, from `shadow` only and again on a clean dry run, puts
+  the device model in charge: entering it changes no setting and records
+  `device_contract_view_revision` in the options; later commits write the
+  changed settings in a fixed order, and each start repairs an interrupted
+  one. Going back to `legacy` leaves the settings as they are.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.

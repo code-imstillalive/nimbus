@@ -575,7 +575,7 @@
     },
     "device_contract_set_mode": {
       "name": "Set device setup mode",
-      "description": "legacy (today's settings, the default) or shadow (the device model is stored and compared; today's settings stay in charge). Shadow is refused unless the dry run is clean. Active is not available yet. Writes only the device store, never your settings.",
+      "description": "legacy (today's settings, the default), shadow (the device model is stored and compared; today's settings stay in charge) or active (the device model is in charge and today's settings are generated from it). Shadow and active are refused unless the dry run is clean, and active only from shadow. Entering active changes no setting; it records the revision your settings now come from.",
       "fields": {
         "mode": {
           "name": "Mode",
@@ -585,6 +585,10 @@
     }
   },
   "issues": {
+    "device_contract_inconsistent": {
+      "title": "Nimbus: device setup out of step",
+      "description": "The settings say the device setup is at revision {options_revision}, but its saved copy is only at revision {store_revision}. Nimbus can't tell which is right, so it has gone back to shadow mode: your settings are in charge again and nothing has been changed. Check the settings, then run the Nimbus action **Set device setup mode** to go back to active."
+    },
     "forecast_not_trained": {
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."
