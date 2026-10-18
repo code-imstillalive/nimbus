@@ -16,6 +16,43 @@ Min SoC, the Solver wizard asks for the battery's size and power limits,
 the Help tab shows your basic inputs live, and the user docs are
 published. The Control Panel no longer resets on an iPhone.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 53520eda**,
+  installed untagged via HACS from `release/0.94.466` and restarted 03:59 AEST
+  19 Oct.
+  - 148 / 148 `nimbus_load` entities registered, none unavailable. 14 read
+    `unknown` right after the start: the test loads' `cost_avoided_today` and
+    `temperature_forecast`, and the two mirror weather forecasts, which
+    publish nothing until a forecast series exists. devhub's own entities
+    stamp `0.94.466`; the rest carry production's mirrored 0.94.465.
+  - **Solve:** devhub's own solve after the start, read through
+    `nimbus_load.get_stochastic_summary` (this install's solver, not the
+    mirrored sensor): `optimal`, deterministic 26.3 s and the stochastic
+    shadow 83.4 s, `direction_exclusivity: not_needed`.
+    `nimbus_load.solve_now` ran with no error logged.
+  - **Log:** no Nimbus ERROR or traceback of its own; the start logs the
+    devhub-only baseline (duplicate unique IDs and entity renames blocked by
+    the production mirror, oversized attributes, recorder unit changes), as
+    on v0.94.465, plus the test EV's below-floor notice and forecast drift
+    notes.
+  - **New setting:** `number.nimbus_solver_period0_hysteresis` (*Direction
+    Change Margin*) is registered and reads its default, 0.01 AUD.
+  - **Not claimed live:** `period0_hysteresis` and the reserve's dual on the
+    plan, because devhub's canonical plan sensor carries production's
+    mirrored data (devhub's own cannot register); covered by
+    `tests/test_1654_period0_hysteresis.py`, and read on production after
+    the household deploys. The spike override near Min SoC: no spike on
+    devhub; covered by `tests/test_spike_override_at_the_floor.py` and the
+    #1837 property tests. The wizard's new fields and the Help tab's basic
+    inputs: this workstation cannot reach devhub's UI; covered by
+    `tests/hass_integration/test_1800_live_numbers_written.py` and
+    `tests/test_1800_help_basic_inputs.py`.
+  - CI passed every check on #1860, #1862, #1864, #1865, #1867, #1868,
+    #1871, #1872 and #1879.
+- Consumer check: the Solver tab has *Direction Change Margin*; Configure →
+  Solver asks for battery capacity, charge and discharge limits and grid
+  import; Help → Start here shows the basic inputs with ✅ or ⬜; the Control
+  Panel stays put while you scroll on an iPhone.
+
 ### Added
 - **The Help tab lists your basic inputs, live** (#1800). Under Start here,
   next to the step checklist, a table shows what the Solver reads now: State
