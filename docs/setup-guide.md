@@ -342,18 +342,26 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 ### Screen 1 of 3: "Solver: Battery"
 
-**Exactly one required field.**
+**One required field, and the battery's three numbers.**
 
 | Field | What to put |
 |---|---|
 | **🔴 Battery State of Charge sensor (%)** | Your inverter's own live SoC sensor. A real 0 to 100 % measurement, not a target or setpoint. |
+| Battery capacity (kWh) | The whole system's usable capacity. See [§7](#7-set-your-real-battery-and-grid-numbers) for matching it to your SoC sensor. |
+| Max charge power (kW) | The system's AC charge limit, from the inverter. |
+| Max discharge power (kW) | The system's AC discharge limit, from the inverter. |
 | Live max-discharge setpoint entity | **Leave blank.** Correct for almost every install. |
+
+The three numbers are written to the same live `number.*` entities the Solver
+tab shows, so you can change them there later without re-running the wizard. A
+blank field keeps the current value. Screen 2 asks for **Grid max import (kW)**
+the same way ([#1800](https://github.com/code-imstillalive/nimbus/issues/1800)).
 
 ![Solver Battery, screen 1 of 3, with the State of Charge sensor selected](images/setup/solver-wizard-1-battery.png)
 
-> **Set capacity and power limits after the wizard.**
-> These are live `number.*` entities.
-> Complete [§7](#7-set-your-real-battery-and-grid-numbers) before evaluating the plan.
+> **Check the rest in [§7](#7-set-your-real-battery-and-grid-numbers)** before
+> evaluating the plan: SoH, Min and Max SoC, efficiency and grid max export are
+> still set on their live `number.*` entities.
 
 <a id="screen-2-of-3--solver-grid-prices"></a>
 
@@ -508,9 +516,11 @@ Submit. **Expected outcome:** the dialog closes and a batch of new
 
 **This is the single most important step in this guide, and the easiest to miss.**
 
-Numeric Solver settings live on `number.*` entities, not in the wizard.
-On a fresh installation, capacity and several power limits start at placeholder
-values of **0.1**. Other settings have their own defaults.
+Numeric Solver settings live on `number.*` entities. The wizard asks for four
+of them (capacity, max charge, max discharge, grid max import) and writes your
+answers there. On a fresh installation any of the four left blank, and grid max
+export, stay at the placeholder **0.1**, and a Repair says so. Other settings
+have their own defaults.
 Existing installations can restore previously saved values.
 
 An incorrect capacity can still produce an optimal solve.

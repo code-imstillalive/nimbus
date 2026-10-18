@@ -17,6 +17,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   change margin and the charge taper among them), and a test now fails when a
   setting is added or removed without its row.
 
+### Changed
+- **The Solver wizard asks for the battery's capacity and power limits**
+  (#1800). Screen 1 now asks for battery capacity, max charge and max
+  discharge, and screen 2 for grid max import. Each is pre-filled with its
+  current value (blank while it still sits on the 0.1 placeholder) and written
+  to the same live number entity the Solver tab shows. Before, a new install
+  had to find those four entities on a dashboard after setup, with a Repair
+  the only pointer. They are not stored in the integration's options, so each
+  setting still has one place it lives. A blank field keeps the current value.
+
 ### Fixed
 - **An armed price-spike override no longer leaves Nimbus without a plan
   when the battery is near its minimum.** The override (#567) forced period
