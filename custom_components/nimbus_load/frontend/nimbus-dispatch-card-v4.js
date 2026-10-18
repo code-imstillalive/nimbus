@@ -900,7 +900,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
     if (!this._built) { this.attachShadow({mode: 'open'}); this._built = true; }
 
-    this.shadowRoot.innerHTML =
+    const html =
       '<style>' +
         /* nimbus issue #400 (Mark Purcell): the right column's grid-track
            minimum (below) and table.ftable's own real min-width used to be
@@ -1443,6 +1443,30 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="tuning-row" style="border-top:none; padding-top:0; margin-top:0;">' + econItems + '</div>' +
       '</div>';
 
+    // Household, 18 Oct 2026 (phone): "When scrolling down user cannot stop
+    // and see data cos page instantly scrolls back up." Every rebuild used
+    // to replace the whole shadow DOM, including the forecast table's
+    // 640px scroll box -- most of a phone screen -- so the element under
+    // the finger was torn out mid-swipe every 3 s. After the first build
+    // the new markup is patched onto the existing nodes instead
+    // (nimbusPatchChildren): only changed text and attributes are written,
+    // and the nodes being scrolled stay where they are.
+    if (!this._patched) {
+      this.shadowRoot.innerHTML = html;
+      this._patched = true;
+    } else {
+      const tpl = document.createElement('template');
+      tpl.innerHTML = html;
+      nimbusPatchChildren(this.shadowRoot, tpl.content);
+    }
+    // Nodes kept by the patch keep their listeners; bind only new ones.
+    if (!this._bound) this._bound = new WeakSet();
+    const fresh = (el) => {
+      if (!el || this._bound.has(el)) return false;
+      this._bound.add(el);
+      return true;
+    };
+
     // Restore the forecast table's own scroll position immediately -- see
     // the comment at the top of _render() for why this is needed at all.
     const newWrap = this.shadowRoot.querySelector('.ftable-wrap');
@@ -1450,14 +1474,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
     if (newWrap && prevScrollLeft) newWrap.scrollLeft = prevScrollLeft;
 
     this.shadowRoot.querySelectorAll('.mode-chip').forEach(btn => {
-      btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
+      if (fresh(btn)) btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
     });
     const killSwitch = this.shadowRoot.getElementById('kill-switch');
-    if (killSwitch) killSwitch.addEventListener('click', () => this._toggleArmed());
+    if (fresh(killSwitch)) killSwitch.addEventListener('click', () => this._toggleArmed());
     const solveNowBtn = this.shadowRoot.getElementById('solve-now-btn');
-    if (solveNowBtn) solveNowBtn.addEventListener('click', () => this._solveNow());
+    if (fresh(solveNowBtn)) solveNowBtn.addEventListener('click', () => this._solveNow());
     this.shadowRoot.querySelectorAll('.risk-slider').forEach(el => {
-      const valueLabel = this.shadowRoot.querySelector('[data-risk-value="' + el.dataset.entity + '"]');
+      if (!fresh(el)) return;
+      const valueLabel = () => this.shadowRoot.querySelector('[data-risk-value="' + el.dataset.entity + '"]');
       const startDrag = () => { this._sliderDragging = true; };
       const endDrag = () => {
         this._sliderDragging = false;
@@ -1465,7 +1490,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
       };
       el.addEventListener('pointerdown', startDrag);
       el.addEventListener('input', () => {
-        if (valueLabel) valueLabel.textContent = parseFloat(el.value).toFixed(2);
+        const label = valueLabel();
+        if (label) label.textContent = parseFloat(el.value).toFixed(2);
         el.style.setProperty('--risk-pct', (parseFloat(el.value) * 100) + '%');
       });
       el.addEventListener('change', endDrag);
@@ -1475,6 +1501,43 @@ class NimbusDispatchCardV4 extends HTMLElement {
     });
   }
 }
+// Patch `target`'s children to match `source`'s (a parsed template), reusing
+// every node whose type and tag still match, so a re-render keeps the nodes
+// a user is scrolling, touching or typing into. Replaced only where the
+// structure differs. Household phone report, 18 Oct 2026.
+function nimbusPatchChildren(target, source) {
+  const want = Array.from(source.childNodes);
+  for (let i = 0; i < want.length; i++) {
+    const next = want[i];
+    const cur = target.childNodes[i];
+    if (!cur) {
+      target.appendChild(next);
+      continue;
+    }
+    const same = cur.nodeType === next.nodeType && cur.nodeName === next.nodeName;
+    if (!same) {
+      target.replaceChild(next, cur);
+      continue;
+    }
+    if (cur.nodeType !== 1) {
+      if (cur.nodeValue !== next.nodeValue) cur.nodeValue = next.nodeValue;
+      continue;
+    }
+    for (const a of Array.from(cur.attributes)) {
+      if (!next.hasAttribute(a.name)) cur.removeAttribute(a.name);
+    }
+    for (const a of Array.from(next.attributes)) {
+      if (cur.getAttribute(a.name) !== a.value) cur.setAttribute(a.name, a.value);
+    }
+    if (cur.tagName === 'INPUT' && cur !== (cur.getRootNode().activeElement)) {
+      const v = next.getAttribute('value');
+      if (v !== null && cur.value !== v) cur.value = v;
+    }
+    nimbusPatchChildren(cur, next);
+  }
+  while (target.childNodes.length > want.length) target.removeChild(target.lastChild);
+}
+
 // nimbus #1601: Home Assistant replaces window.customElements with its scoped
 // custom-element-registry polyfill shortly after the page starts. A card that
 // registers before that swap lands in the browser's native registry, which HA
