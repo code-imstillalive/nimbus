@@ -20,6 +20,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   same elements, the chart still redrawn and each tap handled once. Not
   checked on a phone yet.
 
+### Changed
+- **P5MIN false-spike guard: rule (d), Mark Purcell's dispatch-side test,
+  now arms the guard** (#1778). A control-room (`CA_`) constraint binding in
+  dispatch, which the P5MIN run's first interval carries at under 0.6 of
+  dispatch's right-hand side (or violates) while dispatch is normal, now
+  raises the false-spike flag. Before, this check only reported. It needs no
+  forecast violation, so it also covers a run that binds the wrong limit
+  without breaking it, which rule (c) cannot see. It releases when AEMO
+  corrects the limit. Only `CA_` rows count: replayed on every P5MIN run of
+  13-16 Oct 2026 (1,152, NEMWeb Archive), `CA_` rows read 0.46-0.50 in every
+  false-spike run and 0.96-1.09 in all ~160 others, while interconnector and
+  ramp rows read under 0.6 on ordinary runs every day. On those four days
+  the guard arms and releases on exactly the same runs as before; rule (d)
+  adds cover, not a change. `dispatch_rhs_check.mode` reads
+  `control_room_live` and carries `control_room_suspect`.
+
 ## [0.94.464] - 2026-10-18
 
 A switch to bank solar in the battery before exporting any, a More

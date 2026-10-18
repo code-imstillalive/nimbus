@@ -1,6 +1,8 @@
 """Dispatch-side RHS check for a P5MIN false spike (nimbus #1778, Mark
-Purcell's "stronger version", 16 Oct 2026). DIAGNOSTIC ONLY: it changes no
-price; the guard in p5min_guard.py does that, on its own rules.
+Purcell's "stronger version", 16 Oct 2026). The comparison itself changes
+no price. Its `control_room_suspect` evidence (a suspect `CA_` row, see
+`CONTROL_ROOM_PREFIX`) feeds rule (d) of p5min_guard.py; the broader
+`rhs_suspect` and `flag` stay diagnostic.
 
 On both false-spike days AEMO's forecast runs applied a `CA_BRIS_*`
 control-room constraint at about half the right-hand side dispatch used:
@@ -55,6 +57,15 @@ NORMAL_DISPATCH_MWH = 1000.0
 #   `CA_BRIS_59E2F7DC_1`: an id rollover, which rule (c) of p5min_guard.py
 #   (the forecast's own violation) still covers.
 FCAS_PREFIX = "F_"
+# Control-room constraint automation (AEMO's `CA_` ids). Rule (d) of
+# p5min_guard.py arms on these rows only. Measured on every P5MIN run of 13-16
+# Oct 2026 (1,152 runs, the DispatchIS interval before each): `CA_` rows read
+# 0.46-0.50 of dispatch's RHS in every false-spike run (15 Oct 15:55-16:15,
+# 16 Oct 10:00-10:50) and 0.96-1.09 in all ~160 others, so 0.6 separates them
+# with no false positive. Other binding rows (interconnector limits such as
+# `NRM_NSW1_VIC1` or `V::N_NIL_V2`, `#R..._RAMP` ramp rows) read under 0.6 on
+# ordinary runs every day, which is why `rhs_suspect` stays diagnostic.
+CONTROL_ROOM_PREFIX = "CA_"
 # Rows kept on the attribute: enough to explain a flag, small enough to record.
 MAX_ROWS = 5
 _NEM = timezone(timedelta(hours=10))
@@ -155,13 +166,14 @@ def compare(
     rows are the binding constraints P5MIN also carries, suspect first, then
     lowest ratio."""
     out: dict[str, Any] = {
-        "mode": "diagnostic",
+        "mode": "control_room_live",
         "flag": False,
         "ratio_max": RATIO_MAX,
         "dispatch_interval_end": None,
         "dispatch_rrp": None,
         "forecast_peak": forecast_peak_mwh,
         "rhs_suspect": False,
+        "control_room_suspect": False,
         "constraints": [],
     }
     if dispatch is None:
@@ -201,6 +213,14 @@ def compare(
     # P5MIN-spike gate never fired while the RHS ratio read 0.46-0.49 from
     # 10:00. A consumer holding the plan's own forward prices gates on this.
     out["rhs_suspect"] = bool(normal and any(r["suspect"] for r in rows))
+    # Rule (d)'s evidence: a suspect row that is a control-room constraint.
+    out["control_room_suspect"] = bool(
+        normal
+        and any(
+            r["suspect"] and r["constraint_id"].startswith(CONTROL_ROOM_PREFIX)
+            for r in rows
+        )
+    )
     out["flag"] = bool(spike and out["rhs_suspect"])
     out["reason"] = (
         "suspect_forecast_rhs"

@@ -10,7 +10,7 @@ its forecast ($26.31/kWh import, $23.86 feed-in, 16:15-17:59), and an
 optimiser reading it charged from the grid to sell into a spike that stayed
 one interval ahead until it vanished.
 
-Three rules raise the flag, kept in `FalseSpikeGuard`:
+Four rules raise the flag, kept in `FalseSpikeGuard`:
 
 * **(a) infeasible spike** -- a run with an interval at or above the spike
   threshold AND at least one violated generic constraint
@@ -36,13 +36,23 @@ Three rules raise the flag, kept in `FalseSpikeGuard`:
   0.38-0.49 through the 16 Oct spike and 1.00 once it cleared. Measured:
   0.52-0.75 in every 15 Oct spiked run, 0.55-0.70 on 16 Oct 09:55-10:50,
   0.96 for 16 Oct 11:10's 79 MW violation at normal prices.
+* **(d) control-room constraint at a fraction of dispatch's limit** --
+  Mark Purcell's dispatch-side test (#1778, 16 Oct 2026): a `CA_`
+  constraint binding in the latest dispatch interval (non-zero marginal
+  value, no violation) carries a right-hand side in the P5MIN run's first
+  interval under 0.6 of dispatch's, or the forecast violates it, while
+  dispatch is normal (`dispatch_rhs.compare`'s `control_room_suspect`). It
+  needs no violation in the forecast, so it covers a forecast that binds the
+  wrong limit without breaking it, which (c) cannot see. Measured on every
+  P5MIN run of 13-16 Oct 2026 (1,152): `CA_` rows read 0.46-0.50 in every
+  false-spike run and 0.96-1.09 in all ~160 others.
   The flag changes no price on its own: the solver replaces forward prices
   only when they carry a spike, so a flag with no pending spike is inert.
 
 It releases on a dispatch interval at or above the threshold, on a run with
 no spike interval left, or 60 minutes after the last run that still met rule
-(a). Each run that still forecasts the spike AND still violates a constraint
-renews it: on 16 Oct 2026 the same false spike sat in the forecasts from
+(a). Each run that still forecasts the spike AND still violates a constraint,
+or still meets (c) or (d), renews it: on 16 Oct 2026 the same false spike sat in the forecasts from
 13:00 to 16:00, so a fixed 60 minutes from the first flag would have let go
 before the hours an optimiser sells into. A spike run that no longer
 violates anything does not renew it, so the 60 minutes still bound how long
@@ -96,6 +106,7 @@ MAX_AGE = timedelta(minutes=60)
 REASON_INFEASIBLE = "infeasible_spike"
 REASON_DISPATCH = "dispatch_disagrees"
 REASON_CONTROL_ROOM = "control_room_constraint"
+REASON_DISPATCH_RHS = "control_room_rhs"
 # Rule (c): RHS / (RHS + violation) at or below this is a material violation.
 CONTROL_ROOM_MAX_RATIO = 0.8
 RELEASE_DISPATCH_SPIKE = "dispatch_spiked"
@@ -154,6 +165,22 @@ def control_room_violation(run: dict[str, Any] | None) -> dict[str, Any] | None:
         and _ratio(v) <= CONTROL_ROOM_MAX_RATIO
     ]
     return max(rows, key=lambda v: v["violation"]) if rows else None
+
+
+def _rhs_evidence(rhs: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Rule (d)'s detail: the lowest-ratio suspect `CA_` row of a
+    `dispatch_rhs.compare()` result whose `control_room_suspect` holds (it
+    already requires normal dispatch), with the dispatch price, or None."""
+    if not isinstance(rhs, dict) or not rhs.get("control_room_suspect"):
+        return None
+    rows = [
+        r
+        for r in rhs.get("constraints") or []
+        if r.get("suspect") and str(r.get("constraint_id", "")).startswith("CA_")
+    ]
+    if not rows:
+        return None
+    return {**rows[0], "dispatch_rrp": rhs.get("dispatch_rrp")}
 
 
 def infeasible_spike(
@@ -241,7 +268,14 @@ class FalseSpikeGuard:
             self._release(RELEASE_TIMEOUT, now)
             self.latched = True
 
-    def on_run(self, run: dict[str, Any] | None, published: datetime | None) -> None:
+    def on_run(
+        self,
+        run: dict[str, Any] | None,
+        published: datetime | None,
+        rhs: dict[str, Any] | None = None,
+    ) -> None:
+        """One P5MIN run. `rhs` is `dispatch_rhs.compare()` for the run and
+        the dispatch interval before it, or None; rule (d) reads it."""
         rows = (run or {}).get("forecast") or []
         if not rows:
             return
@@ -252,10 +286,10 @@ class FalseSpikeGuard:
         self.expire(published)
         spike = has_spike(rows, self.threshold)
         # The threshold at 0 turns the guard off, rule (c) included.
-        control_room = (
-            control_room_violation(run) if math.isfinite(self.threshold) else None
-        )
-        if not spike and control_room is None:
+        live = math.isfinite(self.threshold)
+        control_room = control_room_violation(run) if live else None
+        dispatch_rhs = _rhs_evidence(rhs) if live else None
+        if not spike and control_room is None and dispatch_rhs is None:
             if self.active and published is not None:
                 self._release(RELEASE_CLEAN, published)
             self.latched = False
@@ -271,6 +305,8 @@ class FalseSpikeGuard:
             and self.last_dispatch < DISPATCH_CEILING_KWH
         ):
             reason, hit = REASON_CONTROL_ROOM, dict(control_room)
+        if hit is None and dispatch_rhs is not None:
+            reason, hit = REASON_DISPATCH_RHS, dispatch_rhs
         if hit is None:
             return
         if self.active:
@@ -321,6 +357,16 @@ class FalseSpikeGuard:
 
     def describe(self, run: dict[str, Any] | None) -> str:
         """One log line for a run while the flag holds."""
+        if self.reason == REASON_DISPATCH_RHS:
+            d = self.detail
+            return (
+                f"Nimbus #1778: P5MIN run {(run or {}).get('run_datetime')} "
+                f"distrusted ({self.reason} since {self.since.isoformat() if self.since else None}): "
+                f"constraint {d.get('constraint_id')} at RHS {d.get('forecast_rhs')} MW "
+                f"against dispatch's {d.get('dispatch_rhs')} MW (ratio {d.get('ratio')}); "
+                f"forward spike prices >= {self.threshold:.2f}/kWh in the scheduling "
+                f"prices are replaced until it releases"
+            )
         head = _headline(run or {}) or {}
         return (
             f"Nimbus #1778: P5MIN run {(run or {}).get('run_datetime')} "
