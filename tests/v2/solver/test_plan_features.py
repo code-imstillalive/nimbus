@@ -749,3 +749,60 @@ def test_a_one_period_spike_near_min_soc_stays_feasible(width, above):
     )
     assert plan.status == "optimal"
     assert abs(plan.battery_discharge_kw[0] - above * 0.95 / width) < 1e-5
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=4, max_value=12),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    _num(0.5, 3.0),
+    _num(0.02, 0.2),
+)
+def test_with_no_threshold_a_load_waits_for_any_real_saving(n, width, power, cut):
+    """`min_deferral_saving_dollars` defaults to none (#769): when the later
+    half of the day is cheaper by even a few cents, a load with no threshold
+    runs there, not at its earliest period."""
+    half = n // 2
+    price = np.array([0.3] * half + [0.3 - cut] * (n - half))
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=np.full(n, 0.0),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="b",
+                capacity_kwh=10.0,
+                initial_soc_kwh=5.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=9.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=3.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.006,
+                discharge_cost=0.006,
+                salvage_value=0.0,
+                available=False,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=power,
+                target_kwh=power * width,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (ap,) = plan.adequacy_loads
+    assert float(np.sum(ap.power_kw[:half])) <= 1e-6
+    assert abs(float(np.sum(ap.power_kw * width)) - power * width) < 1e-6
