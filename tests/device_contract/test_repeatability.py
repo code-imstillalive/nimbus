@@ -60,6 +60,12 @@ def _outcomes(node_ids: list[str]) -> dict[str, str]:
                 "-c",
                 _RUNNER,
                 str(ids_file),
+                # Its own basetemp (#1837): a child given the shared one
+                # numbers a new pytest-N directory and prunes the oldest,
+                # which under pytest-xdist can be a sibling worker's, deleting
+                # the negative control's test file mid-run.
+                "--basetemp",
+                str(Path(tmp) / "basetemp"),
                 "-q",
                 "-rA",
                 "-p",
@@ -70,7 +76,12 @@ def _outcomes(node_ids: list[str]) -> dict[str, str]:
             capture_output=True,
             text=True,
             check=False,
-            env={**os.environ, "PYTHONHASHSEED": "0"},
+            # A fresh interpreter: nothing from a parent run under pytest-xdist
+            # (#1837) may reach it, or the child behaves as an xdist worker.
+            env={
+                **{k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")},
+                "PYTHONHASHSEED": "0",
+            },
         )
     outcomes: dict[str, str] = {}
     for line in proc.stdout.splitlines():

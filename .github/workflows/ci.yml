@@ -318,6 +318,7 @@ jobs:
         run: |
           pytest tests/ --ignore=tests/hass_integration/ \
             ${MARKER:+-m "$MARKER"} \
+            -n auto \
             -p no:homeassistant \
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \

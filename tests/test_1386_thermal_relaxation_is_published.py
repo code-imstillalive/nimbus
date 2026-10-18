@@ -110,7 +110,8 @@ class TestThePublishedShape(unittest.TestCase):
         this attribute is read back from recorder history where the type has to
         be stable."""
         for relaxed in ([], ["Tank"], ("Tank",), None, ...):
-            with self.subTest(relaxed=relaxed):
+            # repr: pytest-xdist sends subtest labels between processes (#1837).
+            with self.subTest(relaxed=repr(relaxed)):
                 self.assertIsInstance(_published(relaxed)[FIELD], list)
 
 

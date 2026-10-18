@@ -68,6 +68,8 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    # nimbus #1837: the stub run uses -n auto in CI (see ci.yml).
+    "pytest-xdist>=3.6",
     "pytest-asyncio>=0.23",
     # Provides the @pytest.mark.freeze_time marker that five test files
     # and one test method depend on. Declared explicitly because it was
