@@ -59,12 +59,17 @@ EXPECTED_FIELDS = (
     # nimbus #1786: AEMO plus markup, scored as a price source of its own.
     "aemo_import_series",
     "aemo_export_series",
+    # nimbus #1786: how the AEMO source was priced, and the site's factor.
+    "aemo_source",
+    "loss_factor",
 )
 
 
 #: Fields main() does not unpack: apply_price_consolidation() reads them off
 #: the PriceArrays main() passes it (nimbus #1786).
-_READ_THROUGH_CONSOLIDATION = frozenset({"aemo_import_series", "aemo_export_series"})
+_READ_THROUGH_CONSOLIDATION = frozenset(
+    {"aemo_import_series", "aemo_export_series", "aemo_source", "loss_factor"}
+)
 
 
 def _module_source(mod):

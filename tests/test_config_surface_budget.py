@@ -99,7 +99,16 @@ EXPECTED_KEY_COUNTS = {
     # through remote_homeassistant, so their registry platform is the mirror
     # (measured 18 Oct) and pricing_autodetect's provider lookup finds
     # neither. It names entities, so it cannot be a device config entity.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 29,
+    # nimbus #1786 (Mark): 29 -> 31, two OPTIONAL fields,
+    # `solver_loss_factor_tni_sensor` and `solver_loss_factor_dlf_code_sensor`:
+    # the sensors holding the site's TNI and DLF code, whose loss factors are
+    # then looked up in AEMO's tables. #449's question: they name entities,
+    # so they cannot be device config entities, and where they CAN be
+    # discovered they are -- on LocalVolts v2 they are pre-filled from its
+    # `metadata_tni` / `metadata_dlf` sensors by unique_id
+    # (pricing_autodetect.LV_V2_OPTIONAL_PROFILE), as #1537 did. The factor
+    # values themselves are never a field: they come from AEMO's tables.
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 31,
 }
 
 # (required, optional) per schema builder. `_switchboard_schema` reads as
@@ -114,7 +123,8 @@ EXPECTED_SPLIT = {
     "_solver_grid_schema": (2, 7),
     # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
     # nimbus #1786: 15 -> 16 optional (comparison-only price sources).
-    "_solver_sources_schema": (2, 16),
+    # nimbus #1786: 16 -> 18 optional (the site's TNI and DLF code sensors).
+    "_solver_sources_schema": (2, 18),
     "_switchboard_schema": (0, 1),
 }
 

@@ -88,6 +88,8 @@ from ..const import (
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
@@ -660,6 +662,22 @@ def _solver_sources_schema(
                     )
                 },
             ): _entity(),
+            # nimbus #1786: the two codes that identify the site's loss
+            # factors in AEMO's tables (see const.py).
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR
+                    )
+                },
+            ): _entity(),
             vol.Optional(
                 CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
                 description={
@@ -1226,6 +1244,8 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_PRICE_COMPARISON_SENSORS,

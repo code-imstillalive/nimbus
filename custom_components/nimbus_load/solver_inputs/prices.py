@@ -46,7 +46,7 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver_inputs import price_freshness  # type: ignore[no-redef]
 
-from . import price_consolidation
+from . import loss_factors, price_consolidation
 
 
 def _bucket_5min(t):
@@ -98,6 +98,13 @@ class PriceArrays:
     # its own by the consolidation shadow. None on the generic branch.
     aemo_import_series: object = None
     aemo_export_series: object = None
+    # nimbus #1786: "retail_from_rrp" when the site's loss factors are known
+    # (the retail price built from AEMO's RRP: RRP x MLF x DLF plus the network
+    # export tariff; on import, plus the network import tariff and retailer
+    # usage fees, all x 1.1 GST), else "aemo_markup" (RRP plus one learned
+    # offset, as before); and the factor, for `price_consolidation.loss_factor`.
+    aemo_source: str = "aemo_markup"
+    loss_factor: dict | None = None
 
 
 def build_price_arrays(
@@ -177,6 +184,34 @@ def build_price_arrays(
         except Exception as e:  # noqa: BLE001 -- a shadow input must never break a solve
             solver_shared._LOGGER.debug("Nimbus #1786: AEMO series failed: %s", e)
             aemo_import_series = aemo_export_series = None
+        # nimbus #1786 (Mark): with the site's loss-factor codes, the AEMO
+        # source is the retail price built from the RRP by contract -- RRP x
+        # MLF x DLF plus the learned network tariffs and retailer usage fees,
+        # GST on import. Shadow only: the offsets
+        # above, which also extend the live plan past its price source's own
+        # coverage, are untouched.
+        aemo_source = "aemo_markup"
+        loss_factor = None
+        try:
+            factored = _retail_from_rrp(
+                sw,
+                cfg,
+                now,
+                grid_times,
+                aemo_forecast,
+                import_history,
+                export_history,
+                same_poll_wholesale,
+            )
+        except Exception as e:  # noqa: BLE001 -- a shadow input must never break a solve
+            solver_shared._LOGGER.debug(
+                "Nimbus #1786: loss-factor series failed: %s", e
+            )
+            factored = None
+        if factored is not None:
+            aemo_import_series, aemo_export_series, loss_factor = factored
+            if aemo_import_series is not None:
+                aemo_source = "retail_from_rrp"
         # Real empirical price bands for price_risk_aversion (2026-08-21,
         # task #128 -- see compute_price_percentile_band()'s own docstring).
         # A SEPARATE, longer (14-day, vs the 5-day history already fetched
@@ -494,6 +529,8 @@ def build_price_arrays(
         import_price_upper_band = {}
         export_price_lower_band = {}
         aemo_import_series = aemo_export_series = None
+        aemo_source = "aemo_markup"
+        loss_factor = None
     return PriceArrays(
         spot_import_raw=spot_import_raw,
         spot_export=spot_export,
@@ -507,4 +544,90 @@ def build_price_arrays(
         price_source_freshness=price_source_freshness,
         aemo_import_series=aemo_import_series,
         aemo_export_series=aemo_export_series,
+        aemo_source=aemo_source,
+        loss_factor=loss_factor,
     )
+
+
+def _loss_factor_codes(sw, cfg) -> tuple[str | None, str | None]:
+    """The site's TNI and DLF code, from the two configured sensors' states
+    (nimbus #1786). None for a blank field or an unreadable state."""
+
+    def state(key: str) -> str | None:
+        entity_id = cfg.get(key)
+        if not entity_id:
+            return None
+        try:
+            value = sw.ha_get(entity_id).get("state")
+        except Exception as e:  # noqa: BLE001 -- an unreadable code is no code
+            solver_shared._LOGGER.debug("Nimbus #1786: %s unreadable: %s", entity_id, e)
+            return None
+        if value in (None, "", "unknown", "unavailable"):
+            return None
+        return str(value)
+
+    return (
+        state("solver_loss_factor_tni_sensor"),
+        state("solver_loss_factor_dlf_code_sensor"),
+    )
+
+
+def _retail_from_rrp(
+    sw,
+    cfg,
+    now,
+    grid_times,
+    aemo_forecast,
+    import_history,
+    export_history,
+    same_poll_wholesale,
+):
+    """(import series, export series, loss-factor summary) priced by contract,
+    or None when the site has no codes configured. With codes that can't be
+    looked up, the series are None and the summary says why."""
+    tni, dlf_code = _loss_factor_codes(sw, cfg)
+    if tni is None and dlf_code is None:
+        return None
+    looked_up = loss_factors.site_factor(tni, dlf_code, now)
+    summary = {
+        "tni": tni,
+        "dlf_code": dlf_code,
+        "financial_year": loss_factors.financial_year(now),
+        "value": None if looked_up.value is None else round(looked_up.value, 6),
+        "reason": looked_up.reason,
+    }
+    if looked_up.value is None:
+        return None, None, summary
+
+    def export_scale(t):
+        return loss_factors.site_factor(tni, dlf_code, t).value
+
+    def import_scale(t):
+        k = export_scale(t)
+        return None if k is None else k * loss_factors.IMPORT_GST
+
+    spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
+    fees_import = sw.compute_5min_offset(
+        import_history,
+        regional_spot_sensor=spot_sensor,
+        same_poll_wholesale=same_poll_wholesale,
+        wholesale_scale=import_scale,
+    )
+    fees_export = sw.compute_5min_offset(
+        export_history,
+        regional_spot_sensor=spot_sensor,
+        same_poll_wholesale=same_poll_wholesale,
+        wholesale_scale=export_scale,
+    )
+    rrp_now = None
+    if spot_sensor:
+        value = sw.price_now(spot_sensor, fallback=float("nan"))
+        rrp_now = None if math.isnan(value) else float(value)
+    out = []
+    for fees, scale in ((fees_import, import_scale), (fees_export, export_scale)):
+        out.append(
+            price_consolidation.retail_from_rrp_series(
+                grid_times, aemo_forecast, fees, _bucket_5min, scale, rrp_now
+            )
+        )
+    return out[0], out[1], summary
