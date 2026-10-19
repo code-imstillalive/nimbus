@@ -788,3 +788,173 @@ def add_provider_profiles(
         findings=findings,
         problems=dc.validate(document),
     )
+
+
+# --- Step 3: history pairing (DC-005 "Evidence", decision 4) -----------------
+#
+# Only for a device whose energy the proposal binds but whose power it does
+# not: the Energy Dashboard named a counter and no `stat_rate`. #1590's
+# `match_power_sensor` integrates each candidate power sensor hour by hour
+# against that counter, both signs. History may not decide alone (the spec's
+# evidence table), so even a clean match is a question to confirm, with its
+# error and sign; it never becomes a binding here.
+
+Q_CONFIRM_MATCH = "confirm_history_match"
+F_PAIRING = "history_pairing_inconclusive"
+
+# kind -> (role the positive counter fills, role the opposite one fills)
+_PAIRING_COUNTERS = {
+    "grid": ("import_energy", "export_energy"),
+    "battery": ("discharge_energy", "charge_energy"),
+    "solar": ("energy", None),
+    "load": ("energy", None),
+}
+_OPPOSITE = {
+    "import": "export",
+    "discharge": "charge",
+    "generation": "consumption",
+    "consumption": "generation",
+}
+
+
+def pairing_targets(proposal: Proposal) -> dict[str, tuple[str, str | None]]:
+    """{device id: (positive counter statistic, opposite counter or None)}
+    for every device that has energy but no power: what the HA side must
+    fetch history for, and for which devices it must offer candidates."""
+    out: dict[str, tuple[str, str | None]] = {}
+    for device in proposal.document["devices"]:
+        roles = _PAIRING_COUNTERS.get(device["kind"])
+        bindings = device.get("bindings") or {}
+        if roles is None or "power" in bindings:
+            continue
+        stats = [
+            (bindings.get(role) or {}).get("source", {}).get("statistic_id")
+            if role
+            else None
+            for role in roles
+        ]
+        if stats[0]:
+            out[device["id"]] = (stats[0], stats[1])
+    return out
+
+
+def add_history_pairing(
+    proposal: Proposal,
+    candidates: Mapping[str, Mapping[str, dr.Series]],
+    statistics: Mapping[str, dr.Series],
+    start: Any,
+    end: Any,
+    *,
+    registry_ids: Mapping[str, str] | None = None,
+) -> Proposal:
+    """`proposal` with a question or a finding for each pairing target
+    (`pairing_targets`). `candidates[device_id]` are the power sensors the HA
+    side offers for that device (the same HA device narrows the search, never
+    decides it); `statistics` holds each counter's history over [start, end).
+    A device asked about already, or offered no candidates, is left alone."""
+    regs = registry_ids or {}
+    document = copy.deepcopy(proposal.document)
+    questions = copy.deepcopy(proposal.questions)
+    findings = copy.deepcopy(proposal.findings)
+    asked = {(q.get("device"), q.get("role")) for q in questions}
+    kinds = {d["id"]: d["kind"] for d in document["devices"]}
+
+    for device_id, (out_stat, in_stat) in sorted(pairing_targets(proposal).items()):
+        offered = candidates.get(device_id)
+        if not offered or (device_id, "power") in asked:
+            continue
+        energy_out = statistics.get(out_stat)
+        energy_in = statistics.get(in_stat) if in_stat else None
+        if energy_out is None or (in_stat and energy_in is None):
+            findings.append(
+                {
+                    "code": F_PAIRING,
+                    "device": device_id,
+                    "status": dr.INSUFFICIENT,
+                    "reason": "no counter history to compare against",
+                }
+            )
+            continue
+        match = dr.match_power_sensor(
+            offered, start, end, energy_out=energy_out, energy_in=energy_in
+        )
+        direction = CANONICAL_POWER_DIRECTION[kinds[device_id]]
+        evidence = {
+            "kind": "history_pairing",
+            "window": [str(start), str(end)],
+            "status": match.status,
+            "error": match.error,
+            "ranking": [list(r) for r in match.ranking],
+        }
+        if match.status == dr.CANDIDATE and match.entity_id is not None:
+            native = direction if match.sign != -1 else _OPPOSITE[direction]
+            source: dict[str, Any] = {
+                "kind": "entity_state",
+                "entity_id": match.entity_id,
+            }
+            if match.entity_id in regs:
+                source["registry_id"] = regs[match.entity_id]
+            questions.append(
+                {
+                    "code": Q_CONFIRM_MATCH,
+                    "device": device_id,
+                    "role": "power",
+                    "candidates": [
+                        {
+                            "source": match.entity_id,
+                            "binding_source": source,
+                            "normalization": {
+                                "positive_direction": direction,
+                                "native_positive_direction": native,
+                            },
+                            "evidence": [evidence],
+                        }
+                    ],
+                }
+            )
+        elif match.status == dr.AMBIGUOUS:
+            questions.append(
+                {
+                    "code": Q_SEVERAL_SOURCES,
+                    "device": device_id,
+                    "role": "power",
+                    "candidates": [
+                        {
+                            "source": entity_id,
+                            "binding_source": {
+                                "kind": "entity_state",
+                                "entity_id": entity_id,
+                                **(
+                                    {"registry_id": regs[entity_id]}
+                                    if entity_id in regs
+                                    else {}
+                                ),
+                            },
+                            "evidence": [evidence],
+                        }
+                        for entity_id, _err in match.ranking
+                        if _err <= match.error + dr.TIE_ABS
+                    ],
+                }
+            )
+        else:
+            findings.append(
+                {
+                    "code": F_PAIRING,
+                    "device": device_id,
+                    "status": match.status,
+                    "reason": match.reason,
+                }
+            )
+    return Proposal(
+        document=document,
+        questions=questions,
+        findings=findings,
+        problems=dc.validate(document),
+    )
+
+
+CANONICAL_POWER_DIRECTION = {
+    kind: dc.CANONICAL_ROLE_DIRECTION[(kind, "power")]
+    for kind in ("grid", "battery", "solar", "load")
+}

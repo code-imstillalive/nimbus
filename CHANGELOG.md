@@ -35,6 +35,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   settlement are reported, because the device model has no role of their
   own for them yet. Nothing reads it yet.
 
+- **Device setup: history pairing in discovery** (#1574, DC-005 step 3). For
+  a device the Energy Dashboard gives energy but no power, discovery compares
+  each candidate power sensor's history with the energy counter, hour by
+  hour and both signs (#1590's matcher). A clear match is still a question to
+  confirm, with its error and sign; two equal readings are asked together;
+  too little history is said, never read as zero. Nothing reads it yet.
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price
