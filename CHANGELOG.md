@@ -50,6 +50,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   question, and reordering the Energy Dashboard changes nothing. Nothing is
   applied.
 
+- **Device setup: discover and confirm on your install** (#1574, DC-005
+  step 5a). Two new services. `nimbus_load.device_contract_discover` reads
+  your Energy Dashboard and the recognised price providers (found by their
+  own unique ids, so a renamed sensor is still found) and returns the
+  proposal, or the differences against your stored device setup. It changes
+  nothing. `nimbus_load.device_contract_confirm` saves what you accept, in
+  shadow or active mode only: every chosen source is first read through
+  Nimbus's own reader, and one it cannot read (missing, the wrong unit, an
+  unknown provider format) refuses the whole confirmation. A stale or
+  unavailable source is accepted and flagged. No service outside Nimbus is
+  called.
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price

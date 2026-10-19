@@ -1351,6 +1351,8 @@ From Developer Tools → Actions, or any automation:
 | `nimbus_load.flex_telemetry_record` | Returns a nem-flex-telemetry v2.0 record. Needs `switch.nimbus_solver_flex_signals_enabled` on, which costs real solve time |
 | `nimbus_load.device_contract_preview` | A dry run of the new device setup on your install: which devices it would build, any conflict between your settings, and every setting that would change (none, on a clean install). Changes nothing |
 | `nimbus_load.device_contract_set_mode` | `shadow` keeps a copy of the device setup alongside your settings, and is refused unless the dry run is clean. `legacy` goes back. `active` (from `shadow`, on a clean dry run) puts the device setup in charge; entering it changes no setting. Going back to `legacy` leaves your settings as they are. In active, a setting you change elsewhere raises a Repair: *Keep my change* or *Restore*. The same choice is `select.nimbus_device_setup_mode`, on the Solver tab under the price-safety cards |
+| `nimbus_load.device_contract_discover` | What Nimbus finds from your Energy Dashboard and recognised price providers (LocalVolts v2, Amber Express, Amber Electric): the devices and sources it proposes, the questions it needs answered, and what it read but did not use. With a stored device setup, the differences against it. Changes nothing |
+| `nimbus_load.device_contract_confirm` | Saves what you accepted from discovery as a new revision of the device setup, in shadow or active mode. Anything discovery did not offer, or a source Nimbus cannot read with its unit and adapter, refuses the whole confirmation and changes nothing |
 
 ## 20. Actually driving your battery with the plan
 

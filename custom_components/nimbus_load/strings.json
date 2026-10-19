@@ -573,6 +573,24 @@
       "name": "Preview device setup",
       "description": "Dry run of moving this install's settings into the device model: the devices it would build, every setting that would change (none, on a clean result), and any conflict to resolve first. Writes nothing."
     },
+    "device_contract_discover": {
+      "name": "Discover device setup",
+      "description": "What Nimbus finds from your Energy Dashboard and recognised price providers: the devices and sources it proposes, the questions it needs answered, and what it read but did not use. With a stored device setup, the differences against it. Changes nothing."
+    },
+    "device_contract_confirm": {
+      "name": "Confirm device setup",
+      "description": "Saves what you accepted from Discover device setup, as a new revision of the stored device setup (shadow or active mode only). Each choice names what discovery offered; anything it did not offer, or a source Nimbus cannot read with its unit and adapter, refuses the whole confirmation and changes nothing.",
+      "fields": {
+        "revision": {
+          "name": "Revision",
+          "description": "The revision Discover device setup reported. If the device setup changed since, nothing is saved."
+        },
+        "choices": {
+          "name": "Choices",
+          "description": "A list of what you accept: kind, device, role and entity_id as discovery offered them; a new battery also needs capacity (value, unit, basis)."
+        }
+      }
+    },
     "device_contract_set_mode": {
       "name": "Set device setup mode",
       "description": "legacy (today's settings, the default), shadow (the device model is stored and compared; today's settings stay in charge) or active (the device model is in charge and today's settings are generated from it). Shadow and active are refused unless the dry run is clean, and active only from shadow. Entering active changes no setting; it records the revision your settings now come from.",

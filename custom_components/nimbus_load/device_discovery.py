@@ -1037,6 +1037,9 @@ def rediscover(
     )
     stored_devices = list(stored.get("devices") or [])
     matched_stored: set[str] = set()
+    # proposal device id -> the stored device it is, so a question about it
+    # names the device the household has, not discovery's own id.
+    as_stored: dict[str, str] = {}
 
     for found in proposal.document["devices"]:
         site = _site_device(found)
@@ -1071,8 +1074,12 @@ def rediscover(
             continue
         (target,) = matches
         matched_stored.add(target["id"])
+        as_stored[found["id"]] = target["id"]
         _compare_bindings(target, found, present_registry_ids, out)
 
+    for question in out.questions:
+        if question.get("device") in as_stored:
+            question["device"] = as_stored[question["device"]]
     for device in stored_devices:
         if device["id"] not in matched_stored and _site_device(device) is None:
             out.findings.append(
@@ -1150,3 +1157,195 @@ def _compare_bindings(
                 "candidate": _candidate(binding),
             }
         )
+
+
+# --- Step 5: applying the household's confirmation (pure) --------------------
+#
+# A confirmation names what the household accepted, by what discovery
+# offered: a difference (`fill`, `renamed`, `alternative`, `new_device`) or a
+# question's candidate (`several_sources`, `confirm_history_match`,
+# `replaced_equipment`). Anything not offered is refused, and one refusal
+# refuses the whole confirmation: it is applied completely or not at all.
+# Each accepted binding is `confirmed: true`; its evidence is kept.
+
+R_NOT_OFFERED = "not_offered"
+R_CAPACITY_NEEDED = "capacity_needed"
+R_UNKNOWN_DEVICE = "unknown_device"
+
+# Where an accepted binding came from, in DC-001's provenance vocabulary. A
+# history match has no origin of its own in DC-001: the household chose it,
+# so it is recorded as `manual` with the history evidence kept beside it.
+_ORIGIN = {
+    "energy_dashboard": "energy_dashboard",
+    "provider_profile": "provider_profile",
+    "history_pairing": "manual",
+}
+
+
+def _accepted(candidate: Mapping[str, Any]) -> dict[str, Any]:
+    evidence = copy.deepcopy(candidate.get("evidence") or [])
+    kind = evidence[0].get("kind") if evidence else None
+    binding: dict[str, Any] = {
+        "source": copy.deepcopy(candidate["binding_source"]),
+        "provenance": {
+            "origin": _ORIGIN.get(str(kind), "manual"),
+            "confirmed": True,
+            "overridden": False,
+            "evidence": evidence,
+        },
+    }
+    if candidate.get("normalization"):
+        binding["normalization"] = copy.deepcopy(candidate["normalization"])
+    return binding
+
+
+def _confirmed(binding: Mapping[str, Any]) -> dict[str, Any]:
+    out = copy.deepcopy(dict(binding))
+    out.setdefault("provenance", {})
+    out["provenance"]["confirmed"] = True
+    out["provenance"].setdefault("overridden", False)
+    return out
+
+
+def apply_confirmation(
+    stored: Mapping[str, Any],
+    rediscovery: Rediscovery,
+    choices: list[Mapping[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[tuple[str, str]]]:
+    """(new document, refusals, changed (device, role) pairs).
+
+    Each choice is `{"kind", "device", "role", "entity_id"}`; a `new_device`
+    choice names the discovered device by `device` (its proposed id) and, for
+    a battery, carries `capacity: {value, unit, basis}`. With any refusal the
+    document returned is `stored`, unchanged."""
+    document = copy.deepcopy(dict(stored))
+    devices = {d["id"]: d for d in document.get("devices") or []}
+    refusals: list[dict[str, Any]] = []
+    changed: list[tuple[str, str]] = []
+
+    def refuse(choice: Mapping[str, Any], reason: str) -> None:
+        refusals.append({"choice": dict(choice), "reason": reason})
+
+    for choice in choices:
+        kind = choice.get("kind")
+        device_id = choice.get("device")
+        role = choice.get("role")
+        entity_id = choice.get("entity_id")
+
+        if kind == D_NEW_DEVICE:
+            offer = next(
+                (
+                    d["device"]
+                    for d in rediscovery.differences
+                    if d["kind"] == D_NEW_DEVICE and d["device"]["id"] == device_id
+                ),
+                None,
+            )
+            if offer is None:
+                refuse(choice, R_NOT_OFFERED)
+                continue
+            device = copy.deepcopy(offer)
+            if device["kind"] == "battery":
+                capacity = choice.get("capacity")
+                if not isinstance(capacity, Mapping):
+                    refuse(choice, R_CAPACITY_NEEDED)
+                    continue
+                device["capacity"] = dict(capacity)
+            device["id"] = _unique(device["id"], set(devices))
+            device["bindings"] = {
+                r: _confirmed(b) for r, b in (device.get("bindings") or {}).items()
+            }
+            document.setdefault("devices", []).append(device)
+            devices[device["id"]] = device
+            changed.extend((device["id"], r) for r in device["bindings"])
+            continue
+
+        if device_id not in devices:
+            refuse(choice, R_UNKNOWN_DEVICE)
+            continue
+        target = devices[device_id]
+
+        if kind == D_RENAMED:
+            offer = next(
+                (
+                    d
+                    for d in rediscovery.differences
+                    if d["kind"] == D_RENAMED
+                    and (d["device"], d["role"]) == (device_id, role)
+                    and d["entity_id"] == entity_id
+                ),
+                None,
+            )
+            if offer is None:
+                refuse(choice, R_NOT_OFFERED)
+                continue
+            target["bindings"][role]["source"]["entity_id"] = entity_id
+            changed.append((device_id, role))
+            continue
+
+        if kind == D_FILL:
+            offer = next(
+                (
+                    d
+                    for d in rediscovery.differences
+                    if d["kind"] == D_FILL
+                    and (d["device"], d["role"]) == (device_id, role)
+                    and (
+                        d["binding"]["source"].get("entity_id")
+                        or d["binding"]["source"].get("statistic_id")
+                    )
+                    == entity_id
+                ),
+                None,
+            )
+            if offer is None:
+                refuse(choice, R_NOT_OFFERED)
+                continue
+            target.setdefault("bindings", {})[role] = _confirmed(offer["binding"])
+            changed.append((device_id, role))
+            continue
+
+        candidate: Mapping[str, Any] | None = None
+        if kind == D_ALTERNATIVE:
+            candidate = next(
+                (
+                    d["candidate"]
+                    for d in rediscovery.differences
+                    if d["kind"] == D_ALTERNATIVE
+                    and (d["device"], d["role"]) == (device_id, role)
+                    and d["candidate"]["source"] == entity_id
+                ),
+                None,
+            )
+        elif kind == Q_REPLACED:
+            candidate = next(
+                (
+                    q["candidate"]
+                    for q in rediscovery.questions
+                    if q.get("code") == Q_REPLACED
+                    and (q["device"], q["role"]) == (device_id, role)
+                    and q["candidate"]["source"] == entity_id
+                ),
+                None,
+            )
+        elif kind in (Q_SEVERAL_SOURCES, Q_CONFIRM_MATCH):
+            candidate = next(
+                (
+                    c
+                    for q in rediscovery.questions
+                    if q.get("code") == kind
+                    and (q.get("device"), q.get("role")) == (device_id, role)
+                    for c in q.get("candidates") or ()
+                    if c.get("source") == entity_id and c.get("binding_source")
+                ),
+                None,
+            )
+        if candidate is None:
+            refuse(choice, R_NOT_OFFERED)
+            continue
+        target.setdefault("bindings", {})[role] = _accepted(candidate)
+        changed.append((device_id, role))
+
+    if refusals:
+        return copy.deepcopy(dict(stored)), refusals, []
+    return document, [], changed
