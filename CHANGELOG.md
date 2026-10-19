@@ -62,6 +62,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   unavailable source is accepted and flagged. No service outside Nimbus is
   called.
 
+- **Device setup: discovery finds a missing power sensor from history**
+  (#1574, DC-005 step 5b). Where the Energy Dashboard gives a device's
+  energy but no power, discovery reads the last 7 days of the power sensors
+  on the same Home Assistant device as that energy counter and compares
+  them with it. A clear match is offered for you to confirm, with its sign;
+  it is never set on its own. A counter on no device, no power sensor beside
+  it, or a history that cannot be read is reported instead.
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price
