@@ -1527,3 +1527,71 @@ def test_a_committed_export_window_shuts_import_and_caps_export_at_its_band(
         assert within[t] <= TOL, t
         cap = kw if band is None else max(kw, float(band[t]))
         assert plan.grid_export_kw[t] <= cap + 1e-6, t
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=1, max_value=24),
+    st.data(),
+    st.one_of(st.none(), st.just(0.0)),
+)
+def test_the_export_bonus_settlement_pays_nothing_without_a_bonus_to_pay(
+    n, data, volume
+):
+    """The bonus's settlement (`realized_export_bonus_credit`) pays nothing
+    when no bonus is configured, or when its volume is zero, whatever was
+    exported and whatever the premium."""
+    export = np.array(data.draw(st.lists(_num(0.0, 10.0), min_size=n, max_size=n)))
+    hours = np.array(data.draw(st.lists(_num(0.25, 1.0), min_size=n, max_size=n)))
+    premium = np.array(data.draw(st.lists(_num(0.0, 0.5), min_size=n, max_size=n)))
+    grid = GridConfig(
+        import_price=np.full(n, 0.3),
+        export_price=np.full(n, 0.05),
+        import_limit_kw=10.0,
+        export_limit_kw=10.0,
+        export_bonus_price=None if volume is None else premium,
+        export_bonus_volume_kwh=volume,
+    )
+    assert (
+        realized_export_bonus_credit(
+            grid_export_kw=export, hours=hours, grid=grid, period_starts=None
+        )
+        == 0.0
+    )
+
+
+@SETTINGS
+@given(sites(), st.integers(min_value=1, max_value=3))
+def test_a_zero_export_pin_leaves_import_open(site, span):
+    """Only a positive pin is a P2P commitment (#1761). The hours after the
+    block are pinned to 0 kW export, and there the inverter still imports
+    when the battery can't carry the house: within the limit, never through
+    the release valve. The battery starts at its floor and the sun is down,
+    so the first period's load can only come from the grid."""
+    site = {**site, "adequacy": None, "thermal": None, "sheddable": None}
+    n = len(site["hours"])
+    site["solar"] = site["solar"].copy()
+    site["solar"][0] = 0.0
+    site["load"] = site["load"].copy()
+    site["load"][0] = max(float(site["load"][0]), 0.5)
+    site["import_limit"] = max(site["import_limit"], float(site["load"][0]) + 1.0)
+    battery = {**site["battery"], "initial_soc_kwh": site["battery"]["min_soc_kwh"]}
+    fixed = np.full(n, np.nan)
+    fixed[: min(span, n)] = 0.0
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+            fixed_export_kw=fixed,
+        ),
+        batteries=[BatteryConfig(**battery)],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    assert plan.grid_import_excess_kw[0] <= TOL
+    within = plan.grid_import_kw[0] - plan.grid_import_excess_kw[0]
+    assert within >= float(site["load"][0]) - 1e-4
