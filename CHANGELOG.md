@@ -8,13 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **A solve whose main costs are all near zero no longer raises
-  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)).** If
-  every primary cost sat at or below about a billionth, HiGHS refused the
-  tie-break stage's bound row, and the exception escaped the solver instead
-  of taking the plain single-objective fallback every other stage failure
-  takes. It now takes that fallback. Production's costs are real prices,
-  far above that, so no live plan is expected to change.
+- **A float-noise coefficient no longer breaks a solve
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837), after
+  HAEO #501/#511).** HiGHS drops a matrix entry at or below 1e-9 with a
+  warning, and highspy 1.15 turns that warning into an exception after the
+  row is added. One such coefficient in any row, including the tie-break
+  stage's bound rows built from the cost vectors, made a solve raise. Rows
+  now reach HiGHS with those entries dropped (the model HiGHS would have
+  built anyway), and the two bound rows allow for what was dropped, so the
+  phased solve runs and keeps its tie-breaks. Not seen live: the test
+  install's log has no such error.
 
 ## [0.94.468] - 2026-10-19
 

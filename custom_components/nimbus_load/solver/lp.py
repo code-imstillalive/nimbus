@@ -61,7 +61,7 @@ import logging
 import math
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -2396,13 +2396,6 @@ def _solve_with_options(
     # Costs one accessor call, and only on the MIP path.
     phase1_point = _capture_integral_point(h) if binary_cols else None
 
-    # Same "always >= 1 term" dense-iteration style as this module's own
-    # pre-#696 cost_expr construction (every variable, missing/zero
-    # entries included) -- guarantees a non-empty qsum regardless of how
-    # many primary/secondary costs are actually nonzero.
-    primary_expr = highspy.Highs.qsum(
-        float(coef) * var_array[i] for i, coef in enumerate(primary_vec)
-    )
     # nimbus issue #773: the bound carries a NUMERICAL slack, not an
     # economic one.
     #
@@ -2445,7 +2438,12 @@ def _solve_with_options(
     # single-objective fallback below. Raised as ValueError, it takes that
     # same path: the primary optimum, without the tie-breaks, for this cycle.
     try:
-        h.addConstr(primary_expr <= primary_value + tie_slack)
+        _add_row(
+            h,
+            enumerate(primary_vec),
+            -highspy.kHighsInf,
+            primary_value - _dropped_contribution(h, primary_vec) + tie_slack,
+        )
     except Exception as err:  # highspy raises a bare Exception here
         msg = f"lexicographic primary bound row refused by HiGHS: {err}"
         raise ValueError(msg) from err
@@ -2560,10 +2558,12 @@ def _solve_with_options(
         # costs without perturbing the phase-2 point. HAEO's own
         # reasoning, ported verbatim.
         epsilon = max(1e-6, abs(secondary_value) * 1e-6)
-        secondary_expr = highspy.Highs.qsum(
-            float(coef) * var_array[i] for i, coef in enumerate(secondary_vec)
+        _add_row(
+            h,
+            enumerate(secondary_vec),
+            -highspy.kHighsInf,
+            secondary_value - _dropped_contribution(h, secondary_vec) + epsilon,
         )
-        h.addConstr(secondary_expr <= secondary_value + epsilon)
         extra_row_names.append("_lex_secondary_le_optimum")
         _set_cost_vector(h, col_indices, primary_vec)
         # nimbus issue #773: phase 3 is the SECOND pinned LP re-solve, not
@@ -2661,6 +2661,48 @@ def _retry_unknown_with_ipm(h: Any) -> Any:
         h.setOptionValue("solver", "choose")
 
 
+# HiGHS's `small_matrix_value`: a matrix entry at or below it is dropped with
+# a warning, and highspy 1.15's `addConstr` turns that warning into an
+# exception raised AFTER the row is added (HAEO #501/#511). A single float-noise
+# coefficient in any row did it. Rows are therefore added through `addRow`,
+# with those entries dropped first: the model HiGHS would have built anyway.
+_HIGHS_SMALL_MATRIX_VALUE = 1e-9
+
+
+def _add_row(
+    h: Any, terms: Iterable[tuple[int, float]], lower: float, upper: float
+) -> None:
+    """Add one row over (column, coefficient) pairs, dropping coefficients at
+    or below `_HIGHS_SMALL_MATRIX_VALUE` in magnitude. An empty row is still
+    added, so its bounds keep their meaning and row order is unchanged."""
+    kept = [(i, float(c)) for i, c in terms if abs(c) > _HIGHS_SMALL_MATRIX_VALUE]
+    status = h.addRow(
+        lower,
+        upper,
+        len(kept),
+        np.array([i for i, _ in kept], dtype=np.int32),
+        np.array([c for _, c in kept], dtype=np.float64),
+    )
+    # HiGHS drops at or below 1e-9 (measured on highspy 1.15.1: exactly 1e-9
+    # warns), hence `>` above; HAEO #511 keeps `>= 1e-9`. A warning can no
+    # longer come from a coefficient; an error is a real refusal.
+    if status == highspy.HighsStatus.kError:
+        msg = f"HiGHS refused a row ({len(kept)} terms, bounds {lower}..{upper})"
+        raise ValueError(msg)
+
+
+def _dropped_contribution(h: Any, vec: Any) -> float:
+    """The objective contribution, at `h`'s current solution, of the entries
+    `_add_row` would drop from `vec`. A bound row built without them must
+    shift its right-hand side by this much, or it can cut off the very point
+    it was built from."""
+    small = np.abs(vec) <= _HIGHS_SMALL_MATRIX_VALUE
+    if not np.any(small & (vec != 0.0)):
+        return 0.0
+    x = np.asarray(h.getSolution().col_value, dtype=np.float64)
+    return float(np.dot(np.where(small, vec, 0.0), x))
+
+
 def _solve_highs(
     problem: LPProblem,
     *,
@@ -2743,16 +2785,16 @@ def _solve_highs(
         given or f"ub_{i}" for i, given in enumerate(problem._ub_row_names)
     ] + [given or f"eq_{i}" for i, given in enumerate(problem._eq_row_names)]
 
+    index = problem._var_index
     for terms, rhs in problem._ub_rows:
-        expr = highspy.Highs.qsum(
-            coef * var_array[problem._var_index[name]] for name, coef in terms.items()
+        _add_row(
+            h,
+            ((index[name], coef) for name, coef in terms.items()),
+            -highspy.kHighsInf,
+            rhs,
         )
-        h.addConstr(expr <= rhs)
     for terms, rhs in problem._eq_rows:
-        expr = highspy.Highs.qsum(
-            coef * var_array[problem._var_index[name]] for name, coef in terms.items()
-        )
-        h.addConstr(expr == rhs)
+        _add_row(h, ((index[name], coef) for name, coef in terms.items()), rhs, rhs)
 
     extra_row_names: list[str] = []
     objective_override: float | None = None
