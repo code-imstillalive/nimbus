@@ -799,6 +799,10 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "interval_key",
         "lead_bucket",
         "replace_future",
+        # The Solver tab's Price sources table (19 Oct 2026): the next slots
+        # per source. Same reason as the rest of #1786 above.
+        "_r",
+        "next_slots",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there
