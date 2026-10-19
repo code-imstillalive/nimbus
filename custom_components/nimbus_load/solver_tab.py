@@ -1782,7 +1782,10 @@ def template() -> list[dict[str, Any]]:
         _section([_CONSOLIDATION_TOGGLE], 1, {"rows": 3}),
         _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
         _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
-        _section([_CONSOLIDATION_SOURCES], 2),
+        # Its own full-width row: a 2-wide section here shifted every later
+        # section two columns along (household, 19 Oct 2026: "you have
+        # messed up the whole layout of the view").
+        _section([_CONSOLIDATION_SOURCES], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.
