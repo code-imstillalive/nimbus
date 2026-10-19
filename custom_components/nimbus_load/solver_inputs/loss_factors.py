@@ -26,6 +26,10 @@ from pathlib import Path
 from typing import NamedTuple
 
 NEM_TIME = timezone(timedelta(hours=10))
+# Import carries GST on top of the loss-adjusted spot; export does not. Mark
+# measured LocalVolts' buy spot = sell spot x 1.1000 on all 287 intervals
+# (#1786). Australia's GST, so a fact of the NEM rather than a site setting.
+IMPORT_GST = 1.10
 _TABLE = Path(__file__).resolve().parent.parent / "data" / "loss_factors.json"
 
 

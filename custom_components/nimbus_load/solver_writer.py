@@ -159,6 +159,7 @@ import statistics
 import sys
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -5128,6 +5129,7 @@ def compute_5min_offset(
     days: int = 5,
     regional_spot_sensor: str | None = None,
     same_poll_wholesale: dict[int, tuple[datetime, float]] | None = None,
+    wholesale_scale: Callable[[datetime], float | None] | None = None,
 ) -> dict[int, float]:
     """Real, empirical (retail price - regional wholesale spot) offset,
     binned by 5-MINUTE-of-day (288 buckets: hour*12 + minute//5) from
@@ -5156,6 +5158,11 @@ def compute_5min_offset(
     Falls back to an empty dict (caller then falls back further) if
     `regional_spot_sensor` is blank, or either side's real history is
     unavailable -- must never crash the writer.
+
+    `wholesale_scale(interval_start)` (nimbus #1786), when given, multiplies
+    each interval's wholesale before the difference: the site's loss factors
+    (and GST on import), so what is learned is the retailer's fees alone. An
+    interval it returns None for is left out. Absent, unchanged.
     """
     if not real_history:
         return {}
@@ -5171,8 +5178,13 @@ def compute_5min_offset(
     by_bucket: dict[int, list[tuple[datetime, float]]] = {}
     for key in retail.keys() & wholesale.keys():
         start, real_v = retail[key]
+        scale = 1.0 if wholesale_scale is None else wholesale_scale(start)
+        if scale is None:
+            continue
         bucket = _local(start).hour * 12 + _local(start).minute // 5
-        by_bucket.setdefault(bucket, []).append((start, real_v - wholesale[key][1]))
+        by_bucket.setdefault(bucket, []).append(
+            (start, real_v - wholesale[key][1] * scale)
+        )
     return {
         b: statistics.median(v for _, v in sorted(rows)[-_OFFSET_RECENT_DAYS:])
         for b, rows in by_bucket.items()
@@ -5379,7 +5391,7 @@ def _consolidation_sources(
                 float(v) if m[i] else None for i, v in enumerate(fc)
             ]
     if aemo_series is not None and any(v is not None for v in aemo_series):
-        out["aemo_markup"] = list(aemo_series)
+        out[getattr(prices, "aemo_source", "aemo_markup")] = list(aemo_series)
     return out
 
 
@@ -5409,6 +5421,9 @@ def apply_price_consolidation(
         trackers = _load_price_trackers()
         spike = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)  # #1786: keep spikes
         result: dict = {"mode": "live" if live else "shadow"}
+        # nimbus #1786: the site's loss factors, when its codes are known.
+        if getattr(prices, "loss_factor", None):
+            result["loss_factor"] = prices.loss_factor
         scored = False
         series_by_side: dict[str, dict[str, list[float | None]]] = {}
         for side, primary, settled in (

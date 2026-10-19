@@ -168,6 +168,41 @@ def aemo_markup_series(
     return out
 
 
+def aemo_rrp_series(
+    grid_times: Sequence[datetime],
+    aemo_pts: Sequence[tuple[datetime, float]] | None,
+    fees_by_5min: dict[int, float] | None,
+    bucket_of: Callable[[datetime], int],
+    scale: Callable[[datetime], float | None],
+    rrp_now: float | None = None,
+) -> list[float | None]:
+    """nimbus #1786 (Mark): the site's spot price by contract -- the regional
+    RRP times `scale(t)` (MLF x DLF, and GST on import) -- plus the retailer's
+    learned fees for the 5-minute slot. `rrp_now`, the current interval's
+    dispatch price, prices the first period instead of the forecast: the
+    retailer's own current row can still be a forecast level (#1786, 19 Oct).
+    None where AEMO has no point yet or `scale` has no factor."""
+    if not aemo_pts:
+        return [None] * len(grid_times)
+    pts = sorted(aemo_pts, key=lambda p: p[0])
+    fees = fees_by_5min or {}
+    out: list[float | None] = []
+    j = -1
+    for i, gt in enumerate(grid_times):
+        while j + 1 < len(pts) and pts[j + 1][0] <= gt:
+            j += 1
+        k = scale(gt)
+        if i == 0 and rrp_now is not None:
+            rrp = rrp_now
+        else:
+            rrp = float(pts[j][1]) if j >= 0 else None
+        if k is None or rrp is None:
+            out.append(None)
+        else:
+            out.append(rrp * k + float(fees.get(bucket_of(gt), 0.0)))
+    return out
+
+
 def interval_key(t: datetime) -> int:
     """The 5-minute interval containing `t`, as epoch seconds // 300."""
     return int(t.timestamp()) // INTERVAL_SECONDS

@@ -1316,6 +1316,15 @@ CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: Final = (
 CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
     "solver_regional_spot_current_price_sensor"
 )
+# nimbus #1786 (Mark): a site's spot price is the regional RRP x MLF x DLF.
+# The two codes that identify the factors -- the transmission node (TNI) and
+# the distribution loss factor code -- are read from these sensors (LV v2
+# 2.13.0 exposes both, disabled by default), and their values come from
+# AEMO's published tables (`solver_inputs/loss_factors.py`), never fitted.
+# Blank (the default): no factor is known and the AEMO-based price source
+# stays as it was, wholesale plus the learned offset.
+CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: Final = "solver_loss_factor_tni_sensor"
+CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: Final = "solver_loss_factor_dlf_code_sensor"
 # Same audit, a third and last real gap: resample_real_p2p_rate()
 # hardcoded `sensor.localvolts_p2p_forecast` -- a genuinely different
 # CONCEPT from CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR above (that one
