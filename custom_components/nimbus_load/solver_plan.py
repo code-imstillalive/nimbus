@@ -918,7 +918,9 @@ def _anchor_target_kw(plan, previous_plan) -> tuple[int | None, float | None]:
     return idx, _period0_net_kw(previous_plan, idx)
 
 
-def period0_direction_hysteresis(plan, previous_plan, resolve_pinned, margin):
+def period0_direction_hysteresis(
+    plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None
+):
     """nimbus issue #1654, option A: keep the previous direction when a
     switch is worth less than `margin` ($ over the horizon).
 
@@ -931,6 +933,15 @@ def period0_direction_hysteresis(plan, previous_plan, resolve_pinned, margin):
     flip at the reserve floor was under 1c, and the inverter got 26 mode
     commands. Returns the plan to publish, with `period0_hysteresis` set.
     Never raises: on any failure the free plan stands.
+
+    `pin_blocked(pin_net_kw)` (#773, 19 Oct devhub dump), when given, lists
+    the period-0 constraints the pin provably violates
+    (`pin_blockers.period0_pin_blockers`, arithmetic, no solve). A non-empty
+    list means the previous direction is not available at all, so the plan
+    is published as `blocked` without the pinned re-solve. Before this the
+    re-solve ran anyway, came back infeasible, and was logged and dumped as
+    a #773 solver failure: a charge pin from the previous plan landing on a
+    period where a fixed export commitment forbids charging.
     """
     if margin <= 0:
         return dataclasses.replace(plan, period0_hysteresis="off")
@@ -942,6 +953,21 @@ def period0_direction_hysteresis(plan, previous_plan, resolve_pinned, margin):
         return dataclasses.replace(plan, period0_hysteresis="no_previous")
     if _deadband_class(prev_kw) == _deadband_class(new_kw):
         return dataclasses.replace(plan, period0_hysteresis="same_direction")
+    if pin_blocked is not None:
+        try:
+            blockers = pin_blocked(prev_kw)
+        except Exception:  # noqa: BLE001 - a stability aid must not fail a solve
+            solver_shared._LOGGER.debug(
+                "Nimbus #1654 period0 hysteresis: blocker check raised", exc_info=True
+            )
+            blockers = []
+        if blockers:
+            solver_shared._LOGGER.debug(
+                "Nimbus #1654 period0 hysteresis: previous %.3f kW blocked by %s",
+                prev_kw,
+                "; ".join(blockers),
+            )
+            return dataclasses.replace(plan, period0_hysteresis="blocked")
     try:
         pinned = resolve_pinned(prev_kw)
     except Exception:  # noqa: BLE001 - a stability aid must not fail a solve
@@ -1670,6 +1696,18 @@ def assemble_and_solve_plan(
                 cfg,
                 "solver_period0_hysteresis",
                 0.01,  # const.DEFAULT_SOLVER_PERIOD0_HYSTERESIS
+            ),
+            pin_blocked=lambda pin_kw: pin_blockers.period0_pin_blockers(
+                pin_kw,
+                batteries=all_batteries,
+                grid=grid,
+                hours0=float(periods.hours[0]),
+                solar=solar,
+                loads=loads,
+                sheddable_loads=sheddable_loads,
+                adequacy_loads=adequacy_loads,
+                thermal_loads=thermal_loads,
+                risk_aversion=risk_aversion,
             ),
         )
     if flex_signals_enabled and plan.grid_signals is not None:
