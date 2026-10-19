@@ -935,7 +935,9 @@ class Plan:
     # did on this solve. One of "off", "no_previous", "same_direction",
     # "kept" (the previous direction, pinned, cost within the margin),
     # "switched" (the switch saved more than the margin, or the pin was
-    # infeasible). `period0_hysteresis_delta` is pinned minus free cost, $.
+    # infeasible), "blocked" (a period-0 constraint rules the previous
+    # direction out, so no pinned re-solve ran; #773).
+    # `period0_hysteresis_delta` is pinned minus free cost, $.
     period0_hysteresis: str = "off"
     period0_hysteresis_delta: float | None = None
     # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit

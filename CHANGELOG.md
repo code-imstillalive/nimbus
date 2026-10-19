@@ -25,6 +25,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   is stale or unavailable. It reads the stored device setup, or in legacy
   today's settings, each load model's training state and the scored days.
   A model still training reads as training, never as a fault. Reads only.
+- **The direction-change margin no longer runs a solve it can prove
+  impossible ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
+  [#773](https://github.com/code-imstillalive/nimbus/issues/773)).** When
+  the plan's first period changes direction, the margin re-solves with the
+  battery held at the previous setpoint. If a first-period limit rules that
+  setpoint out, for example the previous plan was charging and a P2P export
+  block now forbids charging, it now says so (`period0_hysteresis:
+  blocked`) and skips the re-solve. That re-solve could only come back
+  infeasible, and it was being reported as a #773 solver failure, with a
+  model dump, at the start of the evening block. What is dispatched does
+  not change: an infeasible pin already kept the new plan.
 
 ## [0.94.468] - 2026-10-19
 
