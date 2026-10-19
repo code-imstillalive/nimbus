@@ -71,22 +71,27 @@ version: 1
 integration: localvolts_v2
 instances: exactly_one        # several = ambiguous, nothing proposed
 roles:
-  grid.import_price:   {key: costs_flex_up,  adapter: localvolts_v2, quality: forecast}
-  grid.export_price:   {key: earnings_flex_up, adapter: localvolts_v2, quality: forecast}
-  ...
+  grid.import_price:          {key: buy_flex_up}
+  grid.export_price:          {key: sell_flex_up}
+  grid.import_price_forecast: {key: current_buy_rate,  attribute: forecast,
+                               adapter: {name: localvolts_v2, version: 1, field: flexUp, direction: Buy}}
+  grid.export_price_forecast: {key: current_sell_rate, attribute: forecast,
+                               adapter: {name: localvolts_v2, version: 1, field: flexUp, direction: Sell}}
 ```
 
-The first matrix is the six adapters DC-002 already resolves, plus the Energy Dashboard:
+The first matrix covers the six providers DC-002's adapters read, plus the Energy Dashboard. Three can be bound today; three are recognised and reported, because DC-001 has no role to hold what they publish yet or the provider does not say enough:
 
-| Profile | Roles | Detection today |
+| Profile | Proposes | Bound through |
 |---|---|---|
-| LocalVolts v2 | Grid import and export price, P2P matched rate, settlement history | `pricing_autodetect.detect_localvolts_v2_profile` |
-| Amber Express | Grid import and export price | `detect_amber_express_profile` |
-| Amber (core) | Grid import and export price | `detect_amber_core_profile` |
-| AEMO NEM | Regional spot price and forecast | `detect_aemo_nem_forecast` |
-| PD7DAY | Continuation forecast, its own binding per direction (DC-002 decision 5) | `detect_pd7day_forecast` |
-| OpenADR 3 VEN | Grid import and export price forecast | `detect_openadr_price_sensors` |
+| LocalVolts v2 | Grid import and export price (`buy_flex_up`, `sell_flex_up`); their forecasts (`current_buy_rate`, `current_sell_rate`, attribute `forecast`) | entity state; adapter `localvolts_v2` with `field: flexUp` and `direction` |
+| Amber Express | Grid import and export price (`general_price`, `feed_in_price`) and their `forecast` | entity state; adapter `amber_express` |
+| Amber Electric (core) | Grid import and export price forecast (`forecasts-general`, `forecasts-feed_in`, attribute `forecasts`) | adapter `amberelectric` |
 | Energy Dashboard | Grid, Solar, Battery, devices and inclusion | `device_resolver.parse_energy_sources`, `device_consumption` |
+| AEMO NEM | **reported only**: DC-001 has no regional-spot role yet | |
+| PD7DAY | **reported only**: DC-001 has no continuation role yet (DC-002 decision 5 keeps it a separate binding, but names no role) | |
+| OpenADR 3 VEN | **reported only**: it states neither currency nor whether a price is a full tariff (`pricing_autodetect`'s existing rule) | |
+
+LocalVolts' P2P matched rate and settlement history are also reported, not bound. DC-002 carries the matched rate on `export_price` with `quality: matched`, and that role already holds the current sell price, so one of them would have to go (DC-002's open question 2 on #1574). The LocalVolts keys were checked against purcell-lab/localvolts_v2 at b4cfbaee: the per-direction current-rate sensors carry the raw rows DC-002's adapter reads.
 
 Each profile wraps the existing detection, which already resolves by `unique_id` and proposes empty fields only. DC-005 changes where its output goes (a proposal), not what it detects. An integration not in the matrix is not guessed at: its roles stay manual.
 
@@ -164,7 +169,7 @@ Each is proposed as written above. The build follows these unless @purcell-lab c
 
 1. **Disagreement is a question.** Evidence strength is recorded, never used to break a disagreement between two kinds.
 2. **Identity on rediscovery** is `registry_id`, then `config_entry_id` plus profile key, then statistic id. Never entity_id or list position.
-3. **The first support matrix** is the six DC-002 adapters plus the Energy Dashboard. Everything else stays manual until its own profile PR.
+3. **The first support matrix** binds LocalVolts v2, Amber Express and Amber Electric, plus the Energy Dashboard. AEMO NEM, PD7DAY and OpenADR are reported until DC-001 has roles for them (or, for OpenADR, the provider states its currency and tariff basis). Everything else stays manual until its own profile PR.
 4. **History pairing** runs only for a role whose Energy Dashboard source names energy but no power, over 7 days, with the resolver's existing constants labelled provisional.
 5. **Confirmed bindings are never replaced** by rediscovery; an alternative is shown as a finding.
 6. **A stale source may be switched to**, flagged; every other resolution failure refuses the switch.
