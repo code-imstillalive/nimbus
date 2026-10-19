@@ -491,6 +491,8 @@ _DC_BUILDERS = frozenset(
         # DC-004 step 5c: number write-through and the drift Repair's flow.
         "number.py",
         "repairs.py",
+        # The Device Setup Mode select (DC-004, 0.94.467).
+        "select.py",
     }
 )
 

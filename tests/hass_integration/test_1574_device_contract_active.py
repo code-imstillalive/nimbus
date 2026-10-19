@@ -23,8 +23,10 @@ import copy
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import pytest
 from homeassistant.config_entries import ConfigSubentryDataWithId
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -35,6 +37,7 @@ from custom_components.nimbus_load import (
     device_storage,
 )
 from custom_components.nimbus_load.const import DOMAIN
+from custom_components.nimbus_load.select import NimbusDeviceSetupModeSelect
 
 MARKER = device_contract_ha.VIEW_REVISION_KEY
 OPTIONS = {
@@ -528,3 +531,49 @@ async def test_the_drift_repair_offers_keep_and_restore_and_applies_the_choice(
         done = await flow.async_step_restore()
     assert done["type"] == "create_entry"
     assert entry.options["grid_sensor"] == "sensor.meter_power"
+
+
+async def test_the_device_setup_mode_select_changes_mode_and_says_why_not(
+    hass: HomeAssistant, hass_storage
+):
+    """Household, 19 Oct 2026: "where will these be toggled on or off from?"
+    -- `select.nimbus_device_setup_mode`, on the Solver tab. It goes through
+    the same checked mode change as the service, so a refusal changes
+    nothing and says why."""
+    entry, _numbers = await _setup(hass)
+    before = _settings(hass, entry)
+    select = NimbusDeviceSetupModeSelect(entry, "test")
+    select.hass = hass
+    with patch.object(select, "async_write_ha_state"):
+        await select._async_refresh()
+        assert select.options == ["legacy", "shadow", "active"]
+        assert select.current_option == "legacy"
+
+        with pytest.raises(HomeAssistantError, match="only be entered from shadow"):
+            await select.async_select_option("active")
+        assert select.current_option == "legacy"
+        assert _settings(hass, entry) == before
+
+        await select.async_select_option("shadow")
+        assert select.current_option == "shadow"
+        attrs = select.extra_state_attributes
+        assert attrs["revision"] == 1 and attrs["dry_run_clean"] is True
+        assert attrs["dry_run_changes"] == attrs["dry_run_conflicts"] == 0
+        assert attrs["drift_repairs"] == 0
+        assert _settings(hass, entry) == before
+
+        await select.async_select_option("active")
+        assert select.current_option == "active"
+        assert _settings(hass, entry)["options"] == {**before["options"], MARKER: 1}
+
+        pool = entry.subentries["sub_pool"]
+        hass.config_entries.async_update_subentry(
+            entry, pool, data={**pool.data, "schedule_start_hour": 9}
+        )
+        assert await device_contract_ha.async_check_drift(hass, entry) == 1
+        await select._async_refresh()
+        assert select.extra_state_attributes["drift_repairs"] == 1
+
+        await select.async_select_option("legacy")
+        assert select.current_option == "legacy"
+    assert (await _store(hass, entry).async_read())["mode"] == "legacy"

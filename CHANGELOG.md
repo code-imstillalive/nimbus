@@ -9,6 +9,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Solver tab: the switches for consolidation and the device setup**
+  (household, 19 Oct 2026: "where will these be toggled on or off from?").
+  Under the four price-safety cards, one new row:
+  - **Consolidation drives the plan**, a toggle for
+    `switch.nimbus_solver_price_consolidation_live` (#1786). The
+    *Consolidated prices* card beside it still shows what consolidation
+    would do;
+  - **Device setup**, a card showing the mode (legacy, shadow or active),
+    the stored revision, the device count, whether the dry run is clean,
+    and any open drift Repairs;
+  - **Device setup mode**, a new `select.nimbus_device_setup_mode` (#1574).
+    It is the same checked mode change as
+    `nimbus_load.device_contract_set_mode`: active only from shadow, on a
+    clean dry run. A refused change does nothing, and the error says why.
+
 - **Device setup: drift Repairs and slider write-through** (#1574, DC-004
   step 5c). In active mode only:
   - an owned setting edited outside the device setup (a form, a subentry, a
