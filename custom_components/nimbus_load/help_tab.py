@@ -215,6 +215,29 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.468",
+        "19 Oct 2026",
+        (
+            (
+                "**Fees¢ and Cons¢:** Fees¢ shows only your fees; the new violet "
+                "Cons¢ column shows how far price consolidation moved each price."
+            ),
+            (
+                "**Control Panel:** the interval table is as wide as it needs, "
+                "with no sideways scrolling, and the plan chart takes the rest."
+            ),
+            (
+                "**Device setup:** Nimbus can find your site from the Energy "
+                "Dashboard and your price provider, and save what you accept."
+            ),
+            (
+                "**Price sources:** the Solver tab shows each price source's "
+                "accuracy, share and next prices. Keep *Consolidation drives "
+                "the plan* off for now (#1786)."
+            ),
+        ),
+    ),
+    (
         "0.94.467",
         "19 Oct 2026",
         (
