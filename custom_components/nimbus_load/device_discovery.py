@@ -38,6 +38,7 @@ registry ids (DC-005 step 5).
 
 from __future__ import annotations
 
+import copy
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -165,7 +166,11 @@ class _Builder:
                     "device": device["id"],
                     "role": role,
                     "candidates": [
-                        {"source": source, "evidence": evidence}
+                        {
+                            "source": source,
+                            "binding_source": make(source, evidence)["source"],
+                            "evidence": [evidence],
+                        }
                         for source, evidence in candidates
                     ],
                 }
@@ -481,3 +486,305 @@ def _fixed_prices(raw: Any, index: int, b: _Builder) -> None:
                     "against a live price sensor",
                 }
             )
+
+
+# --- Step 2: provider profiles (DC-005 "Provider adapters and the support
+# matrix") ---------------------------------------------------------------------
+#
+# A profile maps one integration's built-in unique_id keys to Grid roles.
+# The HA side finds each configured instance's entities by unique_id and
+# passes `{key: entity_id}`; a renamed entity is still found.
+#
+# What each row binds was read from the provider, not guessed:
+# * LocalVolts v2 (purcell-lab/localvolts_v2 at b4cfbaee, sensor.py): the
+#   `<entry>_current_buy_rate` and `_current_sell_rate` sensors carry a
+#   `forecast` attribute of the raw per-direction rows DC-002's localvolts_v2
+#   adapter reads (`direction`, `quality`, `intervalEnd`, `flexUp`);
+#   `buy_flex_up` / `sell_flex_up` are the current prices pricing_autodetect
+#   already proposes.
+# * Amber Express: `<site>_general_price` / `_feed_in_price` carry `forecast`
+#   and `detailedForecast` (DC-002's amber_express adapter).
+# * Amber Electric (core): `<site>-forecasts-general` / `-forecasts-feed_in`
+#   carry `forecasts` (DC-002's amberelectric adapter).
+
+PROFILE_VERSION = 1
+
+_LV = "localvolts_v2"
+_AMBER_EXPRESS = "amber_express"
+_AMBER_CORE = "amberelectric"
+
+# profile -> ((role, key, attribute_path or None, adapter spec or None), ...)
+PROFILES: dict[str, tuple[tuple[str, str, str | None, dict[str, Any] | None], ...]] = {
+    _LV: (
+        ("import_price", "buy_flex_up", None, None),
+        ("export_price", "sell_flex_up", None, None),
+        (
+            "import_price_forecast",
+            "current_buy_rate",
+            "forecast",
+            {"name": _LV, "version": 1, "field": "flexUp", "direction": "Buy"},
+        ),
+        (
+            "export_price_forecast",
+            "current_sell_rate",
+            "forecast",
+            {"name": _LV, "version": 1, "field": "flexUp", "direction": "Sell"},
+        ),
+    ),
+    _AMBER_EXPRESS: (
+        ("import_price", "general_price", None, None),
+        ("export_price", "feed_in_price", None, None),
+        (
+            "import_price_forecast",
+            "general_price",
+            "forecast",
+            {"name": _AMBER_EXPRESS, "version": 1},
+        ),
+        (
+            "export_price_forecast",
+            "feed_in_price",
+            "forecast",
+            {"name": _AMBER_EXPRESS, "version": 1},
+        ),
+    ),
+    _AMBER_CORE: (
+        (
+            "import_price_forecast",
+            "forecasts-general",
+            "forecasts",
+            {"name": _AMBER_CORE, "version": 1},
+        ),
+        (
+            "export_price_forecast",
+            "forecasts-feed_in",
+            "forecasts",
+            {"name": _AMBER_CORE, "version": 1},
+        ),
+    ),
+}
+
+# Recognised, but DC-001 has no role to hold what they publish yet, or the
+# provider does not say enough to propose it (spec decision 3's matrix).
+REPORTED_ONLY = {
+    "aemo_nem": "AEMO's regional wholesale forecast extends a retail feed; "
+    "DC-001 has no regional-spot role to hold it yet",
+    "nem_pd7day": "PD7DAY continues a retail feed past its horizon; DC-001 "
+    "has no continuation role to hold it yet (DC-002 decision 5)",
+    "openadr3_ven": "OpenADR states neither its currency nor whether a price "
+    "is a full tariff, so it is reported and never proposed (pricing_autodetect)",
+}
+# LocalVolts keys with no DC-001 role of their own: the matched P2P rate and
+# the settlement history would need the export price role, which the current
+# sell price already holds (DC-002's open question 2 on #1574).
+_LV_NO_ROLE = ("sell_matched_cost", "p2p_settlement_history")
+
+F_PROFILE_SEVERAL = "profile_several_instances"
+F_PROFILE_REPORTED = "profile_reported_only"
+F_PROFILE_NO_ROLE = "profile_key_has_no_role"
+F_PROFILE_UNKNOWN = "profile_unknown"
+
+
+def _identity(binding: Mapping[str, Any]) -> tuple[Any, ...]:
+    source = binding.get("source") or {}
+    adapter = source.get("adapter") or {}
+    return (
+        source.get("kind"),
+        source.get("entity_id") or source.get("statistic_id"),
+        source.get("attribute_path"),
+        adapter.get("name"),
+        adapter.get("field"),
+        adapter.get("direction"),
+    )
+
+
+def _profile_binding(
+    profile: str,
+    instance: str,
+    key: str,
+    entity_id: str,
+    path: str | None,
+    adapter: dict[str, Any] | None,
+    registry_ids: Mapping[str, str],
+) -> dict[str, Any]:
+    source: dict[str, Any] = (
+        {"kind": "entity_state", "entity_id": entity_id}
+        if path is None
+        else {
+            "kind": "entity_attribute",
+            "entity_id": entity_id,
+            "attribute_path": path,
+            "adapter": dict(adapter or {}),
+        }
+    )
+    if entity_id in registry_ids:
+        source["registry_id"] = registry_ids[entity_id]
+    binding: dict[str, Any] = {
+        "source": source,
+        "provenance": {
+            "origin": "provider_profile",
+            "confirmed": False,
+            "overridden": False,
+            "evidence": [
+                {
+                    "kind": "provider_profile",
+                    "profile": profile,
+                    "profile_version": PROFILE_VERSION,
+                    "instance": instance,
+                    "key": key,
+                }
+            ],
+        },
+    }
+    if path is not None:
+        binding["normalization"] = {"quality": "forecast"}
+    return binding
+
+
+def _candidate(binding: Mapping[str, Any]) -> dict[str, Any]:
+    source = binding["source"]
+    return {
+        "source": source.get("entity_id") or source.get("statistic_id"),
+        "binding_source": copy.deepcopy(source),
+        "evidence": copy.deepcopy(binding["provenance"]["evidence"]),
+    }
+
+
+def add_provider_profiles(
+    proposal: Proposal,
+    detected: list[Mapping[str, Any]],
+    *,
+    registry_ids: Mapping[str, str] | None = None,
+) -> Proposal:
+    """`proposal` with each detected provider profile's Grid roles added
+    (DC-005 step 2). `detected` is one item per configured instance:
+    `{"profile": name, "instance": its config entry or site, "keys": {key:
+    entity_id}}`.
+
+    A profile with more than one instance proposes nothing (spec: "several =
+    ambiguous"). A role that already holds a different source, from the
+    Energy Dashboard or another profile, becomes a question listing every one
+    and loses its binding; the same source twice is corroboration, both
+    pieces of evidence kept."""
+    regs = registry_ids or {}
+    document = copy.deepcopy(proposal.document)
+    questions = copy.deepcopy(proposal.questions)
+    findings = copy.deepcopy(proposal.findings)
+    grid = next(d for d in document["devices"] if d["kind"] == "grid")
+
+    instances: dict[str, list[Mapping[str, Any]]] = {}
+    for item in detected:
+        instances.setdefault(str(item.get("profile")), []).append(item)
+
+    candidates: dict[str, list[dict[str, Any]]] = {}
+    for role, binding in grid["bindings"].items():
+        candidates.setdefault(role, []).append(binding)
+    for profile, items in sorted(instances.items()):
+        names = sorted(str(i.get("instance")) for i in items)
+        if profile in REPORTED_ONLY:
+            findings.append(
+                {
+                    "code": F_PROFILE_REPORTED,
+                    "profile": profile,
+                    "instances": names,
+                    "message": REPORTED_ONLY[profile],
+                }
+            )
+            continue
+        if profile not in PROFILES:
+            findings.append(
+                {
+                    "code": F_PROFILE_UNKNOWN,
+                    "profile": profile,
+                    "instances": names,
+                    "message": "not in the support matrix; its roles stay manual",
+                }
+            )
+            continue
+        if len(items) > 1:
+            findings.append(
+                {
+                    "code": F_PROFILE_SEVERAL,
+                    "profile": profile,
+                    "instances": names,
+                    "message": "more than one is configured; nothing is "
+                    "proposed rather than guessing which one the site uses",
+                }
+            )
+            continue
+        (item,) = items
+        keys = item.get("keys") or {}
+        for role, key, path, adapter in PROFILES[profile]:
+            entity_id = keys.get(key)
+            if isinstance(entity_id, str) and entity_id:
+                candidates.setdefault(role, []).append(
+                    _profile_binding(
+                        profile,
+                        str(item.get("instance")),
+                        key,
+                        entity_id,
+                        path,
+                        adapter,
+                        regs,
+                    )
+                )
+        if profile == _LV:
+            findings.extend(
+                {
+                    "code": F_PROFILE_NO_ROLE,
+                    "profile": profile,
+                    "key": key,
+                    "entity_id": keys[key],
+                    "message": "the P2P matched rate and settlement have no "
+                    "DC-001 role of their own yet; the export price role holds "
+                    "the current sell price",
+                }
+                for key in _LV_NO_ROLE
+                if isinstance(keys.get(key), str) and keys[key]
+            )
+
+    # A role step 1 already asked about stays a question: a profile's source
+    # joins its candidates, it never settles them.
+    asked = {
+        q["role"]: q
+        for q in questions
+        if q.get("code") == Q_SEVERAL_SOURCES and q.get("device") == grid["id"]
+    }
+    bindings: dict[str, Any] = {}
+    for role, found in candidates.items():
+        if role in asked:
+            known = {
+                _identity({"source": c.get("binding_source") or {}})
+                for c in asked[role]["candidates"]
+            }
+            for b in found:
+                if _identity(b) not in known:
+                    known.add(_identity(b))
+                    asked[role]["candidates"].append(_candidate(b))
+            continue
+        groups: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for binding in found:
+            ident = _identity(binding)
+            if ident in groups:
+                groups[ident]["provenance"]["evidence"].extend(
+                    copy.deepcopy(binding["provenance"]["evidence"])
+                )
+            else:
+                groups[ident] = copy.deepcopy(binding)
+        if len(groups) == 1:
+            bindings[role] = next(iter(groups.values()))
+            continue
+        questions.append(
+            {
+                "code": Q_SEVERAL_SOURCES,
+                "device": grid["id"],
+                "role": role,
+                "candidates": [_candidate(b) for b in groups.values()],
+            }
+        )
+    grid["bindings"] = bindings
+    return Proposal(
+        document=document,
+        questions=questions,
+        findings=findings,
+        problems=dc.validate(document),
+    )
