@@ -37,6 +37,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   signed, blank when consolidation did not set the row. Both the Solver
   tab's Whole Plan table and the Control Panel's interval table. Display
   only: the plan and its costs are unchanged.
+- **Control Panel: the interval table is as wide as it needs, never
+  squeezed into a scrollbar, and the plan chart takes the rest** (household,
+  19 Oct 2026: "the table still wastes space... the left plan gets larger
+  again"; "NO SCROLLBARS"). The table's column sizes to the table itself,
+  never below 780px; the chart and table sit side by side from a 1150px
+  card, stacked below that. Its TOTAL row reads "Total", and the Source
+  bar fills its column instead of a fixed 14px ("crazy ugly").
 
 ## [0.94.467] - 2026-10-19
 
