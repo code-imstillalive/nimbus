@@ -18,6 +18,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Any other value is left alone. To keep the old behaviour, set
   `number.nimbus_solver_post_window_self_consume_hours` (Solver tab,
   *Self-consume after midnight*) back to 4; it is not changed again.
+- **Device setup: `sensor.nimbus_device_readiness`** (#1574, DC-006 slice
+  1b). How many of Nimbus's four functions (observe, forecast, plan, score)
+  are ready, refreshed every five minutes, with each function's state, what
+  it is missing and what would satisfy each, and any bound sensor whose data
+  is stale or unavailable. It reads the stored device setup, or in legacy
+  today's settings, each load model's training state and the scored days.
+  A model still training reads as training, never as a fault. Reads only.
 
 ## [0.94.468] - 2026-10-19
 

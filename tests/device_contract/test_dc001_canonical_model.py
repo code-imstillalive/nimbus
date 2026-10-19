@@ -495,6 +495,8 @@ _DC_BUILDERS = frozenset(
         "select.py",
         # Readiness per function (DC-006).
         "device_readiness.py",
+        # The readiness sensor (DC-006 slice 1b).
+        "readiness_sensor.py",
         # Discovery's proposal (DC-005).
         "device_discovery.py",
     }
