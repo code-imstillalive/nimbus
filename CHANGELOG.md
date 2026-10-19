@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.467] - 2026-10-19
+
+The device model (#1574) is complete for its first stage: you can try it
+in shadow mode, which changes nothing, and then put it in charge (active).
+In active mode, a setting changed elsewhere raises a Repair, and the Solver
+sliders edit the device setup directly. The combined price forecast keeps a
+spike that any source forecasts. Both have a switch on the Solver tab: the
+*Consolidation drives the plan* toggle and the *Device setup mode*
+selector. Both are off (legacy) until you turn them on.
+
 ### Added
 - **Solver tab: the switches for consolidation and the device setup**
   (household, 19 Oct 2026: "where will these be toggled on or off from?").
