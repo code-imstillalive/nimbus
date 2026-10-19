@@ -18,6 +18,46 @@ spike that any source forecasts. Both have a switch on the Solver tab: the
 *Consolidation drives the plan* toggle and the *Device setup mode*
 selector. Both are off (legacy) until you turn them on.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 3e17229c**,
+  installed untagged via HACS from `release/0.94.467` and restarted 12:33 AEST
+  19 Oct.
+  - 148 `nimbus_load` entities, none unavailable. 8 read `unknown`: the test
+    loads' temperature forecasts and the two mirror weather forecasts, which
+    publish nothing until a forecast series exists.
+  - **Solve:** devhub's own solve after the start, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 18.6 s and
+    the stochastic shadow 62.9 s, `direction_exclusivity: not_needed`.
+  - **Device setup mode, driven through the select:**
+    `select.nimbus_device_setup_mode` started at `legacy` (revision 0, dry
+    run clean: 0 changes, 0 conflicts, 0 problems, 31 devices).
+    `active` from `legacy` was refused with "active can only be entered from
+    shadow, after the dry run is clean" and changed nothing. `shadow` stored
+    revision 1, clean. `active` then succeeded, and the hub's options gained
+    only `device_contract_view_revision: 1`; every other option was
+    unchanged. No drift Repair was raised and no device-setup error was
+    logged. devhub stays in `active` to soak the drift check.
+  - **Solver tab:** the new row resolved on devhub's own dashboard: the
+    *Consolidation drives the plan* toggle on
+    `switch.nimbus_solver_price_consolidation_live`, the *Device setup* card
+    (rendering "Legacy: your settings, as before | Revision 0 · 31 devices ·
+    dry run clean" before the mode change) and the *Device setup mode*
+    selector.
+  - **Log:** no Nimbus ERROR or traceback of its own; the start logs the
+    devhub-only baseline (duplicate unique IDs blocked by the production
+    mirror, oversized attributes, recorder unit changes), the test EV's
+    unreadable SoC, and forecast drift notes.
+  - **Not claimed live:** consolidation driving the plan. The switch's
+    entity_id also exists on production, so it was not toggled on devhub;
+    covered by `tests/test_1786_price_consolidation.py`. A drift Repair's
+    *Keep* and *Restore*, and the slider write-through: none drifted on
+    devhub; covered by `tests/hass_integration/test_1574_device_contract_active.py`.
+  - CI passed every check on #1870, #1873, #1874, #1877, #1878, #1881, #1882
+    and #1883.
+- Consumer check: the Solver tab has, under the price-safety cards, the
+  *Consolidation drives the plan* toggle, the *Device setup* card and the
+  *Device setup mode* selector; choosing *active* straight from *legacy*
+  shows why it was refused.
+
 ### Added
 - **Solver tab: the switches for consolidation and the device setup**
   (household, 19 Oct 2026: "where will these be toggled on or off from?").
