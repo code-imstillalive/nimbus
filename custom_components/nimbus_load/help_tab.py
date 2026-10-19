@@ -215,6 +215,31 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.469",
+        "20 Oct 2026",
+        (
+            (
+                "**After midnight:** *Self-consume after midnight* now defaults "
+                "to 0, and an install still on 4 moves to 0 once. The plan may "
+                "charge or sell after midnight; the battery reserve guards the "
+                "bottom. Set 4 again on the Solver tab to keep the old rule."
+            ),
+            (
+                "**Loss factors:** with your site's TNI and DLF code sensors "
+                "(LocalVolts v2 2.13.0), the AEMO price source is built from "
+                "AEMO's price and your site's loss factors. Shadow only."
+            ),
+            (
+                "**Device readiness:** `sensor.nimbus_device_readiness` shows "
+                "which of observe, forecast, plan and score are ready."
+            ),
+            (
+                "**Solver fixes:** a float-noise coefficient no longer breaks a "
+                "solve, and an impossible re-solve is no longer attempted."
+            ),
+        ),
+    ),
+    (
         "0.94.468",
         "19 Oct 2026",
         (
