@@ -25,6 +25,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   never picked by list position, and a battery's capacity is always asked.
   Nothing reads it yet, and nothing on an install changes.
 
+- **Device setup: price providers in discovery** (#1574, DC-005 step 2).
+  LocalVolts v2, Amber Express and Amber Electric propose the Grid's import
+  and export price and their forecasts, found by each integration's own
+  unique_id and bound through DC-002's adapters. A provider that disagrees
+  with the Energy Dashboard, or with another provider, is asked, never
+  ranked; two accounts of one provider propose nothing. AEMO, PD7DAY and
+  OpenADR are recognised and reported, and the P2P matched rate and
+  settlement are reported, because the device model has no role of their
+  own for them yet. Nothing reads it yet.
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price
