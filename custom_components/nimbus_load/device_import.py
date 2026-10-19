@@ -36,6 +36,7 @@ Rules (DC-004):
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -629,6 +630,174 @@ def view_writes(view: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any
         if changed:
             out["subentries"][sid] = changed
     return out
+
+
+#: The live numbers a document owns: (device id, constraint) -> key, plus the
+#: battery's capacity.
+_OWNED_NUMBERS = {
+    **{(_IDS[short], name): key for (short, name), key in _HUB_NUMBERS.items()},
+    ("battery", "capacity"): "solver_battery_capacity_kwh",
+}
+
+
+def owned_number_keys() -> frozenset[str]:
+    """Every live number the document owns (DC-004 step 5c, write-through)."""
+    return frozenset(_OWNED_NUMBERS.values())
+
+
+def with_number(
+    document: dict[str, Any], key: str, value: float
+) -> dict[str, Any] | None:
+    """A copy of `document` with the owned live number `key` set to `value`,
+    or None when the document does not own `key` or has no device for it.
+    The slider edits the document, never a second copy (DC-004, "Number
+    entities are the hard case")."""
+    target = next((dk for dk, k in _OWNED_NUMBERS.items() if k == key), None)
+    if target is None:
+        return None
+    device_id, name = target
+    out = copy.deepcopy(document)
+    device = next(
+        (d for d in out.get("devices") or () if d.get("id") == device_id), None
+    )
+    if device is None:
+        return None
+    if name == "capacity":
+        capacity = device.get("capacity")
+        if not capacity:
+            return None
+        capacity["value"] = float(value)
+    else:
+        device.setdefault("constraints", {})[name] = float(value)
+    return out
+
+
+def drift(document: dict[str, Any], snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    """Each owned setting whose current value differs from the document's
+    view: the second master returning (DC-004, "Drift in active mode"). One
+    entry per key: {part, subentry_id, key, view, current}."""
+    view = legacy_view(document)
+    writes = view_writes(view, snapshot)
+    options = snapshot.get("options") or {}
+    numbers = snapshot.get("numbers") or {}
+    subs = {
+        x["subentry_id"]: x.get("data") or {} for x in snapshot.get("subentries") or ()
+    }
+    out: list[dict[str, Any]] = []
+    for key, value in writes["options"].items():
+        out.append(
+            {
+                "part": "options",
+                "subentry_id": None,
+                "key": key,
+                "view": value,
+                "current": options.get(key),
+            }
+        )
+    for key, value in writes["numbers"].items():
+        out.append(
+            {
+                "part": "numbers",
+                "subentry_id": None,
+                "key": key,
+                "view": value,
+                "current": numbers.get(key),
+            }
+        )
+    for sid, fields in writes["subentries"].items():
+        for key, value in fields.items():
+            out.append(
+                {
+                    "part": "subentries",
+                    "subentry_id": sid,
+                    "key": key,
+                    "view": value,
+                    "current": subs[sid].get(key),
+                }
+            )
+    return out
+
+
+def adopt(
+    document: dict[str, Any],
+    snapshot: dict[str, Any],
+    part: str,
+    subentry_id: str | None,
+    key: str,
+) -> ImportResult:
+    """ "Keep my change" for one drifted key: today's settings as the document
+    would generate them, except that one key keeps its current value, imported
+    again. Every other drifted key stays as the document has it."""
+    view = legacy_view(document)
+    keep = copy.deepcopy(snapshot)
+    options = dict(keep.get("options") or {})
+    numbers = dict(keep.get("numbers") or {})
+    for k, v in view["options"].items():
+        if not (part == "options" and k == key):
+            options[k] = v
+    for k, v in view["numbers"].items():
+        if not (part == "numbers" and k == key):
+            numbers[k] = v
+    for sub in keep.get("subentries") or ():
+        fields = view["subentries"].get(sub["subentry_id"], {})
+        data = dict(sub.get("data") or {})
+        for k, v in fields.items():
+            if not (
+                part == "subentries" and sub["subentry_id"] == subentry_id and k == key
+            ):
+                data[k] = v
+        sub["data"] = data
+    keep["options"] = options
+    keep["numbers"] = numbers
+    # A binding imported from several keys keeps them all on the new value,
+    # or the re-import would see two sources disagree (conflict_role_sources).
+    drifted = (
+        f"subentry:{subentry_id}.{key}" if part == "subentries" else f"{part}.{key}"
+    )
+    current = _value_at(snapshot, drifted)
+    for device in document.get("devices") or ():
+        for binding in (device.get("bindings") or {}).values():
+            prov = binding.get("provenance") or {}
+            paths = [prov.get("source_path"), *(prov.get("also_source_paths") or [])]
+            if drifted in paths:
+                for path in paths:
+                    if path:
+                        _set_at(keep, path, current)
+    return import_legacy(keep)
+
+
+def _split_path(path: str) -> tuple[str, str | None, str]:
+    """`options.<key>`, `numbers.<key>` or `subentry:<id>.<key>` as
+    (part, subentry id, key). Anything else is a bug, said plainly (Mark
+    Purcell, #1882 review: a `numbers.` path used to fall into the subentry
+    parse and fail obscurely; Keep on a drifted Solver number builds one)."""
+    for part in ("options", "numbers"):
+        if path.startswith(f"{part}."):
+            return part, None, path.split(".", 1)[1]
+    if path.startswith("subentry:") and "." in path:
+        sid, key = path[len("subentry:") :].split(".", 1)
+        return "subentries", sid, key
+    raise ValueError(f"not a settings path: {path!r}")
+
+
+def _value_at(snapshot: dict[str, Any], path: str) -> Any:
+    part, sid, key = _split_path(path)
+    if part != "subentries":
+        return (snapshot.get(part) or {}).get(key)
+    sub = next(
+        (x for x in snapshot.get("subentries") or () if x["subentry_id"] == sid), None
+    )
+    return (sub or {}).get("data", {}).get(key)
+
+
+def _set_at(snapshot: dict[str, Any], path: str, value: Any) -> None:
+    part, sid, key = _split_path(path)
+    if part != "subentries":
+        snapshot.setdefault(part, {})[key] = value
+        return
+    for sub in snapshot.get("subentries") or ():
+        if sub["subentry_id"] == sid:
+            sub["data"] = {**(sub.get("data") or {}), key: value}
 
 
 @dataclass

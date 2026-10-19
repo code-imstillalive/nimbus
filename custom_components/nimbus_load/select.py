@@ -151,6 +151,7 @@ async def async_setup_entry(
                 shared_store,
             ),
             NimbusPricingSourceSelect(hass, entry, sw_version),
+            NimbusDeviceSetupModeSelect(entry, sw_version),
         ]
     )
 
@@ -317,3 +318,101 @@ class NimbusPricingSourceSelect(SelectEntity):
             self._entry,
             options=pricing_source.applied(dict(self._entry.options), profile),
         )
+
+
+#: Why a mode change was refused, in the household's words.
+_MODE_REFUSALS = {
+    "dry_run_not_clean": (
+        "the dry run is not clean ({changes} setting(s) would change, "
+        "{conflicts} conflict(s), {problems} problem(s)). Run Nimbus: Preview "
+        "device setup to see them"
+    ),
+    "mode_transition_not_allowed": (
+        "active can only be entered from shadow, after the dry run is clean"
+    ),
+    "revision_conflict": "the device setup changed meanwhile; try again",
+    "no_document": "there is no stored device setup yet; choose shadow first",
+}
+
+
+class NimbusDeviceSetupModeSelect(SelectEntity):
+    """`select.nimbus_device_setup_mode` (nimbus #1574, DC-004): legacy,
+    shadow or active, read from the device store, never stored here.
+    Choosing one calls the same checked mode change as
+    `nimbus_load.device_contract_set_mode`; a refusal raises with its reason
+    and changes nothing. Attributes show the stored revision, whether the dry
+    run is clean, and how many drift Repairs are open."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_should_poll = False
+    _attr_icon = "mdi:file-tree"
+
+    def __init__(self, entry: ConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_options = ["legacy", "shadow", "active"]
+        self._attr_unique_id = f"{entry.entry_id}_device_setup_mode"
+        self.entity_id = "select.nimbus_device_setup_mode"
+        self._attr_name = "Device Setup Mode"
+        self._attr_current_option = None
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        await self._async_refresh()
+        self.async_write_ha_state()
+        self.async_on_remove(
+            async_track_time_interval(self.hass, self._async_tick, timedelta(minutes=5))
+        )
+
+    async def _async_tick(self, *_: Any) -> None:
+        await self._async_refresh()
+        self.async_write_ha_state()
+
+    async def _async_refresh(self) -> None:
+        from homeassistant.helpers import issue_registry as ir
+
+        from . import device_contract_ha
+
+        preview = await device_contract_ha.async_preview(self.hass, self._entry)
+        prefix = f"{device_contract_ha.ISSUE_DRIFT}_{self._entry.entry_id}_"
+        drift = sum(
+            1
+            for (domain, issue_id) in ir.async_get(self.hass).issues
+            if domain == DOMAIN and issue_id.startswith(prefix)
+        )
+        self._attr_current_option = preview["mode"]
+        self._attr_extra_state_attributes = {
+            "revision": preview["revision"],
+            "dry_run_clean": preview["clean"],
+            "dry_run_changes": len(preview["effective_diff"]),
+            "dry_run_conflicts": len(preview["conflicts"]),
+            "dry_run_problems": len(preview["problems"]),
+            "devices": len(preview["devices"]),
+            "drift_repairs": drift,
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        from . import device_contract_ha
+
+        if option == self._attr_current_option:
+            return
+        result = await device_contract_ha.async_set_mode(self.hass, self._entry, option)
+        await self._async_refresh()
+        self.async_write_ha_state()
+        if not result.get("ok"):
+            code = str(result.get("code"))
+            reason = _MODE_REFUSALS.get(code, code).format(
+                changes=len(result.get("effective_diff") or ()),
+                conflicts=len(result.get("conflicts") or ()),
+                problems=len(result.get("problems") or ()),
+            )
+            raise HomeAssistantError(
+                f"Device setup mode not changed to {option}: {reason}."
+            )

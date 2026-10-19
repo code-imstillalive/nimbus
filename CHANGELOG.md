@@ -9,6 +9,42 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Solver tab: the switches for consolidation and the device setup**
+  (household, 19 Oct 2026: "where will these be toggled on or off from?").
+  Under the four price-safety cards, one new row:
+  - **Consolidation drives the plan**, a toggle for
+    `switch.nimbus_solver_price_consolidation_live` (#1786). The
+    *Consolidated prices* card beside it still shows what consolidation
+    would do;
+  - **Device setup**, a card showing the mode (legacy, shadow or active),
+    the stored revision, the device count, whether the dry run is clean,
+    and any open drift Repairs;
+  - **Device setup mode**, a new `select.nimbus_device_setup_mode` (#1574).
+    It is the same checked mode change as
+    `nimbus_load.device_contract_set_mode`: active only from shadow, on a
+    clean dry run. A refused change does nothing, and the error says why.
+
+- **Device setup: drift Repairs and slider write-through** (#1574, DC-004
+  step 5c). In active mode only:
+  - an owned setting edited outside the device setup (a form, a subentry, a
+    service) raises one Repair per key at the next start, which every such
+    edit triggers. **Keep my change** commits it as a new revision;
+    **Restore** writes the device setup's value back. Until you choose,
+    Nimbus runs on what the setting says. A setting imported from two places
+    (the grid sensor in the options and a Grid Power Signal) moves both on
+    Keep, so they never disagree;
+  - a contract-owned Solver number (battery capacity, charge and discharge
+    limits, SoC limits, grid limits) commits a new revision when it changes,
+    so the dashboard slider edits the device setup rather than a second copy;
+  - every commit on an entry runs one at a time (a per-entry lock), so two
+    sliders moved together commit in turn (Mark Purcell, #1878 review).
+  - *Keep my change* on a drifted Solver number (one reset by a restart, say)
+    keeps that number; a settings path of any other shape is refused with a
+    plain error rather than misread (Mark Purcell, #1882 review).
+
+  In legacy and shadow mode nothing changes: a slider reads one store and
+  returns.
+
 - **Device setup: active mode** (#1574, DC-004 step 5b).
   `nimbus_load.device_contract_set_mode` now accepts `active`, from
   `shadow` only and on a clean dry run. Entering it changes no setting: the

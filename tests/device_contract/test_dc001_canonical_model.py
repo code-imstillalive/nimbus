@@ -488,6 +488,11 @@ _DC_BUILDERS = frozenset(
         "services.py",
         # DC-004 step 5b: the start-up recovery call, nothing else.
         "__init__.py",
+        # DC-004 step 5c: number write-through and the drift Repair's flow.
+        "number.py",
+        "repairs.py",
+        # The Device Setup Mode select (DC-004, 0.94.467).
+        "select.py",
     }
 )
 

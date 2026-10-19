@@ -383,6 +383,49 @@ _SAFETY_CONSOLIDATION = {
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
 
+# Household, 19 Oct 2026: "where will these be toggled on or off from?" --
+# the two controls 0.94.467 asks the household to turn on, under the
+# price-safety cards: consolidation's live switch, and the device setup's
+# mode (DC-004) with what it would do.
+_CONSOLIDATION_TOGGLE = {
+    "type": "tile",
+    "entity": "@solver_price_consolidation_live",
+    "name": "Consolidation drives the plan",
+    "icon": "mdi:call-merge",
+    "features": [{"type": "toggle"}],
+    "features_position": "bottom",
+}
+
+_DEVICE_SETUP = {
+    "type": "markdown",
+    "content": (
+        "{% set e = '${@device_setup_mode}' %}{% set m = states(e) %}"
+        "<ha-alert alert-type=\"{% if m == 'active' %}warning{% elif m == 'shadow' %}info{% else %}success{% endif %}\" title=\"Device setup\">"
+        "{% if m == 'active' %}Active: the device setup is in charge"
+        "{% elif m == 'shadow' %}Shadow: stored and compared"
+        "{% elif m == 'legacy' %}Legacy: your settings, as before"
+        "{% else %}Unavailable{% endif %}</ha-alert>\n\n"
+        "{% set c = state_attr(e, 'dry_run_clean') %}"
+        "Revision {{ state_attr(e, 'revision') or 0 }} · "
+        "{{ state_attr(e, 'devices') or 0 }} devices · dry run "
+        "{% if c %}clean{% else %}{{ state_attr(e, 'dry_run_changes') or 0 }} change(s), "
+        "{{ state_attr(e, 'dry_run_conflicts') or 0 }} conflict(s){% endif %}"
+        "{% if (state_attr(e, 'drift_repairs') or 0) > 0 %} · "
+        "<b>{{ state_attr(e, 'drift_repairs') }} drift Repair(s) open</b>{% endif %}\n\n"
+        "*Shadow changes nothing; active puts the device setup in charge. "
+        "Active only from shadow, on a clean dry run.*"
+    ),
+}
+
+_DEVICE_SETUP_MODE = {
+    "type": "tile",
+    "entity": "@device_setup_mode",
+    "name": "Device setup mode",
+    "icon": "mdi:file-tree",
+    "features": [{"type": "select-options"}],
+    "features_position": "bottom",
+}
+
 # --- Stochastic: the two-stage stochastic solve (nimbus #1797) -------------
 # Its own block, last on the tab, one row: Now (headline and what each solar
 # day costs), the battery by how much sun, and its settings. Every
@@ -1690,6 +1733,9 @@ def template() -> list[dict[str, Any]]:
             _section([_styled(c, _FILL_NO_SCROLL)], 1, {"rows": 3})
             for c in _PRICE_SAFETY
         ),
+        _section([_CONSOLIDATION_TOGGLE], 1, {"rows": 3}),
+        _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
+        _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.

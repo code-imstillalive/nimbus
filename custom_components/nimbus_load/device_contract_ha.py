@@ -19,6 +19,13 @@ Two services, both the household's to call:
   marker and falls back to `shadow` with a Repair when the options are ahead.
   `active` -> `legacy` stops generating views and leaves the options as they
   are.
+- **Step 5c, in `active` only:** a drifted owned key (edited in a form, a
+  subentry or a service) raises one fixable Repair per key at the next start,
+  which every such edit triggers; *Keep my change* commits it as a new
+  revision and *Restore* writes the document's value back. A contract-owned
+  number commits a new revision when it changes, so the slider edits the
+  document. One lock per entry serialises every commit (Mark Purcell, #1878
+  review: the reload counter is per entry, so commits must not overlap).
 
 Nothing here sends a command to a device (DC-R15): it reads states and the
 entity registry, and writes one `Store`.
@@ -26,6 +33,7 @@ entity registry, and writes one `Store`.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from homeassistant.helpers import entity_registry as er
@@ -39,6 +47,15 @@ from .const import DOMAIN
 VIEW_REVISION_KEY = "device_contract_view_revision"
 #: The Repair raised when the options say a later revision than the store.
 ISSUE_INCONSISTENT = "device_contract_inconsistent"
+#: The fixable Repair raised for each drifted owned key (step 5c).
+ISSUE_DRIFT = "device_contract_drift"
+#: hass.data key: one asyncio.Lock per entry, held by every commit.
+_LOCKS = f"{DOMAIN}_device_contract_locks"
+
+
+def _lock(hass: Any, entry_id: str) -> asyncio.Lock:
+    return hass.data.setdefault(_LOCKS, {}).setdefault(entry_id, asyncio.Lock())
+
 
 #: Live Solver numbers the import reads (device_import._CONSTRAINTS + capacity).
 _NUMBER_KEYS = tuple(
@@ -141,7 +158,11 @@ def _store(hass: Any, entry: Any) -> device_storage.ContractStore:
 
 
 async def _async_write_views(
-    hass: Any, entry: Any, document: dict[str, Any], revision: int
+    hass: Any,
+    entry: Any,
+    document: dict[str, Any],
+    revision: int,
+    writes: dict[str, Any] | None = None,
 ) -> tuple[str | None, bool]:
     """Step 2 of the commit order: write every owned key that differs from the
     view of `document`, then the options with the marker last, so the marker
@@ -152,9 +173,10 @@ async def _async_write_views(
     write changes no setting."""
     from .flows import live_numbers
 
-    writes = device_import.view_writes(
-        device_import.legacy_view(document), snapshot(hass, entry)
-    )
+    if writes is None:
+        writes = device_import.view_writes(
+            device_import.legacy_view(document), snapshot(hass, entry)
+        )
     changed = any(writes[part] for part in ("options", "numbers", "subentries"))
     own = hass.data.setdefault(_OWN_UPDATES, {})
     # Count only what a listener will see: at start-up recovery none is
@@ -201,7 +223,21 @@ async def async_commit_active(
 ) -> dict[str, Any]:
     """A commit in `active` mode, in the spec's order: the store, then the
     views and the marker, then the store's `view_revision`. A failure between
-    steps is repaired by `async_recover` at the next start."""
+    steps is repaired by `async_recover` at the next start. Serialised per
+    entry."""
+    async with _lock(hass, entry.entry_id):
+        return await _async_commit_active(
+            hass, entry, expected_revision, document, origin
+        )
+
+
+async def _async_commit_active(
+    hass: Any,
+    entry: Any,
+    expected_revision: int,
+    document: dict[str, Any],
+    origin: str,
+) -> dict[str, Any]:
     store = _store(hass, entry)
     state = await store.async_read()
     if state["mode"] != "active":
@@ -234,6 +270,11 @@ async def async_recover(hass: Any, entry: Any) -> str:
       side is right.
     Returns `none`, `regenerated` (settings rewritten), `marked` (only the
     store's marker caught up), `fell_back`, or an error code."""
+    async with _lock(hass, entry.entry_id):
+        return await _async_recover(hass, entry)
+
+
+async def _async_recover(hass: Any, entry: Any) -> str:
     store = _store(hass, entry)
     state = await store.async_read()
     if state["mode"] != "active" or state["document"] is None:
@@ -275,6 +316,11 @@ async def async_recover(hass: Any, entry: Any) -> str:
 async def async_set_mode(hass: Any, entry: Any, mode: str) -> dict[str, Any]:
     """`legacy`, `shadow` and `active` (module docstring). Returns what
     happened."""
+    async with _lock(hass, entry.entry_id):
+        return await _async_set_mode(hass, entry, mode)
+
+
+async def _async_set_mode(hass: Any, entry: Any, mode: str) -> dict[str, Any]:
     store = _store(hass, entry)
     state = await store.async_read()
     if mode in ("shadow", "active"):
@@ -323,3 +369,116 @@ async def async_set_mode(hass: Any, entry: Any, mode: str) -> dict[str, Any]:
         "mode": after["mode"],
         "revision": after["revision"],
     }
+
+
+def _drift_issue_id(entry_id: str, item: dict[str, Any]) -> str:
+    where = item["subentry_id"] or item["part"]
+    return f"{ISSUE_DRIFT}_{entry_id}_{where}_{item['key']}"
+
+
+async def async_check_drift(hass: Any, entry: Any) -> int:
+    """Raise one fixable Repair per drifted owned key, and clear the ones that
+    no longer drift (step 5c). `active` only; every other mode clears them.
+    Returns the number of drifted keys."""
+    from homeassistant.helpers import issue_registry as ir
+
+    state = await _store(hass, entry).async_read()
+    items: list[dict[str, Any]] = []
+    if state["mode"] == "active" and state["document"] is not None:
+        items = device_import.drift(state["document"], snapshot(hass, entry))
+    wanted = {_drift_issue_id(entry.entry_id, item): item for item in items}
+    prefix = f"{ISSUE_DRIFT}_{entry.entry_id}_"
+    registry = ir.async_get(hass)
+    for domain, issue_id in list(registry.issues):
+        if domain == DOMAIN and issue_id.startswith(prefix) and issue_id not in wanted:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+    for issue_id, item in wanted.items():
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_DRIFT,
+            translation_placeholders={
+                "key": item["key"],
+                "view": str(item["view"]),
+                "current": str(item["current"]),
+            },
+            data={
+                "kind": ISSUE_DRIFT,
+                "entry_id": entry.entry_id,
+                "part": item["part"],
+                "subentry_id": item["subentry_id"],
+                "key": item["key"],
+            },
+        )
+    return len(items)
+
+
+async def async_keep(
+    hass: Any, entry: Any, part: str, subentry_id: str | None, key: str
+) -> str | None:
+    """*Keep my change* for one drifted key: commit it as a new revision.
+    Returns None, or why not."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] != "active" or state["document"] is None:
+            return "not_active"
+        kept = device_import.adopt(
+            state["document"], snapshot(hass, entry), part, subentry_id, key
+        )
+        if kept.conflicts or kept.problems:
+            return "keep_not_possible"
+        result = await _async_commit_active(
+            hass, entry, state["revision"], kept.document, f"drift_keep:{key}"
+        )
+    await async_check_drift(hass, entry)
+    return None if result["ok"] else result["code"]
+
+
+async def async_restore(
+    hass: Any, entry: Any, part: str, subentry_id: str | None, key: str
+) -> str | None:
+    """*Restore* for one drifted key: write the document's value back to that
+    key only. No new revision. Returns None, or why not."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] != "active" or state["document"] is None:
+            return "not_active"
+        view = device_import.legacy_view(state["document"])
+        writes: dict[str, Any] = {"options": {}, "numbers": {}, "subentries": {}}
+        if part == "subentries":
+            value = view["subentries"].get(subentry_id or "", {}).get(key)
+            writes["subentries"] = {subentry_id: {key: value}}
+        else:
+            value = view[part].get(key)
+            writes[part] = {key: value}
+        code, changed = await _async_write_views(
+            hass, entry, state["document"], state["revision"], writes=writes
+        )
+        if code:
+            return code
+    if changed:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+    await async_check_drift(hass, entry)
+    return None
+
+
+async def async_number_changed(hass: Any, entry: Any, key: str, value: float) -> None:
+    """A Nimbus number changed. In `active`, a contract-owned one commits a
+    new revision, so the slider edits the document (DC-004, "Number entities
+    are the hard case"). A write the document itself made is the same value
+    and commits nothing ("unchanged")."""
+    if key not in device_import.owned_number_keys():
+        return
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] != "active" or state["document"] is None:
+            return
+        edited = device_import.with_number(state["document"], key, value)
+        if edited is None:
+            return
+        await _async_commit_active(
+            hass, entry, state["revision"], edited, f"number:{key}"
+        )

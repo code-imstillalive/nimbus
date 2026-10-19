@@ -891,6 +891,14 @@ async def _async_setup_entry_impl(
         recovered = "error"
     if recovered == "regenerated":
         hass.config_entries.async_schedule_reload(entry.entry_id)
+    else:
+        # Step 5c: every settings edit reloads the entry, so this one check
+        # catches a drifted owned key whichever form, subentry or service
+        # edited it.
+        try:
+            await device_contract_ha.async_check_drift(hass, entry)
+        except Exception:  # a drift check fault must not stop the rest of setup
+            _LOGGER.exception("Nimbus: device setup drift check failed")
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 

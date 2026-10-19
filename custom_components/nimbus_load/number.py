@@ -1348,6 +1348,20 @@ class NimbusSolverNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
             from . import _configure_price_watcher
 
             _configure_price_watcher(self.hass, self._entry)
+        # nimbus #1574 (DC-004 step 5c): in the device model's `active` mode a
+        # contract-owned number commits a new revision, so the slider edits the
+        # document. A task, not awaited: the commit takes the entry's lock, and
+        # a view write may be what set this value. Every other mode, and every
+        # number the document doesn't own, returns at once.
+        hass = getattr(self, "hass", None)
+        if hass is not None:  # always set once HA has added the entity
+            from . import device_contract_ha
+
+            hass.async_create_task(
+                device_contract_ha.async_number_changed(
+                    hass, self._entry, self._desc.key, float(value)
+                )
+            )
 
 
 def _slug_for_entity_id(title: str) -> str:

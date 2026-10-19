@@ -85,7 +85,16 @@ def _what(card):
     if card["type"] == "custom:apexcharts-card":
         return card["header"]["title"]
     if card["type"] == "tile":
-        kind = "slider" if card.get("features") else "tile"
+        features = [f["type"] for f in card.get("features", ())]
+        kind = (
+            "toggle"
+            if features == ["toggle"]
+            else "select"
+            if features == ["select-options"]
+            else "slider"
+            if features
+            else "tile"
+        )
         return f"{kind}: {card['name']}"
     if card["type"] == "markdown" and card.get("title"):
         return card["title"]
@@ -155,6 +164,11 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "markdown: Price source"),
             (1, "markdown: Battery hold"),
             (1, "markdown: Consolidated prices"),
+            # Household, 19 Oct 2026: the controls for the two things
+            # 0.94.467 asks them to turn on.
+            (1, "toggle: Consolidation drives the plan"),
+            (2, "markdown: Device setup"),
+            (1, "select: Device setup mode"),
             (2, "Solver Forecast — Whole Plan"),
             # Household, 17 Oct 2026: the quality card is in Performance
             # only; the plan's four days fill its old place.
@@ -270,7 +284,8 @@ def test_the_sliders_are_sliders() -> None:
             c
             for s in solver_tab.resolve(solver_tab.template(), lookup)
             for c in s["cards"]
-            if c.get("display_mode") == "slider" or c.get("features")
+            if c.get("display_mode") == "slider"
+            or any(f["type"] == "numeric-input" for f in c.get("features", ()))
         ]
         assert len(cards) == 3, kind
         for card in cards:
