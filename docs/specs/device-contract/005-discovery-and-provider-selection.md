@@ -113,7 +113,7 @@ Confirmation is the household's action. What it does depends on the mode (DC-004
 
 | Mode | Confirming a proposal |
 |---|---|
-| `legacy` | Nothing is stored. The confirmed proposal is the input to DC-004's import when the household chooses `shadow`. Today's settings stay master. |
+| `legacy` | Refused (`choose_shadow_first`). Nothing is stored: keeping a confirmation outside the store would make a second authority. Choose `shadow` first; the dry run then shows what discovery would add. |
 | `shadow` | A compare-and-swap commit of a new revision. Today's settings stay master; the dry run shows what `active` would change. |
 | `active` | A commit in DC-004's order (store, views, marker). The changed views reload the entry. |
 
@@ -173,7 +173,7 @@ Each is proposed as written above. The build follows these unless @purcell-lab c
 4. **History pairing** runs only for a role whose Energy Dashboard source names energy but no power, over 7 days, with the resolver's existing constants labelled provisional.
 5. **Confirmed bindings are never replaced** by rediscovery; an alternative is shown as a finding.
 6. **A stale source may be switched to**, flagged; every other resolution failure refuses the switch.
-7. **Confirmation in `legacy`** stores nothing; it becomes the input to the import when the household chooses `shadow`.
+7. **Confirmation in `legacy`** is refused (`choose_shadow_first`), so there is never a pending confirmation outside the store.
 8. **Placement:** `device_discovery.py` pure, `async_discover` in `device_contract_ha.py`, and two services, `device_contract_discover` (read-only) and `device_contract_confirm`.
 
 **Build order**, each its own PR, each changing nothing on an install until a household confirms:
