@@ -215,6 +215,27 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.467",
+        "19 Oct 2026",
+        (
+            (
+                "**Device setup:** try Nimbus's new device model in *shadow* "
+                "(changes nothing), then *active*. Choose with *Device setup "
+                "mode* on the Solver tab."
+            ),
+            (
+                "**In active mode:** a setting changed elsewhere raises a "
+                "Repair (*Keep my change* or *Restore*), and the Solver "
+                "sliders edit the device setup directly."
+            ),
+            (
+                "**Combined price forecast:** keeps a spike any source "
+                "forecasts. Turn it on with *Consolidation drives the plan* "
+                "on the Solver tab."
+            ),
+        ),
+    ),
+    (
         "0.94.466",
         "19 Oct 2026",
         (
