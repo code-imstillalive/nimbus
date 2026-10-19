@@ -493,6 +493,8 @@ _DC_BUILDERS = frozenset(
         "repairs.py",
         # The Device Setup Mode select (DC-004, 0.94.467).
         "select.py",
+        # Readiness per function (DC-006).
+        "device_readiness.py",
     }
 )
 

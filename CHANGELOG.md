@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **Device setup: readiness per function** (#1574, DC-006 slice 1a). A pure
+  module, `device_readiness.py`, says for the stored device setup whether
+  Nimbus can observe, forecast, plan and score, and if not, which inputs are
+  missing and what would satisfy each. A model still training is shown as
+  training, not as a fault; stale data is listed, never a reason to stop;
+  a score whose site exchange does not reconcile is marked unreliable, never
+  corrected. Nothing reads it yet; the sensor that shows it follows.
+
 ## [0.94.467] - 2026-10-19
 
 The device model (#1574) is complete for its first stage: you can try it
