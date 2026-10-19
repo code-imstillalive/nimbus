@@ -792,7 +792,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // on one line, regardless of how many columns it spans or
           // whether a future edit changes that number again.
           '<tr class="total-row">' +
-            '<td colspan="2" style="font-weight:700; white-space:normal;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
+            // Household, 19 Oct 2026: the long "— <date> TOTAL (shown
+            // rows) —" label stretched Time and Source ("crazy ugly"):
+            // auto layout shares spare width by each column's longest
+            // content. The heading already says "now until midnight".
+            '<td colspan="2" style="font-weight:700;">Total</td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td>' +
             '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
@@ -1175,7 +1179,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // 2026-09-07: 22px still wasn't narrow enough -- confirmed live,
         // still scrolling. 14px, no more shrinking room without losing
         // the two-segment bar shape entirely.
-        '.source-bar { display: flex; width: 14px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        // Household, 19 Oct 2026: the bar was "tiny" in a wide column. The
+        // table's grid track is now floored at --ftable-min-width, so the
+        // squeeze that forced 14px is gone: the bar fills its cell.
+        '.source-bar { display: flex; width: 100%; min-width: 28px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
         // nimbus #459: in-row split dot for the compact format. Same
