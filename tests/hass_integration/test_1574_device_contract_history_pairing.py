@@ -62,7 +62,9 @@ PREFS = {
 }
 
 
-async def _setup(hass: HomeAssistant, *, on_device: bool = True):
+async def _setup(
+    hass: HomeAssistant, *, on_device: bool = True, power_unit: str = "kW"
+):
     entry = MockConfigEntry(domain=DOMAIN, title="Nimbus (1574 pairing)", data={})
     entry.add_to_hass(hass)
     inverter = MockConfigEntry(domain="some_inverter", data={})
@@ -85,7 +87,9 @@ async def _setup(hass: HomeAssistant, *, on_device: bool = True):
             device_id=device.id if on_device else None,
             suggested_object_id=object_id,
         )
-    hass.states.async_set("sensor.bat_power", "1.5", {"unit_of_measurement": "kW"})
+    hass.states.async_set(
+        "sensor.bat_power", "1.5", {"unit_of_measurement": power_unit}
+    )
     hass.states.async_set("sensor.bat_temperature", "31", {"unit_of_measurement": "°C"})
     hass.states.async_set("sensor.bat_out_kwh", "12", {"unit_of_measurement": "kWh"})
     hass.states.async_set("sensor.bat_in_kwh", "10", {"unit_of_measurement": "kWh"})
@@ -158,3 +162,21 @@ async def test_an_unreadable_history_is_a_finding_not_a_guess(
     assert [f["code"] for f in out["findings"]].count(
         "history_pairing_history_unreadable"
     ) == 1
+
+
+async def test_no_power_sensor_beside_the_counter_is_a_finding(
+    hass: HomeAssistant, hass_storage
+):
+    """Mark Purcell, #1892 review: `history_pairing_no_candidates` had no
+    real-HA test. With the battery's power sensor reading in kWh it is not a
+    power sensor, and the temperature beside it is not either: nothing to
+    pair, said plainly, and no history read."""
+    entry = await _setup(hass, power_unit="kWh")
+    prefs, hist, now = _patches()
+    with prefs, hist as fake, now:
+        out = await device_contract_ha.async_discover(hass, entry)
+    assert fake.call_count == 0
+    assert [f["code"] for f in out["findings"] if f.get("device") == "battery"] == [
+        "history_pairing_no_candidates"
+    ]
+    assert not [q for q in out["questions"] if q["code"] == "confirm_history_match"]
