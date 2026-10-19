@@ -132,7 +132,12 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # storage. "batteries" (nimbus issue #563 item 5) is the same kind
     # of per-cycle-churning series, per-participant.
     assert cls._unrecorded_attributes == frozenset(
-        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+        {
+            "forecast",
+            "batteries",
+            "stochastic_paths",
+            "price_consolidation",
+        }  # #1797, #1786
     )
 
 
@@ -150,7 +155,12 @@ def test_household_load_total_forecast_has_required_sensor_entity_class_attribut
     # above (this sensor never sets it), but both share the same base
     # class's frozenset -- harmless, unused key here.
     assert cls._unrecorded_attributes == frozenset(
-        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+        {
+            "forecast",
+            "batteries",
+            "stochastic_paths",
+            "price_consolidation",
+        }  # #1797, #1786
     )
 
 

@@ -73,7 +73,12 @@ def test_temperature_mirror_has_required_sensor_entity_class_attributes():
     # the battery-forecast sibling, but both share _NimbusSolverPushSensor's
     # own frozenset -- harmless, unused key here.
     assert cls._unrecorded_attributes == frozenset(
-        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+        {
+            "forecast",
+            "batteries",
+            "stochastic_paths",
+            "price_consolidation",
+        }  # #1797, #1786
     )
 
 
@@ -85,7 +90,12 @@ def test_humidity_mirror_has_required_sensor_entity_class_attributes():
     assert cls._attr_native_unit_of_measurement == "%"
     assert cls._attr_state_class == sensor.SensorStateClass.MEASUREMENT
     assert cls._unrecorded_attributes == frozenset(
-        {"forecast", "batteries", "stochastic_paths"}  # #1797: projections
+        {
+            "forecast",
+            "batteries",
+            "stochastic_paths",
+            "price_consolidation",
+        }  # #1797, #1786
     )
 
 
