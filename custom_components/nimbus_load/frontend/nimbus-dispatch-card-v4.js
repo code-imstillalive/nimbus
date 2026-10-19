@@ -1120,6 +1120,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // now that the real Time-column bug (not SOURCE, not font size)
         // is fixed -- a genuine, if partial, further reduction on top.
         'table.ftable { border-collapse: collapse; font-size: 0.86em; min-width: var(--ftable-min-width); width: 100%; }' +
+        // Cons¢ in violet at every width, the same colour as the Solver
+        // tab's Whole Plan table (household, 19 Oct 2026: "in different
+        // colour please"; then "not in purple like the other markdown").
+        'table.ftable td.cons-color, table.ftable th.cons-color { color: violet; }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
@@ -1231,7 +1235,6 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // two coloured columns.
           'table.ftable td.buy-color { color: #e04a3f; }' +
           'table.ftable th.buy-color { color: #e04a3f; }' +
-          'table.ftable td.cons-color, table.ftable th.cons-color { color: #c77dff; }' +
           'table.ftable td.sell-color { color: #3ddc84; }' +
           'table.ftable th.sell-color { color: #3ddc84; }' +
           // Trader-convention grid colour: positive (import) green,
