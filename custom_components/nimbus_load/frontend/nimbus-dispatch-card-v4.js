@@ -940,7 +940,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // unwanted horizontal scrollbar in the new chart/table
         // side-by-side layout below. Re-verify this value directly
         // (not by feel) if row content changes again.
-        ':host { display:block; container-type: inline-size; --ftable-min-width: 560px; }' +
+        ':host { display:block; container-type: inline-size; --ftable-min-width: 620px; }' +
         // nimbus issue #400 follow-up: a screenshot from Mark's real
         // Sections-view dashboard showed forecast-table content stopping
         // hard at the card's own right edge with no visible scrollbar --
@@ -1020,8 +1020,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // contained instead of distorting the whole row's geometry.
         '.chart-table-grid { display:block; }' +
         '.chart-col, .table-col { min-width: 0; }' +
-        '@container (min-width: 900px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:stretch; }' +
+        // Household, 19 Oct 2026, adding Cons¢: "no scrolling please...
+        // make the table wider at the cost of the plan getting narrower on
+        // the left". The table's track can never shrink below its own
+        // --ftable-min-width, so it never scrolls sideways; the chart gives
+        // up the width instead (equal halves on a wide card). Two columns
+        // only from 980px: 320 (chart floor) + 28 (gap) + 620
+        // (--ftable-min-width) + margin; narrower cards stack, table at
+        // full width. Redo this sum if --ftable-min-width changes.
+        '@container (min-width: 980px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), 1fr); gap: 20px 28px; align-items:stretch; }' +
         '}' +
         // Direct household ask (2026-09-07): chart should stretch down
         // to fill whatever vertical space table-col's own (taller) row
