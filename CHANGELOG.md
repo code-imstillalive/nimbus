@@ -16,6 +16,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   offer curve 7 extra re-solves per direction. The Help tab says the same.
   No default changes.
 
+- **Solar "running low" no longer judges a frozen recorder
+  ([#1784](https://github.com/code-imstillalive/nimbus/issues/1784)).** While
+  Home Assistant takes a backup, the recorder's database is locked for writes,
+  and its history stops at the last state written before the lock. The gate's
+  30-minute mean of actual PV froze on an early-morning reading while the
+  panels ramped up, so it judged solar far below forecast and planned the rest
+  of the day on 30 % of it: the battery sat idle and the surplus was exported.
+  When the recorder's newest change trails the live sensor's by more than 5
+  minutes, the gate now reports `recorder_behind` and is off, like any other
+  case where it cannot judge.
+
 - **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
   of the Solver tab's Price sources table stood empty; it now shows each
   source's own price for the next 30 slots (household, 20 Oct).
