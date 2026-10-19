@@ -809,6 +809,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # consolidation to feed.
         "_aemo_rrp_by_contract",
         "_clean",
+        "_loss_factor",
         "_loss_factor_codes",
         "_table",
         "aemo_rrp_series",

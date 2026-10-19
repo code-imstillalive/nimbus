@@ -299,9 +299,10 @@ class TestTheHubWizardDidNotGrow(unittest.TestCase):
         # 47 -> 48: nimbus #1537 item 3 added one optional Sources field (the
         # second P2P matched-rate source), not this feature. 48 -> 49: nimbus
         # #1786's comparison-only price sources, not this feature either.
+        # 49 -> 51: #1786's two loss-factor code sensors, not this feature.
         self.assertEqual(
             total,
-            49,
+            51,
             "the hub wizard grew; #448 is about exactly this number and it was "
             "47 before this change -- if it moved for another reason, update "
             "this and say why",

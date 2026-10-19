@@ -69,6 +69,8 @@ from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_NETWORK_FEE_1_RATE,
     CONF_SOLVER_NETWORK_FEE_2_RATE,
     CONF_SOLVER_NETWORK_FEE_3_RATE,
@@ -107,6 +109,11 @@ LV_V2_PROFILE: dict[str, str] = {
 # startup "fields are empty" notification, so an install never has to set one.
 LV_V2_OPTIONAL_PROFILE: dict[str, str] = {
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "sell_matched_cost",
+    # nimbus #1786: the site's loss-factor codes (LV v2 2.13.0, metadata
+    # sensors, disabled by default -- pre-filled once the household enables
+    # them; a disabled entity is skipped below).
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: "metadata_tni",
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: "metadata_dlf",
 }
 
 NOTIFY_DETECTED_ID = "nimbus_localvolts_v2_detected"
@@ -375,6 +382,8 @@ PRICING_FIELD_LABELS: dict[str, str] = {
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2: "P2P matched rate (second source)",
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: "P2P settlement history",
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "Regional spot forecast",
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: "Transmission node (TNI)",
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: "DLF code",
 }
 
 

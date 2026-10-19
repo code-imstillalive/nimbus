@@ -118,8 +118,6 @@ def build_price_arrays(
     household findings behind each.
     """
     sw = _solver_writer()
-    aemo_source = "aemo_markup"
-    loss_factor = None
 
     if has_price_forecast_array:
         # PRIMARY path -- richer than the generic fallback below whenever
@@ -190,6 +188,8 @@ def build_price_arrays(
         # import) plus the retailer's learned fees. Shadow only: the offsets
         # above, which also extend the live plan past its price source's own
         # coverage, are untouched.
+        aemo_source = "aemo_markup"
+        loss_factor = None
         try:
             factored = _aemo_rrp_by_contract(
                 sw,
@@ -527,6 +527,8 @@ def build_price_arrays(
         import_price_upper_band = {}
         export_price_lower_band = {}
         aemo_import_series = aemo_export_series = None
+        aemo_source = "aemo_markup"
+        loss_factor = None
     return PriceArrays(
         spot_import_raw=spot_import_raw,
         spot_export=spot_export,
@@ -555,7 +557,8 @@ def _loss_factor_codes(sw, cfg) -> tuple[str | None, str | None]:
             return None
         try:
             value = sw.ha_get(entity_id).get("state")
-        except Exception:  # noqa: BLE001 -- an unreadable code is no code
+        except Exception as e:  # noqa: BLE001 -- an unreadable code is no code
+            solver_shared._LOGGER.debug("Nimbus #1786: %s unreadable: %s", entity_id, e)
             return None
         if value in (None, "", "unknown", "unavailable"):
             return None

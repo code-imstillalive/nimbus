@@ -5157,12 +5157,8 @@ def compute_5min_offset(
 
     Falls back to an empty dict (caller then falls back further) if
     `regional_spot_sensor` is blank, or either side's real history is
-    unavailable -- must never crash the writer.
-
-    `wholesale_scale(interval_start)` (nimbus #1786), when given, multiplies
-    each interval's wholesale before the difference: the site's loss factors
-    (and GST on import), so what is learned is the retailer's fees alone. An
-    interval it returns None for is left out. Absent, unchanged.
+    unavailable -- must never crash the writer. `wholesale_scale(start)`
+    (#1786) scales each wholesale first (loss factors, GST); None skips it.
     """
     if not real_history:
         return {}
@@ -5182,9 +5178,8 @@ def compute_5min_offset(
         if scale is None:
             continue
         bucket = _local(start).hour * 12 + _local(start).minute // 5
-        by_bucket.setdefault(bucket, []).append(
-            (start, real_v - wholesale[key][1] * scale)
-        )
+        fee = real_v - wholesale[key][1] * scale
+        by_bucket.setdefault(bucket, []).append((start, fee))
     return {
         b: statistics.median(v for _, v in sorted(rows)[-_OFFSET_RECENT_DAYS:])
         for b, rows in by_bucket.items()
@@ -5395,6 +5390,13 @@ def _consolidation_sources(
     return out
 
 
+def _loss_factor(prices: object) -> dict:
+    """nimbus #1786: the site's loss factors for the plan's attribute, when its
+    codes are configured; empty otherwise."""
+    lf = getattr(prices, "loss_factor", None)
+    return {"loss_factor": lf} if lf else {}
+
+
 def apply_price_consolidation(
     cfg: dict,
     now: datetime,
@@ -5420,10 +5422,7 @@ def apply_price_consolidation(
         live = bool(cfg.get("solver_price_consolidation_live", False))
         trackers = _load_price_trackers()
         spike = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)  # #1786: keep spikes
-        result: dict = {"mode": "live" if live else "shadow"}
-        # nimbus #1786: the site's loss factors, when its codes are known.
-        if getattr(prices, "loss_factor", None):
-            result["loss_factor"] = prices.loss_factor
+        result: dict = {"mode": "live" if live else "shadow", **_loss_factor(prices)}
         scored = False
         series_by_side: dict[str, dict[str, list[float | None]]] = {}
         for side, primary, settled in (
