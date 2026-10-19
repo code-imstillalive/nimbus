@@ -17,6 +17,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   a score whose site exchange does not reconcile is marked unreliable, never
   corrected. Nothing reads it yet; the sensor that shows it follows.
 
+### Fixed
+- **Fees¢ no longer goes negative when price consolidation drives the plan;**
+  a new violet **Cons¢** column shows how far consolidation moved the price
+  (household, 19 Oct 2026: "is this in solver view an error? how could fees
+  go negative"; then "option b is definitely better for transparency... in
+  different colour please"). Fees¢ was the plan's price minus the provider's
+  own, so once consolidation replaced the base price it showed
+  consolidation's move as fees. Fees¢ is now the fees alone (0 where none
+  are configured), and Cons¢ is consolidated minus the provider's price,
+  signed, blank when consolidation did not set the row. Both the Solver
+  tab's Whole Plan table and the Control Panel's interval table. Display
+  only: the plan and its costs are unchanged.
+
 ## [0.94.467] - 2026-10-19
 
 The device model (#1574) is complete for its first stage: you can try it

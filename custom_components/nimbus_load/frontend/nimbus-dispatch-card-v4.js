@@ -717,7 +717,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // field semantics -- only the rendering is this card's own dark
     // styling. Column math, verbatim from that markdown card's own Jinja:
     //   Buy¢  = import_price_raw * 100         (raw commodity price only)
-    //   Fees¢ = (import_price - import_price_raw) * 100   (TOU/certs on top)
+    //   Fees¢ = (import_price - base) * 100    (TOU/certs on top), where
+    //           base is consolidated_import_price on a row whose
+    //           import_price_source is "consolidated" (#1786 live), else
+    //           import_price_raw. Household, 19 Oct 2026: with
+    //           consolidation driving the plan, the old formula showed
+    //           consolidation's move as negative "fees".
+    //   Cons¢ = (consolidated_import_price - import_price_raw) * 100 on a
+    //           consolidated row, blank otherwise, in violet ("option b is
+    //           definitely better for transparency... in different
+    //           colour please").
     //   Sell¢ = export_price * 100             (plain spot, on its own)
     //   P2P¢  = (export_price + bonus_price) * 100 when bonus_price > 0.01,
     //           else 0 -- the real, standalone P2P settlement rate, never
@@ -799,7 +808,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
       ftDayP2p += (parseFloat(p.bonus_price) || 0) * (parseFloat(p.export_bonus_kw) || 0) * (parseFloat(p.hours) || 0);
 
       const buyC = (parseFloat(p.import_price_raw) || 0) * 100;
-      const feesC = ((parseFloat(p.import_price) || 0) * 100) - buyC;
+      const consRow = p.import_price_source === 'consolidated'
+        && p.consolidated_import_price !== null
+        && p.consolidated_import_price !== undefined
+        && !isNaN(parseFloat(p.consolidated_import_price));
+      const baseC = consRow ? parseFloat(p.consolidated_import_price) * 100 : buyC;
+      const feesC = ((parseFloat(p.import_price) || 0) * 100) - baseC;
+      const consC = consRow ? baseC - buyC : null;
+      const consCell = consC === null
+        ? ''
+        : (consC > 0.05 ? '+' : '') + consC.toFixed(1);
       const spotC = (parseFloat(p.export_price) || 0) * 100;
       const bonusRaw = parseFloat(p.bonus_price) || 0;
       const p2pActive = bonusRaw > 0.01;
@@ -884,6 +902,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // format inherits the ambient text colour instead.
           '<td class="num col-buy buy-color">' + buyC.toFixed(1) + '</td>' +
           '<td class="num col-fees">' + feesC.toFixed(1) + '</td>' +
+          '<td class="num col-cons cons-color">' + consCell + '</td>' +
           '<td class="num col-sell sell-color">' + spotC.toFixed(1) + '</td>' +
           '<td class="num col-p2p">' + p2pCell + '</td>' +
           '<td class="num col-load">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</td>' +
@@ -1196,6 +1215,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // Grid, SoC (2026-09-07 target from Mark Purcell).
           'table.ftable th.col-source, table.ftable td.col-source { display: none; }' +
           'table.ftable th.col-fees, table.ftable td.col-fees { display: none; }' +
+          'table.ftable th.col-cons, table.ftable td.col-cons { display: none; }' +
           'table.ftable th.col-p2p, table.ftable td.col-p2p { display: none; }' +
           'table.ftable th.col-net, table.ftable td.col-net { display: none; }' +
           // Colored data cells: buy red, sell green. Header font colours
@@ -1203,6 +1223,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // two coloured columns.
           'table.ftable td.buy-color { color: #e04a3f; }' +
           'table.ftable th.buy-color { color: #e04a3f; }' +
+          'table.ftable td.cons-color, table.ftable th.cons-color { color: #c77dff; }' +
           'table.ftable td.sell-color { color: #3ddc84; }' +
           'table.ftable th.sell-color { color: #3ddc84; }' +
           // Trader-convention grid colour: positive (import) green,
@@ -1379,7 +1400,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
           '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
-          'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
+          'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; Cons&cent; = how far price consolidation moved Buy&cent; (violet, blank when it did not) &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
@@ -1391,6 +1412,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
             '<th class="source-col col-source"><span class="hdr-name">Source</span></th>' +
             '<th class="num col-buy buy-color"><span class="hdr-name">Buy</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-fees"><span class="hdr-name">Fees</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-cons cons-color"><span class="hdr-name">Cons</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-sell sell-color"><span class="hdr-name">Sell</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-p2p"><span class="hdr-name">P2P</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-load"><span class="hdr-name">Load</span><span class="hdr-unit">kW</span></th>' +
