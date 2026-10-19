@@ -7,9 +7,9 @@ charge, number.nimbus_solver_post_window_self_consume_hours) instead of
 module constants applied unconditionally to every install regardless of
 their own real retailer/automation timing.
 
-Both default to this repo's own reference household's real, already-live
-values (1.95, 4) -- an install that never sets these fields sees
-byte-identical behaviour to before this fix.
+The fixed charge defaults to the reference household's 1.95. The
+self-consume hours default to 0, no pin (household 19 Oct 2026, promised
+on #1700); an install that wants the pin sets its own hours.
 """
 
 from __future__ import annotations
@@ -53,8 +53,14 @@ class TestPostWindowSelfConsumeHoursIsConfigurable(unittest.TestCase):
             if gt.hour < 6 and rate == 0.0
         ]
 
-    def test_default_matches_the_historical_hardcoded_4_hours(self):
+    def test_default_is_no_restriction_after_midnight(self):
         result = solver_writer.fetch_p2p_fixed_export_kw(self.cfg_base, self.grid_times)
+        assert result is not None
+        self.assertEqual(self._hours_pinned_to_zero(result), [])
+
+    def test_four_hours_pins_midnight_to_four(self):
+        cfg = {**self.cfg_base, "solver_post_window_self_consume_hours": 4}
+        result = solver_writer.fetch_p2p_fixed_export_kw(cfg, self.grid_times)
         assert result is not None
         self.assertEqual(self._hours_pinned_to_zero(result), [0, 1, 2, 3])
 
