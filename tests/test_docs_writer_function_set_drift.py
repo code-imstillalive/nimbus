@@ -1083,6 +1083,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_gate_result",
         "_turn_off",
         "actual_30min_avg_kw",
+        "recorder_behind_by",
         "decide_hysteresis",
         "evaluate_gate",
         "published_result",
