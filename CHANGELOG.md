@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
+  of the Solver tab's Price sources table stood empty; it now shows each
+  source's own price for the next 30 slots (household, 20 Oct).
+
 - **Self-consume after midnight now defaults to 0 hours** (promised on
   [#1700](https://github.com/code-imstillalive/nimbus/pull/1700)). After a
   P2P block that runs to midnight, the plan no longer holds grid export at
