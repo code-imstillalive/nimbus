@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
+  of the Solver tab's Price sources table stood empty; it now shows each
+  source's own price for the next 30 slots (household, 20 Oct).
+
 ## [0.94.469] - 2026-10-20
 
 **After midnight, the plan is free again by default.** *Self-consume after

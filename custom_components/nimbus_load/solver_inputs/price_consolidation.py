@@ -458,8 +458,10 @@ def consolidate_side(
 #: How many future periods each source's own price is published for: as
 #: many as the Solver tab's full-width Price sources table fits at the
 #: narrowest four-column screen (household, 19 Oct 2026: "fill in as many
-#: slots as the table would fit across 4 columns").
-NEXT_SLOTS = 24
+#: slots as the table would fit across 4 columns"). 24 -> 30 (household,
+#: 20 Oct 2026): at 24 the right fifth of the table stood empty on their
+#: screen.
+NEXT_SLOTS = 30
 
 
 def _r(value: float | None) -> float | None:
