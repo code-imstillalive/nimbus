@@ -263,8 +263,12 @@ class TestTheOracleIsNotPaidOutsideTheWindow(unittest.TestCase):
         self.assertIsNotNone(committed)
         arr = np.asarray(committed, dtype=float)
         self.assertGreater((arr > 0).sum(), 0, "no committed periods to price")
+        # `~(arr > 0)`, the gate's own uncommitted mask (#1103): NaN, the
+        # ordinary uncommitted period, counts. `arr <= 0` counted only the
+        # post-midnight zero pins, so it went vacuous when their default
+        # became 0 hours.
         self.assertGreater(
-            (arr <= 0).sum(), 0, "no uncommitted periods -- assertion is vacuous"
+            (~(arr > 0)).sum(), 0, "no uncommitted periods -- assertion is vacuous"
         )
 
 

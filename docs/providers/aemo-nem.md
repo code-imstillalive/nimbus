@@ -36,3 +36,40 @@ is optional but recommended. Nimbus uses it:
 - to cross-check your retailer's live price;
 - to tell a real price spike from a false one in AEMO's own forecasts (see
   [Safety features](../safety.md)).
+
+## Your site's loss factors
+
+AEMO publishes the **regional reference price (RRP)**. Your retail prices are
+built from it with your site's **loss factors**, the marginal loss factor
+(MLF) of your transmission node and your distribution loss factor (DLF):
+
+- **Sell price** = RRP × MLF × DLF + network export tariff
+- **Buy price** = (RRP × MLF × DLF + network import tariff + retailer usage
+  fees) × 1.1 GST
+
+On LocalVolts sites the RRP × MLF × DLF part matches to within 0.1 %
+([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)).
+
+Two optional fields on wizard screen 3, next to the regional spot sensors,
+identify them:
+
+- **Transmission node (TNI) sensor:** a sensor whose state is your TNI, for
+  example `NCMA`;
+- **DLF code sensor:** a sensor whose state is your DLF code, for example
+  `BL0A`.
+
+LocalVolts v2 2.13.0 and later provides both. They are disabled by default;
+enable them on the LocalVolts device page. Nimbus looks the values up in
+AEMO's published tables for each financial year (2025-26 and 2026-27 so far),
+so nothing is fitted, and a plan that crosses 1 July uses each year's own
+values.
+
+With both set, the AEMO-based price source on the Solver tab's Price sources
+card becomes **Retail from AEMO RRP**:
+
+- the current interval comes from the dispatch RRP, not a forecast;
+- only the network tariffs and your retailer's usage fees are learned.
+
+The plan's `price_consolidation.loss_factor` attribute shows the codes, the
+financial year, the factor and, when it can't be looked up, why. This changes
+only the price source the consolidation measures, not the plan's own prices.

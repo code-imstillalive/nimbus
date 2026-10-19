@@ -260,7 +260,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_charge_taper_start_percent` | Charge Taper Start: SoC at which the charge limit starts to fall | 90.0 | 50-100 | % |
 | `number.nimbus_solver_charge_power_at_full_percent` | Charge Power at Full: Charge power left at 100% SoC, as % of max charge | 10.0 | 0-100 | % |
 | `number.nimbus_solver_fixed_daily_charge` | Fixed Daily Charge: Your daily supply charge | 0.0 | 0-50 | $/day |
-| `number.nimbus_solver_post_window_self_consume_hours` | Post-Window Self-Consume Hours: After a P2P block closes at midnight, the battery only self-consumes this long | 4 | 0-24 | h |
+| `number.nimbus_solver_post_window_self_consume_hours` | Post-Window Self-Consume Hours: After a P2P block closes at midnight, the battery only self-consumes this long | 0 | 0-24 | h |
 | `number.nimbus_solver_inverter_self_consumption_kw` | Inverter Self-Consumption: Power the inverter uses itself, always on | 0.0 | 0-5 | kW |
 | `number.nimbus_solver_p2p_block_lead_time_minutes` | P2P Block Lead Time: Starts each block this many minutes early | 0 | 0-59 | min |
 | `number.nimbus_solve_on_price_change_debounce_s` | Solve on Price Change Debounce: Re-plan delay: price updates within this many seconds make one solve | 5.0 | 0.1-60 | s |

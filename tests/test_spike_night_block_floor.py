@@ -77,8 +77,12 @@ def test_a_night_without_a_spike_keeps_its_rate():
 
 
 def test_the_post_midnight_zero_pins_are_untouched():
+    # The zero pins exist only with post-midnight self-consume hours set; the
+    # default became 0 (#1700), so this sets the 4 it was written against.
+    cfg = {**ARMED, "solver_post_window_self_consume_hours": 4}
     times = _times()
-    fixed, out = _floor(ARMED, times, _prices(times))
+    fixed, out = _floor(cfg, times, _prices(times))
+    assert sum(1 for t in times if t.hour < 4) > 0
     for t, before, after in zip(times, fixed, out, strict=True):
         if t.hour < 4:
             assert after == before == 0.0

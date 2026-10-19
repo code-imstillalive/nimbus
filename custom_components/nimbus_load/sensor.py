@@ -144,6 +144,8 @@ from .const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
@@ -343,6 +345,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    # nimbus #1786: the site's loss-factor codes.
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     # nimbus #1786: exposed like every wizard key; the solve never reads it.
@@ -1017,6 +1022,10 @@ async def async_setup_entry(
     # as the two bridge sensors above. See NimbusHealthReportSensor's
     # own docstring.
     async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
+    # nimbus #1574, DC-006 slice 1b: readiness per function.
+    from .readiness_sensor import NimbusDeviceReadinessSensor
+
+    async_add_entities([NimbusDeviceReadinessSensor(entry, sw_version)])
 
     # nimbus issue #450: the plain-language status sensor added in front
     # of Health Report and every other jargon-carrying sensor -- same
