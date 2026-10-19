@@ -25,6 +25,52 @@ providers (`nimbus_load.device_contract_discover`) and save what you accept
 it gains a per-function readiness module. Nothing changes on an install
 until those services are called.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 1f3ebdd9**,
+  installed untagged via HACS from `release/0.94.468` and restarted 17:19 AEST
+  19 Oct.
+  - 147 `nimbus_load` entities, none unavailable; 8 `unknown` (the test
+    loads' temperature forecasts and the two mirror weather forecasts, as on
+    0.94.467). One fewer than at 0.94.467: devhub's own
+    `select.nimbus_device_setup_mode` now loses its id to production's
+    mirrored copy (production runs 0.94.467), the devhub-only duplicate
+    unique-ID baseline.
+  - **Solve:** devhub's own solve at 17:20, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 28.5 s and
+    the stochastic shadow 93.6 s, `direction_exclusivity: not_needed`.
+  - **`nimbus_load.device_contract_discover`** answered on real HA with no
+    error and wrote nothing. devhub's Energy Dashboard names no sources, so
+    it reported `no_energy_dashboard` and listed each stored device as
+    `not_seen` (kept as stored), the intended behaviour.
+  - **Solver tab:** the Price sources row renders its accuracy table under
+    the level controls row. Its slot columns, Blend and Gap are not shown on
+    devhub, because devhub's plan entity carries production's mirrored
+    0.94.467 data, which has no `price_consolidation.<side>.next`; covered
+    by `tests/test_price_sources_card.py` and
+    `tests/test_consolidation_next_slots.py`, and the full layout was
+    reviewed by the household on devhub from a preview card with real
+    numbers. Fees¢ reads 0.0 and Cons¢ is violet in both tables.
+  - **Control Panel:** the table sizes to itself with no sideways scroll;
+    the household reviewed it on devhub ("fixed").
+  - **Log:** the devhub-only baseline (duplicate unique IDs from the
+    production mirror, oversized attributes, recorder unit changes), and an
+    ERROR `Nimbus #773 diag: lex/calibration phase 'phase1_primary' failed
+    to reach optimal (status='Infeasible')` at 16:59, 17:05, 17:16 and
+    17:20, each with the solve itself still `optimal`. It predates this
+    release on devhub (16:59, a branch build) and no LP code changed since
+    v0.94.467 (the only solver-area change is `next_slots` in
+    `price_consolidation.py`), so it is not introduced here; devhub's log
+    does not reach back to 0.94.467 to say whether it logged it too. Open
+    for investigation.
+  - **Not claimed live:** `device_contract_confirm` and the mode select on
+    devhub (devhub's own select is shadowed by the mirror); covered by
+    `tests/hass_integration/test_1574_device_contract_discovery.py` on CI.
+    Consolidation driving the plan: kept off (#1786).
+- Consumer check: the Solver tab has a Price sources row under the
+  controls; Fees¢ shows the fees alone and Cons¢ is violet in the Whole
+  Plan and Control Panel tables; the Control Panel's table has no sideways
+  scroll; Developer Tools offers `nimbus_load.device_contract_discover` and
+  `nimbus_load.device_contract_confirm`.
+
 ### Added
 - **Device setup: readiness per function** (#1574, DC-006 slice 1a). A pure
   module, `device_readiness.py`, says for the stored device setup whether
