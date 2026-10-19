@@ -75,3 +75,18 @@ device_contract_set_mode:
             - legacy
             - shadow
             - active
+
+device_contract_discover:
+
+device_contract_confirm:
+  fields:
+    revision:
+      required: true
+      selector:
+        number:
+          min: 0
+          mode: box
+    choices:
+      required: true
+      selector:
+        object:

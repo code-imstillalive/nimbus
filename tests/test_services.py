@@ -246,8 +246,9 @@ def test_async_register_services_registers_both_load_and_signal():
     #195), solve_now (issue #232), compute_quality_report (issue #316),
     set_controllable_load (issue #809), rescore_history (issue #1120) and
     flex_telemetry_record (issue #495), export_decision_inputs (issue
-    #1657), get_stochastic_summary (#1797), and device_contract_preview and
-    device_contract_set_mode (#1574). The idempotency guard is exercised
+    #1657), get_stochastic_summary (#1797), and device_contract_preview,
+    device_contract_set_mode, device_contract_discover and
+    device_contract_confirm (#1574). The idempotency guard is exercised
     by the sibling _is_idempotent_on_reload test.
     """
     hass = MagicMock()
@@ -255,7 +256,7 @@ def test_async_register_services_registers_both_load_and_signal():
 
     services.async_register_services(hass)
 
-    assert hass.services.async_register.call_count == 10
+    assert hass.services.async_register.call_count == 12
     registered_names = {
         call.args[1] for call in hass.services.async_register.call_args_list
     }
@@ -270,6 +271,8 @@ def test_async_register_services_registers_both_load_and_signal():
         services.SERVICE_GET_STOCHASTIC_SUMMARY,
         services.SERVICE_DEVICE_CONTRACT_PREVIEW,
         services.SERVICE_DEVICE_CONTRACT_SET_MODE,
+        services.SERVICE_DEVICE_CONTRACT_DISCOVER,
+        services.SERVICE_DEVICE_CONTRACT_CONFIRM,
     }
     for call in hass.services.async_register.call_args_list:
         assert call.args[0] == services.DOMAIN
@@ -324,6 +327,8 @@ def test_async_unregister_services_removes_every_registered_service():
         # nimbus #1574 (DC-004 step 5a)
         services.SERVICE_DEVICE_CONTRACT_PREVIEW,
         services.SERVICE_DEVICE_CONTRACT_SET_MODE,
+        services.SERVICE_DEVICE_CONTRACT_DISCOVER,
+        services.SERVICE_DEVICE_CONTRACT_CONFIRM,
     }
     for call in hass.services.async_remove.call_args_list:
         assert call.args[0] == services.DOMAIN

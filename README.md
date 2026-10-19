@@ -651,6 +651,17 @@ Edit inline on the dashboard without touching the wizard:
   an owned setting edited elsewhere raises a Repair (*Keep my change* or
   *Restore*), and a contract-owned Solver number commits a new revision when
   its slider moves.
+- `nimbus_load.device_contract_discover`. What discovery (#1574, DC-005)
+  finds from the Energy Dashboard and the recognised price providers
+  (LocalVolts v2, Amber Express, Amber Electric): the proposed devices and
+  sources, each unconfirmed with its evidence, the questions it needs
+  answered, and what it read but did not use. With a stored device setup, the
+  differences against it. Changes nothing.
+- `nimbus_load.device_contract_confirm` (`revision`, `choices`). Saves what
+  the household accepted from discovery as a new revision, in `shadow` or
+  `active` only. A choice discovery did not offer, or a source DC-002 cannot
+  read with its unit and adapter, refuses the whole confirmation and changes
+  nothing; a stale or unavailable source is accepted and flagged.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.

@@ -39,7 +39,7 @@ from typing import Any
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from . import device_import, device_storage
+from . import device_bindings, device_discovery, device_import, device_storage
 from .const import DOMAIN
 
 #: The options key that records which revision the legacy views hold
@@ -482,3 +482,319 @@ async def async_number_changed(hass: Any, entry: Any, key: str, value: float) ->
         await _async_commit_active(
             hass, entry, state["revision"], edited, f"number:{key}"
         )
+
+
+# --- DC-005: discovery on this install ----------------------------------------
+#
+# Read-only: the Energy Dashboard's preferences (never `energy/save_prefs`),
+# the entity registry and live states. Nothing here calls a service (DC-R15).
+# `async_confirm` is the one writer: it commits through DC-004, after the
+# household's choices are applied and every changed binding is resolved by
+# DC-002 against the live state.
+
+#: Provider integrations discovery recognises (device_discovery's matrix).
+_PROFILE_DOMAINS = frozenset(device_discovery.PROFILES) | frozenset(
+    device_discovery.REPORTED_ONLY
+)
+
+#: DC-002 reasons that mean the BINDING is wrong, not that its data is
+#: missing right now: a switch to one is refused (DC-005 decision 6). Every
+#: unit refusal (`unit_*`) is one too.
+_BINDING_FAULTS = frozenset(
+    {
+        "adapter_unknown",
+        "adapter_field_unknown",
+        "adapter_reads_prices_only",
+        "source_kind_unknown",
+        "role_unknown",
+        "no_entity",
+        "no_statistic",
+        "energy_unit_as_power",
+        "currency_mismatch",
+        "site_currency_missing",
+        "calculation_unknown",
+        "dependency_dimension_differs",
+        "matched_rate_is_export_side",
+        "settlement_is_not_a_forecast",
+        "action_not_read_only",
+        "rows_only_in_action_response",
+    }
+)
+
+
+def _is_binding_fault(reason: str | None) -> bool:
+    return bool(reason) and (reason in _BINDING_FAULTS or reason.startswith("unit_"))
+
+
+def _profile_key(platform: str, uid: str, config_entry_id: str | None):
+    """(instance, key) of one provider entity, from its built-in unique_id
+    (device_discovery's PROFILES comment), or (None, None)."""
+    if platform == "localvolts_v2":
+        prefix = f"{config_entry_id}_"
+        if config_entry_id and uid.startswith(prefix):
+            return config_entry_id, uid[len(prefix) :]
+        return None, None
+    if platform == "amber_express":
+        for suffix in ("_general_price", "_feed_in_price"):
+            if uid.endswith(suffix):
+                return uid[: -len(suffix)], suffix[1:]
+        return None, None
+    if platform == "amberelectric":
+        if "-forecasts-" in uid:
+            site, rest = uid.rsplit("-forecasts-", 1)
+            return site, f"forecasts-{rest}"
+        return None, None
+    # Reported-only providers: one instance per config entry, no keys.
+    return config_entry_id, None
+
+
+def profile_instances(hass: Any) -> list[dict[str, Any]]:
+    """Each configured provider instance, with its entities by key: what
+    `device_discovery.add_provider_profiles` reads. Enabled entities only,
+    found by unique_id, so a renamed entity is still found."""
+    found: dict[tuple[str, str], dict[str, Any]] = {}
+    for e in er.async_get(hass).entities.values():
+        if e.platform not in _PROFILE_DOMAINS or e.disabled_by is not None:
+            continue
+        instance, key = _profile_key(e.platform, str(e.unique_id), e.config_entry_id)
+        if instance is None:
+            continue
+        item = found.setdefault(
+            (e.platform, instance),
+            {"profile": e.platform, "instance": instance, "keys": {}},
+        )
+        if key:
+            item["keys"][key] = e.entity_id
+    return [found[k] for k in sorted(found)]
+
+
+async def _async_energy_prefs(hass: Any) -> dict[str, Any] | None:
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        return manager.data
+    except Exception:  # noqa: BLE001 -- no Energy Dashboard is a finding, not a fault
+        return None
+
+
+async def _async_discovery(hass: Any, entry: Any):
+    prefs = await _async_energy_prefs(hass)
+    registry = er.async_get(hass)
+    regs = {e.entity_id: e.id for e in registry.entities.values()}
+    site = snapshot(hass, entry)["site"]
+    proposal = device_discovery.propose_from_energy_dashboard(
+        prefs, site=site, registry_ids=regs
+    )
+    proposal = device_discovery.add_provider_profiles(
+        proposal, profile_instances(hass), registry_ids=regs
+    )
+    state = await _store(hass, entry).async_read()
+    rediscovery = (
+        device_discovery.rediscover(
+            state["document"],
+            proposal,
+            present_registry_ids=frozenset(regs.values()),
+        )
+        if state["document"] is not None
+        else None
+    )
+    return proposal, state, rediscovery
+
+
+def _problems(problems: Any) -> list[dict[str, Any]]:
+    return [{"code": p.code, "path": p.path, "message": p.message} for p in problems]
+
+
+async def async_discover(hass: Any, entry: Any) -> dict[str, Any]:
+    """`nimbus_load.device_contract_discover`: the proposal, or with a stored
+    document the differences against it. Writes nothing."""
+    proposal, state, rediscovery = await _async_discovery(hass, entry)
+    out: dict[str, Any] = {"mode": state["mode"], "revision": state["revision"]}
+    if rediscovery is None:
+        out.update(
+            {
+                "document": proposal.document,
+                "questions": proposal.questions,
+                "findings": proposal.findings,
+                "problems": _problems(proposal.problems),
+            }
+        )
+    else:
+        out.update(
+            {
+                "differences": rediscovery.differences,
+                "questions": rediscovery.questions,
+                "findings": rediscovery.findings,
+            }
+        )
+    return out
+
+
+def _state_reader(hass: Any):
+    def read(entity_id: str) -> dict[str, Any] | None:
+        st = hass.states.get(entity_id)
+        if st is None:
+            return None
+        return {
+            "state": st.state,
+            "attributes": dict(st.attributes),
+            "last_changed": st.last_changed.isoformat(),
+            "last_updated": st.last_updated.isoformat(),
+            "last_reported": st.last_reported.isoformat(),
+        }
+
+    return read
+
+
+async def _async_statistics(
+    hass: Any, ids: set[str]
+) -> dict[str, dict[str, Any]] | None:
+    """The latest row of each statistic, for validating a binding to it: its
+    existence and unit, not its arithmetic. None when the recorder cannot be
+    read (not loaded, or an API this HA does not have): then a statistic
+    binding is flagged as not validated, never refused on that account."""
+    if not ids:
+        return {}
+    try:
+        return await _async_statistics_rows(hass, ids)
+    except Exception:  # noqa: BLE001 -- see docstring
+        return None
+
+
+async def _async_statistics_rows(hass: Any, ids: set[str]) -> dict[str, dict[str, Any]]:
+    try:
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import (
+            get_last_statistics,
+            get_metadata,
+        )
+    except ImportError:
+        return {}  # pragma: no cover - the recorder ships with HA
+    recorder = get_instance(hass)
+    meta = await recorder.async_add_executor_job(
+        lambda: get_metadata(hass, statistic_ids=ids)
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for sid in ids:
+        if sid not in meta:
+            continue
+        rows = await recorder.async_add_executor_job(
+            lambda sid=sid: get_last_statistics(hass, 1, sid, False, {"state", "sum"})
+        )
+        row = (rows.get(sid) or [None])[0]
+        if not row:
+            continue
+
+        def _iso(value: Any) -> str | None:
+            if isinstance(value, (int, float)):
+                return dt_util.utc_from_timestamp(value).isoformat()
+            return value.isoformat() if hasattr(value, "isoformat") else value
+
+        out[sid] = {
+            "value": row.get("state")
+            if row.get("state") is not None
+            else row.get("sum"),
+            "unit": meta[sid][1].get("unit_of_measurement"),
+            "start": _iso(row.get("start")),
+            "end": _iso(row.get("end")),
+        }
+    return out
+
+
+async def _async_validate(
+    hass: Any, document: dict[str, Any], changed: list[tuple[str, str]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(refusals, flags) for each changed binding, resolved by DC-002 against
+    the live state (DC-005 "a source switch is validated")."""
+    devices = {d["id"]: d for d in document.get("devices") or []}
+    stats = {
+        devices[d]["bindings"][r]["source"].get("statistic_id")
+        for d, r in changed
+        if devices[d]["bindings"][r]["source"].get("kind") == "recorder_statistic"
+    }
+    rows = await _async_statistics(hass, {s for s in stats if s})
+    readers = device_bindings.Readers(
+        state=_state_reader(hass),
+        statistic=lambda sid, _semantics: (rows or {}).get(sid),
+    )
+    now = dt_util.utcnow()
+    refusals: list[dict[str, Any]] = []
+    flags: list[dict[str, Any]] = []
+    for device_id, role in changed:
+        resolved = device_bindings.resolve(document, device_id, role, readers, now)
+        reason = resolved.reason
+        if rows is None and reason == "no_statistic":
+            flags.append(
+                {
+                    "device": device_id,
+                    "role": role,
+                    "state": resolved.state,
+                    "reason": "statistics_not_readable",
+                }
+            )
+        elif resolved.state == device_bindings.MISSING and _is_binding_fault(reason):
+            refusals.append({"device": device_id, "role": role, "reason": reason})
+        elif resolved.state != device_bindings.VALID:
+            flags.append(
+                {
+                    "device": device_id,
+                    "role": role,
+                    "state": resolved.state,
+                    "reason": reason,
+                }
+            )
+    return refusals, flags
+
+
+async def async_confirm(
+    hass: Any, entry: Any, revision: int, choices: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """`nimbus_load.device_contract_confirm`: commit what the household
+    accepted from discovery (DC-005 "Confirming a proposal"). `shadow` or
+    `active` only; refused, with nothing changed, on a revision that moved,
+    a choice discovery did not offer, or a binding DC-002 cannot resolve."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] == "legacy" or state["document"] is None:
+            return {"ok": False, "code": "choose_shadow_first", "mode": state["mode"]}
+        if state["revision"] != revision:
+            return {
+                "ok": False,
+                "code": "revision_conflict",
+                "revision": state["revision"],
+            }
+        _proposal, _state, rediscovery = await _async_discovery(hass, entry)
+        document, refused, changed = device_discovery.apply_confirmation(
+            state["document"], rediscovery, choices
+        )
+        if refused:
+            return {"ok": False, "code": "choice_refused", "refused": refused}
+        if not changed:
+            return {"ok": False, "code": "nothing_to_confirm"}
+        invalid, flags = await _async_validate(hass, document, changed)
+        if invalid:
+            return {"ok": False, "code": "binding_refused", "refused": invalid}
+        if state["mode"] == "active":
+            result = await _async_commit_active(
+                hass, entry, revision, document, "discovery_confirm"
+            )
+        else:
+            committed = await _store(hass, entry).async_commit(
+                revision, document, origin="discovery_confirm", now=dt_util.utcnow()
+            )
+            result = {
+                "ok": committed.ok,
+                "code": committed.code,
+                "mode": "shadow",
+                "revision": committed.revision,
+                **(
+                    {"problems": _problems(committed.problems)}
+                    if committed.problems
+                    else {}
+                ),
+            }
+    if result.get("ok"):
+        result["changed"] = [{"device": d, "role": r} for d, r in changed]
+        result["flags"] = flags
+    return result
