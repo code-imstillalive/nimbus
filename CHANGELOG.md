@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Setup guide: which Features switches to set, and what the rest cost
+  ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
+  A default tier (calibrated objective on, auto-include solar on with Solcast,
+  dispatcher dry run on, load forecast source `off`) and an advanced tier that
+  names each switch's measured cost: flex signals about 9× slower per solve,
+  offer curve 7 extra re-solves per direction. The Help tab says the same.
+  No default changes.
+
 - **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
   of the Solver tab's Price sources table stood empty; it now shows each
   source's own price for the next 30 slots (household, 20 Oct).
