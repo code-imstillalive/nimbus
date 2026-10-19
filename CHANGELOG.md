@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.468] - 2026-10-19
+
+The plan tables no longer show price consolidation's adjustment as
+negative fees: Fees¢ is the fees alone, and a new violet Cons¢ column
+shows how far consolidation moved each price, on the Solver tab and the
+Control Panel. The Control Panel's table is as wide as it needs and never
+scrolls sideways; the plan chart takes the rest. A new Price sources table
+on the Solver tab shows each price source's accuracy, its share of the
+blend and its own price for the next slots. **Keep *Consolidation drives
+the plan* off for now:** on the reference install the AEMO + markup source
+is 3 to 4 times less accurate than the retailer's own forecast (#1786). The device setup can now
+discover your site from the Energy Dashboard and recognised price
+providers (`nimbus_load.device_contract_discover`) and save what you accept
+(`nimbus_load.device_contract_confirm`, shadow or active mode only), and
+it gains a per-function readiness module. Nothing changes on an install
+until those services are called.
+
 ### Added
 - **Device setup: readiness per function** (#1574, DC-006 slice 1a). A pure
   module, `device_readiness.py`, says for the stored device setup whether
