@@ -1443,11 +1443,11 @@ CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
 # SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE) -- silently applied to every
 # install with zero visibility or way to change them, regardless of
 # that install's own real retailer/tariff or P2P program shape. Real
-# wizard fields now. Defaults (1.95, 4) are this repo's own reference
-# household's real, already-live values -- preserving byte-identical
-# behaviour for every existing install (this one included) the moment
-# this ships; only an install that explicitly changes the wizard value
-# sees anything different.
+# wizard fields now. The fixed charge defaults to this repo's own reference
+# household's 1.95. The self-consume hours default to 0 (no restriction,
+# household 19 Oct 2026, promised on #1700): after midnight the plan is
+# free to charge or discharge, and the battery reserve is what stops it
+# selling cheaply. An install that stored its own value keeps it.
 CONF_SOLVER_FIXED_DAILY_CHARGE: Final = "solver_fixed_daily_charge"
 CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = (
     "solver_post_window_self_consume_hours"
@@ -1765,7 +1765,7 @@ DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
 # "not set". An existing install keeps its stored value (RestoreNumber, then
 # the shared Store), so only a fresh install sees this default.
 DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 0.0
-DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 4
+DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 0
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 # Every block defaults OFF (rate_kw=0) regardless of which block number --

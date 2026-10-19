@@ -8,6 +8,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Self-consume after midnight now defaults to 0 hours** (promised on
+  [#1700](https://github.com/code-imstillalive/nimbus/pull/1700)). After a
+  P2P block that runs to midnight, the plan no longer holds grid export at
+  0 kW and blocks charging until 04:00 by default: it may charge, or
+  discharge into an early-morning spike, and the battery reserve is what
+  stops it selling cheaply. **On upgrade, an install still on 4 is changed
+  to 0 once**, and the log says so: 4 was only ever the shipped default.
+  Any other value is left alone. To keep the old behaviour, set
+  `number.nimbus_solver_post_window_self_consume_hours` (Solver tab,
+  *Self-consume after midnight*) back to 4; it is not changed again.
+- **Device setup: `sensor.nimbus_device_readiness`** (#1574, DC-006 slice
+  1b). How many of Nimbus's four functions (observe, forecast, plan, score)
+  are ready, refreshed every five minutes, with each function's state, what
+  it is missing and what would satisfy each, and any bound sensor whose data
+  is stale or unavailable. It reads the stored device setup, or in legacy
+  today's settings, each load model's training state and the scored days.
+  A model still training reads as training, never as a fault. Reads only.
+- **The direction-change margin no longer runs a solve it can prove
+  impossible ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
+  [#773](https://github.com/code-imstillalive/nimbus/issues/773)).** When
+  the plan's first period changes direction, the margin re-solves with the
+  battery held at the previous setpoint. If a first-period limit rules that
+  setpoint out, for example the previous plan was charging and a P2P export
+  block now forbids charging, it now says so (`period0_hysteresis:
+  blocked`) and skips the re-solve. That re-solve could only come back
+  infeasible, and it was being reported as a #773 solver failure, with a
+  model dump, at the start of the evening block. What is dispatched does
+  not change: an infeasible pin already kept the new plan.
 - **The AEMO price source can be built by contract from AEMO's regional
   reference price (RRP) and your site's loss factors
   ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786), Mark).**

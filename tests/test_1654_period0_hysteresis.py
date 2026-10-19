@@ -261,3 +261,123 @@ def test_no_reserve_reports_nothing_binding():
         SimpleNamespace(duals={"power_balance_t0": 0.02})
     )
     assert out == {"reserve_binding_now": False, "reserve_shadow_price_now": 0.0}
+
+
+# --- #773 (19 Oct devhub dump): a pin a period-0 constraint rules out -------
+
+
+def test_a_blocked_pin_is_not_re_solved(monkeypatch):
+    _with_anchor(monkeypatch, -0.62)
+    free = _dc(_plan(0.0, -1.0))
+
+    def pin(kw):
+        raise AssertionError("a blocked pin must not be re-solved")
+
+    out = solver_plan.period0_direction_hysteresis(
+        free,
+        object(),
+        pin,
+        0.01,
+        pin_blocked=lambda kw: ["p2p_fixed_window_charge_gate: charge 0.620 kW > 0"],
+    )
+    assert out.period0_hysteresis == "blocked"
+    assert out.battery_charge_kw[0] == 0.0
+    assert out.period0_hysteresis_delta is None
+
+
+def test_an_unblocked_pin_and_a_raising_check_still_re_solve(monkeypatch):
+    _with_anchor(monkeypatch, 0.855)
+    free = _dc(_plan(0.0, -73.4524))
+    pinned = _dc(_plan(0.855, -73.4458))
+
+    def boom(kw):
+        raise RuntimeError("check")
+
+    for check in (lambda kw: [], boom):
+        out = solver_plan.period0_direction_hysteresis(
+            free, object(), lambda kw: pinned, 0.01, pin_blocked=check
+        )
+        assert out.period0_hysteresis == "kept"
+
+
+def test_the_dumped_shape_charging_into_a_fixed_export_period():
+    """The 19 Oct dump: the previous plan charged 0.62 kW in what is now
+    period 0, and period 0 now falls under a fixed export commitment, which
+    forbids charging. The pinned re-solve is infeasible on the real LP, and
+    the blocker check names the gate without solving."""
+    site = _site(START, True, 50.0)
+    fixed = np.full(N, np.nan)
+    fixed[0] = 0.0
+    site["grid"] = dataclasses.replace(site["grid"], fixed_export_kw=fixed)
+    pinned = build_plan(
+        **{
+            **site,
+            "batteries": [
+                dataclasses.replace(site["batteries"][0], period0_pin_net_kw=-0.62)
+            ],
+        }
+    )
+    assert pinned.status != "optimal"
+    from solver import pin_blockers
+
+    blockers = pin_blockers.period0_pin_blockers(
+        -0.62,
+        batteries=site["batteries"],
+        grid=site["grid"],
+        hours0=5 / 60,
+        solar=site["solar"],
+        loads=site["loads"],
+    )
+    assert any(b.startswith("p2p_fixed_window_charge_gate") for b in blockers)
+
+
+def test_the_blocker_check_changes_the_label_never_the_plan(monkeypatch):
+    """A reported blocker is a proof the pinned re-solve is infeasible
+    (#1577), and an infeasible pin already publishes the free plan. So the
+    check only skips that re-solve: on the real LP the published dispatch is
+    the same with it or without it, and only the label says why."""
+    from solver import pin_blockers
+
+    site = _site(START, True, 50.0)
+    fixed = np.full(N, np.nan)
+    fixed[0] = 0.0
+    site["grid"] = dataclasses.replace(site["grid"], fixed_export_kw=fixed)
+    free = build_plan(**site)
+    assert free.status == "optimal"
+    _with_anchor(monkeypatch, -0.62)
+
+    def resolve(kw):
+        return build_plan(
+            **{
+                **site,
+                "batteries": [
+                    dataclasses.replace(site["batteries"][0], period0_pin_net_kw=kw)
+                ],
+            }
+        )
+
+    def check(kw):
+        return pin_blockers.period0_pin_blockers(
+            kw,
+            batteries=site["batteries"],
+            grid=site["grid"],
+            hours0=5 / 60,
+            solar=site["solar"],
+            loads=site["loads"],
+        )
+
+    without = solver_plan.period0_direction_hysteresis(free, object(), resolve, 0.01)
+    with_check = solver_plan.period0_direction_hysteresis(
+        free, object(), resolve, 0.01, pin_blocked=check
+    )
+    assert (without.period0_hysteresis, with_check.period0_hysteresis) == (
+        "switched",
+        "blocked",
+    )
+    np.testing.assert_array_equal(
+        without.battery_charge_kw, with_check.battery_charge_kw
+    )
+    np.testing.assert_array_equal(
+        without.battery_discharge_kw, with_check.battery_discharge_kw
+    )
+    assert without.total_cost == with_check.total_cost

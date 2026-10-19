@@ -1022,6 +1022,10 @@ async def async_setup_entry(
     # as the two bridge sensors above. See NimbusHealthReportSensor's
     # own docstring.
     async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
+    # nimbus #1574, DC-006 slice 1b: readiness per function.
+    from .readiness_sensor import NimbusDeviceReadinessSensor
+
+    async_add_entities([NimbusDeviceReadinessSensor(entry, sw_version)])
 
     # nimbus issue #450: the plain-language status sensor added in front
     # of Health Report and every other jargon-carrying sensor -- same
