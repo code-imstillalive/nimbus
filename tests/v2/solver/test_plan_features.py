@@ -14,6 +14,7 @@ slack constraint.
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -1595,3 +1596,54 @@ def test_a_zero_export_pin_leaves_import_open(site, span):
     assert plan.grid_import_excess_kw[0] <= TOL
     within = plan.grid_import_kw[0] - plan.grid_import_excess_kw[0]
     assert within >= float(site["load"][0]) - 1e-4
+
+
+@SETTINGS
+@given(
+    plain_sites(),
+    st.lists(_num(0.0, 0.5), min_size=24, max_size=24),
+    _num(0.2, 5.0),
+    st.data(),
+)
+def test_the_export_bonus_cap_resets_at_each_calendar_midnight(
+    site, premiums, volume, data
+):
+    """The bonus volume is a per-day allowance: on a plan that crosses
+    midnight, each calendar day's claimed volume stays within the cap on its
+    own, and the plan collects what the settlement pays when it groups the
+    same periods by day."""
+    n = len(site["hours"])
+    width = float(site["hours"][0])
+    before = data.draw(st.integers(min_value=1, max_value=n - 1))
+    start = datetime(2026, 10, 20, tzinfo=UTC) - timedelta(hours=width * before)
+    periods = PeriodGrid(site["hours"], start=start)
+    bonus_price = np.array(premiums[:n])
+    grid = GridConfig(
+        import_price=site["import_price"],
+        export_price=site["export_price"],
+        import_limit_kw=site["import_limit"],
+        export_limit_kw=site["export_limit"],
+        export_bonus_price=bonus_price,
+        export_bonus_volume_kwh=volume,
+    )
+    plan = build_plan(
+        periods=periods,
+        grid=grid,
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+    )
+    assert plan.status == "optimal"
+    h = site["hours"]
+    bonus = plan.export_bonus_kw
+    assert (bonus <= plan.grid_export_kw + 1e-6).all()
+    for day in (range(before), range(before, n)):
+        assert float(sum(bonus[t] * h[t] for t in day)) <= volume + 1e-6
+    collected = float(np.sum(bonus_price * bonus * h))
+    settled = realized_export_bonus_credit(
+        grid_export_kw=plan.grid_export_kw,
+        hours=h,
+        grid=grid,
+        period_starts=periods.period_starts,
+    )
+    assert abs(collected - settled) < 1e-5
