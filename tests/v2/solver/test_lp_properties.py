@@ -10,6 +10,8 @@ drive `LPProblem` directly, on small random problems that are always feasible
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from hypothesis import given
 from hypothesis import strategies as st
@@ -228,3 +230,59 @@ def test_the_calibrated_solve_holds_a_tiny_primary_against_a_large_secondary(spe
     assert plain.status == cal.status == "optimal"
     tol = max(1e-8, abs(plain.objective) * options.calibration_tolerance)
     assert p.primary_cost_of(cal) <= plain.objective + tol + 1e-7 + 1e-12
+
+
+class _Capture(logging.Handler):
+    def __init__(self):
+        super().__init__(level=logging.DEBUG)
+        self.records: list[logging.LogRecord] = []
+
+    def emit(self, record):
+        self.records.append(record)
+
+
+def _slow_call_levels(problem: LPProblem) -> tuple[str, list[int]]:
+    """Solve with every HiGHS call counted as slow (threshold 0 s, alarm
+    threshold out of reach), returning the status and the levels of the
+    #773 slow-call lines logged."""
+    from solver import lp
+
+    handler = _Capture()
+    saved = (lp._SLOW_LP_CALL_SECONDS, lp._ALARMING_LP_CALL_SECONDS)
+    saved_level = lp._LOGGER.level
+    lp._SLOW_LP_CALL_SECONDS, lp._ALARMING_LP_CALL_SECONDS = 0.0, 1e9
+    lp._LOGGER.addHandler(handler)
+    lp._LOGGER.setLevel(logging.DEBUG)
+    try:
+        result = problem.solve()
+    finally:
+        lp._SLOW_LP_CALL_SECONDS, lp._ALARMING_LP_CALL_SECONDS = saved
+        lp._LOGGER.removeHandler(handler)
+        lp._LOGGER.setLevel(saved_level)
+    levels = [
+        r.levelno for r in handler.records if "#773 diag: HiGHS call" in r.getMessage()
+    ]
+    return result.status, levels
+
+
+@SETTINGS
+@given(problems())
+def test_a_slow_call_that_solved_is_logged_quietly(spec):
+    """A slow HiGHS call that reached optimal is a DEBUG line, never a
+    WARNING: only a call that failed, or ran past the alarm threshold, is
+    alarming (#773)."""
+    status, levels = _slow_call_levels(_build(spec))
+    assert status == "optimal"
+    assert levels
+    assert all(level == logging.DEBUG for level in levels)
+
+
+def test_a_slow_call_that_failed_is_a_warning():
+    """The same slow call on an infeasible problem (x >= 1 and x <= 0) is a
+    WARNING, whatever its time."""
+    p = LPProblem()
+    p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
+    p.add_ub_constraint({"x": -1.0}, -1.5)
+    status, levels = _slow_call_levels(p)
+    assert status != "optimal"
+    assert logging.WARNING in levels
