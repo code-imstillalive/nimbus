@@ -390,6 +390,9 @@ def recorder_behind_by(
     try:
         live = sw.ha_get(sensor).get("last_changed")
     except Exception:  # noqa: BLE001 -- unknown is "not behind", never a crash
+        solver_shared._LOGGER.debug(
+            "Nimbus #1784: live state read failed for %s", sensor, exc_info=True
+        )
         return None
     if not live:
         return None
