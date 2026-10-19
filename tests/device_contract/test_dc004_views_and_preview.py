@@ -206,3 +206,91 @@ def test_view_writes_lists_only_what_differs_and_never_adds_a_subentry():
         "numbers": {key: 123.0},
         "subentries": {sid: {field: "changed"}},
     }
+
+
+def test_a_live_number_writes_through_to_the_document_only_where_owned():
+    """DC-004 step 5c: a contract-owned number commits a new revision; the
+    slider edits the document, never a second copy. Its view is the new
+    value, every other key unchanged; a number the document doesn't own
+    gives nothing to commit."""
+    doc = di.import_legacy(F10).document
+    edited = di.with_number(doc, "solver_battery_capacity_kwh", 55.0)
+    assert edited is not None and edited is not doc
+    view = di.legacy_view(edited)
+    assert view["numbers"]["solver_battery_capacity_kwh"] == 55.0
+    before = di.legacy_view(doc)
+    assert {
+        k: v for k, v in view["numbers"].items() if k != "solver_battery_capacity_kwh"
+    } == {
+        k: v for k, v in before["numbers"].items() if k != "solver_battery_capacity_kwh"
+    }
+    assert (
+        view["options"] == before["options"]
+        and view["subentries"] == before["subentries"]
+    )
+    limit = di.with_number(doc, "solver_grid_max_import_kw", 25.0)
+    assert di.legacy_view(limit)["numbers"]["solver_grid_max_import_kw"] == 25.0
+    assert di.with_number(doc, "solver_price_spike_threshold", 1.0) is None
+    assert "solver_price_spike_threshold" not in di.owned_number_keys()
+    assert di.import_legacy(F10).document == doc  # the input is untouched
+
+
+def test_drift_names_each_owned_key_that_left_the_document():
+    """DC-004 "Drift in active mode": a legacy key edited away from the view
+    is drift, one entry per key with its view and current value. A tunable
+    edited is not drift; nothing edited is no drift."""
+    doc = di.import_legacy(F10).document
+    assert di.drift(doc, F10) == []
+    edited = copy.deepcopy(F10)
+    edited["options"]["grid_sensor"] = "sensor.meter2"
+    edited["options"]["solver_offer_curve_enabled"] = False  # a tunable
+    pool = next(s for s in edited["subentries"] if s["subentry_id"] == "l1")
+    pool["data"]["schedule_start_hour"] = 9
+    found = {(d["part"], d["subentry_id"], d["key"]): d for d in di.drift(doc, edited)}
+    assert set(found) == {
+        ("options", None, "grid_sensor"),
+        ("subentries", "l1", "schedule_start_hour"),
+    }
+    assert found[("options", None, "grid_sensor")]["current"] == "sensor.meter2"
+    assert found[("options", None, "grid_sensor")]["view"] == "sensor.meter_power"
+
+
+def test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document():
+    """ "Keep my change" for one drifted key: the new document holds that
+    key's current value; another drifted key keeps the document's value, so
+    it is still drift until the household chooses for it too."""
+    doc = di.import_legacy(F10).document
+    edited = copy.deepcopy(F10)
+    edited["options"]["grid_sensor"] = "sensor.meter2"
+    pool = next(s for s in edited["subentries"] if s["subentry_id"] == "l1")
+    pool["data"]["schedule_start_hour"] = 9
+    kept = di.adopt(doc, edited, "options", None, "grid_sensor")
+    assert not kept.conflicts and not kept.problems
+    view = di.legacy_view(kept.document)
+    assert view["options"]["grid_sensor"] == "sensor.meter2"
+    assert view["subentries"]["l1"]["schedule_start_hour"] == 8
+    # The grid sensor was imported from the option and from the Grid Power
+    # Signal: keeping the change moves both, so the two never disagree.
+    assert view["subentries"]["s1"]["load_sensor"] == "sensor.meter2"
+    left = {
+        (d["part"], d["subentry_id"], d["key"]) for d in di.drift(kept.document, edited)
+    }
+    assert left == {
+        ("subentries", "l1", "schedule_start_hour"),
+        ("subentries", "s1", "load_sensor"),
+    }
+
+
+def test_a_stale_battery_sign_flag_without_the_solver_sensor_shows_as_a_difference():
+    """F10 edge case (Mark Purcell, #1874 review): the Solver's battery power
+    sensor empty, the Forecaster's set, and the Solver's sign flag left over.
+    The view doesn't write the flag (it belongs to the Solver field), so the
+    dry run lists it as a difference rather than silently keeping it."""
+    snap = copy.deepcopy(F10)
+    snap["options"].pop("solver_battery_power_sensor")
+    pv = di.preview(snap)
+    assert any(
+        path == "options.solver_battery_power_positive_is_charge"
+        for path, _b, _a in pv.effective_diff
+    )
+    assert pv.clean is False

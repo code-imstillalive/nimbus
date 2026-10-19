@@ -585,6 +585,29 @@
     }
   },
   "issues": {
+    "device_contract_drift": {
+      "title": "Nimbus: {key} was changed outside the device setup",
+      "description": "Nimbus's device setup is in charge (active mode), and it says **{key}** should be **{view}**, but the setting now reads **{current}**. Until you choose, Nimbus keeps running on what the setting says.",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Keep {key} or restore it?",
+            "description": "**Keep my change** saves {current} into the device setup as a new revision. **Restore** puts {view} back.",
+            "menu_options": {
+              "keep": "Keep my change",
+              "restore": "Restore the device setup's value"
+            }
+          }
+        },
+        "abort": {
+          "not_active": "The device setup is no longer in active mode, so there is nothing to choose.",
+          "keep_not_possible": "This change can't be kept as it is: it disagrees with another setting the same device uses. Change both, or restore.",
+          "no_longer_applies": "This Nimbus hub no longer exists.",
+          "number_not_written": "A Nimbus number couldn't be written back. Check the Nimbus number entities are loaded, then try again.",
+          "revision_conflict": "The device setup changed while you were choosing. Open the Repair again."
+        }
+      }
+    },
     "device_contract_inconsistent": {
       "title": "Nimbus: device setup out of step",
       "description": "The settings say the device setup is at revision {options_revision}, but its saved copy is only at revision {store_revision}. Nimbus can't tell which is right, so it has gone back to shadow mode: your settings are in charge again and nothing has been changed. Check the settings, then run the Nimbus action **Set device setup mode** to go back to active."

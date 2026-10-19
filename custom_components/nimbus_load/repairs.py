@@ -42,9 +42,52 @@ class SetupFillRepairFlow(ConfirmRepairFlow):
         return self.async_create_entry(data={})
 
 
+class DeviceContractDriftFlow(RepairsFlow):
+    """One drifted device-setup key (DC-004 step 5c): keep the change as a new
+    revision, or restore the document's value."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._drift = data
+
+    async def async_step_init(self, user_input: dict[str, str] | None = None) -> Any:
+        return self.async_show_menu(step_id="init", menu_options=["keep", "restore"])
+
+    async def _apply(self, action: str) -> Any:
+        from . import device_contract_ha
+
+        entry = self.hass.config_entries.async_get_entry(
+            str(self._drift.get("entry_id"))
+        )
+        if entry is None:
+            return self.async_abort(reason="no_longer_applies")
+        do = (
+            device_contract_ha.async_keep
+            if action == "keep"
+            else device_contract_ha.async_restore
+        )
+        problem = await do(
+            self.hass,
+            entry,
+            str(self._drift.get("part")),
+            self._drift.get("subentry_id"),
+            str(self._drift.get("key")),
+        )
+        if problem:
+            return self.async_abort(reason=problem)
+        return self.async_create_entry(data={})
+
+    async def async_step_keep(self, user_input: dict[str, str] | None = None) -> Any:
+        return await self._apply("keep")
+
+    async def async_step_restore(self, user_input: dict[str, str] | None = None) -> Any:
+        return await self._apply("restore")
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict[str, Any] | None
 ) -> RepairsFlow:
     if data and data.get("kind") == FIX_FLOW_KIND:
         return SetupFillRepairFlow(dict(data))
+    if data and data.get("kind") == "device_contract_drift":
+        return DeviceContractDriftFlow(dict(data))
     return ConfirmRepairFlow()

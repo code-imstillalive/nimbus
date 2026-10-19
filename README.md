@@ -647,7 +647,10 @@ Edit inline on the dashboard without touching the wizard:
   the device model in charge: entering it changes no setting and records
   `device_contract_view_revision` in the options; later commits write the
   changed settings in a fixed order, and each start repairs an interrupted
-  one. Going back to `legacy` leaves the settings as they are.
+  one. Going back to `legacy` leaves the settings as they are. In `active`,
+  an owned setting edited elsewhere raises a Repair (*Keep my change* or
+  *Restore*), and a contract-owned Solver number commits a new revision when
+  its slider moves.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.

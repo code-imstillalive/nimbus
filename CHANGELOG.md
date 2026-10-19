@@ -9,6 +9,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Added
+- **Device setup: drift Repairs and slider write-through** (#1574, DC-004
+  step 5c). In active mode only:
+  - an owned setting edited outside the device setup (a form, a subentry, a
+    service) raises one Repair per key at the next start, which every such
+    edit triggers. **Keep my change** commits it as a new revision;
+    **Restore** writes the device setup's value back. Until you choose,
+    Nimbus runs on what the setting says. A setting imported from two places
+    (the grid sensor in the options and a Grid Power Signal) moves both on
+    Keep, so they never disagree;
+  - a contract-owned Solver number (battery capacity, charge and discharge
+    limits, SoC limits, grid limits) commits a new revision when it changes,
+    so the dashboard slider edits the device setup rather than a second copy;
+  - every commit on an entry runs one at a time (a per-entry lock), so two
+    sliders moved together commit in turn (Mark Purcell, #1878 review).
+
+  In legacy and shadow mode nothing changes: a slider reads one store and
+  returns.
+
 - **Device setup: active mode** (#1574, DC-004 step 5b).
   `nimbus_load.device_contract_set_mode` now accepts `active`, from
   `shadow` only and on a clean dry run. Entering it changes no setting: the
