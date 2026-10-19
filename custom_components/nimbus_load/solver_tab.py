@@ -396,39 +396,39 @@ _CONSOLIDATION_SOURCES = {
         "{% set pc = state_attr('${@nimbus_solver_battery_forecast}', 'price_consolidation') or {} %}"
         "{% set imp = pc.get('import') or {} %}"
         "{% set names = imp.get('sources') or [] %}"
-        "{% set live = states('${@solver_price_consolidation_live}') %}"
         "{% set prov = '${@option:solver_import_price_sensor}' %}"
         "{% set prov_name = state_attr(prov, 'friendly_name') or 'Your provider' %}"
         "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'secondary_2': 'Second source', 'secondary_3': 'Third source'} %}"
         "{% set spread = imp.get('spread_now') %}"
-        "{% set wide = spread is not none and spread * 100 > 3 %}"
-        '<ha-alert alert-type="{% if wide or live != \'on\' %}warning{% else %}success{% endif %}" title="Price sources">'
-        "{% if live == 'on' %}On: the blend drives the plan{% else %}Off: the plan uses {{ prov_name }}; the blend is measured only{% endif %}"
-        "{% if spread is not none %}. Sources differ now by {{ (spread * 100) | round(1) }}¢{% endif %}"
-        "</ha-alert>\n\n"
-        "{% if names | length < 2 %}One price source: nothing to blend.{% else %}"
+        "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."
+        "{% else %}"
+        "**Price sources**{% if spread is not none %}: they differ now by {{ (spread * 100) | round(1) }}¢{% endif %}\n\n"
         "{% set mae = imp.get('mae_by_source_and_lead') or {} %}"
         "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
-        "| Usually off by | 5 min | 1 h | 4 h | 24 h | Share of blend |\n|---|---|---|---|---|---|\n"
-        "{% for n in names %}{% set m = mae.get(n) or {} %}"
-        "| {{ label.get(n, n) }} "
-        "{% for b in ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
-        "| {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} |\n"
-        "{% endfor %}\n"
-        "*Usually off by: how far each source's forecast has been from the price that settled, by how far ahead. Share of blend: how much each counts; the more accurate, the more.*\n\n"
         "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
+        "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
+        "{% set prim = srcs.get('primary') or [] %}"
+        "{% set buckets = ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}"
+        "| Source | Share | Off 5 min | Off 1 h | Off 4 h | Off 24 h "
+        "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
+        "|---|---|---|---|---|---{% for t in times %}|---{% endfor %}|\n"
+        "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
+        "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
+        "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
+        "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
+        "{% endfor %}"
         "{% if times %}"
-        "| Next | {% for n in names %}{{ label.get(n, n) }} | {% endfor %}Blend | Gap |\n"
-        "|---|{% for n in names %}---|{% endfor %}---|---|\n"
-        "{% for i in range(times | length) %}"
-        "{% set b = (nx.get('consolidated') or [])[i] %}{% set p0 = ((nx.get('sources') or {}).get('primary') or [])[i] %}"
-        "| {{ as_timestamp(times[i]) | timestamp_custom('%H:%M') }} "
-        "{% for n in names %}{% set v = ((nx.get('sources') or {}).get(n) or [])[i] %}| {{ ((v * 100) | round(1)) if v is not none else '—' }} {% endfor %}"
-        "| {{ ((b * 100) | round(1)) if b is not none else '—' }} "
-        "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} |\n"
-        "{% endfor %}{% endif %}{% endif %}"
+        "| **Blend** | | | | | "
+        "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
+        "| <font color='violet'>Gap</font> | | | | | "
+        "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
+        "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
+        "{% endif %}"
+        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend. Prices in ¢/kWh.*"
+        "{% endif %}"
     ),
 }
+
 
 # Household, 19 Oct 2026: "where will these be toggled on or off from?" --
 # the two controls 0.94.467 asks the household to turn on, under the
@@ -1786,9 +1786,13 @@ def template() -> list[dict[str, Any]]:
         # consolidation fit next to it". Four one-column sections, so later
         # sections keep their columns; Device setup and Price sources take
         # the height their text needs (no fixed rows), so nothing is clipped.
-        _section([_DEVICE_SETUP], 1),
-        _section([_CONSOLIDATION_SOURCES], 1),
+        _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
         _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
+        # Household, 19 Oct 2026 ("the gaps are horrible"; the status was
+        # said twice): the controls row stays level, and the sources get a
+        # full-width row of their own, sources down the side and the next
+        # slots across, so the width carries real numbers. No fixed height.
+        _section([_CONSOLIDATION_SOURCES], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.
