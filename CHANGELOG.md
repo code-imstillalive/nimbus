@@ -42,6 +42,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   confirm, with its error and sign; two equal readings are asked together;
   too little history is said, never read as zero. Nothing reads it yet.
 
+- **Device setup: rediscovery** (#1574, DC-005 step 4). Discovery run
+  again against the stored device setup lists what differs: an empty role
+  it can fill, a renamed entity (same registry entry), an alternative to a
+  stored source, a new device, and a stored device it no longer sees. A
+  confirmed source is never replaced, a vanished one with a successor is a
+  question, and reordering the Energy Dashboard changes nothing. Nothing is
+  applied.
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price

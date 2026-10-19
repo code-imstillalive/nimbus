@@ -958,3 +958,195 @@ CANONICAL_POWER_DIRECTION = {
     kind: dc.CANONICAL_ROLE_DIRECTION[(kind, "power")]
     for kind in ("grid", "battery", "solar", "load")
 }
+
+
+# --- Step 4: rediscovery against a stored document (DC-005 "Rediscovery") ----
+#
+# A fresh proposal is compared with the stored document and turned into a
+# list of differences. Nothing is applied: a difference is shown, and only
+# the household's confirmation (step 5, DC-004's commit) changes the store.
+#
+# * Identity is DC-001's: the registry id where both sides have one, else
+#   entity_id plus attribute path, else statistic id. Never entity_id alone
+#   when a registry id says otherwise, and never list position (decision 2).
+# * A confirmed binding is never replaced: a different discovered source is
+#   an `alternative`, shown with its evidence (decision 5).
+# * A device is matched by the sources it shares with a stored device of the
+#   same kind; the Grid and the whole-house load are the site's own. A
+#   discovered device matching no stored one is `new_device`; one matching
+#   two is a question. A stored device discovery no longer sees is reported,
+#   never removed: absence of evidence is not removal.
+
+D_FILL = "fill"
+D_ALTERNATIVE = "alternative"
+D_RENAMED = "renamed"
+D_NEW_DEVICE = "new_device"
+D_NOT_SEEN = "not_seen"
+Q_REPLACED = "replaced_equipment"
+Q_DEVICE_MATCH = "device_match_ambiguous"
+
+
+@dataclass
+class Rediscovery:
+    differences: list[dict[str, Any]] = field(default_factory=list)
+    questions: list[dict[str, Any]] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
+
+
+def _same_source(a: Mapping[str, Any], b: Mapping[str, Any]) -> bool:
+    if a.get("registry_id") and b.get("registry_id"):
+        return a["registry_id"] == b["registry_id"]
+    if a.get("entity_id") or b.get("entity_id"):
+        return (a.get("entity_id"), a.get("attribute_path")) == (
+            b.get("entity_id"),
+            b.get("attribute_path"),
+        )
+    return a.get("statistic_id") is not None and a.get("statistic_id") == b.get(
+        "statistic_id"
+    )
+
+
+def _sources(device: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        (b or {}).get("source") or {} for b in (device.get("bindings") or {}).values()
+    ]
+
+
+def _site_device(device: Mapping[str, Any]) -> str | None:
+    if device.get("kind") == "grid":
+        return "grid"
+    if device.get("kind") == "load" and device.get("load_class") == "aggregate":
+        return "house"
+    return None
+
+
+def rediscover(
+    stored: Mapping[str, Any],
+    proposal: Proposal,
+    *,
+    present_registry_ids: frozenset[str] | None = None,
+) -> Rediscovery:
+    """The differences between `stored` (a DC-001 document) and a fresh
+    `proposal` (section comment above). `present_registry_ids` are the entity
+    registry entries that exist now, so a stored source whose entry has gone
+    can be told from one that was merely renamed; without it, replaced
+    equipment is never inferred."""
+    out = Rediscovery(
+        questions=copy.deepcopy(proposal.questions),
+        findings=copy.deepcopy(proposal.findings),
+    )
+    stored_devices = list(stored.get("devices") or [])
+    matched_stored: set[str] = set()
+
+    for found in proposal.document["devices"]:
+        site = _site_device(found)
+        if site is not None:
+            matches = [d for d in stored_devices if _site_device(d) == site]
+        else:
+            matches = [
+                d
+                for d in stored_devices
+                if d.get("kind") == found["kind"]
+                and _site_device(d) is None
+                and any(
+                    _same_source(s, f) for s in _sources(d) for f in _sources(found)
+                )
+            ]
+        if len(matches) > 1:
+            out.questions.append(
+                {
+                    "code": Q_DEVICE_MATCH,
+                    "device": found["id"],
+                    "stored_devices": sorted(d["id"] for d in matches),
+                    "message": "this discovered device shares sources with more "
+                    "than one stored device",
+                }
+            )
+            continue
+        if not matches:
+            if site is None:
+                out.differences.append(
+                    {"kind": D_NEW_DEVICE, "device": copy.deepcopy(found)}
+                )
+            continue
+        (target,) = matches
+        matched_stored.add(target["id"])
+        _compare_bindings(target, found, present_registry_ids, out)
+
+    for device in stored_devices:
+        if device["id"] not in matched_stored and _site_device(device) is None:
+            out.findings.append(
+                {
+                    "code": D_NOT_SEEN,
+                    "device": device["id"],
+                    "message": "discovery did not find this device's sources; "
+                    "it stays as stored",
+                }
+            )
+    return out
+
+
+def _compare_bindings(
+    stored: Mapping[str, Any],
+    found: Mapping[str, Any],
+    present: frozenset[str] | None,
+    out: Rediscovery,
+) -> None:
+    have = stored.get("bindings") or {}
+    for role, binding in (found.get("bindings") or {}).items():
+        new = binding.get("source") or {}
+        old_binding = have.get(role)
+        if old_binding is None:
+            out.differences.append(
+                {
+                    "kind": D_FILL,
+                    "device": stored["id"],
+                    "role": role,
+                    "binding": copy.deepcopy(binding),
+                }
+            )
+            continue
+        old = old_binding.get("source") or {}
+        if _same_source(old, new):
+            if old.get("entity_id") and old.get("entity_id") != new.get("entity_id"):
+                out.differences.append(
+                    {
+                        "kind": D_RENAMED,
+                        "device": stored["id"],
+                        "role": role,
+                        "registry_id": old.get("registry_id"),
+                        "stored_entity_id": old.get("entity_id"),
+                        "entity_id": new.get("entity_id"),
+                    }
+                )
+            continue
+        gone = (
+            present is not None
+            and old.get("registry_id") is not None
+            and old["registry_id"] not in present
+        )
+        if gone:
+            out.questions.append(
+                {
+                    "code": Q_REPLACED,
+                    "device": stored["id"],
+                    "role": role,
+                    "stored_source": copy.deepcopy(old),
+                    "candidate": _candidate(binding),
+                    "message": "the stored source no longer exists and discovery "
+                    "found another; confirm it is the replacement",
+                }
+            )
+            continue
+        out.differences.append(
+            {
+                "kind": D_ALTERNATIVE,
+                "device": stored["id"],
+                "role": role,
+                "stored_source": copy.deepcopy(old),
+                "stored_confirmed": bool(
+                    (old_binding.get("provenance") or {}).get("confirmed")
+                ),
+                "candidate": _candidate(binding),
+            }
+        )
