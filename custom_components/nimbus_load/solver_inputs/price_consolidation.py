@@ -168,7 +168,7 @@ def aemo_markup_series(
     return out
 
 
-def aemo_rrp_series(
+def retail_from_rrp_series(
     grid_times: Sequence[datetime],
     aemo_pts: Sequence[tuple[datetime, float]] | None,
     fees_by_5min: dict[int, float] | None,
@@ -176,12 +176,17 @@ def aemo_rrp_series(
     scale: Callable[[datetime], float | None],
     rrp_now: float | None = None,
 ) -> list[float | None]:
-    """nimbus #1786 (Mark): the site's spot price by contract -- the regional
-    RRP times `scale(t)` (MLF x DLF, and GST on import) -- plus the retailer's
-    learned fees for the 5-minute slot. `rrp_now`, the current interval's
-    dispatch price, prices the first period instead of the forecast: the
-    retailer's own current row can still be a forecast level (#1786, 19 Oct).
-    None where AEMO has no point yet or `scale` has no factor."""
+    """nimbus #1786 (Mark): the retail price built from AEMO's regional
+    reference price (RRP), as the contract defines it --
+        sell = RRP x MLF x DLF + network export tariff
+        buy  = (RRP x MLF x DLF + network import tariff + retailer usage fees)
+               x 1.1 (GST)
+    -- as RRP x `scale(t)` (MLF x DLF, x 1.1 on import) plus `fees_by_5min`,
+    the learned tariff-and-fees term for the 5-minute slot (GST included on
+    import). `rrp_now`, the current interval's dispatch RRP, prices the first
+    period instead of the forecast: the retailer's own current row can still be
+    a forecast level (#1786, 19 Oct). None where AEMO has no point yet or
+    `scale` has no factor."""
     if not aemo_pts:
         return [None] * len(grid_times)
     pts = sorted(aemo_pts, key=lambda p: p[0])

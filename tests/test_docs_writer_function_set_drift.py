@@ -807,12 +807,12 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # from AEMO's loss-factor tables, keyed by the site's TNI and DLF code.
         # Same reason as the rest of #1786 above: the docs copy has no
         # consolidation to feed.
-        "_aemo_rrp_by_contract",
+        "_retail_from_rrp",
         "_clean",
         "_loss_factor",
         "_loss_factor_codes",
         "_table",
-        "aemo_rrp_series",
+        "retail_from_rrp_series",
         "financial_year",
         "site_factor",
         "years",

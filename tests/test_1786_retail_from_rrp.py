@@ -1,7 +1,7 @@
 """#1786 (Mark): the AEMO price source priced by contract.
 
 A LocalVolts site's spot is RRP x MLF x DLF (x GST on import). With the
-site's TNI and DLF code configured, the AEMO-based source becomes `aemo_rrp`:
+site's TNI and DLF code configured, the AEMO-based source becomes `retail_from_rrp`:
 the factored RRP plus only the retailer's learned fees, the current interval
 from the dispatch price. Without codes, nothing changes (`aemo_markup`).
 Synthetic values only.
@@ -28,14 +28,16 @@ def _bucket(t):
 def test_the_series_is_factored_rrp_plus_fees():
     pts = [(T0, 0.10), (T0 + timedelta(minutes=15), 0.30)]
     fees = {_bucket(t): 0.02 for t in GRID}
-    out = price_consolidation.aemo_rrp_series(GRID, pts, fees, _bucket, lambda t: K)
+    out = price_consolidation.retail_from_rrp_series(
+        GRID, pts, fees, _bucket, lambda t: K
+    )
     assert out[0] == pytest.approx(0.10 * K + 0.02)
     assert out[3] == pytest.approx(0.30 * K + 0.02)
 
 
 def test_the_current_interval_is_the_dispatch_price_not_the_forecast():
     pts = [(T0, 0.10)]
-    out = price_consolidation.aemo_rrp_series(
+    out = price_consolidation.retail_from_rrp_series(
         GRID, pts, {}, _bucket, lambda t: K, rrp_now=0.08
     )
     assert out[0] == pytest.approx(0.08 * K)
@@ -44,11 +46,15 @@ def test_the_current_interval_is_the_dispatch_price_not_the_forecast():
 
 def test_no_factor_or_no_aemo_point_is_none_never_a_guess():
     pts = [(T0 + timedelta(minutes=10), 0.10)]
-    out = price_consolidation.aemo_rrp_series(GRID, pts, {}, _bucket, lambda t: K)
+    out = price_consolidation.retail_from_rrp_series(
+        GRID, pts, {}, _bucket, lambda t: K
+    )
     assert out[:2] == [None, None]
-    none_k = price_consolidation.aemo_rrp_series(GRID, pts, {}, _bucket, lambda t: None)
+    none_k = price_consolidation.retail_from_rrp_series(
+        GRID, pts, {}, _bucket, lambda t: None
+    )
     assert none_k == [None] * len(GRID)
-    assert price_consolidation.aemo_rrp_series(
+    assert price_consolidation.retail_from_rrp_series(
         GRID, None, {}, _bucket, lambda t: K
     ) == [None] * len(GRID)
 
@@ -107,7 +113,7 @@ CFG = {
 
 def test_the_contract_path_prices_import_with_gst_and_reports_the_factor():
     sw = _FakeSW({"sensor.tni": "NCMA", "sensor.dlf": "BL0A"})
-    imp, exp, summary = prices._aemo_rrp_by_contract(
+    imp, exp, summary = prices._retail_from_rrp(
         sw, CFG, T0, GRID, [(T0, 0.10)], [], [], {}
     )
     assert summary == {
@@ -128,20 +134,18 @@ def test_the_contract_path_prices_import_with_gst_and_reports_the_factor():
 def test_no_codes_leaves_the_source_as_it_was():
     sw = _FakeSW({})
     cfg = {"solver_regional_spot_current_price_sensor": "sensor.rrp_now"}
-    assert (
-        prices._aemo_rrp_by_contract(sw, cfg, T0, GRID, [(T0, 0.1)], [], [], {}) is None
-    )
+    assert prices._retail_from_rrp(sw, cfg, T0, GRID, [(T0, 0.1)], [], [], {}) is None
 
 
 def test_codes_that_cannot_be_looked_up_say_why_and_price_nothing():
     sw = _FakeSW({"sensor.tni": "ZZZZ", "sensor.dlf": "unavailable"})
-    imp, exp, summary = prices._aemo_rrp_by_contract(
+    imp, exp, summary = prices._retail_from_rrp(
         sw, CFG, T0, GRID, [(T0, 0.1)], [], [], {}
     )
     assert (imp, exp) == (None, None)
     assert summary["reason"] == "no_codes"
     sw = _FakeSW({"sensor.tni": "ZZZZ", "sensor.dlf": "BL0A"})
-    _, _, summary = prices._aemo_rrp_by_contract(sw, CFG, T0, GRID, [], [], [], {})
+    _, _, summary = prices._retail_from_rrp(sw, CFG, T0, GRID, [], [], [], {})
     assert summary["reason"] == "unknown_tni"
 
 
@@ -149,10 +153,10 @@ def test_the_consolidation_names_the_source_by_how_it_was_priced():
     class P:
         import_real_mask = [True] * len(GRID)
         aemo_import_series = [0.1] * len(GRID)
-        aemo_source = "aemo_rrp"
+        aemo_source = "retail_from_rrp"
 
     out = solver_writer._consolidation_sources({}, GRID, "import", [0.2] * len(GRID), P)
-    assert "aemo_rrp" in out and "aemo_markup" not in out
+    assert "retail_from_rrp" in out and "aemo_markup" not in out
     P.aemo_source = "aemo_markup"
     out = solver_writer._consolidation_sources({}, GRID, "import", [0.2] * len(GRID), P)
     assert "aemo_markup" in out

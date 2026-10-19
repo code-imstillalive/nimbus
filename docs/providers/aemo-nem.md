@@ -39,10 +39,15 @@ is optional but recommended. Nimbus uses it:
 
 ## Your site's loss factors
 
-Your spot price isn't AEMO's regional price as published. It is the regional
-price times your site's **loss factors**: the marginal loss factor (MLF) of
-your transmission node and your distribution loss factor (DLF). Import also
-carries GST. On a LocalVolts site this matches to within 0.1 %
+AEMO publishes the **regional reference price (RRP)**. Your retail prices are
+built from it with your site's **loss factors**, the marginal loss factor
+(MLF) of your transmission node and your distribution loss factor (DLF):
+
+- **Sell price** = RRP × MLF × DLF + network export tariff
+- **Buy price** = (RRP × MLF × DLF + network import tariff + retailer usage
+  fees) × 1.1 GST
+
+On LocalVolts sites the RRP × MLF × DLF part matches to within 0.1 %
 ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)).
 
 Two optional fields on wizard screen 3, next to the regional spot sensors,
@@ -60,10 +65,10 @@ so nothing is fitted, and a plan that crosses 1 July uses each year's own
 values.
 
 With both set, the AEMO-based price source on the Solver tab's Price sources
-card becomes **AEMO RRP × loss factors**:
+card becomes **Retail from AEMO RRP**:
 
-- the current interval comes from the dispatch price, not a forecast;
-- only your retailer's own fees are learned.
+- the current interval comes from the dispatch RRP, not a forecast;
+- only the network tariffs and your retailer's usage fees are learned.
 
 The plan's `price_consolidation.loss_factor` attribute shows the codes, the
 financial year, the factor and, when it can't be looked up, why. This changes

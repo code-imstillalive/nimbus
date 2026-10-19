@@ -8,17 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **The AEMO price source can be priced by contract: RRP × your site's loss
-  factors ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786),
-  Mark).** A LocalVolts site's spot price is AEMO's regional price × MLF × DLF,
-  and import adds GST, matched to within 0.1 % on two sites. Two new optional
+- **The AEMO price source can be built by contract from AEMO's regional
+  reference price (RRP) and your site's loss factors
+  ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786), Mark).**
+  The retail sell price is RRP × MLF × DLF + the network export tariff; the
+  buy price is (RRP × MLF × DLF + the network import tariff + the retailer's
+  usage fees) × 1.1 GST. The spot part matched to within 0.1 % on two
+  LocalVolts sites. Two new optional
   wizard fields take the sensors holding your transmission node (TNI) and DLF
   code (LocalVolts v2 2.13.0 has both, disabled by default). Nimbus then looks
   the factors up in AEMO's published tables for each financial year
   (2025-26 and 2026-27, from AEMO's own files), never fitting them. The
-  Price sources card shows the source as **AEMO RRP × loss factors**. The
-  current interval comes from the dispatch price, and only the retailer's
-  fees are learned. Shadow only: the consolidation measures this source,
+  Price sources card shows the source as **Retail from AEMO RRP**. The
+  current interval comes from the dispatch RRP, and only the network
+  tariffs and retailer usage fees are learned. Shadow only: the consolidation measures this source,
   but the plan's own prices are unchanged. Without the two fields, nothing
   changes.
 

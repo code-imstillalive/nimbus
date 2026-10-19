@@ -98,10 +98,11 @@ class PriceArrays:
     # its own by the consolidation shadow. None on the generic branch.
     aemo_import_series: object = None
     aemo_export_series: object = None
-    # nimbus #1786: "aemo_rrp" when the site's loss factors are known (the
-    # series is RRP x MLF x DLF, x GST on import, plus learned fees), else
-    # "aemo_markup" (RRP plus one learned offset, as before); and the factor
-    # itself, for the plan's `price_consolidation.loss_factor`.
+    # nimbus #1786: "retail_from_rrp" when the site's loss factors are known
+    # (the retail price built from AEMO's RRP: RRP x MLF x DLF plus the network
+    # export tariff; on import, plus the network import tariff and retailer
+    # usage fees, all x 1.1 GST), else "aemo_markup" (RRP plus one learned
+    # offset, as before); and the factor, for `price_consolidation.loss_factor`.
     aemo_source: str = "aemo_markup"
     loss_factor: dict | None = None
 
@@ -184,14 +185,15 @@ def build_price_arrays(
             solver_shared._LOGGER.debug("Nimbus #1786: AEMO series failed: %s", e)
             aemo_import_series = aemo_export_series = None
         # nimbus #1786 (Mark): with the site's loss-factor codes, the AEMO
-        # source is priced by contract instead -- RRP x MLF x DLF (x GST on
-        # import) plus the retailer's learned fees. Shadow only: the offsets
+        # source is the retail price built from the RRP by contract -- RRP x
+        # MLF x DLF plus the learned network tariffs and retailer usage fees,
+        # GST on import. Shadow only: the offsets
         # above, which also extend the live plan past its price source's own
         # coverage, are untouched.
         aemo_source = "aemo_markup"
         loss_factor = None
         try:
-            factored = _aemo_rrp_by_contract(
+            factored = _retail_from_rrp(
                 sw,
                 cfg,
                 now,
@@ -209,7 +211,7 @@ def build_price_arrays(
         if factored is not None:
             aemo_import_series, aemo_export_series, loss_factor = factored
             if aemo_import_series is not None:
-                aemo_source = "aemo_rrp"
+                aemo_source = "retail_from_rrp"
         # Real empirical price bands for price_risk_aversion (2026-08-21,
         # task #128 -- see compute_price_percentile_band()'s own docstring).
         # A SEPARATE, longer (14-day, vs the 5-day history already fetched
@@ -570,7 +572,7 @@ def _loss_factor_codes(sw, cfg) -> tuple[str | None, str | None]:
     )
 
 
-def _aemo_rrp_by_contract(
+def _retail_from_rrp(
     sw,
     cfg,
     now,
@@ -624,7 +626,7 @@ def _aemo_rrp_by_contract(
     out = []
     for fees, scale in ((fees_import, import_scale), (fees_export, export_scale)):
         out.append(
-            price_consolidation.aemo_rrp_series(
+            price_consolidation.retail_from_rrp_series(
                 grid_times, aemo_forecast, fees, _bucket_5min, scale, rrp_now
             )
         )
