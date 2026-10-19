@@ -32,7 +32,7 @@ battery for solar that never arrives.
   stays immediate.
 
 Whenever the gate cannot judge (switched off, no PV sensor, no reference,
-below the minimum, no history) it is OFF -- exactly the ha-config template,
+below the minimum, no history, history running behind) it is OFF -- exactly the ha-config template,
 which returns false on every one of those. So the gate also switches itself
 off each evening once p50 falls under the minimum, and "today only" needs no
 date bookkeeping.
@@ -81,6 +81,20 @@ solve instead, for one reason: it is correct straight after a restart. An
 EMA held in this process would start from nothing and read low for its
 first half hour -- exactly the "running low" signature -- after every HA
 restart or Nimbus reload. If that history cannot be read, the gate is off.
+
+The history can also be readable but BEHIND: while Home Assistant takes a
+backup it locks the recorder's database, and new states are queued in memory
+until the backup ends. The read then returns the last state written before
+the lock, held to "now", and the 30-minute mean freezes on it. Measured on the
+reference household on 20 Oct 2026: a manual backup locked the recorder at
+07:17, when PV was 1.29 kW; at 08:28 the gate still read a 1.297 kW mean
+against a live 7.8 kW, judged ratio 0.29 and planned the rest of the day on
+30 % of Solcast while the battery sat at its reserve and the surplus was
+exported. So the newest recorded change is compared with the live sensor's
+own last change: when the recorder is more than `RECORDER_BEHIND_AFTER`
+behind, the gate cannot judge and is off ("recorder_behind"). A sensor that
+simply held one value is not behind -- its live last change is the recorded
+one.
 
 The gate's ON/OFF state is held in this process between solves, as the
 issue allows. After a restart it starts off and re-judges at the next solve.
@@ -134,6 +148,11 @@ REFERENCE_LAG = timedelta(minutes=30)
 # sit 30-40 minutes back; older than that is not the lagged period.
 BLEND_LAG_TOLERANCE = timedelta(minutes=10)
 BLEND_MEMORY_SPAN = timedelta(hours=2)
+# How far the recorder's newest change may trail the live sensor's last
+# change before the history is "behind" (a backup's database lock) -- see the
+# module docstring. A live state reaches the recorder within seconds, so five
+# minutes is never an ordinary commit delay.
+RECORDER_BEHIND_AFTER = timedelta(minutes=5)
 # Option (b)'s floor, as a share of p50 -- see the module docstring.
 RATIO_FLOOR = 0.3
 
@@ -360,9 +379,35 @@ def _blend_at(when: datetime) -> float | None:
     return best[1] if best is not None else None
 
 
-def actual_30min_avg_kw(sw: Any, sensor: str, now: datetime) -> float | None:
-    """Time-weighted mean of `sensor` over [now - 30 min, now], in kW, from
-    the recorder. None when the recorder returns nothing for the window."""
+def recorder_behind_by(
+    sw: Any, sensor: str, hist: list[tuple[datetime, float]]
+) -> timedelta | None:
+    """How far the recorder's newest change for `sensor` trails the live
+    sensor's own last change, or None when it does not (or either side is
+    unknown). See the module docstring: a backup locks the recorder."""
+    if not hist:
+        return None
+    try:
+        live = sw.ha_get(sensor).get("last_changed")
+    except Exception:  # noqa: BLE001 -- unknown is "not behind", never a crash
+        return None
+    if not live:
+        return None
+    try:
+        live_at = solver_shared.parse_iso(live)
+    except (TypeError, ValueError):
+        return None
+    lag = live_at - max(t for t, _v in hist)
+    return lag if lag > RECORDER_BEHIND_AFTER else None
+
+
+def actual_30min_avg_kw(
+    sw: Any, sensor: str, now: datetime
+) -> tuple[float | None, timedelta | None]:
+    """(time-weighted mean of `sensor` over [now - 30 min, now] in kW from
+    the recorder, how far the recorder is behind the live sensor). The mean is
+    None when the recorder returns nothing for the window, and also when it
+    is behind -- a frozen mean is not a reading."""
     start = now - ACTUAL_WINDOW
     try:
         hist = sw.fetch_entity_history_range(sensor, start, now)
@@ -370,9 +415,12 @@ def actual_30min_avg_kw(sw: Any, sensor: str, now: datetime) -> float | None:
         solver_shared._LOGGER.debug(
             "Nimbus #1784: recorder history read failed for %s", sensor, exc_info=True
         )
-        return None
+        return None, None
     if not hist:
-        return None
+        return None, None
+    behind = recorder_behind_by(sw, sensor, hist)
+    if behind is not None:
+        return None, behind
     # resample_history_mean() is the repo's own time-weighted mean (#1008):
     # each recorded state holds until the next, and the state carried in
     # from before the window (HA returns the start-time state) covers the
@@ -382,7 +430,7 @@ def actual_30min_avg_kw(sw: Any, sensor: str, now: datetime) -> float | None:
         hist, [start], ACTUAL_WINDOW.total_seconds() / 3600.0
     )[0]
     scale = float(sw._kw_scale_factor(sensor))
-    return max(0.0, float(mean) * scale)
+    return max(0.0, float(mean) * scale), None
 
 
 def evaluate_gate(
@@ -443,7 +491,23 @@ def evaluate_gate(
             solcast_p10,
         )
 
-    actual = actual_30min_avg_kw(sw, sensor, now)
+    actual, behind = actual_30min_avg_kw(sw, sensor, now)
+    if behind is not None:
+        _turn_off(
+            "recorder_behind",
+            f"the recorder's newest {sensor} change is "
+            f"{behind.total_seconds() / 60:.0f} min behind the live sensor "
+            "(a backup locks it)",
+        )
+        return (
+            _gate_result(
+                "recorder_behind",
+                reference_source=source,
+                p50_now_kw=p50_now,
+                p50_lagged_kw=p50_lag,
+            ),
+            solcast_p10,
+        )
     if actual is None:
         _turn_off("no_history", f"no recorder history for {sensor}")
         return (

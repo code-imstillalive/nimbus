@@ -542,6 +542,11 @@ def ha_get(entity_id: str) -> dict:
         updated = getattr(state, "last_updated", None)
         if isinstance(updated, datetime):
             out["last_updated"] = updated.isoformat()
+        # nimbus #1784 (20 Oct): the running-low gate compares it with the
+        # recorder's newest change; the REST path returns it too.
+        changed = getattr(state, "last_changed", None)
+        if isinstance(changed, datetime):
+            out["last_changed"] = changed.isoformat()
         return out
     req = urllib.request.Request(
         f"{sw.HA_BASE}/api/states/{entity_id}",

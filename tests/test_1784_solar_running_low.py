@@ -71,8 +71,11 @@ class _Fake:
     """A fake HA: Solcast today/tomorrow, a W PV sensor with a fixed
     history window, and a live PV reading for the index-0 anchor."""
 
-    def __init__(self, today, tomorrow=None, history=None, live_w="500"):
+    def __init__(
+        self, today, tomorrow=None, history=None, live_w="500", live_changed=None
+    ):
         self.states = {SOLCAST_TODAY: {"detailedForecast": today}}
+        self.live_changed = live_changed
         if tomorrow is not None:
             self.states[SOLCAST_TOMORROW] = {"detailedForecast": tomorrow}
         self.history = history if history is not None else []
@@ -81,7 +84,10 @@ class _Fake:
 
     def ha_get(self, entity_id):
         if entity_id == SENSOR:
-            return {"state": self.live_w, "attributes": {"unit_of_measurement": "W"}}
+            out = {"state": self.live_w, "attributes": {"unit_of_measurement": "W"}}
+            if self.live_changed is not None:
+                out["last_changed"] = self.live_changed.isoformat()
+            return out
         return {"attributes": self.states[entity_id]}
 
     def entity_exists(self, entity_id):
@@ -665,10 +671,104 @@ class TestRestart(_Base):
         self.assertEqual(result["on_since"], later.isoformat())
 
 
+class TestTheRecorderBehind(_Base):
+    """A backup locks the recorder's database: new states queue in memory and
+    the history read returns the last state written before the lock, held to
+    now. The 30-minute mean then freezes on a morning value while the panels
+    ramp up. The gate must not judge a frozen mean (20 Oct 2026, #1784)."""
+
+    def _today(self):
+        p50, p10 = _flat_daylight(5.0, 2.0)
+        return _day(TODAY, p50, p10)
+
+    def test_a_locked_recorder_turns_it_off_even_if_it_was_on(self):
+        now = TODAY.replace(hour=8, minute=30)
+        # Earlier: a genuinely low morning turned it on.
+        early = now - timedelta(hours=1)
+        self.assertTrue(
+            self._evaluate(_Fake(self._today(), history=_held(early, 1000)), early)[
+                "active"
+            ]
+        )
+        # Now: the only row is the state carried in at the window start
+        # (1.0 kW, written before the lock); live is 8 kW, changed seconds ago.
+        fake = _Fake(
+            self._today(),
+            history=_held(now, 1000),
+            live_w="8000",
+            live_changed=now - timedelta(seconds=10),
+        )
+        result = self._evaluate(fake, now)
+        self.assertEqual(result["reason"], "recorder_behind")
+        self.assertFalse(result["active"])
+        self.assertIsNone(result["actual_30min_avg_kw"])
+
+    def test_without_the_live_comparison_the_same_history_would_hold_it_on(self):
+        # The control: the frozen 1.0 kW mean against a 5 kW reference is
+        # ratio 0.2, so a gate that trusts it stays on all morning.
+        now = TODAY.replace(hour=8, minute=30)
+        result = self._evaluate(_Fake(self._today(), history=_held(now, 1000)), now)
+        self.assertEqual(result["reason"], "judged")
+        self.assertTrue(result["active"])
+
+    def test_a_sensor_that_held_one_value_is_not_behind(self):
+        now = TODAY.replace(hour=10)
+        fake = _Fake(
+            self._today(),
+            history=_held(now, 4800),
+            live_w="4800",
+            live_changed=now - timedelta(hours=2),
+        )
+        result = self._evaluate(fake, now)
+        self.assertEqual(result["reason"], "judged")
+        self.assertAlmostEqual(result["actual_30min_avg_kw"], 4.8, places=3)
+
+    def test_an_ordinary_commit_delay_is_not_behind(self):
+        now = TODAY.replace(hour=10)
+        history = _held(now, 4800) + [(now - timedelta(minutes=3), 4900.0)]
+        fake = _Fake(
+            self._today(),
+            history=history,
+            live_w="5000",
+            live_changed=now - timedelta(seconds=5),
+        )
+        self.assertEqual(self._evaluate(fake, now)["reason"], "judged")
+
+    def test_the_threshold_is_five_minutes(self):
+        self.assertEqual(srl.RECORDER_BEHIND_AFTER, timedelta(minutes=5))
+        hist = [(TODAY.replace(hour=10), 1.0)]
+        on_edge = _Fake(self._today(), live_changed=TODAY.replace(hour=10, minute=5))
+        past_edge = _Fake(
+            self._today(), live_changed=TODAY.replace(hour=10, minute=5, second=1)
+        )
+        self.assertIsNone(srl.recorder_behind_by(on_edge, SENSOR, hist))
+        self.assertEqual(
+            srl.recorder_behind_by(past_edge, SENSOR, hist),
+            timedelta(minutes=5, seconds=1),
+        )
+
+    def test_an_unreadable_live_state_is_not_behind(self):
+        hist = [(TODAY.replace(hour=10), 1.0)]
+
+        class _Boom:
+            def ha_get(self, _e):
+                raise RuntimeError("gone")
+
+        self.assertIsNone(srl.recorder_behind_by(_Boom(), SENSOR, hist))
+        self.assertIsNone(srl.recorder_behind_by(_Fake(self._today()), SENSOR, hist))
+
+
 class TestPublishedShape(_Base):
     def test_every_reason_publishes_the_same_keys(self):
         keys = set(srl._gate_result("not_evaluated"))
-        for reason in ("off", "no_reference", "no_history", "judged", "error"):
+        for reason in (
+            "off",
+            "no_reference",
+            "no_history",
+            "recorder_behind",
+            "judged",
+            "error",
+        ):
             self.assertEqual(set(srl._gate_result(reason)), keys)
         self.assertEqual(
             keys,
