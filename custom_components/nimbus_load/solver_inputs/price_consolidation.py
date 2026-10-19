@@ -409,9 +409,40 @@ def consolidate_side(
         "sources": names,
         "method": method,
         "spread_now": round(head, 5) if head is not None else None,
+        "next": next_slots(series, values, grid_times, n_settled),
         **tracker.summary(),
     }
     return values, summary, scored
+
+
+#: How many future periods each source's own price is published for.
+NEXT_SLOTS = 8
+
+
+def _r(value: float | None) -> float | None:
+    return round(float(value), 4) if value is not None else None
+
+
+def next_slots(
+    series: dict[str, list[float | None]],
+    values: Sequence[float | None],
+    grid_times: Sequence[datetime],
+    n_settled: int,
+) -> dict[str, Any]:
+    """Each source's own price and the blend for the next `NEXT_SLOTS`
+    periods after the settled block (household, 19 Oct 2026, with Mark
+    Purcell: "show the differences between sources"). Small on purpose: it
+    rides on the plan's attributes."""
+    stop = min(len(grid_times), n_settled + NEXT_SLOTS)
+    span = range(n_settled, stop)
+    return {
+        "times": [grid_times[i].isoformat() for i in span],
+        "sources": {
+            name: [_r(s[i]) if i < len(s) else None for i in span]
+            for name, s in sorted(series.items())
+        },
+        "consolidated": [_r(values[i]) if i < len(values) else None for i in span],
+    }
 
 
 def replace_future(
