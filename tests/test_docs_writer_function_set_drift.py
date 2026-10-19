@@ -803,6 +803,18 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # per source. Same reason as the rest of #1786 above.
         "_r",
         "next_slots",
+        # #1786 (Mark): the AEMO source priced by contract -- RRP x MLF x DLF
+        # from AEMO's loss-factor tables, keyed by the site's TNI and DLF code.
+        # Same reason as the rest of #1786 above: the docs copy has no
+        # consolidation to feed.
+        "_aemo_rrp_by_contract",
+        "_clean",
+        "_loss_factor_codes",
+        "_table",
+        "aemo_rrp_series",
+        "financial_year",
+        "site_factor",
+        "years",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there
