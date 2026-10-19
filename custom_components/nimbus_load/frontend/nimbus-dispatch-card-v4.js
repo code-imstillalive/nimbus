@@ -1028,12 +1028,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // make the table wider at the cost of the plan getting narrower on
         // the left". The table's track can never shrink below its own
         // --ftable-min-width, so it never scrolls sideways; the chart gives
-        // up the width instead (equal halves on a wide card). Two columns
+        // up the width instead. Two columns
         // only from 980px: 320 (chart floor) + 28 (gap) + 620
         // (--ftable-min-width) + margin; narrower cards stack, table at
         // full width. Redo this sum if --ftable-min-width changes.
         '@container (min-width: 980px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), 1fr); gap: 20px 28px; align-items:stretch; }' +
+          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) var(--ftable-min-width); gap: 20px 28px; align-items:stretch; }' +
         '}' +
         // Direct household ask (2026-09-07): chart should stretch down
         // to fill whatever vertical space table-col's own (taller) row
@@ -1099,6 +1099,14 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.time-nowtag-wide { display: inline; }' +
         '.time-nowtag-compact { display: none; }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
+        // Household, 19 Oct 2026 ("the table still wastes space... the left
+        // plan gets larger again"): the table's track is a fixed
+        // --ftable-min-width (not a share of the card), so the table sits at
+        // its own width and the chart takes the rest. A fixed width, not
+        // max-content: .ftable-wrap is a size container (the compact
+        // layout's query), and a size container contributes no content
+        // width. The heading and the legend wrap inside that width.
+        '.table-col > .section-label, .table-col > .ftable-note { width: 0; min-width: 100%; }' +
         // nimbus issue #459 (Mark Purcell) removed width:100% here because
         // back then table.ftable's container was the WHOLE wide panel
         // (uncapped, ~1900px) -- leftover width past the table's real
@@ -1417,7 +1425,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '<div class="table-col">' +
         '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
-          '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
+          '<span class="source-bar" style="display:inline-flex; vertical-align:middle; width:28px;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
           'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; Cons&cent; = how far price consolidation moved Buy&cent; (violet, blank when it did not) &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
