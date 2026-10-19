@@ -78,6 +78,49 @@ can prove impossible (the evening #773 false alarm).
   phased solve runs and keeps its tie-breaks. Not seen live: the test
   install's log has no such error.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at b334df09**,
+  installed untagged via HACS from `release/0.94.469`. The first restart, at
+  07:16 AEST on 20 Oct, came before HACS had finished writing the files: the
+  entities still reported 0.94.468. The second restart, at 07:18, loaded
+  0.94.469.
+  - **Entities:** devhub's own `nimbus_load` entities report 0.94.469.
+  - **`sensor.nimbus_device_readiness`** is present: **3** of 4, mode
+    `active`, revision 1. Observe, forecast and plan are `ready`; score is
+    `training` ("no full scored day yet"), because devhub's own quality
+    report reads back empty straight after a restart.
+  - **Solve:** devhub's own solve at 07:19, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 27.0 s and
+    the stochastic shadow 69.9 s, `direction_exclusivity: not_needed`.
+  - **The two new wizard fields:** set on devhub through the options flow to
+    the LocalVolts v2 code sensors (mirrored from production).
+    - Read back, both keys persisted, and every other option was unchanged.
+    - The reload completed: the entry is `loaded` again. The unload waited
+      about 1.5 min for the running stochastic shadow solve.
+  - **Log:** the devhub-only baseline (duplicate unique IDs held by the
+    production mirror, oversized attributes, recorder unit changes) and the
+    test EV's departure and SoC warnings. No Nimbus ERROR or traceback of its
+    own.
+  - **Not claimed live:**
+    - `retail_from_rrp`'s series and `price_consolidation.loss_factor`: devhub's
+      own plan entity loses its id to production's mirror, so its attributes
+      can't be read here (the same reason as 0.94.468's Price sources slots).
+      Covered by `tests/test_1786_retail_from_rrp.py` and
+      `tests/test_1786_loss_factors.py`; the lookup for the reference
+      household's codes gives 1.06052 against 1.06053 measured (#1786).
+    - The one-time 4 → 0 switch: devhub's own number entity loses its id to
+      the mirror. Covered by
+      `tests/test_number_self_consume_hours_one_time_change.py`; production's
+      own value was already 0.
+    - #1905's `blocked` label: it only shows on a direction flip into a P2P
+      block. Covered by `tests/test_1654_period0_hysteresis.py`.
+    - #1907's row handling: covered by
+      `tests/test_1837_tiny_coefficients_reach_highs_dropped.py`; the solve
+      above is the evidence that ordinary models are unaffected.
+- Consumer check: the Solver tab's Sources step offers *the site's
+  transmission node (TNI) sensor* and *distribution loss factor (DLF) code
+  sensor*; `sensor.nimbus_device_readiness` reads 3 of 4 with each function's
+  state; *Self-consume after midnight* defaults to 0.
+
 ## [0.94.468] - 2026-10-19
 
 The plan tables no longer show price consolidation's adjustment as
