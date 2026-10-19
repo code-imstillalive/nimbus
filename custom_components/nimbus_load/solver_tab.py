@@ -415,6 +415,7 @@ _CONSOLIDATION_SOURCES = {
         "{% for b in ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
         "| {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} |\n"
         "{% endfor %}\n"
+        "*Usually off by: how far each source's forecast has been from the price that settled, by how far ahead. Share of blend: how much each counts; the more accurate, the more.*\n\n"
         "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
         "{% if times %}"
         "| Next | {% for n in names %}{{ label.get(n, n) }} | {% endfor %}Blend | Gap |\n"
