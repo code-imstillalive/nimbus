@@ -34,6 +34,7 @@ entity registry, and writes one `Store`.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 from typing import Any
 
@@ -44,10 +45,13 @@ from . import (
     device_bindings,
     device_discovery,
     device_import,
+    device_readiness,
     device_resolver,
     device_storage,
 )
 from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 #: The options key that records which revision the legacy views hold
 #: (DC-004 "Commit order in `active` mode").
@@ -939,3 +943,104 @@ async def _async_add_history_pairing(hass: Any, proposal: Any, regs: dict) -> An
     return device_discovery.add_history_pairing(
         proposal, offered, statistics, start, end, registry_ids=regs
     )
+
+
+# --- DC-006 slice 1b: readiness on this install --------------------------------
+
+
+def _bound_roles(document: dict[str, Any]):
+    for device in document.get("devices") or []:
+        for role, binding in (device.get("bindings") or {}).items():
+            yield device, role, binding or {}
+
+
+def _model_states(entry: Any, document: dict[str, Any]) -> dict[str, str]:
+    """{load device id: "trained" | "training"} from each load's forecaster
+    (`entry.runtime_data`, one coordinator per subentry). A load maps to its
+    subentry through its bindings' `subentry:<id>.<key>` source paths; the
+    whole-house load is trained when any load's model is."""
+    coordinators = getattr(entry, "runtime_data", None) or {}
+
+    def trained(coordinator: Any) -> bool:
+        data = getattr(coordinator, "data", None) or {}
+        return bool(data.get("trained_at")) or data.get("forecast_readiness") == "ready"
+
+    by_subentry = {sid: trained(c) for sid, c in coordinators.items()}
+    out: dict[str, str] = {}
+    for device in document.get("devices") or []:
+        if device.get("kind") != "load":
+            continue
+        if device.get("load_class") == "aggregate":
+            out[device["id"]] = "trained" if any(by_subentry.values()) else "training"
+            continue
+        subentries = {
+            str((b.get("provenance") or {}).get("source_path") or "")
+            .removeprefix("subentry:")
+            .split(".", 1)[0]
+            for b in (device.get("bindings") or {}).values()
+            if str((b.get("provenance") or {}).get("source_path") or "").startswith(
+                "subentry:"
+            )
+        }
+        if subentries & set(by_subentry):
+            out[device["id"]] = (
+                "trained" if any(by_subentry.get(s) for s in subentries) else "training"
+            )
+    return out
+
+
+def _scored_days(hass: Any, entry: Any) -> int:
+    registry = er.async_get(hass)
+    eid = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_nimbus_solver_quality_report"
+    )
+    state = hass.states.get(eid) if eid else None
+    if state is None:
+        return 0
+    history = state.attributes.get("history")
+    if isinstance(history, list):
+        return len(history)
+    return 1 if state.attributes.get("latest_date") else 0
+
+
+async def async_readiness(hass: Any, entry: Any) -> dict[str, Any]:
+    """Readiness per function on this install (DC-006, DC-R14): the stored
+    device document, or in `legacy` today's settings imported (nothing is
+    stored), with each bound entity's live state, each load model's
+    training state and the scored days. Reads only."""
+    stored = await _store(hass, entry).async_read()
+    document = stored["document"]
+    if document is None:
+        document = device_import.import_legacy(snapshot(hass, entry)).document
+    readers = device_bindings.Readers(state=_state_reader(hass))
+    now = dt_util.utcnow()
+    data_states: dict[tuple[str, str], str] = {}
+    for device, role, binding in _bound_roles(document):
+        kind = (binding.get("source") or {}).get("kind")
+        if kind not in ("entity_state", "entity_attribute"):
+            continue
+        try:
+            resolved = device_bindings.resolve(
+                document, device["id"], role, readers, now
+            )
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus: readiness could not resolve %s.%s",
+                device["id"],
+                role,
+                exc_info=True,
+            )
+            continue
+        data_states[(device["id"], role)] = resolved.state
+    functions = device_readiness.evaluate(
+        document,
+        data_states=data_states,
+        models=_model_states(entry, document),
+        scored_days=_scored_days(hass, entry),
+    )
+    return {
+        "mode": stored["mode"],
+        "revision": stored["revision"],
+        "ready": device_readiness.ready_count(functions),
+        "functions": functions,
+    }
