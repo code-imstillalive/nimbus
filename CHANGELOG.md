@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A solve whose main costs are all near zero no longer raises
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)).** If
+  every primary cost sat at or below about a billionth, HiGHS refused the
+  tie-break stage's bound row, and the exception escaped the solver instead
+  of taking the plain single-objective fallback every other stage failure
+  takes. It now takes that fallback. Production's costs are real prices,
+  far above that, so no live plan is expected to change.
+
 ## [0.94.468] - 2026-10-19
 
 The plan tables no longer show price consolidation's adjustment as

@@ -2438,7 +2438,17 @@ def _solve_with_options(
         _LEX_PRIMARY_TIE_ABS_SLACK,
         abs(primary_value) * _LEX_PRIMARY_TIE_REL_SLACK,
     )
-    h.addConstr(primary_expr <= primary_value + tie_slack)
+    # #1837 (found by a property on small random LPs): when every primary
+    # coefficient sits at or below HiGHS's smallest matrix value (~1e-9),
+    # HiGHS refuses this row and highspy raises a bare Exception. That
+    # escaped `solve()`, where every other phase failure becomes the plain
+    # single-objective fallback below. Raised as ValueError, it takes that
+    # same path: the primary optimum, without the tie-breaks, for this cycle.
+    try:
+        h.addConstr(primary_expr <= primary_value + tie_slack)
+    except Exception as err:  # highspy raises a bare Exception here
+        msg = f"lexicographic primary bound row refused by HiGHS: {err}"
+        raise ValueError(msg) from err
     extra_row_names = ["_lex_primary_le_optimum"]
     _set_cost_vector(h, col_indices, secondary_vec)
 
