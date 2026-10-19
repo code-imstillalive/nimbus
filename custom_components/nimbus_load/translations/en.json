@@ -587,12 +587,11 @@
   "issues": {
     "device_contract_drift": {
       "title": "Nimbus: {key} was changed outside the device setup",
-      "description": "Nimbus's device setup is in charge (active mode), and it says **{key}** should be **{view}**, but the setting now reads **{current}**. Until you choose, Nimbus keeps running on what the setting says.",
       "fix_flow": {
         "step": {
           "init": {
             "title": "Keep {key} or restore it?",
-            "description": "**Keep my change** saves {current} into the device setup as a new revision. **Restore** puts {view} back.",
+            "description": "Nimbus's device setup is in charge (active mode), and it says **{key}** should be **{view}**, but the setting now reads **{current}**. Until you choose, Nimbus keeps running on what the setting says.\n\n**Keep my change** saves {current} into the device setup as a new revision. **Restore** puts {view} back.",
             "menu_options": {
               "keep": "Keep my change",
               "restore": "Restore the device setup's value"
