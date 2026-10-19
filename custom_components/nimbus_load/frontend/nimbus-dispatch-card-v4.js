@@ -944,7 +944,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // unwanted horizontal scrollbar in the new chart/table
         // side-by-side layout below. Re-verify this value directly
         // (not by feel) if row content changes again.
-        ':host { display:block; container-type: inline-size; --ftable-min-width: 620px; }' +
+        ':host { display:block; container-type: inline-size; --ftable-min-width: 780px; }' +
         // nimbus issue #400 follow-up: a screenshot from Mark's real
         // Sections-view dashboard showed forecast-table content stopping
         // hard at the card's own right edge with no visible scrollbar --
@@ -1028,12 +1028,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // make the table wider at the cost of the plan getting narrower on
         // the left". The table's track can never shrink below its own
         // --ftable-min-width, so it never scrolls sideways; the chart gives
-        // up the width instead (equal halves on a wide card). Two columns
-        // only from 980px: 320 (chart floor) + 28 (gap) + 620
+        // up the width instead. Two columns
+        // only from 1150px: 320 (chart floor) + 28 (gap) + 780
         // (--ftable-min-width) + margin; narrower cards stack, table at
         // full width. Redo this sum if --ftable-min-width changes.
-        '@container (min-width: 980px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), 1fr); gap: 20px 28px; align-items:stretch; }' +
+        '@container (min-width: 1150px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), max-content); gap: 20px 28px; align-items:stretch; }' +
         '}' +
         // Direct household ask (2026-09-07): chart should stretch down
         // to fill whatever vertical space table-col's own (taller) row
@@ -1090,7 +1090,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // available width drops below ~500px (phone-width card, the case
         // Raf's font-size + Time-col fix in v0.94.157/.158 still leaves
         // clipped). Wide cards keep Raf's format unchanged.
-        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); container-type: inline-size; container-name: ftable; }' +
+        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         // Default: wide format (Raf). Show the pill, hide the dot;
         // show the inline lowercase "now" tag, hide the compact NOW.
         '.src-wide { display: inline-flex; vertical-align: middle; }' +
@@ -1099,6 +1099,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.time-nowtag-wide { display: inline; }' +
         '.time-nowtag-compact { display: none; }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
+        // Household, 19 Oct 2026 ("the table still wastes space... the left
+        // plan gets larger again"; then "squished... you need at least
+        // another 25%"): the table's track is its own max-content width,
+        // never below --ftable-min-width (780px), so it is neither stretched
+        // nor squeezed and the chart takes the rest. .ftable-wrap is no
+        // longer a size container (that made its content width count as 0);
+        // the compact layout's query now reads the card (:host) instead.
+        // The heading and the legend wrap inside the table's width.
+        '.table-col > .section-label, .table-col > .ftable-note { width: 0; min-width: 100%; }' +
         // nimbus issue #459 (Mark Purcell) removed width:100% here because
         // back then table.ftable's container was the WHOLE wide panel
         // (uncapped, ~1900px) -- leftover width past the table's real
@@ -1202,7 +1211,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // a hair-space; compact stacks them below.
         '.hdr-name, .hdr-unit { display: inline; }' +
         '.hdr-unit { margin-left: 0.15em; }' +
-        '@container ftable (max-width: 500px) {' +
+        '@container (max-width: 530px) {' +
           // Auto layout so the browser sizes columns to their content
           // (BUY at 4 digits gets more than SoC at 3). min-width: 0
           // keeps the table from forcing a horizontal scrollbar.
@@ -1417,7 +1426,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '<div class="table-col">' +
         '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
-          '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
+          '<span class="source-bar" style="display:inline-flex; vertical-align:middle; width:28px;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
           'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; Cons&cent; = how far price consolidation moved Buy&cent; (violet, blank when it did not) &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
