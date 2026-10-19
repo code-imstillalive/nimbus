@@ -34,12 +34,19 @@ entity registry, and writes one `Store`.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
-from . import device_bindings, device_discovery, device_import, device_storage
+from . import (
+    device_bindings,
+    device_discovery,
+    device_import,
+    device_resolver,
+    device_storage,
+)
 from .const import DOMAIN
 
 #: The options key that records which revision the legacy views hold
@@ -589,6 +596,7 @@ async def _async_discovery(hass: Any, entry: Any):
     proposal = device_discovery.add_provider_profiles(
         proposal, profile_instances(hass), registry_ids=regs
     )
+    proposal = await _async_add_history_pairing(hass, proposal, regs)
     state = await _store(hass, entry).async_read()
     rediscovery = (
         device_discovery.rediscover(
@@ -798,3 +806,136 @@ async def async_confirm(
         result["changed"] = [{"device": d, "role": r} for d, r in changed]
         result["flags"] = flags
     return result
+
+
+# --- DC-005 step 5b: history pairing on this install (decision 4) ------------
+
+#: How far back pairing reads (decision 4).
+PAIRING_DAYS = 7
+
+F_PAIRING_NO_DEVICE = "history_pairing_no_device"
+F_PAIRING_NO_CANDIDATES = "history_pairing_no_candidates"
+F_PAIRING_UNREADABLE = "history_pairing_history_unreadable"
+
+
+def _is_power_sensor(hass: Any, entity_id: str) -> bool:
+    state = hass.states.get(entity_id)
+    if state is None:
+        return False
+    unit = state.attributes.get("unit_of_measurement")
+    factor, _unit, _refused = device_bindings.unit_scale("power", unit, None)
+    return factor is not None
+
+
+def pairing_candidates(
+    hass: Any, proposal: Any
+) -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
+    """({device id: power sensors to try}, findings) for each pairing target.
+    The candidates are the power sensors on the same HA device as the
+    target's energy counter: a narrowing hint, never the decision (#1574,
+    Mark: "same Home Assistant device should be a candidate-selection
+    hint"). A sensor statistic's id is its entity_id."""
+    registry = er.async_get(hass)
+    rows = [
+        {"entity_id": e.entity_id, "device_id": e.device_id}
+        for e in registry.entities.values()
+    ]
+    out: dict[str, list[str]] = {}
+    findings: list[dict[str, Any]] = []
+    for device_id, (out_stat, _in_stat) in sorted(
+        device_discovery.pairing_targets(proposal).items()
+    ):
+        counter = registry.async_get(out_stat)
+        if counter is None or counter.device_id is None:
+            findings.append(
+                {
+                    "code": F_PAIRING_NO_DEVICE,
+                    "device": device_id,
+                    "statistic_id": out_stat,
+                    "message": "the energy counter belongs to no Home Assistant "
+                    "device, so there is nothing to narrow a search for its power "
+                    "sensor; choose it by hand",
+                }
+            )
+            continue
+        candidates = [
+            eid
+            for eid in device_resolver.entities_on_device(rows, counter.device_id)
+            if eid != out_stat and _is_power_sensor(hass, eid)
+        ]
+        if not candidates:
+            findings.append(
+                {
+                    "code": F_PAIRING_NO_CANDIDATES,
+                    "device": device_id,
+                    "statistic_id": out_stat,
+                    "message": "no power sensor sits on the same Home Assistant "
+                    "device as this energy counter",
+                }
+            )
+            continue
+        out[device_id] = candidates
+    return out, findings
+
+
+def _series(states: list[Any]) -> list[tuple[Any, float | None]]:
+    """Recorder states as a resolver Series: a gap is None, never zero."""
+    out: list[tuple[Any, float | None]] = []
+    for st in states:
+        try:
+            value: float | None = float(st.state)
+        except (TypeError, ValueError):
+            value = None
+        out.append((st.last_changed, value))
+    return out
+
+
+async def _async_history(
+    hass: Any, entity_ids: list[str], start: Any, end: Any
+) -> dict[str, list[tuple[Any, float | None]]]:
+    from homeassistant.components.recorder import get_instance, history
+
+    def _read() -> dict[str, list[Any]]:
+        return history.get_significant_states(
+            hass,
+            start,
+            end,
+            entity_ids=entity_ids,
+            significant_changes_only=False,
+            no_attributes=True,
+        )
+
+    raw = await get_instance(hass).async_add_executor_job(_read)
+    return {eid: _series(list(states)) for eid, states in raw.items()}
+
+
+async def _async_add_history_pairing(hass: Any, proposal: Any, regs: dict) -> Any:
+    candidates, findings = pairing_candidates(hass, proposal)
+    proposal.findings.extend(findings)
+    if not candidates:
+        return proposal
+    targets = device_discovery.pairing_targets(proposal)
+    counters = {stat for device_id in candidates for stat in targets[device_id] if stat}
+    wanted = sorted(counters | {e for ids in candidates.values() for e in ids})
+    end = dt_util.utcnow()
+    start = end - timedelta(days=PAIRING_DAYS)
+    try:
+        histories = await _async_history(hass, wanted, start, end)
+    except Exception:  # noqa: BLE001 -- no recorder, or an API this HA lacks
+        proposal.findings.append(
+            {
+                "code": F_PAIRING_UNREADABLE,
+                "devices": sorted(candidates),
+                "message": "the recorder's history could not be read, so no "
+                "power sensor was paired",
+            }
+        )
+        return proposal
+    offered = {
+        device_id: {eid: histories.get(eid, []) for eid in ids}
+        for device_id, ids in candidates.items()
+    }
+    statistics = {stat: histories[stat] for stat in counters if stat in histories}
+    return device_discovery.add_history_pairing(
+        proposal, offered, statistics, start, end, registry_ids=regs
+    )
