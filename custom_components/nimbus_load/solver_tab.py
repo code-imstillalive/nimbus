@@ -409,7 +409,7 @@ _CONSOLIDATION_SOURCES = {
         "{% if names | length < 2 %}One price source: nothing to blend.{% else %}"
         "{% set mae = imp.get('mae_by_source_and_lead') or {} %}"
         "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
-        "| Average miss | 5 min | 1 h | 4 h | 24 h | Weight |\n|---|---|---|---|---|---|\n"
+        "| Usually off by | 5 min | 1 h | 4 h | 24 h | Share of blend |\n|---|---|---|---|---|---|\n"
         "{% for n in names %}{% set m = mae.get(n) or {} %}"
         "| {{ label.get(n, n) }} "
         "{% for b in ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
@@ -1780,12 +1780,14 @@ def template() -> list[dict[str, Any]]:
             for c in _PRICE_SAFETY
         ),
         _section([_CONSOLIDATION_TOGGLE], 1, {"rows": 3}),
-        _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
+        # Household, 19 Oct 2026: "why have whole empty row for a tiny
+        # table... make the middle table fit in 1 column and make the
+        # consolidation fit next to it". Four one-column sections, so later
+        # sections keep their columns; Device setup and Price sources take
+        # the height their text needs (no fixed rows), so nothing is clipped.
+        _section([_DEVICE_SETUP], 1),
+        _section([_CONSOLIDATION_SOURCES], 1),
         _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
-        # Its own full-width row: a 2-wide section here shifted every later
-        # section two columns along (household, 19 Oct 2026: "you have
-        # messed up the whole layout of the view").
-        _section([_CONSOLIDATION_SOURCES], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.

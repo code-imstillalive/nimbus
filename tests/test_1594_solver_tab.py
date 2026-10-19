@@ -167,10 +167,10 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             # Household, 19 Oct 2026: the controls for the two things
             # 0.94.467 asks them to turn on.
             (1, "toggle: Consolidation drives the plan"),
-            (2, "markdown: Device setup"),
-            (1, "select: Device setup mode"),
+            (1, "markdown: Device setup"),
             # Household with Mark Purcell, 19 Oct 2026: each price source.
-            (4, "markdown: Price sources"),
+            (1, "markdown: Price sources"),
+            (1, "select: Device setup mode"),
             (2, "Solver Forecast — Whole Plan"),
             # Household, 17 Oct 2026: the quality card is in Performance
             # only; the plan's four days fill its old place.
