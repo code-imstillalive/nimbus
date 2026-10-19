@@ -16,6 +16,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   training, not as a fault; stale data is listed, never a reason to stop;
   a score whose site exchange does not reconcile is marked unreliable, never
   corrected. Nothing reads it yet; the sensor that shows it follows.
+- **Device setup: discovery from the Energy Dashboard** (#1574, DC-005 step
+  1). A pure module, `device_discovery.py`, turns the Energy Dashboard's
+  preferences into a proposal: the Grid, each Solar and Battery source, the
+  whole house and each individual device, with their energy statistics,
+  power, prices and SoC, and `included_in_stat` as inclusion. Every binding
+  is unconfirmed, with its evidence. Several sources for one role are asked,
+  never picked by list position, and a battery's capacity is always asked.
+  Nothing reads it yet, and nothing on an install changes.
 
 ## [0.94.467] - 2026-10-19
 
