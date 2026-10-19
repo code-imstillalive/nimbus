@@ -12,6 +12,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   of the Solver tab's Price sources table stood empty; it now shows each
   source's own price for the next 30 slots (household, 20 Oct).
 
+## [0.94.469] - 2026-10-20
+
+**After midnight, the plan is free again by default.** *Self-consume after
+midnight* now defaults to 0 hours, and an install still on the old default of
+4 is moved to 0 once on upgrade: after a P2P block that runs to midnight, the
+plan may charge or sell into an early-morning spike, and the battery reserve
+guards the bottom of the battery. Set it back to 4 on the Solver tab to keep
+the old behaviour; it isn't changed again. The AEMO price source can now be
+built by contract from AEMO's regional reference price and your site's loss
+factors, looked up from AEMO's tables (shadow only; the plan's prices don't
+change). A new `sensor.nimbus_device_readiness` shows which of Nimbus's
+functions are ready. Two solver fixes: a float-noise coefficient no longer
+breaks a solve, and the direction-change margin no longer runs a solve it
+can prove impossible (the evening #773 false alarm).
+
 - **Self-consume after midnight now defaults to 0 hours** (promised on
   [#1700](https://github.com/code-imstillalive/nimbus/pull/1700)). After a
   P2P block that runs to midnight, the plan no longer holds grid export at
