@@ -1192,7 +1192,7 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_auto_include_known_solar": (
         "Finds Solcast / Open-Meteo solar forecasts automatically.",
-        "",
+        "Recommended on with Solcast.",
     ),
     "solver_calibrated_objective_enabled": (
         "Equal-cost plans go to the steadier one.",
@@ -1204,11 +1204,11 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_offer_curve_enabled": (
         "Publishes how the plan's grid use responds to price.",
-        "Slower solves.",
+        "7 extra re-solves per direction, every cycle.",
     ),
     "solver_flex_signals_enabled": (
         "Publishes how much the plan could flex up or down.",
-        "Slower solves.",
+        "Each solve about 9× slower.",
     ),
     "solver_score_controllable_loads_enabled": (
         "Lets the daily score re-time controllable loads.",
@@ -1216,7 +1216,7 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_dispatch_dry_run": (
         "Logs what Nimbus's own dispatcher would command, without commanding.",
-        "Log only.",
+        "Log only; recommended on.",
     ),
     # Scoring
     "nimbus_quality_soc_discrepancy_mean_pct": (

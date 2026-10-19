@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Setup guide: which Features switches to set, and what the rest cost
+  ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
+  A default tier (calibrated objective on, auto-include solar on with Solcast,
+  dispatcher dry run on, load forecast source `off`) and an advanced tier that
+  names each switch's measured cost: flex signals about 9× slower per solve,
+  offer curve 7 extra re-solves per direction. The Help tab says the same.
+  No default changes.
+
 - **Solar "running low" no longer judges a frozen recorder
   ([#1784](https://github.com/code-imstillalive/nimbus/issues/1784)).** While
   Home Assistant takes a backup, the recorder's database is locked for writes,
