@@ -383,6 +383,53 @@ _SAFETY_CONSOLIDATION = {
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
 
+# Household, 19 Oct 2026, with Mark Purcell ("Ask it to show the
+# differences between sources"; "it needs to be flexible so when sources
+# shrink or grow it has room... and fits snug"): every import price source
+# the consolidation reads, how accurate each has been, its weight, and its
+# own price for the next slots beside the blend. One row and one column per
+# source the install has; a single source says there is nothing to blend.
+# No fixed height: the section is as tall as its content.
+_CONSOLIDATION_SOURCES = {
+    "type": "markdown",
+    "content": (
+        "{% set pc = state_attr('${@nimbus_solver_battery_forecast}', 'price_consolidation') or {} %}"
+        "{% set imp = pc.get('import') or {} %}"
+        "{% set names = imp.get('sources') or [] %}"
+        "{% set prov = '${@option:solver_import_price_sensor}' %}"
+        "{% set prov_name = state_attr(prov, 'friendly_name') or 'Your provider' %}"
+        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'secondary_2': 'Second source', 'secondary_3': 'Third source'} %}"
+        "{% set spread = imp.get('spread_now') %}"
+        "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."
+        "{% else %}"
+        "**Price sources**{% if spread is not none %}: they differ now by {{ (spread * 100) | round(1) }}¢{% endif %}\n\n"
+        "{% set mae = imp.get('mae_by_source_and_lead') or {} %}"
+        "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
+        "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
+        "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
+        "{% set prim = srcs.get('primary') or [] %}"
+        "{% set buckets = ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}"
+        "| Source | Share | Off 5 min | Off 1 h | Off 4 h | Off 24 h "
+        "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
+        "|---|---|---|---|---|---{% for t in times %}|---{% endfor %}|\n"
+        "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
+        "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
+        "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
+        "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
+        "{% endfor %}"
+        "{% if times %}"
+        "| **Blend** | | | | | "
+        "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
+        "| <font color='violet'>Gap</font> | | | | | "
+        "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
+        "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
+        "{% endif %}"
+        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend. Prices in ¢/kWh.*"
+        "{% endif %}"
+    ),
+}
+
+
 # Household, 19 Oct 2026: "where will these be toggled on or off from?" --
 # the two controls 0.94.467 asks the household to turn on, under the
 # price-safety cards: consolidation's live switch, and the device setup's
@@ -1734,8 +1781,18 @@ def template() -> list[dict[str, Any]]:
             for c in _PRICE_SAFETY
         ),
         _section([_CONSOLIDATION_TOGGLE], 1, {"rows": 3}),
+        # Household, 19 Oct 2026: "why have whole empty row for a tiny
+        # table... make the middle table fit in 1 column and make the
+        # consolidation fit next to it". Four one-column sections, so later
+        # sections keep their columns; Device setup and Price sources take
+        # the height their text needs (no fixed rows), so nothing is clipped.
         _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
         _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
+        # Household, 19 Oct 2026 ("the gaps are horrible"; the status was
+        # said twice): the controls row stays level, and the sources get a
+        # full-width row of their own, sources down the side and the next
+        # slots across, so the width carries real numbers. No fixed height.
+        _section([_CONSOLIDATION_SOURCES], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.

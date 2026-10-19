@@ -3410,8 +3410,13 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # forecast (harmless, unused key for sensor.nimbus_household_load_
     # total_forecast, the other _NimbusSolverPushSensor instance).
     # "stochastic_paths" (nimbus #1797): three scenarios' battery % ahead,
-    # a projection like `forecast`.
-    _unrecorded_attributes = frozenset({"forecast", "batteries", "stochastic_paths"})
+    # a projection like `forecast`. "price_consolidation" (nimbus #1786):
+    # each source's running error and, for the Solver tab's Price sources
+    # table, every source's next 24 prices -- a live display over 2 KB, not
+    # history (caught by test_solver_push_attribute_size_budget, #625).
+    _unrecorded_attributes = frozenset(
+        {"forecast", "batteries", "stochastic_paths", "price_consolidation"}
+    )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry

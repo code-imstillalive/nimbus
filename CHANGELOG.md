@@ -70,6 +70,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   it is never set on its own. A counter on no device, no power sensor beside
   it, or a history that cannot be read is reported instead.
 
+- **Solver tab: a Price sources table** (#1786; household with Mark
+  Purcell, 19 Oct 2026: "show the differences between sources"). One
+  full-width row: each import price source the consolidation reads, its
+  share of the blend and how far off it has been at 5 min, 1 h, 4 h and
+  24 h ahead, then its own price for the next 24 slots beside the Blend
+  and a violet Gap. One row per source the install has; a single source
+  says there is nothing to blend. The plan publishes the next 24 slots per
+  source for it (`price_consolidation.<side>.next`).
+
 ### Fixed
 - **Fees¢ no longer goes negative when price consolidation drives the plan;**
   a new violet **Cons¢** column shows how far consolidation moved the price
