@@ -12,6 +12,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _PKG = Path(__file__).resolve().parents[2] / "custom_components" / "nimbus_load"
 sys.path.insert(0, str(_PKG))
 
@@ -279,6 +281,30 @@ def test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document():
         ("subentries", "l1", "schedule_start_hour"),
         ("subentries", "s1", "load_sensor"),
     }
+
+
+def test_keep_my_change_on_a_drifted_solver_number():
+    """Mark Purcell, #1882 review: a `numbers.` path fell into the subentry
+    parse. Keep on a drifted Solver number (a reset after a restart) builds
+    exactly that path, so it must keep the number and nothing else."""
+    doc = di.import_legacy(F10).document
+    edited = copy.deepcopy(F10)
+    edited["numbers"]["solver_battery_capacity_kwh"] = 33.0
+    assert ("numbers", None, "solver_battery_capacity_kwh") in {
+        (d["part"], d["subentry_id"], d["key"]) for d in di.drift(doc, edited)
+    }
+    kept = di.adopt(doc, edited, "numbers", None, "solver_battery_capacity_kwh")
+    assert not kept.conflicts and not kept.problems
+    assert (
+        di.legacy_view(kept.document)["numbers"]["solver_battery_capacity_kwh"] == 33.0
+    )
+    assert di.drift(kept.document, edited) == []
+
+
+def test_a_settings_path_that_is_none_of_the_three_is_refused_plainly():
+    for bad in ("numbers", "subentry:l1", "battery.capacity"):
+        with pytest.raises(ValueError, match="not a settings path"):
+            di._value_at(F10, bad)
 
 
 def test_a_stale_battery_sign_flag_without_the_solver_sensor_shows_as_a_difference():

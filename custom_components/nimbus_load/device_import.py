@@ -766,10 +766,24 @@ def adopt(
     return import_legacy(keep)
 
 
+def _split_path(path: str) -> tuple[str, str | None, str]:
+    """`options.<key>`, `numbers.<key>` or `subentry:<id>.<key>` as
+    (part, subentry id, key). Anything else is a bug, said plainly (Mark
+    Purcell, #1882 review: a `numbers.` path used to fall into the subentry
+    parse and fail obscurely; Keep on a drifted Solver number builds one)."""
+    for part in ("options", "numbers"):
+        if path.startswith(f"{part}."):
+            return part, None, path.split(".", 1)[1]
+    if path.startswith("subentry:") and "." in path:
+        sid, key = path[len("subentry:") :].split(".", 1)
+        return "subentries", sid, key
+    raise ValueError(f"not a settings path: {path!r}")
+
+
 def _value_at(snapshot: dict[str, Any], path: str) -> Any:
-    if path.startswith("options."):
-        return (snapshot.get("options") or {}).get(path.split(".", 1)[1])
-    sid, key = path[len("subentry:") :].split(".", 1)
+    part, sid, key = _split_path(path)
+    if part != "subentries":
+        return (snapshot.get(part) or {}).get(key)
     sub = next(
         (x for x in snapshot.get("subentries") or () if x["subentry_id"] == sid), None
     )
@@ -777,10 +791,10 @@ def _value_at(snapshot: dict[str, Any], path: str) -> Any:
 
 
 def _set_at(snapshot: dict[str, Any], path: str, value: Any) -> None:
-    if path.startswith("options."):
-        snapshot["options"][path.split(".", 1)[1]] = value
+    part, sid, key = _split_path(path)
+    if part != "subentries":
+        snapshot.setdefault(part, {})[key] = value
         return
-    sid, key = path[len("subentry:") :].split(".", 1)
     for sub in snapshot.get("subentries") or ():
         if sub["subentry_id"] == sid:
             sub["data"] = {**(sub.get("data") or {}), key: value}

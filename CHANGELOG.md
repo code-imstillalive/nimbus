@@ -38,6 +38,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
     so the dashboard slider edits the device setup rather than a second copy;
   - every commit on an entry runs one at a time (a per-entry lock), so two
     sliders moved together commit in turn (Mark Purcell, #1878 review).
+  - *Keep my change* on a drifted Solver number (one reset by a restart, say)
+    keeps that number; a settings path of any other shape is refused with a
+    plain error rather than misread (Mark Purcell, #1882 review).
 
   In legacy and shadow mode nothing changes: a slider reads one store and
   returns.
