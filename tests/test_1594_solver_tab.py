@@ -135,7 +135,7 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
         ],
         [
             "Performance",
-            (4, "Plan-ahead cost, as estimated"),
+            (4, "How the plan's 4-day estimate has moved"),
             (1, "Nimbus Solver Quality (EPR / Regret)"),
             (1, "At a glance"),
             (1, "Score by day"),

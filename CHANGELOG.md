@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's cost chart says what it is** (household, 20 Oct): *How
+  the plan's 4-day estimate has moved*. Each point is what the plan then
+  expected the next four days to cost, plotted when it was made, so the
+  right-hand end is now and the rest are past estimates. A rare estimate far
+  outside the usual range (two at about -$1,466 on 15-16 Oct) no longer
+  flattens the week: points beyond three times today's figure (at least $50)
+  are drawn at the edge, and the chart's note says so.
+- **Prices ahead draws full width on the first visit**, not a third of it
+  until a reload: it now sits in its row the way the battery chart above it
+  does.
+
 - **Setup guide: which Features switches to set, and what the rest cost
   ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
   A default tier (calibrated objective on, auto-include solar on with Solcast,
