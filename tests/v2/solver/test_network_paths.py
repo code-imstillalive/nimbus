@@ -14,7 +14,6 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver.elements import (
-    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -167,43 +166,26 @@ def test_the_spike_override_lifts_a_committed_export_only_in_period_0(
 
 @SETTINGS
 @given(
-    st.integers(min_value=3, max_value=12),
+    st.integers(min_value=2, max_value=12),
     st.sampled_from([0.25, 0.5, 1.0]),
-    _num(0.5, 3.0),
-    _num(0.05, 0.5),
+    _num(1.0, 20.0),
+    _num(0.0, 0.95),
 )
-def test_an_adequacy_load_run_at_the_first_instant_costs_no_earliness(
-    n, width, power, price
-):
-    """The earliness tie-break charges each kWh by how far into the plan it
-    runs: at the plan's first instant that is nothing. A load that can run
-    only in period 0 costs the same with the tie-break on or off."""
-
-    def plan_with(budget):
-        return build_plan(
-            periods=PeriodGrid(np.full(n, width)),
-            grid=GridConfig(
-                import_price=np.full(n, price),
-                export_price=np.zeros(n),
-                import_limit_kw=power + 5.0,
-                export_limit_kw=5.0,
-            ),
-            batteries=[_idle_battery()],
-            solar=SolarConfig(forecast_kw=np.zeros(n)),
-            loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
-            adequacy_loads=[
-                AdequacyLoadConfig(
-                    name="pool",
-                    max_power_kw=power,
-                    target_kwh=power * width,
-                    earliest_period=0,
-                    deadline_period=0,
-                    shortfall_price=20.0,
-                )
-            ],
-            adequacy_earliness_budget_kw=budget,
-        )
-
-    off, on = plan_with(0.0), plan_with(1.0)
-    assert off.status == on.status == "optimal"
-    assert abs(on.total_cost - off.total_cost) <= 1e-9 * max(1.0, abs(off.total_cost))
+def test_a_plan_exports_up_to_its_own_export_limit(n, width, limit, import_share):
+    """The mirror of the import case: with spare solar well beyond the export
+    limit, a paying export price and a smaller import limit, the plan exports
+    exactly its limit. The import-plus-export row must not cut either side."""
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.3),
+            export_price=np.full(n, 0.1),
+            import_limit_kw=limit * import_share,
+            export_limit_kw=limit,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.full(n, limit + 5.0)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+    )
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(plan.grid_export_kw, limit, atol=1e-6)
