@@ -292,8 +292,8 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             ),
             (
                 "**Price sources:** the Solver tab shows each price source's "
-                "accuracy, share and next prices. Keep *Consolidation drives "
-                "the plan* off for now (#1786)."
+                "accuracy, share and next prices. Keep *Blend drives plan* "
+                "off for now; it is experimental (#1786)."
             ),
         ),
     ),
@@ -313,8 +313,8 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             ),
             (
                 "**Combined price forecast:** keeps a spike any source "
-                "forecasts. Turn it on with *Consolidation drives the plan* "
-                "on the Solver tab."
+                "forecasts. Turn it on with *Blend drives plan* on the "
+                "Solver tab (experimental)."
             ),
         ),
     ),

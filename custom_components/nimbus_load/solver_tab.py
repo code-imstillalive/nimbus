@@ -454,7 +454,8 @@ _CONSOLIDATION_SOURCES = {
 _CONSOLIDATION_TOGGLE = {
     "type": "tile",
     "entity": "@solver_price_consolidation_live",
-    "name": "Consolidation drives the plan",
+    # Experimental until measured (docs/api-contract.md).
+    "name": "Blend drives plan (experimental)",
     "icon": "mdi:call-merge",
     "features": [{"type": "toggle"}],
     "features_position": "bottom",
@@ -635,7 +636,8 @@ def _stochastic_settings() -> dict[str, Any]:
         "show_header_toggle": False,
         "entities": _rows(
             [
-                ("solver_stochastic_dispatch", "Drive the battery"),
+                # Experimental until measured (docs/api-contract.md).
+                ("solver_stochastic_dispatch", "Drive the battery (experimental)"),
                 ("solver_stochastic_stage1_minutes", "Commit window"),
                 ("solver_stochastic_tail_weight", "Low/high day weight"),
                 ("solver_stochastic_drive_budget_seconds", "Drive time limit"),
