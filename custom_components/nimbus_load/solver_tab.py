@@ -231,6 +231,7 @@ _COSTS: _Card = (
         ("solver_period0_hysteresis", "Direction change margin"),
         ("solver_aemo_p5min_disagreement_threshold_dollars", "AEMO disagreement"),
         ("solver_p5min_false_spike_threshold_mwh", "P5MIN false spike"),
+        ("section", "Direction change margin: what a switch must save; 0 = off."),
     ],
     "Ties: 0.005 suits most. AEMO: warn past gap. P5MIN: AUD/MWh.",
 )
@@ -257,8 +258,12 @@ _FEATURES: _Card = (
             "Flex signals: publishes flexibility ranges, but each solve is about 9× slower.",
         ),
         ("section", "Score controllable loads: the score may re-time them."),
+        (
+            "section",
+            "Dry run: Nimbus's own dispatcher sends nothing. The Help tab says what each switch costs.",
+        ),
     ],
-    "Dry run: Nimbus's own dispatcher sends nothing.",
+    "Defaults suit most installs.",
 )
 
 _SCORING: _Card = (
@@ -284,6 +289,10 @@ _SCORING: _Card = (
             "section",
             "Nimbus-only SoC: where the battery would have been at 5 pm had Nimbus alone decided; real SoC is where it was.",
         ),
+        (
+            "section",
+            "The day's score (EPR) is the share of the possible saving the plan captured.",
+        ),
     ],
     "A day over either limit is not scored.",
 )
@@ -295,8 +304,12 @@ _RESERVE: _Card = (
         ("solver_battery_reserve_release_price", "Release margin"),
         ("solver_battery_reserve_start_hour", "Hold from"),
         ("solver_battery_reserve_end_hour", "Release at"),
+        ("solver_export_floor_price", "Don't sell below"),
         ("section", "Reserve: battery share held back between these times; 0 = off."),
-        ("section", "Release margin: price edge needed to sell the reserve."),
+        (
+            "section",
+            "Release margin: edge to sell the reserve. Don't sell below: under it, spare energy fills the battery.",
+        ),
         ("section", "Price spikes"),
         ("solver_price_event_enabled", "Price events"),
         ("solver_price_spike_threshold", "Spike threshold"),
@@ -382,6 +395,96 @@ _SAFETY_CONSOLIDATION = {
 }
 
 _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDATION)
+
+# Household, 19 Oct 2026, with Mark Purcell ("Ask it to show the
+# differences between sources"; "it needs to be flexible so when sources
+# shrink or grow it has room... and fits snug"): every import price source
+# the consolidation reads, how accurate each has been, its weight, and its
+# own price for the next slots beside the blend. One row and one column per
+# source the install has; a single source says there is nothing to blend.
+# No fixed height: the section is as tall as its content.
+_CONSOLIDATION_SOURCES = {
+    "type": "markdown",
+    "content": (
+        "{% set pc = state_attr('${@nimbus_solver_battery_forecast}', 'price_consolidation') or {} %}"
+        "{% set imp = pc.get('import') or {} %}"
+        "{% set names = imp.get('sources') or [] %}"
+        "{% set prov = '${@option:solver_import_price_sensor}' %}"
+        "{% set prov_name = state_attr(prov, 'friendly_name') or 'Your provider' %}"
+        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': 'Second source', 'secondary_3': 'Third source'} %}"
+        "{% set spread = imp.get('spread_now') %}"
+        "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."
+        "{% else %}"
+        "**Price sources**{% if spread is not none %}: they differ now by {{ (spread * 100) | round(1) }}¢{% endif %}\n\n"
+        "{% set mae = imp.get('mae_by_source_and_lead') or {} %}"
+        "{% set w = (imp.get('weights') or {}).get('5-60 min') or {} %}"
+        "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
+        "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
+        "{% set prim = srcs.get('primary') or [] %}"
+        "{% set buckets = ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}"
+        "| Source | Share | Off 5 min | Off 1 h | Off 4 h | Off 24 h "
+        "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
+        "|---|---|---|---|---|---{% for t in times %}|---{% endfor %}|\n"
+        "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
+        "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
+        "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
+        "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
+        "{% endfor %}"
+        "{% if times %}"
+        "| **Blend** | | | | | "
+        "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
+        "| <font color='violet'>Gap</font> | | | | | "
+        "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
+        "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
+        "{% endif %}"
+        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend. Prices in ¢/kWh.*"
+        "{% endif %}"
+    ),
+}
+
+
+# Household, 19 Oct 2026: "where will these be toggled on or off from?" --
+# the two controls 0.94.467 asks the household to turn on, under the
+# price-safety cards: consolidation's live switch, and the device setup's
+# mode (DC-004) with what it would do.
+_CONSOLIDATION_TOGGLE = {
+    "type": "tile",
+    "entity": "@solver_price_consolidation_live",
+    "name": "Consolidation drives the plan",
+    "icon": "mdi:call-merge",
+    "features": [{"type": "toggle"}],
+    "features_position": "bottom",
+}
+
+_DEVICE_SETUP = {
+    "type": "markdown",
+    "content": (
+        "{% set e = '${@device_setup_mode}' %}{% set m = states(e) %}"
+        "<ha-alert alert-type=\"{% if m == 'active' %}warning{% elif m == 'shadow' %}info{% else %}success{% endif %}\" title=\"Device setup\">"
+        "{% if m == 'active' %}Active: the device setup is in charge"
+        "{% elif m == 'shadow' %}Shadow: stored and compared"
+        "{% elif m == 'legacy' %}Legacy: your settings, as before"
+        "{% else %}Unavailable{% endif %}</ha-alert>\n\n"
+        "{% set c = state_attr(e, 'dry_run_clean') %}"
+        "Revision {{ state_attr(e, 'revision') or 0 }} · "
+        "{{ state_attr(e, 'devices') or 0 }} devices · dry run "
+        "{% if c %}clean{% else %}{{ state_attr(e, 'dry_run_changes') or 0 }} change(s), "
+        "{{ state_attr(e, 'dry_run_conflicts') or 0 }} conflict(s){% endif %}"
+        "{% if (state_attr(e, 'drift_repairs') or 0) > 0 %} · "
+        "<b>{{ state_attr(e, 'drift_repairs') }} drift Repair(s) open</b>{% endif %}\n\n"
+        "*Shadow changes nothing; active puts the device setup in charge. "
+        "Active only from shadow, on a clean dry run.*"
+    ),
+}
+
+_DEVICE_SETUP_MODE = {
+    "type": "tile",
+    "entity": "@device_setup_mode",
+    "name": "Device setup mode",
+    "icon": "mdi:file-tree",
+    "features": [{"type": "select-options"}],
+    "features_position": "bottom",
+}
 
 # --- Stochastic: the two-stage stochastic solve (nimbus #1797) -------------
 # Its own block, last on the tab, one row: Now (headline and what each solar
@@ -898,14 +1001,34 @@ def _score_chart() -> dict[str, Any]:
     )
 
 
+# Household, 20 Oct 2026: two estimates of -$1,466 flattened a week of -$30 to
+# -$55 into one line along the top. Each point is clipped to the current plan
+# cost plus or minus three times its size (at least $50), and the note says
+# so; the live figures in the header stay unclipped.
+_COST_CLIP = (
+    "const c = parseFloat((hass.states['${@nimbus_solver_total_cost}'] || {}).state); "
+    "if (isNaN(c)) return x; "
+    "const r = Math.max(50, 3 * Math.abs(c)); "
+    "return Math.min(Math.max(x, c - r), c + r);"
+)
+
+
 def _cost_chart() -> dict[str, Any]:
-    hour = {"group_by": {"func": "last", "duration": "1h"}, "curve": "stepline"}
+    # Household, 20 Oct 2026: "say plan ahead but it ends on NOW on the right
+    # hand side... so it is a recorder of the past". It is: each point is a
+    # forward estimate, plotted when it was made.
+    hour = {
+        "group_by": {"func": "last", "duration": "1h"},
+        "curve": "stepline",
+        "transform": _COST_CLIP,
+    }
     return _apex(
-        "Plan-ahead cost, as estimated",
-        "Each point is the whole plan ahead (about four days) as estimated at "
-        "that moment, inside its best–worst range. The right-hand end is the "
-        "current plan; earlier points are earlier estimates, not money spent. "
-        "Below zero earns.",
+        "How the plan's 4-day estimate has moved",
+        "Each point is what the plan then expected the next four days to cost, "
+        "plotted when it was made: the right-hand end is now, the rest are past "
+        "estimates, not money spent. Below zero earns. Estimates beyond three "
+        "times today's figure (at least $50) are drawn at the edge, so a rare "
+        "spike does not flatten the week.",
         [
             {
                 "entity": "@nimbus_solver_cost_band_upper",
@@ -1465,7 +1588,7 @@ _HOUSEHOLD_QUALITY = {
 _HOUSEHOLD_UNTIL_MIDNIGHT = {
     "type": "markdown",
     "title": "Solver Forecast — Whole Plan",
-    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Sell¢ | P2P¢ | Load | Solar | Batt | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0) %}{% for p in fc %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.net = 0 %}{% set day_ns.p2p = 0 %}{% endif %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - p.import_price_raw) * 100) | round(1) }} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endfor %}{% if day_ns.date is not none %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% endif %}\n{% endif %}',
+    "content": '{% set s = states.${@nimbus_solver_battery_forecast} %}{% if s and s.attributes.get(\'forecast\') %}{% set fc = s.attributes.forecast %}| Time | Buy¢ | Fees¢ | Cons¢ | Sell¢ | P2P¢ | Load | Solar | Batt | Grid | SoC% | Net$ |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n{% set day_ns = namespace(date=none, net=0, p2p=0) %}{% for p in fc %}{% set p_date = as_timestamp(p.time) | timestamp_custom(\'%Y-%m-%d\') %}{% if day_ns.date is not none and p_date != day_ns.date %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% set day_ns.net = 0 %}{% set day_ns.p2p = 0 %}{% endif %}{% set day_ns.date = p_date %}{% set day_ns.net = day_ns.net + p.net_cost %}{% set day_ns.p2p = day_ns.p2p + p.bonus_price * p.export_bonus_kw * p.hours %}{% set cons = p.import_price_source == \'consolidated\' and p.consolidated_import_price is not none %}{% set base = p.consolidated_import_price if cons else p.import_price_raw %}{% set shift = ((base - p.import_price_raw) * 100) | round(1) %}| {{ as_timestamp(p.time) | timestamp_custom(\'%H:%M\') }} | {{ (p.import_price_raw * 100) | round(1) }} | {{ ((p.import_price - base) * 100) | round(1) }} | {% if cons %}<font color=\'violet\'>{{ \'+\' if shift > 0 else \'\' }}{{ shift }}</font>{% endif %} | {{ (p.export_price * 100) | round(1) }} | <font color=\'{{ "gold" if p.bonus_price > 0.01 else "gray" }}\'>{{ (((p.export_price + p.bonus_price) * 100) | round(1)) if p.bonus_price > 0.01 else 0 }}</font> | {{ p.load_kw | round(1) }} | {{ p.solar_kw | round(1) }} | <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ " ⚡" if p.export_bonus_kw is defined and p.export_bonus_kw > 0 else "" }}</font> | {% set g = p.load_kw - p.solar_kw - p.battery_kw %}<font color=\'{{ "orange" if g > 0.05 else ("lightgreen" if g < -0.05 else "gray") }}\'>{{ (g | round(1)) if (g | abs) >= 0.05 else 0.0 }}</font> | {{ p.soc_pct | round(0) | int }}% | <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n{% endfor %}{% if day_ns.date is not none %}| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  |  | <font color=\'gold\'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  |  | <font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n{% endif %}\n{% endif %}',
 }
 _HOUSEHOLD_DAILY = {
     "type": "markdown",
@@ -1681,7 +1804,11 @@ def template() -> list[dict[str, Any]]:
         _section([_styled(_energy_pie(), _FILL)], 2, half),
         banners["Plan"],
         _section([_chart()], 4),
-        _section([_styled(_prices_chart(), _FILL)], 4, {"rows": 7}),
+        # Household, 20 Oct 2026: on a first visit this chart drew a third of
+        # the width until a reload. It was the only full-width chart in a
+        # fixed-row cell with a height style on top; the battery chart above,
+        # with neither, draws full width, so this one now matches it.
+        _section([_prices_chart()], 4),
         *(
             _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
             for k in range(4)
@@ -1690,6 +1817,19 @@ def template() -> list[dict[str, Any]]:
             _section([_styled(c, _FILL_NO_SCROLL)], 1, {"rows": 3})
             for c in _PRICE_SAFETY
         ),
+        _section([_CONSOLIDATION_TOGGLE], 1, {"rows": 3}),
+        # Household, 19 Oct 2026: "why have whole empty row for a tiny
+        # table... make the middle table fit in 1 column and make the
+        # consolidation fit next to it". Four one-column sections, so later
+        # sections keep their columns; Device setup and Price sources take
+        # the height their text needs (no fixed rows), so nothing is clipped.
+        _section([_styled(_DEVICE_SETUP, _FILL_NO_SCROLL)], 2, {"rows": 3}),
+        _section([_DEVICE_SETUP_MODE], 1, {"rows": 3}),
+        # Household, 19 Oct 2026 ("the gaps are horrible"; the status was
+        # said twice): the controls row stays level, and the sources get a
+        # full-width row of their own, sources down the side and the next
+        # slots across, so the width carries real numbers. No fixed height.
+        _section([_CONSOLIDATION_SOURCES], 4),
         _section([_styled(_HOUSEHOLD_UNTIL_MIDNIGHT, _UNTIL_MIDNIGHT_STYLE)], 2, plan),
         # Household, 17 Oct 2026: the quality card was here a second time.
         # The plan's four days instead, two to a column.

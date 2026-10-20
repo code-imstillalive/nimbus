@@ -264,6 +264,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #1654, option A: the period-0 direction hysteresis re-solves
         # with #1417's period-0 pin, which the cron copy never builds.
         "period0_direction_hysteresis",
+        # Household, 20 Oct 2026: the export floor's check inside the
+        # hysteresis above, in-process only for the same reason.
+        "_sells_below_floor_instead",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",
@@ -283,6 +286,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #1654: the plan's "hold" flag; the cron copy publishes no
         # per-period dispatch hints.
         "_dispatch_hold",
+        # Household, 20 Oct 2026: the "soak up spare solar" dispatch hint,
+        # same reason.
+        "absorb_surplus",
         "charge_before_block_summary",
         # nimbus #1698: Amber Express same-poll wholesale, collected each
         # solve; the cron copy reads no Amber Express detailedForecast.
@@ -799,6 +805,23 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "interval_key",
         "lead_bucket",
         "replace_future",
+        # The Solver tab's Price sources table (19 Oct 2026): the next slots
+        # per source. Same reason as the rest of #1786 above.
+        "_r",
+        "next_slots",
+        # #1786 (Mark): the AEMO source priced by contract -- RRP x MLF x DLF
+        # from AEMO's loss-factor tables, keyed by the site's TNI and DLF code.
+        # Same reason as the rest of #1786 above: the docs copy has no
+        # consolidation to feed.
+        "_retail_from_rrp",
+        "_clean",
+        "_loss_factor",
+        "_loss_factor_codes",
+        "_table",
+        "retail_from_rrp_series",
+        "financial_year",
+        "site_factor",
+        "years",
         # nimbus issue #1537 item 1 -- price sensors read in their own unit
         # (c/kWh, $/MWh). The docs copy has no generic price reader at all
         # (it reads the reference household's own $/kWh sensors), so there
@@ -1066,6 +1089,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_gate_result",
         "_turn_off",
         "actual_30min_avg_kw",
+        "recorder_behind_by",
         "decide_hysteresis",
         "evaluate_gate",
         "published_result",

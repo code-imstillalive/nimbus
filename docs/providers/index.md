@@ -41,3 +41,19 @@ These appear under **Settings → Repairs**, and each clears itself once fixed:
 - network or flat fees set on top of a price that already includes them;
 - an Australian NEM install with no regional spot forecast;
 - a required price field left empty.
+
+## Combining several price sources (shadow by default)
+
+When more than one price source is configured (for example LocalVolts plus
+Amber, AEMO pre-dispatch and P5MIN), Nimbus also builds one combined forecast
+from them and tracks each source's running error. By default this only runs
+alongside the plan, for comparison. The switch
+`switch.nimbus_solver_price_consolidation_live` makes the plan use it for
+future periods. The current interval always uses its settled price.
+
+How they are combined: in each period, the median of the sources, or an
+error-weighted mean once every source has enough history. **A spike is never
+averaged away.** In any period where a source forecasts at or above your
+*Price Spike Threshold*, the highest source is used. In a dry run, a median
+that dropped a real spike only one source saw would have cost about $250
+([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)).

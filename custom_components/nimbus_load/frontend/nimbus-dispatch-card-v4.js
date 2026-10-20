@@ -717,7 +717,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // field semantics -- only the rendering is this card's own dark
     // styling. Column math, verbatim from that markdown card's own Jinja:
     //   Buy¢  = import_price_raw * 100         (raw commodity price only)
-    //   Fees¢ = (import_price - import_price_raw) * 100   (TOU/certs on top)
+    //   Fees¢ = (import_price - base) * 100    (TOU/certs on top), where
+    //           base is consolidated_import_price on a row whose
+    //           import_price_source is "consolidated" (#1786 live), else
+    //           import_price_raw. Household, 19 Oct 2026: with
+    //           consolidation driving the plan, the old formula showed
+    //           consolidation's move as negative "fees".
+    //   Cons¢ = (consolidated_import_price - import_price_raw) * 100 on a
+    //           consolidated row, blank otherwise, in violet ("option b is
+    //           definitely better for transparency... in different
+    //           colour please").
     //   Sell¢ = export_price * 100             (plain spot, on its own)
     //   P2P¢  = (export_price + bonus_price) * 100 when bonus_price > 0.01,
     //           else 0 -- the real, standalone P2P settlement rate, never
@@ -783,7 +792,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // on one line, regardless of how many columns it spans or
           // whether a future edit changes that number again.
           '<tr class="total-row">' +
-            '<td colspan="2" style="font-weight:700; white-space:normal;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
+            // Household, 19 Oct 2026: the long "— <date> TOTAL (shown
+            // rows) —" label stretched Time and Source ("crazy ugly"):
+            // auto layout shares spare width by each column's longest
+            // content. The heading already says "now until midnight".
+            '<td colspan="2" style="font-weight:700;">Total</td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td>' +
             '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
@@ -799,7 +812,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
       ftDayP2p += (parseFloat(p.bonus_price) || 0) * (parseFloat(p.export_bonus_kw) || 0) * (parseFloat(p.hours) || 0);
 
       const buyC = (parseFloat(p.import_price_raw) || 0) * 100;
-      const feesC = ((parseFloat(p.import_price) || 0) * 100) - buyC;
+      const consRow = p.import_price_source === 'consolidated'
+        && p.consolidated_import_price !== null
+        && p.consolidated_import_price !== undefined
+        && !isNaN(parseFloat(p.consolidated_import_price));
+      const baseC = consRow ? parseFloat(p.consolidated_import_price) * 100 : buyC;
+      const feesC = ((parseFloat(p.import_price) || 0) * 100) - baseC;
+      const consC = consRow ? baseC - buyC : null;
+      const consCell = consC === null
+        ? ''
+        : (consC > 0.05 ? '+' : '') + consC.toFixed(1);
       const spotC = (parseFloat(p.export_price) || 0) * 100;
       const bonusRaw = parseFloat(p.bonus_price) || 0;
       const p2pActive = bonusRaw > 0.01;
@@ -884,6 +906,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // format inherits the ambient text colour instead.
           '<td class="num col-buy buy-color">' + buyC.toFixed(1) + '</td>' +
           '<td class="num col-fees">' + feesC.toFixed(1) + '</td>' +
+          '<td class="num col-cons cons-color">' + consCell + '</td>' +
           '<td class="num col-sell sell-color">' + spotC.toFixed(1) + '</td>' +
           '<td class="num col-p2p">' + p2pCell + '</td>' +
           '<td class="num col-load">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</td>' +
@@ -921,7 +944,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // unwanted horizontal scrollbar in the new chart/table
         // side-by-side layout below. Re-verify this value directly
         // (not by feel) if row content changes again.
-        ':host { display:block; container-type: inline-size; --ftable-min-width: 560px; }' +
+        ':host { display:block; container-type: inline-size; --ftable-min-width: 780px; }' +
         // nimbus issue #400 follow-up: a screenshot from Mark's real
         // Sections-view dashboard showed forecast-table content stopping
         // hard at the card's own right edge with no visible scrollbar --
@@ -1001,8 +1024,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // contained instead of distorting the whole row's geometry.
         '.chart-table-grid { display:block; }' +
         '.chart-col, .table-col { min-width: 0; }' +
-        '@container (min-width: 900px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:stretch; }' +
+        // Household, 19 Oct 2026, adding Cons¢: "no scrolling please...
+        // make the table wider at the cost of the plan getting narrower on
+        // the left". The table's track can never shrink below its own
+        // --ftable-min-width, so it never scrolls sideways; the chart gives
+        // up the width instead. Two columns
+        // only from 1150px: 320 (chart floor) + 28 (gap) + 780
+        // (--ftable-min-width) + margin; narrower cards stack, table at
+        // full width. Redo this sum if --ftable-min-width changes.
+        '@container (min-width: 1150px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), max-content); gap: 20px 28px; align-items:stretch; }' +
         '}' +
         // Direct household ask (2026-09-07): chart should stretch down
         // to fill whatever vertical space table-col's own (taller) row
@@ -1059,7 +1090,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // available width drops below ~500px (phone-width card, the case
         // Raf's font-size + Time-col fix in v0.94.157/.158 still leaves
         // clipped). Wide cards keep Raf's format unchanged.
-        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); container-type: inline-size; container-name: ftable; }' +
+        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         // Default: wide format (Raf). Show the pill, hide the dot;
         // show the inline lowercase "now" tag, hide the compact NOW.
         '.src-wide { display: inline-flex; vertical-align: middle; }' +
@@ -1068,6 +1099,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.time-nowtag-wide { display: inline; }' +
         '.time-nowtag-compact { display: none; }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
+        // Household, 19 Oct 2026 ("the table still wastes space... the left
+        // plan gets larger again"; then "squished... you need at least
+        // another 25%"): the table's track is its own max-content width,
+        // never below --ftable-min-width (780px), so it is neither stretched
+        // nor squeezed and the chart takes the rest. .ftable-wrap is no
+        // longer a size container (that made its content width count as 0);
+        // the compact layout's query now reads the card (:host) instead.
+        // The heading and the legend wrap inside the table's width.
+        '.table-col > .section-label, .table-col > .ftable-note { width: 0; min-width: 100%; }' +
         // nimbus issue #459 (Mark Purcell) removed width:100% here because
         // back then table.ftable's container was the WHOLE wide panel
         // (uncapped, ~1900px) -- leftover width past the table's real
@@ -1093,6 +1133,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // now that the real Time-column bug (not SOURCE, not font size)
         // is fixed -- a genuine, if partial, further reduction on top.
         'table.ftable { border-collapse: collapse; font-size: 0.86em; min-width: var(--ftable-min-width); width: 100%; }' +
+        // Cons¢ in violet at every width, the same colour as the Solver
+        // tab's Whole Plan table (household, 19 Oct 2026: "in different
+        // colour please"; then "not in purple like the other markdown").
+        'table.ftable td.cons-color, table.ftable th.cons-color { color: violet; }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
@@ -1144,7 +1188,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // 2026-09-07: 22px still wasn't narrow enough -- confirmed live,
         // still scrolling. 14px, no more shrinking room without losing
         // the two-segment bar shape entirely.
-        '.source-bar { display: flex; width: 14px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        // Household, 19 Oct 2026: the bar was "tiny" in a wide column. The
+        // table's grid track is now floored at --ftable-min-width, so the
+        // squeeze that forced 14px is gone: the bar fills its cell.
+        '.source-bar { display: flex; width: 100%; min-width: 28px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
         // nimbus #459: in-row split dot for the compact format. Same
@@ -1164,7 +1211,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // a hair-space; compact stacks them below.
         '.hdr-name, .hdr-unit { display: inline; }' +
         '.hdr-unit { margin-left: 0.15em; }' +
-        '@container ftable (max-width: 500px) {' +
+        '@container (max-width: 530px) {' +
           // Auto layout so the browser sizes columns to their content
           // (BUY at 4 digits gets more than SoC at 3). min-width: 0
           // keeps the table from forcing a horizontal scrollbar.
@@ -1196,6 +1243,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // Grid, SoC (2026-09-07 target from Mark Purcell).
           'table.ftable th.col-source, table.ftable td.col-source { display: none; }' +
           'table.ftable th.col-fees, table.ftable td.col-fees { display: none; }' +
+          'table.ftable th.col-cons, table.ftable td.col-cons { display: none; }' +
           'table.ftable th.col-p2p, table.ftable td.col-p2p { display: none; }' +
           'table.ftable th.col-net, table.ftable td.col-net { display: none; }' +
           // Colored data cells: buy red, sell green. Header font colours
@@ -1378,8 +1426,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '<div class="table-col">' +
         '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
-          '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
-          'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
+          '<span class="source-bar" style="display:inline-flex; vertical-align:middle; width:28px;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
+          'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; Cons&cent; = how far price consolidation moved Buy&cent; (violet, blank when it did not) &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
@@ -1391,6 +1439,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
             '<th class="source-col col-source"><span class="hdr-name">Source</span></th>' +
             '<th class="num col-buy buy-color"><span class="hdr-name">Buy</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-fees"><span class="hdr-name">Fees</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-cons cons-color"><span class="hdr-name">Cons</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-sell sell-color"><span class="hdr-name">Sell</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-p2p"><span class="hdr-name">P2P</span><span class="hdr-unit">\u00a2</span></th>' +
             '<th class="num col-load"><span class="hdr-name">Load</span><span class="hdr-unit">kW</span></th>' +

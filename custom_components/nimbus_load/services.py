@@ -112,6 +112,39 @@ SERVICE_EXPORT_DECISION_INPUTS = "export_decision_inputs"
 # nimbus #1797: the stochastic solve's own in-process state, readable on an
 # install whose plan sensor a mirror overwrites (devhub).
 SERVICE_GET_STOCHASTIC_SUMMARY = "get_stochastic_summary"
+# nimbus #1574 (DC-004 step 5a): the device document's dry run and mode.
+SERVICE_DEVICE_CONTRACT_PREVIEW = "device_contract_preview"
+SERVICE_DEVICE_CONTRACT_SET_MODE = "device_contract_set_mode"
+SERVICE_DEVICE_CONTRACT_DISCOVER = "device_contract_discover"
+SERVICE_DEVICE_CONTRACT_CONFIRM = "device_contract_confirm"
+SERVICE_DEVICE_CONTRACT_SET_MODE_SCHEMA = vol.Schema(
+    {vol.Required("mode"): vol.In(["legacy", "shadow", "active"])}
+)
+# DC-005: what the household accepted from `device_contract_discover`, named
+# as discovery offered it; anything not offered is refused.
+SERVICE_DEVICE_CONTRACT_CONFIRM_SCHEMA = vol.Schema(
+    {
+        vol.Required("revision"): vol.Coerce(int),
+        vol.Required("choices"): vol.All(
+            [
+                vol.Schema(
+                    {
+                        vol.Required("kind"): str,
+                        vol.Required("device"): str,
+                        vol.Optional("role"): str,
+                        vol.Optional("entity_id"): str,
+                        vol.Optional("capacity"): {
+                            vol.Required("value"): vol.Coerce(float),
+                            vol.Required("unit"): str,
+                            vol.Required("basis"): vol.In(["nominal", "usable"]),
+                        },
+                    }
+                )
+            ],
+            vol.Length(min=1),
+        ),
+    }
+)
 
 # nimbus issue #495 (Signals 6/7 of #489): hands a caller the current
 # `nem-flex-telemetry` schema-v2.0 record as a service RESPONSE, so a
@@ -684,6 +717,62 @@ async def _async_handle_export_decision_inputs(
         raise ServiceValidationError(f"nimbus_load.export_decision_inputs: {e}") from e
 
 
+def _single_hub(hass: HomeAssistant, service: str) -> ConfigEntry:
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if len(entries) != 1:
+        raise ServiceValidationError(
+            f"nimbus_load.{service}: needs exactly one Nimbus hub"
+        )
+    return entries[0]
+
+
+async def _async_handle_device_contract_preview(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1574 (DC-004): the device document's dry run. Writes nothing."""
+    from . import device_contract_ha
+
+    return await device_contract_ha.async_preview(
+        hass, _single_hub(hass, SERVICE_DEVICE_CONTRACT_PREVIEW)
+    )
+
+
+async def _async_handle_device_contract_set_mode(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1574 (DC-004): legacy <-> shadow. Writes only the device store."""
+    from . import device_contract_ha
+
+    return await device_contract_ha.async_set_mode(
+        hass, _single_hub(hass, SERVICE_DEVICE_CONTRACT_SET_MODE), call.data["mode"]
+    )
+
+
+async def _async_handle_device_contract_discover(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1574 (DC-005): what discovery proposes. Writes nothing."""
+    from . import device_contract_ha
+
+    return await device_contract_ha.async_discover(
+        hass, _single_hub(hass, SERVICE_DEVICE_CONTRACT_DISCOVER)
+    )
+
+
+async def _async_handle_device_contract_confirm(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """nimbus #1574 (DC-005): commit the household's accepted choices."""
+    from . import device_contract_ha
+
+    return await device_contract_ha.async_confirm(
+        hass,
+        _single_hub(hass, SERVICE_DEVICE_CONTRACT_CONFIRM),
+        call.data["revision"],
+        [dict(c) for c in call.data["choices"]],
+    )
+
+
 async def _async_handle_get_stochastic_summary(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -859,6 +948,56 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.ONLY,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_DEVICE_CONTRACT_PREVIEW):
+
+        async def _handle_device_contract_preview(call: ServiceCall):
+            return await _async_handle_device_contract_preview(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DEVICE_CONTRACT_PREVIEW,
+            _handle_device_contract_preview,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_DEVICE_CONTRACT_SET_MODE):
+
+        async def _handle_device_contract_set_mode(call: ServiceCall):
+            return await _async_handle_device_contract_set_mode(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DEVICE_CONTRACT_SET_MODE,
+            _handle_device_contract_set_mode,
+            schema=SERVICE_DEVICE_CONTRACT_SET_MODE_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_DEVICE_CONTRACT_DISCOVER):
+
+        async def _handle_device_contract_discover(call: ServiceCall):
+            return await _async_handle_device_contract_discover(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DEVICE_CONTRACT_DISCOVER,
+            _handle_device_contract_discover,
+            supports_response=SupportsResponse.ONLY,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_DEVICE_CONTRACT_CONFIRM):
+
+        async def _handle_device_contract_confirm(call: ServiceCall):
+            return await _async_handle_device_contract_confirm(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_DEVICE_CONTRACT_CONFIRM,
+            _handle_device_contract_confirm,
+            schema=SERVICE_DEVICE_CONTRACT_CONFIRM_SCHEMA,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_GET_STOCHASTIC_SUMMARY):
 
         async def _handle_get_stochastic_summary(call: ServiceCall):
@@ -938,6 +1077,10 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_RESCORE_HISTORY,
         SERVICE_EXPORT_DECISION_INPUTS,
         SERVICE_GET_STOCHASTIC_SUMMARY,
+        SERVICE_DEVICE_CONTRACT_PREVIEW,
+        SERVICE_DEVICE_CONTRACT_SET_MODE,
+        SERVICE_DEVICE_CONTRACT_DISCOVER,
+        SERVICE_DEVICE_CONTRACT_CONFIRM,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

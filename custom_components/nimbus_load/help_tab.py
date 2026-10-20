@@ -92,9 +92,10 @@ _START_HERE = (
     % "plan and (plan.attributes.get('solve_diagnostics') or {}).get("
     "'battery_effective_capacity_kwh', 0) > 1"
     + " | **2. Your battery and grid numbers** (basic) | Solver | "
-    "**Solver tab → Basic settings → Battery card** (capacity, SoH, min / max "
-    "SoC, max charge / discharge) and **→ Grid and fees card** (max import / "
-    "export). The defaults are placeholders. |\n"
+    "Solver settings screen 1 asks for capacity, max charge and max discharge, "
+    "screen 2 for grid max import (#1800). The rest (SoH, min / max SoC, max "
+    "export) is on the **Solver tab → Basic settings**. A placeholder 0.1 "
+    "shows in the table below and in Repairs. |\n"
     + "| "
     + _TICK % "forecasts | count > 0"
     + " | **3. A whole-house Power Signal**, then Loads | Forecaster, Topology | "
@@ -118,6 +119,58 @@ _START_HERE = (
     + "\n{% if plan %}Nimbus {{ plan.attributes.get('nimbus_version') }} · "
     "plan {{ plan.attributes.get('status') }}{% endif %}"
 )
+
+# nimbus #1800: the basic inputs, live. Each row reads the hub option or the
+# number entity the Solver itself reads, so it says what is configured now
+# and what still needs the user; Repairs say why, with what to fix.
+_OPT = "${@option:%s}"
+_NUM = "${@%s}"
+
+
+def _input_row(label: str, ref: str, *, number: bool = False, unit: str = "") -> str:
+    if number:
+        ok = "states(e) | float(0) > 0.1"
+        now = (
+            "(states(e) ~ ' " + unit + "') if states(e) | float(0) > 0.1 "
+            "else 'placeholder 0.1'"
+        )
+    else:
+        ok = "e != '' and states(e) not in ['unknown', 'unavailable']"
+        now = (
+            "(e ~ ': ' ~ states(e) ~ ' ' ~ (state_attr(e, 'unit_of_measurement') "
+            "or '')) if e != '' else 'not set'"
+        )
+    return (
+        "{% set e = '" + ref + "' %}"
+        "| {{ '✅' if (" + ok + ") else '⬜' }} | " + label + " | {{ " + now + " }} |\n"
+    )
+
+
+_BASIC_INPUTS = (
+    "**Basic inputs, live**\n\n"
+    "| | Input | Now |\n|:---:|:---|:---|\n"
+    + _input_row("Battery State of Charge", _OPT % "solver_battery_soc_sensor")
+    + _input_row("Import price", _OPT % "solver_import_price_sensor")
+    + _input_row("Export price", _OPT % "solver_export_price_sensor")
+    + _input_row("Solar forecast", _OPT % "solver_solar_forecast_sensor")
+    + _input_row(
+        "Battery capacity",
+        _NUM % "solver_battery_capacity_kwh",
+        number=True,
+        unit="kWh",
+    )
+    + _input_row("Max charge", _NUM % "solver_max_charge_kw", number=True, unit="kW")
+    + _input_row(
+        "Max discharge", _NUM % "solver_max_discharge_kw", number=True, unit="kW"
+    )
+    + _input_row(
+        "Grid max import", _NUM % "solver_grid_max_import_kw", number=True, unit="kW"
+    )
+    + "\nPrice sensors Nimbus found (LocalVolts, Amber) are offered under "
+    "**Configure → Review pricing suggestions**, applied only when you submit. "
+    "Anything else it spots is under **Settings → Repairs**, saying what to fix."
+)
+
 
 _TRAPS = (
     "**Common traps**\n\n"
@@ -161,6 +214,132 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: entry: tests/test_1823_help_tab.py fails when manifest.json's version is
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "0.94.471",
+        "20 Oct 2026",
+        (
+            (
+                "**Plan cost:** setting *Don't sell below* no longer shifts "
+                "the plan cost; the floor's penalty is shown on its own, and "
+                "P2P blocks never carry it."
+            ),
+        ),
+    ),
+    (
+        "0.94.470",
+        "20 Oct 2026",
+        (
+            (
+                "**Don't sell below:** under your set export price, spare "
+                "solar fills the battery before any is sold. Solver tab, "
+                "Reserve and price spikes; 0 = off."
+            ),
+            (
+                "**Reserve:** now holds in every night's window, not only one "
+                "already running when the plan was made."
+            ),
+            (
+                "**Solar running low:** no longer misjudges solar while a "
+                "backup has locked Home Assistant's history."
+            ),
+            (
+                "**Solver tab:** the cost chart is now *How the plan's 4-day "
+                "estimate has moved*, spikes clipped and explained; *Prices "
+                "ahead* draws full width on a first visit."
+            ),
+        ),
+    ),
+    (
+        "0.94.469",
+        "20 Oct 2026",
+        (
+            (
+                "**After midnight:** *Self-consume after midnight* now defaults "
+                "to 0, and an install still on 4 moves to 0 once. The plan may "
+                "charge or sell after midnight; the battery reserve guards the "
+                "bottom. Set 4 again on the Solver tab to keep the old rule."
+            ),
+            (
+                "**Loss factors:** with your site's TNI and DLF code sensors "
+                "(LocalVolts v2 2.13.0), the AEMO price source is built from "
+                "AEMO's price and your site's loss factors. Shadow only."
+            ),
+            (
+                "**Device readiness:** `sensor.nimbus_device_readiness` shows "
+                "which of observe, forecast, plan and score are ready."
+            ),
+            (
+                "**Solver fixes:** a float-noise coefficient no longer breaks a "
+                "solve, and an impossible re-solve is no longer attempted."
+            ),
+        ),
+    ),
+    (
+        "0.94.468",
+        "19 Oct 2026",
+        (
+            (
+                "**Fees¢ and Cons¢:** Fees¢ shows only your fees; the new violet "
+                "Cons¢ column shows how far price consolidation moved each price."
+            ),
+            (
+                "**Control Panel:** the interval table is as wide as it needs, "
+                "with no sideways scrolling, and the plan chart takes the rest."
+            ),
+            (
+                "**Device setup:** Nimbus can find your site from the Energy "
+                "Dashboard and your price provider, and save what you accept."
+            ),
+            (
+                "**Price sources:** the Solver tab shows each price source's "
+                "accuracy, share and next prices. Keep *Consolidation drives "
+                "the plan* off for now (#1786)."
+            ),
+        ),
+    ),
+    (
+        "0.94.467",
+        "19 Oct 2026",
+        (
+            (
+                "**Device setup:** try Nimbus's new device model in *shadow* "
+                "(changes nothing), then *active*. Choose with *Device setup "
+                "mode* on the Solver tab."
+            ),
+            (
+                "**In active mode:** a setting changed elsewhere raises a "
+                "Repair (*Keep my change* or *Restore*), and the Solver "
+                "sliders edit the device setup directly."
+            ),
+            (
+                "**Combined price forecast:** keeps a spike any source "
+                "forecasts. Turn it on with *Consolidation drives the plan* "
+                "on the Solver tab."
+            ),
+        ),
+    ),
+    (
+        "0.94.466",
+        "19 Oct 2026",
+        (
+            (
+                "**Battery direction:** it switches between charging and "
+                "discharging only when the switch is worth more than "
+                "*Direction Change Margin*."
+            ),
+            (
+                "**Price spikes near Min SoC:** the spike override discharges "
+                "what is left instead of leaving Nimbus without a plan."
+            ),
+            (
+                "**Setup:** the Solver wizard asks for battery capacity, charge "
+                "and discharge limits and grid import; Help shows your basic "
+                "inputs live."
+            ),
+            "**Control Panel on an iPhone** no longer resets while you scroll.",
+            "**User docs** are published at code-imstillalive.github.io/nimbus.",
+        ),
+    ),
     (
         "0.94.465",
         "18 Oct 2026",
@@ -1048,7 +1227,7 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_auto_include_known_solar": (
         "Finds Solcast / Open-Meteo solar forecasts automatically.",
-        "",
+        "Recommended on with Solcast.",
     ),
     "solver_calibrated_objective_enabled": (
         "Equal-cost plans go to the steadier one.",
@@ -1060,11 +1239,11 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_offer_curve_enabled": (
         "Publishes how the plan's grid use responds to price.",
-        "Slower solves.",
+        "7 extra re-solves per direction, every cycle.",
     ),
     "solver_flex_signals_enabled": (
         "Publishes how much the plan could flex up or down.",
-        "Slower solves.",
+        "Each solve about 9× slower.",
     ),
     "solver_score_controllable_loads_enabled": (
         "Lets the daily score re-time controllable loads.",
@@ -1072,7 +1251,7 @@ SETTINGS: dict[str, tuple[str, str]] = {
     ),
     "solver_dispatch_dry_run": (
         "Logs what Nimbus's own dispatcher would command, without commanding.",
-        "Log only.",
+        "Log only; recommended on.",
     ),
     # Scoring
     "nimbus_quality_soc_discrepancy_mean_pct": (
@@ -1109,6 +1288,10 @@ SETTINGS: dict[str, tuple[str, str]] = {
     "solver_battery_reserve_release_price": (
         "The reserve is sold only when the price beats this margin.",
         "$/kWh.",
+    ),
+    "solver_export_floor_price": (
+        "Under this export price, spare solar fills the battery before any is sold. A full battery still exports.",
+        "$/kWh; 0 = off.",
     ),
     "solver_period0_hysteresis": (
         "Keeps the battery charging, holding or discharging unless a switch saves more than this.",
@@ -1392,6 +1575,7 @@ def template() -> list[dict[str, Any]]:
     return [
         _banner("Start here", "error", "Set Nimbus up so every tab works."),
         _full([_markdown(_START_HERE)]),
+        _full([_markdown(_BASIC_INPUTS)]),
         _full([_markdown(setup_pictures_markdown())]),
         _full([_markdown(_WHERE)]),
         _full([_markdown(_TRAPS)]),

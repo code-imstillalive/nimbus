@@ -10,7 +10,7 @@ no visual-diff step. This proves:
    "NOW" badge -- Raf's v0.94.157/.158 rendering is preserved.
 2. Header spans .hdr-name and .hdr-unit render inline in wide mode
    (unit sits next to name), and stack as blocks in compact mode.
-3. A single `@container ftable (max-width: 500px)` rule flips the table
+3. A single `@container (max-width: 530px)` rule (on the card) flips the table
    into the compact format when its wrap resolves narrow.
 4. Inside that container rule: the table switches to auto layout at
    100% width; TIME is exactly 5ch; source, fees, p2p and net columns
@@ -233,7 +233,9 @@ def test_source_dot_class_defined(top_rules):
 
 @pytest.fixture(scope="module")
 def compact_container(top_rules):
-    return _find_container(top_rules, "ftable (max-width: 500px)")
+    # Household, 19 Oct 2026: the compact query reads the card (:host), not
+    # .ftable-wrap, so the table's grid track can size to the table.
+    return _find_container(top_rules, "(max-width: 530px)")
 
 
 @pytest.fixture(scope="module")
@@ -247,10 +249,10 @@ def test_compact_container_exists_exactly_once(top_rules):
         for r in top_rules
         if r.type == "at-rule"
         and r.at_keyword == "container"
-        and _prelude_text(r).startswith("ftable")
+        and "max-width" in _prelude_text(r)
     ]
     assert len(matches) == 1, (
-        f"expected exactly one 'ftable' @container rule, found {len(matches)}"
+        f"expected exactly one compact (max-width) @container rule, found {len(matches)}"
     )
 
 

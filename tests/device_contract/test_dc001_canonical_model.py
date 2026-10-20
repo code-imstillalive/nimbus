@@ -474,12 +474,45 @@ def test_parse_refuses_a_non_object() -> None:
 # --- no consumer reads it yet (until DC-006) ------------------------------------
 
 
+#: The modules allowed to use the contract before DC-006. DC-004 builds and
+#: keeps documents (import, store) and lets the household preview it and set
+#: its mode (device_contract_ha, registered in services.py); none of them
+#: feeds a document to a consumer. The solve, the cards and the forecaster
+#: may not import any of them.
+_DC_BUILDERS = frozenset(
+    {
+        "device_contract.py",
+        "device_import.py",
+        "device_storage.py",
+        "device_contract_ha.py",
+        "services.py",
+        # DC-004 step 5b: the start-up recovery call, nothing else.
+        "__init__.py",
+        # DC-004 step 5c: number write-through and the drift Repair's flow.
+        "number.py",
+        "repairs.py",
+        # The Device Setup Mode select (DC-004, 0.94.467).
+        "select.py",
+        # Readiness per function (DC-006).
+        "device_readiness.py",
+        # The readiness sensor (DC-006 slice 1b).
+        "readiness_sensor.py",
+        # Discovery's proposal (DC-005).
+        "device_discovery.py",
+    }
+)
+
+
 def test_no_module_imports_the_device_contract_yet() -> None:
     offenders = [
         str(p.relative_to(_PKG))
         for p in _PKG.rglob("*.py")
-        if p.name != "device_contract.py"
-        and "device_contract" in p.read_text(encoding="utf-8")
+        if p.name not in _DC_BUILDERS
+        and (
+            "device_contract" in p.read_text(encoding="utf-8")
+            or "device_import" in p.read_text(encoding="utf-8")
+            or "device_storage" in p.read_text(encoding="utf-8")
+        )
     ]
     assert offenders == []
 

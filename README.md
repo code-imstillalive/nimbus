@@ -635,6 +635,33 @@ Edit inline on the dashboard without touching the wizard:
   over the horizon, and the solve cadence. Read from this install's own
   Solver, not from a sensor, so it is this install's solve even where another
   install's mirrored plan sensor overwrites the entity. Read-only.
+- `nimbus_load.device_contract_preview`. The dry run of the device model
+  (#1574) on this install: the devices it would build from today's settings,
+  any conflict between them, anything it could not map, and every setting
+  that would change (none, on a clean install). Changes nothing.
+- `nimbus_load.device_contract_set_mode` (`mode`: `legacy`, `shadow` or
+  `active`). `shadow` saves the device document alongside today's settings
+  and is refused unless the dry run is clean; `legacy` goes back. Today's
+  options, subentries and number entities stay the master and are never
+  written. `active`, from `shadow` only and again on a clean dry run, puts
+  the device model in charge: entering it changes no setting and records
+  `device_contract_view_revision` in the options; later commits write the
+  changed settings in a fixed order, and each start repairs an interrupted
+  one. Going back to `legacy` leaves the settings as they are. In `active`,
+  an owned setting edited elsewhere raises a Repair (*Keep my change* or
+  *Restore*), and a contract-owned Solver number commits a new revision when
+  its slider moves.
+- `nimbus_load.device_contract_discover`. What discovery (#1574, DC-005)
+  finds from the Energy Dashboard and the recognised price providers
+  (LocalVolts v2, Amber Express, Amber Electric): the proposed devices and
+  sources, each unconfirmed with its evidence, the questions it needs
+  answered, and what it read but did not use. With a stored device setup, the
+  differences against it. Changes nothing.
+- `nimbus_load.device_contract_confirm` (`revision`, `choices`). Saves what
+  the household accepted from discovery as a new revision, in `shadow` or
+  `active` only. A choice discovery did not offer, or a source DC-002 cannot
+  read with its unit and adapter, refuses the whole confirmation and changes
+  nothing; a stale or unavailable source is accepted and flagged.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.

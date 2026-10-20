@@ -1191,11 +1191,16 @@ def test_f04_every_divergence_is_declared_and_still_real() -> None:
 
 
 def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
-    """Until DC-006 (DC-002 "Acceptance", pinned as in DC-001)."""
+    """Until DC-006 (DC-002 "Acceptance", pinned as in DC-001). One reader is
+    not a consumer: DC-005's confirmation resolves a switched binding only
+    to refuse one DC-002 cannot read ("a source switch is validated before
+    it is committed"); no value it resolves drives anything."""
+    validators = {"device_contract_ha.py"}
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
         if p.name != "device_bindings.py"
+        and p.name not in validators
         and "device_bindings" in p.read_text(encoding="utf-8")
     ]
     assert offenders == []

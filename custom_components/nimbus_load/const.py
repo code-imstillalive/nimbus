@@ -1083,9 +1083,10 @@ DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False
 # CalibratedOptions) for the four existing tie-break mechanisms
 # (proximal_weight, smoothness_weight, adequacy_earliness_budget_kw,
 # battery_charge_earliness_budget_kw) -- see network.py's own
-# build_plan() docstring on `solve_options` for the full mechanism and
-# its one documented scope boundary (a MIP solve silently falls back to
-# today's hand-tuned-magnitude behavior regardless of this switch).
+# build_plan() docstring on `solve_options` for the full mechanism. A MIP
+# no longer falls back to the hand-tuned magnitudes (nimbus #702): its
+# binaries are settled on the primary objective alone, then pinned, and the
+# residual LP runs the same calibrated logic (solver/lp.py's solve()).
 # Default TRUE, unlike every other Solver switch above -- the
 # household's own explicit, repeated instruction was to make this the
 # real, live default now, not an opt-in a household has to discover and
@@ -1316,6 +1317,15 @@ CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: Final = (
 CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
     "solver_regional_spot_current_price_sensor"
 )
+# nimbus #1786 (Mark): a site's spot price is the regional RRP x MLF x DLF.
+# The two codes that identify the factors -- the transmission node (TNI) and
+# the distribution loss factor code -- are read from these sensors (LV v2
+# 2.13.0 exposes both, disabled by default), and their values come from
+# AEMO's published tables (`solver_inputs/loss_factors.py`), never fitted.
+# Blank (the default): no factor is known and the AEMO-based price source
+# stays as it was, wholesale plus the learned offset.
+CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: Final = "solver_loss_factor_tni_sensor"
+CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: Final = "solver_loss_factor_dlf_code_sensor"
 # Same audit, a third and last real gap: resample_real_p2p_rate()
 # hardcoded `sensor.localvolts_p2p_forecast` -- a genuinely different
 # CONCEPT from CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR above (that one
@@ -1434,11 +1444,11 @@ CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
 # SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE) -- silently applied to every
 # install with zero visibility or way to change them, regardless of
 # that install's own real retailer/tariff or P2P program shape. Real
-# wizard fields now. Defaults (1.95, 4) are this repo's own reference
-# household's real, already-live values -- preserving byte-identical
-# behaviour for every existing install (this one included) the moment
-# this ships; only an install that explicitly changes the wizard value
-# sees anything different.
+# wizard fields now. The fixed charge defaults to this repo's own reference
+# household's 1.95. The self-consume hours default to 0 (no restriction,
+# household 19 Oct 2026, promised on #1700): after midnight the plan is
+# free to charge or discharge, and the battery reserve is what stops it
+# selling cheaply. An install that stored its own value keeps it.
 CONF_SOLVER_FIXED_DAILY_CHARGE: Final = "solver_fixed_daily_charge"
 CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = (
     "solver_post_window_self_consume_hours"
@@ -1533,6 +1543,16 @@ CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
     "solver_battery_reserve_release_price"
 )
 DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
+# Household, 20 Oct 2026: "Don't sell below" ($/kWh). Below this export price
+# an exported kWh is worth next to nothing to the plan, so energy that could
+# go into the battery is stored instead of sold cheaply; a full battery still
+# exports, and at or above it the plan decides on price as before. Not a hard
+# override ("it should not be authoritarian overrides... but should stop it
+# from selling cheap"). It also stops the direction-change margin from
+# holding the battery idle while period 0 exports below it. 0 (the default)
+# = off, plans unchanged. See solver/elements.py's GridConfig.
+CONF_SOLVER_EXPORT_FLOOR_PRICE: Final = "solver_export_floor_price"
+DEFAULT_SOLVER_EXPORT_FLOOR_PRICE: Final = 0.0
 # nimbus issue #1654, option A: keep the battery's period-0 direction
 # (charge / hold / discharge, the dispatch deadband's three classes) unless
 # switching saves more than this ($ over the horizon). 18 Oct 05:25-06:56 the
@@ -1756,7 +1776,7 @@ DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
 # "not set". An existing install keeps its stored value (RestoreNumber, then
 # the shared Store), so only a fresh install sees this default.
 DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 0.0
-DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 4
+DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 0
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 # Every block defaults OFF (rate_kw=0) regardless of which block number --

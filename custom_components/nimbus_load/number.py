@@ -40,6 +40,7 @@ already-configured household (like this one, which just finished the old
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -85,6 +86,7 @@ from .const import (
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_EXPORT_FLOOR_PRICE,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_FLAT_FEE_RATE,
@@ -143,6 +145,7 @@ from .const import (
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
     DEFAULT_SOLVER_EFFICIENCY_PERCENT,
+    DEFAULT_SOLVER_EXPORT_FLOOR_PRICE,
     DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     DEFAULT_SOLVER_FIXED_DAILY_CHARGE,
     DEFAULT_SOLVER_FLAT_FEE_RATE,
@@ -180,6 +183,27 @@ from .const import (
     DOMAIN,
     SUBENTRY_TYPE_CONTROLLABLE_LOAD,
 )
+
+_LOGGER = logging.getLogger(__name__)
+
+# One-time value changes applied on upgrade: key -> (marker, from, to). The
+# marker is written once the check has run, so a household that sets the old
+# value again keeps it.
+#
+# Self-consume after midnight, 4 -> 0 (household, 19 Oct 2026; promised on
+# #1700): 4 was this repository's reference household's value, shipped as the
+# default, and no install chose it -- a stored 4 cannot be told apart from the
+# default (every restart writes the restored value back), and the household
+# confirmed none of the testers set it. 0 leaves the hours after a midnight P2P
+# block free: the plan may charge, or sell into an early-morning spike, and the
+# battery reserve is what stops it selling cheaply.
+_ONE_TIME_VALUE_CHANGES: dict[str, tuple[str, float, float]] = {
+    CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: (
+        "_migrated_post_window_self_consume_hours_4_to_0",
+        4.0,
+        0.0,
+    ),
+}
 
 # These entities are plain, locally-restored settings (RestoreNumber) --
 # no hub/API to overload, so there's no reason to serialize updates.
@@ -428,6 +452,16 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.01,
         _CURRENCY_PER_KWH,
     ),
+    # Household, 20 Oct 2026: "Don't sell below" (const.py).
+    _SolverNumberDescription(
+        CONF_SOLVER_EXPORT_FLOOR_PRICE,
+        "Don't Sell Below",
+        DEFAULT_SOLVER_EXPORT_FLOOR_PRICE,
+        0,
+        20,
+        0.01,
+        _CURRENCY_PER_KWH,
+    ),
     # nimbus issue #1654, option A: period-0 direction hysteresis (const.py).
     _SolverNumberDescription(
         CONF_SOLVER_PERIOD0_HYSTERESIS,
@@ -574,8 +608,8 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # takes effect for a P2P block whose own end_hour reaches 24 (runs
     # through midnight) -- see fetch_p2p_fixed_export_kw()'s own
     # docstring for the full "why a hard pin, not just a soft nudge"
-    # reasoning. Default (4) matches the reference household's own value;
-    # changing it to 0 (no restriction) is deferred (Mark, #1700).
+    # reasoning. Default 0 (no restriction; household 19 Oct 2026, promised
+    # on #1700): an install that wants the hard pin sets its own hours.
     _SolverNumberDescription(
         CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
         "Post-Window Self-Consume Hours",
@@ -1267,6 +1301,33 @@ class NimbusSolverNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        await self._async_restore_value()
+        await self._async_apply_one_time_value_change()
+
+    async def _async_apply_one_time_value_change(self) -> None:
+        """See `_ONE_TIME_VALUE_CHANGES`. Runs once per install and key: the
+        marker is written whether or not the value matched, so a later edit
+        back to the old value is never undone."""
+        change = _ONE_TIME_VALUE_CHANGES.get(self._desc.key)
+        if change is None:
+            return
+        marker, old, new = change
+        if await self._shared_store.async_read(marker) is not None:
+            return
+        current = self._attr_native_value
+        if current is not None and float(current) == old:
+            self._attr_native_value = new
+            await self._shared_store.async_write(self._desc.key, new)
+            _LOGGER.info(
+                "Nimbus: %s changed once from %s to %s on upgrade (see the "
+                "CHANGELOG); set it again to keep a different value",
+                self._desc.key,
+                old,
+                new,
+            )
+        await self._shared_store.async_write(marker, 1.0)
+
+    async def _async_restore_value(self) -> None:
         restored = await self.async_get_last_number_data()
         if restored is not None and restored.native_value is not None:
             # nimbus issue #342 (Mark Purcell): this used to backfill the
@@ -1348,6 +1409,20 @@ class NimbusSolverNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
             from . import _configure_price_watcher
 
             _configure_price_watcher(self.hass, self._entry)
+        # nimbus #1574 (DC-004 step 5c): in the device model's `active` mode a
+        # contract-owned number commits a new revision, so the slider edits the
+        # document. A task, not awaited: the commit takes the entry's lock, and
+        # a view write may be what set this value. Every other mode, and every
+        # number the document doesn't own, returns at once.
+        hass = getattr(self, "hass", None)
+        if hass is not None:  # always set once HA has added the entity
+            from . import device_contract_ha
+
+            hass.async_create_task(
+                device_contract_ha.async_number_changed(
+                    hass, self._entry, self._desc.key, float(value)
+                )
+            )
 
 
 def _slug_for_entity_id(title: str) -> str:

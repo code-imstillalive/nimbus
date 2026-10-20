@@ -126,6 +126,7 @@ from .const import (
     CONF_SOLVER_EFFICIENCY_PERCENT,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_EXPORT_FLOOR_PRICE,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
@@ -144,6 +145,8 @@ from .const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
@@ -343,6 +346,9 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    # nimbus #1786: the site's loss-factor codes.
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     # nimbus #1786: exposed like every wizard key; the solve never reads it.
@@ -503,6 +509,7 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     CONF_SOLVER_PERIOD0_HYSTERESIS,
+    CONF_SOLVER_EXPORT_FLOOR_PRICE,
     # Household, 12 Oct 2026: the charge taper (see const.py).
     CONF_SOLVER_CHARGE_TAPER_START_PERCENT,
     CONF_SOLVER_CHARGE_POWER_AT_FULL_PERCENT,
@@ -623,6 +630,7 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_BATTERY_RESERVE_PERCENT,
     CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE,
     CONF_SOLVER_PERIOD0_HYSTERESIS,
+    CONF_SOLVER_EXPORT_FLOOR_PRICE,
     # Household, 12 Oct 2026: the charge taper (see const.py).
     # Household, 14 Oct 2026: "Charge To" (see const.py).
     CONF_SOLVER_CHARGE_BY_PERCENT,
@@ -1017,6 +1025,10 @@ async def async_setup_entry(
     # as the two bridge sensors above. See NimbusHealthReportSensor's
     # own docstring.
     async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
+    # nimbus #1574, DC-006 slice 1b: readiness per function.
+    from .readiness_sensor import NimbusDeviceReadinessSensor
+
+    async_add_entities([NimbusDeviceReadinessSensor(entry, sw_version)])
 
     # nimbus issue #450: the plain-language status sensor added in front
     # of Health Report and every other jargon-carrying sensor -- same
@@ -3410,8 +3422,13 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # forecast (harmless, unused key for sensor.nimbus_household_load_
     # total_forecast, the other _NimbusSolverPushSensor instance).
     # "stochastic_paths" (nimbus #1797): three scenarios' battery % ahead,
-    # a projection like `forecast`.
-    _unrecorded_attributes = frozenset({"forecast", "batteries", "stochastic_paths"})
+    # a projection like `forecast`. "price_consolidation" (nimbus #1786):
+    # each source's running error and, for the Solver tab's Price sources
+    # table, every source's next 24 prices -- a live display over 2 KB, not
+    # history (caught by test_solver_push_attribute_size_budget, #625).
+    _unrecorded_attributes = frozenset(
+        {"forecast", "batteries", "stochastic_paths", "price_consolidation"}
+    )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry

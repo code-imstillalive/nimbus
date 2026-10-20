@@ -935,7 +935,9 @@ class Plan:
     # did on this solve. One of "off", "no_previous", "same_direction",
     # "kept" (the previous direction, pinned, cost within the margin),
     # "switched" (the switch saved more than the margin, or the pin was
-    # infeasible). `period0_hysteresis_delta` is pinned minus free cost, $.
+    # infeasible), "blocked" (a period-0 constraint rules the previous
+    # direction out, so no pinned re-solve ran; #773).
+    # `period0_hysteresis_delta` is pinned minus free cost, $.
     period0_hysteresis: str = "off"
     period0_hysteresis_delta: float | None = None
     # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit
@@ -958,6 +960,11 @@ class Plan:
     # 0.0 whenever the excess release valve was never needed this cycle
     # (the common case) or on a Plan built before this field existed.
     grid_import_excess_penalty_cost: float = 0.0
+    # Household, 20 Oct 2026: the export floor's penalty in $ (GridConfig.
+    # export_floor_price). Part of total_cost, never of grid_net; the
+    # published plan cost leaves it out and publishes it on its own. 0.0 with
+    # the floor off, and never charged on a committed (P2P) export.
+    export_floor_penalty_cost: float = 0.0
     # nimbus issue #1480: the dollar total of the #731 round-trip-loss
     # tie-breaker (`charge_loss_cost`/`discharge_loss_cost`, capped at
     # MIN_CHARGE_DISCHARGE_COST_SPREAD per kWh) actually carried by this
@@ -1216,6 +1223,31 @@ def _risk_adjusted(
     if conservative == "upper":
         return forecast_kw + risk_aversion * np.maximum(0.0, upper_kw - forecast_kw)
     return forecast_kw - risk_aversion * np.maximum(0.0, forecast_kw - lower_kw)
+
+
+# Household, 20 Oct 2026: what an exported kWh is still worth to the plan
+# below the export floor ($/kWh). Small, so storing the energy wins whenever
+# the battery has room; above zero, so with a full battery exporting still
+# beats curtailing (which earns nothing).
+EXPORT_FLOOR_RESIDUAL_VALUE = 0.001
+
+
+def export_floor_penalty_rates(
+    effective_export_price: NDArray[np.float64], floor: float
+) -> NDArray[np.float64]:
+    """Per-period $/kWh taken off an exported kWh's value by the export floor
+    (GridConfig.export_floor_price): below the floor, everything above
+    `EXPORT_FLOOR_RESIDUAL_VALUE`, so the kWh is worth that residual; zero at
+    or above the floor, at or below the residual (a negative price is already
+    a reason not to export), and everywhere with the floor off."""
+    price = np.asarray(effective_export_price, dtype=np.float64)
+    if floor <= 0:
+        return np.zeros_like(price)
+    return np.where(
+        price < floor,
+        np.maximum(price - EXPORT_FLOOR_RESIDUAL_VALUE, 0.0),
+        0.0,
+    ).astype(np.float64)
 
 
 def _risk_adjusted_one_sided(
@@ -2539,6 +2571,21 @@ def _build_plan_once(
         export_price_risk_aversion,
         direction="down",
     )
+    export_floor_penalty = export_floor_penalty_rates(
+        effective_export_price, grid.export_floor_price
+    )
+    # A committed export (a P2P block's fixed rate) is not a choice the floor
+    # can change: no penalty there, so it neither moves a decision nor shows
+    # up as a cost (household, 20 Oct 2026). Except period 0 under a spike
+    # override (#694): there the commitment is a floor, not a pin, and export
+    # above it is free, so the floor stays live (Mark Purcell, #1924). On the
+    # committed part it is then a constant, which changes no decision and is
+    # left out of the published plan cost like the rest of the penalty.
+    if grid.fixed_export_kw is not None:
+        committed = np.asarray(grid.fixed_export_kw, dtype=float)[:n] > 0
+        if spike_overrides_p2p_at_t0 and n:
+            committed[0] = False
+        export_floor_penalty = np.where(committed, 0.0, export_floor_penalty)
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation
@@ -3012,7 +3059,10 @@ def _build_plan_once(
             grid_import_excess[t],
             (effective_import_price[t] + import_excess_penalty_rate) * hours[t],
         )
-        p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
+        p.set_cost(
+            grid_export[t],
+            -(effective_export_price[t] - export_floor_penalty[t]) * hours[t],
+        )
         for b in batteries:
             # nimbus issue #732 (Mark Purcell, greenlit fix for #731's own
             # real cross-battery wash-trade incident: an EV discharging
@@ -4757,6 +4807,11 @@ def _build_plan_once(
     grid_import_excess_penalty_cost = import_excess_penalty_rate * float(
         np.sum(grid_import_excess_arr * hours)
     )
+    # Household, 20 Oct 2026: the export floor's penalty, apart from grid_net
+    # (which prices export at the real effective price) -- see GridConfig.
+    export_floor_penalty_cost = float(
+        np.sum(export_floor_penalty * _get(grid_export) * hours)
+    )
     battery_charge_earliness_cost = float(
         sum(
             np.sum(_get(charge_vars[name]) * costs)
@@ -4810,6 +4865,7 @@ def _build_plan_once(
         reduced_costs=result.reduced_costs,
         grid_import_excess_kw=grid_import_excess_arr,
         grid_import_excess_penalty_cost=grid_import_excess_penalty_cost,
+        export_floor_penalty_cost=export_floor_penalty_cost,
         battery_loss_tiebreak_cost=battery_loss_tiebreak_cost,
         battery_charge_earliness_cost=battery_charge_earliness_cost,
         effective_solar_kw=np.asarray(effective_solar_kw, dtype=np.float64),
@@ -4981,8 +5037,19 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
     With `reserve_period_indices` set, the reserve exists only in those
     periods: elsewhere held[t] is 0 and no drawn row is written, so leaving
     the window releases the held energy at no cost (it can then be sold at any
-    price), and entering it refills `held` up to the SoC for free, exactly as
-    period 0 does. None = every period, the original all-day reserve.
+    price). None = every period, the original all-day reserve.
+
+    Entering a window LATER in the horizon counts as held[t-1] = the full
+    reserve, so every kWh the window opens without -- or loses inside it -- is
+    drawn at the release price (household, 20 Oct 2026). Until then entry
+    was free: nothing made `held` start at the SoC, so the LP started it at 0,
+    drew nothing, and the reserve did nothing in any window that had not begun
+    when the plan was solved. The reference household's 10:00 plan sold its
+    battery from 17 % to 2 % at 03:00 at 27.5c against a 30c release price,
+    and drained it to 2 % inside the next night's window as well; a plan solved
+    inside the window held it. A window open at period 0 keeps held[-1] =
+    min(initial SoC, reserve): a battery already below the reserve is not
+    charged for energy it never had.
     """
     reserve = min(float(b.reserve_kwh), float(b.capacity_kwh))
     price = float(b.reserve_release_price)
@@ -5019,6 +5086,11 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
         if t == 0:
             p.add_ub_constraint(
                 {held[0]: -1.0, drawn[0]: -1.0}, -initial, name=draw_name
+            )
+        elif not active[t - 1]:
+            # A window opening later: it starts from the full reserve.
+            p.add_ub_constraint(
+                {held[t]: -1.0, drawn[t]: -1.0}, -reserve, name=draw_name
             )
         else:
             p.add_ub_constraint(

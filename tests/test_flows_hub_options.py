@@ -327,6 +327,46 @@ def test_solver_sources_schema_empty_candidate_lists_are_treated_as_no_restricti
         assert "include_entities" not in schema.schema[marker].config
 
 
+# -- the household-load field fills itself (1.0.0 one-click install, #1930) --
+
+
+def _load_default(defaults, candidates):
+    schema = _solver_sources_schema(
+        defaults, single_load_forecast_candidates=candidates
+    )
+    return _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR).default()
+
+
+def test_the_only_whole_house_forecast_is_filled_in():
+    # Nimbus created it, so the household should not have to find its id.
+    assert (
+        _load_default({}, ["sensor.nimbus_house_power_forecast"])
+        == "sensor.nimbus_house_power_forecast"
+    )
+
+
+def test_a_saved_choice_always_wins():
+    assert (
+        _load_default(
+            {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.nimbus_mine_forecast"},
+            ["sensor.nimbus_house_power_forecast"],
+        )
+        == "sensor.nimbus_mine_forecast"
+    )
+
+
+def test_two_candidates_are_not_guessed():
+    assert (
+        _load_default({}, ["sensor.nimbus_a_forecast", "sensor.nimbus_b_forecast"])
+        is None
+    )
+
+
+def test_no_candidate_leaves_it_empty():
+    assert _load_default({}, []) is None
+    assert _load_default({}, None) is None
+
+
 # -- async_step_forecaster: the real merge-not-replace, clear-stays-cleared logic --
 
 

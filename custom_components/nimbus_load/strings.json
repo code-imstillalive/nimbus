@@ -55,14 +55,20 @@
       },
       "solver_battery": {
         "title": "Solver: Battery (1 of 3)",
-        "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there. 🔴 = required.",
+        "description": "Which sensor reports your battery's live State of Charge, and the battery's size and power limits. These numbers are also on the Solver tab, where you can change them any time without re-running this wizard. 🔴 = required.",
         "data": {
           "solver_battery_soc_sensor": "🔴 Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
-          "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)"
+          "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)",
+          "live_solver_battery_capacity_kwh": "Battery capacity (kWh)",
+          "live_solver_max_charge_kw": "Max charge power (kW)",
+          "live_solver_max_discharge_kw": "Max discharge power (kW)"
         },
         "data_description": {
           "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard.",
-          "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install."
+          "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install.",
+          "live_solver_battery_capacity_kwh": "Usable capacity of the whole system. Blank keeps the current value.",
+          "live_solver_max_charge_kw": "The system's AC charge limit, from the inverter. Blank keeps the current value.",
+          "live_solver_max_discharge_kw": "The system's AC discharge limit, from the inverter. Blank keeps the current value."
         }
       },
       "solver_grid": {
@@ -77,7 +83,8 @@
           "solver_export_price_sensor_3": "Optional: third export price source to blend",
           "solver_price_event_sensor": "Optional: price-event simulation sensor -- a step-point $/kWh delta for testing a price-cap or negative-price event",
           "solver_envelope_import_limit_entity": "Optional: a live DNSP dynamic import limit (e.g. Open Dynamic Export's opModImpLimW) -- bounds the plan per period on top of your static import limit",
-          "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit"
+          "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit",
+          "live_solver_grid_max_import_kw": "Grid max import (kW)"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
@@ -88,7 +95,8 @@
           "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price.",
           "solver_price_event_sensor": "Optional, and a TEST tool rather than a pricing input. Point this at your own sensor whose `forecast` attribute is a list of step points, each with a time field and a value field, where the value is a $/kWh DELTA -- e.g. +20 from 18:00 to 20:00 to simulate a NEM Market Price Cap event (the real cap is $23.20/kWh), or -1 from 11:00 to 15:00 for a Minimum System Load negative-price floor. The delta is added to BOTH your import and export prices, because a real wholesale price event moves the whole market. End every window with an explicit value of 0 -- a step value holds forward, so a window that is never closed keeps shifting prices on every future solve (Nimbus logs a warning if it sees that). Nothing happens until you also arm switch.nimbus_solver_price_event_enabled, and leaving this blank is a complete no-op.",
           "solver_envelope_import_limit_entity": "Optional. A dynamic connection agent's own live import-limit entity (e.g. Open Dynamic Export's opModImpLimW, published over MQTT once you point HA at it) -- read as a live value, or as a forecast schedule if the entity has one. Leave blank to use only your static import limit above -- a complete no-op.",
-          "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW)."
+          "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW).",
+          "live_solver_grid_max_import_kw": "Your connection's import limit. Blank keeps the current value."
         },
         "sections": {
           "advanced": {
@@ -114,6 +122,8 @@
           "solver_price_forecast_array_sensor": "Optional: a richer per-5-minute price forecast sensor from your own retailer/market integration, if it publishes one",
           "solver_regional_spot_forecast_sensor": "Optional: a regional wholesale spot-price FORECAST sensor (e.g. a NEM pre-dispatch forecast for your own region) -- Australian NEM markets only",
           "solver_regional_spot_current_price_sensor": "Optional: a regional wholesale spot-price HISTORY/current sensor, for a retail-markup-vs-wholesale offset and a current-interval AEMO P5MIN disagreement check -- a different sensor from the forecast one above",
+          "solver_loss_factor_tni_sensor": "Optional: the site's transmission node (TNI) sensor, for its marginal loss factor",
+          "solver_loss_factor_dlf_code_sensor": "Optional: the site's distribution loss factor (DLF) code sensor",
           "solver_p2p_matched_rate_forecast_sensor": "Optional: a sensor publishing real per-interval P2P/community-trading matched-rate data, if your retailer has such a program",
           "solver_p2p_matched_rate_forecast_sensor_2": "Optional, transitional: a second P2P matched-rate sensor, used only for intervals the first does not cover",
           "solver_price_comparison_sensors": "Optional: price sources to record for comparison only",
@@ -134,6 +144,8 @@
           "solver_price_forecast_array_sensor": "Optional -- any entity whose own 'forecast' attribute is a list of real per-5-minute price points, for a richer near-term price plan than a plain current-price sensor alone. Retailer-agnostic in shape, not tied to any one integration by name. Leave blank to fall back to your plain import/export price sensors' own forecast-or-flat behaviour.",
           "solver_regional_spot_forecast_sensor": "Optional -- a real regional wholesale spot-price forecast (Australian NEM markets only, e.g. a pre-dispatch forecast for your own state's region), used to extend the price plan further into the horizon than your retailer's own forecast reaches. Leave blank to skip this extrapolation -- a clean no-op.",
           "solver_regional_spot_current_price_sensor": "Optional -- a real, live/historical wholesale spot-price sensor, used to build a retail-markup-vs-wholesale offset from your own recorded history, and to cross-check the current interval's real retail price against AEMO's own live P5MIN wholesale price (a WARNING logs when they disagree beyond the configured AEMO P5MIN Disagreement Threshold dashboard number). A genuinely different sensor from the forecast one above, not a duplicate field. Leave blank to skip both.",
+          "solver_loss_factor_tni_sensor": "Optional -- a sensor whose state is the site's transmission node identifier, for example NCMA. With the DLF code below, Nimbus looks up the site's marginal and distribution loss factors in AEMO's published tables for each financial year, so the AEMO-based price is the regional price times the site's loss factors. LocalVolts v2 2.13.0 and later has this sensor (disabled by default; enable it on the device page). Leave blank to skip.",
+          "solver_loss_factor_dlf_code_sensor": "Optional -- a sensor whose state is the site's distribution loss factor code, for example BL0A. Used with the transmission node above; both are needed. LocalVolts v2 has this sensor (disabled by default). Leave blank to skip.",
           "solver_p2p_matched_rate_forecast_sensor": "Optional -- any entity whose own 'forecast' attribute lists real per-interval P2P-matching data: either matched cost/volume/proportion rows, or time/value rows giving the matched rate per kWh (with a $/kWh or c/kWh unit and a known interval, e.g. LocalVolts v2's Sell P2P Matched Cost). The empirical rate a community-trading/peer-export program actually paid. A household with no such program leaves this blank forever.",
           "solver_p2p_matched_rate_forecast_sensor_2": "Optional and transitional -- not needed to finish setup. A second matched-rate source in either shape above, e.g. LocalVolts v2's Sell P2P Matched Cost alongside its Current Sell Rate. For each interval, the source with the newer data decides, whether it says matched (at any rate, $0 included) or not matched; the other is used only where the first has no answer, and data more than an hour old is ignored. It never changes your P2P blocks or volume. Leave blank to use the first sensor alone.",
           "solver_price_comparison_sensors": "Optional, and never used to plan. Each sensor listed here has its price forecast stored with the Solver's decision records, so different ways of combining price sources can be scored later against what the prices actually were. Amber, AEMO and other retailers' forecast sensors work. Listing one changes no price, plan or dispatch. Leave blank to record only the sources the Solver uses.",
@@ -560,9 +572,67 @@
           "description": "'head' (every solve, first two hours) and/or 'horizon' (full plans only). Default: both."
         }
       }
+    },
+    "device_contract_preview": {
+      "name": "Preview device setup",
+      "description": "Dry run of moving this install's settings into the device model: the devices it would build, every setting that would change (none, on a clean result), and any conflict to resolve first. Writes nothing."
+    },
+    "device_contract_discover": {
+      "name": "Discover device setup",
+      "description": "What Nimbus finds from your Energy Dashboard and recognised price providers: the devices and sources it proposes, the questions it needs answered, and what it read but did not use. With a stored device setup, the differences against it. Changes nothing."
+    },
+    "device_contract_confirm": {
+      "name": "Confirm device setup",
+      "description": "Saves what you accepted from Discover device setup, as a new revision of the stored device setup (shadow or active mode only). Each choice names what discovery offered; anything it did not offer, or a source Nimbus cannot read with its unit and adapter, refuses the whole confirmation and changes nothing.",
+      "fields": {
+        "revision": {
+          "name": "Revision",
+          "description": "The revision Discover device setup reported. If the device setup changed since, nothing is saved."
+        },
+        "choices": {
+          "name": "Choices",
+          "description": "A list of what you accept: kind, device, role and entity_id as discovery offered them; a new battery also needs capacity (value, unit, basis)."
+        }
+      }
+    },
+    "device_contract_set_mode": {
+      "name": "Set device setup mode",
+      "description": "legacy (today's settings, the default), shadow (the device model is stored and compared; today's settings stay in charge) or active (the device model is in charge and today's settings are generated from it). Shadow and active are refused unless the dry run is clean, and active only from shadow. Entering active changes no setting; it records the revision your settings now come from.",
+      "fields": {
+        "mode": {
+          "name": "Mode",
+          "description": "legacy, shadow or active."
+        }
+      }
     }
   },
   "issues": {
+    "device_contract_drift": {
+      "title": "Nimbus: {key} was changed outside the device setup",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "Keep {key} or restore it?",
+            "description": "Nimbus's device setup is in charge (active mode), and it says **{key}** should be **{view}**, but the setting now reads **{current}**. Until you choose, Nimbus keeps running on what the setting says.\n\n**Keep my change** saves {current} into the device setup as a new revision. **Restore** puts {view} back.",
+            "menu_options": {
+              "keep": "Keep my change",
+              "restore": "Restore the device setup's value"
+            }
+          }
+        },
+        "abort": {
+          "not_active": "The device setup is no longer in active mode, so there is nothing to choose.",
+          "keep_not_possible": "This change can't be kept as it is: it disagrees with another setting the same device uses. Change both, or restore.",
+          "no_longer_applies": "This Nimbus hub no longer exists.",
+          "number_not_written": "A Nimbus number couldn't be written back. Check the Nimbus number entities are loaded, then try again.",
+          "revision_conflict": "The device setup changed while you were choosing. Open the Repair again."
+        }
+      }
+    },
+    "device_contract_inconsistent": {
+      "title": "Nimbus: device setup out of step",
+      "description": "The settings say the device setup is at revision {options_revision}, but its saved copy is only at revision {store_revision}. Nimbus can't tell which is right, so it has gone back to shadow mode: your settings are in charge again and nothing has been changed. Check the settings, then run the Nimbus action **Set device setup mode** to go back to active."
+    },
     "forecast_not_trained": {
       "title": "Nimbus: no forecast yet for {name}",
       "description": "Nimbus has not been able to train a forecast for **{name}**: {reason}.\n\nUsually this needs a few more days of history (about five days of the sensor's own readings). If the sensor has been running longer than that, check in Settings → Devices & services → Nimbus that this Load or Power Signal points at the right power sensor. This message clears itself once a forecast is trained."

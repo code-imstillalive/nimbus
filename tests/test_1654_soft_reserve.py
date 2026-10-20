@@ -219,6 +219,68 @@ class TestReserveWindow(unittest.TestCase):
         np.testing.assert_allclose(a.batteries[0].soc_kwh, b.batteries[0].soc_kwh)
 
 
+class TestReserveWindowAhead(unittest.TestCase):
+    """A window that opens LATER in the plan (household, 20 Oct 2026): the
+    first six periods are before it, the next six are the window. Entry used
+    to be free, so the plan started `held` at 0 and the reserve did nothing
+    in any window not already running when it was solved."""
+
+    WINDOW = frozenset(range(6, 12))
+
+    def _plan(self, initial, release, export_price, import_price=0.228):
+        return _window_plan(
+            _windowed(initial, 15.0, release, self.WINDOW),
+            export_price,
+            import_price,
+        )
+
+    def test_a_window_ahead_holds_like_a_running_one(self):
+        # 27.5c inside the window, below the 30c release price: held.
+        prices = np.full(W_N, 0.15)
+        prices[8] = 0.275
+        plan = self._plan(20.0, 0.30, prices)
+        self.assertEqual(plan.status, "optimal")
+        soc = plan.batteries[0].soc_kwh
+        self.assertGreaterEqual(float(min(soc[6:])), 15.0 - 1e-6)
+
+    def test_without_the_reserve_the_same_night_is_sold(self):
+        # The control: no reserve, the 27.5c period takes the battery down.
+        prices = np.full(W_N, 0.15)
+        prices[8] = 0.275
+        plan = _window_plan(_battery(20.0), prices, 0.228)
+        self.assertLess(float(min(plan.batteries[0].soc_kwh[6:])), 15.0)
+
+    def test_a_price_above_the_release_price_still_sells_it(self):
+        # Four 5-minute periods at 36 kW sell 12 kWh: past the 5 kWh above
+        # the reserve and into it. Grid energy at 60c, so the plan cannot
+        # simply buy ahead (at 22.8c it does, and keeps the reserve whole).
+        prices = np.full(W_N, 0.15)
+        prices[7:11] = 0.88
+        plan = self._plan(20.0, 0.30, prices, import_price=0.60)
+        self.assertLess(float(min(plan.batteries[0].soc_kwh[6:])), 15.0 - 1.0)
+
+    def test_opening_below_the_reserve_costs_the_release_price_not_more(self):
+        # 8 kWh against a 15 kWh reserve. At a 30c release price, topping up
+        # beforehand at 22.8c is cheaper than opening the window short.
+        flat = np.full(W_N, 0.15)
+        topped = self._plan(8.0, 0.30, flat)
+        self.assertGreaterEqual(float(topped.batteries[0].soc_kwh[5]), 15.0 - 1e-6)
+        # At a 10c release price, buying at 22.8c to avoid it is not worth it.
+        short = self._plan(8.0, 0.10, flat)
+        self.assertLess(float(short.batteries[0].soc_kwh[5]), 15.0 - 1.0)
+
+    def test_a_window_open_at_period_0_is_unchanged(self):
+        # held[-1] stays min(initial SoC, reserve): a battery already below the
+        # reserve when the plan starts is not charged for energy it never had.
+        plan = _window_plan(
+            _windowed(3.0, 15.0, 0.60, range(6)), np.full(W_N, 0.286), 0.39
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertAlmostEqual(
+            float(np.sum(plan.batteries[0].charge_kw)), 0.0, places=6
+        )
+
+
 class TestReserveWindowIndices(unittest.TestCase):
     """solver_plan.reserve_window_indices: local hours -> period indices."""
 

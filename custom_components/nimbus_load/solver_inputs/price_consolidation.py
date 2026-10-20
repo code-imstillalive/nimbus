@@ -78,6 +78,7 @@ def _available(
 def consolidate(
     series_by_source: dict[str, Sequence[float | None]],
     weights: Weights | Sequence[Weights | None] | None = None,
+    spike_threshold: float | None = None,
 ) -> tuple[list[float | None], list[float | None], str]:
     """Combine several per-period price series into one.
 
@@ -86,6 +87,13 @@ def consolidate(
     weights give a positive weight to EVERY source available in that
     period; otherwise it uses the median of the available sources. A period
     with no source is None in both returned lists.
+
+    `spike_threshold` (household, 18 Oct 2026; dry run on #1786): a period
+    where ANY source forecasts at or above it takes the highest source
+    instead. Missing a real spike costs far more than acting on a false one,
+    and a median or weighted mean drops a spike only one source carries: in
+    the dry run the median lost $257 on a real $15 spike only LocalVolts saw.
+    None or <= 0 = off.
 
     Returns `(values, spread, method)`, where `method` is "weighted" when
     every valued period was weighted, "median" when none was, and "mixed"
@@ -108,7 +116,14 @@ def consolidate(
             w = weights
         else:
             w = weights[i] if i < len(weights) else None
-        if w and all(w.get(name, 0.0) > 0.0 for name in avail):
+        top = max(avail.values())
+        if (
+            spike_threshold is not None
+            and spike_threshold > 0
+            and top >= spike_threshold
+        ):
+            values.append(top)
+        elif w and all(w.get(name, 0.0) > 0.0 for name in avail):
             total = sum(w[name] for name in avail)
             values.append(sum(avail[name] * w[name] for name in avail) / total)
             n_weighted += 1
@@ -150,6 +165,46 @@ def aemo_markup_series(
             out.append(None)
         else:
             out.append(float(pts[j][1]) + float(offsets.get(bucket_of(gt), 0.0)))
+    return out
+
+
+def retail_from_rrp_series(
+    grid_times: Sequence[datetime],
+    aemo_pts: Sequence[tuple[datetime, float]] | None,
+    fees_by_5min: dict[int, float] | None,
+    bucket_of: Callable[[datetime], int],
+    scale: Callable[[datetime], float | None],
+    rrp_now: float | None = None,
+) -> list[float | None]:
+    """nimbus #1786 (Mark): the retail price built from AEMO's regional
+    reference price (RRP), as the contract defines it --
+        sell = RRP x MLF x DLF + network export tariff
+        buy  = (RRP x MLF x DLF + network import tariff + retailer usage fees)
+               x 1.1 (GST)
+    -- as RRP x `scale(t)` (MLF x DLF, x 1.1 on import) plus `fees_by_5min`,
+    the learned tariff-and-fees term for the 5-minute slot (GST included on
+    import). `rrp_now`, the current interval's dispatch RRP, prices the first
+    period instead of the forecast: the retailer's own current row can still be
+    a forecast level (#1786, 19 Oct). None where AEMO has no point yet or
+    `scale` has no factor."""
+    if not aemo_pts:
+        return [None] * len(grid_times)
+    pts = sorted(aemo_pts, key=lambda p: p[0])
+    fees = fees_by_5min or {}
+    out: list[float | None] = []
+    j = -1
+    for i, gt in enumerate(grid_times):
+        while j + 1 < len(pts) and pts[j + 1][0] <= gt:
+            j += 1
+        k = scale(gt)
+        if i == 0 and rrp_now is not None:
+            rrp = rrp_now
+        else:
+            rrp = float(pts[j][1]) if j >= 0 else None
+        if k is None or rrp is None:
+            out.append(None)
+        else:
+            out.append(rrp * k + float(fees.get(bucket_of(gt), 0.0)))
     return out
 
 
@@ -374,6 +429,7 @@ def consolidate_side(
     period_hours: Sequence[float],
     n_settled: int,
     settled: float | None,
+    spike_threshold: float | None = None,
 ) -> tuple[list[float | None], dict[str, Any], bool]:
     """One side's whole cycle: consolidate with the weights earned so far,
     score the interval that just ended, record this solve's forecasts for
@@ -381,7 +437,7 @@ def consolidate_side(
     Returns `(values, published summary, whether anything was scored)`."""
     names = sorted(series)
     values, spread, method = consolidate(
-        series, tracker.weights_by_period(now, grid_times, names)
+        series, tracker.weights_by_period(now, grid_times, names), spike_threshold
     )
     scored = tracker.observe_settled(now, settled)
     for name, s in series.items():
@@ -393,9 +449,45 @@ def consolidate_side(
         "sources": names,
         "method": method,
         "spread_now": round(head, 5) if head is not None else None,
+        "next": next_slots(series, values, grid_times, n_settled),
         **tracker.summary(),
     }
     return values, summary, scored
+
+
+#: How many future periods each source's own price is published for: as
+#: many as the Solver tab's full-width Price sources table fits at the
+#: narrowest four-column screen (household, 19 Oct 2026: "fill in as many
+#: slots as the table would fit across 4 columns"). 24 -> 30 (household,
+#: 20 Oct 2026): at 24 the right fifth of the table stood empty on their
+#: screen.
+NEXT_SLOTS = 30
+
+
+def _r(value: float | None) -> float | None:
+    return round(float(value), 4) if value is not None else None
+
+
+def next_slots(
+    series: dict[str, list[float | None]],
+    values: Sequence[float | None],
+    grid_times: Sequence[datetime],
+    n_settled: int,
+) -> dict[str, Any]:
+    """Each source's own price and the blend for the next `NEXT_SLOTS`
+    periods after the settled block (household, 19 Oct 2026, with Mark
+    Purcell: "show the differences between sources"). Small on purpose: it
+    rides on the plan's attributes."""
+    stop = min(len(grid_times), n_settled + NEXT_SLOTS)
+    span = range(n_settled, stop)
+    return {
+        "times": [grid_times[i].isoformat() for i in span],
+        "sources": {
+            name: [_r(s[i]) if i < len(s) else None for i in span]
+            for name, s in sorted(series.items())
+        },
+        "consolidated": [_r(values[i]) if i < len(values) else None for i in span],
+    }
 
 
 def replace_future(

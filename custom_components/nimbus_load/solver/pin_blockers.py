@@ -24,9 +24,15 @@ the checks below allow for, and as members of a shared-charger group.
 "Under the current model", not "physically": a wrong input or a mis-set
 configured limit produces the same infeasibility. `UNEXPLAINED` is not
 evidence that a device is safe to control or that a limit should be relaxed.
-Nothing consumes this output: it is a DEBUG log line and a field on the
-instrument's record, never a Repair, a limit change or a dispatch input
+Nothing consumes this output as evidence: it is a DEBUG log line and a field
+on the instrument's record, never a Repair, a limit change or a dispatch input
 (`tests/test_1577_infeasible_pin_reports_constraint.py` pins that statically).
+One caller acts on it, and only to skip a solve: #1654's period-0 hysteresis
+does not re-solve a pin this module proves infeasible (#773, 19 Oct devhub
+dump). An infeasible pin publishes the free plan either way, so the dispatch
+is identical and only the label (`blocked` rather than `switched`) differs;
+an empty or unexplained list re-solves exactly as before
+(`tests/test_1654_period0_hysteresis.py` pins that on the real LP).
 
 Every check is a period-0 restatement of a row or bound `network.build_plan()`
 already builds for batteries[0] (the site each one mirrors is named on it),

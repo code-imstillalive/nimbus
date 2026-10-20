@@ -542,6 +542,11 @@ def ha_get(entity_id: str) -> dict:
         updated = getattr(state, "last_updated", None)
         if isinstance(updated, datetime):
             out["last_updated"] = updated.isoformat()
+        # nimbus #1784 (20 Oct): the running-low gate compares it with the
+        # recorder's newest change; the REST path returns it too.
+        changed = getattr(state, "last_changed", None)
+        if isinstance(changed, datetime):
+            out["last_changed"] = changed.isoformat()
         return out
     req = urllib.request.Request(
         f"{sw.HA_BASE}/api/states/{entity_id}",
@@ -919,10 +924,11 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> bool:
 # self_consume_hours, const.py's CONF_SOLVER_POST_WINDOW_SELF_CONSUME_
 # HOURS) -- read via cfg inside fetch_p2p_fixed_export_kw() below, not a
 # module constant, so another install's own real self-consume-switch
-# timing can be genuinely different from this household's 4h. 4 stays
-# here only as the literal default for an install that hasn't set the
-# field, matching const.py's own DEFAULT_SOLVER_POST_WINDOW_SELF_
-# CONSUME_HOURS -- byte-identical behaviour for every existing install.
+# timing can be genuinely different from this household's 4h. The
+# literal default below is 0, no pin, matching const.py's own
+# DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS (household 19 Oct 2026,
+# promised on #1700): after midnight the plan may charge or discharge,
+# and the battery reserve stops it selling cheaply.
 P2P_BLOCK_KEYS = (
     (
         "solver_p2p_block_1_rate_kw",
@@ -1241,7 +1247,7 @@ def fetch_p2p_fixed_export_kw(
     runs_through_midnight = any(
         end_minute == 24 * 60 for _rate_kw, _start_minute, end_minute in blocks
     )
-    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 4)
+    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 0)
 
     result: list[float] = []
     for gt in grid_times:

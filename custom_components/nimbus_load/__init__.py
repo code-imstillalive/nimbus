@@ -873,6 +873,33 @@ async def _async_setup_entry_impl(
         monotonic() - _forward_started,
     )
 
+    # nimbus #1574 (DC-004 step 5b): an entry in the device model's `active`
+    # mode regenerates its settings if a commit was interrupted. After the
+    # platforms, so the number entities exist; before the update listener, so
+    # its own write does not reload mid-setup. If it wrote anything, one
+    # reload follows so every component reads the recovered settings, and that
+    # second start finds nothing to do. Every entry today is `legacy`, where
+    # this reads one store and returns.
+    from . import device_contract_ha
+
+    try:
+        recovered = await device_contract_ha.async_recover(hass, entry)
+    except Exception:  # a recovery fault must not stop the rest of setup
+        _LOGGER.exception(
+            "Nimbus: device setup recovery failed; it runs again at the next start"
+        )
+        recovered = "error"
+    if recovered == "regenerated":
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+    else:
+        # Step 5c: every settings edit reloads the entry, so this one check
+        # catches a drifted owned key whichever form, subentry or service
+        # edited it.
+        try:
+            await device_contract_ha.async_check_drift(hass, entry)
+        except Exception:  # a drift check fault must not stop the rest of setup
+            _LOGGER.exception("Nimbus: device setup drift check failed")
+
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     # After the platforms, not before (11 Oct 2026): the Solver tab resolves
@@ -1380,7 +1407,16 @@ async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) 
     async_update_and_abort / subentry deletion) triggers this automatically
     -- this is what makes adding load #2 through #18 take effect immediately
     with no restart, matching HAEO's own hot-add behaviour for its elements.
+
+    nimbus #1574 (DC-004 step 5b): not while the device model is writing its
+    views. It writes a number, subentry fields and the options in turn, and a
+    reload mid-way would start from half-written settings; it reloads once
+    itself when it has finished, and only if a setting changed.
     """
+    from . import device_contract_ha
+
+    if device_contract_ha.writing_views(hass, entry.entry_id):
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

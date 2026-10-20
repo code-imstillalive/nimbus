@@ -8,6 +8,668 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's Whole Plan table has a Grid column** (household, 20 Oct),
+  as the Control Panel's table does: load minus solar minus battery, kW, import
+  above zero in orange, export below zero in green.
+
+- **A hint to soak up spare solar: `absorb_surplus`** (household, 20 Oct).
+  A dispatcher that commands the plan's exact charge kW leaves solar beyond
+  what the plan counted on nowhere to go but the grid (the plan planned 0.8 kW
+  of charging while 3.5 kW was exported). The plan sensor now publishes
+  `absorb_surplus` (true or false) and `absorb_surplus_reason`. It is true
+  when, this period, *Don't sell below* is set and the export price is below
+  it, there is spare solar, and the plan is charging from solar or holding
+  (not discharging, not charging from the grid), outside a P2P block and a
+  price spike. A dispatcher can then let the inverter self-consume, so every
+  spare kW goes into the battery. Nimbus commands nothing; it is a hint.
+
+- **The Solver wizard fills in your whole-house load forecast** (1.0.0
+  one-click install,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). When you
+  have created exactly one whole-house Power Signal and not yet chosen one,
+  the *household load forecast* field now arrives filled with it, so there is
+  no entity id to look up. With two or more nothing is guessed, and a choice
+  you have saved always stays.
+
+## [0.94.471] - 2026-10-20
+
+**The plan cost no longer moves when you set Don't sell below.** The floor's
+penalty is a preference the plan weighs, not money, so the published plan
+cost, its chart and its breakdown leave it out, and it is published on its
+own. A committed P2P export never carries it.
+
+- **Don't sell below no longer shifts the plan cost** (household, 20 Oct).
+  With a threshold set, the published plan cost (and its chart, breakdown and
+  daily totals) included the floor's internal penalty, mostly on a P2P block's
+  committed exports below the threshold: about $38 on the reference household,
+  outside its own best-worst band. The penalty is a preference, not money: the
+  plan cost now leaves it out and it is published on its own
+  (`export_floor_penalty`), and a committed P2P export carries none, since the
+  floor cannot change it. The daily score (EPR, regret) never used the floor.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 5535655d**,
+  installed untagged via HACS from `release/0.94.471` and restarted at 16:21
+  AEST on 20 Oct. devhub's own solver published on 0.94.471 at 16:23:12; the
+  log shows only the devhub-only duplicate-unique-ID baseline, no Nimbus error
+  of its own.
+  - **Not claimed live:** the plan cost without the floor's penalty. devhub's
+    floor is 0 (off), and its own plan entity loses its id to production's
+    mirror. Covered by `tests/test_export_floor.py` (17, real HiGHS),
+    including a committed P2P export and #694's period-0 spike override, and
+    by the golden master (only the key's position changes).
+- Consumer check: with *Don't sell below* set, the Solver tab's plan cost and
+  its chart no longer include the floor's penalty; `export_floor_penalty` is
+  its own attribute on the plan sensor.
+
+## [0.94.470] - 2026-10-20
+
+**Stop selling solar cheaply, and a reserve that holds every night.** A new
+*Don't sell below* setting (Solver tab, Reserve and price spikes; 0 = off):
+below that export price, spare solar fills the battery before any is sold,
+and the direction-change margin no longer holds the battery idle while it
+exports cheaply. The battery reserve now holds in every window, not only one
+already running when the plan is solved; before, a plan made in the morning
+could plan to sell the reserve that night below its release price. The solar
+"running low" guard no longer judges solar while a Home Assistant backup has
+locked the recorder. The Solver tab's cost chart is renamed for what it
+shows, with rare spikes clipped and explained, and *Prices ahead* draws full
+width on a first visit.
+
+- **The battery reserve now holds in every window, not only the one already
+  running.** A reserve window that opens later in the plan (tonight's 00:00,
+  seen from this morning) let the plan start the reserve at zero for free, so
+  it drew nothing and protected nothing: the plan sold the battery to its
+  minimum overnight below the release price, and a plan solved inside the
+  window then held it. A window now opens with the full reserve held, so every
+  kWh it lacks or loses costs the release price, the same as in a running
+  window (household, 20 Oct). If the battery would open a window short, the
+  plan may top it up beforehand when that costs less than the release price.
+
+- **The Solver tab's cost chart says what it is** (household, 20 Oct): *How
+  the plan's 4-day estimate has moved*. Each point is what the plan then
+  expected the next four days to cost, plotted when it was made, so the
+  right-hand end is now and the rest are past estimates. A rare estimate far
+  outside the usual range (two at about -$1,466 on 15-16 Oct) no longer
+  flattens the week: points beyond three times today's figure (at least $50)
+  are drawn at the edge, and the chart's note says so.
+- **Prices ahead draws full width on the first visit**, not a third of it
+  until a reload: it now sits in its row the way the battery chart above it
+  does.
+
+- **Setup guide: which Features switches to set, and what the rest cost
+  ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
+  A default tier (calibrated objective on, auto-include solar on with Solcast,
+  dispatcher dry run on, load forecast source `off`) and an advanced tier that
+  names each switch's measured cost: flex signals about 9× slower per solve,
+  offer curve 7 extra re-solves per direction. The Help tab says the same.
+  No default changes.
+
+- **Solar "running low" no longer judges a frozen recorder
+  ([#1784](https://github.com/code-imstillalive/nimbus/issues/1784)).** While
+  Home Assistant takes a backup, the recorder's database is locked for writes,
+  and its history stops at the last state written before the lock. The gate's
+  30-minute mean of actual PV froze on an early-morning reading while the
+  panels ramped up, so it judged solar far below forecast and planned the rest
+  of the day on 30 % of it: the battery sat idle and the surplus was exported.
+  When the recorder's newest change trails the live sensor's by more than 5
+  minutes, the gate now reports `recorder_behind` and is off, like any other
+  case where it cannot judge.
+
+- **Don't sell below: spare solar fills the battery before it is sold
+  cheaply** (household, 20 Oct). A new Solver setting, `number.nimbus_solver_
+  export_floor_price` ($/kWh, 0 = off). Below it, an exported kWh is worth next
+  to nothing to the plan, so energy that could go into the battery is stored
+  rather than sold; a full battery still exports, and at or above it the plan
+  decides on price as before. The direction-change margin no longer holds the
+  battery idle while the current period exports below it (published as
+  `period0_hysteresis: export_floor`). Its cost is its own line,
+  `cost_breakdown.export_floor_penalty`. The daily score's perfect-foresight
+  plan doesn't use it: it's a preference, not a price.
+
+- **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
+  of the Solver tab's Price sources table stood empty; it now shows each
+  source's own price for the next 30 slots (household, 20 Oct).
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at cad5a151**,
+  installed untagged via HACS from `release/0.94.470` and restarted at 10:54
+  AEST on 20 Oct.
+  - **Entities:** devhub's own solver entities report 0.94.470; the
+    per-battery SoC sensors were republished by a solve at 10:56:34.
+  - **`number.nimbus_solver_export_floor_price`** is present, at its default
+    0.0 (off).
+  - **Log:** the devhub-only baseline (duplicate unique IDs held by the
+    production mirror, oversized attributes, recorder unit changes) and three
+    forecast-drift notices. No Nimbus ERROR or traceback of its own.
+  - **Not claimed live:**
+    - The export floor acting on a plan: it is off by default, and devhub's
+      own plan entity loses its id to production's mirror, so its attributes
+      can't be read here. Covered by `tests/test_export_floor.py` (15, real
+      HiGHS), including the one-minute period 0 at the direction-change
+      margin.
+    - The reserve in a window that opens later: same reason. Covered by
+      `tests/test_1654_soft_reserve.py::TestReserveWindowAhead`; a synthetic
+      replay of the 20 Oct night held 12.0 kWh where it had sold to 2.4 kWh.
+    - The renamed cost chart and Prices ahead at full width: Chrome on the
+      release laptop could not reach devhub, so the tab was not opened.
+      Covered by the tab tests; the household checks them on their install.
+    - The recorder-behind guard: needs a daylight backup. Covered by
+      `tests/test_1784_solar_running_low.py::TestTheRecorderBehind`.
+- Consumer check: the Solver tab's *Reserve and price spikes* card has a
+  *Don't sell below* row ($/kWh, 0 = off) with its line of explanation; the
+  Help tab and the configuration reference describe it; the cost chart reads
+  *How the plan's 4-day estimate has moved*, with its clipping explained in
+  the note.
+
+## [0.94.469] - 2026-10-20
+
+**After midnight, the plan is free again by default.** *Self-consume after
+midnight* now defaults to 0 hours, and an install still on the old default of
+4 is moved to 0 once on upgrade: after a P2P block that runs to midnight, the
+plan may charge or sell into an early-morning spike, and the battery reserve
+guards the bottom of the battery. Set it back to 4 on the Solver tab to keep
+the old behaviour; it isn't changed again. The AEMO price source can now be
+built by contract from AEMO's regional reference price and your site's loss
+factors, looked up from AEMO's tables (shadow only; the plan's prices don't
+change). A new `sensor.nimbus_device_readiness` shows which of Nimbus's
+functions are ready. Two solver fixes: a float-noise coefficient no longer
+breaks a solve, and the direction-change margin no longer runs a solve it
+can prove impossible (the evening #773 false alarm).
+
+- **Self-consume after midnight now defaults to 0 hours** (promised on
+  [#1700](https://github.com/code-imstillalive/nimbus/pull/1700)). After a
+  P2P block that runs to midnight, the plan no longer holds grid export at
+  0 kW and blocks charging until 04:00 by default: it may charge, or
+  discharge into an early-morning spike, and the battery reserve is what
+  stops it selling cheaply. **On upgrade, an install still on 4 is changed
+  to 0 once**, and the log says so: 4 was only ever the shipped default.
+  Any other value is left alone. To keep the old behaviour, set
+  `number.nimbus_solver_post_window_self_consume_hours` (Solver tab,
+  *Self-consume after midnight*) back to 4; it is not changed again.
+- **Device setup: `sensor.nimbus_device_readiness`** (#1574, DC-006 slice
+  1b). How many of Nimbus's four functions (observe, forecast, plan, score)
+  are ready, refreshed every five minutes, with each function's state, what
+  it is missing and what would satisfy each, and any bound sensor whose data
+  is stale or unavailable. It reads the stored device setup, or in legacy
+  today's settings, each load model's training state and the scored days.
+  A model still training reads as training, never as a fault. Reads only.
+- **The direction-change margin no longer runs a solve it can prove
+  impossible ([#1654](https://github.com/code-imstillalive/nimbus/issues/1654),
+  [#773](https://github.com/code-imstillalive/nimbus/issues/773)).** When
+  the plan's first period changes direction, the margin re-solves with the
+  battery held at the previous setpoint. If a first-period limit rules that
+  setpoint out, for example the previous plan was charging and a P2P export
+  block now forbids charging, it now says so (`period0_hysteresis:
+  blocked`) and skips the re-solve. That re-solve could only come back
+  infeasible, and it was being reported as a #773 solver failure, with a
+  model dump, at the start of the evening block. What is dispatched does
+  not change: an infeasible pin already kept the new plan.
+- **The AEMO price source can be built by contract from AEMO's regional
+  reference price (RRP) and your site's loss factors
+  ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786), Mark).**
+  The retail sell price is RRP × MLF × DLF + the network export tariff; the
+  buy price is (RRP × MLF × DLF + the network import tariff + the retailer's
+  usage fees) × 1.1 GST. The spot part matched to within 0.1 % on two
+  LocalVolts sites. Two new optional
+  wizard fields take the sensors holding your transmission node (TNI) and DLF
+  code (LocalVolts v2 2.13.0 has both, disabled by default). Nimbus then looks
+  the factors up in AEMO's published tables for each financial year
+  (2025-26 and 2026-27, from AEMO's own files), never fitting them. The
+  Price sources card shows the source as **Retail from AEMO RRP**. The
+  current interval comes from the dispatch RRP, and only the network
+  tariffs and retailer usage fees are learned. Shadow only: the consolidation measures this source,
+  but the plan's own prices are unchanged. Without the two fields, nothing
+  changes.
+- **A float-noise coefficient no longer breaks a solve
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837), after
+  HAEO #501/#511).** HiGHS drops a matrix entry at or below 1e-9 with a
+  warning, and highspy 1.15 turns that warning into an exception after the
+  row is added. One such coefficient in any row, including the tie-break
+  stage's bound rows built from the cost vectors, made a solve raise. Rows
+  now reach HiGHS with those entries dropped (the model HiGHS would have
+  built anyway), and the two bound rows allow for what was dropped, so the
+  phased solve runs and keeps its tie-breaks. Not seen live: the test
+  install's log has no such error.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at b334df09**,
+  installed untagged via HACS from `release/0.94.469`. The first restart, at
+  07:16 AEST on 20 Oct, came before HACS had finished writing the files: the
+  entities still reported 0.94.468. The second restart, at 07:18, loaded
+  0.94.469.
+  - **Entities:** devhub's own `nimbus_load` entities report 0.94.469.
+  - **`sensor.nimbus_device_readiness`** is present: **3** of 4, mode
+    `active`, revision 1. Observe, forecast and plan are `ready`; score is
+    `training` ("no full scored day yet"), because devhub's own quality
+    report reads back empty straight after a restart.
+  - **Solve:** devhub's own solve at 07:19, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 27.0 s and
+    the stochastic shadow 69.9 s, `direction_exclusivity: not_needed`.
+  - **The two new wizard fields:** set on devhub through the options flow to
+    the LocalVolts v2 code sensors (mirrored from production).
+    - Read back, both keys persisted, and every other option was unchanged.
+    - The reload completed: the entry is `loaded` again. The unload waited
+      about 1.5 min for the running stochastic shadow solve.
+  - **Log:** the devhub-only baseline (duplicate unique IDs held by the
+    production mirror, oversized attributes, recorder unit changes) and the
+    test EV's departure and SoC warnings. No Nimbus ERROR or traceback of its
+    own.
+  - **Not claimed live:**
+    - `retail_from_rrp`'s series and `price_consolidation.loss_factor`: devhub's
+      own plan entity loses its id to production's mirror, so its attributes
+      can't be read here (the same reason as 0.94.468's Price sources slots).
+      Covered by `tests/test_1786_retail_from_rrp.py` and
+      `tests/test_1786_loss_factors.py`; the lookup for the reference
+      household's codes gives 1.06052 against 1.06053 measured (#1786).
+    - The one-time 4 → 0 switch: devhub's own number entity loses its id to
+      the mirror. Covered by
+      `tests/test_number_self_consume_hours_one_time_change.py`; production's
+      own value was already 0.
+    - #1905's `blocked` label: it only shows on a direction flip into a P2P
+      block. Covered by `tests/test_1654_period0_hysteresis.py`.
+    - #1907's row handling: covered by
+      `tests/test_1837_tiny_coefficients_reach_highs_dropped.py`; the solve
+      above is the evidence that ordinary models are unaffected.
+- Consumer check: the Solver tab's Sources step offers *the site's
+  transmission node (TNI) sensor* and *distribution loss factor (DLF) code
+  sensor*; `sensor.nimbus_device_readiness` reads 3 of 4 with each function's
+  state; *Self-consume after midnight* defaults to 0.
+
+## [0.94.468] - 2026-10-19
+
+The plan tables no longer show price consolidation's adjustment as
+negative fees: Fees¢ is the fees alone, and a new violet Cons¢ column
+shows how far consolidation moved each price, on the Solver tab and the
+Control Panel. The Control Panel's table is as wide as it needs and never
+scrolls sideways; the plan chart takes the rest. A new Price sources table
+on the Solver tab shows each price source's accuracy, its share of the
+blend and its own price for the next slots. **Keep *Consolidation drives
+the plan* off for now:** on the reference install the AEMO + markup source
+is 3 to 4 times less accurate than the retailer's own forecast (#1786). The device setup can now
+discover your site from the Energy Dashboard and recognised price
+providers (`nimbus_load.device_contract_discover`) and save what you accept
+(`nimbus_load.device_contract_confirm`, shadow or active mode only), and
+it gains a per-function readiness module. Nothing changes on an install
+until those services are called.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 1f3ebdd9**,
+  installed untagged via HACS from `release/0.94.468` and restarted 17:19 AEST
+  19 Oct.
+  - 147 `nimbus_load` entities, none unavailable; 8 `unknown` (the test
+    loads' temperature forecasts and the two mirror weather forecasts, as on
+    0.94.467). One fewer than at 0.94.467: devhub's own
+    `select.nimbus_device_setup_mode` now loses its id to production's
+    mirrored copy (production runs 0.94.467), the devhub-only duplicate
+    unique-ID baseline.
+  - **Solve:** devhub's own solve at 17:20, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 28.5 s and
+    the stochastic shadow 93.6 s, `direction_exclusivity: not_needed`.
+  - **`nimbus_load.device_contract_discover`** answered on real HA with no
+    error and wrote nothing. devhub's Energy Dashboard names no sources, so
+    it reported `no_energy_dashboard` and listed each stored device as
+    `not_seen` (kept as stored), the intended behaviour.
+  - **Solver tab:** the Price sources row renders its accuracy table under
+    the level controls row. Its slot columns, Blend and Gap are not shown on
+    devhub, because devhub's plan entity carries production's mirrored
+    0.94.467 data, which has no `price_consolidation.<side>.next`; covered
+    by `tests/test_price_sources_card.py` and
+    `tests/test_consolidation_next_slots.py`, and the full layout was
+    reviewed by the household on devhub from a preview card with real
+    numbers. Fees¢ reads 0.0 and Cons¢ is violet in both tables.
+  - **Control Panel:** the table sizes to itself with no sideways scroll;
+    the household reviewed it on devhub ("fixed").
+  - **Log:** the devhub-only baseline (duplicate unique IDs from the
+    production mirror, oversized attributes, recorder unit changes), and an
+    ERROR `Nimbus #773 diag: lex/calibration phase 'phase1_primary' failed
+    to reach optimal (status='Infeasible')` at 16:59, 17:05, 17:16 and
+    17:20, each with the solve itself still `optimal`. It predates this
+    release on devhub (16:59, a branch build) and no LP code changed since
+    v0.94.467 (the only solver-area change is `next_slots` in
+    `price_consolidation.py`), so it is not introduced here; devhub's log
+    does not reach back to 0.94.467 to say whether it logged it too. Open
+    for investigation.
+  - **Not claimed live:** `device_contract_confirm` and the mode select on
+    devhub (devhub's own select is shadowed by the mirror); covered by
+    `tests/hass_integration/test_1574_device_contract_discovery.py` on CI.
+    Consolidation driving the plan: kept off (#1786).
+- Consumer check: the Solver tab has a Price sources row under the
+  controls; Fees¢ shows the fees alone and Cons¢ is violet in the Whole
+  Plan and Control Panel tables; the Control Panel's table has no sideways
+  scroll; Developer Tools offers `nimbus_load.device_contract_discover` and
+  `nimbus_load.device_contract_confirm`.
+
+### Added
+- **Device setup: readiness per function** (#1574, DC-006 slice 1a). A pure
+  module, `device_readiness.py`, says for the stored device setup whether
+  Nimbus can observe, forecast, plan and score, and if not, which inputs are
+  missing and what would satisfy each. A model still training is shown as
+  training, not as a fault; stale data is listed, never a reason to stop;
+  a score whose site exchange does not reconcile is marked unreliable, never
+  corrected. Nothing reads it yet; the sensor that shows it follows.
+- **Device setup: discovery from the Energy Dashboard** (#1574, DC-005 step
+  1). A pure module, `device_discovery.py`, turns the Energy Dashboard's
+  preferences into a proposal: the Grid, each Solar and Battery source, the
+  whole house and each individual device, with their energy statistics,
+  power, prices and SoC, and `included_in_stat` as inclusion. Every binding
+  is unconfirmed, with its evidence. Several sources for one role are asked,
+  never picked by list position, and a battery's capacity is always asked.
+  Nothing reads it yet, and nothing on an install changes.
+
+- **Device setup: price providers in discovery** (#1574, DC-005 step 2).
+  LocalVolts v2, Amber Express and Amber Electric propose the Grid's import
+  and export price and their forecasts, found by each integration's own
+  unique_id and bound through DC-002's adapters. A provider that disagrees
+  with the Energy Dashboard, or with another provider, is asked, never
+  ranked; two accounts of one provider propose nothing. AEMO, PD7DAY and
+  OpenADR are recognised and reported, and the P2P matched rate and
+  settlement are reported, because the device model has no role of their
+  own for them yet. Nothing reads it yet.
+
+- **Device setup: history pairing in discovery** (#1574, DC-005 step 3). For
+  a device the Energy Dashboard gives energy but no power, discovery compares
+  each candidate power sensor's history with the energy counter, hour by
+  hour and both signs (#1590's matcher). A clear match is still a question to
+  confirm, with its error and sign; two equal readings are asked together;
+  too little history is said, never read as zero. Nothing reads it yet.
+
+- **Device setup: rediscovery** (#1574, DC-005 step 4). Discovery run
+  again against the stored device setup lists what differs: an empty role
+  it can fill, a renamed entity (same registry entry), an alternative to a
+  stored source, a new device, and a stored device it no longer sees. A
+  confirmed source is never replaced, a vanished one with a successor is a
+  question, and reordering the Energy Dashboard changes nothing. Nothing is
+  applied.
+
+- **Device setup: discover and confirm on your install** (#1574, DC-005
+  step 5a). Two new services. `nimbus_load.device_contract_discover` reads
+  your Energy Dashboard and the recognised price providers (found by their
+  own unique ids, so a renamed sensor is still found) and returns the
+  proposal, or the differences against your stored device setup. It changes
+  nothing. `nimbus_load.device_contract_confirm` saves what you accept, in
+  shadow or active mode only: every chosen source is first read through
+  Nimbus's own reader, and one it cannot read (missing, the wrong unit, an
+  unknown provider format) refuses the whole confirmation. A stale or
+  unavailable source is accepted and flagged. No service outside Nimbus is
+  called.
+
+- **Device setup: discovery finds a missing power sensor from history**
+  (#1574, DC-005 step 5b). Where the Energy Dashboard gives a device's
+  energy but no power, discovery reads the last 7 days of the power sensors
+  on the same Home Assistant device as that energy counter and compares
+  them with it. A clear match is offered for you to confirm, with its sign;
+  it is never set on its own. A counter on no device, no power sensor beside
+  it, or a history that cannot be read is reported instead.
+
+- **Solver tab: a Price sources table** (#1786; household with Mark
+  Purcell, 19 Oct 2026: "show the differences between sources"). One
+  full-width row: each import price source the consolidation reads, its
+  share of the blend and how far off it has been at 5 min, 1 h, 4 h and
+  24 h ahead, then its own price for the next 24 slots beside the Blend
+  and a violet Gap. One row per source the install has; a single source
+  says there is nothing to blend. The plan publishes the next 24 slots per
+  source for it (`price_consolidation.<side>.next`).
+
+### Fixed
+- **Fees¢ no longer goes negative when price consolidation drives the plan;**
+  a new violet **Cons¢** column shows how far consolidation moved the price
+  (household, 19 Oct 2026: "is this in solver view an error? how could fees
+  go negative"; then "option b is definitely better for transparency... in
+  different colour please"). Fees¢ was the plan's price minus the provider's
+  own, so once consolidation replaced the base price it showed
+  consolidation's move as fees. Fees¢ is now the fees alone (0 where none
+  are configured), and Cons¢ is consolidated minus the provider's price,
+  signed, blank when consolidation did not set the row. Both the Solver
+  tab's Whole Plan table and the Control Panel's interval table. Display
+  only: the plan and its costs are unchanged.
+- **Control Panel: the interval table is as wide as it needs, never
+  squeezed into a scrollbar, and the plan chart takes the rest** (household,
+  19 Oct 2026: "the table still wastes space... the left plan gets larger
+  again"; "NO SCROLLBARS"). The table's column sizes to the table itself,
+  never below 780px; the chart and table sit side by side from a 1150px
+  card, stacked below that. Its TOTAL row reads "Total", and the Source
+  bar fills its column instead of a fixed 14px ("crazy ugly").
+
+## [0.94.467] - 2026-10-19
+
+The device model (#1574) is complete for its first stage: you can try it
+in shadow mode, which changes nothing, and then put it in charge (active).
+In active mode, a setting changed elsewhere raises a Repair, and the Solver
+sliders edit the device setup directly. The combined price forecast keeps a
+spike that any source forecasts. Both have a switch on the Solver tab: the
+*Consolidation drives the plan* toggle and the *Device setup mode*
+selector. Both are off (legacy) until you turn them on.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 3e17229c**,
+  installed untagged via HACS from `release/0.94.467` and restarted 12:33 AEST
+  19 Oct.
+  - 148 `nimbus_load` entities, none unavailable. 8 read `unknown`: the test
+    loads' temperature forecasts and the two mirror weather forecasts, which
+    publish nothing until a forecast series exists.
+  - **Solve:** devhub's own solve after the start, read through
+    `nimbus_load.get_stochastic_summary`: `optimal`, deterministic 18.6 s and
+    the stochastic shadow 62.9 s, `direction_exclusivity: not_needed`.
+  - **Device setup mode, driven through the select:**
+    `select.nimbus_device_setup_mode` started at `legacy` (revision 0, dry
+    run clean: 0 changes, 0 conflicts, 0 problems, 31 devices).
+    `active` from `legacy` was refused with "active can only be entered from
+    shadow, after the dry run is clean" and changed nothing. `shadow` stored
+    revision 1, clean. `active` then succeeded, and the hub's options gained
+    only `device_contract_view_revision: 1`; every other option was
+    unchanged. No drift Repair was raised and no device-setup error was
+    logged. devhub stays in `active` to soak the drift check.
+  - **Solver tab:** the new row resolved on devhub's own dashboard: the
+    *Consolidation drives the plan* toggle on
+    `switch.nimbus_solver_price_consolidation_live`, the *Device setup* card
+    (rendering "Legacy: your settings, as before | Revision 0 · 31 devices ·
+    dry run clean" before the mode change) and the *Device setup mode*
+    selector.
+  - **Log:** no Nimbus ERROR or traceback of its own; the start logs the
+    devhub-only baseline (duplicate unique IDs blocked by the production
+    mirror, oversized attributes, recorder unit changes), the test EV's
+    unreadable SoC, and forecast drift notes.
+  - **Not claimed live:** consolidation driving the plan. The switch's
+    entity_id also exists on production, so it was not toggled on devhub;
+    covered by `tests/test_1786_price_consolidation.py`. A drift Repair's
+    *Keep* and *Restore*, and the slider write-through: none drifted on
+    devhub; covered by `tests/hass_integration/test_1574_device_contract_active.py`.
+  - CI passed every check on #1870, #1873, #1874, #1877, #1878, #1881, #1882
+    and #1883.
+- Consumer check: the Solver tab has, under the price-safety cards, the
+  *Consolidation drives the plan* toggle, the *Device setup* card and the
+  *Device setup mode* selector; choosing *active* straight from *legacy*
+  shows why it was refused.
+
+### Added
+- **Solver tab: the switches for consolidation and the device setup**
+  (household, 19 Oct 2026: "where will these be toggled on or off from?").
+  Under the four price-safety cards, one new row:
+  - **Consolidation drives the plan**, a toggle for
+    `switch.nimbus_solver_price_consolidation_live` (#1786). The
+    *Consolidated prices* card beside it still shows what consolidation
+    would do;
+  - **Device setup**, a card showing the mode (legacy, shadow or active),
+    the stored revision, the device count, whether the dry run is clean,
+    and any open drift Repairs;
+  - **Device setup mode**, a new `select.nimbus_device_setup_mode` (#1574).
+    It is the same checked mode change as
+    `nimbus_load.device_contract_set_mode`: active only from shadow, on a
+    clean dry run. A refused change does nothing, and the error says why.
+
+- **Device setup: drift Repairs and slider write-through** (#1574, DC-004
+  step 5c). In active mode only:
+  - an owned setting edited outside the device setup (a form, a subentry, a
+    service) raises one Repair per key at the next start, which every such
+    edit triggers. **Keep my change** commits it as a new revision;
+    **Restore** writes the device setup's value back. Until you choose,
+    Nimbus runs on what the setting says. A setting imported from two places
+    (the grid sensor in the options and a Grid Power Signal) moves both on
+    Keep, so they never disagree;
+  - a contract-owned Solver number (battery capacity, charge and discharge
+    limits, SoC limits, grid limits) commits a new revision when it changes,
+    so the dashboard slider edits the device setup rather than a second copy;
+  - every commit on an entry runs one at a time (a per-entry lock), so two
+    sliders moved together commit in turn (Mark Purcell, #1878 review).
+  - *Keep my change* on a drifted Solver number (one reset by a restart, say)
+    keeps that number; a settings path of any other shape is refused with a
+    plain error rather than misread (Mark Purcell, #1882 review).
+
+  In legacy and shadow mode nothing changes: a slider reads one store and
+  returns.
+
+- **Device setup: active mode** (#1574, DC-004 step 5b).
+  `nimbus_load.device_contract_set_mode` now accepts `active`, from
+  `shadow` only and on a clean dry run. Entering it changes no setting: the
+  dry run already showed the settings equal the device document, so it
+  records only `device_contract_view_revision` in the options. A later
+  commit in active mode follows the spec's order:
+  1. the store;
+  2. the changed numbers, subentry fields and options, with the marker last;
+  3. the store's own marker.
+
+  Each start checks that order. If the store is ahead (an interrupted
+  commit), it rewrites the settings from the stored document and reloads
+  once. If the options are ahead, which the order never produces, it falls
+  back to shadow and raises a Repair rather than guess. Going back to
+  `legacy` leaves the settings as they are. Every install is `legacy`
+  today, where the start-up check reads one store and returns.
+
+  Not in this step: drift Repairs and number write-through (step 5c).
+
+- **Device setup: a store for the device document** (#1574, DC-004 step 3).
+  `device_storage.py` keeps one revisioned copy per install. Commits are
+  compare-and-swap, so two editors can't overwrite each other; every commit
+  is validated, and the last 10 revisions are kept for revert. The mode
+  (legacy, shadow, active) is stored, never inferred. **Nothing writes the
+  store yet**, so no install changes.
+
+- **Device setup: a dry run of today's settings** (#1574, DC-004 step 4).
+  `preview` imports today's settings, regenerates them from the device
+  document and lists every owned setting that would change. On a fully
+  configured synthetic install the list is empty, and a conflict blocks the
+  move to shadow. Each view writes back only where a value came from, so an
+  empty field stays empty. Nothing calls it yet.
+
+- **Device setup: try the new device model on your install, without it taking
+  over** (#1574, DC-004 step 5a). Two services:
+  - `nimbus_load.device_contract_preview` runs the dry run on your install's
+    real settings and returns it: the devices it would build, any conflict,
+    anything it couldn't map, and every setting that would change. It changes
+    nothing.
+  - `nimbus_load.device_contract_set_mode` moves between `legacy` and
+    `shadow`. Shadow saves the device document alongside your settings, and is
+    refused unless the dry run is clean. Your options, subentries and number
+    entities stay the master and are never written.
+
+  Also fixed in the import: a Setup Builder step stored as `option:<key>` now
+  counts as confirmed. A real-HA test checks that the options, every subentry
+  and every number are unchanged after a preview, shadow and back, and that no
+  service is called.
+
+- **The combined price forecast keeps a spike that any source sees** (#1786).
+  When several price sources are configured, Nimbus builds a combined
+  forecast: the median of the sources, or an error-weighted mean once there's
+  enough history. It runs in shadow unless its switch is on. Now any period
+  where a source forecasts at or above the Price Spike Threshold takes the
+  highest source. In a dry run with made-up spikes, on a production-shaped
+  battery and scored in money (`scripts/price_consolidation_dryrun.py`):
+  - the plain median dropped a real $15 spike that only LocalVolts forecast,
+    and lost $257;
+  - keeping spikes was never worse than LocalVolts alone, and it kept the
+    +$90 when only Amber and P5MIN saw a spike coming.
+
+  Shadow by default as before, so nothing changes unless
+  `switch.nimbus_solver_price_consolidation_live` is turned on.
+
+## [0.94.466] - 2026-10-19
+
+The battery keeps its direction unless a switch is worth more than a set
+margin, the spike override can no longer leave Nimbus without a plan near
+Min SoC, the Solver wizard asks for the battery's size and power limits,
+the Help tab shows your basic inputs live, and the user docs are
+published. The Control Panel no longer resets on an iPhone.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 53520eda**,
+  installed untagged via HACS from `release/0.94.466` and restarted 03:59 AEST
+  19 Oct.
+  - 148 / 148 `nimbus_load` entities registered, none unavailable. 14 read
+    `unknown` right after the start: the test loads' `cost_avoided_today` and
+    `temperature_forecast`, and the two mirror weather forecasts, which
+    publish nothing until a forecast series exists. devhub's own entities
+    stamp `0.94.466`; the rest carry production's mirrored 0.94.465.
+  - **Solve:** devhub's own solve after the start, read through
+    `nimbus_load.get_stochastic_summary` (this install's solver, not the
+    mirrored sensor): `optimal`, deterministic 26.3 s and the stochastic
+    shadow 83.4 s, `direction_exclusivity: not_needed`.
+    `nimbus_load.solve_now` ran with no error logged.
+  - **Log:** no Nimbus ERROR or traceback of its own; the start logs the
+    devhub-only baseline (duplicate unique IDs and entity renames blocked by
+    the production mirror, oversized attributes, recorder unit changes), as
+    on v0.94.465, plus the test EV's below-floor notice and forecast drift
+    notes.
+  - **New setting:** `number.nimbus_solver_period0_hysteresis` (*Direction
+    Change Margin*) is registered and reads its default, 0.01 AUD.
+  - **Not claimed live:** `period0_hysteresis` and the reserve's dual on the
+    plan, because devhub's canonical plan sensor carries production's
+    mirrored data (devhub's own cannot register); covered by
+    `tests/test_1654_period0_hysteresis.py`, and read on production after
+    the household deploys. The spike override near Min SoC: no spike on
+    devhub; covered by `tests/test_spike_override_at_the_floor.py` and the
+    #1837 property tests. The wizard's new fields and the Help tab's basic
+    inputs: this workstation cannot reach devhub's UI; covered by
+    `tests/hass_integration/test_1800_live_numbers_written.py` and
+    `tests/test_1800_help_basic_inputs.py`.
+  - CI passed every check on #1860, #1862, #1864, #1865, #1867, #1868,
+    #1871, #1872 and #1879.
+- Consumer check: the Solver tab has *Direction Change Margin*; Configure →
+  Solver asks for battery capacity, charge and discharge limits and grid
+  import; Help → Start here shows the basic inputs with ✅ or ⬜; the Control
+  Panel stays put while you scroll on an iPhone.
+
+### Added
+- **The Help tab lists your basic inputs, live** (#1800). Under Start here,
+  next to the step checklist, a table shows what the Solver reads now: State
+  of Charge, import and export price, solar forecast, battery capacity, max
+  charge, max discharge and grid max import. Each row is ✅ with its current
+  reading, or ⬜ with "not set" or "placeholder 0.1". It points to Review
+  pricing suggestions for detected price sensors and to Repairs for anything
+  else. Step 2 of the checklist now says the wizard asks for the battery
+  numbers (#1868).
+
+- **Device setup groundwork: today's settings read into the device model**
+  (#1574, DC-004 step 1). A new pure module, `device_import.py`, reads the
+  hub's settings (Grid, whole-house Load, Battery, Solar, their sensors and
+  limits) into the DC-001 device document. Where today's settings disagree it
+  names the conflict instead of picking a value: two different sensors for
+  one role, or an option and its live number saying different things.
+  Subentries map too:
+  - each Load becomes a circuit with its schedule;
+  - a grid, battery or solar Power Signal becomes that device's sensor,
+    conflict-checked;
+  - each EV participant becomes its own battery;
+  - each Controllable Load becomes an appliance, keeping its control only
+    where it already commands a device entity.
+
+  A Power Signal of role "other", and the topology equipment (inverters,
+  strings, towers), are kept and reported rather than guessed. **Nothing reads
+  the document yet** and nothing is stored, so no install changes.
+
+### Added
+- **User docs site** at code-imstillalive.github.io/nimbus (#1801). The
+  setup guide, each price provider, every setting, the tabs, safety and
+  troubleshooting are published from `docs/` on every merge. Worklogs,
+  handover notes and specs stay out. The settings table gained the 21
+  settings it was missing (the reserve, the spike override, the direction
+  change margin and the charge taper among them), and a test now fails when a
+  setting is added or removed without its row.
+
+### Changed
+- **The Solver wizard asks for the battery's capacity and power limits**
+  (#1800). Screen 1 now asks for battery capacity, max charge and max
+  discharge, and screen 2 for grid max import. Each is pre-filled with its
+  current value (blank while it still sits on the 0.1 placeholder) and written
+  to the same live number entity the Solver tab shows. Before, a new install
+  had to find those four entities on a dashboard after setup, with a Repair
+  the only pointer. They are not stored in the integration's options, so each
+  setting still has one place it lives. A blank field keeps the current value.
+
 ### Fixed
 - **An armed price-spike override no longer leaves Nimbus without a plan
   when the battery is near its minimum.** The override (#567) forced period
@@ -69,6 +731,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 The P5MIN false-spike guard now also arms on Mark Purcell's dispatch-side
 test for control-room constraints, the Control Panel no longer jumps while
 you scroll on a phone, and the Bank solar first switch is gone.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.1) at 8eba3b02**,
+  installed untagged via HACS from `release/0.94.465` and restarted 15:41 AEST
+  18 Oct.
+  - 147 / 147 `nimbus_load` entities available, none unavailable. devhub's
+    own entities stamp `0.94.465`; the rest carry production's mirrored
+    0.94.464.
+  - **Log:** no Nimbus ERROR of its own; the start logs the devhub-only
+    baseline (duplicate unique IDs from the production mirror, oversized
+    attributes, "previous cycle still in progress" at the stochastic
+    shadow's interval), as on v0.94.464. `nimbus_load.solve_now` was
+    dispatched at 15:43 with no error logged.
+  - **Bank solar first removed:** no `nimbus_load` registry row for the
+    switch remains on devhub. The two `bank_solar_first` ids devhub still
+    shows are production's mirror (a state with no registry row, and a
+    `remote_homeassistant` row), not Nimbus's, so they are left alone. The
+    registry clean-up itself is covered by
+    `tests/hass_integration/test_retired_switch_removed.py` on CI.
+  - **P5MIN rule (d):** not claimed live. devhub's own P5MIN sensor cannot
+    register, because the production mirror holds its unique ID, so
+    `dispatch_rhs_check.mode` reads production's `diagnostic`. Covered by
+    `tests/test_1778_rule_d_control_room_rhs.py` (8 tests on the 16 Oct
+    NEMWeb rows) and the 13-16 Oct replay recorded on #1778.
+  - **Control Panel scroll:** not checked on a phone or a browser from
+    here; the workstation cannot reach devhub's UI. Covered by
+    `tests/frontend/test_dispatch_card_keeps_nodes_on_rerender.py` and the
+    Chrome check recorded in #1856.
+  - CI passed every check on #1855, #1856, #1857 and #1858.
+- Consumer check: the Solver tab's Battery card no longer has *Bank solar
+  first*; the P5MIN guard can now arm on a control-room constraint read at
+  half its dispatch limit; the Control Panel stays where you scrolled it.
 
 ### Removed
 - **Bank solar first** (household decision, 18 Oct 2026, after Mark

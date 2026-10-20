@@ -342,18 +342,26 @@ Pick **Solver settings**. It is a three-screen wizard.
 
 ### Screen 1 of 3: "Solver: Battery"
 
-**Exactly one required field.**
+**One required field, and the battery's three numbers.**
 
 | Field | What to put |
 |---|---|
 | **🔴 Battery State of Charge sensor (%)** | Your inverter's own live SoC sensor. A real 0 to 100 % measurement, not a target or setpoint. |
+| Battery capacity (kWh) | The whole system's usable capacity. See [§7](#7-set-your-real-battery-and-grid-numbers) for matching it to your SoC sensor. |
+| Max charge power (kW) | The system's AC charge limit, from the inverter. |
+| Max discharge power (kW) | The system's AC discharge limit, from the inverter. |
 | Live max-discharge setpoint entity | **Leave blank.** Correct for almost every install. |
+
+The three numbers are written to the same live `number.*` entities the Solver
+tab shows, so you can change them there later without re-running the wizard. A
+blank field keeps the current value. Screen 2 asks for **Grid max import (kW)**
+the same way ([#1800](https://github.com/code-imstillalive/nimbus/issues/1800)).
 
 ![Solver Battery, screen 1 of 3, with the State of Charge sensor selected](images/setup/solver-wizard-1-battery.png)
 
-> **Set capacity and power limits after the wizard.**
-> These are live `number.*` entities.
-> Complete [§7](#7-set-your-real-battery-and-grid-numbers) before evaluating the plan.
+> **Check the rest in [§7](#7-set-your-real-battery-and-grid-numbers)** before
+> evaluating the plan: SoH, Min and Max SoC, efficiency and grid max export are
+> still set on their live `number.*` entities.
 
 <a id="screen-2-of-3--solver-grid-prices"></a>
 
@@ -508,9 +516,11 @@ Submit. **Expected outcome:** the dialog closes and a batch of new
 
 **This is the single most important step in this guide, and the easiest to miss.**
 
-Numeric Solver settings live on `number.*` entities, not in the wizard.
-On a fresh installation, capacity and several power limits start at placeholder
-values of **0.1**. Other settings have their own defaults.
+Numeric Solver settings live on `number.*` entities. The wizard asks for four
+of them (capacity, max charge, max discharge, grid max import) and writes your
+answers there. On a fresh installation any of the four left blank, and grid max
+export, stay at the placeholder **0.1**, and a Repair says so. Other settings
+have their own defaults.
 Existing installations can restore previously saved values.
 
 An incorrect capacity can still produce an optimal solve.
@@ -1307,6 +1317,31 @@ The two most useful:
 
 > **Change one at a time**, and give it a day. These interact.
 
+### The Solver tab's Features switches
+
+The Solver tab's **Features** card has eight settings
+([#1914](https://github.com/code-imstillalive/nimbus/issues/1914)). Four are
+worth settling on day one; the other four cost something, and are for a reason
+you already have.
+
+**Default tier: set these and leave them.**
+
+| Setting | Shipped | Recommended | Why |
+|---|---|---|---|
+| Calibrated objective | On | On | When two plans cost the same, the plan goes to the steadier one. It never overrides a real cost difference, and on/off decisions are settled on cost alone first. |
+| Auto-include solar | Off | On, if you use Solcast | Picks up Solcast's forecast without you naming its sensors. Solcast's sensor names are fixed by that integration, so they match on any install. It also picks up Open-Meteo Solar Forecast, but only if your Open-Meteo entry happens to produce `sensor.home_energy_production_today`; otherwise name it in a solar source field instead. A source you have already named isn't counted twice. |
+| Own dispatcher: dry run | Off | On | Records what Nimbus's own dispatcher would send, in `sensor.nimbus_solver_dispatch_dry_run`, and sends nothing. It has no write path, so it can't move your battery. If an automation of yours drives the battery from the plan, it keeps doing so either way. |
+| Load forecast source | off | off | `off` plans on Nimbus's own load forecast. `measure` only reports which forecast would have done better; `blend` and `persistence` change the plan, so try `measure` first. |
+
+**Advanced tier: each one has a measured cost.**
+
+| Setting | Shipped | What it costs | Turn it on when |
+|---|---|---|---|
+| Flex signals (slower) | Off | Each solve is about **9× slower**: on one live install the median solve went from 1.16 s to 10.30 s, held for five hours, and nothing failed. On a large enough problem (many periods, many on/off decisions), the plain solve can already approach the solver's 60 s limit, and this is the switch most likely to push it over. | You want the flexibility ranges in `sensor.nimbus_flex_signals`. Watch your solve times after switching it on: a 9× rise is expected; a solve that runs past the next cycle is not. |
+| Offer curve | Off | **7 extra re-solves per direction**, every cycle. | You want `sensor.nimbus_offer_curve`, how the plan's grid use would respond to a different price. |
+| Nowcast measurement | Off | A recorder history read each time the first two forecast periods disagree. It never changes a plan. | You are helping answer an open forecast question ([#1259](https://github.com/code-imstillalive/nimbus/issues/1259)). Turn it on deliberately, and off again once the data is in. |
+| Score controllable loads | Off | Changes your published score and regret, and which way it moves them can't be predicted from the code. | You have controllable loads configured and want to compare the score with them re-timed. With none configured it changes nothing. |
+
 ## 18. Optional inputs
 
 Everything you left blank in Part 1, in rough order of usefulness:
@@ -1339,6 +1374,10 @@ From Developer Tools → Actions, or any automation:
 | `nimbus_load.compute_quality_report` | Score any past window on demand |
 | `nimbus_load.rescore_history` | Re-score the last N days after a formula change. **Each day is a full oracle solve: start with 2 or 3** |
 | `nimbus_load.flex_telemetry_record` | Returns a nem-flex-telemetry v2.0 record. Needs `switch.nimbus_solver_flex_signals_enabled` on, which costs real solve time |
+| `nimbus_load.device_contract_preview` | A dry run of the new device setup on your install: which devices it would build, any conflict between your settings, and every setting that would change (none, on a clean install). Changes nothing |
+| `nimbus_load.device_contract_set_mode` | `shadow` keeps a copy of the device setup alongside your settings, and is refused unless the dry run is clean. `legacy` goes back. `active` (from `shadow`, on a clean dry run) puts the device setup in charge; entering it changes no setting. Going back to `legacy` leaves your settings as they are. In active, a setting you change elsewhere raises a Repair: *Keep my change* or *Restore*. The same choice is `select.nimbus_device_setup_mode`, on the Solver tab under the price-safety cards. `sensor.nimbus_device_readiness` says how many of Nimbus's four functions (observe, forecast, plan, score) are ready, and for each one that is not, what it needs and what would satisfy it; a model still training reads `training`, not a fault |
+| `nimbus_load.device_contract_discover` | What Nimbus finds from your Energy Dashboard and recognised price providers (LocalVolts v2, Amber Express, Amber Electric): the devices and sources it proposes, the questions it needs answered, and what it read but did not use. With a stored device setup, the differences against it. Changes nothing |
+| `nimbus_load.device_contract_confirm` | Saves what you accepted from discovery as a new revision of the device setup, in shadow or active mode. Anything discovery did not offer, or a source Nimbus cannot read with its unit and adapter, refuses the whole confirmation and changes nothing |
 
 ## 20. Actually driving your battery with the plan
 

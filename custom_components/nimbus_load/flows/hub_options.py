@@ -88,6 +88,8 @@ from ..const import (
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
@@ -132,6 +134,7 @@ from ..const import (
 from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
 from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
+from . import live_numbers
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
 _GRID_VISIBLE_PRICE_FIELDS = frozenset(
@@ -510,6 +513,17 @@ def _solver_sources_schema(
     # mid-restart before every Nimbus forecast entity has published --
     # must be folded back into the list, or this step can never be
     # submitted and no Solver setting can be changed at all.
+    # Household, 20 Oct 2026 (1.0.0's one-click install, #1930): with no
+    # saved choice and exactly ONE whole-house forecast found, that one is the
+    # answer -- Nimbus created it, so the household should not have to find
+    # its entity id (setup guide, "Find the forecast you just created"). Two
+    # or more and nothing is guessed. Taken before the saved value is folded
+    # in below, so a saved value always wins.
+    load_forecast_default = defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR) or (
+        single_load_forecast_candidates[0]
+        if single_load_forecast_candidates and len(single_load_forecast_candidates) == 1
+        else None
+    )
     single_load_forecast_candidates = _with_saved_values(
         single_load_forecast_candidates,
         defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
@@ -559,7 +573,7 @@ def _solver_sources_schema(
             # below for the precise "why not the aggregate" reasoning).
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR,
-                default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
+                default=load_forecast_default,
             ): _entity(include_entities=single_load_forecast_candidates),
             # Both new, optional, real-bug-fix fields (2026-08-23, issue
             # #56) -- blank/empty is a complete no-op on every install
@@ -656,6 +670,22 @@ def _solver_sources_schema(
                 description={
                     "suggested_value": defaults.get(
                         CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR
+                    )
+                },
+            ): _entity(),
+            # nimbus #1786: the two codes that identify the site's loss
+            # factors in AEMO's tables (see const.py).
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR
                     )
                 },
             ): _entity(),
@@ -1225,6 +1255,8 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     CONF_SOLVER_PRICE_COMPARISON_SENSORS,
@@ -1393,6 +1425,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         # `None` here is a genuine "not yet seeded" sentinel, not an
         # empty dict -- see _ensure_solver_data_seeded() below.
         self._solver_data: dict[str, Any] | None = None
+        # nimbus #1800: battery/grid numbers answered in this wizard run,
+        # written to their live number entities when it finishes.
+        self._live_numbers: dict[str, float] = {}
 
     def _ensure_solver_data_seeded(self) -> None:
         """Seed self._solver_data from self.config_entry.options on first
@@ -1638,6 +1673,13 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             step_id="switchboard", data_schema=_switchboard_schema(form_defaults)
         )
 
+    def _pending_live_numbers(self) -> dict[str, float]:
+        """nimbus #1800: the battery/grid numbers answered this wizard run.
+        Created on first use, so a flow built without __init__ (tests) works."""
+        if not hasattr(self, "_live_numbers"):
+            self._live_numbers = {}
+        return self._live_numbers
+
     def _absorb_step(self, schema: vol.Schema, user_input: dict[str, Any]) -> None:
         """Merge one Solver-wizard step's submission into self._solver_data,
         distinguishing "this step's own key was genuinely cleared" from "a
@@ -1672,6 +1714,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     ) -> Any:
         self._ensure_solver_data_seeded()
         if user_input is not None:
+            # nimbus #1800: the battery numbers go to their live entities at
+            # the end of the wizard, never into options.
+            self._pending_live_numbers().update(live_numbers.pop_values(user_input))
             self._absorb_step(_solver_battery_schema({}), user_input)
             return await self.async_step_solver_grid()
         # Same Group B suggestion mechanism as async_step_forecaster above
@@ -1690,13 +1735,20 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         form_defaults = {**suggestions, **energy_dashboard, **existing}
         return self.async_show_form(
             step_id="solver_battery",
-            data_schema=_solver_battery_schema(form_defaults),
+            data_schema=_solver_battery_schema(form_defaults).extend(
+                live_numbers.schema_fields(
+                    self.hass,
+                    getattr(self.config_entry, "entry_id", None),
+                    "solver_battery",
+                )
+            ),
         )
 
     async def async_step_solver_grid(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
+            self._pending_live_numbers().update(live_numbers.pop_values(user_input))
             # nimbus #1067: the SAME wrapping as the form below. A
             # mismatch here means the null sweep walks a different shape
             # than the submission, which is how a silent wipe happens.
@@ -1740,7 +1792,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                         # A refused submission keeps what was entered.
                         **(self._solver_data if errors else {}),
                     }
-                )
+                ).extend(
+                    live_numbers.schema_fields(
+                        self.hass,
+                        getattr(self.config_entry, "entry_id", None),
+                        "solver_grid",
+                    )
+                ),
+                keep_visible=(live_numbers.GRID_IMPORT_FIELD,),
             ),
         )
 
@@ -1783,6 +1842,10 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 )
             except Exception:  # noqa: BLE001, S110 -- see comment above: dismissing a notification must never block a real save; nothing to log or react to beyond that
                 pass
+            if self._pending_live_numbers():
+                await live_numbers.async_apply(
+                    self.hass, self.config_entry.entry_id, self._pending_live_numbers()
+                )
             return self.async_create_entry(title="", data=merged)
         single_candidates, summable_candidates = (
             _discover_nimbus_load_forecast_candidates(self.hass)
