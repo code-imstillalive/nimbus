@@ -325,6 +325,17 @@ class GridConfig:
     # install could compute them differently or simply never set them.
     import_price_upper: NDArray[np.float64] | None = None
     export_price_lower: NDArray[np.float64] | None = None
+    # Household, 20 Oct 2026 ("it should not be authoritarian overrides...
+    # but should stop it from selling cheap"): below this export price
+    # ($/kWh), an exported kWh is worth next to nothing to the plan
+    # (`EXPORT_FLOOR_RESIDUAL_VALUE`), so energy that could go into the
+    # battery is stored rather than sold. Not a hard rule: a full battery
+    # still exports (curtailing would earn nothing at all), and at or above
+    # the floor the plan decides on price as before. The difference is
+    # costed as its own penalty (Plan.export_floor_penalty_cost), so
+    # grid_net stays the real cash flow. 0.0 (the default) = off,
+    # byte-identical to before.
+    export_floor_price: float = 0.0
 
     def __post_init__(self) -> None:
         # nimbus issue #493: both may now be a per-period array -- check
@@ -333,6 +344,9 @@ class GridConfig:
             np.asarray(self.export_limit_kw) < 0
         ):
             msg = "Grid import/export limits must be >= 0"
+            raise ValueError(msg)
+        if not self.export_floor_price >= 0:
+            msg = "export_floor_price must be >= 0 (0 = off)"
             raise ValueError(msg)
         if not np.isscalar(self.import_limit_kw) and len(
             np.asarray(self.import_limit_kw)

@@ -37,6 +37,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   minutes, the gate now reports `recorder_behind` and is off, like any other
   case where it cannot judge.
 
+- **Don't sell below: spare solar fills the battery before it is sold
+  cheaply** (household, 20 Oct). A new Solver setting, `number.nimbus_solver_
+  export_floor_price` ($/kWh, 0 = off). Below it, an exported kWh is worth next
+  to nothing to the plan, so energy that could go into the battery is stored
+  rather than sold; a full battery still exports, and at or above it the plan
+  decides on price as before. The direction-change margin no longer holds the
+  battery idle while the current period exports below it (published as
+  `period0_hysteresis: export_floor`). Its cost is its own line,
+  `cost_breakdown.export_floor_penalty`. The daily score's perfect-foresight
+  plan doesn't use it: it's a preference, not a price.
+
 - **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
   of the Solver tab's Price sources table stood empty; it now shows each
   source's own price for the next 30 slots (household, 20 Oct).
