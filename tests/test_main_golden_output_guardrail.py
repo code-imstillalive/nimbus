@@ -299,6 +299,9 @@ _EXPECTED_ATTRS = {
     # 26.98741722627023, a ~1e-13 difference), which the raw unrounded
     # value was passing straight through into this guardrail.
     "total_cost": 26.9874,
+    # Household, 20 Oct 2026: the export floor's penalty, apart from
+    # total_cost; off here.
+    "export_floor_penalty": 0.0,
     "total_cost_with_fixed_costs": 34.7874,
     # nimbus issue #781: regenerated after adding the explicit
     # `soc_penalty` line item to cost_breakdown() -- 0.0 here since this
@@ -331,8 +334,6 @@ _EXPECTED_ATTRS = {
         "discharge_fee": 0.26,
         "soc_penalty": 0.0,
         "grid_import_excess_penalty": 0.0,
-        # Household, 20 Oct 2026: the export floor's line; off here.
-        "export_floor_penalty": 0.0,
         "terminal_value_credit": -6.9011,
     },
     # nimbus #1704: cost_breakdown above, per local day. Additive; the days
