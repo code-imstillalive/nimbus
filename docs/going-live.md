@@ -83,10 +83,14 @@ automation uses it.
 | **Keep-alive** (optional) | For inverters whose remote mode times out without a periodic command | the vendor's heartbeat |
 | **Fallback** | What the inverter should do whenever Nimbus is **not** in control | normally the same as Self-Consume |
 
-Mode actions run only **when the mode changes** (with the mode helper below);
-the power setpoint and keep-alive run every cycle. So a mode action may
-safely do several writes, and you are not re-writing the inverter's mode every
-minute (which some Modbus integrations do not tolerate).
+Mode actions run **when the mode changes** (with the mode helper below), after
+every Home Assistant start, and again every *Re-send the mode command* minutes
+(10 by default) while the mode stays the same; the power setpoint and
+keep-alive run every cycle. So a mode action may safely do several writes, you
+are not re-writing the inverter's mode every minute (which some Modbus
+integrations do not tolerate), and a mode command that was lost, or an
+inverter that reverted on its own, is put right within minutes. The fallback
+is re-sent the same way.
 
 ## Step 3: create two helpers
 
@@ -168,9 +172,14 @@ Assistant starts, and when the arm switch changes.
    Never delayed: a price spike, a switch straight between Charge and Discharge
    of *Reversal* kW (5) or more, or the fallback. The power setpoint within
    the current mode still follows the plan every cycle.
-5. **Act:** run the mode's action if the mode changed; while charging or
-   discharging, set the power (capped at your maximum); run the keep-alive.
+5. **Act:** run the mode's action if the mode changed, after a Home Assistant
+   start, or when its re-send is due; while charging or discharging, set the
+   power (capped at your maximum); run the keep-alive.
 6. **Record** the mode in the mode helper.
+
+A trigger that arrives while a slow action is still running waits its turn
+and then reads everything afresh; more than three waiting is logged as a
+warning rather than dropped silently.
 
 ## Stopping, and going back
 

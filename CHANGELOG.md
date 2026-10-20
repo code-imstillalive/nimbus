@@ -20,7 +20,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   on; switching it off runs the fallback; an unknown, failed or stale plan
   runs the fallback, never a power command; power is capped; a minimum dwell
   stops the battery flipping between modes; and spare solar is soaked up when
-  Nimbus says so.
+  Nimbus says so. Each mode command, the fallback included, is re-sent after
+  a Home Assistant start and every 10 minutes (adjustable), so a lost command
+  is put right (Mark Purcell's review). `tests/test_battery_dispatch_blueprint.py`
+  runs the blueprint's own templates in CI and checks each of these
+  properties.
 
 ## [0.94.473] - 2026-10-21
 

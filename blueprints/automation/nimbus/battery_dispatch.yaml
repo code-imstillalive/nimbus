@@ -59,6 +59,8 @@ blueprint:
             An input_boolean you create (for example "Nimbus dispatch armed").
             This is the only thing that lets the plan move your battery. Off:
             the automation commands nothing except your fallback, once.
+            While armed, a fallback the plan needs is re-sent like any other
+            mode command (see "Re-send the mode command").
           selector:
             entity:
               filter:
@@ -214,9 +216,28 @@ blueprint:
           default: true
           selector:
             boolean: {}
+        resend_minutes:
+          name: Re-send the mode command
+          description: >-
+            With a mode helper, a mode command (including the fallback) is sent
+            when the mode changes, after every Home Assistant start, and again
+            every this many minutes while the mode stays the same, in case one
+            was lost or the inverter reverted on its own. 0 = only on a change
+            and at start.
+          default: 10
+          selector:
+            number:
+              min: 0
+              max: 60
+              unit_of_measurement: min
+              mode: box
 
-mode: single
-max_exceeded: silent
+# Queued, not single: a trigger arriving while a slow action is still running
+# waits its turn (each run reads the state afresh) instead of being dropped
+# silently; more than three waiting is logged.
+mode: queued
+max: 3
+max_exceeded: warning
 
 triggers:
   - trigger: state
@@ -249,6 +270,7 @@ variables:
   dwell_min: !input min_dwell_minutes
   reversal_min_kw: !input reversal_kw
   absorb_on: !input use_absorb
+  resend_min: !input resend_minutes
   hold_has_actions: !input hold_actions
   plan_raw: "{{ states(plan_entity) }}"
   plan_ok: >-
@@ -288,6 +310,14 @@ variables:
        or (held_s | float(0)) >= (dwell_min | float(0)) * 60 or dwell_exempt }}
   target_mode: "{{ want if may_switch else current }}"
   mode_changed: "{{ mode_entity == '' or target_mode != current }}"
+  # Re-send the current mode's command even though it has not changed: at
+  # start (the helper survives a restart, the inverter's state may not), and
+  # every resend_min minutes on the tick, in case a command was lost.
+  resend: >-
+    {% set every = resend_min | int(0) %}
+    {{ trigger.id == 'start' or (trigger.id == 'tick' and every > 0
+       and (now().hour * 60 + now().minute) % every == 0) }}
+  send_mode: "{{ mode_changed or resend }}"
 
 conditions:
   - condition: or
@@ -307,7 +337,7 @@ actions:
         sequence:
           - if:
               - condition: template
-                value_template: "{{ trigger.id == 'disarmed' or mode_changed }}"
+                value_template: "{{ trigger.id == 'disarmed' or send_mode }}"
             then:
               - sequence: !input fallback_actions
               - if:
@@ -326,7 +356,7 @@ actions:
         sequence:
           - if:
               - condition: template
-                value_template: "{{ mode_changed }}"
+                value_template: "{{ send_mode }}"
             then: !input charge_actions
           - sequence: !input set_power_actions
           - sequence: !input keepalive_actions
@@ -337,7 +367,7 @@ actions:
         sequence:
           - if:
               - condition: template
-                value_template: "{{ mode_changed }}"
+                value_template: "{{ send_mode }}"
             then: !input discharge_actions
           - sequence: !input set_power_actions
           - sequence: !input keepalive_actions
@@ -348,14 +378,14 @@ actions:
         sequence:
           - if:
               - condition: template
-                value_template: "{{ mode_changed }}"
+                value_template: "{{ send_mode }}"
             then: !input hold_actions
           - sequence: !input keepalive_actions
     default:
       - alias: Self-Consume
         if:
           - condition: template
-            value_template: "{{ mode_changed }}"
+            value_template: "{{ send_mode }}"
         then: !input self_consume_actions
   - alias: Record the mode set
     if:
