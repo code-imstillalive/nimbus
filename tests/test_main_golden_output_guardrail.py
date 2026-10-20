@@ -302,6 +302,9 @@ _EXPECTED_ATTRS = {
     # Household, 20 Oct 2026: the export floor's penalty, apart from
     # total_cost; off here.
     "export_floor_penalty": 0.0,
+    # Household, 20 Oct 2026: absorb_surplus(); the floor is off here.
+    "absorb_surplus": False,
+    "absorb_surplus_reason": "floor_off",
     "total_cost_with_fixed_costs": 34.7874,
     # nimbus issue #781: regenerated after adding the explicit
     # `soc_penalty` line item to cost_breakdown() -- 0.0 here since this

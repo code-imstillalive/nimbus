@@ -286,6 +286,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #1654: the plan's "hold" flag; the cron copy publishes no
         # per-period dispatch hints.
         "_dispatch_hold",
+        # Household, 20 Oct 2026: the "soak up spare solar" dispatch hint,
+        # same reason.
+        "absorb_surplus",
         "charge_before_block_summary",
         # nimbus #1698: Amber Express same-poll wholesale, collected each
         # solve; the cron copy reads no Amber Express detailedForecast.

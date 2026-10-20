@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's Whole Plan table has a Grid column** (household, 20 Oct),
+  as the Control Panel's table does: load minus solar minus battery, kW, import
+  above zero in orange, export below zero in green.
+
+- **A hint to soak up spare solar: `absorb_surplus`** (household, 20 Oct).
+  A dispatcher that commands the plan's exact charge kW leaves solar beyond
+  what the plan counted on nowhere to go but the grid (the plan planned 0.8 kW
+  of charging while 3.5 kW was exported). The plan sensor now publishes
+  `absorb_surplus` (true or false) and `absorb_surplus_reason`. It is true
+  when, this period, *Don't sell below* is set and the export price is below
+  it, there is spare solar, and the plan is charging from solar or holding
+  (not discharging, not charging from the grid), outside a P2P block and a
+  price spike. A dispatcher can then let the inverter self-consume, so every
+  spare kW goes into the battery. Nimbus commands nothing; it is a hint.
+
 - **The Solver wizard fills in your whole-house load forecast** (1.0.0
   one-click install,
   [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). When you

@@ -1244,6 +1244,8 @@
     },
     {
      "attributes": {
+      "absorb_surplus": false,
+      "absorb_surplus_reason": "floor_off",
       "ac_bus_losses_kwh": 1.268,
       "batteries": [
        {
