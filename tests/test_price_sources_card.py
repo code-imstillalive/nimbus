@@ -35,6 +35,9 @@ def _render(imp):
         _card()
         .replace("${@nimbus_solver_battery_forecast}", "sensor.plan")
         .replace("${@option:solver_import_price_sensor}", "sensor.lv_buy")
+        .replace("${@option:solver_import_price_sensor_2}", "sensor.amber_buy")
+        # An option the install has not set resolves to "" (resolve()).
+        .replace("${@option:solver_import_price_sensor_3}", "")
     )
     env = jinja2.Environment()
     # HA renders in the install's timezone; pinned so CI (UTC) agrees.
@@ -44,6 +47,7 @@ def _render(imp):
     attrs = {
         "sensor.plan": {"price_consolidation": {"import": imp}},
         "sensor.lv_buy": {"friendly_name": "LocalVolts Buy"},
+        "sensor.amber_buy": {"friendly_name": "Amber General Price"},
     }
     return env.from_string(content).render(
         state_attr=lambda e, a: attrs.get(e, {}).get(a),
@@ -122,7 +126,14 @@ def test_two_sources_down_the_side_and_the_next_slots_across():
 def test_four_sources_add_rows_not_empty_slots():
     names = ["aemo_markup", "primary", "secondary_2", "secondary_3"]
     md = _render(_imp(names))
-    for label in ("AEMO + markup", "LocalVolts Buy", "Second source", "Third source"):
+    # Household, 20 Oct 2026: an extra source by its own sensor's name; one
+    # whose sensor is not set (or has no name) by a plain fallback.
+    for label in (
+        "AEMO + markup",
+        "LocalVolts Buy",
+        "Amber General Price",
+        "Extra source 2",
+    ):
         assert len([x for x in md.splitlines() if x.startswith(f"| {label} ")]) == 1
     widths = {x.count("|") for x in md.splitlines() if x.startswith("|")}
     assert widths == {9}, "every row has the same number of cells"
