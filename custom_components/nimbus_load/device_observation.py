@@ -6,11 +6,15 @@ its inputs on the same install in `legacy`. They must be identical except for
 entries in `approved_changes.json`." This module states both sides as data,
 so the gate compares values, not code paths:
 
-* `legacy_inputs()` reads each observation input exactly as the Forecaster
-  reads it today (`coordinator._current_measured_power`): the hub's
-  `grid_sensor`, `battery_sensor` and `solar_sensor`, the unit converted with
-  the legacy rules (`power_units`), and **0.0 kW** for a missing,
-  unavailable, non-numeric or non-finite reading.
+* `legacy_inputs()` reads each observation input exactly as one Forecaster
+  model reads it today. Which sensor: the hub's `grid_sensor`,
+  `battery_sensor` and `solar_sensor`, through the coordinator's own filters
+  (`coordinator._grid_sensor` and its two siblings): none at all for a power
+  signal, none when the sensor is the model's own target (#1540), none when
+  it reports an energy unit (#1562). Its value: as
+  `coordinator._current_measured_power` takes it, the unit converted with the
+  legacy rules (`power_units`), and **0.0 kW** for a missing, unavailable,
+  non-numeric or non-finite reading or for no sensor.
 * `contract_inputs()` reads the same input from the stored document through
   DC-002 (`device_bindings.resolve`): the binding's entity, the contract's
   units and sign, and **None** (missing) for anything it cannot resolve.
@@ -44,9 +48,11 @@ from typing import Any
 
 try:
     from . import device_bindings as db
+    from .power_input_check import is_energy_unit
     from .power_units import is_power_unit, power_to_kw
 except ImportError:  # imported directly by the device-contract tests
     import device_bindings as db  # type: ignore[no-redef]
+    from power_input_check import is_energy_unit  # type: ignore[no-redef]
     from power_units import is_power_unit, power_to_kw  # type: ignore[no-redef]
 
 #: Observation input -> (hub option the Forecaster reads today, device, role).
@@ -61,6 +67,10 @@ Reader = Callable[[str], Mapping[str, Any] | None]
 #: Sign conventions a Forecaster model can have been trained on.
 TRAINED_NATIVE = "native"
 TRAINED_CANONICAL = "canonical"
+
+#: `const.SUBENTRY_TYPE_SIGNAL`, kept literal so this module stays importable
+#: without Home Assistant.
+SUBENTRY_TYPE_SIGNAL = "power_signal"
 
 
 def legacy_value(state: Mapping[str, Any] | None) -> float:
@@ -79,12 +89,39 @@ def legacy_value(state: Mapping[str, Any] | None) -> float:
     return value
 
 
+def legacy_entity(
+    options: Mapping[str, Any],
+    option: str,
+    read_state: Reader,
+    subentry_type: str,
+    own_target: str | None,
+) -> str | None:
+    """The sensor a Forecaster model reads for one observation input today,
+    or None: `coordinator._grid_sensor` / `_battery_sensor` /
+    `_solar_sensor` through `_power_feature_or_none`."""
+    if subentry_type == SUBENTRY_TYPE_SIGNAL:
+        return None
+    sensor = options.get(option) or None
+    if sensor is None or sensor == own_target:
+        return None
+    state = read_state(sensor)
+    unit = (state or {}).get("attributes", {}).get("unit_of_measurement")
+    if is_energy_unit(unit):
+        return None
+    return sensor
+
+
 def legacy_inputs(
-    options: Mapping[str, Any], read_state: Reader
+    options: Mapping[str, Any],
+    read_state: Reader,
+    subentry_type: str,
+    own_target: str | None,
 ) -> dict[str, dict[str, Any]]:
+    """One Forecaster model's observation inputs today: the subentry's type
+    and its own target decide which sensors it reads at all."""
     out: dict[str, dict[str, Any]] = {}
     for name, (option, _device, _role) in OBSERVATION_INPUTS.items():
-        entity = options.get(option) or None
+        entity = legacy_entity(options, option, read_state, subentry_type, own_target)
         out[name] = {
             "entity_id": entity,
             "value": legacy_value(read_state(entity) if entity else None),

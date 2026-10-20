@@ -718,6 +718,27 @@
     "contradictory_settings": {
       "title": "Nimbus: battery settings contradict each other",
       "description": "{settings}\n\nFix them on the Nimbus dashboard's **Solver tab → Basic settings → Battery card**. This message clears itself once they agree."
+    },
+    "device_unit_undeclared": {
+      "title": "Nimbus: what unit is {entity_id} in?",
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "What unit is {entity_id} in?",
+            "description": "Nimbus reads **{entity_id}** as a power sensor, and it states {stated}. Today Nimbus takes that as kW. Before the device setup can be in charge (active mode), Nimbus needs to know for sure.\n\nChoose the unit the sensor reports in. You can also fix the sensor's own unit instead; this Repair then clears by itself.",
+            "data": {
+              "unit": "Unit"
+            }
+          }
+        },
+        "abort": {
+          "not_in_use": "The device setup is in legacy mode, so nothing reads this yet.",
+          "no_longer_applies": "This sensor is no longer part of the device setup.",
+          "revision_conflict": "The device setup changed while you were choosing. Open the Repair again.",
+          "number_not_written": "A Nimbus number couldn't be written back. Check the Nimbus number entities are loaded, then try again.",
+          "document_invalid": "That unit couldn't be saved into the device setup."
+        }
+      }
     }
   }
 }

@@ -37,7 +37,7 @@ def _gate(states):
     def read(entity_id):
         return states.get(entity_id)
 
-    legacy = do.legacy_inputs(F10["options"], read)
+    legacy = do.legacy_inputs(F10["options"], read, "load", "sensor.pool_power")
     contract = do.contract_inputs(doc, read, NOW)
     return legacy, contract, do.differences(legacy, contract)
 
@@ -183,3 +183,34 @@ def test_both_decisions_are_in_the_approved_changes_ledger():
     )
     fields = {c["field"] for c in ledger["changes"] if c["fixture"] == "F10"}
     assert {"forecaster_battery_feature", "forecaster_observation_value"} <= fields
+
+
+# --- Mark Purcell's #1947 finding: the Forecaster's own filters -----------------
+
+
+def _legacy(states, subentry_type="load", target="sensor.pool_power", **options):
+    return do.legacy_inputs(
+        {**F10["options"], **options}, states.get, subentry_type, target
+    )
+
+
+def test_a_power_signal_reads_no_observation_input_at_all():
+    """`coordinator._grid_sensor` and its siblings return None for any power
+    signal subentry: every input is absent, read as 0.0 kW."""
+    got = _legacy(NORMAL, subentry_type=do.SUBENTRY_TYPE_SIGNAL)
+    assert all(v == {"entity_id": None, "value": 0.0} for v in got.values())
+
+
+def test_a_model_is_never_fed_its_own_target():
+    """#1540: the grid sensor that is this load model's own target is absent."""
+    got = _legacy(NORMAL, target="sensor.meter_power")
+    assert got["grid_power"] == {"entity_id": None, "value": 0.0}
+    assert got["solar_power"]["entity_id"] == "sensor.pv_power"
+
+
+def test_an_energy_unit_sensor_is_left_out():
+    """#1562: a sensor reporting an energy unit is not read as power."""
+    states = {**NORMAL, "sensor.pv_power": _st("12.5", "kWh")}
+    got = _legacy(states)
+    assert got["solar_power"] == {"entity_id": None, "value": 0.0}
+    assert got["grid_power"]["value"] == 1.5

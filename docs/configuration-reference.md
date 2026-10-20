@@ -343,6 +343,28 @@ tune these directly, no need to re-run the wizard. Every entry in
   automatically also hedge export-price risk, since they're economically
   opposite decisions.
 
+## Experimental switches, and what will not change under you
+
+Two switches are released but **experimental**, and off by default. Their
+dashboard rows say so:
+
+- **Drive the battery (experimental)**, on the Solver tab's Stochastic card
+  (`switch.nimbus_solver_stochastic_dispatch`): the stochastic plan drives the
+  battery instead of the main plan.
+- **Blend drives plan (experimental)**, on the Solver tab
+  (`switch.nimbus_solver_price_consolidation_live`): every price source,
+  combined, prices the plan instead of your provider alone.
+
+Their names and settings won't change, but what they do when switched on may
+still change until each has a measured verdict.
+
+Everything else you configure follows one rule from 1.0.0: an entity,
+attribute, service or setting is never renamed or removed without notice. The
+release before ships the replacement beside the old one, says so in the
+changelog and in a Repair naming what to change, and the old one keeps
+working for at least one more release and two weeks. A setting that moves is
+carried across with its value; you never have to enter it again.
+
 ## Removal
 
 See the top-level README's own "Removing Nimbus" section.

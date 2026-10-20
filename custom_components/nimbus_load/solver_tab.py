@@ -441,7 +441,7 @@ _CONSOLIDATION_SOURCES = {
         "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
         "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
         "{% endif %}"
-        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend. Prices in ¢/kWh.*"
+        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. Prices in ¢/kWh.*"
         "{% endif %}"
     ),
 }
