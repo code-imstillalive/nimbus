@@ -761,6 +761,17 @@ _EXPECTED_ATTRS["price_consolidation"]["export"]["next"] = {
     ],
 }
 
+# Household, 21 Oct 2026: the table's Now column reads each side's interval
+# running now (price_consolidation.now). Taken from a fresh real run of this
+# fixture; one source, so every figure is the settled price.
+for _side, _price in (("import", 0.3), ("export", 0.05)):
+    _EXPECTED_ATTRS["price_consolidation"][_side]["now"] = {
+        "time": "2026-09-06T20:00:00+10:00",
+        "settled": _price,
+        "sources": {"primary": _price},
+        "consolidated": _price,
+    }
+
 
 # Per-period forecast keys asserted at fixed indices only (0, 1, -1) --
 # all 202 periods in full would make a real, intentional future change
