@@ -322,7 +322,10 @@ tune these directly, no need to re-run the wizard. Every entry in
   period exports below it. Its penalty is a preference, not money: the plan
   cost and its breakdown leave it out, it is published on its own as
   `export_floor_penalty`, and a committed P2P export never carries it.
-  0 = off.
+  0 = off. While it applies, the plan sensor's `absorb_surplus` attribute
+  says when a dispatcher should let the inverter soak up spare solar
+  instead of holding the plan's exact charge rate (`absorb_surplus_reason`
+  says why or why not); Nimbus itself commands nothing.
 - **Direction Change Margin** (#1654): a new plan only switches the battery
   between charging, holding and discharging when the switch saves more than
   this over the plan. It stops the battery flipping modes for fractions of a

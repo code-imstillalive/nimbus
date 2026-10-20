@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.472] - 2026-10-20
+
+**Spare solar into the battery, and price sources found for you.** A new
+`absorb_surplus` hint tells your dispatch automation when to let the inverter
+soak up solar beyond the plan's forecast instead of exporting it below *Don't
+sell below*. The Solver wizard fills in your whole-house load forecast, starts
+*Auto-include solar* on with Solcast, and holds all four price sources on one
+screen, with Amber and a PD7DAY tariff proposed for you. The Whole Plan table
+gets a Grid column, and the stochastic chart draws at the right times.
+
 - **On a new install with Solcast, *Auto-include solar* starts on** (1.0.0
   one-click install,
   [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)), so the
@@ -37,6 +47,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the *household load forecast* field now arrives filled with it, so there is
   no entity id to look up. With two or more nothing is guessed, and a choice
   you have saved always stays.
+
+- **Price sources 1 to 4 on one wizard screen** (household, 20 Oct). The
+  Solver wizard's Grid Prices screen now holds every price source, numbered as
+  the Price sources table uses them: 1 your provider, 2 AEMO (its regional
+  forecast, price now, and your site's TNI and DLF code sensors, moved here
+  from the Solar & Load screen), 3 and 4 any other forecasts. All of them stay
+  in view. Nothing you saved moves.
+
+- **Auto-detect proposes Amber and a PD7DAY tariff as sources 3 and 4**
+  ([#1930](https://github.com/code-imstillalive/nimbus/issues/1930)), under
+  Review pricing suggestions, when your provider is another integration: Amber
+  Express (else Amber Electric), and a NEM PD7DAY network tariff when exactly
+  one is configured. Empty fields only, applied only when you submit.
+
+- **The Price sources table names each extra source** by its own sensor,
+  instead of *Second source* and *Third source*.
+
+- **The stochastic chart draws its paths at the right times** (#1797). In
+  shadow the stochastic solve is a few minutes older than the main plan, and
+  its paths were laid on the plan's newest rows by row number, so they slid
+  out of line: by the second day they read the main plan's own numbers three
+  hours late, and the chart showed the two plans disagreeing where they
+  agreed. They are now placed by time.
+
+- **Two switches say they are experimental**: *Drive the battery
+  (experimental)* on the Stochastic card, and *Blend drives plan
+  (experimental)*, formerly *Consolidation drives the plan*. Both stay off by
+  default. `docs/api-contract.md` now says what each must show to leave
+  experimental, and the rule a setting or entity follows before it can ever be
+  renamed or removed ([#1930](https://github.com/code-imstillalive/nimbus/issues/1930)).
 
 ## [0.94.471] - 2026-10-20
 

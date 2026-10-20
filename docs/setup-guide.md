@@ -377,6 +377,17 @@ so while your saved prices still match a provider, the select goes back to that 
 within five minutes or at the next restart. It reads Manual once you edit a price field yourself
 ([#1550](https://github.com/code-imstillalive/nimbus/issues/1550)).
 
+### Other price sources are proposed too
+
+Under **Review pricing suggestions**, Nimbus also proposes other price
+forecasts it finds as **sources 3 and 4** on the Grid Prices screen, to compare
+with your provider's: Amber (Amber Express, else Amber Electric) when it is
+not already your provider, and a NEM PD7DAY network tariff when exactly one is
+configured (with several, choose the one your meter is on yourself). Empty
+fields only, applied only when you submit. A new source is scored against the
+prices that settle and counts in the combined price only once it has earned
+a weight.
+
 ### If you are on LocalVolts: install LocalVolts v2 first
 
 With the [LocalVolts v2](https://github.com/purcell-lab/localvolts_v2)
