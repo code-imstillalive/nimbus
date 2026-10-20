@@ -24,6 +24,20 @@ own. A committed P2P export never carries it.
   (`export_floor_penalty`), and a committed P2P export carries none, since the
   floor cannot change it. The daily score (EPR, regret) never used the floor.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 5535655d**,
+  installed untagged via HACS from `release/0.94.471` and restarted at 16:21
+  AEST on 20 Oct. devhub's own solver published on 0.94.471 at 16:23:12; the
+  log shows only the devhub-only duplicate-unique-ID baseline, no Nimbus error
+  of its own.
+  - **Not claimed live:** the plan cost without the floor's penalty. devhub's
+    floor is 0 (off), and its own plan entity loses its id to production's
+    mirror. Covered by `tests/test_export_floor.py` (17, real HiGHS),
+    including a committed P2P export and #694's period-0 spike override, and
+    by the golden master (only the key's position changes).
+- Consumer check: with *Don't sell below* set, the Solver tab's plan cost and
+  its chart no longer include the floor's penalty; `export_floor_penalty` is
+  its own attribute on the plan sensor.
+
 ## [0.94.470] - 2026-10-20
 
 **Stop selling solar cheaply, and a reserve that holds every night.** A new
