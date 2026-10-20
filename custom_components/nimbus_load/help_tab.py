@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.471",
+        "20 Oct 2026",
+        (
+            (
+                "**Plan cost:** setting *Don't sell below* no longer shifts "
+                "the plan cost; the floor's penalty is shown on its own, and "
+                "P2P blocks never carry it."
+            ),
+        ),
+    ),
+    (
         "0.94.470",
         "20 Oct 2026",
         (
