@@ -443,7 +443,9 @@ Leave the remaining fields blank initially.
 |---|---|
 | **🔴 Live import (buy) price sensor ($/kWh)** | What you pay to import, right now. It must follow the live price; on LocalVolts, Buy Flex Up, not Buy Rate All Var. |
 | **🔴 Live export (sell) price sensor ($/kWh)** | What you are paid to export, right now. It must follow the live price; on LocalVolts, Sell Flex Up, not Sell Rate All Var. |
-| Everything else (2nd/3rd price sources, price-event simulation, DNSP envelopes) | **Leave blank.** [§18](#18-optional-inputs) |
+| Source 2, AEMO (regional forecast, price now, TNI and DLF code sensors) | NEM sites: your region's forecast and 5-minute price, and your provider's TNI and DLF code sensors if it has them. Otherwise **leave blank.** [§18](#18-optional-inputs) |
+| Sources 3 and 4 (other price forecasts) | **Leave blank** to start. Add another forecast later to compare; it counts in the blend only once it has been scored. |
+| Advanced (price-event simulation, DNSP envelopes) | **Leave blank.** [§18](#18-optional-inputs) |
 
 ![Solver Grid Prices, screen 2 of 3, with the two required price sensors set](images/setup/solver-wizard-2-prices.png)
 
@@ -491,7 +493,7 @@ The UI helper route requires Home Assistant's `default_config` integration.
 
 ### Screen 3 of 3: "Solver: Solar & Load Forecasts"
 
-**Two required fields out of sixteen.**
+**Two required fields out of fourteen.**
 
 | Field | What to put |
 |---|---|
