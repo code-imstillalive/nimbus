@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's Whole Plan table has a Grid column** (household, 20 Oct),
+  as the Control Panel's table does: load minus solar minus battery, kW, import
+  above zero in orange, export below zero in green.
+
 ## [0.94.471] - 2026-10-20
 
 **The plan cost no longer moves when you set Don't sell below.** The floor's
