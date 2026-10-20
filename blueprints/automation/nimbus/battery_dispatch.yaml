@@ -1,0 +1,371 @@
+blueprint:
+  name: Nimbus battery dispatch
+  description: >-
+    Makes your battery follow Nimbus's plan. Every minute, and shortly after
+    each new plan, it reads `sensor.nimbus_solver_battery_forecast` (planned
+    battery power now, kW: positive = discharge, negative = charge) and runs
+    the actions you give it for Charge, Discharge, Self-Consume or Hold.
+
+
+    Nimbus never commands your inverter itself. This blueprint is the step
+    that does, and it is yours: you choose the actions for your hardware.
+
+
+    Safety, built in: nothing happens unless your arm switch is on; turning it
+    off runs your fallback actions; an unknown, non-numeric, failed or stale
+    plan runs the fallback instead of a power command; power is clamped to
+    your limit; a minimum dwell stops the battery flipping between modes.
+    Read the going-live guide first:
+    https://code-imstillalive.github.io/nimbus/going-live/
+  domain: automation
+  author: Nimbus
+  source_url: https://github.com/code-imstillalive/nimbus/blob/main/blueprints/automation/nimbus/battery_dispatch.yaml
+  homeassistant:
+    min_version: "2024.10.0"
+  input:
+    nimbus:
+      name: Nimbus
+      icon: mdi:cloud-outline
+      input:
+        plan_sensor:
+          name: Nimbus plan sensor
+          description: >-
+            Nimbus's battery plan, normally
+            sensor.nimbus_solver_battery_forecast.
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
+        hold_sensor:
+          name: Nimbus hold signal (optional)
+          description: >-
+            sensor.nimbus_solver_current_dispatch_hold. True when the plan keeps
+            the battery idle while the grid supplies the house; used to choose
+            Hold instead of Self-Consume. Leave empty to never use Hold.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
+    safety:
+      name: Arming and safety
+      icon: mdi:shield-check
+      input:
+        arm_switch:
+          name: Arm switch
+          description: >-
+            An input_boolean you create (for example "Nimbus dispatch armed").
+            This is the only thing that lets the plan move your battery. Off:
+            the automation commands nothing except your fallback, once.
+          selector:
+            entity:
+              filter:
+                - domain: input_boolean
+        fallback_actions:
+          name: Fallback actions
+          description: >-
+            What your inverter should do when Nimbus is not in control: on
+            disarm, and whenever the plan is unknown, failed or stale. Normally
+            your inverter's own self-consumption mode. Required: disabling an
+            automation does not clear the last command your inverter received.
+          selector:
+            action: {}
+        stale_after_minutes:
+          name: Stale plan after
+          description: >-
+            A plan older than this is not followed; the fallback runs instead.
+            Nimbus re-plans every minute or so, so a few minutes catches a
+            stopped Solver without tripping on a slow solve.
+          default: 10
+          selector:
+            number:
+              min: 2
+              max: 60
+              unit_of_measurement: min
+              mode: box
+        max_power_kw:
+          name: Maximum battery power
+          description: >-
+            The most this automation will ever ask for, in kW, whatever the
+            plan says. Set it to your inverter's real limit or below.
+          selector:
+            number:
+              min: 0.1
+              max: 200
+              step: 0.1
+              unit_of_measurement: kW
+              mode: box
+        deadband_kw:
+          name: Deadband
+          description: A plan within this of 0 kW counts as idle.
+          default: 0.05
+          selector:
+            number:
+              min: 0
+              max: 2
+              step: 0.01
+              unit_of_measurement: kW
+              mode: box
+    inverter:
+      name: Your inverter
+      icon: mdi:battery-charging
+      input:
+        charge_actions:
+          name: Enter Charge mode
+          description: >-
+            Put the inverter into forced charging. Runs when the mode changes
+            to Charge (every cycle if no mode helper is set below).
+          selector:
+            action: {}
+        discharge_actions:
+          name: Enter Discharge mode
+          description: Put the inverter into forced discharging.
+          selector:
+            action: {}
+        set_power_actions:
+          name: Set charge/discharge power
+          description: >-
+            Write the power setpoint. Runs every cycle while charging or
+            discharging. Use the variable {{ power_kw }}: the plan's power in
+            kW, always positive, already clamped to your maximum.
+          selector:
+            action: {}
+        self_consume_actions:
+          name: Enter Self-Consume mode
+          description: >-
+            The inverter's own self-consumption mode: solar serves the house
+            first, spare solar charges the battery, the battery serves the
+            house. Used when the plan is idle, and when Nimbus says to soak up
+            spare solar.
+          selector:
+            action: {}
+        hold_actions:
+          name: Enter Hold mode (optional)
+          description: >-
+            Keep the battery idle while the grid supplies the house (for
+            example a forced 0 kW / stop command). Leave empty to use
+            Self-Consume instead.
+          default: []
+          selector:
+            action: {}
+        keepalive_actions:
+          name: Keep-alive (optional)
+          description: >-
+            Runs every cycle while charging, discharging or holding, for
+            inverters whose remote-control mode times out without a heartbeat.
+          default: []
+          selector:
+            action: {}
+    behaviour:
+      name: Behaviour
+      icon: mdi:tune
+      collapsed: true
+      input:
+        mode_helper:
+          name: Mode helper (recommended)
+          description: >-
+            An input_text you create (for example "Nimbus dispatch mode"). The
+            automation records the mode it set here, so it only re-sends a
+            mode command when the mode changes, and so the minimum dwell can
+            work. Without it, the mode command is re-sent every cycle and
+            there is no dwell.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: input_text
+        min_dwell_minutes:
+          name: Minimum dwell
+          description: >-
+            Once in a mode, stay at least this long before switching to
+            another (needs the mode helper; 0 = off). The power setpoint inside
+            the current mode still follows the plan every cycle. Never delays a
+            price spike or a large reversal.
+          default: 3
+          selector:
+            number:
+              min: 0
+              max: 30
+              unit_of_measurement: min
+              mode: box
+        reversal_kw:
+          name: Reversal that skips the dwell
+          description: >-
+            A switch straight between Charge and Discharge at or above this
+            power is never delayed.
+          default: 5
+          selector:
+            number:
+              min: 0
+              max: 200
+              step: 0.5
+              unit_of_measurement: kW
+              mode: box
+        use_absorb:
+          name: Soak up spare solar
+          description: >-
+            When Nimbus publishes absorb_surplus (Don't sell below is set, the
+            export price is under it, there is spare solar, the plan is not
+            discharging or grid-charging, and no P2P block or price spike),
+            use Self-Consume so every spare kW goes into the battery instead of
+            the grid. The plan's charge rate alone would export the extra.
+          default: true
+          selector:
+            boolean: {}
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input plan_sensor
+    for: "00:00:10"
+    id: plan
+  - trigger: time_pattern
+    minutes: /1
+    id: tick
+  - trigger: homeassistant
+    event: start
+    id: start
+  - trigger: state
+    entity_id: !input arm_switch
+    to: "on"
+    id: armed
+  - trigger: state
+    entity_id: !input arm_switch
+    to: "off"
+    id: disarmed
+
+variables:
+  plan_entity: !input plan_sensor
+  hold_entity: !input hold_sensor
+  arm_entity: !input arm_switch
+  mode_entity: !input mode_helper
+  stale_min: !input stale_after_minutes
+  max_kw: !input max_power_kw
+  dead_kw: !input deadband_kw
+  dwell_min: !input min_dwell_minutes
+  reversal_min_kw: !input reversal_kw
+  absorb_on: !input use_absorb
+  hold_has_actions: !input hold_actions
+  plan_raw: "{{ states(plan_entity) }}"
+  plan_ok: >-
+    {% set s = states[plan_entity] %}
+    {% set gen = state_attr(plan_entity, 'generated_at') %}
+    {% set gen_t = as_datetime(gen) if gen else none %}
+    {% set age_s = (now() - gen_t).total_seconds() if gen_t else
+       ((now() - s.last_updated).total_seconds() if s else 999999) %}
+    {{ s is not none and is_number(plan_raw)
+       and state_attr(plan_entity, 'status') == 'optimal'
+       and age_s <= (stale_min | float(10)) * 60 }}
+  plan_kw: "{{ plan_raw | float(0) if plan_ok else 0 }}"
+  power_kw: "{{ [plan_kw | abs, max_kw | float(0)] | min | round(2) }}"
+  absorb: >-
+    {{ absorb_on and state_attr(plan_entity, 'absorb_surplus') == true }}
+  hold_signal: >-
+    {{ hold_entity != '' and states(hold_entity) in ['True', 'true', 'on'] }}
+  want: >-
+    {%- if not plan_ok -%}FALLBACK
+    {%- elif absorb -%}SC
+    {%- elif plan_kw > dead_kw | float(0.05) -%}DIS
+    {%- elif plan_kw < -(dead_kw | float(0.05)) -%}CHG
+    {%- elif hold_signal and hold_has_actions | length > 0 -%}HOLD
+    {%- else -%}SC{%- endif -%}
+  current: "{{ states(mode_entity) if mode_entity != '' else 'unknown' }}"
+  held_s: >-
+    {% set m = states[mode_entity] if mode_entity != '' else none %}
+    {{ (now() - m.last_changed).total_seconds() if m else 999999 }}
+  dwell_exempt: >-
+    {% set spike = state_attr(plan_entity, 'price_spike_active') == true %}
+    {% set reversal = current in ['CHG', 'DIS'] and want in ['CHG', 'DIS']
+       and current != want and (plan_kw | abs) >= reversal_min_kw | float(5) %}
+    {{ spike or reversal or want == 'FALLBACK' }}
+  may_switch: >-
+    {{ want == current or current not in ['CHG', 'DIS', 'SC', 'HOLD']
+       or mode_entity == '' or (dwell_min | float(0)) == 0
+       or (held_s | float(0)) >= (dwell_min | float(0)) * 60 or dwell_exempt }}
+  target_mode: "{{ want if may_switch else current }}"
+  mode_changed: "{{ mode_entity == '' or target_mode != current }}"
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: disarmed
+      - condition: state
+        entity_id: !input arm_switch
+        state: "on"
+
+actions:
+  - choose:
+      - alias: Disarmed, or the plan cannot be followed
+        conditions:
+          - condition: template
+            value_template: "{{ trigger.id == 'disarmed' or target_mode == 'FALLBACK' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ trigger.id == 'disarmed' or mode_changed }}"
+            then:
+              - sequence: !input fallback_actions
+              - if:
+                  - condition: template
+                    value_template: "{{ mode_entity != '' }}"
+                then:
+                  - action: input_text.set_value
+                    target:
+                      entity_id: "{{ mode_entity }}"
+                    data:
+                      value: FALLBACK
+      - alias: Charge
+        conditions:
+          - condition: template
+            value_template: "{{ target_mode == 'CHG' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ mode_changed }}"
+            then: !input charge_actions
+          - sequence: !input set_power_actions
+          - sequence: !input keepalive_actions
+      - alias: Discharge
+        conditions:
+          - condition: template
+            value_template: "{{ target_mode == 'DIS' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ mode_changed }}"
+            then: !input discharge_actions
+          - sequence: !input set_power_actions
+          - sequence: !input keepalive_actions
+      - alias: Hold
+        conditions:
+          - condition: template
+            value_template: "{{ target_mode == 'HOLD' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ mode_changed }}"
+            then: !input hold_actions
+          - sequence: !input keepalive_actions
+    default:
+      - alias: Self-Consume
+        if:
+          - condition: template
+            value_template: "{{ mode_changed }}"
+        then: !input self_consume_actions
+  - alias: Record the mode set
+    if:
+      - condition: template
+        value_template: >-
+          {{ mode_entity != '' and trigger.id != 'disarmed'
+             and target_mode != 'FALLBACK' and target_mode != current }}
+    then:
+      - action: input_text.set_value
+        target:
+          entity_id: "{{ mode_entity }}"
+        data:
+          value: "{{ target_mode }}"
