@@ -77,6 +77,36 @@ width on a first visit.
   of the Solver tab's Price sources table stood empty; it now shows each
   source's own price for the next 30 slots (household, 20 Oct).
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at cad5a151**,
+  installed untagged via HACS from `release/0.94.470` and restarted at 10:54
+  AEST on 20 Oct.
+  - **Entities:** devhub's own solver entities report 0.94.470; the
+    per-battery SoC sensors were republished by a solve at 10:56:34.
+  - **`number.nimbus_solver_export_floor_price`** is present, at its default
+    0.0 (off).
+  - **Log:** the devhub-only baseline (duplicate unique IDs held by the
+    production mirror, oversized attributes, recorder unit changes) and three
+    forecast-drift notices. No Nimbus ERROR or traceback of its own.
+  - **Not claimed live:**
+    - The export floor acting on a plan: it is off by default, and devhub's
+      own plan entity loses its id to production's mirror, so its attributes
+      can't be read here. Covered by `tests/test_export_floor.py` (15, real
+      HiGHS), including the one-minute period 0 at the direction-change
+      margin.
+    - The reserve in a window that opens later: same reason. Covered by
+      `tests/test_1654_soft_reserve.py::TestReserveWindowAhead`; a synthetic
+      replay of the 20 Oct night held 12.0 kWh where it had sold to 2.4 kWh.
+    - The renamed cost chart and Prices ahead at full width: Chrome on the
+      release laptop could not reach devhub, so the tab was not opened.
+      Covered by the tab tests; the household checks them on their install.
+    - The recorder-behind guard: needs a daylight backup. Covered by
+      `tests/test_1784_solar_running_low.py::TestTheRecorderBehind`.
+- Consumer check: the Solver tab's *Reserve and price spikes* card has a
+  *Don't sell below* row ($/kWh, 0 = off) with its line of explanation; the
+  Help tab and the configuration reference describe it; the cost chart reads
+  *How the plan's 4-day estimate has moved*, with its clipping explained in
+  the note.
+
 ## [0.94.469] - 2026-10-20
 
 **After midnight, the plan is free again by default.** *Self-consume after
