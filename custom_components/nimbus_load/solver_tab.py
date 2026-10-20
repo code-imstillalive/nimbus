@@ -411,7 +411,11 @@ _CONSOLIDATION_SOURCES = {
         "{% set names = imp.get('sources') or [] %}"
         "{% set prov = '${@option:solver_import_price_sensor}' %}"
         "{% set prov_name = state_attr(prov, 'friendly_name') or 'Your provider' %}"
-        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': 'Second source', 'secondary_3': 'Third source'} %}"
+        # Household, 20 Oct 2026: the extra sources by their own names, not
+        # "Second"/"Third" (the provider and AEMO already come first).
+        "{% set name_2 = state_attr('${@option:solver_import_price_sensor_2}', 'friendly_name') or 'Extra source 1' %}"
+        "{% set name_3 = state_attr('${@option:solver_import_price_sensor_3}', 'friendly_name') or 'Extra source 2' %}"
+        "{% set label = {'primary': prov_name, 'aemo_markup': 'AEMO + markup', 'retail_from_rrp': 'Retail from AEMO RRP', 'secondary_2': name_2, 'secondary_3': name_3} %}"
         "{% set spread = imp.get('spread_now') %}"
         "{% if names | length < 2 %}**Price sources**: one source, nothing to blend."
         "{% else %}"

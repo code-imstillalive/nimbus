@@ -50,8 +50,8 @@ built from it with your site's **loss factors**, the marginal loss factor
 On LocalVolts sites the RRP × MLF × DLF part matches to within 0.1 %
 ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)).
 
-Two optional fields on wizard screen 3, next to the regional spot sensors,
-identify them:
+Two optional fields on wizard screen 2 (Grid Prices), under source 2 with
+the regional spot sensors, identify them:
 
 - **Transmission node (TNI) sensor:** a sensor whose state is your TNI, for
   example `NCMA`;

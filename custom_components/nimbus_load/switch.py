@@ -27,6 +27,7 @@ together is the standard equivalent.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,6 +68,7 @@ from .const import (
     DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
     DOMAIN,
+    SOLCAST_TODAY_ENTITY_ID,
 )
 
 # Same reasoning as number.py: a plain restored local toggle, no hub to
@@ -91,6 +93,8 @@ PARALLEL_UPDATES = 0
 # against, only the same single-entity restore-vs-Store freshness compare
 # number.py already solves).
 _STORAGE_VERSION = 1
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -324,6 +328,22 @@ async def async_setup_entry(
     )
 
 
+def fresh_install_default(key: str, get_state, default: bool) -> bool:
+    """The first value a switch takes on an install where it has never
+    existed (no restored state, no stored value, no option). Only
+    auto-include solar differs from its class default: ON when Solcast's own
+    entity is already there (1.0.0 one-click install, #1930)."""
+    if key == CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR:
+        try:
+            return get_state(SOLCAST_TODAY_ENTITY_ID) is not None or default
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus: Solcast lookup for the first default failed", exc_info=True
+            )
+            return default
+    return default
+
+
 class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
     """One live, dashboard-editable Solver on/off toggle. See this
     module's own docstring for why these are plain restored local
@@ -406,6 +426,18 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         if isinstance(seeded, bool):
             self._attr_is_on = seeded
             await self._shared_store.async_write(self._key, seeded)
+            return
+        # Genuinely new: the first default can depend on the install
+        # (#1930). Written to the Store so it is decided once, never again.
+        hass = getattr(self, "hass", None)
+        first = (
+            fresh_install_default(self._key, hass.states.get, self._default)
+            if hass is not None
+            else self._default
+        )
+        if first != self._default:
+            self._attr_is_on = first
+            await self._shared_store.async_write(self._key, first)
 
     async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True

@@ -998,6 +998,13 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
 # behaviour visible and switchable either way, but does not by itself
 # make the Open-Meteo half of it portable.
 CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
+# Solcast's own "today" entity, the anchor the auto-include path detects
+# Solcast by (solver_inputs/solar.py). Its id is fixed by that integration,
+# the same on any install. A brand-new install that already has it starts
+# with auto-include ON (1.0.0 one-click install, #1930; Mark's #1914
+# recommendation): a household on Solcast should not have to find a switch
+# to get the forecast it already has. An existing switch keeps its value.
+SOLCAST_TODAY_ENTITY_ID: Final = "sensor.solcast_pv_forecast_forecast_today"
 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 # Real-dispatch groundwork, phase 1 (2026-08-27) -- see solver_runtime.py's
 # own _log_dispatch_dry_run() docstring for the full story. Default False,

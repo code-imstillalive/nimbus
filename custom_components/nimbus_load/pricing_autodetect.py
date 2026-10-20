@@ -67,8 +67,12 @@ from homeassistant.helpers import entity_registry as er
 from . import sensor_discovery
 from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
     CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_NETWORK_FEE_1_RATE,
@@ -339,6 +343,79 @@ def detect_openadr_price_sensors(hass: HomeAssistant) -> dict[str, list[str]]:
     return out
 
 
+def detect_pd7day_tariff_pair(hass: HomeAssistant) -> dict[str, str]:
+    """{import field: tariff, export field: export tariff} for a single NEM
+    PD7DAY network tariff, or {} (household, 20 Oct 2026).
+
+    A tariff sensor's `value` is PD7DAY's own retail estimate (calibrated
+    spot plus that tariff's network component), a price forecast to compare
+    with the provider's. Found by integration and built-in unique_id
+    (`<entry>_<region>_<distributor>_<code>_tariff`, `..._export_tariff`).
+    With more than one import tariff configured nothing is proposed: which
+    one the site's meter is on is the household's to say."""
+    found = _registry_candidates(
+        hass, PD7DAY_DOMAIN, lambda uid: uid.endswith("_tariff")
+    )
+    imports = {u: e for u, e in found.items() if not u.endswith("_export_tariff")}
+    if len(imports) != 1:
+        if imports:
+            _LOGGER.debug(
+                "Nimbus: %d NEM PD7DAY import tariffs; not proposing one",
+                len(imports),
+            )
+        return {}
+    uid, entity_id = next(iter(imports.items()))
+    out = {CONF_SOLVER_IMPORT_PRICE_SENSOR: entity_id}
+    export = found.get(uid.removesuffix("_tariff") + "_export_tariff")
+    if export:
+        out[CONF_SOLVER_EXPORT_PRICE_SENSOR] = export
+    return out
+
+
+#: Sources 3 and 4 of the Grid Prices step, in order (household, 20 Oct
+#: 2026): (import field, export field).
+_EXTRA_SOURCE_SLOTS = (
+    (CONF_SOLVER_IMPORT_PRICE_SENSOR_2, CONF_SOLVER_EXPORT_PRICE_SENSOR_2),
+    (CONF_SOLVER_IMPORT_PRICE_SENSOR_3, CONF_SOLVER_EXPORT_PRICE_SENSOR_3),
+)
+_ALL_PRICE_FIELDS = (
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    *(f for pair in _EXTRA_SOURCE_SLOTS for f in pair),
+)
+
+
+def _extra_source_proposals(
+    filled: dict[str, Any], profiles: list[tuple[str, dict[str, str]]]
+) -> list[tuple[str, str, str]]:
+    """Each detected price profile not already in use, placed in the first
+    empty extra-source slot (sources 3, then 4), so a site whose provider is
+    one integration still gets the others to compare. A profile is skipped
+    when any of its sensors is already set in a price field, and nothing is
+    placed in a slot whose import field has a value."""
+    out: list[tuple[str, str, str]] = []
+    for source, profile in profiles:
+        imp = profile.get(CONF_SOLVER_IMPORT_PRICE_SENSOR)
+        if not imp:
+            continue
+        used = {filled.get(f) for f in _ALL_PRICE_FIELDS}
+        if any(e in used for e in profile.values()):
+            continue
+        slot = next(
+            (pair for pair in _EXTRA_SOURCE_SLOTS if not filled.get(pair[0])), None
+        )
+        if slot is None:
+            break
+        imp_field, exp_field = slot
+        filled[imp_field] = imp
+        out.append((imp_field, imp, source))
+        exp = profile.get(CONF_SOLVER_EXPORT_PRICE_SENSOR)
+        if exp and not filled.get(exp_field):
+            filled[exp_field] = exp
+            out.append((exp_field, exp, source))
+    return out
+
+
 def detect_regional_spot_forecast(
     hass: HomeAssistant,
 ) -> tuple[dict[str, str], str | None]:
@@ -384,6 +461,10 @@ PRICING_FIELD_LABELS: dict[str, str] = {
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "Regional spot forecast",
     CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: "Transmission node (TNI)",
     CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: "DLF code",
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "Source 3, buy price",
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2: "Source 3, sell price",
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3: "Source 4, buy price",
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3: "Source 4, sell price",
 }
 
 
@@ -403,18 +484,35 @@ def _proposals(
     Amber Express, then Home Assistant core Amber Electric; the regional spot
     forecast only where a price forecast array is set (the one path that
     reads it).
+
+    Household, 20 Oct 2026: a retail price profile that is not the
+    provider's (Amber when LocalVolts is the provider, say), and a single
+    NEM PD7DAY network tariff, are proposed as sources 3 and 4, to compare
+    and, once scored, to blend (`_extra_source_proposals`).
     """
     filled = dict(defaults)
     out: list[tuple[str, str, str]] = []
+    amber_express = detect_amber_express_profile(hass)
+    amber_core = detect_amber_core_profile(hass)
     for source, profile in (
         ("LocalVolts v2", detect_localvolts_v2_profile(hass)),
-        ("Amber Express", detect_amber_express_profile(hass)),
-        ("Amber Electric", detect_amber_core_profile(hass)),
+        ("Amber Express", amber_express),
+        ("Amber Electric", amber_core),
     ):
         for field, entity_id in profile.items():
             if not filled.get(field):
                 filled[field] = entity_id
                 out.append((field, entity_id, source))
+    out.extend(
+        _extra_source_proposals(
+            filled,
+            [
+                ("Amber Express", amber_express),
+                ("Amber Electric", amber_core),
+                ("NEM PD7DAY tariff", detect_pd7day_tariff_pair(hass)),
+            ],
+        )
+    )
     if filled.get(CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR):
         spot, spot_source = detect_regional_spot_forecast(hass)
         for field, entity_id in spot.items():

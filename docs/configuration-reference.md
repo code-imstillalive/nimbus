@@ -55,6 +55,8 @@ instead (table below) so you can tune it without re-running this wizard.
 |---|---|
 | Live import (buy) price sensor ($/kWh) | From your retailer/market integration. If it has its own forecast attribute, the Solver uses it directly; otherwise the current value is held flat across the horizon. |
 | Live export (sell) price sensor ($/kWh) | Same, for what you're paid to export. |
+| Source 2, AEMO (optional, NEM only) | Regional price forecast, regional price now, and the site's TNI and DLF code sensors. With both codes, the AEMO price is made retail with the site's loss factors from AEMO's tables. |
+| Sources 3 and 4 (optional) | Other buy and sell price forecasts to compare. Each is scored against the settled price and counts in the blend once it has earned a weight. |
 
 **Step 3 — Solar & Load Forecasts:**
 

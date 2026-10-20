@@ -137,8 +137,22 @@ from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
 from . import live_numbers
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
+# Household, 20 Oct 2026: every price source stays in view on the Grid
+# Prices step, numbered 1-4 in its labels ("it needs to be visible in the
+# wizard"); only the event-test and envelope fields collapse.
 _GRID_VISIBLE_PRICE_FIELDS = frozenset(
-    {"solver_import_price_sensor", "solver_export_price_sensor"}
+    {
+        "solver_import_price_sensor",
+        "solver_export_price_sensor",
+        "solver_regional_spot_forecast_sensor",
+        "solver_regional_spot_current_price_sensor",
+        "solver_loss_factor_tni_sensor",
+        "solver_loss_factor_dlf_code_sensor",
+        "solver_import_price_sensor_2",
+        "solver_export_price_sensor_2",
+        "solver_import_price_sensor_3",
+        "solver_export_price_sensor_3",
+    }
 )
 from ..pricing_autodetect import apply_pricing_suggestions, pricing_suggestions
 
@@ -381,17 +395,56 @@ def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
 def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
+            # Household, 20 Oct 2026: the price sources in the order the
+            # Price sources table and the blend use them -- 1 your provider,
+            # 2 AEMO (its regional price, made retail by the site's loss
+            # factors), 3 and 4 any other forecasts -- all on this one step.
+            # They moved here from the Solar & Load step; the option keys
+            # are unchanged, so nothing saved moves.
             vol.Required(
                 CONF_SOLVER_IMPORT_PRICE_SENSOR,
                 default=defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR),
             ): _entity(),
-            # Optional second/third import price sources (2026-08-25) --
-            # see CONF_SOLVER_IMPORT_PRICE_SENSOR_2/_3's own comment in
-            # const.py for why (e.g. a real AEMO wholesale forecast
-            # blended with a retailer's own forecast, such as Amber).
-            # description={"suggested_value": ...}, NOT default=, so a
-            # configured source can genuinely be cleared -- same
-            # convention as the optional solar sources below.
+            vol.Required(
+                CONF_SOLVER_EXPORT_PRICE_SENSOR,
+                default=defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR),
+            ): _entity(),
+            # Source 2: AEMO. Forecast, price now, and the site's two loss
+            # factor codes (nimbus #1786; see const.py).
+            vol.Optional(
+                CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR
+                    )
+                },
+            ): _entity(),
+            # Sources 3 and 4 (2026-08-25): other forecasts to blend, e.g. a
+            # retailer's own -- see CONF_SOLVER_IMPORT_PRICE_SENSOR_2/_3 in
+            # const.py. description={"suggested_value": ...}, NOT default=,
+            # so a configured source can genuinely be cleared.
             vol.Optional(
                 CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
                 description={
@@ -399,21 +452,15 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                 },
             ): _entity(),
             vol.Optional(
-                CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
-                description={
-                    "suggested_value": defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR_3)
-                },
-            ): _entity(),
-            vol.Required(
-                CONF_SOLVER_EXPORT_PRICE_SENSOR,
-                default=defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR),
-            ): _entity(),
-            # Optional second/third export price sources -- same
-            # blend-don't-pick-one reasoning, mirrored for export.
-            vol.Optional(
                 CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
                 description={
                     "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_2)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR_3)
                 },
             ): _entity(),
             vol.Optional(
@@ -654,38 +701,6 @@ def _solver_sources_schema(
                 description={
                     "suggested_value": defaults.get(
                         CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR
-                    )
-                },
-            ): _entity(),
-            vol.Optional(
-                CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
-                description={
-                    "suggested_value": defaults.get(
-                        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR
-                    )
-                },
-            ): _entity(),
-            vol.Optional(
-                CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
-                description={
-                    "suggested_value": defaults.get(
-                        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR
-                    )
-                },
-            ): _entity(),
-            # nimbus #1786: the two codes that identify the site's loss
-            # factors in AEMO's tables (see const.py).
-            vol.Optional(
-                CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
-                description={
-                    "suggested_value": defaults.get(CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR)
-                },
-            ): _entity(),
-            vol.Optional(
-                CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
-                description={
-                    "suggested_value": defaults.get(
-                        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR
                     )
                 },
             ): _entity(),
@@ -1753,7 +1768,10 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # mismatch here means the null sweep walks a different shape
             # than the submission, which is how a silent wipe happens.
             self._absorb_step(
-                _collapse_optionals_into_advanced(_solver_grid_schema({})),
+                _collapse_optionals_into_advanced(
+                    _solver_grid_schema({}),
+                    keep_visible=tuple(sorted(_GRID_VISIBLE_PRICE_FIELDS)),
+                ),
                 user_input,
             )
             # nimbus #1661: a price that is frozen at forecast build (LocalVolts
@@ -1764,8 +1782,8 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 self._solver_data,
                 [key for key, _label in PRICE_FIELDS],
             )
-            # The second/third sources sit inside the collapsed "Advanced"
-            # section, where a per-field error has nowhere to show.
+            # A field inside the collapsed "Advanced" section has nowhere to
+            # show a per-field error.
             errors = {
                 (k if k in _GRID_VISIBLE_PRICE_FIELDS else "base"): v
                 for k, v in errors.items()
@@ -1777,8 +1795,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         return self.async_show_form(
             step_id="solver_grid",
             errors=errors,
-            # nimbus #1067/#448: 2 required grid fields stay visible, the 7
-            # optional ones collapse. 9 -> 2 on screen, nothing removed.
+            # nimbus #1067/#448: the price sources stay visible (household,
+            # 20 Oct 2026: sources 1-4); the event-test and envelope fields
+            # collapse. Nothing removed.
             data_schema=_collapse_optionals_into_advanced(
                 _solver_grid_schema(
                     # nimbus #1686 (Mark Purcell): saved values only. This
@@ -1799,7 +1818,10 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                         "solver_grid",
                     )
                 ),
-                keep_visible=(live_numbers.GRID_IMPORT_FIELD,),
+                keep_visible=(
+                    live_numbers.GRID_IMPORT_FIELD,
+                    *sorted(_GRID_VISIBLE_PRICE_FIELDS),
+                ),
             ),
         )
 
