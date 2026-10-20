@@ -331,6 +331,8 @@ _EXPECTED_ATTRS = {
         "discharge_fee": 0.26,
         "soc_penalty": 0.0,
         "grid_import_excess_penalty": 0.0,
+        # Household, 20 Oct 2026: the export floor's line; off here.
+        "export_floor_penalty": 0.0,
         "terminal_value_credit": -6.9011,
     },
     # nimbus #1704: cost_breakdown above, per local day. Additive; the days

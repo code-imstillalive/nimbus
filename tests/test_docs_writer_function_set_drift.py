@@ -264,6 +264,9 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #1654, option A: the period-0 direction hysteresis re-solves
         # with #1417's period-0 pin, which the cron copy never builds.
         "period0_direction_hysteresis",
+        # Household, 20 Oct 2026: the export floor's check inside the
+        # hysteresis above, in-process only for the same reason.
+        "_sells_below_floor_instead",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",
