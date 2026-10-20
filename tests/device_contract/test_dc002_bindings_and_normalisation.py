@@ -1195,7 +1195,10 @@ def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
     not a consumer: DC-005's confirmation resolves a switched binding only
     to refuse one DC-002 cannot read ("a source switch is validated before
     it is committed"); no value it resolves drives anything."""
-    validators = {"device_contract_ha.py"}
+    # DC-006 observation slice (#1893): `device_units` reads the resolver's
+    # unit table to find sensors whose unit must be declared, and drives
+    # nothing.
+    validators = {"device_contract_ha.py", "device_units.py"}
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
@@ -1287,4 +1290,12 @@ def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power(
 
 def test_dc_r03_f09_a_declared_unit_must_itself_be_exact():
     got = _power("2.5", None, native_unit="kw")
+    assert (got.value, got.reason) == (None, "declared_unit_invalid")
+
+
+def test_dc_r03_f09_an_invalid_declaration_refuses_even_a_valid_sensor_unit():
+    """Mark Purcell's review of #1942: a sensor stating a valid exact unit is
+    still refused when the binding's declared unit is not itself exact. The
+    declaration is wrong, and nothing here guesses past it."""
+    got = _power("2500", "W", native_unit="kw")
     assert (got.value, got.reason) == (None, "declared_unit_invalid")
