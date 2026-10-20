@@ -120,6 +120,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field, replace
+from datetime import timedelta
 from typing import Any
 
 import numpy as np
@@ -897,12 +898,24 @@ def paths_attribute(result: StochasticResult) -> dict[str, Any]:
     ):
         return {}
     cap = result.fleet_capacity_kwh
-    return {
+    out: dict[str, Any] = {
         "soc_pct": {
             k: [round(100.0 * v / cap, 1) for v in path]
             for k, path in result.scenario_soc_kwh.items()
         }
     }
+    # Household, 20 Oct 2026: each value's own time (its period's end). In
+    # shadow the stochastic solve reruns every few minutes while the plan
+    # re-plans every minute, so the plan's rows move under these paths:
+    # matched by position they drifted hours out of line by day 2.
+    grid = result.plan.periods
+    starts = grid.period_starts
+    if starts is not None and len(starts) == len(grid.hours):
+        out["ends"] = [
+            (t + timedelta(hours=float(h))).isoformat()
+            for t, h in zip(starts, grid.hours, strict=True)
+        ]
+    return out
 
 
 def detail_attribute(result: StochasticResult) -> dict[str, Any]:

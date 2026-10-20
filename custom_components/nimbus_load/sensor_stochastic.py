@@ -22,6 +22,8 @@ Both attributes are projections and stay out of the recorder.
 
 from __future__ import annotations
 
+import bisect
+from datetime import datetime
 from typing import Any
 
 from .sensor_flattened import FlattenedAttrSpec, _FlattenedAttributeSensor
@@ -89,6 +91,7 @@ def scenario_rows(source: dict) -> list[dict[str, Any]]:
     plan = source.get("forecast")
     if not isinstance(plan, list):
         return []
+    ends = _path_ends(paths, soc)
     rows: list[dict[str, Any]] = []
     for i, row in enumerate(plan):
         if not isinstance(row, dict):
@@ -98,10 +101,62 @@ def scenario_rows(source: dict) -> list[dict[str, Any]]:
             "hours": row.get("hours"),
             "main": row.get("soc_pct"),
         }
+        row_end = _row_end(row) if ends is not None else None
         for label, series in soc.items():
-            out[label] = series[i] if i < len(series) else None
+            if ends is None:
+                out[label] = series[i] if i < len(series) else None
+            else:
+                out[label] = _at(ends, series, row_end)
         rows.append(out)
     return rows
+
+
+def _ts(value: Any) -> float | None:
+    try:
+        return datetime.fromisoformat(str(value)).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _row_end(row: dict) -> float | None:
+    start = _ts(row.get("time"))
+    try:
+        hours = float(row.get("hours") or 0.0)
+    except (TypeError, ValueError):
+        return None
+    return None if start is None else start + hours * 3600.0
+
+
+def _path_ends(paths: Any, soc: dict) -> list[float] | None:
+    """The paths' own period ends, as timestamps, when every path has one
+    per value; else None (a path published without times, read by position).
+    Household, 20 Oct 2026: the shadow solve's paths are minutes older than
+    the plan's rows, so they are placed by time, not by row number."""
+    raw = paths.get("ends") if isinstance(paths, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return None
+    ends = [_ts(t) for t in raw]
+    if any(e is None for e in ends) or any(
+        not isinstance(v, list) or len(v) != len(ends) for v in soc.values()
+    ):
+        return None
+    return ends  # type: ignore[return-value]
+
+
+def _at(ends: list[float], series: list, when: float | None) -> float | None:
+    """The path's battery % at `when`, straight-line between its own period
+    ends; None outside them (before the solve's first period ended, or past
+    its horizon)."""
+    if when is None or when < ends[0] or when > ends[-1]:
+        return None
+    j = bisect.bisect_left(ends, when)
+    if ends[j] == when or j == 0:
+        return series[j]
+    a, b = series[j - 1], series[j]
+    if a is None or b is None:
+        return None
+    frac = (when - ends[j - 1]) / (ends[j] - ends[j - 1])
+    return round(a + (b - a) * frac, 1)
 
 
 class NimbusStochasticSensor(_FlattenedAttributeSensor):

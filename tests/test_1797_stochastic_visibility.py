@@ -538,3 +538,67 @@ def test_the_summary_carries_grid_money_on_the_same_footing():
     )
     # A dull day buys more from the grid than a sunny one.
     assert g["p10"] >= g["p90"]
+
+
+def test_chart_rows_place_an_older_solves_paths_by_time():
+    """Household, 20 Oct 2026: in shadow the stochastic solve is minutes
+    older than the plan's rows, whose fine periods have moved on. Matched by
+    position the paths slid hours out of line by day 2; by their own period
+    ends they sit where they belong."""
+    m = _sensor_mod()
+    # The plan re-planned at 10:10: two 5-minute rows, then 30-minute ones.
+    plan_rows = [
+        ("2026-10-20T10:10:00+10:00", 5 / 60, 60.0),
+        ("2026-10-20T10:15:00+10:00", 0.25, 58.0),
+        ("2026-10-20T10:30:00+10:00", 0.5, 54.0),
+        ("2026-10-20T11:00:00+10:00", 0.5, 50.0),
+        ("2026-10-20T11:30:00+10:00", 0.5, 46.0),
+    ]
+    # The stochastic solve ran at 10:00, on its own grid: ends 10:15 (60),
+    # 10:30 (56), 11:00 (52), 11:30 (48).
+    plan = {
+        "forecast": [{"time": t, "hours": h, "soc_pct": s} for t, h, s in plan_rows],
+        "stochastic_paths": {
+            "soc_pct": {"p50": [60.0, 56.0, 52.0, 48.0]},
+            "ends": [
+                "2026-10-20T10:15:00+10:00",
+                "2026-10-20T10:30:00+10:00",
+                "2026-10-20T11:00:00+10:00",
+                "2026-10-20T11:30:00+10:00",
+            ],
+        },
+    }
+    rows = m.scenario_rows(plan)
+    by_time = {r["time"]: r["p50"] for r in rows}
+    assert by_time == {
+        "2026-10-20T10:10:00+10:00": 60.0,  # ends 10:15, the path's first end
+        "2026-10-20T10:15:00+10:00": 56.0,  # ends 10:30
+        "2026-10-20T10:30:00+10:00": 52.0,  # ends 11:00
+        "2026-10-20T11:00:00+10:00": 48.0,  # ends 11:30
+        "2026-10-20T11:30:00+10:00": None,  # past the path's horizon
+    }
+    # Between two of the path's ends: a straight line.
+    mid = m.scenario_rows(
+        {
+            "forecast": [
+                {"time": "2026-10-20T10:30:00+10:00", "hours": 0.25, "soc_pct": 1.0}
+            ],
+            "stochastic_paths": plan["stochastic_paths"],
+        }
+    )
+    assert mid[0]["p50"] == 54.0
+
+
+def test_paths_carry_each_periods_end():
+    kw = _tiered_inputs()
+    res = sd.build_stochastic_plan(kw)
+    paths = sd.paths_attribute(res)
+    periods = res.plan.periods
+    if periods.period_starts is None:
+        pytest.skip("this fixture's grid has no clock times")
+    assert len(paths["ends"]) == len(paths["soc_pct"]["p50"])
+    first = periods.period_starts[0]
+    assert (
+        paths["ends"][0]
+        == (first + timedelta(hours=float(periods.hours[0]))).isoformat()
+    )
