@@ -1195,7 +1195,9 @@ def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
     not a consumer: DC-005's confirmation resolves a switched binding only
     to refuse one DC-002 cannot read ("a source switch is validated before
     it is committed"); no value it resolves drives anything."""
-    validators = {"device_contract_ha.py"}
+    # DC-006 slice 2's equivalence gate (DC-000 addition 1): measures what a
+    # consumer would read, and drives nothing.
+    validators = {"device_contract_ha.py", "device_observation.py"}
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
