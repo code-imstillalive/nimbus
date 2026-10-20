@@ -215,6 +215,30 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.470",
+        "20 Oct 2026",
+        (
+            (
+                "**Don't sell below:** under your set export price, spare "
+                "solar fills the battery before any is sold. Solver tab, "
+                "Reserve and price spikes; 0 = off."
+            ),
+            (
+                "**Reserve:** now holds in every night's window, not only one "
+                "already running when the plan was made."
+            ),
+            (
+                "**Solar running low:** no longer misjudges solar while a "
+                "backup has locked Home Assistant's history."
+            ),
+            (
+                "**Solver tab:** the cost chart is now *How the plan's 4-day "
+                "estimate has moved*, spikes clipped and explained; *Prices "
+                "ahead* draws full width on a first visit."
+            ),
+        ),
+    ),
+    (
         "0.94.469",
         "20 Oct 2026",
         (

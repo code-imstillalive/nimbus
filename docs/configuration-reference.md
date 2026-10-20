@@ -307,7 +307,10 @@ tune these directly, no need to re-run the wizard. Every entry in
 - **Battery Reserve** (#1654): the bottom *Reserve* % of the battery is kept
   between *Hold from* and *Release at*, and sold only above *Release Price*.
   It is soft: a price above the release price, or an armed price spike,
-  goes through it.
+  goes through it. It holds in every window, including one that opens later
+  in the plan: a window starts with the full reserve held, so a plan made in
+  the morning prices that night's reserve at the release price too, and may
+  top the battery up beforehand when that costs less.
 - **Don't Sell Below** ($/kWh): below this export price, spare energy fills
   the battery before any is sold. An exported kWh then counts as worth next to
   nothing to the plan, so storing wins whenever the battery has room. It is not

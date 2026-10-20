@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.470] - 2026-10-20
+
+**Stop selling solar cheaply, and a reserve that holds every night.** A new
+*Don't sell below* setting (Solver tab, Reserve and price spikes; 0 = off):
+below that export price, spare solar fills the battery before any is sold,
+and the direction-change margin no longer holds the battery idle while it
+exports cheaply. The battery reserve now holds in every window, not only one
+already running when the plan is solved; before, a plan made in the morning
+could plan to sell the reserve that night below its release price. The solar
+"running low" guard no longer judges solar while a Home Assistant backup has
+locked the recorder. The Solver tab's cost chart is renamed for what it
+shows, with rare spikes clipped and explained, and *Prices ahead* draws full
+width on a first visit.
+
 - **The battery reserve now holds in every window, not only the one already
   running.** A reserve window that opens later in the plan (tonight's 00:00,
   seen from this morning) let the plan start the reserve at zero for free, so
