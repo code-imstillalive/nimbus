@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **On a new install with Solcast, *Auto-include solar* starts on** (1.0.0
+  one-click install,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)), so the
+  Solcast forecast you already have is used without finding a switch. Only
+  the first value on an install is decided this way; a switch you already
+  have keeps its setting.
+
 - **The Solver tab's Whole Plan table has a Grid column** (household, 20 Oct),
   as the Control Panel's table does: load minus solar minus battery, kW, import
   above zero in orange, export below zero in green.
