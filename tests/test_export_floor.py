@@ -226,6 +226,39 @@ class TestThePlan:
                 export_floor_price=-0.01,
             )
 
+    def test_a_spike_override_keeps_the_floor_on_the_free_part(self):
+        # Mark Purcell, #1924: at period 0 under a spike override the P2P
+        # commitment is a floor, not a pin, and export above it is free. The
+        # floor stays live there; in later committed periods it does not.
+        fixed = np.zeros(N)
+        fixed[0] = 2.0
+        fixed[6:9] = 2.0
+        export = EXPORT.copy()
+        export[0] = 0.10
+        export[6:9] = 0.10
+        plan = build_plan(
+            periods=PeriodGrid(hours=HOURS, start=START),
+            grid=GridConfig(
+                import_price=IMPORT.copy(),
+                export_price=export,
+                import_limit_kw=60.0,
+                export_limit_kw=40.0,
+                fixed_export_kw=fixed,
+                export_floor_price=0.15,
+            ),
+            batteries=[
+                _battery(initial_soc=CAPACITY, spike_override_discharge_kw=10.0)
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(N)),
+            loads=[LoadConfig(name="house", forecast_kw=LOAD.copy())],
+        )
+        assert plan.status == "optimal"
+        assert float(plan.grid_export_kw[0]) > 2.0 + 1e-6  # the free part
+        rates = network.export_floor_penalty_rates(plan.effective_export_price, 0.15)
+        expected = float(rates[0] * plan.grid_export_kw[0] * HOURS[0])
+        assert expected > 0
+        assert plan.export_floor_penalty_cost == pytest.approx(expected, rel=1e-6)
+
 
 class TestThePenaltyRates:
     def test_below_the_floor_an_export_keeps_only_the_residual(self):
