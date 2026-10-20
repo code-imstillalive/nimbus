@@ -317,8 +317,9 @@ tune these directly, no need to re-run the wizard. Every entry in
   a hard rule: a full battery still exports (curtailing would earn nothing), and
   at or above it the plan decides on price as before. It also stops the
   *Direction Change Margin* from holding the battery idle while the current
-  period exports below it, and its cost is listed apart as
-  `cost_breakdown.export_floor_penalty`, so `grid_net` stays real money.
+  period exports below it. Its penalty is a preference, not money: the plan
+  cost and its breakdown leave it out, it is published on its own as
+  `export_floor_penalty`, and a committed P2P export never carries it.
   0 = off.
 - **Direction Change Margin** (#1654): a new plan only switches the battery
   between charging, holding and discharging when the switch saves more than

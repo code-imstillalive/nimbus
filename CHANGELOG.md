@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.471] - 2026-10-20
+
+**The plan cost no longer moves when you set Don't sell below.** The floor's
+penalty is a preference the plan weighs, not money, so the published plan
+cost, its chart and its breakdown leave it out, and it is published on its
+own. A committed P2P export never carries it.
+
 - **Don't sell below no longer shifts the plan cost** (household, 20 Oct).
   With a threshold set, the published plan cost (and its chart, breakdown and
   daily totals) included the floor's internal penalty, mostly on a P2P block's
