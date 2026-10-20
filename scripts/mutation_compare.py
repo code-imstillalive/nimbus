@@ -23,6 +23,7 @@ import argparse
 import ast
 import json
 import random
+import re
 import subprocess
 import sys
 import time
@@ -71,23 +72,85 @@ def _sites(tree: ast.AST, functions: set[str]) -> list[tuple[int, str]]:
     return out
 
 
+#: Each operator's source text, and a pattern that finds exactly it.
+_TOKENS = {
+    ast.Lt: ("<", r"(?<![<>=!])<(?![<=])"),
+    ast.LtE: ("<=", r"<="),
+    ast.Gt: (">", r"(?<![<>=\-])>(?![>=])"),
+    ast.GtE: (">=", r">="),
+    ast.Eq: ("==", r"=="),
+    ast.NotEq: ("!=", r"!="),
+    ast.Add: ("+", r"(?<![+=*])\+(?!=)"),
+    ast.Sub: ("-", r"(?<![\-=])-(?![=>])"),
+    ast.Mult: ("*", r"(?<!\*)\*(?![*=])"),
+    ast.Div: ("/", r"(?<!/)/(?![/=])"),
+    ast.And: ("and", r"\band\b"),
+    ast.Or: ("or", r"\bor\b"),
+}
+
+
+def _offset(lines: list[bytes], lineno: int, col: int) -> int:
+    """A byte offset into the file from an AST position (cols are UTF-8
+    byte offsets)."""
+    return sum(len(x) for x in lines[: lineno - 1]) + col
+
+
+def _span(lines: list[bytes], node: ast.AST, end: bool) -> int:
+    if end:
+        return _offset(lines, node.end_lineno, node.end_col_offset)  # type: ignore[attr-defined]
+    return _offset(lines, node.lineno, node.col_offset)  # type: ignore[attr-defined]
+
+
+def _replace_op(
+    data: bytes, lines: list[bytes], left: ast.AST, right: ast.AST, op: type
+) -> bytes:
+    """Swap the one operator token between `left` and `right` in place."""
+    lo, hi = _span(lines, left, True), _span(lines, right, False)
+    gap = data[lo:hi].decode("utf-8")
+    # Blank out comments (same length) so a `#` note can't hold the token.
+    masked = re.sub(r"#[^\n]*", lambda m: " " * len(m.group(0)), gap)
+    found = list(re.finditer(_TOKENS[op][1], masked))
+    if len(found) != 1:
+        raise ValueError(f"no single {_TOKENS[op][0]!r} between operands")
+    new = _TOKENS[SWAPS[op]][0]
+    m = found[0]
+    gap = gap[: m.start()] + new + gap[m.end() :]
+    return data[:lo] + gap.encode("utf-8") + data[hi:]
+
+
 def _mutate(source: str, index: int) -> tuple[str, str]:
+    """`source` with one site mutated by replacing only that operator's or
+    constant's own characters. Everything else, comments and formatting
+    included, is untouched: a test that reads the module's text (#1837, 20 Oct
+    2026) must not fail on a reformatted file and count as a kill."""
     tree = ast.parse(source)
     node = list(ast.walk(tree))[index]
     line = getattr(node, "lineno", 0)
+    data = source.encode("utf-8")
+    lines = data.splitlines(keepends=True)
     if isinstance(node, ast.Compare):
-        before = type(node.ops[0]).__name__
-        node.ops[0] = SWAPS[type(node.ops[0])]()
-        what = f"{before} -> {type(node.ops[0]).__name__}"
-    elif isinstance(node, (ast.BinOp, ast.BoolOp)):
-        before = type(node.op).__name__
-        node.op = SWAPS[type(node.op)]()
-        what = f"{before} -> {type(node.op).__name__}"
+        op = type(node.ops[0])
+        data = _replace_op(data, lines, node.left, node.comparators[0], op)
+        what = f"{op.__name__} -> {SWAPS[op].__name__}"
+    elif isinstance(node, ast.BinOp):
+        op = type(node.op)
+        data = _replace_op(data, lines, node.left, node.right, op)
+        what = f"{op.__name__} -> {SWAPS[op].__name__}"
+    elif isinstance(node, ast.BoolOp):
+        op = type(node.op)
+        # Every joint of the chain, last first so earlier offsets hold.
+        for left, right in reversed(list(zip(node.values, node.values[1:]))):
+            data = _replace_op(data, lines, left, right, op)
+        what = f"{op.__name__} -> {SWAPS[op].__name__}"
     else:
         before = node.value
-        node.value = before + 1 if before == 0 else before * 2
-        what = f"{before!r} -> {node.value!r}"
-    return ast.unparse(tree), f"line {line}: {what}"
+        after = before + 1 if before == 0 else before * 2
+        lo, hi = _span(lines, node, False), _span(lines, node, True)
+        data = data[:lo] + repr(after).encode("utf-8") + data[hi:]
+        what = f"{before!r} -> {after!r}"
+    mutated = data.decode("utf-8")
+    ast.parse(mutated)  # still valid Python, or this site is skipped
+    return mutated, f"line {line}: {what}"
 
 
 def _run(target: str, timeout: int) -> str:
@@ -134,10 +197,19 @@ def main() -> int:
     rng = random.Random(a.seed)
     chosen = rng.sample(sites, min(a.mutants, len(sites)))
     sets = dict(s.split("=", 1) for s in a.set)
+    # A set that fails on the unmutated module would "kill" every mutant.
+    for name, target in sets.items():
+        if _run(target, a.timeout) != "survived":
+            print(json.dumps({"error": f"set {name!r} fails on the unmutated code"}))
+            return 2
     rows = []
     try:
         for n, (index, kind) in enumerate(chosen, 1):
-            mutated, what = _mutate(original, index)
+            try:
+                mutated, what = _mutate(original, index)
+            except (ValueError, SyntaxError) as err:
+                print(json.dumps({"mutant": n, "skipped": str(err)}), flush=True)
+                continue
             path.write_text(mutated, encoding="utf-8")
             row = {"mutant": n, "kind": kind, "where": what}
             for name, target in sets.items():
