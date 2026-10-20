@@ -1,7 +1,7 @@
 """#1786 dry run: consolidation rules against made-up spike scenarios, in money.
 
 Run: python scripts/price_consolidation_dryrun.py  (about 20 minutes).
-Results of the 18 Oct 2026 run are on #1786.
+Results of the 18 Oct 2026 run, and the 20 Oct re-run with EARNED, are on #1786.
 
 Rolling solves every 5 minutes over 4 hours on a production-shaped battery
 (119.7 kWh, 40 kW, Min 2%, house load ~1 kW, no solar). Each solve plans on a
@@ -19,6 +19,12 @@ Rules:
   R0       LocalVolts only (today)
   MEDIAN   consolidate() with no weights (the live rule until 50 samples)
   WEIGHTED consolidate() with fixed inverse-MAE-style weights
+  KEEP_SPIKES  MEDIAN, but a period any source forecasts at or above the
+           spike threshold (85c) takes the highest source (live since 18 Oct)
+  EARNED   the live rule after #1935 (20 Oct 2026): only LocalVolts and the
+           AEMO-based source have earned weights; Amber and P5MIN were added
+           later and are still being scored, so they count only through
+           the spike rule
 """
 
 from __future__ import annotations
@@ -125,6 +131,8 @@ def scenario(name):
 
 
 WEIGHTS = {"lv": 0.2, "pd": 0.15, "amb": 0.35, "p5": 0.30}
+# The two long-running sources' weights, in the same proportion as above.
+EARNED_WEIGHTS = {"lv": 0.2 / 0.35, "pd": 0.15 / 0.35}
 
 
 def forecast(rule, sources, step):
@@ -135,8 +143,10 @@ def forecast(rule, sources, step):
     }
     if rule == "R0":
         return np.array([v if v is not None else BASE for v in series["lv"]])
-    w = None if rule in ("MEDIAN", "KEEP_SPIKES") else WEIGHTS
-    threshold = 0.85 if rule == "KEEP_SPIKES" else None
+    w = {"MEDIAN": None, "KEEP_SPIKES": None, "EARNED": EARNED_WEIGHTS}.get(
+        rule, WEIGHTS
+    )
+    threshold = 0.85 if rule in ("KEEP_SPIKES", "EARNED") else None
     vals, _spread, _m = pc.consolidate(series, w, spike_threshold=threshold)
     return np.array([v if v is not None else BASE for v in vals])
 
@@ -200,7 +210,7 @@ if __name__ == "__main__":
             "false, LV only",
         ):
             row = []
-            for rule in ("R0", "MEDIAN", "WEIGHTED", "KEEP_SPIKES"):
+            for rule in ("R0", "MEDIAN", "WEIGHTED", "KEEP_SPIKES", "EARNED"):
                 m, s, tr = run(name, rule, start)
                 row.append((rule, m, s, tr))
             base = row[0][1]

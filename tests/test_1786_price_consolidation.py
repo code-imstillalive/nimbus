@@ -48,9 +48,19 @@ def test_weighted_mean_when_weights_cover_every_available_source():
     assert method == "weighted"
 
 
-def test_weights_missing_a_source_fall_back_to_median():
+def test_a_source_without_a_weight_stays_out_of_the_blend():
+    """Household, 20 Oct 2026: a source added later (still being scored)
+    must not move the blend. Before, one unweighted source sent the period
+    back to the median of all, and two new sources on other contracts moved
+    the blend 6.5c above the provider's price."""
     values, _spread, method = pc.consolidate(
         {"a": [1.0], "b": [3.0], "c": [5.0]}, {"a": 0.5, "b": 0.5}
+    )
+    assert values == [2.0]
+    assert method == "weighted"
+    # No available source weighted: the median of them all.
+    values, _spread, method = pc.consolidate(
+        {"a": [1.0], "b": [3.0], "c": [5.0]}, {"d": 1.0}
     )
     assert values == [3.0]
     assert method == "median"
@@ -171,8 +181,10 @@ def _tracker_with(samples_a: int, samples_b: int) -> pc.SourceErrorTracker:
     return tr
 
 
-def test_weights_need_min_samples_from_every_source():
-    assert _tracker_with(50, 49).weights("0-5 min", ["a", "b"]) is None
+def test_weights_go_to_the_sources_with_min_samples():
+    # b has 49 settled samples: still being scored, so a alone is weighted.
+    assert _tracker_with(50, 49).weights("0-5 min", ["a", "b"]) == {"a": 1.0}
+    assert _tracker_with(49, 49).weights("0-5 min", ["a", "b"]) is None
     w = _tracker_with(50, 50).weights("0-5 min", ["a", "b"])
     assert w == {"a": pytest.approx(0.75), "b": pytest.approx(0.25)}
     assert sum(w.values()) == pytest.approx(1.0)
