@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's Whole Plan table has a Grid column** (household, 20 Oct),
+  as the Control Panel's table does: load minus solar minus battery, kW, import
+  above zero in orange, export below zero in green.
+
 - **A hint to soak up spare solar: `absorb_surplus`** (household, 20 Oct).
   A dispatcher that commands the plan's exact charge kW leaves solar beyond
   what the plan counted on nowhere to go but the grid (the plan planned 0.8 kW
