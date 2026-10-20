@@ -78,6 +78,31 @@ gets a Grid column, and the stochastic chart draws at the right times.
   experimental, and the rule a setting or entity follows before it can ever be
   renamed or removed ([#1930](https://github.com/code-imstillalive/nimbus/issues/1930)).
 
+- Devhub validation: **confirmed live on devhub at 532ed824**, installed
+  untagged via HACS from `release/0.94.472` and restarted at 20:32 AEST on
+  20 Oct. devhub's own per-battery SoC sensors published on 0.94.472 at
+  20:35:47. The log shows the devhub-only duplicate-unique-ID baseline, the
+  startup "previous cycle still in progress" skips, the mirrored AEMO 5-minute
+  price briefly unavailable, and one #773 fallback at 20:35:32 (the
+  `phase2_pin_resolve` lex phase infeasible, the plain solve used as
+  designed, its model written for #773). No code in this release touches the
+  LP.
+  - **Not claimed live:** `absorb_surplus` on a plan, the Price sources
+    table's names, the Grid column, the stochastic chart and the wizard's
+    Grid Prices screen. devhub's own plan entity loses its id to
+    production's mirror, and the Solver tab was not opened (the laptop's
+    browser cannot reach devhub). Covered by `tests/test_absorb_surplus.py`,
+    `tests/test_price_sources_card.py`, `tests/test_1594_solver_tab.py`,
+    `tests/test_1797_stochastic_visibility.py`,
+    `tests/test_flows_hub_options.py` and
+    `tests/test_autodetect_extra_price_sources.py`, with the real-HA suite on
+    CI.
+- Consumer check: the plan sensor publishes `absorb_surplus` and
+  `absorb_surplus_reason`; the Whole Plan table has a Grid column; Configure
+  -> Solver settings -> Grid Prices shows price sources 1 to 4; Review
+  pricing suggestions can propose Amber and a single PD7DAY tariff as sources
+  3 and 4.
+
 ## [0.94.471] - 2026-10-20
 
 **The plan cost no longer moves when you set Don't sell below.** The floor's
