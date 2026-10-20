@@ -912,6 +912,7 @@ def compute_cost_breakdown(
     period_hours: NDArray[np.float64],
     soc_penalty_cost: float = 0.0,
     grid_import_excess_penalty_cost: float = 0.0,
+    export_floor_penalty_cost: float = 0.0,
 ) -> dict[str, float]:
     """Named cost-component breakdown for the solver diagnostics dump
     (2026-08-25, nimbus issue #149 -- Mark Purcell's own executable
@@ -970,6 +971,13 @@ def compute_cost_breakdown(
     value/salvage credit. 0.0 (a genuine no-op) whenever the release
     valve was never needed this cycle, the common case.
 
+    `export_floor_penalty` (household, 20 Oct 2026) is Plan.
+    export_floor_penalty_cost passed straight through: what the export floor
+    took off exports below it. `grid_net` prices export at the real effective
+    price, so without its own line the penalty would fall into the residual
+    below, for the same reason as the two penalties above. 0.0 with the
+    floor off.
+
     `terminal_value_credit` is deliberately the RESIDUAL (total_cost minus
     the six terms above, `soc_penalty` and `grid_import_excess_penalty`
     now included), not a re-implementation of
@@ -999,6 +1007,7 @@ def compute_cost_breakdown(
         + discharge_fee_cost
         + soc_penalty_cost
         + grid_import_excess_penalty_cost
+        + export_floor_penalty_cost
     )
     return {
         "grid_net": round(grid_net_cost, 4),
@@ -1007,6 +1016,7 @@ def compute_cost_breakdown(
         "discharge_fee": round(discharge_fee_cost, 4),
         "soc_penalty": round(soc_penalty_cost, 4),
         "grid_import_excess_penalty": round(grid_import_excess_penalty_cost, 4),
+        "export_floor_penalty": round(export_floor_penalty_cost, 4),
         "terminal_value_credit": round(terminal_value_credit, 4),
     }
 
@@ -2424,6 +2434,7 @@ def publish_plan(
         period_hours=period_hours_arr,
         soc_penalty_cost=plan.soc_penalty_cost,
         grid_import_excess_penalty_cost=plan.grid_import_excess_penalty_cost,
+        export_floor_penalty_cost=getattr(plan, "export_floor_penalty_cost", 0.0),
     )
 
     cost_breakdown_by_day = compute_cost_breakdown_by_day(

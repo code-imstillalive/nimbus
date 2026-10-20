@@ -918,8 +918,26 @@ def _anchor_target_kw(plan, previous_plan) -> tuple[int | None, float | None]:
     return idx, _period0_net_kw(previous_plan, idx)
 
 
+# A kW margin so float noise in two solves' period-0 export is not a
+# difference (the dispatch deadband's own order of magnitude is far above it).
+_EXPORT_FLOOR_TOL_KW = 0.01
+
+
+def _sells_below_floor_instead(plan, pinned, export_floor: float) -> bool:
+    """True when keeping `pinned` would export more in period 0 than the free
+    `plan`, at a period-0 export price below `export_floor`. Never raises."""
+    if export_floor <= 0:
+        return False
+    try:
+        price0 = float(plan.effective_export_price[0])
+        extra = float(pinned.grid_export_kw[0]) - float(plan.grid_export_kw[0])
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return False
+    return price0 < export_floor and extra > _EXPORT_FLOOR_TOL_KW
+
+
 def period0_direction_hysteresis(
-    plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None
+    plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None, export_floor=0.0
 ):
     """nimbus issue #1654, option A: keep the previous direction when a
     switch is worth less than `margin` ($ over the horizon).
@@ -942,6 +960,14 @@ def period0_direction_hysteresis(
     re-solve ran anyway, came back infeasible, and was logged and dumped as
     a #773 solver failure: a charge pin from the previous plan landing on a
     period where a fixed export commitment forbids charging.
+
+    `export_floor` (household, 20 Oct 2026; GridConfig.export_floor_price):
+    the pinned plan is not kept when it exports more in period 0 than the
+    free plan does while period 0's export price is below the floor. The
+    floor's penalty alone cannot carry that over the margin when period 0 is
+    short: on 20 Oct period 0 was one minute, so holding the battery idle
+    while 6.5 kW of solar was exported cost under a cent, and the margin
+    kept it idle solve after solve. Published as `export_floor`.
     """
     if margin <= 0:
         return dataclasses.replace(plan, period0_hysteresis="off")
@@ -982,6 +1008,12 @@ def period0_direction_hysteresis(
     ):
         return dataclasses.replace(plan, period0_hysteresis="switched")
     delta = float(pinned.total_cost) - float(plan.total_cost)
+    if _sells_below_floor_instead(plan, pinned, export_floor):
+        return dataclasses.replace(
+            plan,
+            period0_hysteresis="export_floor",
+            period0_hysteresis_delta=round(delta, 4),
+        )
     if delta <= margin:
         return dataclasses.replace(
             pinned, period0_hysteresis="kept", period0_hysteresis_delta=round(delta, 4)
@@ -1432,6 +1464,15 @@ def assemble_and_solve_plan(
         export_price_lower=np.array(export_price_lower)
         if export_price_lower is not None
         else None,
+        # Household, 20 Oct 2026: "Don't sell below" (see GridConfig).
+        export_floor_price=max(
+            0.0,
+            _cfg_num(
+                cfg,
+                "solver_export_floor_price",
+                0.0,  # const.DEFAULT_SOLVER_EXPORT_FLOOR_PRICE
+            ),
+        ),
     )
     solar = elements.SolarConfig(
         forecast_kw=np.array(solar_kw),
@@ -1709,6 +1750,7 @@ def assemble_and_solve_plan(
                 thermal_loads=thermal_loads,
                 risk_aversion=risk_aversion,
             ),
+            export_floor=grid.export_floor_price,
         )
     if flex_signals_enabled and plan.grid_signals is not None:
         _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)

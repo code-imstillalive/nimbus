@@ -231,6 +231,7 @@ _COSTS: _Card = (
         ("solver_period0_hysteresis", "Direction change margin"),
         ("solver_aemo_p5min_disagreement_threshold_dollars", "AEMO disagreement"),
         ("solver_p5min_false_spike_threshold_mwh", "P5MIN false spike"),
+        ("section", "Direction change margin: what a switch must save; 0 = off."),
     ],
     "Ties: 0.005 suits most. AEMO: warn past gap. P5MIN: AUD/MWh.",
 )
@@ -257,8 +258,12 @@ _FEATURES: _Card = (
             "Flex signals: publishes flexibility ranges, but each solve is about 9× slower.",
         ),
         ("section", "Score controllable loads: the score may re-time them."),
+        (
+            "section",
+            "Dry run: Nimbus's own dispatcher sends nothing. The Help tab says what each switch costs.",
+        ),
     ],
-    "Dry run: Nimbus's own dispatcher sends nothing.",
+    "Defaults suit most installs.",
 )
 
 _SCORING: _Card = (
@@ -284,6 +289,10 @@ _SCORING: _Card = (
             "section",
             "Nimbus-only SoC: where the battery would have been at 5 pm had Nimbus alone decided; real SoC is where it was.",
         ),
+        (
+            "section",
+            "The day's score (EPR) is the share of the possible saving the plan captured.",
+        ),
     ],
     "A day over either limit is not scored.",
 )
@@ -295,8 +304,12 @@ _RESERVE: _Card = (
         ("solver_battery_reserve_release_price", "Release margin"),
         ("solver_battery_reserve_start_hour", "Hold from"),
         ("solver_battery_reserve_end_hour", "Release at"),
+        ("solver_export_floor_price", "Don't sell below"),
         ("section", "Reserve: battery share held back between these times; 0 = off."),
-        ("section", "Release margin: price edge needed to sell the reserve."),
+        (
+            "section",
+            "Release margin: edge to sell the reserve. Don't sell below: under it, spare energy fills the battery.",
+        ),
         ("section", "Price spikes"),
         ("solver_price_event_enabled", "Price events"),
         ("solver_price_spike_threshold", "Spike threshold"),
