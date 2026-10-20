@@ -73,6 +73,7 @@ A `0` is a measured zero. It is `valid` with value 0, and never `missing`.
 ## Units and dimension (DC-R03)
 
 - **Power** converts to kW through `power_units.py` (#1570), the one converter in the codebase. It is case-sensitive: `mW` is not `MW`. It is the same table the DC-000 oracle states independently.
+- **A declared power unit** (`normalization.native_unit`, DC-006's observation slice; household decision, 19 Oct 2026, #1893). A power sensor that states no unit, or a spelling other than Home Assistant's exact one (`kw`, ` kW `), is refused as above unless its binding declares `W` or `kW` (or another exact power unit), which the household sets in a Repair. The declared unit applies only in those two cases, and is recorded in provenance as `unit_declared`. A sensor that states a valid unit **different** from the declared one is refused (`declared_unit_conflicts`), never resolved either way; a declared unit that is not itself exact is refused (`declared_unit_invalid`); and declaring a power unit never makes `A`, `kVA` or an energy unit into power.
 - **Energy is refused as power** and power as energy (#1562). A unit of the wrong dimension, an unknown unit, or `A`/`kVA` for power (#1643) resolves to `missing`, with the reason, never to a guessed kW.
 - **Prices** convert c/kWh and $/MWh to the site currency per kWh once, at the adapter (#1615's rule). A currency other than the site's is **refused, never converted** (no FX).
 - **Non-finite values** (`nan`, `inf`) are `missing`.
