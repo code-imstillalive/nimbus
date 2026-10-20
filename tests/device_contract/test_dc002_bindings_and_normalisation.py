@@ -1195,9 +1195,11 @@ def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
     not a consumer: DC-005's confirmation resolves a switched binding only
     to refuse one DC-002 cannot read ("a source switch is validated before
     it is committed"); no value it resolves drives anything."""
-    # DC-006 slice 2's equivalence gate (DC-000 addition 1): measures what a
-    # consumer would read, and drives nothing.
-    validators = {"device_contract_ha.py", "device_observation.py"}
+    # DC-006 observation slice (#1893): `device_units` reads the resolver's
+    # unit table to find sensors whose unit must be declared, and drives
+    # nothing. DC-006 slice 2's equivalence gate (DC-000 addition 1):
+    # measures what a consumer would read, and drives nothing.
+    validators = {"device_contract_ha.py", "device_units.py", "device_observation.py"}
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
@@ -1235,3 +1237,66 @@ def test_every_dc002_requirement_has_a_named_test() -> None:
     }
     assert owned <= named, owned - named
     assert named <= owned, named - owned
+
+
+# --- a declared power unit (DC-006 observation slice) ---------------------------
+
+
+@pytest.mark.parametrize(
+    ("unit", "declared", "kw"),
+    [
+        (None, "W", 0.0025),
+        ("", "kW", 2.5),
+        ("kw", "kW", 2.5),
+        (" kW ", "kW", 2.5),
+        ("w", "W", 0.0025),
+        ("KW", "W", 0.0025),
+    ],
+)
+def test_dc_r03_f09_a_declared_unit_settles_a_missing_or_misspelt_one(
+    unit: Any, declared: str, kw: float
+) -> None:
+    """Household, 19 Oct 2026 (#1893): a unitless or misspelt power sensor is
+    refused by the contract, and the household may declare W or kW for it in
+    a Repair rather than fix the sensor."""
+    got = _power("2.5", unit, native_unit=declared)
+    assert got.state == db.VALID
+    assert got.value == pytest.approx(kw)
+    assert got.unit == "kW"
+    assert got.provenance["unit_declared"] == declared
+    assert got.provenance["native_unit"] == unit
+
+
+def test_dc_r03_f09_a_stated_unit_that_disagrees_with_the_declared_one_is_refused():
+    got = _power("2.5", "W", native_unit="kW")
+    assert (got.value, got.state, got.reason) == (
+        None,
+        db.MISSING,
+        "declared_unit_conflicts",
+    )
+    # Agreeing is fine, and the sensor's own unit is what is used.
+    same = _power("2500", "W", native_unit="W")
+    assert same.value == pytest.approx(2.5)
+    assert "unit_declared" not in same.provenance
+
+
+@pytest.mark.parametrize("unit", ["A", "kVA", "Wh", "kWh"])
+def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power(
+    unit: str,
+) -> None:
+    got = _power("2.5", unit, native_unit="kW")
+    assert got.value is None and got.state == db.MISSING
+    assert got.reason in ("unit_not_power", "energy_unit_as_power")
+
+
+def test_dc_r03_f09_a_declared_unit_must_itself_be_exact():
+    got = _power("2.5", None, native_unit="kw")
+    assert (got.value, got.reason) == (None, "declared_unit_invalid")
+
+
+def test_dc_r03_f09_an_invalid_declaration_refuses_even_a_valid_sensor_unit():
+    """Mark Purcell's review of #1942: a sensor stating a valid exact unit is
+    still refused when the binding's declared unit is not itself exact. The
+    declaration is wrong, and nothing here guesses past it."""
+    got = _power("2500", "W", native_unit="kw")
+    assert (got.value, got.reason) == (None, "declared_unit_invalid")

@@ -51,8 +51,11 @@ alongside the plan, for comparison. The switch
 `switch.nimbus_solver_price_consolidation_live` makes the plan use it for
 future periods. The current interval always uses its settled price.
 
-How they are combined: in each period, the median of the sources, or an
-error-weighted mean once every source has enough history. **A spike is never
+How they are combined: in each period, an error-weighted mean of the
+sources that have enough settled history (50 intervals at that lead), or
+the median of all of them while none has. A source added later is scored
+first and counts only once it has earned a weight, so a new source can't
+move the blend before its accuracy is known. **A spike is never
 averaged away.** In any period where a source forecasts at or above your
 *Price Spike Threshold*, the highest source is used. In a dry run, a median
 that dropped a real spike only one source saw would have cost about $250

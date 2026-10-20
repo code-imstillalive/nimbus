@@ -8,6 +8,43 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.473] - 2026-10-21
+
+**A new price source has to earn its place in the blend.** A price source
+added later is scored against the prices that settle first, and counts in
+the combined price only once it has a weight.
+
+- **A new price source no longer moves the blend before it is scored**
+  ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)). Adding
+  two sources priced on other contracts (another retailer's price and a
+  network tariff's estimate, 41c and 43c against the provider's 28c) moved
+  the shadow blend 6.5c above the provider's price before either had settled
+  once: one unscored source sent every period back to a plain median. Now a
+  source counts only once it has 50 settled readings at that lead; until then
+  the Price sources table shows no share for it. A source forecasting a price
+  spike still takes the period, scored or not. Consolidation stays in shadow
+  unless you switch *Blend drives plan (experimental)* on.
+
+- For the device setup (DC-006, no effect until you choose *active*): a power
+  sensor with no unit, or a misspelt one, can be given a declared W or kW
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)).
+
+- Devhub validation: **confirmed live on devhub at b750a8e8**, installed
+  untagged via HACS from `release/0.94.473` and restarted at 06:35 AEST on
+  21 Oct. devhub's own per-battery SoC sensors published on 0.94.473 at
+  06:36:39. The log shows only the devhub-only baseline (duplicate unique
+  IDs, the test EV below its floor and short of its departure target,
+  Forecaster drift notes, recorder attribute sizes); nothing from this
+  release.
+  - **Not claimed live:** the blend leaving an unscored source out. devhub's
+    own plan entity loses its id to production's mirror, and consolidation is
+    in shadow. Covered by `tests/test_1786_price_consolidation.py` and the
+    spike dry run (`scripts/price_consolidation_dryrun.py`, EARNED rule).
+    The declared-unit rule does nothing outside `active`.
+- Consumer check: on the Solver tab's Price sources table, a source added
+  less than 50 settled readings ago shows no share, and the Blend row follows
+  the scored sources only.
+
 ## [0.94.472] - 2026-10-20
 
 **Spare solar into the battery, and price sources found for you.** A new

@@ -12,15 +12,16 @@ state file and the switch; this module only computes.
 
 Two pieces:
 
-- `consolidate()`: per period, a weighted mean of the sources available in
-  that period when weights cover all of them, else their median. `spread`
-  is max - min across the available sources.
+- `consolidate()`: per period, a weighted mean of the available sources
+  that have earned a weight, else (none has) their median. `spread` is
+  max - min across the available sources.
 - `SourceErrorTracker`: records each source's forecast for each future
   5-minute interval at four lead buckets (keeping, per bucket, the forecast
   issued closest to that bucket's representative lead), and when an
   interval settles updates an EWMA of the absolute error per
-  (source, bucket). `weights(bucket)` is inverse MAE, normalised, only once
-  every included source has at least `MIN_SAMPLES` settled samples.
+  (source, bucket). `weights(bucket)` is inverse MAE, normalised, over the
+  sources with at least `MIN_SAMPLES` settled samples: a source added later
+  is scored first and joins the blend once it has earned a weight.
 """
 
 from __future__ import annotations
@@ -83,10 +84,17 @@ def consolidate(
     """Combine several per-period price series into one.
 
     `weights` is either one dict for every period, a per-period list of
-    dicts (or None), or None. A period uses the weighted mean only when the
-    weights give a positive weight to EVERY source available in that
-    period; otherwise it uses the median of the available sources. A period
-    with no source is None in both returned lists.
+    dicts (or None), or None. A period takes the weighted mean of the
+    available sources with a positive weight; a source without one (still
+    being scored) is left out of it. Only when no available source has a
+    weight does the period take the median of them all. A period with no
+    source is None in both returned lists.
+
+    Household, 20 Oct 2026: adding two sources priced on other contracts
+    (another retailer's price, a generic network tariff's estimate) moved
+    the blend 6.5c above the provider's price before either had a single
+    settled sample, because one unscored source sent every period back to
+    the median. A source now has to earn its place.
 
     `spike_threshold` (household, 18 Oct 2026; dry run on #1786): a period
     where ANY source forecasts at or above it takes the highest source
@@ -123,9 +131,10 @@ def consolidate(
             and top >= spike_threshold
         ):
             values.append(top)
-        elif w and all(w.get(name, 0.0) > 0.0 for name in avail):
-            total = sum(w[name] for name in avail)
-            values.append(sum(avail[name] * w[name] for name in avail) / total)
+        elif w and any(w.get(name, 0.0) > 0.0 for name in avail):
+            use = [name for name in avail if w.get(name, 0.0) > 0.0]
+            total = sum(w[name] for name in use)
+            values.append(sum(avail[name] * w[name] for name in use) / total)
             n_weighted += 1
         else:
             values.append(float(median(avail.values())))
@@ -334,17 +343,18 @@ class SourceErrorTracker:
     def weights(
         self, bucket: str, sources: Sequence[str] | None = None
     ) -> Weights | None:
-        """Inverse-MAE weights, normalised, over `sources` (default: every
-        source with any samples). None unless every included source has at
-        least MIN_SAMPLES settled samples in this bucket."""
+        """Inverse-MAE weights, normalised, over those of `sources`
+        (default: every source with any samples) with at least MIN_SAMPLES
+        settled samples in this bucket; a source with fewer is still being
+        scored and has no weight. None when no source has earned one."""
         names = list(sources) if sources is not None else sorted(self.mae)
-        if not names:
-            return None
         inv: dict[str, float] = {}
         for name in names:
             if self.samples.get(name, {}).get(bucket, 0) < MIN_SAMPLES:
-                return None
+                continue
             inv[name] = 1.0 / max(self.mae[name][bucket], _MAE_FLOOR)
+        if not inv:
+            return None
         total = sum(inv.values())
         return {name: v / total for name, v in inv.items()}
 

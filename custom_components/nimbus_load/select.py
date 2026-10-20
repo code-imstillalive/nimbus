@@ -332,6 +332,11 @@ _MODE_REFUSALS = {
     ),
     "revision_conflict": "the device setup changed meanwhile; try again",
     "no_document": "there is no stored device setup yet; choose shadow first",
+    # DC-006 observation slice (#1893).
+    "units_undeclared": (
+        "these power sensors state no unit, or a misspelt one: {sensors}. "
+        "Answer their Repairs (W or kW), or fix the sensors, then try again"
+    ),
 }
 
 
@@ -412,6 +417,7 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
                 changes=len(result.get("effective_diff") or ()),
                 conflicts=len(result.get("conflicts") or ()),
                 problems=len(result.get("problems") or ()),
+                sensors=", ".join(result.get("sensors") or ()),
             )
             raise HomeAssistantError(
                 f"Device setup mode not changed to {option}: {reason}."

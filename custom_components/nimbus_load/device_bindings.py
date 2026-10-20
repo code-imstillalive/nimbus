@@ -455,12 +455,55 @@ def _resolve_entity_state(
     prov["native_unit"] = unit
     if value is None:
         return _missing(role, device_id, prov, str(why))
-    scale, canonical_unit, refused = unit_scale(dimension, unit, ctx.currency)
+    scale, canonical_unit, refused = _entity_unit_scale(
+        dimension, unit, binding, ctx.currency, prov
+    )
     if scale is None:
         return _missing(role, device_id, prov, str(refused))
     value = _measured(value, scale, binding, prov)
     state, observed_at = _freshness(binding, st, ctx.now, prov)
     return Quantity(role, device_id, value, canonical_unit, state, observed_at, prov)
+
+
+#: The sensor's own unit refusals a declared unit may settle (DC-006
+#: observation slice; household, 19 Oct 2026). Anything else -- a wrong
+#: dimension, an energy unit on a power role -- is refused whatever is
+#: declared.
+_DECLARABLE = frozenset({"unit_missing", "unit_not_exact"})
+
+
+def _entity_unit_scale(
+    dimension: str,
+    unit: Any,
+    binding: Mapping[str, Any],
+    currency: str | None,
+    prov: dict[str, Any],
+) -> tuple[float | None, str | None, str | None]:
+    """`unit_scale()` of the sensor's own unit, with the binding's declared
+    unit (`normalization.native_unit`) for a power sensor.
+
+    Household, 19 Oct 2026, on #1893: a power sensor with no unit, or one
+    spelled other than Home Assistant's exact spelling ("kw", " kW "), is
+    refused by the contract; the household can declare W or kW for it in a
+    Repair instead of fixing the sensor. The declared unit applies only then.
+    A sensor that states a valid unit different from the declared one is
+    refused (`declared_unit_conflicts`), never resolved either way: one of
+    the two is wrong, and nothing here can say which."""
+    scale, canonical, refused = unit_scale(dimension, unit, currency)
+    declared = (binding.get("normalization") or {}).get("native_unit")
+    if dimension != "power" or declared in (None, ""):
+        return scale, canonical, refused
+    d_scale, d_canonical, _d_refused = unit_scale(dimension, declared, currency)
+    if d_scale is None:
+        return None, None, "declared_unit_invalid"
+    if scale is not None:
+        if unit != declared:
+            return None, None, "declared_unit_conflicts"
+        return scale, canonical, None
+    if refused in _DECLARABLE:
+        prov["unit_declared"] = declared
+        return d_scale, d_canonical, None
+    return scale, canonical, refused
 
 
 def _read_state(ctx: _Ctx, entity_id: Any) -> Mapping[str, Any] | None:
