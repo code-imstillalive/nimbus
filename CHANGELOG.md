@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.473] - 2026-10-21
+
+**A new price source has to earn its place in the blend.** A price source
+added later is scored against the prices that settle first, and counts in
+the combined price only once it has a weight.
+
+- **A new price source no longer moves the blend before it is scored**
+  ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)). Adding
+  two sources priced on other contracts (another retailer's price and a
+  network tariff's estimate, 41c and 43c against the provider's 28c) moved
+  the shadow blend 6.5c above the provider's price before either had settled
+  once: one unscored source sent every period back to a plain median. Now a
+  source counts only once it has 50 settled readings at that lead; until then
+  the Price sources table shows no share for it. A source forecasting a price
+  spike still takes the period, scored or not. Consolidation stays in shadow
+  unless you switch *Blend drives plan (experimental)* on.
+
+- For the device setup (DC-006, no effect until you choose *active*): a power
+  sensor with no unit, or a misspelt one, can be given a declared W or kW
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)).
+
 ## [0.94.472] - 2026-10-20
 
 **Spare solar into the battery, and price sources found for you.** A new
