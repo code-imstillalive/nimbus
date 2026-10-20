@@ -215,6 +215,36 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.473",
+        "21 Oct 2026",
+        (
+            (
+                "**Price sources:** a source you add later counts in the "
+                "blend only once it has been scored against settled prices."
+            ),
+        ),
+    ),
+    (
+        "0.94.472",
+        "20 Oct 2026",
+        (
+            (
+                "**Spare solar:** the plan's `absorb_surplus` says when your "
+                "automation can let the inverter soak up extra solar instead "
+                "of exporting it cheaply."
+            ),
+            (
+                "**Setup:** your load forecast is filled in, Auto-include "
+                "solar starts on with Solcast, and price sources 1 to 4 sit "
+                "on one wizard screen, with Amber and PD7DAY proposed."
+            ),
+            (
+                "**Charts and tables:** the Whole Plan table has a Grid "
+                "column; the stochastic chart draws at the right times."
+            ),
+        ),
+    ),
+    (
         "0.94.471",
         "20 Oct 2026",
         (
@@ -292,8 +322,8 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             ),
             (
                 "**Price sources:** the Solver tab shows each price source's "
-                "accuracy, share and next prices. Keep *Consolidation drives "
-                "the plan* off for now (#1786)."
+                "accuracy, share and next prices. Keep *Blend drives plan* "
+                "off for now; it is experimental (#1786)."
             ),
         ),
     ),
@@ -313,8 +343,8 @@ WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
             ),
             (
                 "**Combined price forecast:** keeps a spike any source "
-                "forecasts. Turn it on with *Consolidation drives the plan* "
-                "on the Solver tab."
+                "forecasts. Turn it on with *Blend drives plan* on the "
+                "Solver tab (experimental)."
             ),
         ),
     ),

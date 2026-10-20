@@ -322,7 +322,10 @@ tune these directly, no need to re-run the wizard. Every entry in
   period exports below it. Its penalty is a preference, not money: the plan
   cost and its breakdown leave it out, it is published on its own as
   `export_floor_penalty`, and a committed P2P export never carries it.
-  0 = off.
+  0 = off. While it applies, the plan sensor's `absorb_surplus` attribute
+  says when a dispatcher should let the inverter soak up spare solar
+  instead of holding the plan's exact charge rate (`absorb_surplus_reason`
+  says why or why not); Nimbus itself commands nothing.
 - **Direction Change Margin** (#1654): a new plan only switches the battery
   between charging, holding and discharging when the switch saves more than
   this over the plan. It stops the battery flipping modes for fractions of a
@@ -339,6 +342,28 @@ tune these directly, no need to re-run the wizard. Every entry in
   are independent dials — hedging against import-price risk should not
   automatically also hedge export-price risk, since they're economically
   opposite decisions.
+
+## Experimental switches, and what will not change under you
+
+Two switches are released but **experimental**, and off by default. Their
+dashboard rows say so:
+
+- **Drive the battery (experimental)**, on the Solver tab's Stochastic card
+  (`switch.nimbus_solver_stochastic_dispatch`): the stochastic plan drives the
+  battery instead of the main plan.
+- **Blend drives plan (experimental)**, on the Solver tab
+  (`switch.nimbus_solver_price_consolidation_live`): every price source,
+  combined, prices the plan instead of your provider alone.
+
+Their names and settings won't change, but what they do when switched on may
+still change until each has a measured verdict.
+
+Everything else you configure follows one rule from 1.0.0: an entity,
+attribute, service or setting is never renamed or removed without notice. The
+release before ships the replacement beside the old one, says so in the
+changelog and in a Repair naming what to change, and the old one keeps
+working for at least one more release and two weeks. A setting that moves is
+carried across with its value; you never have to enter it again.
 
 ## Removal
 

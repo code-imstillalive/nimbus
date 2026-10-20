@@ -166,7 +166,7 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "markdown: Consolidated prices"),
             # Household, 19 Oct 2026: the controls for the two things
             # 0.94.467 asks them to turn on.
-            (1, "toggle: Consolidation drives the plan"),
+            (1, "toggle: Blend drives plan (experimental)"),
             (2, "markdown: Device setup"),
             (1, "select: Device setup mode"),
             # Household with Mark Purcell, 19 Oct 2026: each price source.

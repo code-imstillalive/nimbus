@@ -154,6 +154,41 @@ reads back through the real Recorder.
 A field moving from this list into the stable subset above is a MINOR bump,
 announced in `CHANGELOG.md`.
 
+## Experimental switches
+
+Released, off by default, and **not** covered by the 1.0 promise until each
+has a measured verdict (Mark Purcell, #1930). Their entities and settings are
+stable (they won't be renamed or reset), but what they do when switched on
+may still change in a MINOR release.
+
+| Switch | What it does when on | Leaves experimental when |
+|---|---|---|
+| `switch.nimbus_solver_stochastic_dispatch` (*Drive the battery (experimental)*, Stochastic) | The two-stage stochastic plan drives the battery instead of the main plan, unless it can't be trusted. | `scripts/stochastic_replay.py` shows, over real recorded days, that it earns at least as much as the main plan, and the reference household has run it for two weeks without a fallback it couldn't explain (#1797). |
+| `switch.nimbus_solver_price_consolidation_live` (*Blend drives plan (experimental)*, Solver tab) | The plan's future periods are priced from every price source combined, not the provider alone. | The shadow scores show the blend closer to the settled price than the provider at every lead, the spike dry run keeps every real spike (`scripts/price_consolidation_dryrun.py`), and the household has run it for a few days and switched it on themselves (#1786). |
+
+Each switch's dashboard card says *experimental* while it is listed here.
+Promotion out of this table is a MINOR bump, announced in `CHANGELOG.md`.
+
+## Deprecation rule
+
+From 1.0.0, nothing a household configured or automates against changes
+without notice (#1930):
+
+1. **A stable entity, attribute, service or setting is never renamed or
+   removed in a PATCH or MINOR release.** A rename or removal is a MAJOR.
+2. **Notice comes first.** The release before the change ships the
+   replacement beside the old one, lists the old one under `### Deprecated`
+   in `CHANGELOG.md`, and raises a Repair naming exactly what to change
+   (the entity ID, the attribute, the automation field).
+3. **The old one stays for at least one further release, and at least two
+   weeks**, still working, before it is removed.
+4. **Settings are migrated, never reset.** A setting that moves is carried
+   across by a config entry migration with its value; a household never has
+   to re-enter one, and a migration that can't carry a value says so in a
+   Repair instead of falling back to a default.
+5. **Fixing a wrong value is not a deprecation.** A stable field computing
+   the wrong number is fixed in a PATCH, as above.
+
 ## How to propose a promotion
 
 Open an issue naming the field, how long it's been stable in practice (a

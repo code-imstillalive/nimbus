@@ -8,6 +8,53 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.473] - 2026-10-21
+
+**A new price source has to earn its place in the blend.** A price source
+added later is scored against the prices that settle first, and counts in
+the combined price only once it has a weight.
+
+- **A new price source no longer moves the blend before it is scored**
+  ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)). Adding
+  two sources priced on other contracts (another retailer's price and a
+  network tariff's estimate, 41c and 43c against the provider's 28c) moved
+  the shadow blend 6.5c above the provider's price before either had settled
+  once: one unscored source sent every period back to a plain median. Now a
+  source counts only once it has 50 settled readings at that lead; until then
+  the Price sources table shows no share for it. A source forecasting a price
+  spike still takes the period, scored or not. Consolidation stays in shadow
+  unless you switch *Blend drives plan (experimental)* on.
+
+- For the device setup (DC-006, no effect until you choose *active*): a power
+  sensor with no unit, or a misspelt one, can be given a declared W or kW
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)).
+
+- Devhub validation: **confirmed live on devhub at b750a8e8**, installed
+  untagged via HACS from `release/0.94.473` and restarted at 06:35 AEST on
+  21 Oct. devhub's own per-battery SoC sensors published on 0.94.473 at
+  06:36:39. The log shows only the devhub-only baseline (duplicate unique
+  IDs, the test EV below its floor and short of its departure target,
+  Forecaster drift notes, recorder attribute sizes); nothing from this
+  release.
+  - **Not claimed live:** the blend leaving an unscored source out. devhub's
+    own plan entity loses its id to production's mirror, and consolidation is
+    in shadow. Covered by `tests/test_1786_price_consolidation.py` and the
+    spike dry run (`scripts/price_consolidation_dryrun.py`, EARNED rule).
+    The declared-unit rule does nothing outside `active`.
+- Consumer check: on the Solver tab's Price sources table, a source added
+  less than 50 settled readings ago shows no share, and the Blend row follows
+  the scored sources only.
+
+## [0.94.472] - 2026-10-20
+
+**Spare solar into the battery, and price sources found for you.** A new
+`absorb_surplus` hint tells your dispatch automation when to let the inverter
+soak up solar beyond the plan's forecast instead of exporting it below *Don't
+sell below*. The Solver wizard fills in your whole-house load forecast, starts
+*Auto-include solar* on with Solcast, and holds all four price sources on one
+screen, with Amber and a PD7DAY tariff proposed for you. The Whole Plan table
+gets a Grid column, and the stochastic chart draws at the right times.
+
 - **On a new install with Solcast, *Auto-include solar* starts on** (1.0.0
   one-click install,
   [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)), so the
@@ -37,6 +84,61 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the *household load forecast* field now arrives filled with it, so there is
   no entity id to look up. With two or more nothing is guessed, and a choice
   you have saved always stays.
+
+- **Price sources 1 to 4 on one wizard screen** (household, 20 Oct). The
+  Solver wizard's Grid Prices screen now holds every price source, numbered as
+  the Price sources table uses them: 1 your provider, 2 AEMO (its regional
+  forecast, price now, and your site's TNI and DLF code sensors, moved here
+  from the Solar & Load screen), 3 and 4 any other forecasts. All of them stay
+  in view. Nothing you saved moves.
+
+- **Auto-detect proposes Amber and a PD7DAY tariff as sources 3 and 4**
+  ([#1930](https://github.com/code-imstillalive/nimbus/issues/1930)), under
+  Review pricing suggestions, when your provider is another integration: Amber
+  Express (else Amber Electric), and a NEM PD7DAY network tariff when exactly
+  one is configured. Empty fields only, applied only when you submit.
+
+- **The Price sources table names each extra source** by its own sensor,
+  instead of *Second source* and *Third source*.
+
+- **The stochastic chart draws its paths at the right times** (#1797). In
+  shadow the stochastic solve is a few minutes older than the main plan, and
+  its paths were laid on the plan's newest rows by row number, so they slid
+  out of line: by the second day they read the main plan's own numbers three
+  hours late, and the chart showed the two plans disagreeing where they
+  agreed. They are now placed by time.
+
+- **Two switches say they are experimental**: *Drive the battery
+  (experimental)* on the Stochastic card, and *Blend drives plan
+  (experimental)*, formerly *Consolidation drives the plan*. Both stay off by
+  default. `docs/api-contract.md` now says what each must show to leave
+  experimental, and the rule a setting or entity follows before it can ever be
+  renamed or removed ([#1930](https://github.com/code-imstillalive/nimbus/issues/1930)).
+
+- Devhub validation: **confirmed live on devhub at 532ed824**, installed
+  untagged via HACS from `release/0.94.472` and restarted at 20:32 AEST on
+  20 Oct. devhub's own per-battery SoC sensors published on 0.94.472 at
+  20:35:47. The log shows the devhub-only duplicate-unique-ID baseline, the
+  startup "previous cycle still in progress" skips, the mirrored AEMO 5-minute
+  price briefly unavailable, and one #773 fallback at 20:35:32 (the
+  `phase2_pin_resolve` lex phase infeasible, the plain solve used as
+  designed, its model written for #773). No code in this release touches the
+  LP.
+  - **Not claimed live:** `absorb_surplus` on a plan, the Price sources
+    table's names, the Grid column, the stochastic chart and the wizard's
+    Grid Prices screen. devhub's own plan entity loses its id to
+    production's mirror, and the Solver tab was not opened (the laptop's
+    browser cannot reach devhub). Covered by `tests/test_absorb_surplus.py`,
+    `tests/test_price_sources_card.py`, `tests/test_1594_solver_tab.py`,
+    `tests/test_1797_stochastic_visibility.py`,
+    `tests/test_flows_hub_options.py` and
+    `tests/test_autodetect_extra_price_sources.py`, with the real-HA suite on
+    CI.
+- Consumer check: the plan sensor publishes `absorb_surplus` and
+  `absorb_surplus_reason`; the Whole Plan table has a Grid column; Configure
+  -> Solver settings -> Grid Prices shows price sources 1 to 4; Review
+  pricing suggestions can propose Amber and a single PD7DAY tariff as sources
+  3 and 4.
 
 ## [0.94.471] - 2026-10-20
 
