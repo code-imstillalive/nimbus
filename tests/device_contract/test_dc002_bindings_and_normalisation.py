@@ -1197,8 +1197,9 @@ def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
     it is committed"); no value it resolves drives anything."""
     # DC-006 observation slice (#1893): `device_units` reads the resolver's
     # unit table to find sensors whose unit must be declared, and drives
-    # nothing.
-    validators = {"device_contract_ha.py", "device_units.py"}
+    # nothing. DC-006 slice 2's equivalence gate (DC-000 addition 1):
+    # measures what a consumer would read, and drives nothing.
+    validators = {"device_contract_ha.py", "device_units.py", "device_observation.py"}
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
