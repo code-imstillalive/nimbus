@@ -3054,7 +3054,7 @@ def publish_plan(
                 # many members took each path), so it cannot grow. `reason`
                 # says why it was or was not judged ("judged", "off",
                 # "no_solar_power_sensor", "no_reference", "below_minimum",
-                # "no_history", "error").
+                # "no_history", "recorder_behind", "error").
                 "solar_running_low": solar_running_low.published_result(),
             },
             "generated_at": now.isoformat(),

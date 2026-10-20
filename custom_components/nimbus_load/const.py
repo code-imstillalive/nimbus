@@ -1083,9 +1083,10 @@ DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False
 # CalibratedOptions) for the four existing tie-break mechanisms
 # (proximal_weight, smoothness_weight, adequacy_earliness_budget_kw,
 # battery_charge_earliness_budget_kw) -- see network.py's own
-# build_plan() docstring on `solve_options` for the full mechanism and
-# its one documented scope boundary (a MIP solve silently falls back to
-# today's hand-tuned-magnitude behavior regardless of this switch).
+# build_plan() docstring on `solve_options` for the full mechanism. A MIP
+# no longer falls back to the hand-tuned magnitudes (nimbus #702): its
+# binaries are settled on the primary objective alone, then pinned, and the
+# residual LP runs the same calibrated logic (solver/lp.py's solve()).
 # Default TRUE, unlike every other Solver switch above -- the
 # household's own explicit, repeated instruction was to make this the
 # real, live default now, not an opt-in a household has to discover and

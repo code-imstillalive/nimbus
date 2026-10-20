@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Setup guide: which Features switches to set, and what the rest cost
+  ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
+  A default tier (calibrated objective on, auto-include solar on with Solcast,
+  dispatcher dry run on, load forecast source `off`) and an advanced tier that
+  names each switch's measured cost: flex signals about 9× slower per solve,
+  offer curve 7 extra re-solves per direction. The Help tab says the same.
+  No default changes.
+
+- **Solar "running low" no longer judges a frozen recorder
+  ([#1784](https://github.com/code-imstillalive/nimbus/issues/1784)).** While
+  Home Assistant takes a backup, the recorder's database is locked for writes,
+  and its history stops at the last state written before the lock. The gate's
+  30-minute mean of actual PV froze on an early-morning reading while the
+  panels ramped up, so it judged solar far below forecast and planned the rest
+  of the day on 30 % of it: the battery sat idle and the surplus was exported.
+  When the recorder's newest change trails the live sensor's by more than 5
+  minutes, the gate now reports `recorder_behind` and is off, like any other
+  case where it cannot judge.
+
 - **Don't sell below: spare solar fills the battery before it is sold
   cheaply** (household, 20 Oct). A new Solver setting, `number.nimbus_solver_
   export_floor_price` ($/kWh, 0 = off). Below it, an exported kWh is worth next

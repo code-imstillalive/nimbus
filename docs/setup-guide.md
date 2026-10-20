@@ -1317,6 +1317,31 @@ The two most useful:
 
 > **Change one at a time**, and give it a day. These interact.
 
+### The Solver tab's Features switches
+
+The Solver tab's **Features** card has eight settings
+([#1914](https://github.com/code-imstillalive/nimbus/issues/1914)). Four are
+worth settling on day one; the other four cost something, and are for a reason
+you already have.
+
+**Default tier: set these and leave them.**
+
+| Setting | Shipped | Recommended | Why |
+|---|---|---|---|
+| Calibrated objective | On | On | When two plans cost the same, the plan goes to the steadier one. It never overrides a real cost difference, and on/off decisions are settled on cost alone first. |
+| Auto-include solar | Off | On, if you use Solcast | Picks up Solcast's forecast without you naming its sensors. Solcast's sensor names are fixed by that integration, so they match on any install. It also picks up Open-Meteo Solar Forecast, but only if your Open-Meteo entry happens to produce `sensor.home_energy_production_today`; otherwise name it in a solar source field instead. A source you have already named isn't counted twice. |
+| Own dispatcher: dry run | Off | On | Records what Nimbus's own dispatcher would send, in `sensor.nimbus_solver_dispatch_dry_run`, and sends nothing. It has no write path, so it can't move your battery. If an automation of yours drives the battery from the plan, it keeps doing so either way. |
+| Load forecast source | off | off | `off` plans on Nimbus's own load forecast. `measure` only reports which forecast would have done better; `blend` and `persistence` change the plan, so try `measure` first. |
+
+**Advanced tier: each one has a measured cost.**
+
+| Setting | Shipped | What it costs | Turn it on when |
+|---|---|---|---|
+| Flex signals (slower) | Off | Each solve is about **9× slower**: on one live install the median solve went from 1.16 s to 10.30 s, held for five hours, and nothing failed. On a large enough problem (many periods, many on/off decisions), the plain solve can already approach the solver's 60 s limit, and this is the switch most likely to push it over. | You want the flexibility ranges in `sensor.nimbus_flex_signals`. Watch your solve times after switching it on: a 9× rise is expected; a solve that runs past the next cycle is not. |
+| Offer curve | Off | **7 extra re-solves per direction**, every cycle. | You want `sensor.nimbus_offer_curve`, how the plan's grid use would respond to a different price. |
+| Nowcast measurement | Off | A recorder history read each time the first two forecast periods disagree. It never changes a plan. | You are helping answer an open forecast question ([#1259](https://github.com/code-imstillalive/nimbus/issues/1259)). Turn it on deliberately, and off again once the data is in. |
+| Score controllable loads | Off | Changes your published score and regret, and which way it moves them can't be predicted from the code. | You have controllable loads configured and want to compare the score with them re-timed. With none configured it changes nothing. |
+
 ## 18. Optional inputs
 
 Everything you left blank in Part 1, in rough order of usefulness:
