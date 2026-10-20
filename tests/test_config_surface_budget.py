@@ -120,11 +120,19 @@ EXPECTED_SPLIT = {
     "_solver_battery_schema": (1, 1),
     # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
     # are unchanged, which is the property this row exists to watch.
-    "_solver_grid_schema": (2, 7),
+    # Household, 20 Oct 2026: 7 -> 11 optional, a MOVE, not an addition:
+    # the AEMO price source (regional forecast, price now, TNI, DLF code)
+    # joined the other price sources as source 2; the Sources step lost the
+    # same four. No key changed name, and every key is still in
+    # _SOLVER_WIZARD_SCHEMA_KEYS, so the final merge takes it whichever
+    # step submits it.
+    "_solver_grid_schema": (2, 11),
     # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
     # nimbus #1786: 15 -> 16 optional (comparison-only price sources).
     # nimbus #1786: 16 -> 18 optional (the site's TNI and DLF code sensors).
-    "_solver_sources_schema": (2, 18),
+    # Household, 20 Oct 2026: 18 -> 14, the four AEMO fields moved to the
+    # Grid Prices step (above).
+    "_solver_sources_schema": (2, 14),
     "_switchboard_schema": (0, 1),
 }
 

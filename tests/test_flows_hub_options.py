@@ -43,8 +43,12 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_PRICE_EVENT_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -227,8 +231,10 @@ def test_solver_grid_schema_has_two_required_price_fields():
     # parts deliberately cost this form nothing: the arm is a device entity
     # (switch.nimbus_solver_price_event_enabled) and the event's magnitude
     # and windows live in the household's own sensor, not in Nimbus config.
+    # Household, 20 Oct 2026: gained the AEMO price source's 4 OPTIONAL
+    # fields, moved from the Sources step (sources 1-4 on one step) -- 13.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 9
+    assert len(schema.schema) == 13
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
 
@@ -481,6 +487,11 @@ def test_solver_grid_step_submission_chains_straight_to_sources_form():
         # nimbus issue #1213: explicitly nulled like every other Optional
         # field on this step, not silently absent (#341 follow-up).
         CONF_SOLVER_PRICE_EVENT_SENSOR: None,
+        # Household, 20 Oct 2026: source 2 (AEMO) now lives on this step.
+        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: None,
+        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: None,
+        CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: None,
+        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: None,
     }
 
 
@@ -1519,3 +1530,39 @@ def test_solver_sources_schema_saved_value_does_not_create_a_restriction():
     )
     marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
     assert "include_entities" not in schema.schema[marker].config
+
+
+def test_price_sources_one_to_four_are_on_the_grid_step_and_visible():
+    """Household, 20 Oct 2026: "second source should have been aemo rrp...
+    and it needs to be visible in the wizard... so amber would be three and
+    pd7day should be four". The Grid Prices step holds source 1 (provider),
+    source 2 (AEMO: forecast, price now, TNI, DLF code), then sources 3 and
+    4, in that order, none of them inside the collapsed section; the Sources
+    step no longer has the AEMO fields."""
+    from custom_components.nimbus_load.flows.hub_options import (
+        _GRID_VISIBLE_PRICE_FIELDS,
+        _collapse_optionals_into_advanced,
+        _solver_sources_schema,
+    )
+
+    order = [
+        CONF_SOLVER_IMPORT_PRICE_SENSOR,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+        CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    ]
+    keys = [str(getattr(m, "schema", m)) for m in _solver_grid_schema({}).schema]
+    assert keys[: len(order)] == order
+    shown = _collapse_optionals_into_advanced(
+        _solver_grid_schema({}), keep_visible=tuple(sorted(_GRID_VISIBLE_PRICE_FIELDS))
+    )
+    top = [str(getattr(m, "schema", m)) for m in shown.schema]
+    assert all(k in top for k in order)
+    sources = [str(getattr(m, "schema", m)) for m in _solver_sources_schema({}).schema]
+    assert not set(order[2:6]) & set(sources)
