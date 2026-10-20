@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Don't sell below no longer shifts the plan cost** (household, 20 Oct).
+  With a threshold set, the published plan cost (and its chart, breakdown and
+  daily totals) included the floor's internal penalty, mostly on a P2P block's
+  committed exports below the threshold: about $38 on the reference household,
+  outside its own best-worst band. The penalty is a preference, not money: the
+  plan cost now leaves it out and it is published on its own
+  (`export_floor_penalty`), and a committed P2P export carries none, since the
+  floor cannot change it. The daily score (EPR, regret) never used the floor.
+
 ## [0.94.470] - 2026-10-20
 
 **Stop selling solar cheaply, and a reserve that holds every night.** A new

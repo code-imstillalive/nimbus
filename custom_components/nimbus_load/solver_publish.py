@@ -912,7 +912,6 @@ def compute_cost_breakdown(
     period_hours: NDArray[np.float64],
     soc_penalty_cost: float = 0.0,
     grid_import_excess_penalty_cost: float = 0.0,
-    export_floor_penalty_cost: float = 0.0,
 ) -> dict[str, float]:
     """Named cost-component breakdown for the solver diagnostics dump
     (2026-08-25, nimbus issue #149 -- Mark Purcell's own executable
@@ -971,13 +970,6 @@ def compute_cost_breakdown(
     value/salvage credit. 0.0 (a genuine no-op) whenever the release
     valve was never needed this cycle, the common case.
 
-    `export_floor_penalty` (household, 20 Oct 2026) is Plan.
-    export_floor_penalty_cost passed straight through: what the export floor
-    took off exports below it. `grid_net` prices export at the real effective
-    price, so without its own line the penalty would fall into the residual
-    below, for the same reason as the two penalties above. 0.0 with the
-    floor off.
-
     `terminal_value_credit` is deliberately the RESIDUAL (total_cost minus
     the six terms above, `soc_penalty` and `grid_import_excess_penalty`
     now included), not a re-implementation of
@@ -1007,7 +999,6 @@ def compute_cost_breakdown(
         + discharge_fee_cost
         + soc_penalty_cost
         + grid_import_excess_penalty_cost
-        + export_floor_penalty_cost
     )
     return {
         "grid_net": round(grid_net_cost, 4),
@@ -1016,7 +1007,6 @@ def compute_cost_breakdown(
         "discharge_fee": round(discharge_fee_cost, 4),
         "soc_penalty": round(soc_penalty_cost, 4),
         "grid_import_excess_penalty": round(grid_import_excess_penalty_cost, 4),
-        "export_floor_penalty": round(export_floor_penalty_cost, 4),
         "terminal_value_credit": round(terminal_value_credit, 4),
     }
 
@@ -2047,9 +2037,17 @@ def publish_plan(
     # Household, 9 Oct 2026: the fallback is 0 ("not set"), matching
     # DEFAULT_SOLVER_FIXED_DAILY_CHARGE, not one household's retailer charge.
     fixed_daily_charge = sw._cfg_num(cfg, "solver_fixed_daily_charge", 0.0)
-    total_cost_with_fixed_costs = (
-        plan.total_cost or 0.0
-    ) + horizon_days * fixed_daily_charge
+    # Household, 20 Oct 2026: the export floor's penalty is a preference the
+    # LP pays, not money. The published plan cost, its breakdown and
+    # everything drawn from them leave it out, so they stay on the basis of
+    # the cost band (re-costed at real prices) and comparable with before the
+    # floor was set; the penalty is published on its own
+    # (`export_floor_penalty`). With the floor off it is 0 and nothing moves.
+    export_floor_penalty = float(getattr(plan, "export_floor_penalty_cost", 0.0) or 0.0)
+    plan_cost = (
+        None if plan.total_cost is None else plan.total_cost - export_floor_penalty
+    )
+    total_cost_with_fixed_costs = (plan_cost or 0.0) + horizon_days * fixed_daily_charge
 
     # Real battery throughput/cycling exposure (2026-08-21, direct Mark
     # Purcell finding, relayed via the household: "degradation isn't in
@@ -2422,7 +2420,7 @@ def publish_plan(
     # see compute_cost_breakdown()'s own docstring for the full reasoning.
     cost_breakdown = compute_cost_breakdown(
         net_costs=[period["net_cost"] for period in forecast],
-        total_cost=plan.total_cost,
+        total_cost=plan_cost,
         degradation_cost_per_kwh=sw._cfg_num(
             cfg, "solver_degradation_cost_per_kwh", 0.0
         ),
@@ -2434,7 +2432,6 @@ def publish_plan(
         period_hours=period_hours_arr,
         soc_penalty_cost=plan.soc_penalty_cost,
         grid_import_excess_penalty_cost=plan.grid_import_excess_penalty_cost,
-        export_floor_penalty_cost=getattr(plan, "export_floor_penalty_cost", 0.0),
     )
 
     cost_breakdown_by_day = compute_cost_breakdown_by_day(
@@ -2670,9 +2667,10 @@ def publish_plan(
             # residual math (compute_cost_breakdown()'s own
             # terminal_value_credit) still uses the raw, unrounded
             # plan.total_cost above -- only the published value changes.
-            "total_cost": round(plan.total_cost, 4)
-            if plan.total_cost is not None
-            else None,
+            "total_cost": round(plan_cost, 4) if plan_cost is not None else None,
+            # Household, 20 Oct 2026: the export floor's penalty, left out of
+            # total_cost and cost_breakdown (see plan_cost above).
+            "export_floor_penalty": round(export_floor_penalty, 4),
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
             # nimbus #1704: the same, per local day.

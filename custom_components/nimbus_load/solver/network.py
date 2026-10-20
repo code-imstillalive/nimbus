@@ -961,8 +961,9 @@ class Plan:
     # (the common case) or on a Plan built before this field existed.
     grid_import_excess_penalty_cost: float = 0.0
     # Household, 20 Oct 2026: the export floor's penalty in $ (GridConfig.
-    # export_floor_price). Part of total_cost, never of grid_net, so the
-    # cost breakdown lists it on its own line. 0.0 with the floor off.
+    # export_floor_price). Part of total_cost, never of grid_net; the
+    # published plan cost leaves it out and publishes it on its own. 0.0 with
+    # the floor off, and never charged on a committed (P2P) export.
     export_floor_penalty_cost: float = 0.0
     # nimbus issue #1480: the dollar total of the #731 round-trip-loss
     # tie-breaker (`charge_loss_cost`/`discharge_loss_cost`, capped at
@@ -2573,6 +2574,12 @@ def _build_plan_once(
     export_floor_penalty = export_floor_penalty_rates(
         effective_export_price, grid.export_floor_price
     )
+    # A committed export (a P2P block's fixed rate) is not a choice the floor
+    # can change: no penalty there, so it neither moves a decision nor shows
+    # up as a cost (household, 20 Oct 2026).
+    if grid.fixed_export_kw is not None:
+        committed = np.asarray(grid.fixed_export_kw, dtype=float)[:n] > 0
+        export_floor_penalty = np.where(committed, 0.0, export_floor_penalty)
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation

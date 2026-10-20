@@ -160,15 +160,19 @@ class TestThePlan:
             plan.grid_export_kw[6:], base.grid_export_kw[6:], atol=1e-6
         )
 
-    def test_the_penalty_is_its_own_line_and_the_breakdown_reconciles(self):
+    def test_the_penalty_is_counted_apart_from_the_plan_cost(self):
+        # The published plan cost leaves the floor's penalty out (it is a
+        # preference, not money), and the breakdown reconciles to that cost
+        # with no penalty line in it.
         full = _plan(floor=0.15, battery=_battery(initial_soc=CAPACITY))
         rates = network.export_floor_penalty_rates(full.effective_export_price, 0.15)
         expected = float(np.sum(rates * full.grid_export_kw * HOURS))
         assert expected > 0
         assert full.export_floor_penalty_cost == pytest.approx(expected, rel=1e-9)
+        plan_cost = full.total_cost - full.export_floor_penalty_cost
         breakdown = solver_publish.compute_cost_breakdown(
             net_costs=[0.0] * N,
-            total_cost=full.total_cost,
+            total_cost=plan_cost,
             degradation_cost_per_kwh=0.0,
             total_throughput_kwh=0.0,
             charge_cost=0.0,
@@ -176,11 +180,40 @@ class TestThePlan:
             discharge_cost_arr=np.zeros(N),
             battery_discharge_kw=np.zeros(N),
             period_hours=HOURS,
-            export_floor_penalty_cost=full.export_floor_penalty_cost,
         )
-        assert breakdown["export_floor_penalty"] == round(expected, 4)
-        assert sum(v for k, v in breakdown.items()) == pytest.approx(
-            full.total_cost, abs=1e-3
+        assert "export_floor_penalty" not in breakdown
+        assert sum(breakdown.values()) == pytest.approx(plan_cost, abs=1e-3)
+
+    def test_a_committed_p2p_export_carries_no_penalty(self):
+        # A P2P block's fixed rate below the floor: the floor cannot change
+        # it, so it is not charged, and the plan is the floor-off plan.
+        fixed = np.zeros(N)
+        fixed[6:9] = 5.0  # a 5 kW commitment, priced below the floor
+        export = EXPORT.copy()
+        export[6:9] = 0.10
+
+        def solve(floor):
+            return build_plan(
+                periods=PeriodGrid(hours=HOURS, start=START),
+                grid=GridConfig(
+                    import_price=IMPORT.copy(),
+                    export_price=export,
+                    import_limit_kw=60.0,
+                    export_limit_kw=40.0,
+                    fixed_export_kw=fixed,
+                    export_floor_price=floor,
+                ),
+                batteries=[_battery(initial_soc=CAPACITY)],
+                solar=SolarConfig(forecast_kw=np.zeros(N)),
+                loads=[LoadConfig(name="house", forecast_kw=LOAD.copy())],
+            )
+
+        floored, base = solve(0.15), solve(0.0)
+        assert floored.status == base.status == "optimal"
+        np.testing.assert_allclose(floored.grid_export_kw[6:9], 5.0, atol=1e-6)
+        assert floored.export_floor_penalty_cost == pytest.approx(0.0, abs=1e-9)
+        np.testing.assert_allclose(
+            floored.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-6
         )
 
     def test_a_negative_floor_is_refused(self):
