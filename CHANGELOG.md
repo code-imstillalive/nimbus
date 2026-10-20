@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Price sources table starts with the interval running now.** It
+  started at the next interval, so the first 5 minutes were missing. A
+  yellow **Now** column comes first: a **Settled** row with the price the
+  plan uses for this interval, each source's own price for it, and the
+  blend's gap to the settled price. The plan's `price_consolidation`
+  attribute carries it as `now` on each side.
+
 ## [0.94.473] - 2026-10-21
 
 **A new price source has to earn its place in the blend.** A price source
