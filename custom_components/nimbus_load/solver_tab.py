@@ -1001,14 +1001,34 @@ def _score_chart() -> dict[str, Any]:
     )
 
 
+# Household, 20 Oct 2026: two estimates of -$1,466 flattened a week of -$30 to
+# -$55 into one line along the top. Each point is clipped to the current plan
+# cost plus or minus three times its size (at least $50), and the note says
+# so; the live figures in the header stay unclipped.
+_COST_CLIP = (
+    "const c = parseFloat((hass.states['${@nimbus_solver_total_cost}'] || {}).state); "
+    "if (isNaN(c)) return x; "
+    "const r = Math.max(50, 3 * Math.abs(c)); "
+    "return Math.min(Math.max(x, c - r), c + r);"
+)
+
+
 def _cost_chart() -> dict[str, Any]:
-    hour = {"group_by": {"func": "last", "duration": "1h"}, "curve": "stepline"}
+    # Household, 20 Oct 2026: "say plan ahead but it ends on NOW on the right
+    # hand side... so it is a recorder of the past". It is: each point is a
+    # forward estimate, plotted when it was made.
+    hour = {
+        "group_by": {"func": "last", "duration": "1h"},
+        "curve": "stepline",
+        "transform": _COST_CLIP,
+    }
     return _apex(
-        "Plan-ahead cost, as estimated",
-        "Each point is the whole plan ahead (about four days) as estimated at "
-        "that moment, inside its best–worst range. The right-hand end is the "
-        "current plan; earlier points are earlier estimates, not money spent. "
-        "Below zero earns.",
+        "How the plan's 4-day estimate has moved",
+        "Each point is what the plan then expected the next four days to cost, "
+        "plotted when it was made: the right-hand end is now, the rest are past "
+        "estimates, not money spent. Below zero earns. Estimates beyond three "
+        "times today's figure (at least $50) are drawn at the edge, so a rare "
+        "spike does not flatten the week.",
         [
             {
                 "entity": "@nimbus_solver_cost_band_upper",
@@ -1784,7 +1804,11 @@ def template() -> list[dict[str, Any]]:
         _section([_styled(_energy_pie(), _FILL)], 2, half),
         banners["Plan"],
         _section([_chart()], 4),
-        _section([_styled(_prices_chart(), _FILL)], 4, {"rows": 7}),
+        # Household, 20 Oct 2026: on a first visit this chart drew a third of
+        # the width until a reload. It was the only full-width chart in a
+        # fixed-row cell with a height style on top; the battery chart above,
+        # with neither, draws full width, so this one now matches it.
+        _section([_prices_chart()], 4),
         *(
             _section([_styled(_price_day(k), _FILL_NO_SCROLL)], 1, {"rows": 5})
             for k in range(4)
