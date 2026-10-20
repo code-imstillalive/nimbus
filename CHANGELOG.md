@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The battery reserve now holds in every window, not only the one already
+  running.** A reserve window that opens later in the plan (tonight's 00:00,
+  seen from this morning) let the plan start the reserve at zero for free, so
+  it drew nothing and protected nothing: the plan sold the battery to its
+  minimum overnight below the release price, and a plan solved inside the
+  window then held it. A window now opens with the full reserve held, so every
+  kWh it lacks or loses costs the release price, the same as in a running
+  window (household, 20 Oct). If the battery would open a window short, the
+  plan may top it up beforehand when that costs less than the release price.
+
 - **Setup guide: which Features switches to set, and what the rest cost
   ([#1914](https://github.com/code-imstillalive/nimbus/issues/1914), Mark).**
   A default tier (calibrated objective on, auto-include solar on with Solcast,

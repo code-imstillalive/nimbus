@@ -4983,8 +4983,19 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
     With `reserve_period_indices` set, the reserve exists only in those
     periods: elsewhere held[t] is 0 and no drawn row is written, so leaving
     the window releases the held energy at no cost (it can then be sold at any
-    price), and entering it refills `held` up to the SoC for free, exactly as
-    period 0 does. None = every period, the original all-day reserve.
+    price). None = every period, the original all-day reserve.
+
+    Entering a window LATER in the horizon counts as held[t-1] = the full
+    reserve, so every kWh the window opens without -- or loses inside it -- is
+    drawn at the release price (household, 20 Oct 2026). Until then entry
+    was free: nothing made `held` start at the SoC, so the LP started it at 0,
+    drew nothing, and the reserve did nothing in any window that had not begun
+    when the plan was solved. The reference household's 10:00 plan sold its
+    battery from 17 % to 2 % at 03:00 at 27.5c against a 30c release price,
+    and drained it to 2 % inside the next night's window as well; a plan solved
+    inside the window held it. A window open at period 0 keeps held[-1] =
+    min(initial SoC, reserve): a battery already below the reserve is not
+    charged for energy it never had.
     """
     reserve = min(float(b.reserve_kwh), float(b.capacity_kwh))
     price = float(b.reserve_release_price)
@@ -5021,6 +5032,11 @@ def _add_soft_reserve(p, b, soc_vars: list[str], n: int) -> None:
         if t == 0:
             p.add_ub_constraint(
                 {held[0]: -1.0, drawn[0]: -1.0}, -initial, name=draw_name
+            )
+        elif not active[t - 1]:
+            # A window opening later: it starts from the full reserve.
+            p.add_ub_constraint(
+                {held[t]: -1.0, drawn[t]: -1.0}, -reserve, name=draw_name
             )
         else:
             p.add_ub_constraint(
