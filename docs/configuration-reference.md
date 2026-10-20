@@ -256,6 +256,7 @@ tune these directly, no need to re-run the wizard. Every entry in
 | `number.nimbus_solver_solar_running_low_confirm_minutes` | Solar Running Low Confirm: every reading must stay below *On Below* for this long before it turns on; 0 = on at the first low reading | 10.0 | 0-60 | min |
 | `number.nimbus_solver_battery_reserve_percent` | Battery Reserve: The bottom share of the battery kept back between the hold times | 0.0 | 0-100 | % |
 | `number.nimbus_solver_battery_reserve_release_price` | Battery Reserve Release Price: The reserve is sold only when the price beats this margin | 0.0 | 0-20 | $/kWh |
+| `number.nimbus_solver_export_floor_price` | Don't Sell Below: Under this export price, spare solar fills the battery before any is sold. A full battery still exports | 0.0 | 0-20 | $/kWh |
 | `number.nimbus_solver_period0_hysteresis` | Direction Change Margin: Keeps the battery charging, holding or discharging unless a switch saves more than this | 0.01 | 0-1 | $ |
 | `number.nimbus_solver_charge_taper_start_percent` | Charge Taper Start: SoC at which the charge limit starts to fall | 90.0 | 50-100 | % |
 | `number.nimbus_solver_charge_power_at_full_percent` | Charge Power at Full: Charge power left at 100% SoC, as % of max charge | 10.0 | 0-100 | % |
@@ -307,6 +308,15 @@ tune these directly, no need to re-run the wizard. Every entry in
   between *Hold from* and *Release at*, and sold only above *Release Price*.
   It is soft: a price above the release price, or an armed price spike,
   goes through it.
+- **Don't Sell Below** ($/kWh): below this export price, spare energy fills
+  the battery before any is sold. An exported kWh then counts as worth next to
+  nothing to the plan, so storing wins whenever the battery has room. It is not
+  a hard rule: a full battery still exports (curtailing would earn nothing), and
+  at or above it the plan decides on price as before. It also stops the
+  *Direction Change Margin* from holding the battery idle while the current
+  period exports below it, and its cost is listed apart as
+  `cost_breakdown.export_floor_penalty`, so `grid_net` stays real money.
+  0 = off.
 - **Direction Change Margin** (#1654): a new plan only switches the battery
   between charging, holding and discharging when the switch saves more than
   this over the plan. It stops the battery flipping modes for fractions of a

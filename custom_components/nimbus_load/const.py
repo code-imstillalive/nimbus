@@ -1543,6 +1543,16 @@ CONF_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = (
     "solver_battery_reserve_release_price"
 )
 DEFAULT_SOLVER_BATTERY_RESERVE_RELEASE_PRICE: Final = 0.0
+# Household, 20 Oct 2026: "Don't sell below" ($/kWh). Below this export price
+# an exported kWh is worth next to nothing to the plan, so energy that could
+# go into the battery is stored instead of sold cheaply; a full battery still
+# exports, and at or above it the plan decides on price as before. Not a hard
+# override ("it should not be authoritarian overrides... but should stop it
+# from selling cheap"). It also stops the direction-change margin from
+# holding the battery idle while period 0 exports below it. 0 (the default)
+# = off, plans unchanged. See solver/elements.py's GridConfig.
+CONF_SOLVER_EXPORT_FLOOR_PRICE: Final = "solver_export_floor_price"
+DEFAULT_SOLVER_EXPORT_FLOOR_PRICE: Final = 0.0
 # nimbus issue #1654, option A: keep the battery's period-0 direction
 # (charge / hold / discharge, the dispatch deadband's three classes) unless
 # switching saves more than this ($ over the horizon). 18 Oct 05:25-06:56 the

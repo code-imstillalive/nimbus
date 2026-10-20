@@ -1321,6 +1321,7 @@ def compute_quality_report(
         + float(getattr(oracle_plan, "battery_charge_earliness_cost", 0.0) or 0.0)
         + float(getattr(oracle_plan, "soc_penalty_cost", 0.0) or 0.0)
         + float(getattr(oracle_plan, "grid_import_excess_penalty_cost", 0.0) or 0.0)
+        + float(getattr(oracle_plan, "export_floor_penalty_cost", 0.0) or 0.0)
         + _curtailment_repricing(
             oracle_plan,
             hours=hours,

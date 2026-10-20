@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The battery reserve now holds in every window, not only the one already
+  running.** A reserve window that opens later in the plan (tonight's 00:00,
+  seen from this morning) let the plan start the reserve at zero for free, so
+  it drew nothing and protected nothing: the plan sold the battery to its
+  minimum overnight below the release price, and a plan solved inside the
+  window then held it. A window now opens with the full reserve held, so every
+  kWh it lacks or loses costs the release price, the same as in a running
+  window (household, 20 Oct). If the battery would open a window short, the
+  plan may top it up beforehand when that costs less than the release price.
+
 - **The Solver tab's cost chart says what it is** (household, 20 Oct): *How
   the plan's 4-day estimate has moved*. Each point is what the plan then
   expected the next four days to cost, plotted when it was made, so the
@@ -37,6 +47,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   When the recorder's newest change trails the live sensor's by more than 5
   minutes, the gate now reports `recorder_behind` and is off, like any other
   case where it cannot judge.
+
+- **Don't sell below: spare solar fills the battery before it is sold
+  cheaply** (household, 20 Oct). A new Solver setting, `number.nimbus_solver_
+  export_floor_price` ($/kWh, 0 = off). Below it, an exported kWh is worth next
+  to nothing to the plan, so energy that could go into the battery is stored
+  rather than sold; a full battery still exports, and at or above it the plan
+  decides on price as before. The direction-change margin no longer holds the
+  battery idle while the current period exports below it (published as
+  `period0_hysteresis: export_floor`). Its cost is its own line,
+  `cost_breakdown.export_floor_penalty`. The daily score's perfect-foresight
+  plan doesn't use it: it's a preference, not a price.
 
 - **Price sources table: 30 slots, not 24.** On a wide screen the right fifth
   of the Solver tab's Price sources table stood empty; it now shows each
