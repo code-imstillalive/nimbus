@@ -60,3 +60,10 @@ averaged away.** In any period where a source forecasts at or above your
 *Price Spike Threshold*, the highest source is used. In a dry run, a median
 that dropped a real spike only one source saw would have cost about $250
 ([#1786](https://github.com/code-imstillalive/nimbus/issues/1786)).
+
+The Solver tab's **Price sources** table shows them side by side: each
+source's share of the blend and how far off it has been, then the prices.
+The first price column, **Now** (yellow), is the interval running now: the
+**Settled** row is the price the plan uses for it, and each source's own
+price for it sits beside it. The next intervals follow, with the **Blend**
+and its **Gap** to your provider below.

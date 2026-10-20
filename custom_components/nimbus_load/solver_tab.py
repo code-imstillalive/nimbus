@@ -402,7 +402,10 @@ _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDAT
 # the consolidation reads, how accurate each has been, its weight, and its
 # own price for the next slots beside the blend. One row and one column per
 # source the install has; a single source says there is nothing to blend.
-# No fixed height: the section is as tall as its content.
+# No fixed height: the section is as tall as its content. Household, 21 Oct
+# 2026: a yellow, bold Now column first, for the interval running now, with
+# a Settled row for the price the plan uses for it.
+_NOW_COLOUR = "gold"
 _CONSOLIDATION_SOURCES = {
     "type": "markdown",
     "content": (
@@ -425,23 +428,35 @@ _CONSOLIDATION_SOURCES = {
         "{% set nx = imp.get('next') or {} %}{% set times = nx.get('times') or [] %}"
         "{% set srcs = nx.get('sources') or {} %}{% set blend = nx.get('consolidated') or [] %}"
         "{% set prim = srcs.get('primary') or [] %}"
+        "{% set nw = imp.get('now') or {} %}{% set nsrc = nw.get('sources') or {} %}"
+        f"{{% set y = '{_NOW_COLOUR}' %}}"
+        "{% macro c(v) %}{{ ((v * 100) | round(1)) if v is not none else '—' }}{% endmacro %}"
         "{% set buckets = ['0-5 min', '5-60 min', '1-4 h', '4-24 h'] %}"
         "| Source | Share | Off 5 min | Off 1 h | Off 4 h | Off 24 h "
+        "{% if nw %}| <font color='{{ y }}'>**Now {{ as_timestamp(nw.get('time')) | timestamp_custom('%H:%M') }}**</font> {% endif %}"
         "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
-        "|---|---|---|---|---|---{% for t in times %}|---{% endfor %}|\n"
+        "|---|---|---|---|---|---{% if nw %}|---{% endif %}{% for t in times %}|---{% endfor %}|\n"
+        "{% if nw %}| <font color='{{ y }}'>**Settled**</font> | | | | | "
+        "| <font color='{{ y }}'>**{{ c(nw.get('settled')) }}**</font> "
+        "{% for t in times %}| {% endfor %}|\n{% endif %}"
         "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
         "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
         "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
+        "{% if nw %}| <font color='{{ y }}'>**{{ c(nsrc.get(n)) }}**</font> {% endif %}"
         "{% for i in range(times | length) %}| {{ ((v[i] * 100) | round(1)) if i < v | length and v[i] is not none else '—' }} {% endfor %}|\n"
         "{% endfor %}"
         "{% if times %}"
         "| **Blend** | | | | | "
+        "{% if nw %}| <font color='{{ y }}'>**{{ c(nw.get('consolidated')) }}**</font> {% endif %}"
         "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
         "| <font color='violet'>Gap</font> | | | | | "
+        "{% if nw %}{% set b = nw.get('consolidated') %}{% set p0 = nw.get('settled') %}"
+        "| {% if b is not none and p0 is not none %}<font color='violet'>**{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}**</font>{% endif %} {% endif %}"
         "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
         "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
         "{% endif %}"
-        "\n*Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. Prices in ¢/kWh.*"
+        "\n*Now: the interval running now; Settled is the price the plan uses for it. "
+        "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. Prices in ¢/kWh.*"
         "{% endif %}"
     ),
 }
