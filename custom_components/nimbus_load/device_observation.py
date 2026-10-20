@@ -20,6 +20,20 @@ so the gate compares values, not code paths:
   units and sign, and **None** (missing) for anything it cannot resolve.
 * `differences()` lists every input whose entity or value differs.
 
+Two rules for the Forecaster in `active`, decided by Mark Purcell on #1574
+(21 Oct 2026, from #1947's gate):
+
+* **A missing reading is held, never zero** (`ObservationHold`): the last
+  good value is carried, marked `held_stale`, for up to the binding's own
+  max age (`normalization.freshness.max_interval_s`, else DC-002's default),
+  then the input is `absent` (readiness reports that once the Forecaster
+  reads these inputs; that move is its own PR). DC-002's "a stale value
+  is carried and flagged, not nulled", applied to the Forecaster.
+* **Each model keeps the sign it was trained with** (`feature_value`): the
+  contract's battery power is discharge-positive, but a model trained on a
+  charge-positive sensor is fed that sign until its next nightly retrain,
+  so switching to `active` changes no model's inputs.
+
 Pure: no Home Assistant import. Nothing here changes what any consumer
 reads; the slice that moves the Forecaster uses this to show, before it
 merges, exactly what would change.
@@ -49,6 +63,10 @@ OBSERVATION_INPUTS: dict[str, tuple[str, str, str]] = {
 }
 
 Reader = Callable[[str], Mapping[str, Any] | None]
+
+#: Sign conventions a Forecaster model can have been trained on.
+TRAINED_NATIVE = "native"
+TRAINED_CANONICAL = "canonical"
 
 #: `const.SUBENTRY_TYPE_SIGNAL`, kept literal so this module stays importable
 #: without Home Assistant.
@@ -111,22 +129,84 @@ def legacy_inputs(
     return out
 
 
+def _binding(document: Mapping[str, Any], device: str, role: str) -> Mapping:
+    for d in document.get("devices") or []:
+        if d.get("id") == device:
+            return ((d.get("bindings") or {}).get(role)) or {}
+    return {}
+
+
+def max_age_s(binding: Mapping[str, Any]) -> float:
+    """How long a missing reading is held: the binding's own declared
+    interval, else DC-002's default."""
+    rule = (binding.get("normalization") or {}).get("freshness") or {}
+    limit = rule.get("max_interval_s")
+    if isinstance(limit, (int, float)) and not isinstance(limit, bool) and limit > 0:
+        return float(limit)
+    return float(db.DEFAULT_MAX_AGE_S)
+
+
+class ObservationHold:
+    """The last good value of each observation input, for `active`."""
+
+    def __init__(self) -> None:
+        self._last: dict[str, tuple[float, datetime]] = {}
+
+    def apply(
+        self, name: str, value: float | None, now: datetime, max_age: float
+    ) -> tuple[float | None, str]:
+        """(value to feed, state): `valid` for a fresh reading, `held_stale`
+        for the last good one within `max_age` seconds, else `absent`."""
+        if value is not None:
+            self._last[name] = (value, now)
+            return value, "valid"
+        last = self._last.get(name)
+        if last is not None and (now - last[1]).total_seconds() <= max_age:
+            return last[0], "held_stale"
+        return None, "absent"
+
+
 def contract_inputs(
-    document: Mapping[str, Any], read_state: Reader, now: datetime
+    document: Mapping[str, Any],
+    read_state: Reader,
+    now: datetime,
+    hold: ObservationHold | None = None,
 ) -> dict[str, dict[str, Any]]:
-    devices = {d.get("id"): d for d in document.get("devices") or []}
     readers = db.Readers(state=read_state)
     out: dict[str, dict[str, Any]] = {}
     for name, (_option, device, role) in OBSERVATION_INPUTS.items():
-        binding = ((devices.get(device) or {}).get("bindings") or {}).get(role) or {}
+        binding = _binding(document, device, role)
         entity = (binding.get("source") or {}).get("entity_id")
         got = db.resolve(document, device, role, readers, now)
-        out[name] = {
+        value = getattr(got, "value", None)
+        row = {
             "entity_id": entity,
-            "value": getattr(got, "value", None),
+            "value": value,
             "reason": getattr(got, "reason", None),
         }
+        if hold is not None:
+            row["value"], row["state"] = hold.apply(
+                name, value, now, max_age_s(binding)
+            )
+        out[name] = row
     return out
+
+
+def feature_value(
+    document: Mapping[str, Any], name: str, value: float | None, trained: str
+) -> float | None:
+    """`value` (canonical) in the sign a model was `trained` on: a model
+    trained on the sensor's native sign gets it back in that sign."""
+    if value is None or trained == TRAINED_CANONICAL:
+        return value
+    _option, device, role = OBSERVATION_INPUTS[name]
+    norm = _binding(document, device, role).get("normalization") or {}
+    native, canonical = (
+        norm.get("native_positive_direction"),
+        norm.get("positive_direction"),
+    )
+    flipped = bool(native and canonical and native != canonical)
+    return -value + 0.0 if flipped else value
 
 
 def differences(

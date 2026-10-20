@@ -117,6 +117,74 @@ def test_the_legacy_side_matches_the_forecasters_own_reader():
     assert do.legacy_value(_st("2.5", None)) == 2.5
 
 
+# --- Mark Purcell's two decisions on #1574 (21 Oct 2026) ----------------------
+
+
+def test_a_missing_reading_is_held_up_to_the_bindings_max_age_then_absent():
+    """Decision 2: never a fabricated 0. The last good reading is carried as
+    `held_stale` within the binding's max age (DC-002's default here: F10
+    declares none), then the input is `absent`."""
+    from datetime import timedelta
+
+    doc = di.import_legacy(copy.deepcopy(F10)).document
+    hold = do.ObservationHold()
+    first = do.contract_inputs(doc, NORMAL.get, NOW, hold)
+    assert first["grid_power"] == {
+        "entity_id": "sensor.meter_power",
+        "value": 1.5,
+        "reason": None,
+        "state": "valid",
+    }
+    down = {**NORMAL, "sensor.meter_power": _st("unavailable", "W")}
+    age = do.max_age_s({})
+    soon = do.contract_inputs(doc, down.get, NOW + timedelta(seconds=age), hold)
+    assert (soon["grid_power"]["value"], soon["grid_power"]["state"]) == (
+        1.5,
+        "held_stale",
+    )
+    late = do.contract_inputs(doc, down.get, NOW + timedelta(seconds=age + 1), hold)
+    assert (late["grid_power"]["value"], late["grid_power"]["state"]) == (
+        None,
+        "absent",
+    )
+
+
+def test_the_max_age_is_the_bindings_own_when_it_declares_one():
+    declared = {
+        "normalization": {"freshness": {"mode": "sampled", "max_interval_s": 90}}
+    }
+    assert do.max_age_s(declared) == 90.0
+    assert do.max_age_s({}) == do.db.DEFAULT_MAX_AGE_S
+
+
+def test_each_model_is_fed_the_sign_it_was_trained_with():
+    """Decision 1: the contract's battery power is discharge-positive (-2.0
+    for F10's charge-positive sensor at 2.0 kW); a model trained on the
+    sensor's own sign keeps getting +2.0 until it retrains."""
+    doc = di.import_legacy(copy.deepcopy(F10)).document
+    contract = do.contract_inputs(doc, NORMAL.get, NOW)
+    canonical = contract["battery_power"]["value"]
+    assert canonical == -2.0
+    assert do.feature_value(doc, "battery_power", canonical, do.TRAINED_NATIVE) == 2.0
+    assert (
+        do.feature_value(doc, "battery_power", canonical, do.TRAINED_CANONICAL) == -2.0
+    )
+    # Inputs whose sign the contract does not change are passed through.
+    assert do.feature_value(doc, "grid_power", 1.5, do.TRAINED_NATIVE) == 1.5
+    assert do.feature_value(doc, "battery_power", None, do.TRAINED_NATIVE) is None
+
+
+def test_both_decisions_are_in_the_approved_changes_ledger():
+    import json
+    from pathlib import Path
+
+    ledger = json.loads(
+        (Path(__file__).parent / "approved_changes.json").read_text(encoding="utf-8")
+    )
+    fields = {c["field"] for c in ledger["changes"] if c["fixture"] == "F10"}
+    assert {"forecaster_battery_feature", "forecaster_observation_value"} <= fields
+
+
 # --- Mark Purcell's #1947 finding: the Forecaster's own filters -----------------
 
 
