@@ -29,6 +29,22 @@ the combined price only once it has a weight.
   sensor with no unit, or a misspelt one, can be given a declared W or kW
   ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)).
 
+- Devhub validation: **confirmed live on devhub at b750a8e8**, installed
+  untagged via HACS from `release/0.94.473` and restarted at 06:35 AEST on
+  21 Oct. devhub's own per-battery SoC sensors published on 0.94.473 at
+  06:36:39. The log shows only the devhub-only baseline (duplicate unique
+  IDs, the test EV below its floor and short of its departure target,
+  Forecaster drift notes, recorder attribute sizes); nothing from this
+  release.
+  - **Not claimed live:** the blend leaving an unscored source out. devhub's
+    own plan entity loses its id to production's mirror, and consolidation is
+    in shadow. Covered by `tests/test_1786_price_consolidation.py` and the
+    spike dry run (`scripts/price_consolidation_dryrun.py`, EARNED rule).
+    The declared-unit rule does nothing outside `active`.
+- Consumer check: on the Solver tab's Price sources table, a source added
+  less than 50 settled readings ago shows no share, and the Blend row follows
+  the scored sources only.
+
 ## [0.94.472] - 2026-10-20
 
 **Spare solar into the battery, and price sources found for you.** A new
