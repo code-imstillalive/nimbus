@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A hint to soak up spare solar: `absorb_surplus`** (household, 20 Oct).
+  A dispatcher that commands the plan's exact charge kW leaves solar beyond
+  what the plan counted on nowhere to go but the grid (the plan planned 0.8 kW
+  of charging while 3.5 kW was exported). The plan sensor now publishes
+  `absorb_surplus` (true or false) and `absorb_surplus_reason`. It is true
+  when, this period, *Don't sell below* is set and the export price is below
+  it, there is spare solar, and the plan is charging from solar or holding
+  (not discharging, not charging from the grid), outside a P2P block and a
+  price spike. A dispatcher can then let the inverter self-consume, so every
+  spare kW goes into the battery. Nimbus commands nothing; it is a hint.
+
 ## [0.94.471] - 2026-10-20
 
 **The plan cost no longer moves when you set Don't sell below.** The floor's

@@ -1193,6 +1193,58 @@ def _dispatch_hold(
     return abs(grid_import_kw - grid_export_kw) > DISPATCH_HOLD_GRID_KW
 
 
+# Household, 20 Oct 2026: a kW below which a planned flow counts as none, for
+# absorb_surplus below (the dispatch deadband's own order of magnitude).
+ABSORB_SURPLUS_TOL_KW = 0.05
+
+
+def absorb_surplus(
+    *,
+    battery_kw: float,
+    grid_to_battery_kw: float,
+    solar_kw: float,
+    load_kw: float,
+    export_price: float | None,
+    export_floor: float,
+    committed_export_kw: float,
+    price_spike: bool,
+) -> tuple[bool, str]:
+    """Whether a dispatcher should let the inverter soak up ALL spare solar
+    this period (self-consume) rather than charge at the plan's exact kW or
+    hold the battery still, and why (household, 20 Oct 2026).
+
+    A dispatcher that commands the plan's kW charges at exactly that power;
+    solar beyond what the plan counted on (it plans on the risk-adjusted,
+    lower forecast) has nowhere to go but the grid. On the reference household
+    at 09:47 the plan said charge 0.8 kW and 3.5 kW of spare solar was
+    exported. True only when every one of these holds for period 0:
+
+    - the export floor is set and this period's export price is below it, so
+      selling the spare solar is what the household asked not to do;
+    - there is spare solar (the plan's own period-0 solar above the load);
+    - the plan is not discharging, and not charging from the grid (a solar
+      charge or a hold: self-consume cannot charge from the grid);
+    - no P2P block is committed and no price spike is active.
+
+    Never raises: anything missing reads as False with its reason."""
+    tol = ABSORB_SURPLUS_TOL_KW
+    if export_floor <= 0:
+        return False, "floor_off"
+    if price_spike:
+        return False, "price_spike"
+    if committed_export_kw > tol:
+        return False, "p2p_block"
+    if battery_kw > tol:
+        return False, "discharging"
+    if grid_to_battery_kw > tol:
+        return False, "grid_charging"
+    if solar_kw <= load_kw + tol:
+        return False, "no_spare_solar"
+    if export_price is None or export_price >= export_floor:
+        return False, "export_above_floor"
+    return True, "spare_solar_below_floor"
+
+
 def _dispatch_source_breakdown(
     battery_kw: float,
     solar_kw_i: float,
@@ -2188,6 +2240,25 @@ def publish_plan(
         corrected_battery_discharge_kw,
         plan.grid_export_kw,
     )
+    # Household, 20 Oct 2026: see absorb_surplus().
+    _fixed0 = (
+        float(np.asarray(grid.fixed_export_kw, dtype=float)[0])
+        if getattr(grid, "fixed_export_kw", None) is not None
+        and len(grid.fixed_export_kw)
+        else 0.0
+    )
+    absorb_now = absorb_surplus(
+        battery_kw=float(net_battery[0]) if len(net_battery) else 0.0,
+        grid_to_battery_kw=float(flow_decomp[0]["grid_to_battery"])
+        if flow_decomp
+        else 0.0,
+        solar_kw=float(solar_kw[0]) if len(solar_kw) else 0.0,
+        load_kw=float(load_kw[0]) if len(load_kw) else 0.0,
+        export_price=_effective_at(plan.effective_export_price, 0, 6),
+        export_floor=max(0.0, sw._cfg_num(cfg, "solver_export_floor_price", 0.0)),
+        committed_export_kw=_fixed0,
+        price_spike=bool(price_spike_active),
+    )
     flow_econ = _compute_flow_economics(
         flow_decomp,
         import_price,
@@ -2671,6 +2742,10 @@ def publish_plan(
             # Household, 20 Oct 2026: the export floor's penalty, left out of
             # total_cost and cost_breakdown (see plan_cost above).
             "export_floor_penalty": round(export_floor_penalty, 4),
+            # Household, 20 Oct 2026: let the inverter soak up all spare solar
+            # this period (see absorb_surplus()).
+            "absorb_surplus": absorb_now[0],
+            "absorb_surplus_reason": absorb_now[1],
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
             # nimbus #1704: the same, per local day.
