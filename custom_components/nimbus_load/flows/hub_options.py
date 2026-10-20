@@ -513,6 +513,17 @@ def _solver_sources_schema(
     # mid-restart before every Nimbus forecast entity has published --
     # must be folded back into the list, or this step can never be
     # submitted and no Solver setting can be changed at all.
+    # Household, 20 Oct 2026 (1.0.0's one-click install, #1930): with no
+    # saved choice and exactly ONE whole-house forecast found, that one is the
+    # answer -- Nimbus created it, so the household should not have to find
+    # its entity id (setup guide, "Find the forecast you just created"). Two
+    # or more and nothing is guessed. Taken before the saved value is folded
+    # in below, so a saved value always wins.
+    load_forecast_default = defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR) or (
+        single_load_forecast_candidates[0]
+        if single_load_forecast_candidates and len(single_load_forecast_candidates) == 1
+        else None
+    )
     single_load_forecast_candidates = _with_saved_values(
         single_load_forecast_candidates,
         defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
@@ -562,7 +573,7 @@ def _solver_sources_schema(
             # below for the precise "why not the aggregate" reasoning).
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR,
-                default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
+                default=load_forecast_default,
             ): _entity(include_entities=single_load_forecast_candidates),
             # Both new, optional, real-bug-fix fields (2026-08-23, issue
             # #56) -- blank/empty is a complete no-op on every install

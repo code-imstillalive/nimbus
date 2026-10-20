@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver wizard fills in your whole-house load forecast** (1.0.0
+  one-click install,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). When you
+  have created exactly one whole-house Power Signal and not yet chosen one,
+  the *household load forecast* field now arrives filled with it, so there is
+  no entity id to look up. With two or more nothing is guessed, and a choice
+  you have saved always stays.
+
 ## [0.94.471] - 2026-10-20
 
 **The plan cost no longer moves when you set Don't sell below.** The floor's
