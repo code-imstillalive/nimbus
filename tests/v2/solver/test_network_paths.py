@@ -4,7 +4,8 @@ score found only the old tests checking (seed 1837, old 22/30, new 20/30).
 Each states what the LP is for, with its own oracle: a plan imports up to
 its own limit, a thermal load with no weather forecast is the flat model,
 the spike override lifts a committed export only in period 0, and the
-earliness tie-breaks cost nothing at the plan's first instant.
+earliness tie-breaks (adequacy and thermal) cost nothing at the plan's
+first instant.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver.elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -189,3 +191,92 @@ def test_a_plan_exports_up_to_its_own_export_limit(n, width, limit, import_share
     )
     assert plan.status == "optimal"
     np.testing.assert_allclose(plan.grid_export_kw, limit, atol=1e-6)
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=3, max_value=12),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    _num(0.5, 3.0),
+    _num(0.05, 0.5),
+)
+def test_an_adequacy_load_run_at_the_first_instant_costs_no_earliness(
+    n, width, power, price
+):
+    """The earliness tie-break charges each kWh by how far into the plan it
+    runs: at the plan's first instant that is nothing. A load that can run
+    only in period 0 costs the same with the tie-break on or off."""
+
+    def plan_with(budget):
+        return build_plan(
+            periods=PeriodGrid(np.full(n, width)),
+            grid=GridConfig(
+                import_price=np.full(n, price),
+                export_price=np.zeros(n),
+                import_limit_kw=power + 5.0,
+                export_limit_kw=5.0,
+            ),
+            batteries=[_idle_battery()],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+            adequacy_loads=[
+                AdequacyLoadConfig(
+                    name="pool",
+                    max_power_kw=power,
+                    target_kwh=power * width,
+                    earliest_period=0,
+                    deadline_period=0,
+                    shortfall_price=20.0,
+                )
+            ],
+            adequacy_earliness_budget_kw=budget,
+        )
+
+    off, on = plan_with(0.0), plan_with(1.0)
+    assert off.status == on.status == "optimal"
+    assert abs(on.total_cost - off.total_cost) <= 1e-9 * max(1.0, abs(off.total_cost))
+
+
+@SETTINGS
+@given(
+    st.sampled_from([0.25, 0.5]),
+    _num(1.0, 4.0),
+    _num(1.0, 8.0),
+    _num(0.05, 0.5),
+)
+def test_a_thermal_load_on_a_price_tie_heats_at_the_first_instant(
+    width, power, rate, price
+):
+    """The thermal earliness tie-break charges each kWh by how far into the
+    plan it runs, nothing at the first instant: with two equally priced
+    periods and heat enough for one, all of it goes in period 0."""
+    n = 2
+    start = 40.0
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, price),
+            export_price=np.zeros(n),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        thermal_loads=[
+            ThermalLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                initial_temperature_c=start,
+                target_temperature_c=start + rate * power * width,
+                earliest_period=0,
+                deadline_period=1,
+                heating_rate_c_per_kwh=rate,
+                idle_decay_c_per_hour=0.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    pw = plan.thermal_loads[0].power_kw
+    assert pw[1] <= 1e-6
+    assert abs(pw[0] - power) <= 1e-6
