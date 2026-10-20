@@ -107,6 +107,11 @@ def test_declare_leaves_the_input_alone_and_refuses_what_it_cannot_do():
     assert du.declare(original, "grid", "power", "MW") is None
     assert du.declare(original, "battery", "power", "kW") is None
     assert du.declare(original, "grid", "soc", "kW") is None
+    # A non-power role is refused even when that binding exists.
+    with_energy = copy.deepcopy(original)
+    grid = with_energy["devices"][0]["bindings"]
+    grid["import_energy"] = copy.deepcopy(grid["power"])
+    assert du.declare(with_energy, "grid", "import_energy", "kW") is None
 
 
 def test_a_declaration_survives_a_re_import_of_the_same_sensor():

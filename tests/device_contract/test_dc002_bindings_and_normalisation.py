@@ -1291,3 +1291,11 @@ def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power(
 def test_dc_r03_f09_a_declared_unit_must_itself_be_exact():
     got = _power("2.5", None, native_unit="kw")
     assert (got.value, got.reason) == (None, "declared_unit_invalid")
+
+
+def test_dc_r03_f09_an_invalid_declaration_refuses_even_a_valid_sensor_unit():
+    """Mark Purcell's review of #1942: a sensor stating a valid exact unit is
+    still refused when the binding's declared unit is not itself exact. The
+    declaration is wrong, and nothing here guesses past it."""
+    got = _power("2500", "W", native_unit="kw")
+    assert (got.value, got.reason) == (None, "declared_unit_invalid")

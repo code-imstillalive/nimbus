@@ -73,9 +73,11 @@ def declare(
     document: Mapping[str, Any], device_id: str, role: str, unit: str
 ) -> dict[str, Any] | None:
     """`document` with `unit` declared for one power binding, recorded as the
-    household's override; None when the binding is not there or `unit` is
-    not one a household may declare. The input is not changed."""
-    if unit not in DECLARABLE_UNITS:
+    household's override; None when the binding is not there, the role is
+    not a power role (Mark Purcell's review of #1943: explicit here, as in
+    `undeclared()`), or `unit` is not one a household may declare. The input
+    is not changed."""
+    if unit not in DECLARABLE_UNITS or db.DIMENSION.get(role) != "power":
         return None
     out = copy.deepcopy(dict(document))
     for device in out.get("devices") or []:
