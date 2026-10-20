@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Going live, step by step, with a ready-made automation** (1.0.0,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). A new
+  *Going live* guide takes a household from shadow to Nimbus driving the
+  battery: watch the plan in dry run, build your inverter's actions, create an
+  arm switch, import the **Nimbus battery dispatch** blueprint
+  (`blueprints/automation/nimbus/battery_dispatch.yaml`), and a supervised
+  first trial. The blueprint works with any inverter you can command from
+  Home Assistant: you give it your own actions for Charge, Discharge,
+  Self-Consume, Hold and a fallback. Nothing moves unless its arm switch is
+  on; switching it off runs the fallback; an unknown, failed or stale plan
+  runs the fallback, never a power command; power is capped; a minimum dwell
+  stops the battery flipping between modes; and spare solar is soaked up when
+  Nimbus says so.
+
 ## [0.94.473] - 2026-10-21
 
 **A new price source has to earn its place in the blend.** A price source

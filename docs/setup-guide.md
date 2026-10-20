@@ -1433,6 +1433,11 @@ and [card configuration](dashboards.md) for these separate mechanisms.
 
 ### Control-readiness gate
 
+The [Going live](going-live.md) guide walks through these steps, with a
+ready-made automation blueprint that covers the automation's side of this
+list.
+
+
 Before a supervised trial, verify each item:
 
 - [ ] The first-run acceptance checks in [§8](#8-check-it-actually-worked) pass.
