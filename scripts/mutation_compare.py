@@ -109,7 +109,9 @@ def _run(target: str, timeout: int) -> str:
         *args,
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout, check=False
+        )
     except subprocess.TimeoutExpired:
         return "killed (timeout)"
     return "survived" if r.returncode == 0 else "killed"
