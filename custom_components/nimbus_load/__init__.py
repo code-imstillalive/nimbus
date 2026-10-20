@@ -899,6 +899,12 @@ async def _async_setup_entry_impl(
             await device_contract_ha.async_check_drift(hass, entry)
         except Exception:  # a drift check fault must not stop the rest of setup
             _LOGGER.exception("Nimbus: device setup drift check failed")
+        # DC-006 observation slice (#1893): a power sensor with no unit, or a
+        # misspelt one, asks the household to declare it before `active`.
+        try:
+            await device_contract_ha.async_check_units(hass, entry)
+        except Exception:  # a unit check fault must not stop the rest of setup
+            _LOGGER.exception("Nimbus: device setup unit check failed")
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 

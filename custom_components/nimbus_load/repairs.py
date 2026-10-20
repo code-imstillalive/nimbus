@@ -83,6 +83,42 @@ class DeviceContractDriftFlow(RepairsFlow):
         return await self._apply("restore")
 
 
+class DeviceUnitFlow(RepairsFlow):
+    """One power sensor with no unit, or a misspelt one (DC-006 observation
+    slice; household, #1893): declare W or kW for it."""
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        self._item = data
+
+    async def async_step_init(self, user_input: dict[str, str] | None = None) -> Any:
+        import voluptuous as vol
+
+        from . import device_contract_ha, device_units
+
+        if user_input is not None:
+            entry = self.hass.config_entries.async_get_entry(
+                str(self._item.get("entry_id"))
+            )
+            if entry is None:
+                return self.async_abort(reason="no_longer_applies")
+            problem = await device_contract_ha.async_declare_unit(
+                self.hass,
+                entry,
+                str(self._item.get("device_id")),
+                str(self._item.get("role")),
+                str(user_input.get("unit")),
+            )
+            if problem:
+                return self.async_abort(reason=problem)
+            return self.async_create_entry(data={})
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {vol.Required("unit"): vol.In(list(device_units.DECLARABLE_UNITS))}
+            ),
+        )
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant, issue_id: str, data: dict[str, Any] | None
 ) -> RepairsFlow:
@@ -90,4 +126,6 @@ async def async_create_fix_flow(
         return SetupFillRepairFlow(dict(data))
     if data and data.get("kind") == "device_contract_drift":
         return DeviceContractDriftFlow(dict(data))
+    if data and data.get("kind") == "device_unit_undeclared":
+        return DeviceUnitFlow(dict(data))
     return ConfirmRepairFlow()

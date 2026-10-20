@@ -499,6 +499,9 @@ _DC_BUILDERS = frozenset(
         "readiness_sensor.py",
         # Discovery's proposal (DC-005).
         "device_discovery.py",
+        # DC-006 observation slice (#1893): which power sensors' units must
+        # be declared before `active`, and the declaration. Validation only.
+        "device_units.py",
     }
 )
 

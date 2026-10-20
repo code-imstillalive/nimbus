@@ -48,6 +48,7 @@ from . import (
     device_readiness,
     device_resolver,
     device_storage,
+    device_units,
 )
 from .const import DOMAIN
 
@@ -60,6 +61,9 @@ VIEW_REVISION_KEY = "device_contract_view_revision"
 ISSUE_INCONSISTENT = "device_contract_inconsistent"
 #: The fixable Repair raised for each drifted owned key (step 5c).
 ISSUE_DRIFT = "device_contract_drift"
+#: The fixable Repair raised for each power sensor whose unit the household
+#: must declare before `active` (DC-006 observation slice; #1893).
+ISSUE_UNIT = "device_unit_undeclared"
 #: hass.data key: one asyncio.Lock per entry, held by every commit.
 _LOCKS = f"{DOMAIN}_device_contract_locks"
 
@@ -349,9 +353,21 @@ async def _async_set_mode(hass: Any, entry: Any, mode: str) -> dict[str, Any]:
                 "mode": state["mode"],
                 **_preview_response(pv),
             }
+        # A unit the household declared in shadow survives the re-import.
+        document = device_units.carry_declared(state["document"], pv.document)
+        if mode == "active":
+            # #1893: `active` waits until every power sensor's unit is known.
+            pending = device_units.undeclared(document, _state_reader(hass))
+            if pending:
+                return {
+                    "ok": False,
+                    "code": "units_undeclared",
+                    "mode": state["mode"],
+                    "sensors": [p["entity_id"] for p in pending],
+                }
         committed = await store.async_commit(
             state["revision"],
-            pv.document,
+            document,
             origin="legacy_import",
             now=dt_util.utcnow(),
         )
@@ -425,6 +441,78 @@ async def async_check_drift(hass: Any, entry: Any) -> int:
             },
         )
     return len(items)
+
+
+def _unit_issue_id(entry_id: str, item: dict[str, Any]) -> str:
+    return f"{ISSUE_UNIT}_{entry_id}_{item['device_id']}_{item['role']}"
+
+
+async def async_check_units(hass: Any, entry: Any) -> int:
+    """Raise one fixable Repair per power sensor whose unit must be declared,
+    and clear the ones that no longer need it (DC-006 observation slice).
+    `shadow` and `active` only: in `legacy` nothing reads the contract.
+    Returns how many are pending."""
+    from homeassistant.helpers import issue_registry as ir
+
+    state = await _store(hass, entry).async_read()
+    items: list[dict[str, Any]] = []
+    if state["mode"] in ("shadow", "active") and state["document"] is not None:
+        items = device_units.undeclared(state["document"], _state_reader(hass))
+    wanted = {_unit_issue_id(entry.entry_id, item): item for item in items}
+    prefix = f"{ISSUE_UNIT}_{entry.entry_id}_"
+    registry = ir.async_get(hass)
+    for domain, issue_id in list(registry.issues):
+        if domain == DOMAIN and issue_id.startswith(prefix) and issue_id not in wanted:
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
+    for issue_id, item in wanted.items():
+        stated = item["stated_unit"]
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=ISSUE_UNIT,
+            translation_placeholders={
+                "entity_id": item["entity_id"],
+                "stated": f"'{stated}'" if stated not in (None, "") else "no unit",
+            },
+            data={
+                "kind": ISSUE_UNIT,
+                "entry_id": entry.entry_id,
+                "device_id": item["device_id"],
+                "role": item["role"],
+            },
+        )
+    return len(items)
+
+
+async def async_declare_unit(
+    hass: Any, entry: Any, device_id: str, role: str, unit: str
+) -> str | None:
+    """The household's answer to a unit Repair: commit `unit` as the
+    binding's declared unit, as a new revision. Returns None, or why not."""
+    async with _lock(hass, entry.entry_id):
+        store = _store(hass, entry)
+        state = await store.async_read()
+        if state["mode"] not in ("shadow", "active") or state["document"] is None:
+            return "not_in_use"
+        document = device_units.declare(state["document"], device_id, role, unit)
+        if document is None:
+            return "no_longer_applies"
+        origin = f"unit_declared:{device_id}.{role}"
+        if state["mode"] == "active":
+            result = await _async_commit_active(
+                hass, entry, state["revision"], document, origin
+            )
+            code = None if result["ok"] else result["code"]
+        else:
+            committed = await store.async_commit(
+                state["revision"], document, origin=origin, now=dt_util.utcnow()
+            )
+            code = None if committed.ok else committed.code
+    await async_check_units(hass, entry)
+    return code
 
 
 async def async_keep(
