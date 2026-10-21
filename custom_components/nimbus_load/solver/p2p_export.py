@@ -116,6 +116,15 @@ from .lp import LPProblem
 # price difference" guarantee this size is chosen to preserve.
 TIE_BREAK_EPSILON: float = 1e-7
 
+# nimbus #1964 (Mark Purcell's decision): on the secondary channel the
+# latest-preferred order is a lexicographic tie-break, so its size only
+# ranks it within the secondary objective; it never meets a real price.
+# 1e-7 per rank there fell inside HiGHS's tolerance and the bonus scattered
+# ON/OFF/ON when the cap left a partial period. This spans the whole day's
+# order across at most this much per kWh, so adjacent periods differ by
+# well above solver tolerance at any period count a day can have.
+SECONDARY_TIE_BREAK_SPAN: float = 1e-3
+
 
 def charging_ub_during_fixed_window(
     t: int, grid: GridConfig, max_charge_kw: float
@@ -359,6 +368,7 @@ def add_export_bonus_cumulative_caps(
     grid: GridConfig,
     *,
     label: str = "",
+    use_secondary: bool = False,
 ) -> None:
     """The per-real-calendar-day cumulative cap + latest-preferred
     tie-breaker, verbatim from network.py's own post-loop block (see that
@@ -418,8 +428,7 @@ def add_export_bonus_cumulative_caps(
             float(grid.export_bonus_volume_kwh),
             name=f"export_bonus_cap_global{label}",
         )
-        for rank, t in enumerate(ordered):
-            p.set_cost(export_bonus_vars[t], -TIE_BREAK_EPSILON * (rank + 1))
+        _rank_latest_first(p, export_bonus_vars, ordered, use_secondary)
         return
 
     # mypy issue #384: was dict[object, list[int]] -- `object` has no
@@ -442,5 +451,25 @@ def add_export_bonus_cumulative_caps(
         # grows with real chronological order within the day, so the
         # LAST real period of the day gets the most negative (most
         # preferred) cost.
-        for rank, t in enumerate(day_indices_sorted):
+        _rank_latest_first(p, export_bonus_vars, day_indices_sorted, use_secondary)
+
+
+def _rank_latest_first(
+    p: LPProblem,
+    export_bonus_vars: dict[int, str],
+    ordered: list[int],
+    use_secondary: bool,
+) -> None:
+    """Prefer the latest periods for the capped bonus volume. On the primary
+    channel (a plain solve), a 1e-7-per-rank nudge, as before. On the
+    secondary channel (#696's lexicographic/calibrated solves, what
+    production runs), the same order spread over SECONDARY_TIE_BREAK_SPAN
+    (nimbus #1964), with nothing added to the real objective."""
+    n = len(ordered)
+    for rank, t in enumerate(ordered):
+        if use_secondary:
+            p.set_secondary_cost(
+                export_bonus_vars[t], -SECONDARY_TIE_BREAK_SPAN * (rank + 1) / n
+            )
+        else:
             p.set_cost(export_bonus_vars[t], -TIE_BREAK_EPSILON * (rank + 1))

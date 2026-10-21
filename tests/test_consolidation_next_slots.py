@@ -71,3 +71,16 @@ def test_now_with_nothing_settled_or_no_periods():
     assert out["sources"] == {"primary": None}
     assert out["consolidated"] is None
     assert pc.now_slot({"primary": [0.2]}, [0.2], [], 0.2) == {}
+
+
+def test_the_providers_now_is_the_settled_price_when_its_series_is_empty():
+    """Live, 21 Oct 2026: the provider's series is masked to the periods its
+    forecast covers, so the running interval's slot was None and the Now
+    column showed a dash for the provider and no Gap."""
+    grid = _grid(3)
+    series = {"primary": [None, 0.3, 0.4], "retail_from_rrp": [0.1412, 0.3, 0.4]}
+    out = pc.now_slot(series, [0.1537, 0.3, 0.4], grid, 0.1472)
+    assert out["sources"] == {"primary": 0.1472, "retail_from_rrp": 0.1412}
+    # A real provider price for now is kept as it is.
+    series["primary"][0] = 0.15
+    assert pc.now_slot(series, [0.1537], grid, 0.1472)["sources"]["primary"] == 0.15

@@ -8,6 +8,123 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The export bonus is claimed in one block again**
+  ([#1964](https://github.com/code-imstillalive/nimbus/issues/1964)). With a
+  flat bonus price and a cap that leaves one period partly claimed, the bonus
+  could scatter ON/OFF/ON across the window (the lightning bolt dropping out),
+  because its latest-first tie-break was smaller than the solver's own
+  tolerance. It is now a tie-break on the secondary objective, as the other
+  tie-breaks have been since #696, so it no longer meets a real price. A plan
+  solved without the calibrated objective keeps the old tie-break.
+
+## [0.94.477] - 2026-10-21
+
+**Price sources learn each source's steady premium.** Another retailer's
+fees no longer pull the blend up or count as forecast error.
+
+- **Price sources: a steady premium is not forecast error (#1786).** A source
+  priced on another contract (e.g. a retailer that adds hedging and fees per
+  kWh) sits a steady amount above the provider's settled price. Each source's
+  signed error is now tracked per lead as a bias; its MAE scores what is left
+  after removing it, and once a source has earned a weight it joins the blend
+  with its bias removed, so the blend is no longer pulled up by another
+  contract's fees. The table still shows each source's own price, spikes are
+  still judged on raw prices, and the spread is unchanged. Shadow only while
+  consolidation is off.
+
+## [0.94.476] - 2026-10-21
+
+**The Now column shows your provider's price.** On the first live plan with
+0.94.475 the provider's cell under Now was a dash and the Gap was blank.
+
+- **The Now column shows your provider's price and the Gap.** On the first
+  live plan with 0.94.475, the provider's cell under Now was a dash and the
+  Gap under Now was blank: the provider's series covers only the periods its
+  forecast does, and the running interval is settled. The provider's price
+  for now is the price that settles for it, and the Now column shows it.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 43d97c16**,
+  installed untagged via HACS from `release/0.94.476` and restarted (the
+  recorder's run began 13:55:44 AEST, 21 Oct). devhub's own per-battery SoC
+  sensors published on 0.94.476 at 13:56:25. The log shows only the
+  devhub-only baseline (duplicate unique IDs, Forecaster entity renames left
+  in place); nothing from this release.
+  - **Not claimed live:** the provider's Now value. devhub's Price sources
+    card reads production's mirrored plan. The defect was seen live on
+    production's first 0.94.475 plan (13:36 AEST, `now.sources.primary =
+    None`); the fix is covered by `tests/test_consolidation_next_slots.py`
+    and the golden snapshots.
+- Consumer check: on the Solver tab, the Price sources Now column shows your
+  provider's price for the interval running now (the Whole Plan's Buy price
+  for that period) and a Gap under it.
+
+## [0.94.475] - 2026-10-21
+
+**Going live, and three fixes you can see.** A step-by-step guide and a
+ready-made automation for letting Nimbus drive the battery; the Price sources
+table's Now column as one column; Prices ahead full width on the first visit;
+and a deferrable load's value per kWh counted again without windows.
+
+- **The Price sources table's Now column is one column, no extra row**
+  (household, 21 Oct 2026). 0.94.474 added a *Settled* row under the header;
+  it is gone. The Now column shows each source's own price for the interval
+  running now, the blend, and the blend's gap to your provider, like every
+  other column.
+
+- **Prices ahead draws full width on the first visit.** On the Solver tab
+  the chart drew a third wide until you pressed F5: drawn from the plan alone,
+  it drew before its section had a width. It now waits for one hidden series
+  from history, as the battery chart above it does. Checked on devhub against
+  an unchanged copy and a redraw-on-resize copy: only this one was full width
+  on every first visit.
+
+- **Going live, step by step, with a ready-made automation** (1.0.0,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). A new
+  *Going live* guide takes a household from shadow to Nimbus driving the
+  battery: watch the plan in dry run, build your inverter's actions, create an
+  arm switch, import the **Nimbus battery dispatch** blueprint
+  (`blueprints/automation/nimbus/battery_dispatch.yaml`), and a supervised
+  first trial. The blueprint works with any inverter you can command from
+  Home Assistant: you give it your own actions for Charge, Discharge,
+  Self-Consume, Hold and a fallback. Nothing moves unless its arm switch is
+  on; switching it off runs the fallback; an unknown, failed or stale plan
+  runs the fallback, never a power command; power is capped; a minimum dwell
+  stops the battery flipping between modes; and spare solar is soaked up when
+  Nimbus says so. Each mode command, the fallback included, is re-sent after
+  a Home Assistant start and every 10 minutes (adjustable), so a lost command
+  is put right (Mark Purcell's review). `tests/test_battery_dispatch_blueprint.py`
+  runs the blueprint's own templates in CI and checks each of these
+  properties.
+
+- **A deferrable load's value per kWh counts again when it has no windows**
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)). Since
+  0.94.206 a deferrable load set up with a value per kWh but without
+  per-day windows ignored that value: with a cheap shortfall price it never
+  ran, even where its value was well above the price, and with a dear one it
+  ran only to avoid the shortfall. It now runs its target wherever its value
+  beats the price, as a windowed load already did. Loads with windows, and
+  loads with no value set, are unchanged.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 40af4d02**,
+  installed untagged via HACS from `release/0.94.475` and restarted (the
+  recorder's run began 13:23:30 AEST, 21 Oct). devhub's own per-battery SoC
+  sensors published on 0.94.475 at 13:24:52. The log shows only the
+  devhub-only baseline (duplicate unique IDs, Forecaster entity renames left
+  in place); nothing from this release. Prices ahead's hidden history series
+  was chosen by the household on devhub's own screen before this release:
+  full width on three first visits running, where an unchanged copy and a
+  redraw-on-resize copy needed a second visit. The one-column Price sources
+  card is on devhub's Solver tab and renders without error.
+  - **Not claimed live:** the Now column with real numbers. The card reads
+    production's mirrored plan, which is 0.94.473 and publishes no `now`.
+    Covered by `tests/test_price_sources_card.py`. The adequacy value credit:
+    not exercised on a live load; covered by
+    `tests/v2/solver/test_adequacy_value_credit.py`. The going-live blueprint
+    was exercised on devhub for #1955 (logbook-only actions), not again here.
+- Consumer check: on the Solver tab, Prices ahead is full width on the first
+  visit; the Price sources table's Now column is a single yellow column, with
+  no Settled row, once the plan publishes `now`.
+
 ## [0.94.474] - 2026-10-21
 
 **The Price sources table shows right now.** It starts with the interval

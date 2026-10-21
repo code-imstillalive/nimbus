@@ -66,6 +66,7 @@ def test_buy_and_sell_each_have_a_solid_provider_and_a_dashed_estimate_line():
         "Buy, Nimbus estimate",
         "Sell, forecast",
         "Sell, Nimbus estimate",
+        "First-load width",
     }
     for side, field, until in (
         ("Buy", "import_price", "import_price_provider_until"),
@@ -93,3 +94,17 @@ def test_four_equal_day_cards_follow_the_chart():
         assert f"timedelta(days={k})" in content
         assert "__K__" not in content
         assert "import_price_provider_until" in content
+
+
+def test_one_hidden_history_series_makes_the_chart_wait_for_its_width():
+    """Household, 21 Oct 2026: drawn from data_generators alone, the chart
+    drew before its section had a width and stayed a third wide until a
+    reload. A series read from history makes it wait, as the battery chart
+    does; it draws nothing and shows nowhere."""
+    sections, i = _prices_section()
+    chart = sections[i]["cards"][0]
+    from_history = [s for s in chart["series"] if "data_generator" not in s]
+    assert len(from_history) == 1
+    (gate,) = from_history
+    assert gate["entity"] == "@nimbus_solver_battery_forecast"
+    assert gate["show"] == {"in_chart": False, "in_header": False, "in_legend": False}
