@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.477] - 2026-10-21
+
+**Price sources learn each source's steady premium.** Another retailer's
+fees no longer pull the blend up or count as forecast error.
+
 - **Price sources: a steady premium is not forecast error (#1786).** A source
   priced on another contract (e.g. a retailer that adds hedging and fees per
   kWh) sits a steady amount above the provider's settled price. Each source's
