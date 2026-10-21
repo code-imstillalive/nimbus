@@ -66,6 +66,13 @@ the old file was written for and show both sets fail.
 
 ## Found while checking
 
+- **#481 with #897: past ~0.1/h a leakier tank plans less heat.** The coast
+  reference front-loads the decay steps and the idle-fraction scaling cancels
+  decay in the full-power periods where an early-heating plan sits, so total
+  counted decay falls (24 h, ambient 0 C: 6.13 kWh at 0.10, 6.01 at 0.15, 5.75 at
+  0.20). Monotone up to 0.1/h at every ambient scanned (0-30 C); a hot-water
+  tank is nearer 0.01-0.03/h. Found by the v2 property on CI; it now draws
+  0.005-0.09/h and says why.
 - **#1981:** a shut period's `LoadSignals.degenerate` followed HiGHS's
   unclamped ranging, so a sheddable load in the same solve turned it off on
   a `[0, 0]` band (published for period 0). The old file's check held only
