@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Price sources table's Now column is one column, no extra row**
+  (household, 21 Oct 2026). 0.94.474 added a *Settled* row under the header;
+  it is gone. The Now column shows each source's own price for the interval
+  running now, the blend, and the blend's gap to your provider, like every
+  other column.
+
 - **Prices ahead draws full width on the first visit.** On the Solver tab
   the chart drew a third wide until you pressed F5: drawn from the plan alone,
   it drew before its section had a width. It now waits for one hidden series
