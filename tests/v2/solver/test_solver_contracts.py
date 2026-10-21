@@ -34,6 +34,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   `infeasible`: only a model proved to have no plan is that (#356). Every
   solve carries the module's time limit, so a hard model cannot hold the
   caller's thread for ever.
+- With a previous plan, period 0 is anchored to what was dispatched (the
+  old plan's period 0), not to the old period its start falls in; every
+  later period keeps the old plan's timeline (#1576, #635; measured on #1417). A previous plan
+  older than one period is past, so containment holds for period 0 too.
 """
 
 from __future__ import annotations
@@ -55,7 +59,13 @@ from solver.elements import (
     SolarConfig,
 )
 from solver.lp import CalibratedOptions, LexOptions, LPProblem
-from solver.network import _infeasible_plan, build_plan
+from solver.network import (
+    BatteryPlan,
+    Plan,
+    _anchor_source,
+    _infeasible_plan,
+    build_plan,
+)
 from test_lp_properties import _build, problems
 from test_plan_invariants import SETTINGS, _num
 
@@ -500,3 +510,92 @@ def test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable():
         p.solve().sweep_cost_with_ranging("imp", [0.3])
     with pytest.raises(KeyError):
         p.solve(keep_basis=True).sweep_cost_with_ranging("nope", [0.3])
+
+
+def _previous(dispatched: float, planned: float, start: datetime) -> Plan:
+    """A tiered plan solved at `start`: a 1-minute period 0, then 5 minutes."""
+    discharge = np.array([dispatched, planned])
+    return Plan(
+        status="optimal",
+        periods=PeriodGrid(hours=np.array([1 / 60, 5 / 60]), start=start),
+        battery_charge_kw=np.zeros(2),
+        battery_discharge_kw=discharge,
+        battery_soc_kwh=np.array([29.8, 28.3]),
+        grid_import_kw=np.zeros(2),
+        grid_export_kw=discharge - 2.0,
+        export_bonus_kw=np.zeros(2),
+        solar_used_kw=np.zeros(2),
+        solar_curtailed_kw=np.zeros(2),
+        sheddable_loads=[],
+        adequacy_loads=[],
+        total_cost=None,
+        soc_penalty_cost=0.0,
+        iterations=0,
+        batteries=[
+            BatteryPlan(
+                name="home",
+                charge_kw=np.zeros(2),
+                discharge_kw=discharge,
+                soc_kwh=np.array([29.8, 28.3]),
+            )
+        ],
+    )
+
+
+@SETTINGS
+@given(_num(3.0, 20.0), _num(3.0, 20.0), st.sampled_from([0, 30, 60]))
+def test_period_0_holds_what_was_dispatched(dispatched, planned, seconds):
+    """Economics near-indifferent (export margin 0.1c over wear), so the
+    anchor decides. A solve inside old period 0 or 1 holds the dispatched
+    rate in period 0; periods inside old period 1 follow its plan."""
+    if abs(dispatched - planned) < 2.0:
+        return
+    t0 = datetime(2026, 10, 2, 10, 0, tzinfo=UTC)
+    n = 5
+    plan = build_plan(
+        periods=PeriodGrid(
+            hours=np.array([1 / 60] * 4 + [5 / 60]),
+            start=datetime(2026, 10, 2, 10, 0, seconds, tzinfo=UTC)
+            if seconds < 60
+            else datetime(2026, 10, 2, 10, 1, tzinfo=UTC),
+        ),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.11),
+            import_limit_kw=30.0,
+            export_limit_kw=25.0,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=40.0,
+                initial_soc_kwh=30.0,
+                min_soc_kwh=4.0,
+                max_soc_kwh=40.0,
+                max_charge_kw=25.0,
+                max_discharge_kw=25.0,
+                charge_efficiency=0.98,
+                discharge_efficiency=0.98,
+                charge_cost=0.01,
+                discharge_cost=0.099,
+                salvage_value=0.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        previous_plan=_previous(dispatched, planned, t0),
+        proximal_weight=0.005,
+    )
+    assert plan.status == "optimal"
+    d = plan.batteries[0].discharge_kw
+    assert abs(d[0] - dispatched) < 1e-3
+    if seconds == 60:
+        # 10:02-10:04 lie inside old period 1 (10:01-10:06).
+        np.testing.assert_allclose(d[1:4], planned, atol=1e-3)
+
+
+@given(st.integers(0, 40), st.integers(0, 40))
+def test_only_a_recent_period_0_anchors_to_the_dispatched_value(new, old):
+    """Period 0 anchors to old period 0 while it starts inside old period 0
+    or 1; otherwise every period anchors to the old period containing it."""
+    want = 0 if new == 0 and old <= 1 else old
+    assert _anchor_source(new, old) == want
