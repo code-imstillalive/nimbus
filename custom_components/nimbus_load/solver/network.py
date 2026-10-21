@@ -2860,16 +2860,20 @@ def _build_plan_once(
             p.set_cost(adequacy_shortfall_vars[al.name], al.shortfall_price)
     adequacy_window_shortfall_vars: dict[str, list[str]] = {}
     for al in adequacy_loads:
-        if al.windows is None:
-            continue
-        adequacy_window_shortfall_vars[al.name] = [
-            p.add_variable(
-                f"adequacy_shortfall_{al.name}_w{i}", lb=0.0, ub=w.target_kwh
-            )
-            for i, w in enumerate(al.windows)
-        ]
-        for var in adequacy_window_shortfall_vars[al.name]:
-            p.set_cost(var, al.shortfall_price)
+        if al.windows is not None:
+            adequacy_window_shortfall_vars[al.name] = [
+                p.add_variable(
+                    f"adequacy_shortfall_{al.name}_w{i}", lb=0.0, ub=w.target_kwh
+                )
+                for i, w in enumerate(al.windows)
+            ]
+            for var in adequacy_window_shortfall_vars[al.name]:
+                p.set_cost(var, al.shortfall_price)
+        # The value credit is every load's, windowed or not. #612's change
+        # (#634, v0.94.206) put a windowed-only `continue` above this, so a
+        # load with no windows lost its credit and ran only for its
+        # shortfall price, never for its value (#1837's cutover check, 21
+        # Oct 2026).
         if al.value_per_kwh is not None:
             # nimbus issue #606 (Mark Purcell, real finding: a 0.65kW
             # heat pump with value_per_kwh configured would have run at

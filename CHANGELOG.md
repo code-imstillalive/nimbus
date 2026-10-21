@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A deferrable load's value per kWh counts again when it has no windows**
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)). Since
+  0.94.206 a deferrable load set up with a value per kWh but without
+  per-day windows ignored that value: with a cheap shortfall price it never
+  ran, even where its value was well above the price, and with a dear one it
+  ran only to avoid the shortfall. It now runs its target wherever its value
+  beats the price, as a windowed load already did. Loads with windows, and
+  loads with no value set, are unchanged.
+
 ## [0.94.474] - 2026-10-21
 
 **The Price sources table shows right now.** It starts with the interval
