@@ -1171,6 +1171,97 @@ def test_the_loss_tie_break_costs_what_its_rate_says(site):
     assert abs(plan.battery_loss_tiebreak_cost - expected) < 1e-9
 
 
+def _loss_battery(name, initial, eff, **over):
+    return BatteryConfig(
+        **{
+            "name": name,
+            "capacity_kwh": 40.0,
+            "initial_soc_kwh": initial,
+            "min_soc_kwh": 0.0,
+            "max_soc_kwh": 40.0,
+            "max_charge_kw": 20.0,
+            "max_discharge_kw": 20.0,
+            "charge_efficiency": eff,
+            "discharge_efficiency": eff,
+            "charge_cost": 0.01,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.0,
+            **over,
+        }
+    )
+
+
+def _one_period(price, *batteries):
+    return build_plan(
+        periods=PeriodGrid(np.ones(1)),
+        grid=GridConfig(
+            import_price=np.full(1, price),
+            export_price=np.full(1, -0.01),
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        ),
+        batteries=list(batteries),
+        solar=SolarConfig(forecast_kw=np.zeros(1)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(1))],
+    )
+
+
+def _loss(price, rate):
+    return min(price * rate, MIN_CHARGE_DISCHARGE_COST_SPREAD)
+
+
+@SETTINGS
+@given(_num(0.01, 0.8), _num(0.85, 0.99), _num(1.0, 15.0))
+def test_the_loss_is_paid_in_the_plan_on_a_forced_charge(price, eff, stored):
+    """#732 (Mark Purcell, greenlit for #731's EV-to-home wash trade): the
+    loss is a cost the plan PAYS, not only one it reports. A charge forced
+    by a deadline costs its grid energy, its charge cost and its loss at
+    the import price x (1 - efficiency), capped at the 1c spread (#692's
+    lesson: uncapped, it blocked free-solar charging)."""
+    plan = _one_period(
+        price,
+        _loss_battery(
+            "home",
+            0.0,
+            eff,
+            must_have_soc_by_period_index=0,
+            must_have_soc_kwh=stored,
+        ),
+    )
+    assert plan.status == "optimal"
+    drawn = stored / eff
+    assert float(plan.batteries[0].charge_kw[0]) == pytest.approx(drawn, abs=1e-5)
+    want = drawn * (price + 0.01 + _loss(price, 1.0 - eff))
+    assert plan.total_cost == pytest.approx(want, abs=1e-5)
+
+
+@SETTINGS
+@given(_num(0.01, 0.8), _num(0.85, 0.99), _num(0.85, 0.99), _num(1.0, 12.0))
+def test_a_battery_to_battery_transfer_pays_the_loss_on_both_legs(
+    price, home_eff, ev_eff, stored
+):
+    """#731's shape: an EV made to give up energy in the same period a home
+    battery must take it, with no grid flow between. The plan pays each
+    leg's own loss: the EV's on discharge (price x (1/eff - 1)), the home's
+    on charge (price x (1 - eff)), each capped, plus both flat costs."""
+    moved = stored / home_eff
+    drop = moved / ev_eff
+    home = _loss_battery(
+        "home", 0.0, home_eff, must_have_soc_by_period_index=0, must_have_soc_kwh=stored
+    )
+    ev = _loss_battery("ev", 30.0, ev_eff, max_soc_kwh=30.0 - drop)
+    plan = _one_period(price, home, ev)
+    assert plan.status == "optimal"
+    by = {b.name: b for b in plan.batteries}
+    assert float(by["ev"].discharge_kw[0]) == pytest.approx(moved, abs=1e-5)
+    assert float(by["home"].charge_kw[0]) == pytest.approx(moved, abs=1e-5)
+    assert float(plan.grid_import_kw[0]) == pytest.approx(0.0, abs=1e-5)
+    want = moved * (
+        0.02 + _loss(price, 1.0 / ev_eff - 1.0) + _loss(price, 1.0 - home_eff)
+    )
+    assert plan.total_cost == pytest.approx(want, abs=1e-5)
+
+
 def _pool_plan(n, width, power, price, threshold, windows=None, earliest=0):
     return build_plan(
         periods=PeriodGrid(np.full(n, width)),
