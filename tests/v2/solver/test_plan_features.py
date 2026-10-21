@@ -583,15 +583,22 @@ def test_a_tiered_terminal_value_is_counted_at_each_of_its_periods(
 
 
 @SETTINGS
-@given(plain_sites())
-def test_charge_earliness_costs_what_its_rate_says(site):
+@given(
+    plain_sites(),
+    st.sampled_from([None, 0.0, 0.01, 0.05]),
+)
+def test_charge_earliness_costs_what_its_rate_says(site, budget):
     """The charge-earliness tie-break (#692, #1480): each kWh charged in a
     period costs budget / horizon hours x the hours elapsed before it, and
-    the plan reports exactly that."""
-    plan = _solve(site)
+    the plan reports exactly that (zero with a zero budget). The scorer
+    sets it apart from a real LP-vs-evaluator gap (#1480: $0.21 of 28 Sep's
+    $1.84 `j_star_path_delta`)."""
+    options = {} if budget is None else {"battery_charge_earliness_budget_kw": budget}
+    plan = _solve(site, plan_options=options)
     h = site["hours"]
     elapsed = np.concatenate(([0.0], np.cumsum(h)[:-1]))
-    rate = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW / float(np.sum(h))
+    used = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW if budget is None else budget
+    rate = used / float(np.sum(h))
     expected = float(np.sum(rate * elapsed * h * plan.battery_charge_kw))
     assert abs(plan.battery_charge_earliness_cost - expected) < 1e-9
 
@@ -1039,7 +1046,8 @@ def test_an_adequacy_deadline_past_the_plan_is_refused_naming_the_plan(n, past):
 @SETTINGS
 @given(plain_sites())
 def test_the_loss_tie_break_costs_what_its_rate_says(site):
-    """The round-trip loss tie-break (#732): each kWh charged costs the import
+    """The round-trip loss tie-break (#731, #732, reported for #1480): each
+    kWh charged costs the import
     price x (1 - charge efficiency), each kWh discharged the import price x
     (1 / discharge efficiency - 1), each capped at the 1c minimum spread, and
     the plan reports exactly that."""
