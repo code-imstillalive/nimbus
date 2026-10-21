@@ -3288,11 +3288,20 @@ def _build_plan_once(
                 # DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER) always costs strictly
                 # more than any terminal_value_breakpoints rate could credit
                 # back.
+                #
+                # nimbus issue #1987: the same on the ceiling side. A battery
+                # still above max_soc_kwh at idx (a live reading over it, and
+                # no way to discharge back under in time) asked the segments
+                # to hold more than they span, and the whole solve was
+                # infeasible. overfill[idx], pinned to max(0, soc - max_soc)
+                # by the same dominant penalty, takes the excess off; raising
+                # it further only shrinks the credit and adds penalty.
                 p.add_eq_constraint(
                     {
                         **{seg: 1.0 for seg in seg_vars},
                         soc_vars[b.name][idx]: -1.0,
                         underfill_vars[b.name][idx]: -1.0,
+                        overfill_vars[b.name][idx]: 1.0,
                     },
                     -b.min_soc_kwh,
                     name=f"terminal_value_segments_fill_{b.name}_{idx}",

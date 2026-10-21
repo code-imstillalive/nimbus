@@ -14865,7 +14865,7 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 20,
+       "simplex_iterations": 17,
        "solar_running_low": {
         "active": false,
         "actual_30min_avg_kw": null,
@@ -18761,7 +18761,7 @@
         "savings_combined": -0.75,
         "savings_interaction": -0.7125,
         "savings_pv": 0.0,
-        "shadow_price": 0.3002,
+        "shadow_price": 0.3001,
         "soc_pct": 78.35,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -18819,7 +18819,7 @@
         "savings_combined": -0.75,
         "savings_interaction": -0.7125,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3002,
         "soc_pct": 84.44,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20211,7 +20211,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20501,7 +20501,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20559,7 +20559,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20733,7 +20733,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -31115,7 +31115,7 @@
     3.3,
     3.3,
     3.3,
-    3.299999999999976,
+    3.3000000000000194,
     3.3,
     3.3,
     3.3,
@@ -31129,19 +31129,19 @@
     3.3,
     3.2999999999934895,
     3.3,
-    3.2999999999999616,
+    3.2999999999999434,
     3.3,
     3.3,
     3.3,
     3.3,
     3.3,
     3.3,
-    3.3000000000000247,
+    3.3000000000000287,
     3.3,
     3.3,
     3.3,
     3.3,
-    3.299999999993475,
+    3.299999999993416,
     3.3,
     3.3,
     3.3,
@@ -31155,7 +31155,7 @@
     6.3,
     3.3,
     3.3,
-    3.300000000001456,
+    3.3000000000014524,
     3.3,
     3.3,
     3.3,
@@ -43252,11 +43252,11 @@
      },
      {
       "time": "2026-09-06T21:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-06T22:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3002
      },
      {
       "time": "2026-09-06T22:30:00+10:00",
@@ -43352,7 +43352,7 @@
      },
      {
       "time": "2026-09-07T10:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T10:30:00+10:00",
@@ -43372,11 +43372,11 @@
      },
      {
       "time": "2026-09-07T12:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -43388,7 +43388,7 @@
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T15:00:00+10:00",
@@ -46535,11 +46535,11 @@
      },
      {
       "time": "2026-09-06T21:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-06T22:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3002
      },
      {
       "time": "2026-09-06T22:30:00+10:00",
@@ -46635,7 +46635,7 @@
      },
      {
       "time": "2026-09-07T10:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3
      },
      {
       "time": "2026-09-07T10:30:00+10:00",
@@ -46655,11 +46655,11 @@
      },
      {
       "time": "2026-09-07T12:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -46671,7 +46671,7 @@
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T15:00:00+10:00",
