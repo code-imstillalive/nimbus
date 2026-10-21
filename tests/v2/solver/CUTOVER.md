@@ -66,6 +66,10 @@ the old file was written for and show both sets fail.
 
 ## Found while checking
 
+- **#478's adequacy anchor was untested.** `test_solver_adequacy_cross_solve_continuity.py`
+  passes with the per-load anchor removed and with it matched by position:
+  the grid import/export continuity reproduces the block on its own. The v2
+  test zeroes the previous plan's grid flows to isolate it.
 - **#1964:** the export-bonus tie-break (1e-7 per rank) loses to HiGHS's
   tolerance when the cap leaves a partial period, and the bonus scatters
   ON/OFF/ON. Found by the v2 property on CI, reproduced locally. Fixed by
@@ -95,8 +99,9 @@ the old file was written for and show both sets fail.
 | `test_solver_thermal_effective_rates_are_inert.py` | #940, #873, #594 | `test_solver_contracts::test_thermal_rate_origins_are_labels_the_plan_never_reads` (every pair of origin labels: bit-identical plan, echoed as given, None never "fallback"; premise asserted), `::test_a_real_heating_rate_still_moves_the_plan` (the control) | planted the LP reading the `learned` label, and the heating rate ignored: old and new fail (the first draft of the control also changed the decay rate and missed the second plant; fixed) |
 | `test_solver_lp_ranging.py` | #490, #489, #238 | `test_lp_properties::test_ranging_brackets_every_value_and_cost_it_reports` (random LPs: every variable and row ranged once, bound and cost intervals contain the value and the cost, headroom is the distance), `::test_ranging_not_asked_for_is_never_computed`, `::test_ranging_on_the_probe_lp_matches_the_hand_worked_values` (#489's probe, by hand), `::test_ranging_on_a_pinned_or_failed_solve` (MIP pinned, degenerate headroom, infeasible) | planted the cost records attributed one variable late (#490's trailing extra), and getRanging called unasked: old and new fail |
 | `test_solver_dynamic_envelope.py` | #493, #489, #491, #390 | the LP half: `test_network_paths::test_a_per_period_export_envelope_caps_each_period_and_curtails_the_rest` (each period exports min(surplus, envelope), curtails the rest, shadow price non-zero exactly where it binds), `::test_a_uniform_envelope_is_the_scalar_plan`, `::test_an_import_envelope_below_the_load_uses_the_excess_valve`. **Stays** for `elements.py`'s cutover: `TestGridConfigArrayOrScalarValidation` tests `GridConfig`'s validation | planted the first period's export envelope used everywhere, and the import envelope ignored (its maximum used): old and new fail |
+| `test_solver_adequacy_cross_solve_continuity.py` | #478, #616, #484, #613 | `test_solver_contracts::test_an_adequacy_block_holds_on_a_marginal_edge_and_moves_on_a_real_one` (unanchored it moves; anchored it holds on a marginal edge, a real crash wins), `::test_adequacy_continuity_is_matched_by_load_name` (previous grid flows zeroed, so only the per-load anchor can hold it) | planted no adequacy anchor at all, and anchors matched by position: **only new fails**. The old file passes both plants: the grid's own continuity holds the block anyway, as its last test's comment concedes |
 
 ## Still to check
 
-The other 28 files, smallest first. Nothing is deleted until every row is
+The other 27 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

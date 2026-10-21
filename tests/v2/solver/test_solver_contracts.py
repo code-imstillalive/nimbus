@@ -1903,3 +1903,80 @@ def test_charge_earliness_never_outweighs_a_real_price(n, price, gap, data):
     assert charged[cheap] > 1e-6
     others = np.delete(charged, cheap)
     assert np.all(others < 1e-6), charged
+
+
+# --- #478: an adequacy block is anchored to the previous solve, by load name ----
+
+_ADQ_N = 24
+
+
+def _adequacy_plan(price, *, name="hws", previous=None) -> Plan:
+    return build_plan(
+        periods=PeriodGrid(np.ones(_ADQ_N), start=datetime(2026, 9, 10, tzinfo=UTC)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=np.zeros(_ADQ_N),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_battery(max_charge_kw=0.0, max_discharge_kw=0.0)],
+        solar=SolarConfig(forecast_kw=np.zeros(_ADQ_N)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name=name,
+                max_power_kw=0.65,
+                target_kwh=1.3,
+                deadline_period=_ADQ_N - 1,
+                earliest_period=0,
+                shortfall_price=50.0,
+            )
+        ],
+        previous_plan=previous,
+    )
+
+
+def _block(plan: Plan) -> tuple[float, ...]:
+    p = np.asarray(plan.adequacy_loads[0].power_kw)
+    return tuple(round(float(p[t]), 4) for t in (5, 6, 15, 16))
+
+
+_AT_5_6, _AT_15_16 = (0.65, 0.65, 0.0, 0.0), (0.0, 0.0, 0.65, 0.65)
+
+
+@pytest.mark.parametrize(("edge", "moves"), [(0.045, False), (0.001, True)])
+def test_an_adequacy_block_holds_on_a_marginal_edge_and_moves_on_a_real_one(
+    edge, moves
+):
+    """#478 (found verifying #616's on/off blocks): a block committed to
+    periods 5-6 is not relocated by a re-solve whose price edge elsewhere
+    is marginal (the phantom restart), but a real price crash still wins:
+    a soft anchor, not a lock. Without a previous plan the marginal edge
+    does move it."""
+    first = np.full(_ADQ_N, 0.30)
+    first[5] = first[6] = 0.05
+    plan1 = _adequacy_plan(first)
+    assert _block(plan1) == _AT_5_6
+    second = first.copy()
+    second[15] = second[16] = edge
+    assert _block(_adequacy_plan(second)) == _AT_15_16  # unanchored, it moves
+    held = _block(_adequacy_plan(second, previous=plan1))
+    assert held == (_AT_15_16 if moves else _AT_5_6)
+
+
+@pytest.mark.parametrize(("name", "held"), [("hws", True), ("pool", False)])
+def test_adequacy_continuity_is_matched_by_load_name(name, held):
+    """#478: the anchor is per load, matched by name. The previous plan's
+    grid flows are zeroed so the grid's own continuity cannot hold the block
+    in place; only a load with the same name stays on the marginal edge."""
+    first = np.full(_ADQ_N, 0.30)
+    first[5] = first[6] = 0.05
+    plan1 = _adequacy_plan(first)
+    zero = np.zeros(_ADQ_N)
+    previous = dataclasses.replace(
+        plan1, grid_import_kw=zero.copy(), grid_export_kw=zero.copy()
+    )
+    second = first.copy()
+    second[15] = second[16] = 0.045
+    plan2 = _adequacy_plan(second, name=name, previous=previous)
+    assert _block(plan2) == (_AT_5_6 if held else _AT_15_16)
