@@ -29,8 +29,10 @@ the old file was written for and show both sets fail.
 | `test_spike_override_at_the_floor.py` | #567, #1837 | `test_plan_features::test_a_spike_near_min_soc_discharges_only_what_is_left` | draws the margin above Min SoC from 0 (at the floor) up, rates above and below what is left |
 | `test_1837_tiny_coefficients_reach_highs_dropped.py` | #1837, HAEO #501/#511 | `test_solver_contracts::test_a_tiny_row_entry_is_dropped_and_changes_nothing`, `::test_a_row_whose_every_entry_is_dropped_keeps_its_bounds`, `::test_a_tiny_cost_beside_real_ones_still_takes_the_phased_solve` | planted the original bug (a raise on an entry at or below 1e-9): the old file fails 6 cases, the three new tests fail. Removing `_add_row`'s own drop, or `_dropped_contribution`'s shift, is caught by neither set: HiGHS drops the entry itself through `addRow` |
 | `test_solver_infeasible_plan_array_aliasing.py` | #356 | `test_solver_contracts::test_a_plan_that_did_not_solve_shares_no_array` | planted two fields sharing one array: the new test fails |
+| `test_lp_dump_retry_after_transient_failure.py` | #773, #1058 (#1074) | `test_solver_contracts::test_a_failed_dump_never_blocks_the_next_one` | planted the original bug (the phase marked before the write): old and new fail |
+| `test_1761_unfundable_block_still_solves.py` | #1761, #390, #773 | `test_plan_features::test_a_short_p2p_block_costs_its_penalty_on_every_missing_kwh` (feasible, short kWh priced above any way out), `test_solver_contracts::test_a_committed_block_is_an_exact_ceiling` (never above the rate; exact when fundable) | planted export above the block (ub = export limit): old and new fail |
 
 ## Still to check
 
-The other 71 files, smallest first. Nothing is deleted until every row is
+The other 69 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
