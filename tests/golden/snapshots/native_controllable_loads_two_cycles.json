@@ -2671,7 +2671,7 @@
       "battery_kw_side": "AC",
       "battery_kw_sign_convention": "positive_discharge_negative_charge",
       "binding_constraint_now": "Grid export at zero (not economical right now)",
-      "binding_constraint_shadow_price": 0.3028,
+      "binding_constraint_shadow_price": 0.3025,
       "charge_before_block_kwh": null,
       "charge_before_block_pct": null,
       "charge_by_next": null,
@@ -2747,7 +2747,7 @@
       "direction_two_way_pairs": 0,
       "discharge_efficiency": 0.9747,
       "efficiency_convention": "round_trip_symmetric_sqrt",
-      "energy_shadow_price_now": 0.3,
+      "energy_shadow_price_now": 0.3001,
       "envelope_export_limit_kw": 15.0,
       "envelope_import_limit_kw": 15.0,
       "equivalent_full_cycles": 0.616,
@@ -2807,7 +2807,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 56.02,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -2923,7 +2923,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 58.05,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -2981,7 +2981,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3001,
         "soc_pct": 59.06,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3039,7 +3039,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 60.08,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3097,7 +3097,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 61.09,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3155,7 +3155,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 62.11,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3329,7 +3329,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 65.15,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3387,7 +3387,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.2999,
         "soc_pct": 66.17,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -3445,7 +3445,7 @@
         "savings_combined": -0.125,
         "savings_interaction": -0.1187,
         "savings_pv": 0.0,
-        "shadow_price": 0.3003,
+        "shadow_price": 0.3004,
         "soc_pct": 67.18,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6171,7 +6171,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6229,7 +6229,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6635,7 +6635,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6693,7 +6693,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6809,7 +6809,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6867,7 +6867,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -6983,7 +6983,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7099,7 +7099,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7157,7 +7157,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7215,7 +7215,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7331,7 +7331,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7389,7 +7389,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7563,7 +7563,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7621,7 +7621,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7679,7 +7679,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -7853,7 +7853,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8085,7 +8085,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8433,7 +8433,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8607,7 +8607,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -8665,7 +8665,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9303,7 +9303,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9361,7 +9361,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9651,7 +9651,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9709,7 +9709,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9767,7 +9767,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -9883,7 +9883,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10173,7 +10173,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10521,7 +10521,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10753,7 +10753,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10927,7 +10927,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -10985,7 +10985,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11043,7 +11043,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11217,7 +11217,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11391,7 +11391,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11449,7 +11449,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -11507,7 +11507,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 99.16,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -13421,7 +13421,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 55.21,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -13769,7 +13769,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 43.22,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -13827,7 +13827,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 41.23,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -14291,7 +14291,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 25.24,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -14349,7 +14349,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 23.25,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -14407,7 +14407,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3,
         "soc_pct": 21.25,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -14465,7 +14465,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 19.25,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -14499,7 +14499,7 @@
       "next_block_start": null,
       "p2p_match_fraction": 0.0,
       "p2p_recent_avg_volume_kwh": 0.0,
-      "p2p_volume_cap_shadow_price": -0.0,
+      "p2p_volume_cap_shadow_price": -0.0001,
       "period0_hysteresis": "no_previous",
       "period0_hysteresis_delta": null,
       "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
@@ -14863,7 +14863,7 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 238,
+       "simplex_iterations": 20,
        "solar_running_low": {
         "active": false,
         "actual_30min_avg_kw": null,
@@ -19107,7 +19107,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2998,
+        "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -19397,7 +19397,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -19629,7 +19629,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -19745,7 +19745,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -19919,7 +19919,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20209,7 +20209,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20557,7 +20557,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -20673,7 +20673,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21253,7 +21253,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21311,7 +21311,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.2998,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21369,7 +21369,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21427,7 +21427,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21717,7 +21717,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -21775,7 +21775,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -22239,7 +22239,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -22529,7 +22529,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -22703,7 +22703,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -24153,7 +24153,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -24211,7 +24211,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -24907,7 +24907,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -25139,7 +25139,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -25255,7 +25255,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -25313,7 +25313,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -26879,7 +26879,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -26937,7 +26937,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -26995,7 +26995,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -27053,7 +27053,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.2999,
+        "shadow_price": 0.3,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -27343,7 +27343,7 @@
         "savings_combined": 0.0,
         "savings_interaction": 0.0,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 98.95,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -28793,7 +28793,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 50.39,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -28851,7 +28851,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3002,
+        "shadow_price": 0.3001,
         "soc_pct": 48.44,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -29083,7 +29083,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 40.67,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -29199,7 +29199,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3002,
+        "shadow_price": 0.3001,
         "soc_pct": 36.79,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -29489,7 +29489,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3,
+        "shadow_price": 0.3001,
         "soc_pct": 27.08,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -29721,7 +29721,7 @@
         "savings_combined": 0.195,
         "savings_interaction": 0.0098,
         "savings_pv": 0.0,
-        "shadow_price": 0.3001,
+        "shadow_price": 0.3002,
         "soc_pct": 19.25,
         "solar_effective_kw": 0.0,
         "solar_kw": 0.0,
@@ -29755,7 +29755,7 @@
       "next_block_start": null,
       "p2p_match_fraction": 0.0,
       "p2p_recent_avg_volume_kwh": 0.0,
-      "p2p_volume_cap_shadow_price": -0.0,
+      "p2p_volume_cap_shadow_price": -0.0001,
       "period0_hysteresis": "same_direction",
       "period0_hysteresis_delta": null,
       "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
@@ -30492,8 +30492,8 @@
     5.0,
     5.0,
     5.0,
-    4.759165528085048,
-    2.1499188474627875,
+    4.759165528047809,
+    2.1499188474660795,
     0.0,
     0.0,
     0.0,
@@ -30842,47 +30842,47 @@
     0.0,
     0.0,
     0.0,
-    1.5147515379196566,
-    1.5147515379196503,
-    1.5147515379196503,
-    1.5147515379196503,
-    1.5147515379196503,
-    1.5147515379196494,
-    1.5147515379196494,
-    1.5147515379196494,
-    1.5147515379196494,
-    1.5147515379196494,
-    1.5147515379196492,
-    1.5147515379196492,
-    1.5147515379196492,
-    1.5147515379196492,
-    1.5147515379196492,
-    1.514751537919649,
-    1.514751537919649,
-    1.514751537919649,
-    1.514751537919649,
-    1.5147515379196468,
-    1.5147515379196468,
-    1.5147515379196468,
-    1.5147515379196468,
-    1.5147515377434604,
-    1.5147515379318128,
-    1.5147515379318128,
-    1.5147515379318128,
-    1.5147515379318128,
-    1.5147515379318128,
-    1.5147515379318128,
-    1.5147515379276282,
-    1.5147515379276282,
-    1.5147515379276282,
-    1.5147515379276282,
-    1.5147515379276282,
-    1.5147515379276282,
-    1.5147515379333358,
-    1.5147515379333358,
-    1.5147515379333358,
-    1.5147515379333358,
-    1.5577337994720417
+    1.5147515379186083,
+    1.5147515379186083,
+    1.5147515379186083,
+    1.5147515379186083,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5147515379186007,
+    1.5577337994686193
    ],
    "battery_name": "home",
    "grid_export_kw": [
@@ -31105,8 +31105,56 @@
     8.3,
     8.3,
     8.3,
-    8.059165528085048,
-    5.449918847462787,
+    8.05916552804781,
+    5.44991884746608,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.299999999999976,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.2999999999934517,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.2999999999934895,
+    3.3,
+    3.2999999999999616,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3000000000000247,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.299999999993475,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    3.3,
+    6.3,
+    6.3,
+    3.3,
+    3.3,
+    3.300000000001456,
+    3.3,
+    3.3,
+    3.3,
     3.3,
     3.3,
     3.3,
@@ -31203,95 +31251,47 @@
     3.3,
     3.3,
     3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    6.3,
-    6.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    3.3,
-    1.7852484620803433,
-    1.7852484620803495,
-    1.7852484620803495,
-    1.7852484620803495,
-    1.7852484620803495,
-    1.7852484620803504,
-    1.7852484620803504,
-    1.7852484620803504,
-    1.7852484620803504,
-    1.7852484620803504,
-    1.7852484620803506,
-    1.7852484620803506,
-    1.7852484620803506,
-    1.7852484620803506,
-    1.7852484620803506,
-    1.7852484620803508,
-    1.7852484620803508,
-    1.7852484620803508,
-    1.7852484620803508,
-    1.785248462080353,
-    1.785248462080353,
-    1.785248462080353,
-    1.785248462080353,
-    1.7852484622565394,
-    1.785248462068187,
-    1.785248462068187,
-    1.785248462068187,
-    1.785248462068187,
-    1.785248462068187,
-    1.785248462068187,
-    1.7852484620723716,
-    1.7852484620723716,
-    1.7852484620723716,
-    1.7852484620723716,
-    1.7852484620723716,
-    1.7852484620723716,
-    1.785248462066664,
-    1.785248462066664,
-    1.785248462066664,
-    1.785248462066664,
-    4.742266200527958
+    1.7852484620813915,
+    1.7852484620813915,
+    1.7852484620813915,
+    1.7852484620813915,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    1.785248462081399,
+    4.742266200531381
    ],
    "period_hours": [
     0.08333333333333333,
@@ -43272,7 +43272,7 @@
      },
      {
       "time": "2026-09-07T00:30:00+10:00",
-      "value": 0.2998
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T01:00:00+10:00",
@@ -43292,7 +43292,7 @@
      },
      {
       "time": "2026-09-07T03:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T03:30:00+10:00",
@@ -43308,7 +43308,7 @@
      },
      {
       "time": "2026-09-07T05:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T05:30:00+10:00",
@@ -43316,7 +43316,7 @@
      },
      {
       "time": "2026-09-07T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T06:30:00+10:00",
@@ -43328,7 +43328,7 @@
      },
      {
       "time": "2026-09-07T07:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T08:00:00+10:00",
@@ -43348,7 +43348,7 @@
      },
      {
       "time": "2026-09-07T10:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T10:30:00+10:00",
@@ -43372,7 +43372,7 @@
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -43380,7 +43380,7 @@
      },
      {
       "time": "2026-09-07T14:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
@@ -43420,19 +43420,19 @@
      },
      {
       "time": "2026-09-07T19:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.2998
      },
      {
       "time": "2026-09-07T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T21:00:00+10:00",
@@ -43452,11 +43452,11 @@
      },
      {
       "time": "2026-09-07T23:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T00:00:00+10:00",
@@ -43488,7 +43488,7 @@
      },
      {
       "time": "2026-09-08T03:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T04:00:00+10:00",
@@ -43508,7 +43508,7 @@
      },
      {
       "time": "2026-09-08T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T06:30:00+10:00",
@@ -43520,7 +43520,7 @@
      },
      {
       "time": "2026-09-08T07:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T08:00:00+10:00",
@@ -43620,11 +43620,11 @@
      },
      {
       "time": "2026-09-08T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T21:00:00+10:00",
@@ -43672,7 +43672,7 @@
      },
      {
       "time": "2026-09-09T02:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T03:00:00+10:00",
@@ -43688,7 +43688,7 @@
      },
      {
       "time": "2026-09-09T04:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T05:00:00+10:00",
@@ -43696,11 +43696,11 @@
      },
      {
       "time": "2026-09-09T05:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T06:30:00+10:00",
@@ -43808,19 +43808,19 @@
      },
      {
       "time": "2026-09-09T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T21:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T21:30:00+10:00",
@@ -43840,7 +43840,7 @@
      },
      {
       "time": "2026-09-09T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T00:00:00+10:00",
@@ -43940,11 +43940,11 @@
      },
      {
       "time": "2026-09-10T12:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T12:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T13:00:00+10:00",
@@ -43960,7 +43960,7 @@
      },
      {
       "time": "2026-09-10T14:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T15:00:00+10:00",
@@ -43968,7 +43968,7 @@
      },
      {
       "time": "2026-09-10T15:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T16:00:00+10:00",
@@ -43988,7 +43988,7 @@
      },
      {
       "time": "2026-09-10T18:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T18:30:00+10:00",
@@ -44004,7 +44004,7 @@
      },
      {
       "time": "2026-09-10T20:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3002
      }
     ],
     "plan_shortfall_kwh": 1.5041666666666664,
@@ -46555,7 +46555,7 @@
      },
      {
       "time": "2026-09-07T00:30:00+10:00",
-      "value": 0.2998
+      "value": 0.2999
      },
      {
       "time": "2026-09-07T01:00:00+10:00",
@@ -46575,7 +46575,7 @@
      },
      {
       "time": "2026-09-07T03:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T03:30:00+10:00",
@@ -46591,7 +46591,7 @@
      },
      {
       "time": "2026-09-07T05:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T05:30:00+10:00",
@@ -46599,7 +46599,7 @@
      },
      {
       "time": "2026-09-07T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T06:30:00+10:00",
@@ -46611,7 +46611,7 @@
      },
      {
       "time": "2026-09-07T07:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T08:00:00+10:00",
@@ -46631,7 +46631,7 @@
      },
      {
       "time": "2026-09-07T10:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T10:30:00+10:00",
@@ -46655,7 +46655,7 @@
      },
      {
       "time": "2026-09-07T13:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T13:30:00+10:00",
@@ -46663,7 +46663,7 @@
      },
      {
       "time": "2026-09-07T14:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T14:30:00+10:00",
@@ -46703,19 +46703,19 @@
      },
      {
       "time": "2026-09-07T19:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.2998
      },
      {
       "time": "2026-09-07T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-07T21:00:00+10:00",
@@ -46735,11 +46735,11 @@
      },
      {
       "time": "2026-09-07T23:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-07T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.2999
      },
      {
       "time": "2026-09-08T00:00:00+10:00",
@@ -46771,7 +46771,7 @@
      },
      {
       "time": "2026-09-08T03:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T04:00:00+10:00",
@@ -46791,7 +46791,7 @@
      },
      {
       "time": "2026-09-08T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T06:30:00+10:00",
@@ -46803,7 +46803,7 @@
      },
      {
       "time": "2026-09-08T07:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T08:00:00+10:00",
@@ -46903,11 +46903,11 @@
      },
      {
       "time": "2026-09-08T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-08T21:00:00+10:00",
@@ -46955,7 +46955,7 @@
      },
      {
       "time": "2026-09-09T02:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T03:00:00+10:00",
@@ -46971,7 +46971,7 @@
      },
      {
       "time": "2026-09-09T04:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T05:00:00+10:00",
@@ -46979,11 +46979,11 @@
      },
      {
       "time": "2026-09-09T05:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T06:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T06:30:00+10:00",
@@ -47091,19 +47091,19 @@
      },
      {
       "time": "2026-09-09T19:30:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T20:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T20:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-09T21:00:00+10:00",
-      "value": 0.2999
+      "value": 0.3
      },
      {
       "time": "2026-09-09T21:30:00+10:00",
@@ -47123,7 +47123,7 @@
      },
      {
       "time": "2026-09-09T23:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T00:00:00+10:00",
@@ -47223,11 +47223,11 @@
      },
      {
       "time": "2026-09-10T12:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T12:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T13:00:00+10:00",
@@ -47243,7 +47243,7 @@
      },
      {
       "time": "2026-09-10T14:30:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T15:00:00+10:00",
@@ -47251,7 +47251,7 @@
      },
      {
       "time": "2026-09-10T15:30:00+10:00",
-      "value": 0.3002
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T16:00:00+10:00",
@@ -47271,7 +47271,7 @@
      },
      {
       "time": "2026-09-10T18:00:00+10:00",
-      "value": 0.3
+      "value": 0.3001
      },
      {
       "time": "2026-09-10T18:30:00+10:00",
@@ -47287,7 +47287,7 @@
      },
      {
       "time": "2026-09-10T20:00:00+10:00",
-      "value": 0.3001
+      "value": 0.3002
      }
     ],
     "plan_shortfall_kwh": null,

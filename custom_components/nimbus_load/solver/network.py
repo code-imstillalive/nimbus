@@ -4204,7 +4204,11 @@ def _build_plan_once(
         # latest not earliest" reasoning (both real, live household
         # findings, not design choices made in the abstract).
         p2p_export.add_export_bonus_cumulative_caps(
-            p, {t: export_bonus[t] for t in range(n)}, periods, grid
+            p,
+            {t: export_bonus[t] for t in range(n)},
+            periods,
+            grid,
+            use_secondary=_use_secondary_costs,
         )
 
     # nimbus issue #491: ranging is opt-in via `compute_signals` (see
