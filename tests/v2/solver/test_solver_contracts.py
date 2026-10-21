@@ -106,6 +106,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp, network
 from solver.elements import (
+    DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     AdequacyLoadConfig,
     AdequacyWindow,
     BatteryConfig,
@@ -1107,10 +1108,12 @@ def test_smoothness_flattens_a_degenerate_adequacy_load_for_free(
 
 
 @SETTINGS
-@given(_num(0.3, 0.8), _num(10.0, 60.0))
-def test_smoothness_never_smears_a_real_price_step(high, soc):
+@given(_num(0.3, 0.8), _num(10.0, 60.0), st.booleans())
+def test_smoothness_never_smears_a_real_price_step(high, soc, calibrated):
     """A sharp import/export step at the midpoint: the battery's swing at
-    the step is the same with smoothing on as off (within 1 kW)."""
+    the step is the same with smoothing on as off (within 1 kW). #696: also
+    when the tie-breaks ride the calibrated secondary channel, as in
+    production."""
     n = 12
     imp = np.concatenate([np.full(6, 0.02), np.full(6, high)])
     exp_ = np.concatenate([np.full(6, -0.005), np.full(6, high - 0.05)])
@@ -1139,6 +1142,7 @@ def test_smoothness_never_smears_a_real_price_step(high, soc):
             loads=[LoadConfig(name="load", forecast_kw=np.full(n, 2.0))],
             smoothness_weight=weight,
             battery_charge_earliness_budget_kw=0.0,
+            solve_options=CalibratedOptions() if calibrated and weight else None,
         )
         assert plan.status == "optimal"
         return plan.battery_discharge_kw - plan.battery_charge_kw
@@ -1149,11 +1153,14 @@ def test_smoothness_never_smears_a_real_price_step(high, soc):
 
 
 @SETTINGS
-@given(_num(2.0, 20.0), _num(0.0, 3.0))
-def test_smoothness_flattens_a_degenerate_battery_charge_for_free(headroom, net_load):
+@given(_num(2.0, 20.0), _num(0.0, 3.0), st.booleans())
+def test_smoothness_flattens_a_degenerate_battery_charge_for_free(
+    headroom, net_load, calibrated
+):
     """Flat prices, import far below salvage, a battery `headroom` kWh short
     of full: charging it is worth it, but any shape over the hour is equally
-    good. Smoothing picks a flat one, at the same cost."""
+    good. Smoothing picks a flat one, at the same cost; #696: also through
+    the calibrated secondary channel, as in production."""
     n = 12
 
     def plan_with(weight):
@@ -1180,12 +1187,58 @@ def test_smoothness_flattens_a_degenerate_battery_charge_for_free(headroom, net_
             loads=[LoadConfig(name="load", forecast_kw=np.full(n, 7.0 + net_load))],
             smoothness_weight=weight,
             battery_charge_earliness_budget_kw=0.0,
+            solve_options=CalibratedOptions() if calibrated and weight else None,
         )
 
     off, on = plan_with(0.0), plan_with(0.005)
     assert off.status == on.status == "optimal"
     assert _jag(on.battery_discharge_kw - on.battery_charge_kw) < 1.0
     assert abs(on.total_cost - off.total_cost) < 1e-2
+
+
+@SETTINGS
+@given(st.integers(4, 10), st.integers(1, 3), st.booleans())
+def test_a_calibrated_adequacy_solve_dispatches_as_the_plain_one(n, runs, semi):
+    """#696 Stage 2 / #702: the calibrated solve on an adequacy load, run
+    once (a MIP, #616) or continuous (an LP). It never raises, places the
+    load in the same periods as the plain solve (the earliest of the tied
+    ones; #702's first design pinned the binaries before reading the
+    secondary cost and landed on an arbitrary tie), and reports a cost no
+    higher (the plain MIP solve folds the earliness tie-break into its
+    primary cost; the calibrated one carries it as secondary)."""
+
+    def plan_with(options):
+        return build_plan(
+            periods=PeriodGrid(np.ones(n)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.20),
+                export_price=np.zeros(n),
+                import_limit_kw=20.0,
+                export_limit_kw=20.0,
+            ),
+            batteries=[_battery(available=False)],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[],
+            adequacy_loads=[
+                AdequacyLoadConfig(
+                    name="hws",
+                    max_power_kw=3.0,
+                    target_kwh=3.0 * runs,
+                    deadline_period=n - 1,
+                    earliest_period=0,
+                    shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                )
+            ],
+            adequacy_semi_continuous=semi,
+            solve_options=options,
+        )
+
+    plain, calibrated = plan_with(None), plan_with(CalibratedOptions())
+    assert plain.status == calibrated.status == "optimal"
+    power = calibrated.adequacy_loads[0].power_kw
+    np.testing.assert_allclose(power, plain.adequacy_loads[0].power_kw, atol=1e-6)
+    np.testing.assert_allclose(power[:runs], 3.0, atol=1e-6)
+    assert calibrated.total_cost <= plain.total_cost + 1e-9
 
 
 @given(
