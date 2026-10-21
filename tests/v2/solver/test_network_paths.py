@@ -1576,3 +1576,87 @@ def test_the_solar_dial_publishes_the_solar_it_plans_with(risk, forecast, down, 
     assert plan.status == "optimal"
     want = forecast - risk * min(down, forecast)
     np.testing.assert_allclose(plan.effective_solar_kw, want, atol=1e-9)
+
+
+# --- #774: the thermal deadline is hard, relaxed only when it cannot be met --------
+
+
+@SETTINGS
+@given(
+    st.integers(1, 6),
+    st.sampled_from([0.5, 1.0]),
+    _num(0.5, 4.0),
+    _num(0.0, 1.0),
+    _num(-5.0, 30.0),
+)
+def test_a_thermal_deadline_is_hard_and_relaxed_only_when_out_of_reach(
+    deadline, width, power, decay, margin
+):
+    """#774: the hot-water guarantee broke five times as a bundle of soft
+    costs (#726, #741, #733, #769, #770/#782), so it is a hard row now. At
+    full power the #897 idle scaling removes decay, so the most the tank can
+    reach by its deadline is exactly initial + rate x power x hours. A
+    target within that is met (the single solve is feasible and the plan
+    never relaxes); one beyond it makes the single solve infeasible, and
+    `build_plan` relaxes that load by name and still plans."""
+    n = deadline + 2
+    reach = 20.0 + 2.0 * power * width * (deadline + 1)
+    target = reach - margin
+    if abs(margin) < 1e-3:
+        return
+    kw = {
+        "periods": PeriodGrid(np.full(n, width)),
+        "grid": GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        "batteries": [_idle_battery()],
+        "solar": SolarConfig(forecast_kw=np.zeros(n)),
+        "loads": [LoadConfig(name="load", forecast_kw=np.ones(n))],
+        "thermal_loads": [
+            ThermalLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                initial_temperature_c=20.0,
+                target_temperature_c=target,
+                earliest_period=0,
+                deadline_period=deadline,
+                heating_rate_c_per_kwh=2.0,
+                idle_decay_c_per_hour=decay,
+            )
+        ],
+    }
+    once = network._build_plan_once(**kw)
+    plan = build_plan(**kw)
+    assert plan.status == "optimal"
+    if margin > 0:
+        assert once.status == "optimal"
+        assert plan.thermal_guarantee_relaxed == []
+        assert plan.thermal_loads[0].temperature_c[deadline] >= target - 1e-5
+    else:
+        assert once.status == "infeasible"
+        assert plan.thermal_guarantee_relaxed == ["hws"]
+
+
+def test_no_thermal_loads_is_the_plan_without_them():
+    """#774: `thermal_loads=None` adds nothing; omitting it plans the same."""
+    n = 6
+    kw = {
+        "periods": PeriodGrid(np.ones(n)),
+        "grid": GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        "batteries": [_idle_battery(available=True)],
+        "solar": SolarConfig(forecast_kw=np.zeros(n)),
+        "loads": [LoadConfig(name="load", forecast_kw=np.ones(n))],
+    }
+    omitted = build_plan(**kw)
+    given = build_plan(**kw, thermal_loads=None)
+    assert given.thermal_loads == [] and given.thermal_guarantee_relaxed == []
+    assert given.total_cost == omitted.total_cost
+    np.testing.assert_array_equal(given.battery_soc_kwh, omitted.battery_soc_kwh)
