@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A load's shut period always reads as degenerate**
+  ([#1981](https://github.com/code-imstillalive/nimbus/issues/1981)). A period
+  outside an adequacy load's window has a zero band, but its `degenerate` flag in
+  the flex signals' `load_signals` followed the solver's unclamped ranging, so
+  another load in the same solve could turn it off. It now follows the band.
+  Dispatch is unchanged.
+
 ## [0.94.478] - 2026-10-21
 
 **The P2P export bonus is claimed in one block again.**
