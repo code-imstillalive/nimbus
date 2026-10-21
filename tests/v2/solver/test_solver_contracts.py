@@ -27,12 +27,19 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   feasibility tolerance made explicit: never below it (the bound would cut
   off the very optimum it came from, as `phase2_secondary` once did live),
   never a price (under a thousandth of a cent at household objectives).
+- A solve HiGHS could not finish (time or iteration limit, unknown, model
+  or solve error) is `error`, with HiGHS's own status name, never
+  `infeasible`: only a model proved to have no plan is that (#356). Every
+  solve carries the module's time limit, so a hard model cannot hold the
+  caller's thread for ever.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import patch
 
+import highspy
 import numpy as np
 import pytest
 from hypothesis import given
@@ -377,8 +384,6 @@ def test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable():
 
 @given(st.floats(min_value=0.0, max_value=1000.0))
 def test_the_lex_tie_slack_is_the_solver_tolerance_never_a_price(objective):
-    import highspy
-
     h = highspy.Highs()
     h.setOptionValue("output_flag", False)
     _status, primal_tol = h.getOptionValue("primal_feasibility_tolerance")
@@ -388,3 +393,56 @@ def test_the_lex_tie_slack_is_the_solver_tolerance_never_a_price(objective):
     assert float(primal_tol) <= slack < 1e-5
     # At least ten times tighter than the secondary side's epsilon.
     assert slack <= max(1e-6, objective * 1e-6) / 10
+
+
+_UNFINISHED = [
+    "kTimeLimit",
+    "kIterationLimit",
+    "kSolutionLimit",
+    "kUnknown",
+    "kModelError",
+    "kSolveError",
+]
+
+
+def _bounded_lp() -> LPProblem:
+    p = LPProblem()
+    p.add_variable("x", lb=0.0, ub=10.0, cost=-1.0)
+    return p
+
+
+@given(st.sampled_from(_UNFINISHED))
+def test_an_unfinished_solve_is_an_error_never_infeasible(name):
+    status = getattr(highspy.HighsModelStatus, name)
+    with patch.object(highspy.Highs, "getModelStatus", return_value=status):
+        result = _bounded_lp().solve()
+    assert result.status == "error"
+    assert result.raw_status == highspy.Highs().modelStatusToString(status)
+
+
+def test_a_proved_outcome_keeps_its_own_name():
+    infeasible = LPProblem()
+    infeasible.add_variable("x", lb=5.0, ub=10.0)
+    infeasible.add_ub_constraint({"x": 1.0}, 1.0)
+    unbounded = LPProblem()
+    unbounded.add_variable("x", lb=0.0, ub=float("inf"), cost=-1.0)
+    for problem, want in (
+        (infeasible, "infeasible"),
+        (unbounded, "unbounded"),
+        (_bounded_lp(), "optimal"),
+    ):
+        result = problem.solve()
+        assert (result.status, result.raw_status) == (want, None)
+
+
+def test_every_solve_carries_the_time_limit():
+    seen: list[tuple[str, object]] = []
+    real = highspy.Highs.setOptionValue
+
+    def spy(self, key, value):
+        seen.append((key, value))
+        return real(self, key, value)
+
+    with patch.object(highspy.Highs, "setOptionValue", spy):
+        _bounded_lp().solve()
+    assert ("time_limit", lp.DEFAULT_TIME_LIMIT_SECONDS) in seen
