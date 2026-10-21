@@ -1676,6 +1676,139 @@ def test_a_run_once_load_runs_in_one_unbroken_block(site):
         assert on[-1] - on[0] + 1 == len(on), on
 
 
+def _run_once_plan(
+    price, power, target, *, windows=None, allowed=None, semi=True, value=None
+):
+    n = len(price)
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(price, dtype=float),
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                windows=windows,
+                allowed=allowed,
+                value_per_kwh=value,
+            )
+        ],
+        adequacy_semi_continuous=semi,
+    )
+
+
+def _runs(on):
+    """The (start, end) of each unbroken run of True."""
+    out, start = [], None
+    for t, v in enumerate(list(on) + [False]):
+        if v and start is None:
+            start = t
+        elif not v and start is not None:
+            out.append((start, t - 1))
+            start = None
+    return out
+
+
+@SETTINGS
+@given(
+    st.lists(st.sampled_from([0.05, 0.06, 0.20, 0.30]), min_size=12, max_size=12),
+    _num(0.3, 2.0),
+    st.integers(1, 6),
+    st.sampled_from(["one", "two windows", "gapped mask"]),
+)
+def test_a_run_once_load_is_full_or_off_in_one_run_per_window(
+    price, power, runs, shape
+):
+    """#616 (Mark Purcell: a 0.65 kW SG Ready heat pump planned as 0.072,
+    0.384, 0.65, 0.65, 0.65, 0.403 kW, a shape no on/off contact can
+    deliver). Every period is exactly off or exactly full power; each window
+    gets one unbroken run and, with a shortfall at $10/kWh, all of its own
+    target; and an `allowed` mask with a gap in it is one stretch of
+    eligibility for the run, so the load never runs in both, even when its
+    target is longer than either stretch."""
+    windows = allowed = None
+    if shape == "two windows":
+        runs = min(runs, 5)
+    target = power * runs
+    if shape == "two windows":
+        windows = (
+            AdequacyWindow(earliest_period=0, deadline_period=4, target_kwh=target),
+            AdequacyWindow(earliest_period=6, deadline_period=11, target_kwh=target),
+        )
+    elif shape == "gapped mask":
+        allowed = np.zeros(12, dtype=bool)
+        allowed[1:5] = True
+        allowed[7:11] = True
+    plan = _run_once_plan(price, power, target, windows=windows, allowed=allowed)
+    assert plan.status == "optimal"
+    p_kw = plan.adequacy_loads[0].power_kw
+    assert np.all(np.isclose(p_kw, 0.0, atol=1e-6) | np.isclose(p_kw, power, atol=1e-6))
+    on = p_kw > 1e-6
+    if shape == "two windows":
+        assert len(_runs(on[0:5])) <= 1 and len(_runs(on[6:12])) <= 1
+        assert int(on[0:5].sum()) == runs and int(on[6:12].sum()) == runs
+    else:
+        assert len(_runs(on)) <= 1
+    if shape == "gapped mask":
+        assert not (on[1:5].any() and on[7:11].any())
+
+
+def test_run_once_off_is_the_continuous_plan():
+    """#616: `adequacy_semi_continuous=False` gives back the continuous
+    relaxation: a value-priced load fills the cheapest period at full power
+    and takes only what is left of its target from the next."""
+    plan = _run_once_plan([0.03, 0.07, 0.15], 5.0, 6.0, semi=False, value=0.10)
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(
+        plan.adequacy_loads[0].power_kw[:2], [5.0, 1.0], atol=1e-3
+    )
+
+
+def test_two_run_once_loads_on_a_long_plan_solve_quickly():
+    """#616's MIP at a realistic size: 200 half-hour periods and two
+    run-once loads solve in well under ten seconds."""
+    import time
+
+    n = 200
+    started = time.monotonic()
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, 0.5)),
+        grid=GridConfig(
+            import_price=np.random.default_rng(0).uniform(0.05, 0.35, n),
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name=name,
+                max_power_kw=kw,
+                target_kwh=kwh,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+            )
+            for name, kw, kwh in (("hws", 0.65, 2.0), ("pool", 1.1, 4.0))
+        ],
+    )
+    assert plan.status == "optimal"
+    assert time.monotonic() - started < 10.0
+
+
 @pytest.mark.parametrize("width", [0.25, 0.5, 1.0])
 def test_a_run_once_load_stays_in_one_block_even_when_splitting_is_cheaper(width):
     """Two cheap pairs of periods with dear ones between: one run of four
