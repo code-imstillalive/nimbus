@@ -31,8 +31,10 @@ the old file was written for and show both sets fail.
 | `test_solver_infeasible_plan_array_aliasing.py` | #356 | `test_solver_contracts::test_a_plan_that_did_not_solve_shares_no_array` | planted two fields sharing one array: the new test fails |
 | `test_lp_dump_retry_after_transient_failure.py` | #773, #1058 (#1074) | `test_solver_contracts::test_a_failed_dump_never_blocks_the_next_one` | planted the original bug (the phase marked before the write): old and new fail |
 | `test_1761_unfundable_block_still_solves.py` | #1761, #390, #773 | `test_plan_features::test_a_short_p2p_block_costs_its_penalty_on_every_missing_kwh` (feasible, short kWh priced above any way out), `test_solver_contracts::test_a_committed_block_is_an_exact_ceiling` (never above the rate; exact when fundable) | planted export above the block (ub = export limit): old and new fail |
+| `test_risk_aversion_is_solar_only.py` | household 12 Oct 2026 | `test_solver_contracts::test_the_risk_dial_leans_solar_and_never_load` | planted load leaning to its upper band: old fails 3, new fails |
+| `test_solver_soft_soc_penalty_grid_invariance.py` | #338 | `test_solver_contracts::test_the_same_scenario_costs_the_same_on_any_period_length` | planted the penalty per period (x hours): old fails 3, new fails |
 
 ## Still to check
 
-The other 69 files, smallest first. Nothing is deleted until every row is
+The other 67 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
