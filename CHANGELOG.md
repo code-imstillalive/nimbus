@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Now column shows your provider's price and the Gap.** On the first
+  live plan with 0.94.475, the provider's cell under Now was a dash and the
+  Gap under Now was blank: the provider's series covers only the periods its
+  forecast does, and the running interval is settled. The provider's price
+  for now is the price that settles for it, and the Now column shows it.
+
 ## [0.94.475] - 2026-10-21
 
 **Going live, and three fixes you can see.** A step-by-step guide and a
