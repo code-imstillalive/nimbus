@@ -27,6 +27,7 @@ from solver.elements import (
     AdequacyLoadConfig,
     AdequacyWindow,
     BatteryConfig,
+    DegenerateConfigError,
     GridConfig,
     LoadConfig,
     PeriodGrid,
@@ -295,6 +296,110 @@ def test_a_discharge_taper_caps_discharging_at_the_curve(site):
     assert plan.status == "optimal"
     end = _flat_out(site, plan, "discharge")
     assert abs(plan.battery_soc_kwh[-1] - end) < 1e-4
+
+
+@SETTINGS
+@given(st.sampled_from(["charge", "discharge"]), st.data())
+def test_a_curve_flat_at_the_inverter_limit_is_no_curve(direction, data):
+    """The power curves (household, 21 Aug: the CC->CV charge taper, the BMS
+    caution near empty) are a ceiling under the inverter limit, never a
+    loosening: a curve flat at the limit plans as well as no curve, within
+    the solver's tie-break slack (#773; a few hundredths of a cent here) and
+    to the kWh at the end. Not period by period: at a flat price, when it
+    sells is a tie."""
+    site = data.draw(push_sites(direction))
+    b = site["battery"]
+    flat = [
+        (b["min_soc_kwh"], b["max_charge_kw"]),
+        (b["max_soc_kwh"], b["max_charge_kw"]),
+    ]
+    with_flat = _solve(site, **{f"{direction}_power_curve": flat})
+    without = _solve(site, **{f"{direction}_power_curve": None})
+    assert with_flat.status == without.status == "optimal"
+    assert with_flat.total_cost == pytest.approx(without.total_cost, rel=1e-4)
+    assert with_flat.battery_soc_kwh[-1] == pytest.approx(
+        without.battery_soc_kwh[-1], abs=1e-4
+    )
+
+
+@pytest.mark.parametrize(
+    ("curve", "error"),
+    [
+        ([(5.0, 10.0)], ValueError),
+        ([(80.0, 10.0), (5.0, 10.0), (100.0, 0.0)], ValueError),
+        ([(10.0, 10.0), (100.0, 0.0)], ValueError),
+        ([(5.0, 10.0), (99.0, 0.0)], ValueError),
+        ([(5.0, 10.0), (100.0, -1.0)], ValueError),
+        ([(5.0, 1.0), (50.0, 2.0), (100.0, 10.0)], DegenerateConfigError),
+    ],
+    ids=["one-point", "unsorted", "not-from-min", "not-to-max", "negative", "convex"],
+)
+def test_a_power_curve_that_cannot_be_a_ceiling_is_refused(curve, error):
+    """A curve must run Min SoC to Max SoC in order, never below zero, and
+    be concave: the LP takes the least of each segment's extended line, which
+    is the curve only when the slopes never rise. A convex curve would be a
+    silently wrong, non-binding bound, so it is refused outright."""
+    battery = {
+        "name": "b",
+        "capacity_kwh": 100.0,
+        "initial_soc_kwh": 40.0,
+        "min_soc_kwh": 5.0,
+        "max_soc_kwh": 100.0,
+        "max_charge_kw": 10.0,
+        "max_discharge_kw": 10.0,
+        "charge_efficiency": 0.99,
+        "discharge_efficiency": 0.99,
+        "charge_cost": 0.01,
+        "discharge_cost": 0.01,
+        "salvage_value": 0.0,
+    }
+    with pytest.raises(error):
+        BatteryConfig(**battery, charge_power_curve=curve)
+    ok = [(5.0, 10.0), (80.0, 10.0), (90.0, 6.0), (100.0, 0.0)]
+    assert BatteryConfig(**battery, charge_power_curve=ok).charge_power_curve == ok
+
+
+def test_both_curves_on_a_full_day_solve_quickly():
+    """The household's compute-cost concern (21 Aug): both curves on a
+    288-period, five-minute day add rows, not variables, and the solve stays
+    well under five seconds."""
+    import time
+
+    n = 288
+    rng = np.random.default_rng(42)
+    battery = BatteryConfig(
+        name="b",
+        capacity_kwh=122.2,
+        initial_soc_kwh=61.0,
+        min_soc_kwh=2.4,
+        max_soc_kwh=122.2,
+        max_charge_kw=40.0,
+        max_discharge_kw=40.0,
+        charge_efficiency=0.99,
+        discharge_efficiency=0.99,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.10,
+        charge_power_curve=[(2.4, 40.0), (97.8, 40.0), (122.2, 2.0)],
+        discharge_power_curve=[(2.4, 3.0), (18.3, 40.0), (122.2, 40.0)],
+    )
+    started = time.perf_counter()
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, 5 / 60)),
+        grid=GridConfig(
+            import_price=0.15 + 0.10 * rng.random(n),
+            export_price=0.05 + 0.05 * rng.random(n),
+            import_limit_kw=40.0,
+            export_limit_kw=40.0,
+        ),
+        batteries=[battery],
+        solar=SolarConfig(
+            forecast_kw=np.clip(10.0 * np.sin(np.linspace(0, np.pi, n)), 0, None)
+        ),
+        loads=[],
+    )
+    assert plan.status == "optimal"
+    assert time.perf_counter() - started < 5.0
 
 
 @SETTINGS
