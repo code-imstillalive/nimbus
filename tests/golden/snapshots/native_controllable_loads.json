@@ -14865,7 +14865,7 @@
        "n_periods": 202,
        "n_sheddable_loads": 1,
        "n_thermal_loads": 0,
-       "simplex_iterations": 20,
+       "simplex_iterations": 17,
        "solar_running_low": {
         "active": false,
         "actual_30min_avg_kw": null,
@@ -15887,7 +15887,7 @@
     8.4,
     8.399999999988358,
     8.4,
-    8.3,
+    8.299999999999994,
     8.3,
     8.3,
     8.3,
