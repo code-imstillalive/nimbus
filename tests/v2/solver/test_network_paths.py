@@ -280,3 +280,32 @@ def test_a_thermal_load_on_a_price_tie_heats_at_the_first_instant(
     pw = plan.thermal_loads[0].power_kw
     assert pw[1] <= 1e-6
     assert abs(pw[0] - power) <= 1e-6
+
+
+@SETTINGS
+@given(sites())
+def test_a_battery_s_ranged_headroom_is_within_its_physical_headroom(site):
+    """#1985 (#491's promise): what ranging says a battery could still move
+    never exceeds what its limits and plan physically leave. HiGHS's bound
+    ranging for a battery charging flat out read 0.32 kW of room it did not
+    have."""
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+        ),
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+        compute_signals=True,
+    )
+    if plan.status != "optimal" or plan.grid_signals is None:
+        return
+    (bs,) = plan.battery_signals
+    assert (bs.available_up_ranging_kw <= bs.available_up_kw + 1e-9).all()
+    assert (bs.available_down_ranging_kw <= bs.available_down_kw + 1e-9).all()
+    assert (bs.available_up_ranging_kw >= 0).all()
+    assert (bs.available_down_ranging_kw >= 0).all()
