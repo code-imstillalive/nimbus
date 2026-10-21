@@ -2367,3 +2367,64 @@ def test_a_trip_deadline_is_bought_in_the_cheapest_hours_before_it(prices, data)
     assert paid == pytest.approx(least, abs=1e-5)
     idle = _trip_plan(prices, deadline, None)
     np.testing.assert_allclose(idle.batteries[0].charge_kw, 0.0, atol=1e-6)
+
+
+@SETTINGS
+@given(
+    st.integers(1, 3),
+    _num(4.0, 15.0),
+    st.integers(1, 4),
+    _num(0.5, 3.0),
+    _num(0.0, 1.0),
+)
+def test_a_block_is_delivered_net_and_the_shortfall_is_bought_after_it(
+    block_h, rate, after_h, house, share
+):
+    """#1610 with #1761: 0.94.444's plan for the reference household. A
+    P2P block is a NET export commitment, so no ordinary import inside it,
+    and the self-consume hours after it are pinned to 0 kW export, which
+    leaves import open there. A battery holding enough for the block but
+    not the block and the night after must deliver the block exactly and
+    buy the rest after it as ordinary import, never as penalised import
+    inside the block (the $64 of it that plan booked)."""
+    n = block_h + after_h
+    eff = 0.96
+    spare = share * house * after_h / eff
+    initial = 2.0 + (rate + house) * block_h / eff + spare
+    fixed = np.array([rate] * block_h + [0.0] * after_h)
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.23),
+            export_price=np.full(n, 0.14),
+            import_limit_kw=42.0,
+            export_limit_kw=40.0,
+            fixed_export_kw=fixed,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=80.0,
+                initial_soc_kwh=initial,
+                min_soc_kwh=2.0,
+                max_soc_kwh=80.0,
+                max_charge_kw=40.0,
+                max_discharge_kw=40.0,
+                charge_efficiency=eff,
+                discharge_efficiency=eff,
+                charge_cost=0.0,
+                discharge_cost=0.01,
+                salvage_value=0.05,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, house))],
+    )
+    assert plan.status == "optimal"
+    inside, after = slice(0, block_h), slice(block_h, n)
+    np.testing.assert_allclose(plan.grid_export_kw[inside], rate, atol=1e-6)
+    np.testing.assert_allclose(plan.grid_import_kw[inside], 0.0, atol=1e-6)
+    np.testing.assert_allclose(plan.grid_import_excess_kw, 0.0, atol=1e-6)
+    np.testing.assert_allclose(plan.grid_export_kw[after], 0.0, atol=1e-6)
+    bought = float(np.sum(plan.grid_import_kw[after]))
+    assert bought == pytest.approx(house * after_h - spare * eff, abs=1e-4)
