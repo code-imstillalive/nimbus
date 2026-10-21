@@ -22,6 +22,7 @@ from solver.elements import (
     GridConfig,
     LoadConfig,
     PeriodGrid,
+    SharedCircuitConfig,
     SolarConfig,
     ThermalLoadConfig,
 )
@@ -491,3 +492,117 @@ def test_a_real_cheaper_later_price_beats_earliness():
     power = _adequacy_tie_plan(n, price=price).adequacy_loads[0].power_kw
     assert power[20] == pytest.approx(1.0, abs=1e-3)
     assert power[:20].sum() == pytest.approx(0.0, abs=1e-3)
+
+
+def _circuit_plan(n, members, cap, *, prices=None, circuits="cap"):
+    """Adequacy loads `members` = [(name, power, target)], each free in
+    every period, optionally on one shared circuit of `cap` kW."""
+    shared = (
+        [
+            SharedCircuitConfig(
+                name="hws_circuit",
+                member_names=tuple(m[0] for m in members),
+                max_combined_power_kw=cap,
+            )
+        ]
+        if circuits == "cap"
+        else circuits
+    )
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.linspace(0.01, 1.0, n) if prices is None else prices,
+            export_price=np.zeros(n),
+            import_limit_kw=40.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name=name,
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=0,
+                deadline_period=n - 1,
+                shortfall_price=50.0,
+            )
+            for name, power, target in members
+        ],
+        shared_circuits=shared,
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=1, max_value=4),
+    st.lists(_num(1.0, 4.0), min_size=2, max_size=3),
+    _num(0.3, 1.0),
+)
+def test_a_shared_circuit_never_carries_more_than_its_cap(n, powers, share):
+    """A shared circuit (two HWS heaters that must never draw at once): the
+    members' combined power never exceeds the cap in any period, though the
+    price would have them all run in the cheapest one. Each member wants one
+    full-power period; where the cap leaves room to sequence them every
+    target is met, and otherwise the plan stays optimal (#477) with the
+    shortfall exactly what the cap cannot fit."""
+    members = [(f"hws{i}", p, p) for i, p in enumerate(powers)]
+    cap = max(powers) * (1.0 + share)
+    plan = _circuit_plan(n, members, cap)
+    assert plan.status == "optimal"
+    power = np.array([al.power_kw for al in plan.adequacy_loads])
+    assert (power.sum(axis=0) <= cap + 1e-6).all()
+    need = sum(powers)
+    delivered = sum(al.delivered_by_deadline_kwh for al in plan.adequacy_loads)
+    short = sum(al.shortfall_kwh for al in plan.adequacy_loads)
+    assert delivered + short == pytest.approx(need, abs=1e-4)
+    # Without the cap, the cheap first period takes them all at once.
+    if need > cap + 1e-6:
+        free = _circuit_plan(n, members, cap, circuits=None)
+        assert sum(al.power_kw[0] for al in free.adequacy_loads) > cap + 1e-6
+    if n * cap >= need + 1e-9 and all(p <= cap for p in powers):
+        # Room to sequence: a simple greedy fit across n periods suffices
+        # when every member is one period's full power.
+        bins, fits = [cap] * n, True
+        for p in sorted(powers, reverse=True):
+            spot = next((i for i, b in enumerate(bins) if b >= p - 1e-9), None)
+            if spot is None:
+                fits = False
+                break
+            bins[spot] -= p
+        if fits:
+            assert short == pytest.approx(0.0, abs=1e-4)
+
+
+def test_one_shared_period_too_small_for_both_is_a_shortfall():
+    """#477: two 3.7 kW heaters on a 3.7 kW circuit with one period between
+    them: 3.7 kWh is delivered and 3.7 kWh is short, not an infeasible plan."""
+    plan = _circuit_plan(1, [("hws_l1", 3.7, 3.7), ("hws_l3", 3.7, 3.7)], 3.7)
+    assert plan.status == "optimal"
+    assert sum(al.delivered_by_deadline_kwh for al in plan.adequacy_loads) == (
+        pytest.approx(3.7, abs=1e-3)
+    )
+    assert sum(al.shortfall_kwh for al in plan.adequacy_loads) == pytest.approx(
+        3.7, abs=1e-3
+    )
+
+
+def test_a_circuit_naming_an_unknown_load_is_refused_by_name():
+    """A circuit member that is not a configured adequacy load is a caller
+    mistake: refused, naming the missing load. No circuits at all, None or
+    an empty list, is the same plan."""
+    circuit = [
+        SharedCircuitConfig(
+            name="c", member_names=("hws_l1", "hws_l3"), max_combined_power_kw=3.7
+        )
+    ]
+    with pytest.raises(ValueError, match="hws_l3"):
+        _circuit_plan(2, [("hws_l1", 3.7, 1.0)], 3.7, circuits=circuit)
+    prices = np.array([0.05, 0.30])
+    a = _circuit_plan(2, [("hws_l1", 3.7, 2.0)], 3.7, prices=prices, circuits=None)
+    b = _circuit_plan(2, [("hws_l1", 3.7, 2.0)], 3.7, prices=prices, circuits=[])
+    np.testing.assert_array_equal(
+        a.adequacy_loads[0].power_kw, b.adequacy_loads[0].power_kw
+    )
+    assert a.total_cost == b.total_cost
