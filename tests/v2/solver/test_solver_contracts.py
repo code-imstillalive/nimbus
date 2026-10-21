@@ -81,6 +81,11 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   still never charges and discharges, or imports and exports, in one
   period: the exclusivity binaries are enforced (#238, #1535), and the
   combined caps hold.
+- The proximal anchor is a switching cost, not an energy cost (#1406): it
+  costs the same per kW of deviation in every period, however short, so it
+  is not 30 times weaker on the 1-minute period that becomes the inverter
+  command. Smoothness keeps its hours factor on purpose: its gain scales
+  with hours too, so the two cancel.
 """
 
 from __future__ import annotations
@@ -108,6 +113,8 @@ from solver.lp import CalibratedOptions, LexOptions, LPProblem
 from solver.network import (
     BatteryPlan,
     Plan,
+    _add_intraplan_smoothness_penalty,
+    _add_proximal_penalty,
     _anchor_source,
     _infeasible_plan,
     build_plan,
@@ -1202,3 +1209,45 @@ def test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window(
         # target, no more.
         assert abs(energy - target * (2 if two_windows else 1)) <= 1e-4
         assert abs(al.profit_horizon - (value - price) * energy) <= 1e-6
+
+
+_DURATIONS = st.lists(
+    st.sampled_from([1 / 60, 5 / 60, 0.25, 0.5, 1.0]), min_size=2, max_size=8
+)
+
+
+@given(_DURATIONS, _num(0.001, 0.2), st.data())
+def test_the_proximal_anchor_costs_the_same_in_every_period(hours, weight, data):
+    n = len(hours)
+    previous = np.array(data.draw(st.lists(_num(-40.0, 40.0), min_size=n, max_size=n)))
+    p = LPProblem()
+    names = [f"batt_{t}" for t in range(n)]
+    for name in names:
+        p.add_variable(name, lb=-100.0, ub=100.0)
+    _add_proximal_penalty(p, names, "batt", {t: t for t in range(n)}, previous, weight)
+    prox = {k: v for k, v in p._cost.items() if k.startswith("prox_")}
+    assert len(prox) == 2 * n
+    assert set(prox.values()) == {weight}
+
+
+@given(_DURATIONS, _num(0.001, 0.2))
+def test_smoothness_still_costs_per_hour(hours, weight):
+    n = len(hours)
+    p = LPProblem()
+    names = [f"s_{t}" for t in range(n)]
+    for name in names:
+        p.add_variable(name, lb=-100.0, ub=100.0)
+    _add_intraplan_smoothness_penalty(p, names, "s", n, np.array(hours), weight)
+    for t in range(1, n):
+        assert p._cost[f"smooth_pos_s_{t}"] == pytest.approx(weight * hours[t])
+
+
+@given(st.sampled_from(["zero_weight", "no_alignment", "no_previous"]))
+def test_an_idle_anchor_adds_nothing(case):
+    p = LPProblem()
+    p.add_variable("batt_0", lb=-100.0, ub=100.0)
+    alignment = {} if case == "no_alignment" else {0: 0}
+    previous = None if case == "no_previous" else np.array([-40.0])
+    weight = 0.0 if case == "zero_weight" else 0.045
+    _add_proximal_penalty(p, ["batt_0"], "batt", alignment, previous, weight)
+    assert [k for k in p._cost if k.startswith("prox_")] == []

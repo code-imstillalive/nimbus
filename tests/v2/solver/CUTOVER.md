@@ -77,8 +77,9 @@ the old file was written for and show both sets fail.
   (`declined`, 84 pairs). The v2 spread property keeps plans to 12 periods;
   this is recorded here, not tested, until it is triaged on its own.
 | `test_solver_adequacy_profit_horizon.py` | #482, #613, #612 | `test_solver_contracts::test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window` (windowed); `test_network_contracts::...profit...` (#1958); the unwindowed load: #1963's test | planted the credit capped at the first window only: the new property fails, the old file does not (its windows case sheds dearly, so the load runs regardless) |
+| `test_1406_proximal_anchor_is_a_switching_cost.py` | #1406 | `test_solver_contracts::test_the_proximal_anchor_costs_the_same_in_every_period`, `::test_smoothness_still_costs_per_hour`, `::test_an_idle_anchor_adds_nothing` | planted period 0's anchor shrunk by its length: old and new fail; planted smoothness without its hours factor: old and new fail |
 
 ## Still to check
 
-The other 42 files, smallest first. Nothing is deleted until every row is
+The other 41 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
