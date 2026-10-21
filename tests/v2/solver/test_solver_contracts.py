@@ -813,6 +813,9 @@ def test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end(
         ],
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+        # Production's options: #1966 put the tie-break on the secondary
+        # channel, which only a calibrated (lexicographic) solve has.
+        solve_options=CalibratedOptions(),
     )
     assert plan.status == "optimal"
     np.testing.assert_allclose(plan.grid_export_kw, rate, atol=1e-4)
