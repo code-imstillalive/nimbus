@@ -44,6 +44,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   leaves every other column alone, and warns, with the count and the worst
   gap, only when a binary sits beyond the integrality tolerance. The
   warning is measurement only: it never changes the pin.
+- A pinned re-solve runs under the tolerance its point was accepted under
+  (#773): the LP's primal tolerance is widened to the MIP's for that block
+  only (never narrowed), put back afterwards even on an exception, and a
+  solver that refuses option calls never breaks the solve.
 """
 
 from __future__ import annotations
@@ -668,3 +672,63 @@ def test_pinning_fixes_each_binary_at_its_rounded_value(values, data):
         assert f"{worst:.3e}" in warned[0]
     else:
         assert warned == []
+
+
+class _Options:
+    def __init__(self, lp_tol, mip_tol, fail_set_after=None, fail_get=False):
+        self.opts = {
+            "primal_feasibility_tolerance": lp_tol,
+            "mip_feasibility_tolerance": mip_tol,
+        }
+        self.sets = 0
+        self.fail_set_after = fail_set_after
+        self.fail_get = fail_get
+
+    def getOptionValue(self, name):
+        if self.fail_get:
+            raise RuntimeError("no options")
+        return (0, self.opts[name])
+
+    def setOptionValue(self, name, value):
+        self.sets += 1
+        if self.fail_set_after is not None and self.sets > self.fail_set_after:
+            raise RuntimeError("no options")
+        self.opts[name] = value
+
+
+def test_highs_accepts_a_mip_point_looser_than_an_lp_one():
+    """The premise, read from the installed solver: if these ever agree,
+    the widening is no longer needed."""
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    _s, lp_tol = h.getOptionValue("primal_feasibility_tolerance")
+    _s, mip_tol = h.getOptionValue("mip_feasibility_tolerance")
+    assert mip_tol > lp_tol
+
+
+@given(st.floats(1e-10, 1e-3), st.floats(1e-10, 1e-3), st.booleans())
+def test_the_pin_resolve_widens_the_lp_tolerance_for_its_block_only(
+    lp_tol, mip_tol, raise_inside
+):
+    h = _Options(lp_tol, mip_tol)
+    try:
+        with lp._lp_tolerance_matching_mip(h):
+            assert h.opts["primal_feasibility_tolerance"] == max(lp_tol, mip_tol)
+            if raise_inside:
+                raise RuntimeError("phase failed")
+    except RuntimeError:
+        assert raise_inside
+    assert h.opts["primal_feasibility_tolerance"] == lp_tol
+
+
+@given(st.sampled_from(["get", "restore"]))
+def test_a_solver_refusing_option_calls_never_breaks_the_solve(fails):
+    h = (
+        _Options(1e-7, 1e-6, fail_get=True)
+        if fails == "get"
+        else _Options(1e-7, 1e-6, fail_set_after=1)
+    )
+    ran = []
+    with lp._lp_tolerance_matching_mip(h):
+        ran.append(True)
+    assert ran == [True]
