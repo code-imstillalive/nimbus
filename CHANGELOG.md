@@ -31,8 +31,8 @@ running now, in yellow, beside the price that settles for it.
   the battery sign it was trained with.
 
 - Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 472a83d9**,
-  installed untagged via HACS from `release/0.94.474` and restarted at about
-  10:03 AEST on 21 Oct. devhub's own per-battery SoC sensors published on
+  installed untagged via HACS from `release/0.94.474` and restarted (the
+  recorder's run began 10:02:48 AEST, 21 Oct). devhub's own per-battery SoC sensors published on
   0.94.474 at 10:04:22. The log shows only the devhub-only baseline
   (duplicate unique IDs, Forecaster drift notes, recorder attribute sizes,
   mirrored sensors without a unit while the mirror reconnects); nothing from
