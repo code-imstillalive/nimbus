@@ -34,8 +34,9 @@ the old file was written for and show both sets fail.
 | `test_risk_aversion_is_solar_only.py` | household 12 Oct 2026 | `test_solver_contracts::test_the_risk_dial_leans_solar_and_never_load` | planted load leaning to its upper band: old fails 3, new fails |
 | `test_solver_soft_soc_penalty_grid_invariance.py` | #338 | `test_solver_contracts::test_the_same_scenario_costs_the_same_on_any_period_length` | planted the penalty per period (x hours): old fails 3, new fails |
 | `test_solver_lp_sweep_cost.py` | #494, #489 | `test_solver_contracts::test_the_cost_sweep_re_solves_each_cost_and_puts_it_back`, `::test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable` | planted no restore after a sweep: old and new fail (the new one only once its export check came straight after a sweep ending on the other side of the export price; it missed it first); planted no `keep_basis` check: old and new fail |
+| `test_solver_lp_lex_tie_slack.py` | #773 | `test_solver_contracts::test_the_lex_tie_slack_is_the_solver_tolerance_never_a_price`; behaviour: `test_lp_paths::test_the_lexicographic_solve_reaches_the_true_lexicographic_optimum` | planted the slack at 1e-3 (a price): old fails, the new contract and four v2 behaviour tests fail; planted it at 0 (cuts off its own optimum): old and the new contract fail, no behaviour test can (float drift of that size needs a production-sized model) |
 
 ## Still to check
 
-The other 66 files, smallest first. Nothing is deleted until every row is
+The other 65 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

@@ -23,6 +23,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 - The offer curve's cost sweep (#494, Signals 5/7 of #489) re-solves at
   each cost with only that one coefficient changed, puts the coefficient
   back afterwards, and refuses without a kept basis or a known variable.
+- The lexicographic tie bound's slack (#773) is the solver's own
+  feasibility tolerance made explicit: never below it (the bound would cut
+  off the very optimum it came from, as `phase2_secondary` once did live),
+  never a price (under a thousandth of a cent at household objectives).
 """
 
 from __future__ import annotations
@@ -369,3 +373,18 @@ def test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable():
         p.solve().sweep_cost("imp", [0.3])
     with pytest.raises(KeyError):
         p.solve(keep_basis=True).sweep_cost("nope", [0.3])
+
+
+@given(st.floats(min_value=0.0, max_value=1000.0))
+def test_the_lex_tie_slack_is_the_solver_tolerance_never_a_price(objective):
+    import highspy
+
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    _status, primal_tol = h.getOptionValue("primal_feasibility_tolerance")
+    slack = max(
+        lp._LEX_PRIMARY_TIE_ABS_SLACK, objective * lp._LEX_PRIMARY_TIE_REL_SLACK
+    )
+    assert float(primal_tol) <= slack < 1e-5
+    # At least ten times tighter than the secondary side's epsilon.
+    assert slack <= max(1e-6, objective * 1e-6) / 10
