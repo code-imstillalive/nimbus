@@ -56,6 +56,11 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   price (#483, sub-issue of #476; #613 dual): with import the marginal kWh, that is its energy at the
   import price of each period; under a free solar surplus, nothing. It is
   reported whether or not the load has a value (#482's profit needs one).
+- Narrowing an adequacy load's window never makes the plan cheaper: the
+  plan it picks in the wide window is optimal for it, so an unused period
+  with a lower marginal price (#662: per kWh) is not a missed saving (#769's "smaller
+  observation": a load needing hours cannot use one cheap period stranded
+  among dear ones).
 """
 
 from __future__ import annotations
@@ -87,7 +92,8 @@ from solver.network import (
     build_plan,
 )
 from test_lp_properties import _build, problems
-from test_plan_invariants import SETTINGS, _num
+from test_plan_invariants import SETTINGS, _num, sites
+from test_plan_invariants import _solve as _solve_site
 
 TINY = st.sampled_from([1e-9, -1e-9, 5e-10, -1e-10, 1e-11, 1e-12])
 
@@ -829,3 +835,20 @@ def test_an_adequacy_load_costs_its_energy_at_the_marginal_price(
     else:
         expected = float(np.sum(price * al.power_kw * width))
         assert abs(al.marginal_cost - expected) < 1e-6
+
+
+@SETTINGS
+@given(sites(), st.data())
+def test_narrowing_an_adequacy_window_never_makes_the_plan_cheaper(site, data):
+    adequacy = site["adequacy"]
+    if adequacy is None:
+        return
+    wide = _solve_site(site)
+    pulled = data.draw(
+        st.integers(adequacy["earliest_period"], adequacy["deadline_period"])
+    )
+    narrow = _solve_site({**site, "adequacy": {**adequacy, "deadline_period": pulled}})
+    assert wide.status == narrow.status == "optimal"
+    # HiGHS stops a MIP within its relative gap (1e-4), so allow that much.
+    tol = 1e-4 * max(1.0, abs(wide.total_cost)) + 1e-6
+    assert narrow.total_cost >= wide.total_cost - tol
