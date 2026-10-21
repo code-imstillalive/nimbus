@@ -54,8 +54,9 @@ the old file was written for and show both sets fail.
 | `test_lp_pin_binaries_integrality_diagnostic.py` | #773, #616 | `test_solver_contracts::test_pinning_fixes_each_binary_at_its_rounded_value`; `test_lp_paths::test_pinning_warns_only_beyond_the_integrality_tolerance`, `::test_pinning_no_binaries_warns_of_nothing` | planted every column relaxed: old and new fail; planted the warning skipping the pin: old and new fail |
 | `test_solver_lp_pin_resolve_tolerance.py` | #773 | `test_solver_contracts::test_highs_accepts_a_mip_point_looser_than_an_lp_one`, `::test_the_pin_resolve_widens_the_lp_tolerance_for_its_block_only`, `::test_a_solver_refusing_option_calls_never_breaks_the_solve` | planted narrowing as well as widening: old and new fail; planted no restore: old and new fail |
 | `test_solver_export_bonus_tiebreak.py` | household 20 Aug 2026 (#355, #732) | `test_solver_contracts::test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end`; `test_plan_features::test_the_export_bonus_is_claimed_on_real_export_within_its_cap`, `::test_the_export_bonus_cap_resets_at_each_calendar_midnight` | planted no nudge, and the nudge reversed (earliest-preferred), in the per-day branch: old and new fail; planted an economic-size nudge (1e-2): old fails, two v2 bonus tests fail. The no-timestamp fallback branch's nudge is checked by neither set |
+| `test_solver_adequacy_marginal_cost.py` | #483, #476, #482, #613 | `test_solver_contracts::test_an_adequacy_load_costs_its_energy_at_the_marginal_price` (and `test_network_contracts::...profit...`, #1958) | planted the cost summed without hours, and the dual not divided by hours: the new property fails on both, the old file on neither (it uses hourly periods only) |
 
 ## Still to check
 
-The other 52 files, smallest first. Nothing is deleted until every row is
+The other 51 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

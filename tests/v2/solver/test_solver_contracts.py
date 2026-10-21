@@ -52,6 +52,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   one block that runs to the end of the window (household, 20 Aug 2026:
   "our window closes 0.00"), never scattered ON/OFF across it, and the
   export itself does not move.
+- An adequacy load reports what it cost to run at the plan's own marginal
+  price (#483, sub-issue of #476; #613 dual): with import the marginal kWh, that is its energy at the
+  import price of each period; under a free solar surplus, nothing. It is
+  reported whether or not the load has a value (#482's profit needs one).
 """
 
 from __future__ import annotations
@@ -67,6 +71,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
 from solver.elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -781,3 +786,46 @@ def test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end(
     assert on[first:].all(), bonus  # one block, running to the end
     # Every claimed period but the block's first claims the full rate.
     np.testing.assert_allclose(bonus[first + 1 :], rate, atol=1e-4)
+
+
+@SETTINGS
+@given(
+    st.integers(2, 8),
+    st.sampled_from([0.25, 0.5, 1.0]),
+    st.lists(_num(0.02, 0.6), min_size=8, max_size=8),
+    _num(0.5, 3.0),
+    st.booleans(),
+)
+def test_an_adequacy_load_costs_its_energy_at_the_marginal_price(
+    n, width, prices, power, surplus
+):
+    price = np.array(prices[:n])
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=np.zeros(n),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_battery(available=False)],
+        solar=SolarConfig(forecast_kw=np.full(n, power + 10.0 if surplus else 0.0)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="pool",
+                max_power_kw=power,
+                target_kwh=power * width,
+                deadline_period=n - 1,
+                shortfall_price=20.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (al,) = plan.adequacy_loads
+    assert al.profit_horizon is None
+    if surplus:
+        assert abs(al.marginal_cost) < 1e-6
+    else:
+        expected = float(np.sum(price * al.power_kw * width))
+        assert abs(al.marginal_cost - expected) < 1e-6
