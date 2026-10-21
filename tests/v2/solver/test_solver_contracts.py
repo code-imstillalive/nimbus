@@ -1339,6 +1339,134 @@ def test_a_re_solve_still_two_way_is_counted():
     warn.assert_called_once()
 
 
+def test_exclusivity_is_not_bought_by_giving_up_the_spread():
+    """#238 / #1535: the one-way re-solve still exports what the battery
+    can deliver at the paying price, it only stops importing at the same
+    time."""
+    site = _spread_site()
+    plan = build_plan(**site)
+    b = site["batteries"][0]
+    hours = site["periods"].hours
+    load = float(np.sum(site["loads"][0].forecast_kw * hours))
+    deliverable = (b.initial_soc_kwh - b.min_soc_kwh) * b.discharge_efficiency
+    exported = float(np.sum(plan.grid_export_kw * hours))
+    assert plan.direction_exclusivity == "enforced"
+    assert exported >= deliverable - load - 1e-3
+
+
+def test_a_one_way_plan_is_returned_unchanged():
+    """#238: a first solve that is already one-way is the plan, untouched
+    and not flagged."""
+    n = 6
+    site = {
+        **_spread_site(),
+        "grid": GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=32.0,
+            export_limit_kw=30.0,
+        ),
+    }
+    plan = build_plan(**site)
+    first = network._build_plan_thermal_fallback(**site)
+    assert plan.direction_exclusivity == "not_needed"
+    assert not plan.direction_exclusivity_enforced
+    for name in (
+        "grid_import_kw",
+        "grid_export_kw",
+        "battery_charge_kw",
+        "battery_discharge_kw",
+    ):
+        np.testing.assert_array_equal(getattr(plan, name), getattr(first, name))
+
+
+def test_fixed_blocks_are_delivered_net_and_one_way():
+    """#1535's fixed 14/4/17 kW evening blocks, made net by #1610: each is
+    exported exactly, with no import beside it."""
+    hours = np.array([3.0, 1.0, 3.0])
+    plan = build_plan(
+        periods=PeriodGrid(hours),
+        grid=GridConfig(
+            import_price=np.full(3, 0.0065),
+            export_price=np.full(3, 0.5321),
+            import_limit_kw=32.0,
+            export_limit_kw=30.0,
+            fixed_export_kw=np.array([14.0, 4.0, 17.0]),
+        ),
+        batteries=[
+            _battery(
+                initial_soc_kwh=118.8,
+                max_soc_kwh=118.8,
+                min_soc_kwh=6.0,
+                max_charge_kw=36.0,
+                max_discharge_kw=36.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(3)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(3, 0.357))],
+    )
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(plan.grid_export_kw, [14.0, 4.0, 17.0], atol=1e-6)
+    net = float(np.sum((plan.grid_export_kw - plan.grid_import_kw) * hours))
+    assert net == pytest.approx(97.0, abs=1e-6)
+    assert (np.minimum(plan.grid_import_kw, plan.grid_export_kw) <= 1e-6).all()
+
+
+def test_one_battery_may_charge_while_another_discharges():
+    """#238: the direction binaries are per battery, never pooled. With a
+    paying spread and an EV that must reach a departure target, the home
+    battery discharges while the EV charges in the same period; each stays
+    one-way on its own. (The old file read the constraint name; this is the
+    behaviour that name protects.)"""
+    n = 6
+
+    def bat(name, **over):
+        return BatteryConfig(
+            **{
+                "name": name,
+                "capacity_kwh": 40.0,
+                "initial_soc_kwh": 20.0,
+                "min_soc_kwh": 2.0,
+                "max_soc_kwh": 38.0,
+                "max_charge_kw": 10.0,
+                "max_discharge_kw": 10.0,
+                "charge_efficiency": 0.95,
+                "discharge_efficiency": 0.95,
+                "charge_cost": 0.005,
+                "discharge_cost": 0.005,
+                "salvage_value": 0.05,
+                **over,
+            }
+        )
+
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, 0.5)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.2),
+            export_price=np.full(n, 0.6),
+            import_limit_kw=30.0,
+            export_limit_kw=30.0,
+        ),
+        batteries=[
+            bat("home"),
+            bat(
+                "ev",
+                initial_soc_kwh=2.0,
+                must_have_soc_by_period_index=n - 1,
+                must_have_soc_kwh=20.0,
+            ),
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
+    )
+    assert plan.status == "optimal"
+    home, ev = plan.batteries
+    for b in (home, ev):
+        assert (np.minimum(b.charge_kw, b.discharge_kw) <= 1e-6).all(), b.name
+    together = (home.discharge_kw > 1e-3) & (ev.charge_kw > 1e-3)
+    assert together.any()
+
+
 def test_a_failed_first_solve_is_not_checked():
     """#1751: no direction check on a plan that did not solve."""
     real = network._build_plan_thermal_fallback
