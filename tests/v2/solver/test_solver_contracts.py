@@ -992,3 +992,43 @@ def test_smoothness_never_smears_a_real_price_step(high, soc):
     off, on = net(0.0), net(0.005)
     step_off, step_on = abs(off[6] - off[5]), abs(on[6] - on[5])
     assert abs(step_on - step_off) <= 1.0, (step_off, step_on)
+
+
+@SETTINGS
+@given(_num(2.0, 20.0), _num(0.0, 3.0))
+def test_smoothness_flattens_a_degenerate_battery_charge_for_free(headroom, net_load):
+    """Flat prices, import far below salvage, a battery `headroom` kWh short
+    of full: charging it is worth it, but any shape over the hour is equally
+    good. Smoothing picks a flat one, at the same cost."""
+    n = 12
+
+    def plan_with(weight):
+        return build_plan(
+            periods=PeriodGrid(np.full(n, 5.0 / 60.0)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.0202),
+                export_price=np.full(n, -0.0053),
+                import_limit_kw=44.0,
+                export_limit_kw=44.0,
+            ),
+            batteries=[
+                _battery(
+                    capacity_kwh=122.2,
+                    initial_soc_kwh=122.2 - headroom,
+                    min_soc_kwh=2.44,
+                    max_soc_kwh=122.2,
+                    charge_efficiency=0.926,
+                    discharge_efficiency=0.926,
+                    salvage_value=0.15,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.full(n, 7.0)),
+            loads=[LoadConfig(name="load", forecast_kw=np.full(n, 7.0 + net_load))],
+            smoothness_weight=weight,
+            battery_charge_earliness_budget_kw=0.0,
+        )
+
+    off, on = plan_with(0.0), plan_with(0.005)
+    assert off.status == on.status == "optimal"
+    assert _jag(on.battery_discharge_kw - on.battery_charge_kw) < 1.0
+    assert abs(on.total_cost - off.total_cost) < 1e-2
