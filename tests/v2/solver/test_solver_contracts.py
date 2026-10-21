@@ -2069,3 +2069,85 @@ def test_every_dump_announcement_says_whether_it_survives(
     assert any("failing model" in m for m in announced)
     for message in announced:
         assert message.endswith(note), message
+
+
+# --- #356 / #635: aligning a new grid to the previous plan's --------------------
+
+
+def _containment_oracle(new: PeriodGrid, old: PeriodGrid) -> dict[int, int]:
+    """#635's rule as a plain restart-from-zero scan (an independent oracle
+    for the two-pointer merge, #356): each new period tethers to the old
+    period its start falls inside, within the alignment tolerance."""
+    from datetime import timedelta
+
+    tol = network._ALIGNMENT_TOLERANCE
+    out: dict[int, int] = {}
+    for i, t in enumerate(new.period_starts):
+        j = 0
+        while (
+            j < len(old.period_starts) - 1
+            and old.period_starts[j] + timedelta(hours=float(old.hours[j])) <= t + tol
+        ):
+            j += 1
+        end = old.period_starts[j] + timedelta(hours=float(old.hours[j]))
+        if old.period_starts[j] - tol <= t < end + tol:
+            out[i] = j
+    return out
+
+
+_WIDTHS = st.sampled_from([1 / 60, 5 / 60, 0.25, 0.5, 1.0])
+
+
+@given(
+    st.lists(_WIDTHS, min_size=1, max_size=40),
+    st.lists(_WIDTHS, min_size=1, max_size=40),
+    st.sampled_from([-200.0, -5.0, 0.0, 1 / 60, 3.0, 15.0, 61.0, 2000.0]),
+    st.booleans(),
+)
+def test_a_new_grid_tethers_each_period_to_the_old_period_it_falls_in(
+    old_hours, new_hours, shift_minutes, past_tolerance
+):
+    """#356 (the O(n*m) scan became a two-pointer merge; it must give the
+    same mapping) and #635 (a mid-slot tier-0 period tethers to the 5-minute
+    period it falls inside, not to nothing): over variable-width grids,
+    shifted either way or not overlapping at all, the mapping is the
+    containment rule's."""
+    from datetime import timedelta
+
+    base = datetime(2026, 9, 9, 17, 25, tzinfo=UTC)
+    shift = timedelta(minutes=shift_minutes)
+    if past_tolerance:
+        shift += network._ALIGNMENT_TOLERANCE + timedelta(microseconds=1)
+    old = PeriodGrid(np.array(old_hours), start=base)
+    new = PeriodGrid(np.array(new_hours), start=base + shift)
+    previous = _infeasible_plan(old, "optimal", iterations=1)
+    got = network._align_previous_periods(new, previous)
+    assert got == _containment_oracle(new, old)
+
+
+def test_the_tier0_minutes_tether_to_the_period_they_fall_inside():
+    """#635's captured plans: 1-minute periods 17:26-17:29 tether to the
+    17:25 five-minute period, 17:30 to 17:30's; and a plan that did not
+    solve, or grids without a calendar anchor, give no tether at all."""
+    old = PeriodGrid(np.full(4, 5 / 60), start=datetime(2026, 9, 9, 17, 25, tzinfo=UTC))
+    new = PeriodGrid(
+        np.array([1 / 60] * 4 + [5 / 60]),
+        start=datetime(2026, 9, 9, 17, 26, tzinfo=UTC),
+    )
+    previous = _infeasible_plan(old, "optimal", iterations=1)
+    assert network._align_previous_periods(new, previous) == {
+        0: 0,
+        1: 0,
+        2: 0,
+        3: 0,
+        4: 1,
+    }
+    failed = _infeasible_plan(old, "infeasible", iterations=0)
+    assert network._align_previous_periods(new, failed) == {}
+    floating = PeriodGrid(np.full(4, 0.25), start=None)
+    assert (
+        network._align_previous_periods(
+            floating, _infeasible_plan(floating, "optimal", iterations=1)
+        )
+        == {}
+    )
