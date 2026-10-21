@@ -32,6 +32,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   the flex signals' `load_signals` followed the solver's unclamped ranging, so
   another load in the same solve could turn it off. It now follows the band.
   Dispatch is unchanged.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at d74c74c5**
+  (`release/0.94.480`), installed via HACS and restarted at 08:06 AEST. The new
+  code is the one running: devhub's own log reports the departure-target warning
+  from `solver/network.py` line 5213 (5192 in 0.94.479; #1987's tier change moved
+  it). Its 08:15 solve came back optimal in every phase, and the Forecaster
+  sensors refreshed by 08:20. No new Nimbus `ERROR` or traceback against the
+  pre-install log; the rest is devhub's known baseline.
+  - **Not exercised on devhub:** a battery above Max SoC with terminal-value
+    tiers (#1987). devhub's battery is not over Max SoC; the tests in #1988 carry it.
+- Consumer check: nothing changes for a plan that stays within Max SoC. An install
+  with terminal-value tiers set and a battery reading above Max SoC now gets a plan
+  instead of none. On the Flex tab, a battery charging or discharging flat out no
+  longer shows ranged headroom it does not have, and a load's shut periods always
+  read as degenerate.
 
 ## [0.94.479] - 2026-10-21
 
