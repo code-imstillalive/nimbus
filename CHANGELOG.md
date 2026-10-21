@@ -58,8 +58,9 @@ fees no longer pull the blend up or count as forecast error.
   price is unchanged (Amber still shows its own, higher price); once a source
   has 50 settled samples at a lead, the Blend and Gap no longer carry its
   steady premium. The plan's `price_consolidation` attribute gains
-  `bias_by_source_and_lead`; on production at 15:01 AEST it showed Amber about
-  2.5c above the provider at the 0-60 min leads.
+  `bias_by_source_and_lead`; on production's first plan (15:01 AEST, few
+  samples yet) the second extra source (Amber) read 3.0c above the provider
+  at 0-5 min.
 
 ## [0.94.476] - 2026-10-21
 
