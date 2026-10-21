@@ -20,6 +20,9 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   2026): a wide load band once had the plan budget load that never came.
 - The same physical scenario costs and dispatches the same whatever the
   period length (#338): the soft-SoC penalty is per kWh, not per period.
+- The offer curve's cost sweep (#494, Signals 5/7 of #489) re-solves at
+  each cost with only that one coefficient changed, puts the coefficient
+  back afterwards, and refuses without a kept basis or a known variable.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
@@ -312,3 +316,56 @@ def test_the_same_scenario_costs_the_same_on_any_period_length(soc, rate, export
     ends = [e for _, e in results]
     assert max(costs) - min(costs) < 1e-3, results
     assert max(ends) - min(ends) < 1e-3, results
+
+
+def _arbitrage(price: float, earn: float, demand: float, solar: float):
+    p = LPProblem()
+    p.add_variable("imp", ub=100.0, cost=price)
+    p.add_variable("exp", ub=100.0, cost=-earn)
+    p.add_variable("solar", ub=solar)
+    p.add_eq_constraint({"imp": 1.0, "exp": -1.0, "solar": 1.0}, demand)
+    return p
+
+
+@SETTINGS
+@given(
+    _num(0.0, 0.3),
+    _num(1.0, 5.0),
+    _num(0.0, 1.0),
+    _num(0.0, 2.0),
+    st.lists(_num(-1.0, 2.0), min_size=1, max_size=8),
+)
+def test_the_cost_sweep_re_solves_each_cost_and_puts_it_back(
+    earn, demand, solar_share, price, costs
+):
+    """Free solar is always used; import is 100 kW (to export) while it
+    costs less than export earns, else exactly the shortfall."""
+    costs = [c for c in costs if abs(c - earn) > 1e-3]
+    if abs(price - earn) <= 1e-3 or not costs:
+        return
+    solar = demand * solar_share
+
+    def imports_at(c):
+        return 100.0 if c < earn else demand - solar
+
+    p = _arbitrage(price, earn, demand, solar)
+    result = p.solve(keep_basis=True)
+    assert result.status == "optimal"
+    base_exp = p.value_of(result, "exp")
+    # End the sweep on the other side of `earn` from the solve-time price, so
+    # a coefficient left behind would change the next solve.
+    costs = [*costs, -1.0 if price >= earn else 2.0]
+    swept = result.sweep_cost("imp", costs)
+    np.testing.assert_allclose(swept, [imports_at(c) for c in costs], atol=1e-6)
+    # Put back: an export sweep straight after sees the solve-time import
+    # cost, and so does a sweep at that cost.
+    assert result.sweep_cost("exp", [-earn]) == pytest.approx([base_exp])
+    assert result.sweep_cost("imp", [price]) == pytest.approx([imports_at(price)])
+
+
+def test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable():
+    p = _arbitrage(0.3, 0.05, 2.0, 6.0)
+    with pytest.raises(ValueError, match="keep_basis"):
+        p.solve().sweep_cost("imp", [0.3])
+    with pytest.raises(KeyError):
+        p.solve(keep_basis=True).sweep_cost("nope", [0.3])
