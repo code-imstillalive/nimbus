@@ -170,14 +170,16 @@ def test_no_published_data_renders_without_error():
 
 def test_the_interval_running_now_is_the_first_price_column():
     """The table started at the next slot, so the first 5 min was missing:
-    a Now column comes first, with a Settled row for the price the plan
-    uses, each source's own price for now, and the blend's gap to it."""
+    one Now column comes first, and no extra row ("one row one column"):
+    each source's own price for now, the blend, and the blend's gap to the
+    provider, as in every other column."""
     md = _render(_imp(["aemo_markup", "primary"], with_now=True))
     assert _cells(md, "Source")[6:] == ["Now 15:55", "16:00", "16:30"]
-    assert _cells(md, "Settled")[6:] == ["21.0", "", ""]
+    assert not [x for x in md.splitlines() if x.startswith("| ") and "Settled" in x]
     assert _cells(md, "LocalVolts Buy")[6:] == ["21.0", "21.4", "22.5"]
     assert _cells(md, "AEMO + markup")[6:] == ["29.5", "30.0", "31.0"]
     assert _cells(md, "Blend")[6:] == ["21.6", "21.6", "22.3"]
+    # 21.6 - 21.01 (the provider's now), as every column: blend minus provider.
     assert _cells(md, "Gap")[6:] == ["+0.6", "+0.1", "-0.2"]
     widths = {x.count("|") for x in md.splitlines() if x.startswith("|")}
     assert widths == {10}, "every row has the same number of cells"
@@ -186,7 +188,6 @@ def test_the_interval_running_now_is_the_first_price_column():
 def test_the_now_column_is_yellow_and_bold():
     md = _render(_imp(["aemo_markup", "primary"], with_now=True))
     assert "<font color='gold'>**Now 15:55**</font>" in md
-    assert "<font color='gold'>**Settled**</font>" in md
     assert "<font color='gold'>**29.5**</font>" in md
     assert "<font color='gold'>**21.6**</font>" in md
 

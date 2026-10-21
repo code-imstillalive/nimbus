@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Price sources table's Now column is one column, no extra row**
+  (household, 21 Oct 2026). 0.94.474 added a *Settled* row under the header;
+  it is gone. The Now column shows each source's own price for the interval
+  running now, the blend, and the blend's gap to your provider, like every
+  other column.
+
 - **Going live, step by step, with a ready-made automation** (1.0.0,
   [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). A new
   *Going live* guide takes a household from shadow to Nimbus driving the
