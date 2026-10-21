@@ -1247,6 +1247,127 @@ def test_a_deferral_threshold_blocks_a_saving_smaller_than_it(
     assert float(np.sum(waits.adequacy_loads[0].power_kw[:half])) <= 1e-6
 
 
+def _deferral_plan(n, width, price, threshold, spans, runs, calibrated=False):
+    """A 1 kW load whose windows are `spans`, each owing `runs` whole
+    periods; `threshold` None leaves the field unset."""
+    windows = tuple(
+        AdequacyWindow(earliest_period=a, deadline_period=b, target_kwh=runs * width)
+        for a, b in spans
+    )
+    extra = {} if threshold is None else {"min_deferral_saving_dollars": threshold}
+    return build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.asarray(price, dtype=float),
+            export_price=np.zeros(n),
+            import_limit_kw=10.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=1.0,
+                target_kwh=runs * width,
+                earliest_period=spans[0][0],
+                deadline_period=spans[0][1],
+                shortfall_price=20.0,
+                windows=windows if len(spans) > 1 else None,
+                **extra,
+            )
+        ],
+        solve_options=lp.CalibratedOptions() if calibrated else None,
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(1, 3),
+    st.integers(0, 3),
+    st.integers(0, 4),
+    st.sampled_from([0.5, 1.0]),
+    _num(0.05, 3.0),
+    st.booleans(),
+    st.booleans(),
+)
+def test_the_deferral_penalty_costs_its_stated_share_of_the_threshold(
+    runs, start, slack, width, threshold, two, calibrated
+):
+    """#769 (Mark Purcell; household decision 15 Sep: "each load can have
+    its own urgency then"). Each window prices lateness from its OWN
+    opening at rate = (X / target) / window_hours, so the whole target at
+    the deadline costs exactly X and at the opening nothing. At a flat
+    price the load runs from each window's opening, and the plan costs that
+    rate times the lateness it actually carries over the unset plan. A
+    second window pulls to its own opening, not to the plan's start. The
+    cost is a PRIMARY cost, on purpose allowed to beat real prices, so the
+    calibrated solve (production's) charges exactly the same."""
+    length = runs + slack
+    spans = [(start, start + length - 1)]
+    if two:
+        spans.append((spans[0][1] + 2, spans[0][1] + 1 + length))
+    n = spans[-1][1] + 2
+    price = np.full(n, 0.20)
+    base = _deferral_plan(n, width, price, None, spans, runs, calibrated)
+    plan = _deferral_plan(n, width, price, threshold, spans, runs, calibrated)
+    assert base.status == plan.status == "optimal"
+    power = plan.adequacy_loads[0].power_kw
+    want = 0.0
+    for a, b in spans:
+        np.testing.assert_allclose(power[a : a + runs], 1.0, atol=1e-6)
+        np.testing.assert_allclose(power[a + runs : b + 1], 0.0, atol=1e-6)
+        window_h = width * (b - a)
+        if window_h > 0:
+            rate = threshold / (runs * width) / window_h
+            want += sum(rate * width * k * width for k in range(runs))
+    assert plan.total_cost - base.total_cost == pytest.approx(want, abs=1e-6)
+
+
+def test_a_whole_target_at_the_deadline_costs_exactly_the_threshold():
+    """The promise as the household was given it, measured with nowhere
+    else to go: a one-period target in a window whose every period but the
+    deadline is priced out of reach, so it runs at the deadline and pays
+    exactly X over the unset plan."""
+    n, threshold, spans = 6, 0.75, [(0, 4)]
+    price = np.array([5.0] * 4 + [0.20, 0.20])
+    forced = _deferral_plan(n, 1.0, price, threshold, spans, 1)
+    unset = _deferral_plan(n, 1.0, price, None, spans, 1)
+    assert forced.status == unset.status == "optimal"
+    assert float(forced.adequacy_loads[0].power_kw[4]) == pytest.approx(1.0)
+    assert forced.total_cost - unset.total_cost == pytest.approx(threshold)
+
+
+@SETTINGS
+@given(st.lists(_num(0.02, 0.5), min_size=6, max_size=12), st.integers(1, 3))
+def test_a_zero_threshold_is_the_unset_plan_exactly(prices, runs):
+    """#769: 0 is the off switch, byte-identical to leaving it unset, so
+    every install that never touches it plans as before."""
+    n = len(prices)
+    spans = [(0, n - 1)]
+    unset = _deferral_plan(n, 1.0, prices, None, spans, runs)
+    zero = _deferral_plan(n, 1.0, prices, 0.0, spans, runs)
+    assert unset.total_cost == zero.total_cost
+    np.testing.assert_array_equal(
+        unset.adequacy_loads[0].power_kw, zero.adequacy_loads[0].power_kw
+    )
+
+
+def test_a_negative_deferral_threshold_is_refused_and_zero_accepted():
+    kw = {
+        "name": "hws",
+        "max_power_kw": 1.0,
+        "target_kwh": 2.0,
+        "earliest_period": 0,
+        "deadline_period": 3,
+        "shortfall_price": 10.0,
+    }
+    with pytest.raises(ValueError, match="must be >= 0"):
+        AdequacyLoadConfig(**kw, min_deferral_saving_dollars=-1.0)
+    assert AdequacyLoadConfig(**kw, min_deferral_saving_dollars=0.0)
+
+
 @SETTINGS
 @given(st.integers(min_value=2, max_value=12), st.integers(min_value=0, max_value=5))
 def test_an_adequacy_window_past_the_plan_is_refused_naming_the_plan(n, past):
