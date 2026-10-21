@@ -448,6 +448,14 @@ class TrainedModel:
     # a purely additive new field does not need a bump (see __setstate__
     # below, which backfills those regardless of schema_version).
     schema_version: int = TRAINED_MODEL_SCHEMA_VERSION
+    # DC-006 slice 2 (nimbus #1574, Mark Purcell, 21 Oct 2026): the sign
+    # convention the battery/grid/solar power features were trained in.
+    # "native" is each sensor's own sign (every model trained in `legacy`,
+    # and every model from before this field); "canonical" is the device
+    # contract's (battery discharge-positive, grid import-positive), used
+    # for a model trained while the device setup is `active`. Prediction
+    # feeds a model the sign it was trained with.
+    power_feature_sign: str = "native"
 
     def __setstate__(self, state: dict) -> None:
         """A plain @dataclass's default pickling restores an old
@@ -480,6 +488,7 @@ class TrainedModel:
                 "gbrt_upper": None,
                 "seasonal_lookup": {},
                 "schema_version": 0,
+                "power_feature_sign": "native",
             }
         )
         self.__dict__.update(state)

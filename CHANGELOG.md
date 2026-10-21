@@ -8,12 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A battery's plan-consistent headroom never exceeds its physical headroom**
+  ([#1985](https://github.com/code-imstillalive/nimbus/issues/1985)). For a battery
+  already charging or discharging flat out, the flex signals'
+  `available_up_ranging_kw` / `available_down_ranging_kw` could report room it
+  did not have, read from the solver's ranging of the limit itself. They are now
+  clamped to the physical figure. Dispatch is unchanged.
+
 - **A load's shut period always reads as degenerate**
   ([#1981](https://github.com/code-imstillalive/nimbus/issues/1981)). A period
   outside an adequacy load's window has a zero band, but its `degenerate` flag in
   the flex signals' `load_signals` followed the solver's unclamped ranging, so
   another load in the same solve could turn it off. It now follows the band.
   Dispatch is unchanged.
+
+## [0.94.479] - 2026-10-21
+
+**DC-006 slice 2: the Forecaster reads the device setup in `active`.**
+
+- **Device setup, the Forecaster in `active` (#1574, DC-006 slice 2).** With the
+  device setup in `active`, each Forecaster model reads its battery, grid and
+  solar power inputs from the device setup: in the sign it was trained with,
+  the last good reading held for up to its max age when one goes missing, and
+  then the model's own training mean (never 0) until it returns. A model
+  retrained in `active` learns the setup's sign (battery discharge-positive).
+  `legacy` and `shadow` installs read exactly what they read before; on a
+  healthy site a model trained in `legacy` is fed identical inputs in
+  `active`.
 
 ## [0.94.478] - 2026-10-21
 
@@ -27,6 +48,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   tolerance. It is now a tie-break on the secondary objective, as the other
   tie-breaks have been since #696, so it no longer meets a real price. A plan
   solved without the calibrated objective keeps the old tie-break.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 672a16ee**
+  (`release/0.94.478`), installed via HACS and restarted at 15:53 AEST;
+  devhub's own Nimbus sensors published 0.94.478 by 15:56. The log after the
+  restart showed only devhub's known baseline (mirror duplicate-unique-ID
+  notices). devhub's own plan entity is unavailable (its known limitation),
+  so the bonus block is checked on production's first P2P window.
+- Consumer check: on the Solver tab's Whole Plan, the P2P export bonus
+  (lightning bolt) runs as one unbroken block to the end of the window,
+  without dropping out and back in.
 
 ## [0.94.477] - 2026-10-21
 
