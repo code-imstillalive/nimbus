@@ -491,7 +491,7 @@ def test_no_interval_claims_more_than_the_price_coupled_solve_holds():
         retail=0.30,
         hours0=1.0,
         negated=False,
-        cost_map=lambda price: {"imp": price},
+        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
     )
     kws = [kw for _p, kw in curve]
     assert kws[0] == 7.0 and 6.0 in kws

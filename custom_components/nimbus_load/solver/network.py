@@ -1607,7 +1607,7 @@ def _offer_curve_ranging_walk(
     hours0: float,
     negated: bool,
     cost_map: Callable[[float], dict[str, float]] | None = None,
-    point_value: Callable[[float, SweepRangingStep], float] | None = None,
+    point_value: Callable[[float, SweepRangingStep], tuple[float, bool]] | None = None,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float] | None]]:
     """Nimbus issue #678: walks this variable's own real piecewise-
     constant breakpoints directly via repeated `LPResult.sweep_cost_
@@ -1712,9 +1712,12 @@ def _offer_curve_ranging_walk(
     values: list[float] = []
     intervals: list[tuple[float, float] | None] = []
 
-    def step_at(price: float) -> tuple[SweepRangingStep, float]:
-        """The re-solved step at `price`, and `var`'s value there as a real
-        plan would publish it."""
+    exact: list[bool] = []
+
+    def step_at(price: float) -> tuple[SweepRangingStep, float, bool]:
+        """The re-solved step at `price`, `var`'s value there as a real plan
+        would publish it, and whether that is the LP's own point (so its
+        ranging speaks for the plan)."""
         if cost_map is not None:
             # nimbus issue #1990: every cost a real plan at this price would
             # carry, not only `var`'s own.
@@ -1724,14 +1727,17 @@ def _offer_curve_ranging_walk(
         else:
             cost = price * hours0 if not negated else -price * hours0
             (step,) = result.sweep_cost_with_ranging(var, [cost])
-        value = point_value(price, step) if point_value is not None else step.value
-        return step, value
+        if point_value is None:
+            return step, step.value, True
+        value, lp_point = point_value(price, step)
+        return step, value, lp_point
 
     def solve_at(price: float) -> tuple[float, float] | None:
-        step, value = step_at(price)
+        step, value, lp_point = step_at(price)
         interval = _offer_curve_price_interval(step, hours0, negated=negated)
         prices.append(price)
         values.append(value)
+        exact.append(lp_point)
         intervals.append(interval)
         return interval
 
@@ -1741,11 +1747,20 @@ def _offer_curve_ranging_walk(
         moving too it can end sooner. Probe just inside the claimed end and,
         if the value has already moved, bisect for the real breakpoint.
         Returns (last price on this plateau, first price past it)."""
+        nudge = max(_OFFER_CURVE_NUDGE_REL, abs(bound) * _OFFER_CURVE_NUDGE_REL)
+        past_bound = bound + nudge if bound > price else bound - nudge
+        if exact[-1] and cost_map is not None:
+            # Nothing but `var`'s own cost moves between here and the
+            # bound, at an LP point: the ranging is the real solve's.
+            a, b = cost_map(price), cost_map(bound)
+            if a.keys() == b.keys() and all(
+                k == var or abs(a[k] - b[k]) <= 1e-12 for k in a
+            ):
+                return bound, past_bound
         step = (bound - price) * 1e-6 if bound != price else 0.0
         inside = bound - step
         if abs(step_at(inside)[1] - here) <= _OFFER_CURVE_VALUE_TOL:
-            nudge = max(_OFFER_CURVE_NUDGE_REL, abs(bound) * _OFFER_CURVE_NUDGE_REL)
-            return bound, bound + nudge if bound > price else bound - nudge
+            return bound, past_bound
         lo, hi = price, inside
         for _ in range(_OFFER_CURVE_BISECT_STEPS):
             if abs(hi - lo) <= _OFFER_CURVE_BISECT_TOL * max(1.0, abs(lo)):
@@ -5006,15 +5021,25 @@ def _build_plan_once(
             return q.value_of(exact, var) if exact.status == "optimal" else None
 
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
-            def value(price: float, step: SweepRangingStep) -> float:
+            def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
                 x = step.x
-                if x is None or _two_way(x, frozenset()) is None:
-                    return step.value
+                first = None if x is None else _two_way(x, frozenset())
+                if first is None:
+                    return step.value, True
+                return one_way(price, step, first), False
+
+            def one_way(price: float, step: SweepRangingStep, first) -> float:
                 cost = costs(price)
+                # The two-way point bounds every one-way plan from below:
+                # a leaf that matches it is optimal, and the search stops.
+                floor = step.objective
                 best: list[float] = []  # [objective, value] of the best leaf
                 nodes = 0
+                # The sweep already solved the root: start at its two branches.
+                name, fwd, rev, _excess = first
                 stack: list[tuple[tuple[str, ...], frozenset[str]]] = [
-                    ((), frozenset())
+                    ((rev,), frozenset({name})),
+                    ((fwd,), frozenset({name})),
                 ]
                 while stack:
                     zero, held = stack.pop()
@@ -5031,6 +5056,10 @@ def _build_plan_once(
                     pair = _two_way(xs, held)
                     if pair is None:
                         best[:] = [objective, float(xs[index[var]])]
+                        if floor is not None and objective <= floor + 1e-9 * max(
+                            1.0, abs(floor)
+                        ):
+                            break
                         continue
                     name, fwd, rev, _excess = pair
                     stack.append(((*zero, rev), held | {name}))

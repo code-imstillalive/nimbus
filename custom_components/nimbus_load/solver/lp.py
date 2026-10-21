@@ -739,6 +739,8 @@ class SweepRangingStep:
     # for it (`sweep_costs_with_ranging(..., with_solution=True)`), so it can
     # tell whether the point is one a real plan would publish.
     x: NDArray[np.float64] | None = None
+    # ... and its objective, a lower bound on any one-way plan at this point.
+    objective: float | None = None
 
 
 @dataclass(frozen=True)
@@ -990,6 +992,12 @@ class LPResult:
     _orig_cost_by_name: dict[str, float] = field(
         default_factory=dict, repr=False, compare=False
     )
+    # nimbus issue #1990: the solved LP's own column bounds, read once on the
+    # first `resolve_variant()` (copying the LP per call costs more than the
+    # warm re-solve itself).
+    _variant_bounds: dict[str, NDArray[np.float64]] = field(
+        default_factory=dict, repr=False, compare=False
+    )
     # nimbus issue #676: the full ordered variable/row name lists, same
     # ones _build_ranging_dict() uses to resolve a raw HiGHS in_var_/
     # ou_var_ index back to a real name -- needed by
@@ -1111,16 +1119,21 @@ class LPResult:
             msg = "resolve_variant requires solve(keep_basis=True)"
             raise ValueError(msg)
         h = self._highs
-        lp = h.getLp()
+        bounds = self._variant_bounds
+        if not bounds:
+            lp = h.getLp()
+            bounds["lower"] = np.asarray(lp.col_lower_, dtype=np.float64)
+            bounds["upper"] = np.asarray(lp.col_upper_, dtype=np.float64)
         held = {
             name: (
-                float(lp.col_lower_[self._var_index[name]]),
-                float(lp.col_upper_[self._var_index[name]]),
+                float(bounds["lower"][self._var_index[name]]),
+                float(bounds["upper"][self._var_index[name]]),
             )
             for name in zero
         }
+        moved = self._moved_costs(cost_map)
         try:
-            for name, cost in cost_map.items():
+            for name, cost in moved.items():
                 h.changeColCost(self._var_index[name], cost)
             for name in zero:
                 h.changeColBounds(self._var_index[name], 0.0, 0.0)
@@ -1133,12 +1146,18 @@ class LPResult:
                 np.asarray(h.getSolution().col_value, dtype=np.float64),
             )
         finally:
-            for name in cost_map:
+            for name in moved:
                 h.changeColCost(
                     self._var_index[name], self._orig_cost_by_name.get(name, 0.0)
                 )
             for name, (lo, hi) in held.items():
                 h.changeColBounds(self._var_index[name], lo, hi)
+
+    def _moved_costs(self, cost_map: dict[str, float]) -> dict[str, float]:
+        """The entries of `cost_map` that differ from the solved LP's own
+        cost: setting an unchanged cost is call overhead for nothing."""
+        orig = self._orig_cost_by_name
+        return {k: v for k, v in cost_map.items() if v != orig.get(k, 0.0)}
 
     def sweep_costs_with_ranging(
         self,
@@ -1175,10 +1194,15 @@ class LPResult:
         var_names = self._var_names
         row_names = self._row_names
         steps: list[SweepRangingStep] = []
+        current: dict[str, float] = {}
         try:
             for cost_map in cost_maps:
                 for name, cost in cost_map.items():
-                    h.changeColCost(self._var_index[name], cost)
+                    if cost != current.get(
+                        name, self._orig_cost_by_name.get(name, 0.0)
+                    ):
+                        h.changeColCost(self._var_index[name], cost)
+                        current[name] = cost
                 with _timed_lp_call(h, "sweep_cost_with_ranging"):
                     h.run()
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
@@ -1222,10 +1246,13 @@ class LPResult:
                         x=np.asarray(solution, dtype=np.float64)
                         if with_solution
                         else None,
+                        objective=float(h.getInfo().objective_function_value)
+                        if with_solution
+                        else None,
                     )
                 )
         finally:
-            for name in touched:
+            for name in current:
                 h.changeColCost(
                     self._var_index[name], self._orig_cost_by_name.get(name, 0.0)
                 )
