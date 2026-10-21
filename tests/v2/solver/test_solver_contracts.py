@@ -15,6 +15,11 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 - The failing-model dump (#773) marks a phase dumped only once the write
   succeeds, so a transient failure never blocks the next capture (#1074,
   found in the IV&V pass since #1058).
+- The "Solar forecast risk" dial (`risk_aversion`) leans solar toward its
+  lower band and leaves house load on its point forecast (household, 12 Oct
+  2026): a wide load band once had the plan budget load that never came.
+- The same physical scenario costs and dispatches the same whatever the
+  period length (#338): the soft-SoC penalty is per kWh, not per period.
 """
 
 from __future__ import annotations
@@ -192,3 +197,118 @@ def test_a_failed_dump_never_blocks_the_next_one(label):
         assert again.written == []
     finally:
         lp._LP_DUMPED_PHASES.clear()
+
+
+def _battery(**over):
+    return BatteryConfig(
+        **{
+            "name": "home",
+            "capacity_kwh": 120.0,
+            "initial_soc_kwh": 60.0,
+            "min_soc_kwh": 2.4,
+            "max_soc_kwh": 120.0,
+            "max_charge_kw": 40.0,
+            "max_discharge_kw": 40.0,
+            "charge_efficiency": 0.95,
+            "discharge_efficiency": 0.95,
+            "charge_cost": 0.005,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.1,
+            **over,
+        }
+    )
+
+
+@SETTINGS
+@given(
+    _num(0.05, 1.0),
+    _num(0.0, 10.0),
+    _num(0.0, 8.0),
+    _num(0.0, 1.0),
+    _num(0.0, 15.0),
+)
+def test_the_risk_dial_leans_solar_and_never_load(risk, band, solar, low, block):
+    """With the dial on, a house-load band changes nothing, and solar counts
+    as forecast - risk x (forecast - lower)."""
+    n = 6
+    fixed = np.full(n, block) if block > 0.5 else None
+
+    def plan_with(load_band):
+        return build_plan(
+            periods=PeriodGrid(np.full(n, 0.5)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.30),
+                export_price=np.full(n, 0.20),
+                import_limit_kw=42.0,
+                export_limit_kw=40.0,
+                fixed_export_kw=fixed,
+            ),
+            batteries=[_battery(initial_soc_kwh=110.0)],
+            solar=SolarConfig(
+                forecast_kw=np.full(n, solar),
+                lower_kw=np.full(n, solar * low),
+                upper_kw=np.full(n, solar + 1.0),
+            ),
+            loads=[
+                LoadConfig(
+                    name="house",
+                    forecast_kw=np.full(n, 1.2),
+                    lower_kw=np.zeros(n) if load_band else None,
+                    upper_kw=np.full(n, 1.2 + band) if load_band else None,
+                )
+            ],
+            risk_aversion=risk,
+        )
+
+    banded, bare = plan_with(True), plan_with(False)
+    assert banded.status == bare.status == "optimal"
+    for field in ("battery_charge_kw", "battery_discharge_kw", "grid_import_kw"):
+        np.testing.assert_allclose(
+            getattr(banded, field), getattr(bare, field), atol=1e-6, err_msg=field
+        )
+    np.testing.assert_allclose(
+        banded.effective_solar_kw, solar - risk * (solar - solar * low), atol=1e-9
+    )
+
+
+@SETTINGS
+@given(_num(25.0, 90.0), _num(0.1, 0.3), _num(-0.05, 0.0))
+def test_the_same_scenario_costs_the_same_on_any_period_length(soc, rate, export_gap):
+    """12 hours on a 1 h, 15 min or 5 min grid, flat prices, a terminal
+    value at the last period: the same cost and the same end SoC (#338).
+    Export at or below the terminal rate, and that at or below import, so
+    nothing is bought to sell and the only question is what to hold."""
+    results = []
+    for width in (1.0, 0.25, 1.0 / 12.0):
+        n = round(12.0 / width)
+        plan = build_plan(
+            periods=PeriodGrid(np.full(n, width)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.30),
+                export_price=np.full(n, rate + export_gap),
+                import_limit_kw=44.0,
+                export_limit_kw=44.0,
+            ),
+            batteries=[
+                _battery(
+                    capacity_kwh=100.0,
+                    initial_soc_kwh=soc,
+                    min_soc_kwh=20.0,
+                    max_soc_kwh=90.0,
+                    charge_efficiency=0.99,
+                    discharge_efficiency=0.99,
+                    discharge_cost=0.005,
+                    salvage_value=0.0,
+                    terminal_value_breakpoints=[(70.0, rate)],
+                    terminal_value_period_indices=[n - 1],
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+        )
+        assert plan.status == "optimal", width
+        results.append((plan.total_cost, plan.battery_soc_kwh[-1]))
+    costs = [c for c, _ in results]
+    ends = [e for _, e in results]
+    assert max(costs) - min(costs) < 1e-3, results
+    assert max(ends) - min(ends) < 1e-3, results
