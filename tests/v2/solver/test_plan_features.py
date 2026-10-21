@@ -1809,6 +1809,89 @@ def test_two_run_once_loads_on_a_long_plan_solve_quickly():
     assert time.monotonic() - started < 10.0
 
 
+@SETTINGS
+@given(
+    _num(0.3, 3.0),
+    _num(1.0, 4.0),
+    st.integers(1, 4),
+    _num(0.5, 30.0),
+    st.integers(1, 6),
+    st.booleans(),
+)
+def test_a_reachable_target_is_met_at_any_price_below_its_shortfall_price(
+    price, power, length, target, runs, semi
+):
+    """Mark Purcell's audit, item 5 (hard service constraints), with #477's
+    soft shortfall. Hot water by its deadline must not be traded away when
+    power gets merely dear: at any import price under the shortfall price
+    (here 1x to 10x a 30c tariff, against the $10 default), a target the
+    load can reach in its window is met in full. One it cannot reach no
+    longer takes the plan down: it solves, runs flat out, and reports exactly
+    the unreachable part as shortfall. Run once (#616), the target is whole
+    periods (a fractional one is the cheaper of rounding up and a priced
+    shortfall, `::test_each_window_delivers_its_own_target_inside_its_own_periods`)."""
+    if semi:
+        target = power * runs
+    n = length + 2
+    reach = power * length
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, price),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=1,
+                deadline_period=length,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+            )
+        ],
+        adequacy_semi_continuous=semi,
+    )
+    assert plan.status == "optimal"
+    (al,) = plan.adequacy_loads
+    if target <= reach - 1e-6:
+        assert al.delivered_by_deadline_kwh >= target - 1e-5
+        assert al.shortfall_kwh == pytest.approx(0.0, abs=1e-5)
+    else:
+        assert al.delivered_by_deadline_kwh == pytest.approx(reach, abs=1e-5)
+        assert al.shortfall_kwh == pytest.approx(target - reach, abs=1e-5)
+
+
+@SETTINGS
+@given(
+    st.lists(st.sampled_from([0.03, 0.07, 0.15, 0.30]), min_size=3, max_size=8),
+    _num(0.5, 5.0),
+    st.data(),
+)
+def test_a_continuous_load_is_bought_in_its_cheapest_periods(prices, power, data):
+    """#606 and #616 off: a load with a target and room to spare runs its
+    cheapest periods first, at full power, and takes only what is left of
+    its target from the next; it pays exactly that greedy cheapest cost and
+    never runs past its target."""
+    n = len(prices)
+    target = data.draw(_num(0.1, power * n))
+    plan = _run_once_plan(prices, power, target, semi=False)
+    assert plan.status == "optimal"
+    p_kw = plan.adequacy_loads[0].power_kw
+    assert float(np.sum(p_kw)) == pytest.approx(target, abs=1e-5)
+    need, least = target, 0.0
+    for price in sorted(prices):
+        take = min(power, need)
+        least += price * take
+        need -= take
+    assert float(np.sum(np.asarray(prices) * p_kw)) == pytest.approx(least, abs=1e-5)
+
+
 @pytest.mark.parametrize("width", [0.25, 0.5, 1.0])
 def test_a_run_once_load_stays_in_one_block_even_when_splitting_is_cheaper(width):
     """Two cheap pairs of periods with dear ones between: one run of four
