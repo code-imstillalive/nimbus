@@ -93,9 +93,11 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 
 from __future__ import annotations
 
+import ast
 import dataclasses
 import logging
 import os
+import pathlib
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -1389,6 +1391,196 @@ def test_phase_records_are_safe_outside_and_between_solves():
         assert len(lp._PHASE_LOG.entries) == 1
     with lp._phase_breakdown():
         assert lp._PHASE_LOG.entries == []
+
+
+# --- #773: the per-call timing line ----------------------------------------------
+
+
+class _InfoHighs(_PhaseHighs):
+    def __init__(self, status="Optimal", iterations=1234, nodes=7, gap=0.0):
+        super().__init__(status)
+        self._info = MagicMock(
+            simplex_iteration_count=iterations, mip_node_count=nodes, mip_gap=gap
+        )
+
+
+class _BrokenInfoHighs(_PhaseHighs):
+    def getInfo(self):
+        raise RuntimeError("highs info unavailable")
+
+
+def _timing_lines(monkeypatch, h, elapsed, raises=None, label="primary_minimize"):
+    """The `#773 diag` records one timed call of `elapsed` seconds emits.
+    With `raises`, the call raises it; the records are returned on the
+    exception as `.lines`."""
+    monkeypatch.setattr(lp.time, "monotonic", _clock([elapsed]))
+    monkeypatch.setattr(lp, "_dump_failing_model", lambda *a, **k: None)
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler(logging.DEBUG)
+    handler.emit = records.append
+    level = lp._LOGGER.level
+    lp._LOGGER.addHandler(handler)
+    lp._LOGGER.setLevel(logging.DEBUG)
+    try:
+        with lp._timed_lp_call(h, label):
+            if raises is not None:
+                raise raises
+    except BaseException as exc:
+        exc.lines = [r for r in records if "#773 diag" in r.getMessage()]
+        raise
+    finally:
+        lp._LOGGER.removeHandler(handler)
+        lp._LOGGER.setLevel(level)
+    return [r for r in records if "#773 diag" in r.getMessage()]
+
+
+@given(
+    st.one_of(
+        _num(0.0, 120.0),
+        st.sampled_from(
+            [
+                lp._SLOW_LP_CALL_SECONDS - 0.01,
+                lp._SLOW_LP_CALL_SECONDS,
+                lp._ALARMING_LP_CALL_SECONDS - 0.01,
+                lp._ALARMING_LP_CALL_SECONDS,
+            ]
+        ),
+    ),
+    st.sampled_from(["Optimal", "Time limit reached", "Infeasible"]),
+    st.integers(0, 10**6),
+    st.integers(0, 10**5),
+    st.sampled_from([0.0, 0.0123, 0.5]),
+)
+def test_a_timed_call_is_logged_by_its_time_and_status(
+    elapsed, status, iterations, nodes, gap
+):
+    """#773 (a 0.6 s cycle on a real install, while about once a minute a
+    single HiGHS call ran past the 60 s limit). Below the slow line a call
+    logs nothing (a healthy install stays silent). At or past it, one line
+    carries the call site, the elapsed time, and the fields that separate
+    the explanations: simplex iterations (cycling against a stall outside
+    the simplex loop), the MIP node count (a big tree against a slow root,
+    0 or 1) and the gap. It is a WARNING only past the alarming line or
+    when the call did not end optimal (#757's lesson: a known, merely-slow
+    call is information, not an alarm), else DEBUG."""
+    h = _InfoHighs(status, iterations, nodes, gap)
+    with pytest.MonkeyPatch.context() as mp:
+        lines = _timing_lines(mp, h, elapsed)
+    if elapsed < lp._SLOW_LP_CALL_SECONDS:
+        assert lines == []
+        return
+    assert len(lines) == 1
+    msg = lines[0].getMessage()
+    for part in (
+        "'primary_minimize'",
+        f"{elapsed:.1f}s",
+        f"simplex_iterations={iterations}",
+        f"mip_node_count={nodes}",
+        f"mip_gap={gap}",
+        f"status={status}",
+    ):
+        assert part in msg, part
+    alarming = elapsed >= lp._ALARMING_LP_CALL_SECONDS or status != "Optimal"
+    assert lines[0].levelno == (logging.WARNING if alarming else logging.DEBUG)
+
+
+@pytest.mark.parametrize("exc", [ValueError("boom"), KeyError("original")])
+def test_a_raising_call_is_timed_and_its_exception_kept(monkeypatch, exc):
+    """#773: a call that blows up after 55 s is at least as interesting as
+    one that returns slowly, and the exception carries no timing. The line
+    names the call site, and the original exception still propagates,
+    unchanged."""
+    with pytest.raises(type(exc)) as caught:
+        _timing_lines(monkeypatch, _InfoHighs(), 55.0, exc, label="lex_phase")
+    assert caught.value is exc
+    (line,) = caught.value.lines
+    assert "'lex_phase'" in line.getMessage() and "55.0s" in line.getMessage()
+
+
+@pytest.mark.parametrize("elapsed", [0.1, 70.0])
+def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch, elapsed):
+    """#773: the reads are best-effort, so a diagnostic is never why a solve
+    cycle dies; a slow call still logs its elapsed time and call site, the
+    unread fields as None."""
+    lines = _timing_lines(monkeypatch, _BrokenInfoHighs(), elapsed)
+    if elapsed < lp._SLOW_LP_CALL_SECONDS:
+        assert lines == []
+        return
+    (line,) = lines
+    assert "70.0s" in line.getMessage()
+    assert "simplex_iterations=None" in line.getMessage()
+
+
+def _lp_tree():
+    return ast.parse(pathlib.Path(lp.__file__).read_text(encoding="utf-8"))
+
+
+def _untimed_solves(tree) -> list[str]:
+    """Each `h.run()` / `h.minimize()` outside a `with _timed_lp_call(...)`."""
+    timed: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.With) and any(
+            isinstance(item.context_expr, ast.Call)
+            and isinstance(item.context_expr.func, ast.Name)
+            and item.context_expr.func.id == "_timed_lp_call"
+            for item in node.items
+        ):
+            timed.update(id(inner) for inner in ast.walk(node))
+    return [
+        f"h.{node.func.attr}() at line {node.lineno}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in ("run", "minimize")
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == "h"
+        and id(node) not in timed
+    ]
+
+
+def test_every_highs_solve_in_lp_is_timed():
+    """#773: the helper can be right while a new call site skips it. Every
+    `h.run()` and `h.minimize()` in lp.py sits inside `_timed_lp_call` (the
+    options=None `minimize` was the one #773's own investigation found
+    missing), both kinds exist, and the detector fires on an untimed call
+    and not on a timed one."""
+    tree = _lp_tree()
+    assert _untimed_solves(tree) == []
+    attrs = {
+        n.func.attr
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "h"
+        and n.func.attr in ("run", "minimize")
+    }
+    assert attrs == {"run", "minimize"}
+    untimed = ast.parse("def f(h):\n    h.run()\n")
+    assert _untimed_solves(untimed) == ["h.run() at line 2"]
+    timed = ast.parse(
+        "def f(h):\n    with _timed_lp_call(h, 'x'):\n        h.minimize()\n"
+    )
+    assert _untimed_solves(timed) == []
+
+
+def test_no_call_site_reports_a_hardcoded_problem_size():
+    """#773 review: `primary_minimize` was first wired with `n_binary=0`, a
+    lie whenever the options=None path solves a MIP. A size is read from
+    the problem or left None ("not known"), never a literal ("measured,
+    and it is this")."""
+    offenders = [
+        f"{kw.arg}={kw.value.value!r} at line {node.lineno}"
+        for node in ast.walk(_lp_tree())
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_timed_lp_call"
+        for kw in node.keywords
+        if kw.arg in ("n_vars", "n_binary")
+        and isinstance(kw.value, ast.Constant)
+        and kw.value.value is not None
+    ]
+    assert offenders == []
 
 
 def test_only_an_alarming_call_is_captured():
