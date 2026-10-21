@@ -8,12 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.474] - 2026-10-21
+
+**The Price sources table shows right now.** It starts with the interval
+running now, in yellow, beside the price that settles for it.
+
 - **The Price sources table starts with the interval running now.** It
   started at the next interval, so the first 5 minutes were missing. A
   yellow **Now** column comes first: a **Settled** row with the price the
   plan uses for this interval, each source's own price for it, and the
   blend's gap to the settled price. The plan's `price_consolidation`
   attribute carries it as `now` on each side.
+
+- For the device setup (DC-006, no effect until you choose *shadow* or
+  *active*): in shadow or active, a power sensor with no unit, or a misspelt
+  one, raises a Repair, *What unit is this sensor in?*, where you choose W or
+  kW (or fix the sensor's own unit, which clears it). Active waits until every
+  one is answered
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). The
+  groundwork for moving the Forecaster onto the device setup is in, unused:
+  a missing reading will be held, never read as zero, and each model keeps
+  the battery sign it was trained with.
 
 ## [0.94.473] - 2026-10-21
 
