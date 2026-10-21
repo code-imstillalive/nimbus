@@ -58,8 +58,10 @@ the old file was written for and show both sets fail.
 | `test_adequacy_placement_vs_shadow_price.py` | #769, #662 | `test_solver_contracts::test_narrowing_an_adequacy_window_never_makes_the_plan_cheaper` | a demonstration (an unused cheaper period is not a missed saving), not a regression pin: both it and the new property check that the solve is optimal over its window. No bug in this code would make a narrower window cheaper short of a solver defect, so there is no plant to show; the property generalises the one fixture to generated sites |
 | `test_solver_lp_binary_variables.py` | #238 | `test_solver_contracts::test_a_binary_is_zero_to_one_and_refuses_another_bound`, `::test_a_mips_duals_are_recovered_from_the_pinned_resolve` (closed-form optimum, objective, gate dual = output value, slack dual 0) | planted a binary accepting an explicit bound: old and new fail. Planted the pin step skipped: **neither set fails** — on a MIP this small HiGHS's own branch-and-bound duals are already right, so dual recovery needs a larger fixture in both sets |
 | `test_solver_network_tier0_alignment.py` | #635, #633 | `test_solver_contracts::test_period_0_holds_what_was_dispatched` (periods inside an old period follow it) | planted #635's bug (alignment by exact start only): old and new fail |
+| `test_solver_adequacy_intraplan_smoothness.py` | #725 | `test_solver_contracts::test_smoothness_flattens_a_degenerate_adequacy_load_for_free` (continuous: flat at no extra cost; semi-continuous: hard 0-or-max) | planted smoothing off everywhere: old and new fail. Planted smoothing removed from the adequacy family only (#725's own fix): **neither set fails** — something else now keeps that load flat in these fixtures |
+| `test_solver_intraplan_smoothness.py` | household 20 Aug 2026 | `test_solver_contracts::test_smoothness_never_smears_a_real_price_step`; the flat-price burst: not yet in v2 (old's battery fixture uses load and solar bands) | planted smoothing off everywhere: old fails; the new step property cannot see it (it compares on and off) — **the battery burst still needs a v2 test** |
 
 ## Still to check
 
-The other 48 files, smallest first. Nothing is deleted until every row is
+The other 46 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

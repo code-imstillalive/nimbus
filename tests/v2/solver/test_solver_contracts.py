@@ -65,6 +65,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   `is_mip` says whether any exists. A MIP's duals are recovered from the
   pinned re-solve, so a binding row carries its real price and a slack row
   zero, not the zeros a raw branch-and-bound returns.
+- Smoothness (`smoothness_weight`, mechanism 4; household 20 Aug 2026,
+  "charge in bursts not continuously"; #725 for adequacy loads): on flat
+  prices it flattens a degenerate shape at no extra cost, leaves a
+  semi-continuous load hard 0-or-max, and never smears a real price step.
 """
 
 from __future__ import annotations
@@ -899,3 +903,92 @@ def test_a_mips_duals_are_recovered_from_the_pinned_resolve(cap, value, fixed, r
     if on:
         # One more unit through the gate is worth `value`.
         assert abs(result.duals["gate"]) == pytest.approx(value, rel=1e-6)
+
+
+def _jag(*series):
+    return float(sum(np.sum(np.abs(np.diff(x))) for x in series))
+
+
+@SETTINGS
+@given(st.integers(6, 14), _num(0.3, 2.0), st.integers(1, 4), st.booleans())
+def test_smoothness_flattens_a_degenerate_adequacy_load_for_free(
+    n, power, periods_needed, semi
+):
+    width = 5.0 / 60.0
+
+    def plan_with(weight):
+        return build_plan(
+            periods=PeriodGrid(np.full(n, width)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.0202),
+                export_price=np.full(n, -0.0053),
+                import_limit_kw=44.0,
+                export_limit_kw=44.0,
+            ),
+            batteries=[_battery(available=False)],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+            adequacy_loads=[
+                AdequacyLoadConfig(
+                    name="hws",
+                    max_power_kw=power,
+                    target_kwh=power * width * periods_needed,
+                    deadline_period=n - 1,
+                    shortfall_price=5.0,
+                )
+            ],
+            adequacy_semi_continuous=semi,
+            adequacy_earliness_budget_kw=0.0,
+            smoothness_weight=weight,
+        )
+
+    off, on = plan_with(0.0), plan_with(0.005)
+    assert off.status == on.status == "optimal"
+    p = on.adequacy_loads[0].power_kw
+    if semi:
+        assert np.all((p < 1e-6) | (np.abs(p - power) < 1e-6))
+    else:
+        assert _jag(p) < 0.05 * power
+        assert abs(on.total_cost - off.total_cost) < 1e-2
+
+
+@SETTINGS
+@given(_num(0.3, 0.8), _num(10.0, 60.0))
+def test_smoothness_never_smears_a_real_price_step(high, soc):
+    """A sharp import/export step at the midpoint: the battery's swing at
+    the step is the same with smoothing on as off (within 1 kW)."""
+    n = 12
+    imp = np.concatenate([np.full(6, 0.02), np.full(6, high)])
+    exp_ = np.concatenate([np.full(6, -0.005), np.full(6, high - 0.05)])
+
+    def net(weight):
+        plan = build_plan(
+            periods=PeriodGrid(np.full(n, 5.0 / 60.0)),
+            grid=GridConfig(
+                import_price=imp,
+                export_price=exp_,
+                import_limit_kw=44.0,
+                export_limit_kw=44.0,
+            ),
+            batteries=[
+                _battery(
+                    capacity_kwh=122.2,
+                    initial_soc_kwh=soc + 30.0,
+                    min_soc_kwh=2.44,
+                    max_soc_kwh=122.2,
+                    charge_efficiency=0.926,
+                    discharge_efficiency=0.926,
+                    salvage_value=0.15,
+                )
+            ],
+            solar=SolarConfig(forecast_kw=np.full(n, 3.0)),
+            loads=[LoadConfig(name="load", forecast_kw=np.full(n, 2.0))],
+            smoothness_weight=weight,
+            battery_charge_earliness_budget_kw=0.0,
+        )
+        assert plan.status == "optimal"
+        return plan.battery_discharge_kw - plan.battery_charge_kw
+
+    off, on = net(0.0), net(0.005)
+    step_off, step_on = abs(off[6] - off[5]), abs(on[6] - on[5])
+    assert abs(step_on - step_off) <= 1.0, (step_off, step_on)
