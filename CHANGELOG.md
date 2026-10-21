@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The export bonus is claimed in one block again**
+  ([#1964](https://github.com/code-imstillalive/nimbus/issues/1964)). With a
+  flat bonus price and a cap that leaves one period partly claimed, the bonus
+  could scatter ON/OFF/ON across the window (the lightning bolt dropping out),
+  because its latest-first tie-break was smaller than the solver's own
+  tolerance. It is now a tie-break on the secondary objective, as the other
+  tie-breaks have been since #696, so it no longer meets a real price. A plan
+  solved without the calibrated objective keeps the old tie-break.
+
 ## [0.94.477] - 2026-10-21
 
 **Price sources learn each source's steady premium.** Another retailer's

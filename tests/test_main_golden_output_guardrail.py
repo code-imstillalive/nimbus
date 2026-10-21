@@ -517,8 +517,11 @@ _EXPECTED_ATTRS = {
     # 12 Oct 2026: the charge taper (default on, from 90% SoC) moved this
     # dual from 0.2501; nothing else in the pushed attributes changed.
     "binding_constraint_shadow_price": 0.3022,
-    "energy_shadow_price_now": 0.3,
-    "p2p_volume_cap_shadow_price": -0.0,
+    # nimbus #1964: the export bonus's tie-break moved to the secondary
+    # channel; the calibrated blend's duals move by 1e-4 with it, the same
+    # class of shift #696 Stage 2 recorded above. Fresh real run.
+    "energy_shadow_price_now": 0.2999,
+    "p2p_volume_cap_shadow_price": -0.0001,
     # nimbus #1654 (C): no reserve set in this fixture.
     "reserve_binding_now": False,
     "reserve_shadow_price_now": 0,
@@ -800,7 +803,7 @@ _EXPECTED_FORECAST_SAMPLE = {
         # period_hours_arr[i] correction verified at the top-level
         # energy_shadow_price_now (this period's own copy of the same
         # power_balance_t0 dual, same value by construction).
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,  # nimbus #1964: the calibrated blend's dual, as energy_shadow_price_now
         # nimbus issue #493: no envelope entity configured in this
         # fixture -- flat static 15.0 at every period.
         "envelope_import_limit_kw": 15.0,
