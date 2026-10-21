@@ -1348,3 +1348,118 @@ def test_a_spike_rate_at_the_discharge_limit_is_accepted():
         _spike_battery(spike_override_discharge_kw=10.0).spike_override_discharge_kw
         == 10.0
     )
+
+
+# --- #1654: the soft battery reserve ----------------------------------------------
+
+
+def _reserve_plan(start, reserve, release, export, window, n=8, imp=5.0, load=0.0):
+    battery = BatteryConfig(
+        name="home",
+        capacity_kwh=100.0,
+        initial_soc_kwh=start,
+        min_soc_kwh=2.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=36.0,
+        max_discharge_kw=36.0,
+        charge_efficiency=0.97,
+        discharge_efficiency=0.97,
+        charge_cost=0.0,
+        discharge_cost=0.01,
+        salvage_value=0.0,
+        reserve_kwh=reserve,
+        reserve_release_price=release,
+        reserve_period_indices=window,
+    )
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, imp),
+            export_price=np.asarray(export, dtype=float) * np.ones(n),
+            import_limit_kw=60.0,
+            export_limit_kw=40.0,
+        ),
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load))],
+    )
+
+
+@SETTINGS
+@given(
+    _num(0.05, 1.0),
+    _num(0.05, 0.8),
+    _num(5.0, 30.0),
+    _num(0.0, 40.0),
+    st.sampled_from(["all day", "now", "ahead"]),
+)
+def test_the_reserve_sells_only_above_its_release_price(
+    export, release, reserve, above, kind
+):
+    """#1654 (9 Oct 2026: the plan sold the last ~9% at 28.6c, thirty
+    minutes before a $1.04 spike, and was empty through it). The bottom
+    `reserve_kwh` sells only when a kWh of it earns more than the release
+    price. With nothing else going on, a stored kWh sold earns (export less
+    the discharge cost) x efficiency: above the reserve it always goes; into
+    the reserve only when that beats the release price. A window still open
+    at the end holds the reserve; one that has closed releases it free, so
+    it sells after, and at a flat price that plan costs exactly what no
+    reserve costs; a window ahead (household, 20 Oct) holds like a running
+    one, since entering it short costs the release price."""
+    n = 8
+    earn = (export - 0.01) * 0.97
+    if abs(earn - release) < 0.02:
+        return
+    window = {
+        "all day": None,
+        "now": frozenset(range(4)),
+        "ahead": frozenset(range(4, n)),
+    }[kind]
+    plan = _reserve_plan(reserve + above, reserve, release, export, window, n)
+    assert plan.status == "optimal"
+    soc = plan.batteries[0].soc_kwh
+    held_at_end = kind != "now" and earn < release
+    assert float(soc[-1]) == pytest.approx(reserve if held_at_end else 2.0, abs=1e-4)
+    if earn < release:
+        span = range(n) if window is None else sorted(window)
+        assert float(min(soc[t] for t in span)) >= reserve - 1e-5
+    if kind == "now":
+        free = _reserve_plan(reserve + above, 0.0, 0.0, export, None, n)
+        assert plan.total_cost == pytest.approx(free.total_cost, abs=1e-6)
+
+
+def test_the_reserve_is_off_unless_both_settings_are_set():
+    """#1654: a reserve of 0, or a release price of 0, is no reserve at all;
+    so is an empty window."""
+    base = _reserve_plan(30.0, 0.0, 0.0, 0.30, None)
+    for reserve, release, window in (
+        (15.0, 0.0, None),
+        (0.0, 0.6, None),
+        (15.0, 0.6, frozenset()),
+    ):
+        other = _reserve_plan(30.0, reserve, release, 0.30, window)
+        np.testing.assert_allclose(
+            other.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-9
+        )
+
+
+def test_a_battery_below_the_reserve_is_not_made_to_refill():
+    """#1654: held starts at the lesser of the SoC and the reserve, so a
+    battery already under it is never charged for energy it never had."""
+    for window in (None, frozenset(range(4))):
+        plan = _reserve_plan(3.0, 10.0, 0.60, 0.286, window, imp=0.39, load=1.0)
+        assert plan.status == "optimal"
+        assert float(np.sum(plan.batteries[0].charge_kw)) == pytest.approx(
+            0.0, abs=1e-6
+        )
+
+
+def test_opening_a_window_short_costs_the_release_price():
+    """Household, 20 Oct 2026: a window ahead opened 7 kWh short of a 15 kWh
+    reserve. At a 30c release price, topping up beforehand at 22.8c is
+    cheaper than opening short, so it does; at 10c it is not, so it doesn't."""
+    window = frozenset(range(6, 12))
+    topped = _reserve_plan(8.0, 15.0, 0.30, 0.15, window, n=12, imp=0.228)
+    short = _reserve_plan(8.0, 15.0, 0.10, 0.15, window, n=12, imp=0.228)
+    assert float(topped.batteries[0].soc_kwh[5]) >= 15.0 - 1e-6
+    assert float(short.batteries[0].soc_kwh[5]) < 15.0 - 1.0
