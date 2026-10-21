@@ -700,6 +700,86 @@ def test_a_tiered_terminal_value_is_counted_at_each_of_its_periods(
     assert abs(plan.total_cost - (_parts(site, plan) - flat - value)) < 1e-6
 
 
+def _checkpoint_plan(n, export, indices):
+    tiers = [(6.0, 0.60), (16.0, 0.25), (16.0, 0.05)]
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.50),
+            export_price=np.full(n, export),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="battery",
+                capacity_kwh=40.0,
+                initial_soc_kwh=40.0,
+                min_soc_kwh=2.0,
+                max_soc_kwh=40.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+                charge_efficiency=0.97,
+                discharge_efficiency=0.97,
+                charge_cost=0.005,
+                discharge_cost=0.01,
+                salvage_value=0.0,
+                terminal_value_breakpoints=tiers,
+                terminal_value_period_indices=indices,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
+    )
+
+
+@SETTINGS
+@given(st.integers(8, 16), st.data(), _num(0.12, 0.2))
+def test_a_terminal_checkpoint_holds_energy_at_its_boundary(n, data, export):
+    """Household, 22 Aug 2026 (chart evidence): the plan kept selling for
+    fifty minutes past the P2P window at an unchanged price, because the
+    terminal value only protected the horizon's last period and every other
+    day boundary looked like the end of the world. A checkpoint at a
+    boundary makes the battery hold its dearest tier there that it would
+    otherwise have sold (export here pays more than the cheaper tiers but
+    less than the dearest). `None` is the last period alone, exactly."""
+    t = data.draw(st.integers(n // 2, n - 3))
+    without = _checkpoint_plan(n, export, None)
+    explicit = _checkpoint_plan(n, export, [n - 1])
+    held = _checkpoint_plan(n, export, [t, n - 1])
+    assert without.status == explicit.status == held.status == "optimal"
+    np.testing.assert_array_equal(explicit.battery_soc_kwh, without.battery_soc_kwh)
+    assert explicit.total_cost == without.total_cost
+    assert float(held.battery_soc_kwh[t]) > float(without.battery_soc_kwh[t]) + 1.0
+
+
+@pytest.mark.parametrize(
+    ("indices", "tiers"),
+    [([5], None), ([-1, 5], [(10.0, 0.1)]), ([3, 3], [(10.0, 0.1)])],
+    ids=["without-tiers", "negative", "duplicate"],
+)
+def test_terminal_checkpoints_that_mean_nothing_are_refused(indices, tiers):
+    """Checkpoints need the tier curve to count, a real period, and each
+    period once."""
+    with pytest.raises(ValueError):
+        BatteryConfig(
+            name="b",
+            capacity_kwh=12.0,
+            initial_soc_kwh=6.0,
+            min_soc_kwh=2.0,
+            max_soc_kwh=12.0,
+            max_charge_kw=5.0,
+            max_discharge_kw=5.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            charge_cost=0.005,
+            discharge_cost=0.01,
+            salvage_value=0.0,
+            terminal_value_breakpoints=tiers,
+            terminal_value_period_indices=indices,
+        )
+
+
 @SETTINGS
 @given(
     plain_sites(),
