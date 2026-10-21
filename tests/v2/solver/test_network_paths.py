@@ -1233,3 +1233,118 @@ def test_the_operator_signals_are_opt_in():
 def test_a_plan_that_did_not_solve_carries_no_signals():
     plan = network._infeasible_plan(PeriodGrid(np.ones(2)), "infeasible", iterations=1)
     assert plan.grid_signals is None and plan.battery_signals == []
+
+
+# --- #567: the price spike override pins period 0, the first battery only --------
+
+
+def _spike_battery(name="home", **over):
+    return BatteryConfig(
+        **{
+            "name": name,
+            "capacity_kwh": 40.0,
+            "initial_soc_kwh": 30.0,
+            "min_soc_kwh": 2.0,
+            "max_soc_kwh": 40.0,
+            "max_charge_kw": 10.0,
+            "max_discharge_kw": 10.0,
+            "charge_efficiency": 0.95,
+            "discharge_efficiency": 0.95,
+            "charge_cost": 0.01,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.0,
+            **over,
+        }
+    )
+
+
+def _spike_plan(batteries, price, n=4, fixed=None):
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, price),
+            export_price=np.full(n, price / 10.0),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+            fixed_export_kw=fixed,
+        ),
+        batteries=batteries,
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+    )
+
+
+@SETTINGS
+@given(st.integers(2, 6), _num(0.0, 10.0), st.booleans())
+def test_a_spike_override_pins_period_0_and_nothing_else(n, rate, second):
+    """#567 ("sell into a price spike, deliberately, right now"). At a
+    price too cheap to ever discharge for (import 0.1c, under the 1c
+    discharge cost), the first battery discharges exactly the household's
+    rate in period 0 and nothing after; what the house does not use is
+    exported. A second battery with the same field set is never pinned:
+    the override is the first battery's alone."""
+    batteries = [_spike_battery(spike_override_discharge_kw=rate)]
+    if second:
+        batteries.append(_spike_battery("ev", spike_override_discharge_kw=rate))
+    plan = _spike_plan(batteries, 0.001, n)
+    assert plan.status == "optimal"
+    first = plan.batteries[0]
+    assert float(first.discharge_kw[0]) == pytest.approx(rate, abs=1e-5)
+    assert float(first.charge_kw[0]) == pytest.approx(0.0, abs=1e-6)
+    np.testing.assert_allclose(first.discharge_kw[1:], 0.0, atol=1e-6)
+    assert float(plan.grid_export_kw[0]) == pytest.approx(
+        max(0.0, rate - 2.0), abs=1e-5
+    )
+    if second:
+        np.testing.assert_allclose(plan.batteries[1].discharge_kw, 0.0, atol=1e-6)
+
+
+def test_a_zero_spike_rate_is_a_pin_and_none_is_not():
+    """#567: 0.0 is a deliberate "nothing right now", not "no override".
+    At a price that pays to discharge, an unset override lets period 0
+    discharge; 0.0 holds it at nothing."""
+    free = _spike_plan([_spike_battery()], 0.60)
+    held = _spike_plan([_spike_battery(spike_override_discharge_kw=0.0)], 0.60)
+    assert free.status == held.status == "optimal"
+    assert float(free.batteries[0].discharge_kw[0]) > 1.0
+    assert float(held.batteries[0].discharge_kw[0]) == pytest.approx(0.0, abs=1e-6)
+
+
+@SETTINGS
+@given(_num(0.0, 1.5), st.integers(2, 6))
+def test_a_spike_rate_caps_period_0_and_frees_the_rest(rate, n):
+    """#567: the override is period 0's exact rate in both directions. At a
+    price that pays to discharge, period 0 holds to a rate below the house's
+    2 kW, and every later period is free to discharge more than it."""
+    plan = _spike_plan([_spike_battery(spike_override_discharge_kw=rate)], 0.60, n)
+    assert plan.status == "optimal"
+    first = plan.batteries[0]
+    assert float(first.discharge_kw[0]) == pytest.approx(rate, abs=1e-5)
+    assert float(first.discharge_kw[1:].max()) > rate + 0.4
+
+
+def test_a_spike_rate_below_a_p2p_block_falls_short_and_still_plans():
+    """#694's caveat with #1761: export never exceeds what the battery
+    and sun supply, so a spike rate below an active P2P block's rate
+    cannot meet the block. The block falls short at a price, visibly; the
+    plan is published, not lost to an infeasible solve."""
+    fixed = np.full(4, np.nan)
+    fixed[0] = 11.5
+    plan = _spike_plan(
+        [_spike_battery(spike_override_discharge_kw=2.0)], 0.001, fixed=fixed
+    )
+    assert plan.status == "optimal"
+    assert float(plan.grid_export_kw[0]) < 11.5 - 1e-6
+
+
+@pytest.mark.parametrize("rate", [-1.0, 10.000001, 999.0])
+def test_a_spike_rate_outside_the_battery_s_range_is_refused(rate):
+    with pytest.raises(ValueError):
+        _spike_battery(spike_override_discharge_kw=rate)
+
+
+def test_a_spike_rate_at_the_discharge_limit_is_accepted():
+    assert (
+        _spike_battery(spike_override_discharge_kw=10.0).spike_override_discharge_kw
+        == 10.0
+    )
