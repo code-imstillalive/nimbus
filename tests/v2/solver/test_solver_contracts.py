@@ -86,6 +86,9 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   is not 30 times weaker on the 1-minute period that becomes the inverter
   command. Smoothness keeps its hours factor on purpose: its gain scales
   with hours too, so the two cancel.
+- An adequacy load's `max_kwh_per_day` (#482) caps each real calendar day
+  separately, the whole horizon when the plan has no timestamps, and
+  nothing when unset; a cap of zero or less is refused.
 """
 
 from __future__ import annotations
@@ -1251,3 +1254,58 @@ def test_an_idle_anchor_adds_nothing(case):
     weight = 0.0 if case == "zero_weight" else 0.045
     _add_proximal_penalty(p, ["batt_0"], "batt", alignment, previous, weight)
     assert [k for k in p._cost if k.startswith("prox_")] == []
+
+
+@SETTINGS
+@given(_num(2.0, 15.0), _num(1.0, 3.0), st.sampled_from(["days", "global", "none"]))
+def test_max_kwh_per_day_caps_each_day(cap, target_share, mode):
+    n = 48  # two days, hourly; day 1 cheap, day 2 dear
+    target = round(cap * target_share, 4)
+    start = None if mode == "global" else datetime(2026, 9, 1, tzinfo=UTC)
+    plan = build_plan(
+        periods=PeriodGrid(hours=np.ones(n), start=start),
+        grid=GridConfig(
+            import_price=np.concatenate([np.full(24, 0.05), np.full(24, 0.50)]),
+            export_price=np.zeros(n),
+            import_limit_kw=50.0,
+            export_limit_kw=0.0,
+        ),
+        batteries=[_battery(available=False)],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="miner",
+                max_power_kw=5.0,
+                target_kwh=target,
+                deadline_period=n - 1,
+                shortfall_price=5.0,
+                max_kwh_per_day=None if mode == "none" else cap,
+            )
+        ],
+        # Continuous, so energy is not rounded up to whole hours at full power.
+        adequacy_semi_continuous=False,
+    )
+    assert plan.status == "optimal"
+    power = plan.adequacy_loads[0].power_kw
+    day1, day2 = float(np.sum(power[:24])), float(np.sum(power[24:]))
+    if mode == "days":
+        assert day1 <= cap + 1e-6 and day2 <= cap + 1e-6
+        assert abs(day1 + day2 - min(target, 2 * cap)) < 1e-4
+    elif mode == "global":
+        assert day1 + day2 <= cap + 1e-6
+    else:
+        assert abs(day1 - target) < 1e-4 and day2 < 1e-6
+
+
+@given(st.sampled_from([0.0, -2.0]))
+def test_a_daily_cap_of_zero_or_less_is_refused(cap):
+    with pytest.raises(ValueError):
+        AdequacyLoadConfig(
+            name="miner",
+            max_power_kw=5.0,
+            target_kwh=1.0,
+            deadline_period=3,
+            shortfall_price=5.0,
+            max_kwh_per_day=cap,
+        )
