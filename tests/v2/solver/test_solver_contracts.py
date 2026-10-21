@@ -73,6 +73,12 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   "charge in bursts not continuously"; #725 for adequacy loads): on flat
   prices it flattens a degenerate shape at no extra cost, leaves a
   semi-continuous load hard 0-or-max, and never smears a real price step.
+- With export paying more than import by more than the round trip loses
+  (the case the linear caps alone cannot close, #245, #266; found via
+  #236 and #264), the plan
+  still never charges and discharges, or imports and exports, in one
+  period: the exclusivity binaries are enforced (#238, #1535), and the
+  combined caps hold.
 """
 
 from __future__ import annotations
@@ -1092,3 +1098,50 @@ def test_only_an_alarming_call_is_captured():
         < lp._ALARMING_LP_CALL_SECONDS
         < lp.DEFAULT_TIME_LIMIT_SECONDS
     )
+
+
+@SETTINGS
+@given(
+    st.integers(2, 12),
+    st.sampled_from([5 / 60, 0.25, 1.0]),
+    st.lists(_num(0.05, 0.6), min_size=12, max_size=12),
+    _num(0.05, 0.5),
+    _num(1.0, 20.0),
+    _num(0.0, 6.0),
+)
+def test_a_profitable_spread_still_moves_one_way_per_period(
+    n, width, prices, premium, power, load
+):
+    imp = np.array(prices[:n])
+    limit = 30.0
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=imp + premium,
+            import_limit_kw=limit,
+            export_limit_kw=limit,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=40.0,
+                initial_soc_kwh=20.0,
+                min_soc_kwh=2.0,
+                max_soc_kwh=38.0,
+                max_charge_kw=power,
+                max_discharge_kw=power,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load))],
+    )
+    assert plan.status == "optimal"
+    # One-way either already, or after the direction-exclusive re-solve.
+    assert plan.direction_exclusivity in ("not_needed", "enforced")
+    assert plan.direction_two_way_pairs == 0
+    ch, dc = plan.battery_charge_kw, plan.battery_discharge_kw
+    gi, ge = plan.grid_import_kw, plan.grid_export_kw
+    assert (np.minimum(ch, dc) <= 1e-6).all()
+    assert (np.minimum(gi, ge) <= 1e-6).all()
+    assert (ch + dc <= power + 1e-6).all()
+    assert (gi + ge <= limit + 1e-6).all()
