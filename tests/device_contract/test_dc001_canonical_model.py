@@ -502,6 +502,9 @@ _DC_BUILDERS = frozenset(
         # DC-006 observation slice (#1893): which power sensors' units must
         # be declared before `active`, and the declaration. Validation only.
         "device_units.py",
+        # DC-006 slice 2 (#1574): the Forecaster reads its battery, grid and
+        # solar power inputs from the document, in `active` only.
+        "coordinator.py",
     }
 )
 

@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Device setup, the Forecaster in `active` (#1574, DC-006 slice 2).** With the
+  device setup in `active`, each Forecaster model reads its battery, grid and
+  solar power inputs from the device setup: in the sign it was trained with,
+  the last good reading held for up to its max age when one goes missing, and
+  then the model's own training mean (never 0) until it returns. A model
+  retrained in `active` learns the setup's sign (battery discharge-positive).
+  `legacy` and `shadow` installs read exactly what they read before; on a
+  healthy site a model trained in `legacy` is fed identical inputs in
+  `active`.
+
 ## [0.94.478] - 2026-10-21
 
 **The P2P export bonus is claimed in one block again.**
