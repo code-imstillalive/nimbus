@@ -23,6 +23,12 @@ vouch for `elements.py`): `test_elements_battery_config_validation.py`,
 `test_elements_adequacy_windows_validation.py`,
 `test_elements_thermal_load_config_validation.py`.
 
+**Out of scope, not solver tests at all** (they import neither `lp` nor
+`network`; an earlier scan admitted them on text, not imports):
+`test_settlement_capture_timing.py` (the standalone writer script's timing),
+`test_docs_writer_function_set_drift.py` and
+`test_1411_coverage_compare_matches_requalified_lines.py` (repo gates).
+
 **How each row is checked:** read the old file in full; name the v2 test
 that asserts the same thing (or write one); for a new guard, plant the bug
 the old file was written for and show both sets fail.
@@ -50,5 +56,5 @@ the old file was written for and show both sets fail.
 
 ## Still to check
 
-The other 56 files, smallest first. Nothing is deleted until every row is
+The other 53 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
