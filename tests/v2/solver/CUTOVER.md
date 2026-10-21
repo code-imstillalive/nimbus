@@ -14,8 +14,10 @@ Mutation scores (fixed runner `5acb2c20`, same mutants for both sets):
 | `network.py::_build_plan_once` (seed 1837, 30 mutants) | 22/30 | 24/30 (#1957) |
 
 **In scope:** the old files whose only subject is `solver.lp` and
-`solver.network` (they may build their inputs from `solver.elements`): 69
-files. Files that also test another module stay until that module's own
+`solver.network` (they may build their inputs from `solver.elements`): 76
+files. (69 at the first count; a strict import scan on 21 Oct found 7 more
+that no row named, so the running "other N files" count below had been
+too low.) Files that also test another module stay until that module's own
 area is cut over.
 
 **Out of scope, for `elements.py`'s own cutover** (the scores above do not
@@ -148,5 +150,13 @@ the old file was written for and show both sets fail.
 
 ## Still to check
 
-The other 6 files, smallest first. Nothing is deleted until every row is
-checked and the branch coverage comparison is posted on #1837.
+The other 13 files, named so the count cannot drift again, smallest first:
+`test_post_window_zero_pin_allows_import.py`, `test_p2p_block_is_net_export.py`,
+`test_solver_battery_power_curve.py`, `test_1654_soft_reserve.py`,
+`test_solver_adequacy_semi_continuous.py`, `test_solver_service_constraints.py`,
+`test_solver_price_risk_aversion.py`, `test_solver_network_thermal_load.py`,
+`test_solver_terminal_value_checkpoints.py`, `test_solver_multi_battery.py`,
+`test_solver_battery_participant_gating_and_shared_charger.py`,
+`test_solver_lp_solve_options.py`, `test_solver_offer_curve.py`.
+Nothing is deleted until every row is checked and the branch coverage
+comparison is posted on #1837.
