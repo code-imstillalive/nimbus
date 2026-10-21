@@ -1203,6 +1203,110 @@ def test_nothing_the_dump_throws_reaches_the_solve(error):
         lp._LP_DUMPED_PHASES.clear()
 
 
+# --- #773: one phase-breakdown line per slow solve --------------------------------
+
+
+class _PhaseHighs:
+    """Only the reads `_timed_lp_call` makes."""
+
+    def __init__(self, status: str = "Optimal") -> None:
+        self._info = MagicMock(
+            simplex_iteration_count=1234, mip_node_count=7, mip_gap=0.0
+        )
+        self._status = status
+
+    def getInfo(self):
+        return self._info
+
+    def getModelStatus(self):
+        return object()
+
+    def modelStatusToString(self, _status):
+        return self._status
+
+
+def _clock(durations):
+    """Elapsed times for `_timed_lp_call`: one entry and one exit tick per
+    call, `durations` apart."""
+    ticks = [0.0]
+    for d in durations:
+        ticks += [ticks[-1] + d, ticks[-1] + d]
+    it = iter(ticks)
+    return lambda: next(it, ticks[-1])
+
+
+def _breakdowns(monkeypatch, durations, status="Optimal", raise_last=False):
+    """The phase-breakdown records one solve of `durations` emits."""
+    h = _PhaseHighs(status)
+    monkeypatch.setattr(lp.time, "monotonic", _clock(durations))
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler(logging.DEBUG)
+    handler.emit = records.append
+    level = lp._LOGGER.level
+    lp._LOGGER.addHandler(handler)
+    lp._LOGGER.setLevel(logging.DEBUG)
+    try:
+        with lp._phase_breakdown():
+            for i, _d in enumerate(durations):
+                with lp._timed_lp_call(h, f"lex_phase:p{i}"):
+                    if raise_last and i == len(durations) - 1:
+                        raise RuntimeError("phase blew up")
+    except RuntimeError:
+        assert raise_last
+    finally:
+        lp._LOGGER.removeHandler(handler)
+        lp._LOGGER.setLevel(level)
+    return [r for r in records if "phase breakdown" in r.getMessage()]
+
+
+@given(
+    st.lists(_num(0.01, 59.0), min_size=1, max_size=4),
+    st.sampled_from(["Optimal", "Infeasible", "Time limit reached"]),
+)
+def test_a_breakdown_names_every_phase_once_any_is_slow(durations, status):
+    """#773 (16 cycles on a real install: phase 2 took 30-57 s while
+    phase 1 never crossed the 5 s line, so only the expensive phase was
+    ever logged). One line per solve, only when a phase crossed the slow
+    line, naming EVERY phase (the fast one is the control); WARNING when a
+    phase is alarming or did not end optimal, else DEBUG."""
+    with pytest.MonkeyPatch.context() as mp:
+        lines = _breakdowns(mp, durations, status)
+    slow = max(durations) >= lp._SLOW_LP_CALL_SECONDS
+    if not slow:
+        assert lines == []
+        return
+    assert len(lines) == 1
+    msg = lines[0].getMessage()
+    for i, d in enumerate(durations):
+        assert f"lex_phase:p{i}" in msg
+        assert f"{d:.1f}s" in msg
+    assert "iters=1234" in msg and "nodes=7" in msg
+    alarming = max(durations) >= lp._ALARMING_LP_CALL_SECONDS or status != "Optimal"
+    assert lines[0].levelno == (logging.WARNING if alarming else logging.DEBUG)
+
+
+def test_a_raising_phase_still_produces_the_breakdown(monkeypatch):
+    """#773: the failure is the case most worth seeing the whole sequence
+    for, which is why the wrapper sits outside the phased solve."""
+    lines = _breakdowns(monkeypatch, [0.5, 46.0], raise_last=True)
+    assert len(lines) == 1
+    msg = lines[0].getMessage()
+    assert "lex_phase:p0" in msg and "lex_phase:p1" in msg
+
+
+def test_phase_records_are_safe_outside_and_between_solves():
+    """#773: `_timed_lp_call` also runs outside any solve (the offer-curve
+    sweep, the calibration probes): recording there neither raises nor
+    leaks into the next solve's breakdown."""
+    lp._PHASE_LOG.entries = None
+    lp._phase_record(("stray", 1.0, 1, 1, 0.0, "Optimal"))
+    with lp._phase_breakdown():
+        lp._phase_record(("a", 1.0, 1, 1, 0.0, "Optimal"))
+        assert len(lp._PHASE_LOG.entries) == 1
+    with lp._phase_breakdown():
+        assert lp._PHASE_LOG.entries == []
+
+
 def test_only_an_alarming_call_is_captured():
     """Captured at the alarming threshold, below the per-call limit (so a
     call that hits the limit is captured) and above merely slow."""
