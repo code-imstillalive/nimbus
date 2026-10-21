@@ -10,6 +10,8 @@ first instant.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pytest
 from hypothesis import given
@@ -27,7 +29,7 @@ from solver.elements import (
     SolarConfig,
     ThermalLoadConfig,
 )
-from solver.network import build_plan
+from solver.network import BatteryPlan, Plan, build_plan
 from test_plan_invariants import SETTINGS, TOL, _num, sites
 
 
@@ -1660,3 +1662,176 @@ def test_no_thermal_loads_is_the_plan_without_them():
     assert given.thermal_loads == [] and given.thermal_guarantee_relaxed == []
     assert given.total_cost == omitted.total_cost
     np.testing.assert_array_equal(given.battery_soc_kwh, omitted.battery_soc_kwh)
+
+
+# --- #467 stage 1: several batteries, each its own -------------------------------
+
+
+def _pack(name, eff, **over):
+    return BatteryConfig(
+        **{
+            "name": name,
+            "capacity_kwh": 40.0,
+            "initial_soc_kwh": 20.0,
+            "min_soc_kwh": 2.0,
+            "max_soc_kwh": 40.0,
+            "max_charge_kw": 10.0,
+            "max_discharge_kw": 10.0,
+            "charge_efficiency": eff,
+            "discharge_efficiency": eff,
+            "charge_cost": 0.01,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.10,
+            **over,
+        }
+    )
+
+
+@SETTINGS
+@given(
+    st.lists(_num(0.02, 0.6), min_size=2, max_size=8),
+    _num(0.85, 0.99),
+    _num(0.85, 0.99),
+    _num(4.0, 36.0),
+)
+def test_each_battery_keeps_its_own_books_and_the_totals_are_their_sum(
+    prices, eff_a, eff_b, ev_start
+):
+    """#467 stage 1 (Mark Purcell's spec): every battery is its own
+    participant. Each one's SoC moves by its own charge x its own
+    efficiency and its own discharge / its own efficiency, from its own
+    start, never another's; and the plan's top-level charge, discharge
+    and SoC (what every existing reader uses) are exactly the sum of the
+    batteries, never a separate figure that could drift."""
+    n = len(prices)
+    price = np.asarray(prices)
+    packs = [_pack("home", eff_a), _pack("ev", eff_b, initial_soc_kwh=ev_start)]
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=price - 0.03,
+            import_limit_kw=40.0,
+            export_limit_kw=40.0,
+        ),
+        batteries=packs,
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+    )
+    assert plan.status == "optimal"
+    assert [b.name for b in plan.batteries] == ["home", "ev"]
+    for cfg, bp in zip(packs, plan.batteries, strict=True):
+        soc = cfg.initial_soc_kwh
+        for t in range(n):
+            soc += bp.charge_kw[t] * cfg.charge_efficiency
+            soc -= bp.discharge_kw[t] / cfg.discharge_efficiency
+            assert bp.soc_kwh[t] == pytest.approx(soc, abs=1e-6), (cfg.name, t)
+    np.testing.assert_array_equal(
+        plan.battery_charge_kw, sum((b.charge_kw for b in plan.batteries), np.zeros(n))
+    )
+    np.testing.assert_array_equal(
+        plan.battery_discharge_kw,
+        sum((b.discharge_kw for b in plan.batteries), np.zeros(n)),
+    )
+    np.testing.assert_array_equal(
+        plan.battery_soc_kwh, sum((b.soc_kwh for b in plan.batteries), np.zeros(n))
+    )
+
+
+@SETTINGS
+@given(_num(0.0, 10.0), _num(10.0, 30.0), _num(0.5, 3.0))
+def test_the_rate_limit_holds_each_battery_to_its_own_previous_value(
+    home_prev, ev_prev, rate
+):
+    """#467 stage 1, mechanism 2 (the cross-solve rate limit): each battery's
+    period-0 discharge stays within the rate of ITS OWN previous value,
+    matched by name. The previous plan lists them in the other order, so
+    matching by position, or by the old aggregate, lands a battery in the
+    other's band, which its own limits cannot always reach."""
+    start = datetime(2026, 9, 8, 17, 0, tzinfo=UTC)
+    periods = PeriodGrid(np.ones(1), start=start)
+    total = home_prev + ev_prev
+    previous = Plan(
+        status="optimal",
+        periods=periods,
+        battery_charge_kw=np.zeros(1),
+        battery_discharge_kw=np.array([total]),
+        battery_soc_kwh=np.zeros(1),
+        grid_import_kw=np.zeros(1),
+        grid_export_kw=np.array([max(0.0, total - 1.0)]),
+        export_bonus_kw=np.zeros(1),
+        solar_used_kw=np.zeros(1),
+        solar_curtailed_kw=np.zeros(1),
+        sheddable_loads=[],
+        adequacy_loads=[],
+        total_cost=None,
+        soc_penalty_cost=0.0,
+        iterations=0,
+        batteries=[
+            BatteryPlan(
+                name="ev",
+                charge_kw=np.zeros(1),
+                discharge_kw=np.array([ev_prev]),
+                soc_kwh=np.array([80.0]),
+            ),
+            BatteryPlan(
+                name="home",
+                charge_kw=np.zeros(1),
+                discharge_kw=np.array([home_prev]),
+                soc_kwh=np.array([10.0]),
+            ),
+        ],
+    )
+    plan = build_plan(
+        periods=periods,
+        grid=GridConfig(
+            import_price=np.full(1, 0.30),
+            export_price=np.full(1, 0.05),
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        ),
+        batteries=[
+            _pack(
+                "home", 0.95, capacity_kwh=20.0, initial_soc_kwh=15.0, max_soc_kwh=20.0
+            ),
+            _pack(
+                "ev",
+                0.95,
+                capacity_kwh=100.0,
+                initial_soc_kwh=80.0,
+                max_soc_kwh=100.0,
+                max_discharge_kw=30.0,
+            ),
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(1)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(1))],
+        previous_plan=previous,
+        proximal_weight=0.0,
+        max_rate_kw=rate,
+    )
+    assert plan.status == "optimal"
+    by = {b.name: float(b.discharge_kw[0]) for b in plan.batteries}
+    assert abs(by["home"] - home_prev) <= rate + 1e-6
+    assert abs(by["ev"] - ev_prev) <= rate + 1e-6
+
+
+@pytest.mark.parametrize(
+    ("names", "says"),
+    [([], "at least one"), (["home", "home"], "unique names")],
+    ids=["none", "duplicate"],
+)
+def test_a_plan_needs_named_batteries_each_once(names, says):
+    """#467 stage 1: at least one battery, and each name once (the name is
+    what the rate limit and every reader match on)."""
+    with pytest.raises(ValueError, match=says):
+        build_plan(
+            periods=PeriodGrid(np.ones(2)),
+            grid=GridConfig(
+                import_price=np.full(2, 0.3),
+                export_price=np.full(2, 0.05),
+                import_limit_kw=10.0,
+                export_limit_kw=10.0,
+            ),
+            batteries=[_pack(n, 0.95) for n in names],
+            solar=SolarConfig(forecast_kw=np.zeros(2)),
+        )
