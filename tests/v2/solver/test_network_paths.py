@@ -14,8 +14,10 @@ import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from solver import network
 from solver.elements import (
     AdequacyLoadConfig,
+    AdequacyWindow,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -385,3 +387,107 @@ def test_an_import_envelope_below_the_load_uses_the_excess_valve(n, data, load_k
     assert plan.import_cap_breach_kwh == pytest.approx(
         float(np.maximum(load_kw - envelope, 0.0).sum()), abs=1e-6
     )
+
+
+def _adequacy_tie_plan(
+    n,
+    *,
+    price=None,
+    allowed=None,
+    windows=None,
+    budget=None,
+    target=1.0,
+    power=1.0,
+    earliest=0,
+    deadline=None,
+):
+    kwargs = {} if budget is None else {"adequacy_earliness_budget_kw": budget}
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.20) if price is None else price,
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=earliest,
+                deadline_period=n - 1 if deadline is None else deadline,
+                allowed=allowed,
+                windows=windows,
+                shortfall_price=50.0,
+            )
+        ],
+        **kwargs,
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=1, max_value=3),
+    st.lists(st.integers(min_value=0, max_value=4), min_size=1, max_size=2),
+)
+def test_an_adequacy_load_on_a_price_tie_runs_at_the_start_of_each_window(
+    hours_needed, starts
+):
+    """#613 item 2 (with #612's windows): on a genuine price tie the load
+    runs as early as it can, in each window from that window's own start,
+    never at an arbitrary vertex and never pulled toward window 1."""
+    n, width = 24, 8
+    windows = tuple(
+        AdequacyWindow(
+            earliest_period=w * 12 + s,
+            deadline_period=w * 12 + s + width - 1,
+            target_kwh=float(hours_needed),
+        )
+        for w, s in enumerate(starts)
+    )
+    plan = _adequacy_tie_plan(
+        n,
+        windows=windows,
+        target=float(hours_needed),
+        earliest=windows[0].earliest_period,
+        deadline=windows[-1].deadline_period,
+    )
+    assert plan.status == "optimal"
+    power = plan.adequacy_loads[0].power_kw
+    want = np.zeros(n)
+    for w in windows:
+        want[w.earliest_period : w.earliest_period + hours_needed] = 1.0
+    np.testing.assert_allclose(power, want, atol=1e-4)
+
+
+@pytest.mark.parametrize("n", [24, 96])
+def test_the_earliness_spread_is_bounded_by_its_budget(n):
+    """#613: forcing the same kWh into the last period instead of the first
+    costs at most the budget per kWh over any horizon (so it can never pass
+    for a real price difference), is clearly active (over half the budget
+    at the horizon's far end), and is nothing with the budget at zero."""
+    budget = network.DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW
+
+    def forced(t, b=None):
+        allowed = np.zeros(n, dtype=bool)
+        allowed[t] = True
+        return _adequacy_tie_plan(n, allowed=allowed, budget=b).total_cost
+
+    spread = forced(n - 1) - forced(0)
+    assert 0.5 * budget < spread <= budget + 1e-9
+    assert forced(n - 1, 0.0) == pytest.approx(forced(0, 0.0), abs=1e-9)
+
+
+def test_a_real_cheaper_later_price_beats_earliness():
+    """#613: materiality. A real late price dip, far larger than the budget,
+    still decides where the load runs."""
+    n = 24
+    price = np.full(n, 0.30)
+    price[20] = 0.02
+    power = _adequacy_tie_plan(n, price=price).adequacy_loads[0].power_kw
+    assert power[20] == pytest.approx(1.0, abs=1e-3)
+    assert power[:20].sum() == pytest.approx(0.0, abs=1e-3)
