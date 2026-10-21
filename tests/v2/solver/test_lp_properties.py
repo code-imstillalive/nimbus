@@ -19,7 +19,8 @@ import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from solver.lp import CalibratedOptions, LexOptions, LPProblem
+from solver import lp
+from solver.lp import BlendedOptions, CalibratedOptions, LexOptions, LPProblem
 from test_plan_invariants import SETTINGS, _num
 
 
@@ -428,3 +429,148 @@ def test_a_slow_call_that_failed_is_a_warning():
     status, levels = _slow_call_levels(p)
     assert status != "optimal"
     assert logging.WARNING in levels
+
+
+# --- #696 / #702 / #773: what each solve option promises ---------------------------
+
+
+@SETTINGS
+@given(problems())
+def test_without_options_the_secondary_cost_is_never_read(spec):
+    """#696: options=None is the plain solve. A problem with secondary costs
+    and the same problem without them solve to the same objective."""
+    with_second = _build(spec)
+    without = _build({**spec, "second": [None] * spec["n"]})
+    a, b = with_second.solve(), without.solve()
+    assert a.status == b.status
+    if a.status == "optimal":
+        assert a.objective == pytest.approx(b.objective, abs=1e-6)
+
+
+@SETTINGS
+@given(problems(), st.sampled_from([1e-6, 1e-3, 1.0, 10.0]))
+def test_a_blended_solve_is_the_optimum_of_the_blended_cost(spec, weight):
+    """#696: BlendedOptions minimises primary + weight x secondary, nothing
+    more: its point costs what the plain optimum of that one blended cost
+    does (so a large enough weight can override a real price, by design)."""
+    p = _build(spec)
+    blended = p.solve(options=BlendedOptions(blend_weight=weight))
+    second = [c if c is not None else 0.0 for c in spec["second"]]
+    plain = _build(
+        {
+            **spec,
+            "cost": [
+                c + weight * s2 for c, s2 in zip(spec["cost"], second, strict=True)
+            ],
+            "second": [None] * spec["n"],
+        }
+    ).solve()
+    assert blended.status == plain.status
+    if plain.status != "optimal":
+        return
+    got = p.primary_cost_of(blended) + weight * _secondary(p, blended)
+    assert got == pytest.approx(
+        plain.objective, abs=1e-6 * max(1.0, abs(plain.objective))
+    )
+
+
+@SETTINGS
+@given(problems())
+def test_a_calibrated_solve_reports_the_primary_cost(spec):
+    """#696: the calibrated solve's objective is the real primary cost of its
+    point, never the mixed-unit blended figure it searched with."""
+    p = _build(spec)
+    r = p.solve(options=CalibratedOptions())
+    if r.status == "optimal":
+        assert r.objective == pytest.approx(p.primary_cost_of(r), abs=1e-6)
+
+
+@SETTINGS
+@given(
+    st.lists(st.sampled_from([1.0, 2.0, 5.0]), min_size=2, max_size=4),
+    st.data(),
+    st.sampled_from(["lex", "calibrated", "blended"]),
+)
+def test_a_binary_choice_is_primary_first_then_secondary(primary, data, kind):
+    """#702 (#696's follow-up): options on a MIP. Exactly one of several
+    switches is on. The switch chosen is always among the cheapest on the
+    primary cost, whatever the secondary (even 1000x, so a binary is never
+    flipped against a real price); among primary ties, the cheapest on the
+    secondary. #702's first design pinned the binaries from a primary-only
+    solve and so picked a tie arbitrarily. A continuous tie on the same
+    problem is still broken by the secondary once the binary is set, and
+    the equality row's dual is the real LP dual (#238's recovery)."""
+    k = len(primary)
+    second = data.draw(
+        st.lists(st.sampled_from([-3.0, -1.0, 0.0, 1000.0]), min_size=k, max_size=k)
+    )
+    p = LPProblem()
+    for i in range(k):
+        p.add_variable(f"g{i}", binary=True, cost=primary[i])
+        p.set_secondary_cost(f"g{i}", second[i])
+    p.add_eq_constraint({f"g{i}": 1.0 for i in range(k)}, 1.0, name="exactly_one")
+    p.add_variable("x1", ub=10.0, cost=1.0)
+    p.add_variable("x2", ub=10.0, cost=1.0)
+    p.set_secondary_cost("x2", -1.0)
+    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
+    options = {
+        "lex": LexOptions(),
+        "calibrated": CalibratedOptions(),
+        "blended": BlendedOptions(blend_weight=1e-6),
+    }[kind]
+    r = p.solve(options=options)
+    assert r.status == "optimal"
+    on = [i for i in range(k) if p.value_of(r, f"g{i}") > 0.5]
+    assert len(on) == 1
+    (chosen,) = on
+    best = min(primary)
+    assert primary[chosen] == best
+    tied = [i for i in range(k) if primary[i] == best]
+    if kind != "blended":
+        assert second[chosen] == min(second[i] for i in tied)
+        assert p.value_of(r, "x2") == pytest.approx(10.0, abs=1e-4)
+        assert r.duals["total"] == pytest.approx(1.0, abs=1e-4)
+
+
+@pytest.mark.parametrize("options", [LexOptions(), CalibratedOptions()])
+def test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so(options, monkeypatch):
+    """#773 (a phase failing to reach optimal on two real installs, root
+    cause unknown): the failure used to escape `build_plan` uncaught. Now
+    the plan is the plain options=None solve, exactly, and a #773 WARNING
+    says so."""
+    monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
+
+    def fails(*_a, **_k):
+        raise ValueError("an internal lex/calibration phase failed")
+
+    monkeypatch.setattr(lp, "_solve_with_options", fails)
+    p = LPProblem()
+    p.add_variable("x1", ub=10.0, cost=1.0)
+    p.add_variable("x2", ub=10.0, cost=1.0)
+    p.set_secondary_cost("x2", -1.0)
+    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler(logging.WARNING)
+    handler.emit = records.append
+    lp._LOGGER.addHandler(handler)
+    try:
+        r = p.solve(options=options)
+    finally:
+        lp._LOGGER.removeHandler(handler)
+        lp._lex_calibration_failed_until = 0.0
+    assert r.status == "optimal"
+    assert r.objective == pytest.approx(p.solve().objective)
+    assert any("#773" in rec.getMessage() for rec in records)
+
+
+def test_with_no_primary_cost_the_secondary_alone_picks_the_point():
+    """Nimbus's choice, unlike HAEO's (which raises): an all-zero primary is
+    a legitimate tie-break-only problem, and the secondary picks the point."""
+    p = LPProblem()
+    p.add_variable("x1", ub=10.0)
+    p.add_variable("x2", ub=10.0)
+    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0)
+    p.set_secondary_cost("x2", -1.0)
+    r = p.solve(options=LexOptions())
+    assert r.status == "optimal"
+    assert p.value_of(r, "x2") == pytest.approx(10.0, abs=1e-4)
