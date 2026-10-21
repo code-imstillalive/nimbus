@@ -1030,3 +1030,115 @@ def test_a_negative_floor_is_refused():
             export_limit_kw=1.0,
             export_floor_price=-0.01,
         )
+
+
+# --- #467: the per-period away mask ----------------------------------------------
+
+_SWING_N = 10
+
+
+def _swing_plan(*batteries, n=_SWING_N, load=1.0):
+    """Dirt cheap for the first half, dear for the second: every reason to
+    charge early and discharge late, so a period at exactly 0 is gated, not
+    merely unattractive."""
+    half = n // 2
+    price = np.array([0.05] * half + [0.60] * (n - half))
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=price - 0.02,
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        ),
+        batteries=list(batteries),
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load))],
+    )
+
+
+def _car(name="ev", **over):
+    return BatteryConfig(
+        **{
+            "name": name,
+            "capacity_kwh": 40.0,
+            "initial_soc_kwh": 20.0,
+            "min_soc_kwh": 4.0,
+            "max_soc_kwh": 40.0,
+            "max_charge_kw": 10.0,
+            "max_discharge_kw": 10.0,
+            "charge_efficiency": 0.95,
+            "discharge_efficiency": 0.95,
+            "charge_cost": 0.005,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.10,
+            **over,
+        }
+    )
+
+
+def _moves(b, periods):
+    return sum(float(b.charge_kw[t]) + float(b.discharge_kw[t]) for t in periods)
+
+
+@SETTINGS
+@given(st.frozensets(st.integers(0, 14)), st.integers(0, 9))
+def test_an_away_mask_gates_its_own_periods_and_no_others(away, extra):
+    """#467 (Mark Purcell, 13 Sep: "Build an internal gating gap please"):
+    two trips in a day, which a prefix gate cannot say. A masked period is
+    exactly idle; an index past this solve's horizon is ignored, not an
+    error (a calendar day's mask on a shorter solve); and the home periods
+    stay usable: with a cheap home period before a dear one the battery
+    still trades, and masking one more period never makes the plan
+    cheaper."""
+    n = _SWING_N
+    plan = _swing_plan(_car(unavailable_period_indices=away))
+    assert plan.status == "optimal"
+    (ev,) = plan.batteries
+    inside = {t for t in away if t < n}
+    for t in inside:
+        assert ev.charge_kw[t] == 0.0 and ev.discharge_kw[t] == 0.0, t
+    clipped = _swing_plan(_car(unavailable_period_indices=frozenset(inside)))
+    np.testing.assert_array_equal(clipped.batteries[0].charge_kw, ev.charge_kw)
+    np.testing.assert_array_equal(clipped.batteries[0].discharge_kw, ev.discharge_kw)
+    home = [t for t in range(n) if t not in inside]
+    if any(t < n // 2 for t in home) and any(t >= n // 2 for t in home):
+        assert _moves(ev, home) > 1.0
+    more = _swing_plan(_car(unavailable_period_indices=frozenset(inside | {extra})))
+    assert more.total_cost >= plan.total_cost - 1e-6
+
+
+def test_no_mask_is_the_unmasked_plan_exactly():
+    """#467: None (the default) and an empty mask add nothing at all."""
+    base = _swing_plan(_car()).batteries[0]
+    for mask in (None, frozenset()):
+        other = _swing_plan(_car(unavailable_period_indices=mask)).batteries[0]
+        np.testing.assert_array_equal(other.charge_kw, base.charge_kw)
+        np.testing.assert_array_equal(other.discharge_kw, base.discharge_kw)
+
+
+@SETTINGS
+@given(st.frozensets(st.integers(0, _SWING_N - 1), min_size=1))
+def test_an_away_mask_is_one_battery_s_alone(away):
+    """#467: one car out driving never gates the home pack beside it."""
+    plan = _swing_plan(
+        _car("home"), _car("ev", unavailable_period_indices=away), load=2.0
+    )
+    assert plan.status == "optimal"
+    by = {b.name: b for b in plan.batteries}
+    assert _moves(by["ev"], away) == 0.0
+    assert _moves(by["home"], range(_SWING_N)) > 1.0
+
+
+def test_an_away_mask_is_normalised_and_a_negative_index_refused():
+    """#467: a list or `np.flatnonzero(~is_home)` (np.int64, as the writer
+    feeds it) becomes a frozenset of plain ints, so the frozen config stays
+    hashable; a negative index is refused."""
+    cfg = _car(unavailable_period_indices=[3, 1, 1, 2])
+    assert cfg.unavailable_period_indices == frozenset({1, 2, 3})
+    assert isinstance(hash(cfg), int)
+    cfg = _car(unavailable_period_indices=np.flatnonzero(np.array([0, 1, 1, 0])))
+    assert cfg.unavailable_period_indices == frozenset({1, 2})
+    assert all(type(i) is int for i in cfg.unavailable_period_indices)
+    with pytest.raises(ValueError, match="non-negative"):
+        _car(unavailable_period_indices=frozenset({-1, 2}))
