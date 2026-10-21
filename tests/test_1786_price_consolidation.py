@@ -496,3 +496,15 @@ def test_switch_is_declared_off_and_bridged_to_cfg():
     assert const.CONF_SOLVER_PRICE_CONSOLIDATION_LIVE in (
         sensor._SOLVER_SWITCH_ENTITY_KEYS
     )
+
+
+def test_an_unscored_source_still_takes_a_spike_it_alone_forecasts():
+    """Mark Purcell's review of #1935: the new rule and the spike rule in one
+    case. `a` has earned its weight, `b` has none yet. A normal period follows
+    `a` alone; a period where only `b` forecasts at or above the spike
+    threshold takes `b`'s spike, weight or not."""
+    values, _spread, method = pc.consolidate(
+        {"a": [0.30, 0.30], "b": [0.25, 5.00]}, {"a": 1.0}, spike_threshold=0.85
+    )
+    assert values == [0.30, 5.00]
+    assert method == "mixed"

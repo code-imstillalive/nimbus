@@ -459,6 +459,7 @@ def consolidate_side(
         "sources": names,
         "method": method,
         "spread_now": round(head, 5) if head is not None else None,
+        "now": now_slot(series, values, grid_times, settled),
         "next": next_slots(series, values, grid_times, n_settled),
         **tracker.summary(),
     }
@@ -476,6 +477,28 @@ NEXT_SLOTS = 30
 
 def _r(value: float | None) -> float | None:
     return round(float(value), 4) if value is not None else None
+
+
+def now_slot(
+    series: dict[str, list[float | None]],
+    values: Sequence[float | None],
+    grid_times: Sequence[datetime],
+    settled: float | None,
+) -> dict[str, Any]:
+    """The interval running now: the price that settles for it (what the
+    plan uses), each source's own price for it and the blend (household,
+    21 Oct 2026: the table started 5 min late, "the first 5 min is
+    missing"). Empty when the plan has no periods."""
+    if not grid_times:
+        return {}
+    return {
+        "time": grid_times[0].isoformat(),
+        "settled": _r(settled),
+        "sources": {
+            name: _r(s[0]) if s else None for name, s in sorted(series.items())
+        },
+        "consolidated": _r(values[0]) if values else None,
+    }
 
 
 def next_slots(

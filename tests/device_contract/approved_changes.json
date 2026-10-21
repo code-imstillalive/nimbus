@@ -1,4 +1,23 @@
 {
  "_doc": "Spec DC-000: an approved behaviour-change manifest. Each entry names one legacy case and field that is allowed to differ from the recorded baseline, with its requirement, the old and new values and the reviewer. No wildcards.",
- "changes": []
+ "changes": [
+  {
+   "fixture": "F10",
+   "case": "battery_power: a charge-positive sensor reading 2.0 kW",
+   "field": "forecaster_battery_feature",
+   "old": "the sensor's own sign (+2.0), always",
+   "new": "the sign each model was trained with: +2.0 for a model trained before active, the canonical -2.0 after its next retrain",
+   "requirement": "DC-006 slice 2, #1947 decision 1 (a trained model's feature sign does not change with the mode)",
+   "reviewer": "purcell-lab, #1574, 06:02 AEST 21 Oct 2026"
+  },
+  {
+   "fixture": "F10",
+   "case": "grid_power: the sensor unavailable",
+   "field": "forecaster_observation_value",
+   "old": 0.0,
+   "new": "the last good reading, held_stale, up to the binding's max age; then absent, which readiness reports once the Forecaster reads it",
+   "requirement": "DC-006 slice 2, #1947 decision 2; DC-R04 (missing is never zero)",
+   "reviewer": "purcell-lab, #1574, 06:02 AEST 21 Oct 2026"
+  }
+ ]
 }

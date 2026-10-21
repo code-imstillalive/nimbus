@@ -55,7 +55,7 @@ def _render(imp):
     )
 
 
-def _imp(names, with_next=True):
+def _imp(names, with_next=True, with_now=False):
     times = ["2026-10-19T16:00:00+10:00", "2026-10-19T16:30:00+10:00"]
     base = {"primary": [0.2142, 0.2252], "aemo_markup": [0.30, 0.31]}
     imp = {
@@ -72,6 +72,15 @@ def _imp(names, with_next=True):
             "times": times,
             "sources": {n: base.get(n, [0.25, 0.26]) for n in names},
             "consolidated": [0.2155, 0.2232],
+        }
+    if with_now:
+        imp["now"] = {
+            "time": "2026-10-19T15:55:00+10:00",
+            "settled": 0.2101,
+            "sources": {
+                n: {"primary": 0.2101, "aemo_markup": 0.2950}.get(n) for n in names
+            },
+            "consolidated": 0.2160,
         }
     return imp
 
@@ -154,3 +163,34 @@ def test_without_published_next_slots_the_accuracy_still_shows():
 
 def test_no_published_data_renders_without_error():
     assert "nothing to blend" in _render({})
+
+
+# --- Household, 21 Oct 2026: the interval running now ------------------------
+
+
+def test_the_interval_running_now_is_the_first_price_column():
+    """The table started at the next slot, so the first 5 min was missing:
+    a Now column comes first, with a Settled row for the price the plan
+    uses, each source's own price for now, and the blend's gap to it."""
+    md = _render(_imp(["aemo_markup", "primary"], with_now=True))
+    assert _cells(md, "Source")[6:] == ["Now 15:55", "16:00", "16:30"]
+    assert _cells(md, "Settled")[6:] == ["21.0", "", ""]
+    assert _cells(md, "LocalVolts Buy")[6:] == ["21.0", "21.4", "22.5"]
+    assert _cells(md, "AEMO + markup")[6:] == ["29.5", "30.0", "31.0"]
+    assert _cells(md, "Blend")[6:] == ["21.6", "21.6", "22.3"]
+    assert _cells(md, "Gap")[6:] == ["+0.6", "+0.1", "-0.2"]
+    widths = {x.count("|") for x in md.splitlines() if x.startswith("|")}
+    assert widths == {10}, "every row has the same number of cells"
+
+
+def test_the_now_column_is_yellow_and_bold():
+    md = _render(_imp(["aemo_markup", "primary"], with_now=True))
+    assert "<font color='gold'>**Now 15:55**</font>" in md
+    assert "<font color='gold'>**Settled**</font>" in md
+    assert "<font color='gold'>**29.5**</font>" in md
+    assert "<font color='gold'>**21.6**</font>" in md
+
+
+def test_a_source_with_no_price_now_shows_a_dash():
+    imp = _imp(["aemo_markup", "primary", "secondary_2"], with_now=True)
+    assert _cells(_render(imp), "Amber General Price")[6] == "—"

@@ -26,6 +26,58 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   runs the blueprint's own templates in CI and checks each of these
   properties.
 
+- **A deferrable load's value per kWh counts again when it has no windows**
+  ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)). Since
+  0.94.206 a deferrable load set up with a value per kWh but without
+  per-day windows ignored that value: with a cheap shortfall price it never
+  ran, even where its value was well above the price, and with a dear one it
+  ran only to avoid the shortfall. It now runs its target wherever its value
+  beats the price, as a windowed load already did. Loads with windows, and
+  loads with no value set, are unchanged.
+
+## [0.94.474] - 2026-10-21
+
+**The Price sources table shows right now.** It starts with the interval
+running now, in yellow, beside the price that settles for it.
+
+- **The Price sources table starts with the interval running now.** It
+  started at the next interval, so the first 5 minutes were missing. A
+  yellow **Now** column comes first: a **Settled** row with the price the
+  plan uses for this interval, each source's own price for it, and the
+  blend's gap to the settled price. The plan's `price_consolidation`
+  attribute carries it as `now` on each side.
+
+- For the device setup (DC-006, no effect until you choose *shadow* or
+  *active*): in shadow or active, a power sensor with no unit, or a misspelt
+  one, raises a Repair, *What unit is this sensor in?*, where you choose W or
+  kW (or fix the sensor's own unit, which clears it). Active waits until every
+  one is answered
+  ([#1574](https://github.com/code-imstillalive/nimbus/issues/1574)). The
+  groundwork for moving the Forecaster onto the device setup is in, unused:
+  a missing reading will be held, never read as zero, and each model keeps
+  the battery sign it was trained with.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 472a83d9**,
+  installed untagged via HACS from `release/0.94.474` and restarted (the
+  recorder's run began 10:02:48 AEST, 21 Oct). devhub's own per-battery SoC sensors published on
+  0.94.474 at 10:04:22. The log shows only the devhub-only baseline
+  (duplicate unique IDs, Forecaster drift notes, recorder attribute sizes,
+  mirrored sensors without a unit while the mirror reconnects); nothing from
+  this release. The Price sources card's template, rendered in devhub's Home
+  Assistant against production's mirrored plan: without `now` (production on
+  0.94.473) it shows no Now column and no error; with a `now` block added it
+  shows the yellow, bold Now column, the Settled row, a dash for a source with
+  no price now, and the Gap.
+  - **Not claimed live:** the `now` attribute from a real solve. devhub's own
+    plan entity loses its id to production's mirror (`unavailable` under
+    `_3`). Covered by `tests/test_consolidation_next_slots.py`,
+    `tests/test_price_sources_card.py` and the golden snapshots. The unit
+    Repair: devhub's device setup is not in shadow or active, so none is
+    raised; covered by the #1943 tests.
+- Consumer check: on the Solver tab, the Price sources table's first price
+  column is **Now**, in yellow, with the Settled price above each source's own
+  price for the interval running now.
+
 ## [0.94.473] - 2026-10-21
 
 **A new price source has to earn its place in the blend.** A price source

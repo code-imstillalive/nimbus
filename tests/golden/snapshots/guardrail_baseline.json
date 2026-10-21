@@ -14629,6 +14629,14 @@
           "2026-09-07T06:00:00+10:00"
          ]
         },
+        "now": {
+         "consolidated": 0.05,
+         "settled": 0.05,
+         "sources": {
+          "primary": 0.05
+         },
+         "time": "2026-09-06T20:00:00+10:00"
+        },
         "samples": {},
         "sources": [
          "primary"
@@ -14743,6 +14751,14 @@
           "2026-09-07T05:30:00+10:00",
           "2026-09-07T06:00:00+10:00"
          ]
+        },
+        "now": {
+         "consolidated": 0.3,
+         "settled": 0.3,
+         "sources": {
+          "primary": 0.3
+         },
+         "time": "2026-09-06T20:00:00+10:00"
         },
         "samples": {},
         "sources": [
@@ -15036,7 +15052,7 @@
     },
     {
      "level": "WARNING",
-     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 354107 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=320653B, batteries=23352B, price_consolidation=3274B. The live state is unaffected; what is lost is history. Logged once per entity per run."
+     "message": "Nimbus #944: sensor.nimbus_solver_battery_forecast is publishing 354334 bytes of attributes, over the recorder's 16384 byte cap, on a publish path that cannot apply _unrecorded_attributes (no state_info: REST, or the raw states.async_set fallback). The recorder will therefore drop ALL attributes for this entity -- including unit_of_measurement, which then suppresses its long-term statistics. Largest contributors: forecast=320653B, batteries=23352B, price_consolidation=3501B. The live state is unaffected; what is lost is history. Logged once per entity per run."
     }
    ]
   }
