@@ -11,8 +11,12 @@ drive `LPProblem` directly, on small random problems that are always feasible
 from __future__ import annotations
 
 import logging
+import math
+from unittest.mock import patch
 
+import highspy
 import numpy as np
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver.lp import CalibratedOptions, LexOptions, LPProblem
@@ -135,6 +139,144 @@ def test_the_calibrated_solve_keeps_the_primary_within_its_tolerance(spec):
     primary = p.primary_cost_of(cal)
     slack = options.calibration_tolerance * max(1.0, abs(plain.objective))
     assert primary <= plain.objective + slack + 1e-7
+
+
+@SETTINGS
+@given(problems())
+def test_ranging_brackets_every_value_and_cost_it_reports(spec):
+    """#490 (Signals 1/7 of #489): `solve(ranging=True)` ranges every
+    variable and every named row exactly once (highspy's cost arrays come
+    back one element too long, which must never be attributed to a
+    variable; an unnamed row is ranged under its generated name), each bound interval contains the variable's value, each cost
+    interval contains its cost, and the headroom helpers are the distances
+    to those intervals."""
+    problem = _build(spec)
+    result = problem.solve(ranging=True)
+    if result.status != "optimal":
+        return
+    names = {f"x{j}" for j in range(spec["n"])}
+    rows = {f"row{i}" for i, (_a, _b, named) in enumerate(spec["rows"]) if named}
+    assert result.ranging_valid is True
+    for field in ("col_bound_up", "col_bound_dn", "col_cost_up", "col_cost_dn"):
+        assert set(getattr(result, field)) == names, field
+    for field in ("row_bound_up", "row_bound_dn"):
+        ranged = set(getattr(result, field))
+        assert rows <= ranged and len(ranged) == len(spec["rows"]), field
+    for j in range(spec["n"]):
+        name = f"x{j}"
+        x = problem.value_of(result, name)
+        lo, hi = result.col_bound_dn[name].value, result.col_bound_up[name].value
+        assert lo - 1e-6 <= x <= hi + 1e-6, name
+        c = spec["cost"][j]
+        assert (
+            result.col_cost_dn[name].value - 1e-6
+            <= c
+            <= result.col_cost_up[name].value + 1e-6
+        ), name
+        room = result.bound_headroom(name)
+        assert room is not None
+        assert room.down == pytest.approx(x - lo, abs=1e-6) or math.isinf(lo)
+        assert room.up == pytest.approx(hi - x, abs=1e-6) or math.isinf(hi)
+    assert result.bound_headroom("no_such_variable") is None
+    assert result.rhs_headroom("no_such_row") is None
+
+
+@SETTINGS
+@given(problems())
+def test_ranging_not_asked_for_is_never_computed(spec):
+    """#490: ranging is opt-in. Unasked, HiGHS's getRanging is never
+    called (solve time unchanged for every other caller), validity is None
+    and every ranging field is empty."""
+    problem = _build(spec)
+    calls: list[None] = []
+    real = highspy.Highs.getRanging
+
+    def tracking(self):
+        calls.append(None)
+        return real(self)
+
+    with patch.object(highspy.Highs, "getRanging", tracking):
+        result = problem.solve()
+    assert calls == []
+    assert result.ranging_valid is None
+    for field in (
+        "col_bound_up",
+        "col_bound_dn",
+        "col_cost_up",
+        "col_cost_dn",
+        "row_bound_up",
+        "row_bound_dn",
+    ):
+        assert getattr(result, field) == {}, field
+    assert result.bound_headroom("x0") is None
+
+
+def test_ranging_on_the_probe_lp_matches_the_hand_worked_values():
+    """#489's research probe, every number checkable by hand:
+    min 0.30 imp + 0.05 exp, imp - exp + solar = 2, solar <= 6."""
+    p = LPProblem()
+    p.add_variable("imp", cost=0.30)
+    p.add_variable("exp", cost=0.05)
+    p.add_variable("solar", ub=6.0)
+    p.add_eq_constraint({"imp": 1.0, "exp": -1.0, "solar": 1.0}, 2.0, name="balance")
+    with patch.object(
+        highspy.Highs, "getRanging", _counting(calls := [], highspy.Highs.getRanging)
+    ):
+        r = p.solve(ranging=True)
+    assert len(calls) == 1
+    assert (p.value_of(r, "imp"), p.value_of(r, "solar")) == (0.0, 2.0)
+    assert r.reduced_costs == pytest.approx({"imp": 0.30, "exp": 0.05, "solar": 0.0})
+    up = {k: v.value for k, v in r.col_bound_up.items()}
+    dn = {k: v.value for k, v in r.col_bound_dn.items()}
+    assert up == pytest.approx({"imp": 2.0, "exp": 4.0, "solar": 6.0})
+    assert dn == pytest.approx({"imp": -4.0, "exp": -2.0, "solar": 0.0})
+    assert (r.col_cost_dn["solar"].value, r.col_cost_up["solar"].value) == (
+        pytest.approx(-0.05),
+        pytest.approx(0.30),
+    )
+    assert r.row_bound_up["balance"].value == pytest.approx(6.0)
+    assert r.row_bound_dn["balance"].value == pytest.approx(0.0)
+    room = r.rhs_headroom("balance")
+    assert (room.down, room.up) == (pytest.approx(2.0), pytest.approx(4.0))
+
+
+def _counting(calls, real):
+    def tracking(self):
+        calls.append(None)
+        return real(self)
+
+    return tracking
+
+
+def test_ranging_on_a_pinned_or_failed_solve():
+    """#490 with #238: a MIP's ranging is the pinned LP's (valid, every
+    column); a zero-width column is degenerate headroom; an infeasible
+    solve reports ranging invalid with nothing in it, or None if unasked."""
+    p = LPProblem()
+    y = p.add_variable("y", binary=True)
+    x = p.add_variable("x", ub=10.0, cost=-1.0)
+    p.add_ub_constraint({x: 1.0, y: -10.0}, 0.0, name="gate")
+    r = p.solve(ranging=True)
+    assert r.status == "optimal" and r.ranging_valid is True
+    assert set(r.col_bound_up) == {"x", "y"}
+
+    p = LPProblem()
+    p.add_variable("imp", cost=0.30)
+    p.add_variable("solar", lb=6.0, ub=6.0)
+    p.add_eq_constraint({"imp": 1.0, "solar": 1.0}, 6.0, name="balance")
+    room = p.solve(ranging=True).bound_headroom("solar")
+    assert room.degenerate and (room.down, room.up) == (0.0, 0.0)
+
+    def infeasible():
+        q = LPProblem()
+        q.add_variable("x", ub=1.0)
+        q.add_eq_constraint({"x": 1.0}, 5.0)
+        return q
+
+    r = infeasible().solve(ranging=True)
+    assert r.status == "infeasible" and r.ranging_valid is False
+    assert r.col_bound_up == {} and r.row_bound_up == {}
+    assert infeasible().solve().ranging_valid is None
 
 
 @SETTINGS
