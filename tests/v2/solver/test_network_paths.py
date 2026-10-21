@@ -280,3 +280,108 @@ def test_a_thermal_load_on_a_price_tie_heats_at_the_first_instant(
     pw = plan.thermal_loads[0].power_kw
     assert pw[1] <= 1e-6
     assert abs(pw[0] - power) <= 1e-6
+
+
+@SETTINGS
+@given(
+    st.integers(min_value=2, max_value=8),
+    st.data(),
+    _num(10.0, 30.0),
+    _num(0.0, 4.0),
+)
+def test_a_per_period_export_envelope_caps_each_period_and_curtails_the_rest(
+    n, data, solar_kw, load_kw
+):
+    """#493 (Signals 4/7 of #489): a DNSP's dynamic export envelope is a
+    per-period `export_limit_kw`. With a paying export price, spare sun and
+    an idle battery, each period exports min(surplus, its own envelope),
+    curtails exactly what the envelope refuses, and the envelope's shadow
+    price (#491's `forced_export_cost`) is non-zero exactly where it
+    binds."""
+    surplus = solar_kw - load_kw
+    envelope = np.array(
+        data.draw(st.lists(_num(0.5, 40.0), min_size=n, max_size=n)), dtype=float
+    )
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.10),
+            import_limit_kw=50.0,
+            export_limit_kw=envelope,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.full(n, solar_kw)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load_kw))],
+        compute_signals=True,
+    )
+    assert plan.status == "optimal"
+    want = np.minimum(surplus, envelope)
+    np.testing.assert_allclose(plan.grid_export_kw, want, atol=1e-6)
+    np.testing.assert_allclose(
+        plan.solar_curtailed_kw, np.maximum(surplus - envelope, 0.0), atol=1e-6
+    )
+    binding = envelope < surplus - 1e-6
+    forced = plan.grid_signals.forced_export_cost
+    for t in range(n):
+        if binding[t]:
+            assert forced[t] != 0.0, t
+        elif envelope[t] > surplus + 1e-6:
+            assert forced[t] == 0.0, t
+
+
+@SETTINGS
+@given(st.integers(min_value=2, max_value=6), _num(5.0, 40.0), _num(5.0, 40.0))
+def test_a_uniform_envelope_is_the_scalar_plan(n, imp, exp):
+    """#493: an envelope that is the same every period is the plain scalar
+    limit, to the cost."""
+
+    def plan(limit_imp, limit_exp):
+        return build_plan(
+            periods=PeriodGrid(np.ones(n)),
+            grid=GridConfig(
+                import_price=np.full(n, 0.30),
+                export_price=np.full(n, 0.05),
+                import_limit_kw=limit_imp,
+                export_limit_kw=limit_exp,
+            ),
+            batteries=[_idle_battery(available=True)],
+            solar=SolarConfig(forecast_kw=np.full(n, 10.0)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 3.0))],
+        )
+
+    scalar, array = plan(imp, exp), plan(np.full(n, imp), np.full(n, exp))
+    assert scalar.status == array.status == "optimal"
+    np.testing.assert_allclose(scalar.grid_export_kw, array.grid_export_kw, atol=1e-9)
+    np.testing.assert_allclose(scalar.grid_import_kw, array.grid_import_kw, atol=1e-9)
+    assert scalar.total_cost == pytest.approx(array.total_cost, abs=1e-9)
+
+
+@SETTINGS
+@given(st.integers(min_value=2, max_value=6), st.data(), _num(4.0, 12.0))
+def test_an_import_envelope_below_the_load_uses_the_excess_valve(n, data, load_kw):
+    """#493 with #390: a per-period import envelope below the load is
+    met through the import-excess valve in exactly those periods, by exactly
+    the shortfall; the plan stays optimal."""
+    envelope = np.array(
+        data.draw(st.lists(_num(0.5, 20.0), min_size=n, max_size=n)), dtype=float
+    )
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=envelope,
+            export_limit_kw=50.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load_kw))],
+    )
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(
+        plan.grid_import_excess_kw, np.maximum(load_kw - envelope, 0.0), atol=1e-6
+    )
+    assert plan.import_cap_breach_kwh == pytest.approx(
+        float(np.maximum(load_kw - envelope, 0.0).sum()), abs=1e-6
+    )
