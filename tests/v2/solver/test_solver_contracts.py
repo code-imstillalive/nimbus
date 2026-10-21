@@ -2151,3 +2151,70 @@ def test_the_tier0_minutes_tether_to_the_period_they_fall_inside():
         )
         == {}
     )
+
+
+# --- household 20/22 Aug 2026: a committed P2P block is held flat --------------
+
+
+def _p2p_day(window_rates, *, fixed=None, window_import=0.55, terminal=None):
+    """10 h of cheap daytime import, a 7 h P2P window at `window_rates`,
+    9 h overnight; a 122 kWh battery starting at 20%."""
+    n = 26
+    imp = np.array([0.15] * 10 + [window_import] * 7 + [0.15] * 9)
+    exp = np.array([0.08] * 10 + list(window_rates) + [0.08] * 9)
+    pin = None
+    if fixed is not None:
+        pin = np.full(n, np.nan)
+        pin[10:17] = fixed
+    return build_plan(
+        periods=PeriodGrid(np.ones(n), start=datetime(2026, 8, 20, 7, tzinfo=UTC)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=exp,
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+            fixed_export_kw=pin,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=122.2,
+                initial_soc_kwh=122.2 * 0.2,
+                min_soc_kwh=122.2 * 0.05,
+                max_soc_kwh=122.2,
+                max_charge_kw=40.0,
+                max_discharge_kw=40.0,
+                charge_efficiency=0.975,
+                discharge_efficiency=0.975,
+                charge_cost=0.005,
+                discharge_cost=0.01,
+                salvage_value=0.15,
+                terminal_value_breakpoints=terminal,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.5))],
+    )
+
+
+@SETTINGS
+@given(st.lists(_num(0.43, 0.65), min_size=7, max_size=7), _num(5.0, 12.0))
+def test_a_committed_block_is_held_flat_whatever_the_window_rates(rates, rate):
+    """Household, 20 Aug 2026 (the plan swung between ~40 kW and ~0 chasing
+    each 5-minute P2P rate while the deal needs a steady committed rate):
+    with the block pinned, export is the rate in every window period however
+    the rates vary, the plan charges beforehand from its 20% start to carry
+    it without dropping below the floor, and periods outside stay free."""
+    plan = _p2p_day(rates, fixed=rate)
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(plan.grid_export_kw[10:17], rate, atol=1e-4)
+    assert plan.battery_soc_kwh[9] > 122.2 * 0.2
+    assert plan.battery_soc_kwh[10:18].min() >= 122.2 * 0.05 - 0.01
+    outside = np.r_[plan.grid_export_kw[:10], plan.grid_export_kw[17:]]
+    assert not np.allclose(outside, rate, atol=0.01)
+
+
+def test_unpinned_the_window_rates_make_export_swing():
+    """The premise: without the pin the same day's varying rates move the
+    plan's export by more than 5 kW across the window."""
+    window = _p2p_day([0.65, 0.50, 0.43, 0.60, 0.55, 0.48, 0.62]).grid_export_kw[10:17]
+    assert window.max() - window.min() > 5.0
