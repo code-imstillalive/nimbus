@@ -112,6 +112,7 @@ from solver.elements import (
     LoadConfig,
     PeriodGrid,
     SolarConfig,
+    ThermalLoadConfig,
 )
 from solver.lp import CalibratedOptions, LexOptions, LPProblem
 from solver.network import (
@@ -1394,6 +1395,100 @@ def test_a_profitable_spread_still_moves_one_way_per_period(
     assert (np.minimum(gi, ge) <= 1e-6).all()
     assert (ch + dc <= power + 1e-6).all()
     assert (gi + ge <= limit + 1e-6).all()
+
+
+# --- #940: the echoed thermal rates are reporting only ---------------------------
+
+_TH_N = 12
+
+
+def _thermal_plan(**over) -> Plan:
+    price = np.array([0.05] * 6 + [0.60] * 6)  # a real cheap/dear swing
+    thermal = {
+        "name": "hws",
+        "max_power_kw": 3.0,
+        "initial_temperature_c": 42.0,
+        "target_temperature_c": 60.0,
+        "earliest_period": 0,
+        "deadline_period": _TH_N - 1,
+        "heating_rate_c_per_kwh": 8.0,
+        "idle_decay_c_per_hour": 0.5,
+        **over,
+    }
+    return build_plan(
+        periods=PeriodGrid(np.ones(_TH_N), start=datetime(2026, 9, 16, tzinfo=UTC)),
+        grid=GridConfig(
+            import_price=price,
+            export_price=price - 0.02,
+            import_limit_kw=100.0,
+            export_limit_kw=100.0,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=40.0,
+                initial_soc_kwh=20.0,
+                min_soc_kwh=4.0,
+                max_soc_kwh=40.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(_TH_N)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(_TH_N))],
+        thermal_loads=[ThermalLoadConfig(**thermal)],
+    )
+
+
+def _dispatch(plan: Plan) -> tuple:
+    tl = plan.thermal_loads[0]
+    return (
+        plan.status,
+        plan.total_cost,
+        *(
+            a.tobytes()
+            for a in (
+                plan.battery_charge_kw,
+                plan.battery_discharge_kw,
+                plan.battery_soc_kwh,
+                plan.grid_import_kw,
+                plan.grid_export_kw,
+                tl.power_kw,
+                tl.temperature_c,
+            )
+        ),
+    )
+
+
+_ORIGINS = st.sampled_from([None, "override", "learned", "fallback"])
+
+
+@given(_ORIGINS, _ORIGINS)
+def test_thermal_rate_origins_are_labels_the_plan_never_reads(heating, decay):
+    """#940: the heating-rate and idle-decay ORIGIN labels are echoed for
+    the household and reach nothing the LP decides: any labels give the
+    bit-identical plan, and arrive on it exactly as given (None stays None,
+    never a made-up "fallback"). The premise holds: the tank heats to its
+    deadline target and the battery moves."""
+    base = _thermal_plan()
+    tl = base.thermal_loads[0]
+    assert base.status == "optimal"
+    assert tl.power_kw.sum() > 0 and tl.temperature_c.max() > 42.0
+    assert tl.temperature_c[-1] >= 60.0 - 1e-6
+    assert (base.battery_charge_kw + base.battery_discharge_kw).sum() > 0
+    plan = _thermal_plan(heating_rate_origin=heating, idle_decay_origin=decay)
+    assert _dispatch(plan) == _dispatch(base)
+    echoed = plan.thermal_loads[0]
+    assert (echoed.heating_rate_origin, echoed.idle_decay_origin) == (heating, decay)
+    assert (echoed.heating_rate_c_per_kwh, echoed.idle_decay_c_per_hour) == (8.0, 0.5)
+
+
+def test_a_real_heating_rate_still_moves_the_plan():
+    """#940's control: the rates themselves are physics, so a tank that
+    heats 2.5x faster is a different plan, and its rates are echoed."""
+    faster = _thermal_plan(heating_rate_c_per_kwh=20.0)
+    assert _dispatch(faster) != _dispatch(_thermal_plan())
+    tl = faster.thermal_loads[0]
+    assert (tl.heating_rate_c_per_kwh, tl.idle_decay_c_per_hour) == (20.0, 0.5)
 
 
 # --- #1751: the direction check names its outcome on every path ---------------
