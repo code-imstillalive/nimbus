@@ -36,7 +36,7 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   caller's thread for ever.
 - With a previous plan, period 0 is anchored to what was dispatched (the
   old plan's period 0), not to the old period its start falls in; every
-  later period keeps the old plan's timeline (#1576, #635; measured on
+  later period keeps the old plan's timeline (#1576; #635, #633; measured on
   #1417). A previous plan older than one period is past, so containment
   holds for period 0 too.
 - Pinning a MIP's binaries (#616's on/off) for the clean re-solve (#773) relaxes exactly

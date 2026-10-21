@@ -57,8 +57,9 @@ the old file was written for and show both sets fail.
 | `test_solver_adequacy_marginal_cost.py` | #483, #476, #482, #613 | `test_solver_contracts::test_an_adequacy_load_costs_its_energy_at_the_marginal_price` (and `test_network_contracts::...profit...`, #1958) | planted the cost summed without hours, and the dual not divided by hours: the new property fails on both, the old file on neither (it uses hourly periods only) |
 | `test_adequacy_placement_vs_shadow_price.py` | #769, #662 | `test_solver_contracts::test_narrowing_an_adequacy_window_never_makes_the_plan_cheaper` | a demonstration (an unused cheaper period is not a missed saving), not a regression pin: both it and the new property check that the solve is optimal over its window. No bug in this code would make a narrower window cheaper short of a solver defect, so there is no plant to show; the property generalises the one fixture to generated sites |
 | `test_solver_lp_binary_variables.py` | #238 | `test_solver_contracts::test_a_binary_is_zero_to_one_and_refuses_another_bound`, `::test_a_mips_duals_are_recovered_from_the_pinned_resolve` (closed-form optimum, objective, gate dual = output value, slack dual 0) | planted a binary accepting an explicit bound: old and new fail. Planted the pin step skipped: **neither set fails** — on a MIP this small HiGHS's own branch-and-bound duals are already right, so dual recovery needs a larger fixture in both sets |
+| `test_solver_network_tier0_alignment.py` | #635, #633 | `test_solver_contracts::test_period_0_holds_what_was_dispatched` (periods inside an old period follow it) | planted #635's bug (alignment by exact start only): old and new fail |
 
 ## Still to check
 
-The other 49 files, smallest first. Nothing is deleted until every row is
+The other 48 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
