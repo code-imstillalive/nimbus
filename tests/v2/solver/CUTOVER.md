@@ -53,8 +53,9 @@ the old file was written for and show both sets fail.
 | `test_1576_period0_anchors_to_dispatched.py` | #1576, #635, #1417 | `test_solver_contracts::test_period_0_holds_what_was_dispatched`, `::test_only_a_recent_period_0_anchors_to_the_dispatched_value` | planted plain containment for period 0 (the original bug): old and new fail; planted period 0 always anchored to old period 0 (stale too): old and new fail |
 | `test_lp_pin_binaries_integrality_diagnostic.py` | #773, #616 | `test_solver_contracts::test_pinning_fixes_each_binary_at_its_rounded_value`; `test_lp_paths::test_pinning_warns_only_beyond_the_integrality_tolerance`, `::test_pinning_no_binaries_warns_of_nothing` | planted every column relaxed: old and new fail; planted the warning skipping the pin: old and new fail |
 | `test_solver_lp_pin_resolve_tolerance.py` | #773 | `test_solver_contracts::test_highs_accepts_a_mip_point_looser_than_an_lp_one`, `::test_the_pin_resolve_widens_the_lp_tolerance_for_its_block_only`, `::test_a_solver_refusing_option_calls_never_breaks_the_solve` | planted narrowing as well as widening: old and new fail; planted no restore: old and new fail |
+| `test_solver_export_bonus_tiebreak.py` | household 20 Aug 2026 (#355, #732) | `test_solver_contracts::test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end`; `test_plan_features::test_the_export_bonus_is_claimed_on_real_export_within_its_cap`, `::test_the_export_bonus_cap_resets_at_each_calendar_midnight` | planted no nudge, and the nudge reversed (earliest-preferred), in the per-day branch: old and new fail; planted an economic-size nudge (1e-2): old fails, two v2 bonus tests fail. The no-timestamp fallback branch's nudge is checked by neither set |
 
 ## Still to check
 
-The other 53 files, smallest first. Nothing is deleted until every row is
+The other 52 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

@@ -48,6 +48,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   (#773): the LP's primal tolerance is widened to the MIP's for that block
   only (never narrowed), put back afterwards even on an exception, and a
   solver that refuses option calls never breaks the solve.
+- With a flat export bonus price, the capped bonus volume is claimed in
+  one block that runs to the end of the window (household, 20 Aug 2026:
+  "our window closes 0.00"), never scattered ON/OFF across it, and the
+  export itself does not move.
 """
 
 from __future__ import annotations
@@ -732,3 +736,48 @@ def test_a_solver_refusing_option_calls_never_breaks_the_solve(fails):
     with lp._lp_tolerance_matching_mip(h):
         ran.append(True)
     assert ran == [True]
+
+
+@SETTINGS
+@given(st.integers(3, 8), _num(5.0, 13.0), _num(0.1, 0.9), _num(0.05, 0.5))
+def test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end(
+    n, rate, share, premium
+):
+    cap = round(rate * n * share, 4)
+    plan = build_plan(
+        periods=PeriodGrid(
+            hours=np.ones(n), start=datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+        ),
+        grid=GridConfig(
+            import_price=np.full(n, 0.15),
+            export_price=np.full(n, 0.09),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+            export_bonus_price=np.full(n, premium),
+            export_bonus_volume_kwh=cap,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=200.0,
+                initial_soc_kwh=200.0,
+                min_soc_kwh=10.0,
+                max_soc_kwh=200.0,
+                max_charge_kw=rate,
+                max_discharge_kw=rate,
+                charge_cost=0.01,
+                discharge_cost=0.01,
+                salvage_value=0.02,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+    )
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(plan.grid_export_kw, rate, atol=1e-4)
+    bonus = plan.export_bonus_kw
+    assert abs(float(np.sum(bonus)) - cap) < 1e-4
+    on = bonus > 1e-4
+    first = int(np.argmax(on))
+    assert on[first:].all(), bonus  # one block, running to the end
+    # Every claimed period but the block's first claims the full rate.
+    np.testing.assert_allclose(bonus[first + 1 :], rate, atol=1e-4)
