@@ -19,6 +19,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   forecast does, and the running interval is settled. The provider's price
   for now is the price that settles for it, and the Now column shows it.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 43d97c16**,
+  installed untagged via HACS from `release/0.94.476` and restarted (the
+  recorder's run began 13:55:44 AEST, 21 Oct). devhub's own per-battery SoC
+  sensors published on 0.94.476 at 13:56:25. The log shows only the
+  devhub-only baseline (duplicate unique IDs, Forecaster entity renames left
+  in place); nothing from this release.
+  - **Not claimed live:** the provider's Now value. devhub's Price sources
+    card reads production's mirrored plan. The defect was seen live on
+    production's first 0.94.475 plan (13:36 AEST, `now.sources.primary =
+    None`); the fix is covered by `tests/test_consolidation_next_slots.py`
+    and the golden snapshots.
+- Consumer check: on the Solver tab, the Price sources Now column shows your
+  provider's price for the interval running now (the Whole Plan's Buy price
+  for that period) and a Gap under it.
+
 ## [0.94.475] - 2026-10-21
 
 **Going live, and three fixes you can see.** A step-by-step guide and a
