@@ -187,6 +187,35 @@ def test_a_plan_that_did_not_solve_shares_no_array(n):
             assert not np.any(a == 5.0), name
 
 
+@given(
+    st.integers(min_value=1, max_value=48),
+    st.sampled_from(["optimal", "infeasible", "unbounded", "error"]),
+)
+def test_only_an_error_is_a_failed_solve_and_its_plan_is_empty(n, status):
+    """#757 (ten investigations of a battery "silently excluded" that never
+    was: failed solves' zero-filled plans were overwriting good ones).
+    `solver_failed` is true for "error" only, never merely `not is_optimal`:
+    "infeasible" and "unbounded" are answers the household must see, and
+    #773's fallback depends on infeasible being published. A plan built for
+    a solve that did not run is all zeros with no participants, which is why
+    publishing one is harmful."""
+    periods = PeriodGrid(hours=np.full(n, 0.5), start=datetime(2026, 1, 1, tzinfo=UTC))
+    plan = _infeasible_plan(
+        periods, status, iterations=0, raw_status="Time limit reached"
+    )
+    assert plan.solver_failed == (status == "error")
+    assert plan.is_optimal == (status == "optimal")
+    assert plan.batteries == []
+    assert plan.sheddable_loads == plan.adequacy_loads == plan.thermal_loads == []
+    for arr in (
+        plan.battery_charge_kw,
+        plan.battery_discharge_kw,
+        plan.grid_import_kw,
+        plan.grid_export_kw,
+    ):
+        assert arr.shape == (n,) and not arr.any()
+
+
 @SETTINGS
 @given(problems(), st.data())
 def test_a_tiny_cost_beside_real_ones_still_takes_the_phased_solve(spec, data):
