@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A battery's plan-consistent headroom never exceeds its physical headroom**
+  ([#1985](https://github.com/code-imstillalive/nimbus/issues/1985)). For a battery
+  already charging or discharging flat out, the flex signals'
+  `available_up_ranging_kw` / `available_down_ranging_kw` could report room it
+  did not have, read from the solver's ranging of the limit itself. They are now
+  clamped to the physical figure. Dispatch is unchanged.
+
 ## [0.94.479] - 2026-10-21
 
 **DC-006 slice 2: the Forecaster reads the device setup in `active`.**
