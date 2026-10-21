@@ -20,6 +20,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   against the real solve (bisected when it ends sooner). Dispatch is unchanged;
   the sweep stays under 0.5 s.
 
+## [0.94.480] - 2026-10-22
+
+**A battery above its Max SoC with terminal-value tiers set no longer loses the whole plan; two flex-signal fixes.**
+
 - **A battery's plan-consistent headroom never exceeds its physical headroom**
   ([#1985](https://github.com/code-imstillalive/nimbus/issues/1985)). For a battery
   already charging or discharging flat out, the flex signals'
@@ -54,6 +58,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `legacy` and `shadow` installs read exactly what they read before; on a
   healthy site a model trained in `legacy` is fed identical inputs in
   `active`.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ab0146bf**
+  (`release/0.94.479`), installed via HACS and restarted at 18:40 AEST; devhub's
+  own Forecaster sensors published by 18:40:59. devhub's device setup is
+  `active` (revision 1, clean), so this release's code path is the one running.
+  The log after the restart showed only devhub's known baseline (mirror
+  duplicate-unique-ID notices, Forecaster rename notices).
+  - **Not claimed yet:** a retrain in `active` (the model learning the setup's
+    sign). devhub's models were last trained at 03:27; the first retrain on
+    this release is checked on the day-long devhub run before slice 3.
+- Consumer check: on an install in `legacy` or `shadow`, the Forecaster tab's
+  forecasts are unchanged from 0.94.478. In `active`, a battery, grid or solar
+  sensor that drops out keeps its last reading for its max age instead of
+  falling to 0.
 
 ## [0.94.478] - 2026-10-21
 
