@@ -50,7 +50,7 @@ answer is not "nothing":
 
 | | |
 |---|---|
-| **Your battery / inverter** | Nimbus **publishes a plan** and never commands your inverter itself. To make the plan move your battery you write your own HA automation that reads `sensor.nimbus_solver_battery_forecast` and commands your hardware. That is a deliberate boundary — the inverter-specific, money-moving step stays yours. |
+| **Your battery / inverter** | Nimbus **publishes a plan** and never commands your inverter itself. To make the plan move your battery you add one HA automation that reads `sensor.nimbus_solver_battery_forecast` and commands your hardware: import the ready-made [Nimbus battery dispatch blueprint](blueprints/automation/nimbus/battery_dispatch.yaml) and give it your inverter's actions, behind an arm switch. That is a deliberate boundary — the inverter-specific, money-moving step stays yours. See [Going live](https://code-imstillalive.github.io/nimbus/going-live/). |
 | **Controllable loads** | Nimbus **does command these directly** — `switch` (`turn_on`/`turn_off`), `water_heater` (`set_operation_mode`: `performance`/`eco`) and `climate` (`set_hvac_mode`) — but **only** when you explicitly set a "Device to command" on a Controllable Load subentry. Leave that field blank and Nimbus plans and scores the load without ever touching it. |
 | **Everything else** | Read-only. Nimbus never writes to your config and never calls a service outside the controllable-load path above. |
 

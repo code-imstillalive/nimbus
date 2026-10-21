@@ -17,6 +17,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   tie-breaks have been since #696, so it no longer meets a real price. A plan
   solved without the calibrated objective keeps the old tie-break.
 
+- **Prices ahead draws full width on the first visit.** On the Solver tab
+  the chart drew a third wide until you pressed F5: drawn from the plan alone,
+  it drew before its section had a width. It now waits for one hidden series
+  from history, as the battery chart above it does. Checked on devhub against
+  an unchanged copy and a redraw-on-resize copy: only this one was full width
+  on every first visit.
+
+- **Going live, step by step, with a ready-made automation** (1.0.0,
+  [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). A new
+  *Going live* guide takes a household from shadow to Nimbus driving the
+  battery: watch the plan in dry run, build your inverter's actions, create an
+  arm switch, import the **Nimbus battery dispatch** blueprint
+  (`blueprints/automation/nimbus/battery_dispatch.yaml`), and a supervised
+  first trial. The blueprint works with any inverter you can command from
+  Home Assistant: you give it your own actions for Charge, Discharge,
+  Self-Consume, Hold and a fallback. Nothing moves unless its arm switch is
+  on; switching it off runs the fallback; an unknown, failed or stale plan
+  runs the fallback, never a power command; power is capped; a minimum dwell
+  stops the battery flipping between modes; and spare solar is soaked up when
+  Nimbus says so. Each mode command, the fallback included, is re-sent after
+  a Home Assistant start and every 10 minutes (adjustable), so a lost command
+  is put right (Mark Purcell's review). `tests/test_battery_dispatch_blueprint.py`
+  runs the blueprint's own templates in CI and checks each of these
+  properties.
+
 - **A deferrable load's value per kWh counts again when it has no windows**
   ([#1837](https://github.com/code-imstillalive/nimbus/issues/1837)). Since
   0.94.206 a deferrable load set up with a value per kWh but without
