@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.476] - 2026-10-21
+
+**The Now column shows your provider's price.** On the first live plan with
+0.94.475 the provider's cell under Now was a dash and the Gap was blank.
+
 - **The Now column shows your provider's price and the Gap.** On the first
   live plan with 0.94.475, the provider's cell under Now was a dash and the
   Gap under Now was blank: the provider's series covers only the periods its

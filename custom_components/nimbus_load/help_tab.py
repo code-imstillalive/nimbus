@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.476",
+        "21 Oct 2026",
+        (
+            (
+                "**Price sources:** the Now column shows your provider's price "
+                "for the interval running now, and its Gap."
+            ),
+        ),
+    ),
+    (
         "0.94.475",
         "21 Oct 2026",
         (
