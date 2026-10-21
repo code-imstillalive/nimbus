@@ -45,8 +45,9 @@ the old file was written for and show both sets fail.
 | `test_solver_lp_sweep_cost_ranging.py` | #676 | `test_solver_contracts::test_the_ranging_sweep_reports_each_steps_exact_interval`, `::test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable`; `test_lp_properties::test_every_ranging_sweep_step_holds_inside_its_own_interval` | planted up reading the down interval, no restore, and out-var reading in-var: old and new fail on each. The new property's basis-change names differ from the old example's (solar at or below demand there is export in, import out), measured, not assumed |
 | `test_1480_plan_reports_lp_only_tiebreak_costs.py` | #1480, #731, #692 | **split, not deleted.** `TestTheLossTiebreakIsReported`: `test_plan_features::test_the_loss_tie_break_costs_what_its_rate_says`, `::test_charge_earliness_costs_what_its_rate_says` (now drawing the budget, zero included). `TestTheScorerCountsEveryLpOnlyTerm` tests the quality report's wiring and stays for the quality area | planted earliness ignoring its budget argument: old and new fail (v2 missed it before the budget was drawn) |
 | `test_1576_period0_anchors_to_dispatched.py` | #1576, #635, #1417 | `test_solver_contracts::test_period_0_holds_what_was_dispatched`, `::test_only_a_recent_period_0_anchors_to_the_dispatched_value` | planted plain containment for period 0 (the original bug): old and new fail; planted period 0 always anchored to old period 0 (stale too): old and new fail |
+| `test_lp_pin_binaries_integrality_diagnostic.py` | #773, #616 | `test_solver_contracts::test_pinning_fixes_each_binary_at_its_rounded_value`; `test_lp_paths::test_pinning_warns_only_beyond_the_integrality_tolerance`, `::test_pinning_no_binaries_warns_of_nothing` | planted every column relaxed: old and new fail; planted the warning skipping the pin: old and new fail |
 
 ## Still to check
 
-The other 58 files, smallest first. Nothing is deleted until every row is
+The other 57 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

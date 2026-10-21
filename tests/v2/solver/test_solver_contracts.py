@@ -39,10 +39,16 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   later period keeps the old plan's timeline (#1576, #635; measured on
   #1417). A previous plan older than one period is past, so containment
   holds for period 0 too.
+- Pinning a MIP's binaries (#616's on/off) for the clean re-solve (#773) relaxes exactly
+  the binary columns to continuous and fixes each at its rounded value,
+  leaves every other column alone, and warns, with the count and the worst
+  gap, only when a binary sits beyond the integrality tolerance. The
+  warning is measurement only: it never changes the pin.
 """
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -600,3 +606,65 @@ def test_only_a_recent_period_0_anchors_to_the_dispatched_value(new, old):
     or 1; otherwise every period anchors to the old period containing it."""
     want = 0 if new == 0 and old <= 1 else old
     assert _anchor_source(new, old) == want
+
+
+class _PinHighs:
+    def __init__(self, values):
+        self.values = values
+        self.bounds: dict[int, tuple[float, float]] = {}
+        self.relaxed: list[int] = []
+
+    def val(self, i):
+        return self.values[i]
+
+    def changeColIntegrality(self, i, kind):
+        assert kind == highspy.HighsVarType.kContinuous
+        self.relaxed.append(i)
+
+    def changeColBounds(self, i, lo, hi):
+        self.bounds[i] = (lo, hi)
+
+
+class _Warnings(logging.Handler):
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages: list[str] = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+@given(
+    st.lists(
+        st.one_of(
+            st.sampled_from([0.0, 1.0, 1e-9, 1.0 - 1e-9, 0.5]),
+            st.floats(0.0, 1.0),
+            st.floats(-5.0, 10.0),
+        ),
+        min_size=1,
+        max_size=8,
+    ),
+    st.data(),
+)
+def test_pinning_fixes_each_binary_at_its_rounded_value(values, data):
+    n = len(values)
+    binary = sorted(data.draw(st.sets(st.integers(0, n - 1))))
+    h = _PinHighs(values)
+    handler = _Warnings()
+    lp._LOGGER.addHandler(handler)
+    try:
+        lp._pin_binaries_to_current_solution(h, list(range(n)), binary)
+    finally:
+        lp._LOGGER.removeHandler(handler)
+    assert h.relaxed == binary
+    assert h.bounds == {
+        i: (float(round(values[i])), float(round(values[i]))) for i in binary
+    }
+    worst = max((abs(values[i] - round(values[i])) for i in binary), default=0.0)
+    warned = [m for m in handler.messages if "away from integral" in m]
+    if worst > lp._BINARY_INTEGRALITY_TOLERANCE:
+        assert len(warned) == 1
+        assert f"pin {len(binary)} binaries" in warned[0]
+        assert f"{worst:.3e}" in warned[0]
+    else:
+        assert warned == []
