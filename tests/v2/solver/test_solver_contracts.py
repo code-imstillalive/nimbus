@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -1980,3 +1981,91 @@ def test_adequacy_continuity_is_matched_by_load_name(name, held):
     second[15] = second[16] = 0.045
     plan2 = _adequacy_plan(second, name=name, previous=previous)
     assert _block(plan2) == (_AT_5_6 if held else _AT_15_16)
+
+
+# --- #773 / #1179: every dump says whether it will survive ---------------------
+
+
+@pytest.mark.parametrize("configured", [None, "/data/nimbus_dumps"])
+def test_the_dump_note_says_whether_the_file_survives(configured, monkeypatch):
+    """#773 (18 Sep 2026: the first real capture landed in a container's
+    /tmp and was gone at the next restart): with no dump folder set, the
+    note says the file is TEMPORARY, will not survive, to copy it NOW, and
+    names the setting that makes it persistent; with one set, it says the
+    file persists and raises no alarm. The public alias (#1179, used by the
+    writer) only delegates."""
+    if configured is None:
+        monkeypatch.delenv(lp._LP_DUMP_DIR_ENV, raising=False)
+    else:
+        monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, configured)
+    note = lp._dump_location_note()
+    assert lp.dump_location_note() == note
+    if configured is None:
+        for word in ("TEMPORARY", "will not survive", "NOW", "persistent"):
+            assert word in note, word
+        assert lp._LP_DUMP_DIR_ENV in note
+    else:
+        assert "persists" in note
+        assert "TEMPORARY" not in note and "will not survive" not in note
+
+
+class _WritingHighs(_PhaseHighs):
+    def writeModel(self, path):
+        with open(path, "w", encoding="utf-8"):
+            pass
+
+
+def test_the_dump_folder_is_created_or_falls_back_to_temp(tmp_path, monkeypatch):
+    """#1179 (11 Oct 2026: a tester's capture landed where a household
+    cannot reach it): a missing dump folder is created; one that cannot be
+    created (a file in the way) falls back to the temporary folder rather
+    than losing the capture."""
+    import tempfile
+
+    target = tmp_path / "nimbus_diagnostics"
+    monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(target))
+    lp._LP_DUMPED_PHASES.clear()
+    try:
+        path = lp._dump_failing_model(_WritingHighs(), "dir_test", issue="1179")
+        assert path == str(target / "nimbus_1179_dir_test.mps")
+        assert (target / "nimbus_1179_dir_test.mps").is_file()
+        blocker = tmp_path / "a_file"
+        blocker.write_text("")
+        monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(blocker / "sub"))
+        path = lp._dump_failing_model(_WritingHighs(), "fallback", issue="1179")
+        assert path is not None and path.startswith(tempfile.gettempdir())
+        os.remove(path)
+    finally:
+        lp._LP_DUMPED_PHASES.clear()
+
+
+def test_every_dump_announcement_says_whether_it_survives(
+    tmp_path, monkeypatch, caplog
+):
+    """#773: both dump paths, the alarming slow call and the failed phase,
+    announce the file with the survival note, so no capture is announced
+    without saying whether it will still be there."""
+    monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_path))
+    monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
+    monkeypatch.setattr(lp, "UNKNOWN_RETRIES", {"attempted": 0, "recovered": 0})
+    lp._LP_DUMPED_PHASES.clear()
+    note = lp._dump_location_note()
+    try:
+        with caplog.at_level(logging.WARNING, logger=lp._LOGGER.name):
+            monkeypatch.setattr(lp.time, "monotonic", _clock([46.0]))
+            with lp._timed_lp_call(_WritingHighs(), "slow_phase"):
+                pass
+            monkeypatch.undo()
+            monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_path))
+            monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
+            with patch.object(highspy.Highs, "getModelStatus", _unknown(False)):
+                _two_objective_lp().solve(options=LexOptions())
+    finally:
+        lp._LP_DUMPED_PHASES.clear()
+    announced = [
+        r.getMessage() for r in caplog.records if "wrote the" in r.getMessage()
+    ]
+    assert any("slow model" in m for m in announced)
+    assert any("failing model" in m for m in announced)
+    for message in announced:
+        assert message.endswith(note), message
