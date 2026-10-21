@@ -14,6 +14,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   running now, the blend, and the blend's gap to your provider, like every
   other column.
 
+- **Prices ahead draws full width on the first visit.** On the Solver tab
+  the chart drew a third wide until you pressed F5: drawn from the plan alone,
+  it drew before its section had a width. It now waits for one hidden series
+  from history, as the battery chart above it does. Checked on devhub against
+  an unchanged copy and a redraw-on-resize copy: only this one was full width
+  on every first visit.
+
 - **Going live, step by step, with a ready-made automation** (1.0.0,
   [#1930](https://github.com/code-imstillalive/nimbus/issues/1930)). A new
   *Going live* guide takes a household from shadow to Nimbus driving the
