@@ -491,12 +491,17 @@ def now_slot(
     missing"). Empty when the plan has no periods."""
     if not grid_times:
         return {}
+    sources = {name: _r(s[0]) if s else None for name, s in sorted(series.items())}
+    # The provider's own series covers only the periods its forecast does,
+    # and the running interval is settled, so its slot is empty: the price
+    # that settles for it is the provider's price for now (household, 21 Oct
+    # 2026: the Now column's provider cell and Gap were blank).
+    if "primary" in sources and sources["primary"] is None:
+        sources["primary"] = _r(settled)
     return {
         "time": grid_times[0].isoformat(),
         "settled": _r(settled),
-        "sources": {
-            name: _r(s[0]) if s else None for name, s in sorted(series.items())
-        },
+        "sources": sources,
         "consolidated": _r(values[0]) if values else None,
     }
 
