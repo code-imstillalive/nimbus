@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Price sources: a steady premium is not forecast error (#1786).** A source
+  priced on another contract (e.g. a retailer that adds hedging and fees per
+  kWh) sits a steady amount above the provider's settled price. Each source's
+  signed error is now tracked per lead as a bias; its MAE scores what is left
+  after removing it, and once a source has earned a weight it joins the blend
+  with its bias removed, so the blend is no longer pulled up by another
+  contract's fees. The table still shows each source's own price, spikes are
+  still judged on raw prices, and the spread is unchanged. Shadow only while
+  consolidation is off.
+
 ## [0.94.476] - 2026-10-21
 
 **The Now column shows your provider's price.** On the first live plan with

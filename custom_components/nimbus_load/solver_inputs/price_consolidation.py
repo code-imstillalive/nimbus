@@ -22,6 +22,15 @@ Two pieces:
   (source, bucket). `weights(bucket)` is inverse MAE, normalised, over the
   sources with at least `MIN_SAMPLES` settled samples: a source added later
   is scored first and joins the blend once it has earned a weight.
+
+Standing offsets (household, 21 Oct 2026: "amber is always more expensive
+than Lv - 2 c on average cos they have their hedging costs on top of their
+fees"): a source priced on another contract is scored against the
+provider's settled price, so its contract premium is not forecast error.
+The tracker also keeps an EWMA of each source's signed error (its bias) per
+lead bucket; the MAE scores the error left after removing the bias learned
+so far, and a source that has earned a weight joins the blend with its bias
+removed. The table still shows each source's own price.
 """
 
 from __future__ import annotations
@@ -236,6 +245,7 @@ class SourceErrorTracker:
     def __init__(self) -> None:
         self.pending: dict[int, dict[str, dict[str, list[float]]]] = {}
         self.mae: dict[str, dict[str, float]] = {}
+        self.bias: dict[str, dict[str, float]] = {}
         self.samples: dict[str, dict[str, int]] = {}
         self.last_interval: int | None = None
         self.last_settled: float | None = None
@@ -309,11 +319,18 @@ class SourceErrorTracker:
         scored = 0
         for source, buckets in self.pending.get(key, {}).items():
             for bucket, (_lead, forecast) in buckets.items():
-                err = abs(forecast - settled)
+                signed = forecast - settled
+                b = self.bias.setdefault(source, {}).get(bucket)
+                # Scored after removing the offset learned so far, so a
+                # steady contract premium is not counted as forecast error.
+                err = abs(signed - (b or 0.0))
                 n = self.samples.setdefault(source, {}).get(bucket, 0)
                 prev = self.mae.setdefault(source, {}).get(bucket)
                 self.mae[source][bucket] = (
                     err if prev is None else (1 - EWMA_ALPHA) * prev + EWMA_ALPHA * err
+                )
+                self.bias[source][bucket] = (
+                    signed if b is None else (1 - EWMA_ALPHA) * b + EWMA_ALPHA * signed
                 )
                 self.samples[source][bucket] = n + 1
                 scored += 1
@@ -358,6 +375,34 @@ class SourceErrorTracker:
         total = sum(inv.values())
         return {name: v / total for name, v in inv.items()}
 
+    def offset(self, source: str, bucket: str | None) -> float:
+        """The standing offset to remove from `source`'s forecast at this
+        lead: its learned bias once it has MIN_SAMPLES settled samples in
+        the bucket, else 0."""
+        if bucket is None or self.samples.get(source, {}).get(bucket, 0) < MIN_SAMPLES:
+            return 0.0
+        return self.bias.get(source, {}).get(bucket, 0.0)
+
+    def debiased(
+        self,
+        now: datetime,
+        grid_times: Sequence[datetime],
+        series: dict[str, list[float | None]],
+    ) -> dict[str, list[float | None]]:
+        """Each source's series with its standing offset removed, period by
+        period at that period's lead."""
+        buckets = [lead_bucket((gt - now).total_seconds() / 60.0) for gt in grid_times]
+        out: dict[str, list[float | None]] = {}
+        for name, s in series.items():
+            out[name] = [
+                None
+                if v is None
+                else float(v)
+                - self.offset(name, buckets[i] if i < len(buckets) else None)
+                for i, v in enumerate(s)
+            ]
+        return out
+
     def weights_by_period(
         self,
         now: datetime,
@@ -382,6 +427,7 @@ class SourceErrorTracker:
                 for k, v in self.pending.items()
             },
             "mae": {s: dict(b) for s, b in self.mae.items()},
+            "bias": {s: dict(b) for s, b in self.bias.items()},
             "samples": {s: dict(b) for s, b in self.samples.items()},
             "last_interval": self.last_interval,
             "last_settled": self.last_settled,
@@ -403,6 +449,10 @@ class SourceErrorTracker:
                 str(s): {str(b): float(x) for b, x in bs.items()}
                 for s, bs in (data.get("mae") or {}).items()
             }
+            t.bias = {
+                str(s): {str(b): float(x) for b, x in bs.items()}
+                for s, bs in (data.get("bias") or {}).items()
+            }
             t.samples = {
                 str(s): {str(b): int(x) for b, x in bs.items()}
                 for s, bs in (data.get("samples") or {}).items()
@@ -422,6 +472,10 @@ class SourceErrorTracker:
         return {
             "mae_by_source_and_lead": {
                 s: {b: round(v, 5) for b, v in self.mae[s].items()} for s in sources
+            },
+            "bias_by_source_and_lead": {
+                s: {b: round(v, 5) for b, v in self.bias.get(s, {}).items()}
+                for s in sources
             },
             "samples": {s: dict(self.samples.get(s, {})) for s in sources},
             "weights": {
@@ -446,9 +500,20 @@ def consolidate_side(
     the future intervals (never the current settled block), and summarise.
     Returns `(values, published summary, whether anything was scored)`."""
     names = sorted(series)
-    values, spread, method = consolidate(
-        series, tracker.weights_by_period(now, grid_times, names), spike_threshold
+    # Blend with each source's standing offset removed; spikes are still
+    # judged on the sources' own prices.
+    values, _, method = consolidate(
+        tracker.debiased(now, grid_times, series),
+        tracker.weights_by_period(now, grid_times, names),
+        None,
     )
+    # How far apart the sources' own prices are, offsets and all.
+    _, spread, _ = consolidate(series)
+    if spike_threshold is not None and spike_threshold > 0:
+        for i in range(len(values)):
+            top = max(_available(series, i).values(), default=None)
+            if top is not None and top >= spike_threshold:
+                values[i] = top
     scored = tracker.observe_settled(now, settled)
     for name, s in series.items():
         tracker.record_series(

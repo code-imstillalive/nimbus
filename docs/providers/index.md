@@ -55,7 +55,12 @@ How they are combined: in each period, an error-weighted mean of the
 sources that have enough settled history (50 intervals at that lead), or
 the median of all of them while none has. A source added later is scored
 first and counts only once it has earned a weight, so a new source can't
-move the blend before its accuracy is known. **A spike is never
+move the blend before its accuracy is known. **A steady premium is not error.** A
+source on another contract (a retailer that adds hedging and fees per kWh,
+say) sits a steady amount above your provider. Nimbus learns each source's
+average offset from settled prices, per side and lead, scores the source on
+what is left, and blends it with the offset removed. The table still shows
+each source's own price. **A spike is never
 averaged away.** In any period where a source forecasts at or above your
 *Price Spike Threshold*, the highest source is used. In a dry run, a median
 that dropped a real spike only one source saw would have cost about $250

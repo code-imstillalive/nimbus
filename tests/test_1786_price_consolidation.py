@@ -152,8 +152,81 @@ def test_settle_updates_ewma_mae_and_prunes():
     t2 = t + timedelta(minutes=5)
     tr.record("a", t2 - timedelta(minutes=2), t2, 1.0)
     tr.settle(pc.interval_key(t2), 1.0)
-    assert tr.mae["a"]["0-5 min"] == pytest.approx(0.95 * 0.5)
+    # Scored after removing the -0.5 offset learned from the first sample:
+    # |0 - (-0.5)| = 0.5, so the MAE stays 0.5; the bias moves towards 0.
+    assert tr.mae["a"]["0-5 min"] == pytest.approx(0.5)
+    assert tr.bias["a"]["0-5 min"] == pytest.approx(0.95 * -0.5)
     assert tr.samples["a"]["0-5 min"] == 2
+
+
+# -- standing offsets (household, 21 Oct 2026: Amber runs ~2c above LV) --------
+
+
+def _train(tr, source_values, settled, n, bucket_lead_min=2):
+    """n settled intervals, each source forecasting its fixed value."""
+    t = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
+    for k in range(n):
+        ti = t + timedelta(minutes=5 * k)
+        for name, v in source_values.items():
+            tr.record(name, ti - timedelta(minutes=bucket_lead_min), ti, v)
+        tr.settle(pc.interval_key(ti), settled)
+
+
+def test_a_steady_premium_is_learned_as_bias_not_error():
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"primary": 0.14, "amber": 0.16}, 0.14, pc.MIN_SAMPLES)
+    assert tr.bias["amber"]["0-5 min"] == pytest.approx(0.02)
+    # Only the first sample, before any offset was known, counts as error,
+    # and it decays; scored raw, the MAE would stay at the 2c premium.
+    assert tr.mae["amber"]["0-5 min"] == pytest.approx(
+        0.02 * (1 - pc.EWMA_ALPHA) ** (pc.MIN_SAMPLES - 1)
+    )
+    assert tr.offset("amber", "0-5 min") == pytest.approx(0.02)
+    assert tr.offset("amber", "1-4 h") == 0.0
+
+
+def test_no_offset_before_min_samples():
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"amber": 0.16}, 0.14, pc.MIN_SAMPLES - 1)
+    assert tr.offset("amber", "0-5 min") == 0.0
+
+
+def test_blend_is_not_pulled_up_by_a_steady_premium_and_spread_stays_raw():
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"primary": 0.14, "amber": 0.16}, 0.14, 200)
+    now = datetime(2026, 10, 17, 3, 0, 30, tzinfo=UTC)
+    grid = [now + timedelta(minutes=2)]
+    values, summary, _ = pc.consolidate_side(
+        tr, {"primary": [0.15], "amber": [0.17]}, now, grid, [1 / 12], 0, None
+    )
+    assert values[0] == pytest.approx(0.15, abs=1e-4)
+    assert summary["spread_now"] == pytest.approx(0.02)
+    assert summary["bias_by_source_and_lead"]["amber"]["0-5 min"] == pytest.approx(
+        0.02, abs=1e-4
+    )
+    # The table still shows each source's own price.
+    assert summary["next"]["sources"]["amber"] == [0.17]
+
+
+def test_spike_is_judged_on_the_sources_own_price():
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"primary": 0.14, "amber": 0.16}, 0.14, 200)
+    now = datetime(2026, 10, 17, 3, 0, 30, tzinfo=UTC)
+    grid = [now + timedelta(minutes=2)]
+    values, _, _ = pc.consolidate_side(
+        tr, {"primary": [0.30], "amber": [1.01]}, now, grid, [1 / 12], 0, None, 1.0
+    )
+    assert values[0] == pytest.approx(1.01)
+
+
+def test_bias_survives_persistence_and_old_state_loads():
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"amber": 0.16}, 0.14, 3)
+    back = pc.SourceErrorTracker.from_dict(tr.to_dict())
+    assert back.bias == tr.bias
+    old = tr.to_dict()
+    del old["bias"]
+    assert pc.SourceErrorTracker.from_dict(old).bias == {}
 
 
 def test_observe_settled_scores_the_previous_interval_once():
