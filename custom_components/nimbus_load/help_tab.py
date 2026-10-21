@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.478",
+        "21 Oct 2026",
+        (
+            (
+                "**P2P export bonus:** claimed in one block at the end of the "
+                "window again, without dropping out and back in."
+            ),
+        ),
+    ),
+    (
         "0.94.477",
         "21 Oct 2026",
         (

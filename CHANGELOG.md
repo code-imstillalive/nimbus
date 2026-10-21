@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.478] - 2026-10-21
+
+**The P2P export bonus is claimed in one block again.**
+
 - **The export bonus is claimed in one block again**
   ([#1964](https://github.com/code-imstillalive/nimbus/issues/1964)). With a
   flat bonus price and a cap that leaves one period partly claimed, the bonus
@@ -31,6 +35,32 @@ fees no longer pull the blend up or count as forecast error.
   contract's fees. The table still shows each source's own price, spikes are
   still judged on raw prices, and the spread is unchanged. Shadow only while
   consolidation is off.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 21639d03**
+  (`release/0.94.477`), installed via HACS and restarted at 14:46; devhub's
+  own Nimbus sensors published 0.94.477 by 14:50. The log after the restart
+  showed only devhub's known baseline (mirror duplicate-unique-ID notices,
+  recorder attribute-size warnings, rename collisions); no price
+  consolidation errors. devhub's own plan entity is unavailable (its known
+  limitation), so the bias summary is checked on production's first plans.
+
+- **Price sources: a steady premium is not forecast error (#1786).** A source
+  priced on another contract (e.g. a retailer that adds hedging and fees per
+  kWh) sits a steady amount above the provider's settled price. Each source's
+  signed error is now tracked per lead as a bias; its MAE scores what is left
+  after removing it, and once a source has earned a weight it joins the blend
+  with its bias removed, so the blend is no longer pulled up by another
+  contract's fees. The table still shows each source's own price, spikes are
+  still judged on raw prices, and the spread is unchanged. Shadow only while
+  consolidation is off.
+
+- Consumer check: on the Solver tab's Price sources table, each source's own
+  price is unchanged (Amber still shows its own, higher price); once a source
+  has 50 settled samples at a lead, the Blend and Gap no longer carry its
+  steady premium. The plan's `price_consolidation` attribute gains
+  `bias_by_source_and_lead`; on production's first plan (15:01 AEST, few
+  samples yet) the second extra source (Amber) read 3.0c above the provider
+  at 0-5 min.
 
 ## [0.94.476] - 2026-10-21
 
