@@ -1835,3 +1835,69 @@ def test_a_plan_needs_named_batteries_each_once(names, says):
             batteries=[_pack(n, 0.95) for n in names],
             solar=SolarConfig(forecast_kw=np.zeros(2)),
         )
+
+
+# --- #563 items 2-3, #779: availability, the away prefix, the shared charger ------
+
+
+@SETTINGS
+@given(st.booleans(), st.one_of(st.none(), st.integers(0, 20)))
+def test_the_away_prefix_is_read_only_while_the_battery_is_away(available, until):
+    """#563 item 2 and #779 (Mark Purcell): `available=False` gates the whole
+    plan, or only the periods before `unavailable_until_period_index` when
+    one is set (the car back within the hour), an index past the plan
+    gating every period without failing. The index means nothing while the
+    battery is available: it then trades as if no index were set."""
+    n = _SWING_N
+    plan = _swing_plan(_car(available=available, unavailable_until_period_index=until))
+    assert plan.status == "optimal"
+    (ev,) = plan.batteries
+    if available:
+        free = _swing_plan(_car())
+        np.testing.assert_allclose(ev.charge_kw, free.batteries[0].charge_kw, atol=1e-6)
+        np.testing.assert_allclose(
+            ev.discharge_kw, free.batteries[0].discharge_kw, atol=1e-6
+        )
+        return
+    gated = range(n) if until is None else range(min(until, n))
+    for t in gated:
+        assert ev.charge_kw[t] == 0.0 and ev.discharge_kw[t] == 0.0, t
+    if until is not None and until < n // 2:
+        assert _moves(ev, range(until, n)) > 1.0
+
+
+def test_a_departure_past_the_plan_changes_nothing():
+    """#563 item 3: a departure deadline beyond this solve's horizon is not
+    this solve's to meet, so the plan is the plan without it."""
+    base = _swing_plan(_car())
+    later = _swing_plan(
+        _car(must_have_soc_by_period_index=_SWING_N + 5, must_have_soc_kwh=39.0)
+    )
+    np.testing.assert_allclose(
+        later.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-6
+    )
+    assert later.total_cost == pytest.approx(base.total_cost, abs=1e-6)
+
+
+@SETTINGS
+@given(_num(2.0, 8.0))
+def test_a_shared_charger_caps_its_group_and_no_one_else(cap):
+    """#563 item 3: two batteries on one charger move no more than its
+    limit together, while a third battery outside the group, wanting the
+    same cheap energy, charges at its own full rate."""
+    group = {"shared_charger_group": "garage", "shared_charger_max_kw": cap}
+    plan = _swing_plan(
+        _car("a", initial_soc_kwh=5.0, **group),
+        _car("b", initial_soc_kwh=5.0, **group),
+        _car("home", initial_soc_kwh=5.0),
+    )
+    assert plan.status == "optimal"
+    by = {b.name: b for b in plan.batteries}
+    together = (
+        by["a"].charge_kw
+        + by["a"].discharge_kw
+        + by["b"].charge_kw
+        + by["b"].discharge_kw
+    )
+    assert (together <= cap + 1e-6).all()
+    assert float(by["home"].charge_kw.max()) == pytest.approx(10.0, abs=1e-6)
