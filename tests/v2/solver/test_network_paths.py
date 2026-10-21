@@ -23,6 +23,7 @@ from solver.elements import (
     LoadConfig,
     PeriodGrid,
     SharedCircuitConfig,
+    SheddableLoadConfig,
     SolarConfig,
     ThermalLoadConfig,
 )
@@ -688,3 +689,129 @@ def test_a_short_outdoor_forecast_holds_its_last_value():
         full.thermal_loads[0].temperature_c,
         atol=1e-6,
     )
+
+
+# --- #492: per-load intent bands -----------------------------------------------
+
+
+def _signal_plan(import_price, *, sheddable=None, adequacy=None, signals=True):
+    n = len(import_price)
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(import_price, dtype=float),
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        sheddable_loads=sheddable,
+        adequacy_loads=adequacy,
+        adequacy_semi_continuous=False,
+        compute_signals=signals,
+    )
+
+
+@SETTINGS
+@given(
+    _num(0.1, 0.4),
+    st.lists(st.sampled_from([-0.1, 0.0, 0.1]), min_size=2, max_size=6),
+    _num(0.5, 4.0),
+    st.sampled_from([0.0, 0.25, 0.5]),
+)
+def test_a_sheddable_load_signal_is_the_served_side_of_its_shed(shed, steps, kw, floor):
+    """#492 (Signals 3/7 of #489). A sheddable load's signal is about the
+    device's DRAW, so the shed variable's ranging is mirrored: its reduced
+    cost per kWh is the import price less the shed cost (positive where
+    serving one more kWh costs the plan money, the opposite sign of the
+    raw shed variable's). A price that ties the shed cost is UNLIMIT from
+    the served floor up to the forecast (#492's first worked example; a
+    floor above 0 is what shows the band itself is mirrored); anywhere else
+    it is SET at the scheduled draw, both band edges on it, the floor where
+    shedding wins (the second worked example) and the forecast where
+    serving does."""
+    price = [shed + d for d in steps]
+    n = len(price)
+    plan = _signal_plan(
+        price,
+        sheddable=[
+            SheddableLoadConfig(
+                name="pool",
+                forecast_kw=np.full(n, kw),
+                shed_cost=shed,
+                min_fraction=floor,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (sig,) = plan.load_signals
+    served = plan.sheddable_loads[0].served_kw
+    assert sig.name == "pool"
+    np.testing.assert_allclose(sig.reduced_cost_per_kwh, np.asarray(steps), atol=1e-6)
+    for t, d in enumerate(steps):
+        assert sig.band_min_kw[t] - 1e-4 <= served[t] <= sig.band_max_kw[t] + 1e-4
+        if d == 0.0:
+            assert sig.intent[t] == "UNLIMIT"
+            assert sig.band_min_kw[t] == pytest.approx(floor * kw, abs=1e-4)
+            assert sig.band_max_kw[t] == pytest.approx(kw, abs=1e-4)
+        else:
+            assert sig.intent[t] == "SET"
+            want = floor * kw if d > 0 else kw
+            assert served[t] == pytest.approx(want, abs=1e-6)
+            assert (sig.band_min_kw[t], sig.band_max_kw[t]) == (
+                pytest.approx(want, abs=1e-6),
+                pytest.approx(want, abs=1e-6),
+            )
+
+
+@SETTINGS
+@given(st.integers(2, 8), st.data())
+def test_an_adequacy_load_signal_holds_its_draw_and_flags_shut_periods(n, data):
+    """#492: an adequacy load's own variable is the draw, read directly. On
+    every period the scheduled draw lies inside the band, and a period
+    outside the load's window (ceiling 0) has a zero band, never a
+    confident non-zero one (its `degenerate` flag is #1981's test). The
+    sheddable signals come first, then the adequacy ones, by name."""
+    first = data.draw(st.integers(0, n - 1))
+    last = data.draw(st.integers(first, n - 1))
+    target = data.draw(_num(0.5, 3.0 * (last - first + 1)))
+    price = data.draw(st.lists(_num(0.05, 0.5), min_size=n, max_size=n))
+    plan = _signal_plan(
+        price,
+        sheddable=[
+            SheddableLoadConfig(name="pool", forecast_kw=np.ones(n), shed_cost=0.3)
+        ],
+        adequacy=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=3.0,
+                target_kwh=target,
+                deadline_period=last,
+                earliest_period=first,
+                shortfall_price=5.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    assert [s.name for s in plan.load_signals] == ["pool", "hws"]
+    sig = plan.load_signals[1]
+    power = plan.adequacy_loads[0].power_kw
+    for t in range(n):
+        assert sig.intent[t] in ("UNLIMIT", "SET")
+        assert sig.band_min_kw[t] - 1e-4 <= power[t] <= sig.band_max_kw[t] + 1e-4
+        if not first <= t <= last:
+            assert sig.band_min_kw[t] == sig.band_max_kw[t] == pytest.approx(0.0)
+
+
+def test_load_signals_are_opt_in():
+    """#492: without `compute_signals` the plan carries no load signals."""
+    plan = _signal_plan(
+        [0.2, 0.2],
+        sheddable=[
+            SheddableLoadConfig(name="pool", forecast_kw=np.ones(2), shed_cost=0.2)
+        ],
+        signals=False,
+    )
+    assert plan.status == "optimal" and plan.load_signals == []

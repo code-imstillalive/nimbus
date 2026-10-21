@@ -66,6 +66,12 @@ the old file was written for and show both sets fail.
 
 ## Found while checking
 
+- **#1981:** a shut period's `LoadSignals.degenerate` followed HiGHS's
+  unclamped ranging, so a sheddable load in the same solve turned it off on
+  a `[0, 0]` band (published for period 0). The old file's check held only
+  with the adequacy load alone. Fix and test in #1982. Separately, neither
+  the old file nor a floor-free v2 draw caught the sheddable band left
+  unmirrored: [0, forecast] mirrors onto itself; a `min_fraction` floor shows it.
 - **#478's adequacy anchor was untested.** `test_solver_adequacy_cross_solve_continuity.py`
   passes with the per-load anchor removed and with it matched by position:
   the grid import/export continuity reproduces the block on its own. The v2
@@ -109,8 +115,9 @@ the old file was written for and show both sets fail.
 | `test_solver_shared_circuit.py` | #477 (HWS L1/L3) | the LP: `test_network_paths::test_a_shared_circuit_never_carries_more_than_its_cap` (2-3 members, 1-4 periods: never over the cap, every target met where they can be sequenced, otherwise optimal with the shortfall what the cap cannot fit; the collision premise without it), `::test_one_shared_period_too_small_for_both_is_a_shortfall`, `::test_a_circuit_naming_an_unknown_load_is_refused_by_name` (and None equals []). **Stays** for `elements.py`'s cutover: `TestSharedCircuitConfigValidation` | planted the cap not applied, and the cap doubled: old and new fail |
 | `test_481_ambient_scaled_thermal_decay.py` | #481 (ambient-scaled decay) | the LP: `test_network_paths::test_a_colder_day_or_a_leakier_tank_never_needs_less_heat` (target met exactly, guarantee unrelaxed; colder or leakier never needs less, strictly more once 1 C colder), `::test_the_ambient_gap_is_clamped_and_the_coast_line_errs_low`, `::test_a_short_outdoor_forecast_holds_its_last_value`; the flat fallback is the existing `::test_a_loss_coefficient_without_weather_is_the_flat_model`. The old no-pair-equals-flat test compares the flat model with itself. **Stays** for `elements.py`'s cutover: the `ThermalLoadConfig` pair validation | planted ambient ignored, gap unclamped, no hold, coast line not stepped: old and new fail |
 | `test_solver_network_solve_options_stage2.py` | #696 Stage 2, #702 | `test_solver_contracts::test_smoothness_never_smears_a_real_price_step` and `::test_smoothness_flattens_a_degenerate_battery_charge_for_free` now also draw the calibrated solve (production's path); `::test_a_calibrated_adequacy_solve_dispatches_as_the_plain_one` (run-once MIP and continuous LP, 1-3 runs over 4-10 periods: never raises, same periods as the plain solve, the earliest ones, cost no higher) | planted secondary smoothing dropped, secondary smoothing leaked into the primary, secondary adequacy earliness dropped: old and new fail |
+| `test_solver_network_load_signals.py` | #492 (Signals 3/7 of #489) | `test_network_paths::test_a_sheddable_load_signal_is_the_served_side_of_its_shed` (prices tied, above and below the shed cost, floors 0-0.5: reduced cost is price less shed cost, UNLIMIT floor-to-forecast on a tie, SET on the scheduled draw otherwise; both worked examples), `::test_an_adequacy_load_signal_holds_its_draw_and_flags_shut_periods` (draw inside the band every period, shut periods a zero band, sheddable then adequacy), `::test_load_signals_are_opt_in`. The shut-period `degenerate` check is #1982's `::test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve` (on main once merged) | planted mirror sign, served value and band unmirrored, classification by band width, SET reporting the structural range, sheddable signals dropped: old and new fail, except the band unmirrored, which only the new catches |
 
 ## Still to check
 
-The other 18 files, smallest first. Nothing is deleted until every row is
+The other 17 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
