@@ -15,6 +15,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 - The failing-model dump (#773) marks a phase dumped only once the write
   succeeds, so a transient failure never blocks the next capture (#1074,
   found in the IV&V pass since #1058).
+  Each phase gets one capture, named for its issue, in the configured
+  folder; a label cannot escape that folder or grow the filename past
+  reason; nothing the write can throw reaches the solve; and only an
+  alarming call (#945's tier), not a merely slow one, is captured.
 - The "Solar forecast risk" dial (`risk_aversion`) leans solar toward its
   lower band and leaves house load on its point forecast (household, 12 Oct
   2026): a wide load band once had the plan budget load that never came.
@@ -75,7 +79,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import highspy
 import numpy as np
@@ -1032,3 +1036,59 @@ def test_smoothness_flattens_a_degenerate_battery_charge_for_free(headroom, net_
     assert off.status == on.status == "optimal"
     assert _jag(on.battery_discharge_kw - on.battery_charge_kw) < 1.0
     assert abs(on.total_cost - off.total_cost) < 1e-2
+
+
+@given(
+    st.lists(st.text(min_size=1, max_size=300), min_size=1, max_size=4, unique=True),
+    st.sampled_from(["773", "1179"]),
+)
+def test_each_phase_is_captured_once_safely_in_the_configured_folder(labels, issue):
+    import os
+    import tempfile
+
+    target = tempfile.mkdtemp()
+    old = os.environ.get(lp._LP_DUMP_DIR_ENV)
+    os.environ[lp._LP_DUMP_DIR_ENV] = target
+    lp._LP_DUMPED_PHASES.clear()
+    try:
+        written: list[str] = []
+        for label in labels:
+            h = _Highs()
+            path = lp._dump_failing_model(h, label, issue=issue)
+            assert path is not None
+            written.append(path)
+            assert h.written == [path]
+            base = os.path.basename(path)
+            assert os.path.dirname(path) == target
+            assert os.sep not in base and "/" not in base
+            assert base.startswith(f"nimbus_{issue}_") and base.endswith(".mps")
+            assert len(base) < 120
+            # Once per phase.
+            assert lp._dump_failing_model(_Highs(), label, issue=issue) is None
+        assert len(written) == len(labels)
+    finally:
+        lp._LP_DUMPED_PHASES.clear()
+        if old is None:
+            os.environ.pop(lp._LP_DUMP_DIR_ENV, None)
+        else:
+            os.environ[lp._LP_DUMP_DIR_ENV] = old
+
+
+@given(st.sampled_from([OSError("ro"), RuntimeError("x"), ValueError("y"), None]))
+def test_nothing_the_dump_throws_reaches_the_solve(error):
+    lp._LP_DUMPED_PHASES.clear()
+    try:
+        h = MagicMock(spec=[]) if error is None else _Highs(error)
+        assert lp._dump_failing_model(h, "phase") is None
+    finally:
+        lp._LP_DUMPED_PHASES.clear()
+
+
+def test_only_an_alarming_call_is_captured():
+    """Captured at the alarming threshold, below the per-call limit (so a
+    call that hits the limit is captured) and above merely slow."""
+    assert (
+        lp._SLOW_LP_CALL_SECONDS
+        < lp._ALARMING_LP_CALL_SECONDS
+        < lp.DEFAULT_TIME_LIMIT_SECONDS
+    )

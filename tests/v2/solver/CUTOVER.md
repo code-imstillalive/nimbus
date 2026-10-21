@@ -60,8 +60,9 @@ the old file was written for and show both sets fail.
 | `test_solver_network_tier0_alignment.py` | #635, #633 | `test_solver_contracts::test_period_0_holds_what_was_dispatched` (periods inside an old period follow it) | planted #635's bug (alignment by exact start only): old and new fail |
 | `test_solver_adequacy_intraplan_smoothness.py` | #725 | `test_solver_contracts::test_smoothness_flattens_a_degenerate_adequacy_load_for_free` (continuous: flat at no extra cost; semi-continuous: hard 0-or-max) | planted smoothing off everywhere: old and new fail. Planted smoothing removed from the adequacy family only (#725's own fix): **neither set fails** — something else now keeps that load flat in these fixtures |
 | `test_solver_intraplan_smoothness.py` | household 20 Aug 2026 | `test_solver_contracts::test_smoothness_flattens_a_degenerate_battery_charge_for_free`, `::test_smoothness_never_smears_a_real_price_step` | planted smoothing off everywhere: old fails, the new burst property fails (the step property compares on with off, so it cannot see it, by design) |
+| `test_lp_failing_model_dump.py` | #773, #945, #1179 | `test_solver_contracts::test_each_phase_is_captured_once_safely_in_the_configured_folder`, `::test_nothing_the_dump_throws_reaches_the_solve`, `::test_only_an_alarming_call_is_captured`, `::test_a_failed_dump_never_blocks_the_next_one` | planted the label unsanitised: old and new fail; planted only `OSError` caught: old and new fail |
 
 ## Still to check
 
-The other 46 files, smallest first. Nothing is deleted until every row is
+The other 45 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
