@@ -42,8 +42,9 @@ the old file was written for and show both sets fail.
 | `test_solver_lp_sweep_cost.py` | #494, #489 | `test_solver_contracts::test_the_cost_sweep_re_solves_each_cost_and_puts_it_back`, `::test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable` | planted no restore after a sweep: old and new fail (the new one only once its export check came straight after a sweep ending on the other side of the export price; it missed it first); planted no `keep_basis` check: old and new fail |
 | `test_solver_lp_lex_tie_slack.py` | #773 | `test_solver_contracts::test_the_lex_tie_slack_is_the_solver_tolerance_never_a_price`; behaviour: `test_lp_paths::test_the_lexicographic_solve_reaches_the_true_lexicographic_optimum` | planted the slack at 1e-3 (a price): old fails, the new contract and four v2 behaviour tests fail; planted it at 0 (cuts off its own optimum): old and the new contract fail, no behaviour test can (float drift of that size needs a production-sized model) |
 | `test_solver_lp_status_and_time_limit.py` | #356 | `test_solver_contracts::test_an_unfinished_solve_is_an_error_never_infeasible`, `::test_a_proved_outcome_keeps_its_own_name`, `::test_every_solve_carries_the_time_limit` | planted every unfinished status reported as `infeasible`: old fails, the new status test fails; planted no time limit: old and the new time-limit test fail |
+| `test_solver_lp_sweep_cost_ranging.py` | #676 | `test_solver_contracts::test_the_ranging_sweep_reports_each_steps_exact_interval`, `::test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable`; `test_lp_properties::test_every_ranging_sweep_step_holds_inside_its_own_interval` | planted up reading the down interval, no restore, and out-var reading in-var: old and new fail on each. The new property's basis-change names differ from the old example's (solar at or below demand there is export in, import out), measured, not assumed |
 
 ## Still to check
 
-The other 61 files, smallest first. Nothing is deleted until every row is
+The other 60 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

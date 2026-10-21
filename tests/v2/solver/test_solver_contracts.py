@@ -22,7 +22,9 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   period length (#338): the soft-SoC penalty is per kWh, not per period.
 - The offer curve's cost sweep (#494, Signals 5/7 of #489) re-solves at
   each cost with only that one coefficient changed, puts the coefficient
-  back afterwards, and refuses without a kept basis or a known variable.
+  back afterwards, and refuses without a kept basis or a known variable;
+  its ranging form (#676) reports the same values and, at each step, the
+  exact cost interval that step holds over.
 - The lexicographic tie bound's slack (#773) is the solver's own
   feasibility tolerance made explicit: never below it (the bound would cut
   off the very optimum it came from, as `phase2_secondary` once did live),
@@ -446,3 +448,55 @@ def test_every_solve_carries_the_time_limit():
     with patch.object(highspy.Highs, "setOptionValue", spy):
         _bounded_lp().solve()
     assert ("time_limit", lp.DEFAULT_TIME_LIMIT_SECONDS) in seen
+
+
+@SETTINGS
+@given(
+    _num(0.0, 0.3),
+    _num(1.0, 5.0),
+    _num(0.0, 1.0),
+    _num(0.0, 2.0),
+    st.lists(_num(-1.0, 2.0), min_size=1, max_size=8),
+)
+def test_the_ranging_sweep_reports_each_steps_exact_interval(
+    earn, demand, solar_share, price, costs
+):
+    """Below `earn` import sits at 100 kW for every cost down to minus
+    infinity and up to `earn`; above it, at the shortfall from `earn` up to
+    plus infinity. The values are the plain sweep's, and the coefficient is
+    put back afterwards."""
+    costs = [c for c in costs if abs(c - earn) > 1e-3]
+    if abs(price - earn) <= 1e-3 or not costs:
+        return
+    solar = demand * solar_share
+    p = _arbitrage(price, earn, demand, solar)
+    result = p.solve(keep_basis=True)
+    base_exp = p.value_of(result, "exp")
+    costs = [*costs, -1.0 if price >= earn else 2.0]
+    steps = result.sweep_cost_with_ranging("imp", costs)
+    assert result.sweep_cost("exp", [-earn]) == pytest.approx([base_exp])
+    plain = p.solve(keep_basis=True).sweep_cost("imp", costs)
+    for cost, step, value in zip(costs, steps, plain, strict=True):
+        assert step.value == pytest.approx(value, abs=1e-6)
+        if cost < earn:
+            assert step.value == pytest.approx(100.0)
+            assert step.cost_dn.value == -np.inf
+            assert step.cost_up.value == pytest.approx(earn, abs=1e-6)
+        else:
+            assert step.value == pytest.approx(demand - solar, abs=1e-6)
+            assert step.cost_dn.value == pytest.approx(earn, abs=1e-6)
+            assert step.cost_up.value == np.inf
+            # Nothing bounds the interval above. Below `earn`, with import
+            # basic at a real shortfall, export enters the basis and import
+            # leaves it for its 100 kW bound.
+            assert (step.cost_up.in_var, step.cost_up.out_var) == (None, None)
+            if demand - solar > 1e-6:
+                assert (step.cost_dn.in_var, step.cost_dn.out_var) == ("exp", "imp")
+
+
+def test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable():
+    p = _arbitrage(0.3, 0.05, 2.0, 6.0)
+    with pytest.raises(ValueError, match="keep_basis"):
+        p.solve().sweep_cost_with_ranging("imp", [0.3])
+    with pytest.raises(KeyError):
+        p.solve(keep_basis=True).sweep_cost_with_ranging("nope", [0.3])
