@@ -2206,3 +2206,73 @@ def test_the_shed_cost_decides_what_is_shed_beyond_the_limit(
     assert plan.status == "optimal"
     want = forecast if shed_cost < price else forecast - 1.0
     np.testing.assert_allclose(plan.sheddable_loads[0].shed_kw, want, atol=1e-5)
+
+
+# --- #467 item 4: a trip deadline is bought in the cheapest hours before it -----
+
+
+def _trip_plan(prices, deadline, target):
+    n = len(prices)
+    ev = BatteryConfig(
+        name="ev",
+        capacity_kwh=60.0,
+        initial_soc_kwh=10.0,
+        min_soc_kwh=6.0,
+        max_soc_kwh=60.0,
+        max_charge_kw=7.0,
+        max_discharge_kw=0.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.01,
+        discharge_cost=0.0,
+        salvage_value=0.0,
+        must_have_soc_by_period_index=None if target is None else deadline,
+        must_have_soc_kwh=target,
+    )
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(prices, dtype=float),
+            export_price=np.full(n, 0.03),
+            import_limit_kw=15.0,
+            export_limit_kw=15.0,
+        ),
+        batteries=[ev],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="load", forecast_kw=np.full(n, 0.5))],
+    )
+
+
+@SETTINGS
+@given(
+    st.lists(st.sampled_from([0.05, 0.12, 0.30, 0.45]), min_size=4, max_size=16),
+    st.data(),
+)
+def test_a_trip_deadline_is_bought_in_the_cheapest_hours_before_it(prices, data):
+    """#467 item 4 (Mark Purcell named HAEO's `scenario7_ev`: cheap-window
+    pre-charge, trip delivered by the deadline). HAEO's #361 shipped a
+    calendar schema nothing was wired to; here the deadline the calendar
+    resolves to is what makes the car charge. It holds the target at the
+    deadline, buys the energy at the least it can cost (the cheapest hours
+    up to and including the deadline, filled at the charger's 7 kW), and
+    charges nothing after. Without the deadline it charges nothing at all,
+    so it is the deadline doing it, not the price curve."""
+    n = len(prices)
+    deadline = data.draw(st.integers(0, n - 1))
+    reach = 10.0 + 7.0 * 0.95 * (deadline + 1)
+    target = data.draw(_num(10.5, min(60.0, reach)))
+    plan = _trip_plan(prices, deadline, target)
+    assert plan.status == "optimal"
+    (ev,) = plan.batteries
+    assert float(ev.soc_kwh[deadline]) >= target - 1e-5
+    np.testing.assert_allclose(ev.charge_kw[deadline + 1 :], 0.0, atol=1e-6)
+    need = (target - 10.0) / 0.95
+    least = 0.0
+    for price in sorted(prices[: deadline + 1]):
+        take = min(7.0, need)
+        least += price * take
+        need -= take
+    paid = float(np.sum(np.asarray(prices) * ev.charge_kw))
+    assert paid == pytest.approx(least, abs=1e-5)
+    idle = _trip_plan(prices, deadline, None)
+    np.testing.assert_allclose(idle.batteries[0].charge_kw, 0.0, atol=1e-6)
