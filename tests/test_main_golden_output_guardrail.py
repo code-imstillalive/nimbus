@@ -144,6 +144,7 @@ _EXPECTED_ATTRS = {
             "method": "median",
             "spread_now": 0.0,
             "mae_by_source_and_lead": {},
+            "bias_by_source_and_lead": {},
             "samples": {},
             "weights": {
                 "0-5 min": None,
@@ -157,6 +158,7 @@ _EXPECTED_ATTRS = {
             "method": "median",
             "spread_now": 0.0,
             "mae_by_source_and_lead": {},
+            "bias_by_source_and_lead": {},
             "samples": {},
             "weights": {
                 "0-5 min": None,
