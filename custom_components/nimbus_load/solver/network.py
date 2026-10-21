@@ -270,8 +270,10 @@ are completely unaffected regardless of `risk_aversion`'s value.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any, Protocol
@@ -1584,6 +1586,16 @@ _OFFER_CURVE_NUDGE_REL: float = 1e-6
 # (0.01c/kWh) as two economically distinct decision points.
 _OFFER_CURVE_BACKSTOP_MIN_GAP: float = 1e-4
 
+# nimbus issue #1990: the plateau-end check. Two values within this many kW
+# are the same plateau; a moved plateau end is found to within this share
+# of the price ($/kWh, relative above $1), in at most this many solves.
+_OFFER_CURVE_VALUE_TOL: float = 1e-5
+_OFFER_CURVE_BISECT_TOL: float = 1e-4
+_OFFER_CURVE_BISECT_STEPS: int = 16
+# nimbus issue #1990: warm re-solves one offer-curve point may spend making
+# its plan one-way before falling back to one exact MIP.
+_OFFER_CURVE_ONE_WAY_NODES: int = 32
+
 
 def _offer_curve_ranging_walk(
     result: LPResult,
@@ -1594,6 +1606,8 @@ def _offer_curve_ranging_walk(
     retail: float,
     hours0: float,
     negated: bool,
+    cost_map: Callable[[float], dict[str, float]] | None = None,
+    point_value: Callable[[float, SweepRangingStep], float] | None = None,
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float] | None]]:
     """Nimbus issue #678: walks this variable's own real piecewise-
     constant breakpoints directly via repeated `LPResult.sweep_cost_
@@ -1698,14 +1712,50 @@ def _offer_curve_ranging_walk(
     values: list[float] = []
     intervals: list[tuple[float, float] | None] = []
 
+    def step_at(price: float) -> tuple[SweepRangingStep, float]:
+        """The re-solved step at `price`, and `var`'s value there as a real
+        plan would publish it."""
+        if cost_map is not None:
+            # nimbus issue #1990: every cost a real plan at this price would
+            # carry, not only `var`'s own.
+            (step,) = result.sweep_costs_with_ranging(
+                var, [cost_map(price)], with_solution=point_value is not None
+            )
+        else:
+            cost = price * hours0 if not negated else -price * hours0
+            (step,) = result.sweep_cost_with_ranging(var, [cost])
+        value = point_value(price, step) if point_value is not None else step.value
+        return step, value
+
     def solve_at(price: float) -> tuple[float, float] | None:
-        cost = price * hours0 if not negated else -price * hours0
-        (step,) = result.sweep_cost_with_ranging(var, [cost])
+        step, value = step_at(price)
         interval = _offer_curve_price_interval(step, hours0, negated=negated)
         prices.append(price)
-        values.append(step.value)
+        values.append(value)
         intervals.append(interval)
         return interval
+
+    def plateau_end(price: float, bound: float, here: float) -> tuple[float, float]:
+        """nimbus issue #1990: `var`'s own cost ranging says where its
+        plateau ends with every OTHER cost held; with the coupled costs
+        moving too it can end sooner. Probe just inside the claimed end and,
+        if the value has already moved, bisect for the real breakpoint.
+        Returns (last price on this plateau, first price past it)."""
+        step = (bound - price) * 1e-6 if bound != price else 0.0
+        inside = bound - step
+        if abs(step_at(inside)[1] - here) <= _OFFER_CURVE_VALUE_TOL:
+            nudge = max(_OFFER_CURVE_NUDGE_REL, abs(bound) * _OFFER_CURVE_NUDGE_REL)
+            return bound, bound + nudge if bound > price else bound - nudge
+        lo, hi = price, inside
+        for _ in range(_OFFER_CURVE_BISECT_STEPS):
+            if abs(hi - lo) <= _OFFER_CURVE_BISECT_TOL * max(1.0, abs(lo)):
+                break
+            mid = (lo + hi) / 2.0
+            if abs(step_at(mid)[1] - here) <= _OFFER_CURVE_VALUE_TOL:
+                lo = mid
+            else:
+                hi = mid
+        return lo, hi
 
     domain_limit = _OFFER_CURVE_DOMAIN_MAX if ascending else _OFFER_CURVE_DOMAIN_MIN
     price = start
@@ -1714,11 +1764,25 @@ def _offer_curve_ranging_walk(
         interval = solve_at(price)
         if interval is None:
             break
+        if cost_map is not None and last_bound is not None:
+            # nimbus issue #1990: the far end is the walk's own last,
+            # already verified boundary, not this solve's ranging.
+            interval = (price, interval[1]) if ascending else (interval[0], price)
+            intervals[-1] = interval
         lower, upper = interval
         bound = upper if ascending else lower
         reached_domain_limit = (
             bound >= domain_limit if ascending else bound <= domain_limit
         )
+        if reached_domain_limit and cost_map is not None and price != domain_limit:
+            # nimbus issue #1990: a plateau the ranging runs to the domain's
+            # end is checked there too; a coupled cost can end it sooner.
+            end, past = plateau_end(price, domain_limit, values[-1])
+            if end != domain_limit:
+                intervals[-1] = (lower, end) if ascending else (end, upper)
+                last_bound = end
+                price = past
+                continue
         if reached_domain_limit:
             break
         if last_bound is not None:
@@ -1729,11 +1793,41 @@ def _offer_curve_ranging_walk(
             )
             if stalled:
                 break
+        if cost_map is not None:
+            end, past = plateau_end(price, bound, values[-1])
+            if end != bound:
+                intervals[-1] = (lower, end) if ascending else (end, upper)
+                bound = end
+            last_bound = bound
+            price = past
+            continue
         last_bound = bound
         nudge = max(_OFFER_CURVE_NUDGE_REL, abs(bound) * _OFFER_CURVE_NUDGE_REL)
         price = bound + nudge if ascending else bound - nudge
 
-    solve_at(retail)
+    def solve_settled(price: float) -> tuple[float, float] | None:
+        """A point off the walk (retail, the backstop): with coupled costs
+        neither end of its ranging is known to hold, so each is probed
+        (nimbus issue #1990), an unbounded end at the domain's own limit."""
+        interval = solve_at(price)
+        if interval is None or cost_map is None:
+            return interval
+        lower, upper = interval
+        ends = []
+        for bound, limit in (
+            (lower, _OFFER_CURVE_DOMAIN_MIN),
+            (upper, _OFFER_CURVE_DOMAIN_MAX),
+        ):
+            probe = max(bound, limit) if limit < price else min(bound, limit)
+            if abs(probe - price) <= 1e-12:
+                ends.append(bound)
+                continue
+            end, _past = plateau_end(price, probe, values[-1])
+            ends.append(bound if end == probe else end)
+        intervals[-1] = (ends[0], ends[1])
+        return intervals[-1]
+
+    solve_settled(retail)
 
     # nimbus issue #705: one gap-targeted backstop solve -- see this
     # function's own docstring paragraph above for the full reasoning.
@@ -1743,7 +1837,7 @@ def _offer_curve_ranging_walk(
         gap_edge = retail_lower if ascending else retail_upper
         gap = (gap_edge - last_bound) if ascending else (last_bound - gap_edge)
         if gap > _OFFER_CURVE_BACKSTOP_MIN_GAP:
-            solve_at((last_bound + gap_edge) / 2.0)
+            solve_settled((last_bound + gap_edge) / 2.0)
 
     order = sorted(range(len(prices)), key=lambda i: prices[i])
     curve = [(prices[i], values[i]) for i in order]
@@ -2138,6 +2232,10 @@ def _build_plan_once(
 
     alignment = _align_previous_periods(periods, previous_plan)
 
+    # nimbus issue #1990: the derived penalty's rates other than the two grid
+    # prices, kept so the offer curve can re-derive it at a swept price. None
+    # when the caller set the penalty, which then does not move with price.
+    soft_soc_other_rates: list[float] | None = None
     if soft_soc_penalty_per_kwh is None:
         # See DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER's own comment for why
         # this takes the max across every real $/kWh signal in play, not
@@ -2159,6 +2257,7 @@ def _build_plan_once(
             # 0.80 kWh against 0.75 at zero prices and a $0.25 salvage (found
             # by tests/v2's bounds property, #1837).
             candidate_rates.append(float(b.salvage_value))
+        soft_soc_other_rates = candidate_rates[2:]
         soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
             *candidate_rates, 0.01
         )
@@ -2582,10 +2681,12 @@ def _build_plan_once(
     # above it is free, so the floor stays live (Mark Purcell, #1924). On the
     # committed part it is then a constant, which changes no decision and is
     # left out of the published plan cost like the rest of the penalty.
+    export_floor_exempt0 = False  # #1990: read again by the offer curve
     if grid.fixed_export_kw is not None:
         committed = np.asarray(grid.fixed_export_kw, dtype=float)[:n] > 0
         if spike_overrides_p2p_at_t0 and n:
             committed[0] = False
+        export_floor_exempt0 = bool(n and committed[0])
         export_floor_penalty = np.where(committed, 0.0, export_floor_penalty)
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
@@ -4769,6 +4870,7 @@ def _build_plan_once(
                 _offer_curve_base_result.status,
             )
             _offer_curve_base_result = result
+
         # nimbus issue #678: walks each curve's own real breakpoints
         # directly instead of sampling #494's original fixed 7-point
         # grid (_offer_curve_price_grid(), removed by this issue) -- see
@@ -4778,6 +4880,166 @@ def _build_plan_once(
         # and #705's own two additions (walking each side from whichever
         # end its real structure clusters near, plus the gap-targeted
         # backstop solve).
+        # nimbus issue #1990: a real plan at another period-0 price is a
+        # different LP, not this one with one cost moved. These are every
+        # cost it would carry at that price, built from the same rules as
+        # above: the import and export costs, the #390 valve (its markup is
+        # 10x the plan's highest import price), the P2P shortfall rate, each
+        # battery's #732 loss tie-break, and the soft-SoC penalty when it
+        # was derived from prices. Swept together, each curve point is what
+        # a solve at that price plans.
+        def export_pen0(price: float) -> float:
+            if export_floor_exempt0:
+                return 0.0
+            return float(
+                export_floor_penalty_rates(np.array([price]), grid.export_floor_price)[
+                    0
+                ]
+            )
+
+        def _costs_at(
+            imp: NDArray[np.float64], exp: NDArray[np.float64]
+        ) -> dict[str, float]:
+            excess_rate = max(10.0 * float(np.max(imp)), 5.0)
+            costs = {
+                grid_import[0]: float(imp[0]) * hours0,
+                grid_export[0]: -(float(exp[0]) - export_pen0(float(exp[0]))) * hours0,
+            }
+            for t in range(n):
+                costs[grid_import_excess[t]] = (float(imp[t]) + excess_rate) * float(
+                    hours[t]
+                )
+            short_rate = (
+                excess_rate
+                + float(np.max(np.abs(imp)))
+                + float(np.max(np.abs(exp)))
+                + (
+                    float(np.max(np.abs(grid.export_bonus_price)))
+                    if grid.export_bonus_price is not None
+                    else 0.0
+                )
+            )
+            for t, short in block_short.items():
+                costs[short] = short_rate * float(hours[t])
+            for b in batteries:
+                if b.name not in loss_rates:
+                    continue
+                old_c, old_d = loss_rates[b.name][0][0], loss_rates[b.name][1][0]
+                new_c = min(
+                    float(imp[0]) * (1.0 - b.charge_efficiency),
+                    MIN_CHARGE_DISCHARGE_COST_SPREAD,
+                )
+                new_d = min(
+                    float(imp[0]) * (1.0 / b.discharge_efficiency - 1.0),
+                    MIN_CHARGE_DISCHARGE_COST_SPREAD,
+                )
+                c0, d0 = charge_vars[b.name][0], discharge_vars[b.name][0]
+                costs[c0] = p._cost.get(c0, 0.0) + (new_c - old_c) * hours0
+                costs[d0] = p._cost.get(d0, 0.0) + (new_d - old_d) * hours0
+            if soft_soc_other_rates is not None:
+                penalty = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
+                    float(np.max(imp)), float(np.max(exp)), *soft_soc_other_rates, 0.01
+                )
+                for b in batteries:
+                    for var in (*underfill_vars[b.name], *overfill_vars[b.name]):
+                        costs[var] = penalty
+                for var in departure_shortfall_vars.values():
+                    costs[var] = penalty
+            return costs
+
+        base_imp = np.asarray(effective_import_price, dtype=np.float64)
+        base_exp = np.asarray(effective_export_price, dtype=np.float64)
+
+        def _import_costs(price: float) -> dict[str, float]:
+            imp = base_imp.copy()
+            imp[0] = price
+            return _costs_at(imp, base_exp)
+
+        def _export_costs(price: float) -> dict[str, float]:
+            exp = base_exp.copy()
+            exp[0] = price
+            return _costs_at(base_imp, exp)
+
+        # nimbus issue #1990: a swept point that imports and exports (or
+        # charges and discharges) in one period is not a plan `build_plan`
+        # publishes: it re-solves with one-way binaries (#238), first where
+        # the plan was two-way, then everywhere if that moved the spread.
+        # Either way it lands on the cheapest plan with every pair one-way,
+        # and so does this point: a binary on one pair is exactly the
+        # cheaper of holding either side at 0 (`_add_direction_binary`), so
+        # a small branch-and-bound over warm re-solves on the sweep's own
+        # solver, not a MIP. Past its node cap, one exact MIP on a copy.
+        base_result = _offer_curve_base_result
+        index = base_result._var_index
+        pairs = [
+            (f"grid_dir_{t}", grid_import[t], grid_export[t], grid_import_excess[t])
+            for t in range(n)
+        ] + [
+            (
+                f"battery_dir_{b.name}_{t}",
+                charge_vars[b.name][t],
+                discharge_vars[b.name][t],
+                None,
+            )
+            for b in batteries
+            for t in range(n)
+        ]
+
+        def _two_way(xs: NDArray[np.float64], held: frozenset[str]):
+            for pair in pairs:
+                name, fwd, rev, excess = pair
+                if name in held:
+                    continue
+                a, b_ = float(xs[index[fwd]]), float(xs[index[rev]])
+                if excess is not None:
+                    a -= float(xs[index[excess]])
+                if min(a, b_) > _OPPOSING_TOLERANCE_KW:
+                    return pair
+            return None
+
+        def _exact_mip(cost: dict[str, float], var: str) -> float | None:
+            q = copy.deepcopy(p)
+            q._cost.update(cost)
+            for name, fwd, rev, _excess in pairs:
+                _add_direction_binary(q, name, fwd, rev)
+            exact = q.solve()
+            return q.value_of(exact, var) if exact.status == "optimal" else None
+
+        def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
+            def value(price: float, step: SweepRangingStep) -> float:
+                x = step.x
+                if x is None or _two_way(x, frozenset()) is None:
+                    return step.value
+                cost = costs(price)
+                best: list[float] = []  # [objective, value] of the best leaf
+                nodes = 0
+                stack: list[tuple[tuple[str, ...], frozenset[str]]] = [
+                    ((), frozenset())
+                ]
+                while stack:
+                    zero, held = stack.pop()
+                    nodes += 1
+                    if nodes > _OFFER_CURVE_ONE_WAY_NODES:
+                        exact = _exact_mip(cost, var)
+                        return step.value if exact is None else exact
+                    solved = base_result.resolve_variant(cost, zero)
+                    if solved is None:
+                        continue
+                    objective, xs = solved
+                    if best and objective >= best[0] - 1e-9:
+                        continue
+                    pair = _two_way(xs, held)
+                    if pair is None:
+                        best[:] = [objective, float(xs[index[var]])]
+                        continue
+                    name, fwd, rev, _excess = pair
+                    stack.append(((*zero, rev), held | {name}))
+                    stack.append(((*zero, fwd), held | {name}))
+                # None feasible: `build_plan` keeps the two-way plan too.
+                return best[1] if best else step.value
+
+            return value
+
         offer_curve_import: list[tuple[float, float]] | None
         offer_curve_import_ranging: list[tuple[float, float] | None] | None
         offer_curve_import, offer_curve_import_ranging = _offer_curve_ranging_walk(
@@ -4788,6 +5050,8 @@ def _build_plan_once(
             retail=float(effective_import_price[0]),
             hours0=hours0,
             negated=False,
+            cost_map=_import_costs,
+            point_value=_point_value(grid_import[0], _import_costs),
         )
         # Export earns revenue -- p.set_cost(grid_export[t], -price*hours[t])
         # above (the same construction this walk must mirror exactly for
@@ -4810,6 +5074,8 @@ def _build_plan_once(
             retail=float(effective_export_price[0]),
             hours0=hours0,
             negated=True,
+            cost_map=_export_costs,
+            point_value=_point_value(grid_export[0], _export_costs),
         )
         offer_curve_sweep_seconds: float | None = time.monotonic() - _offer_curve_start
         _LOGGER.debug(

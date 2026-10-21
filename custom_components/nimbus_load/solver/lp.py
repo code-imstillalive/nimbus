@@ -735,6 +735,10 @@ class SweepRangingStep:
     value: float
     cost_dn: RangingRecord | None
     cost_up: RangingRecord | None
+    # nimbus issue #1990: the whole re-solved point, when the caller asked
+    # for it (`sweep_costs_with_ranging(..., with_solution=True)`), so it can
+    # tell whether the point is one a real plan would publish.
+    x: NDArray[np.float64] | None = None
 
 
 @dataclass(frozen=True)
@@ -1092,33 +1096,99 @@ class LPResult:
         `var`'s own cost coefficient is restored to its original value
         before returning, identical guarantee to `sweep_cost()`.
         """
+        return self.sweep_costs_with_ranging(var, [{var: cost} for cost in costs])
+
+    def resolve_variant(
+        self, cost_map: dict[str, float], zero: tuple[str, ...]
+    ) -> tuple[float, NDArray[np.float64]] | None:
+        """Warm re-solve with `cost_map`'s costs and every variable in `zero`
+        held at 0 (nimbus issue #1990), returning (objective, solution), or
+        None when it does not reach optimal. Every cost and bound touched is
+        restored. One one-way direction binary (#238) on a single period is
+        exactly the cheaper of the two variants that hold one side at 0, at
+        the price of two warm solves instead of a MIP."""
+        if self._highs is None:
+            msg = "resolve_variant requires solve(keep_basis=True)"
+            raise ValueError(msg)
+        h = self._highs
+        lp = h.getLp()
+        held = {
+            name: (
+                float(lp.col_lower_[self._var_index[name]]),
+                float(lp.col_upper_[self._var_index[name]]),
+            )
+            for name in zero
+        }
+        try:
+            for name, cost in cost_map.items():
+                h.changeColCost(self._var_index[name], cost)
+            for name in zero:
+                h.changeColBounds(self._var_index[name], 0.0, 0.0)
+            with _timed_lp_call(h, "resolve_variant"):
+                h.run()
+            if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+                return None
+            return (
+                float(h.getInfo().objective_function_value),
+                np.asarray(h.getSolution().col_value, dtype=np.float64),
+            )
+        finally:
+            for name in cost_map:
+                h.changeColCost(
+                    self._var_index[name], self._orig_cost_by_name.get(name, 0.0)
+                )
+            for name, (lo, hi) in held.items():
+                h.changeColBounds(self._var_index[name], lo, hi)
+
+    def sweep_costs_with_ranging(
+        self,
+        var: str,
+        cost_maps: list[dict[str, float]],
+        *,
+        with_solution: bool = False,
+    ) -> list[SweepRangingStep]:
+        """`sweep_cost_with_ranging()` with several costs moved at each step
+        (nimbus issue #1990). Each map sets every listed variable's cost
+        before the warm-started re-solve; `var`'s value and its own cost
+        ranging are read as before. Every touched variable's cost is
+        restored before returning.
+
+        Why: a real plan at a different period-0 price is not the same LP
+        with one cost changed. The battery loss tie-break (#732) and the
+        import valve (#390) are priced from the import price too, so an
+        offer curve that moved only the import cost described an LP no real
+        solve would ever build.
+        """
         if self._highs is None:
             msg = (
                 f"sweep_cost_with_ranging({var!r}) requires solve(keep_basis=True) -- "
                 "this LPResult did not retain its own HiGHS instance"
             )
             raise ValueError(msg)
-        if var not in self._var_index:
-            msg = f"Unknown variable {var!r}"
-            raise KeyError(msg)
+        touched = {var}.union(*(m.keys() for m in cost_maps)) if cost_maps else {var}
+        for name in touched:
+            if name not in self._var_index:
+                msg = f"Unknown variable {name!r}"
+                raise KeyError(msg)
         h = self._highs
         col = self._var_index[var]
         var_names = self._var_names
         row_names = self._row_names
-        original_cost = self._orig_cost_by_name.get(var, 0.0)
         steps: list[SweepRangingStep] = []
         try:
-            for cost in costs:
-                h.changeColCost(col, cost)
+            for cost_map in cost_maps:
+                for name, cost in cost_map.items():
+                    h.changeColCost(self._var_index[name], cost)
                 with _timed_lp_call(h, "sweep_cost_with_ranging"):
                     h.run()
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                     msg = (
-                        f"sweep_cost_with_ranging({var!r}): re-solve at cost={cost} did "
+                        f"sweep_cost_with_ranging({var!r}): re-solve at costs={cost_map} did "
                         f"not reach optimal (status={h.modelStatusToString(h.getModelStatus())!r})"
                     )
                     raise ValueError(msg)
-                value = float(h.getSolution().col_value[col])
+                solution = h.getSolution().col_value
+                value = float(solution[col])
                 _rng_status, rng = h.getRanging()
                 if rng.valid:
                     cost_dn = RangingRecord(
@@ -1145,10 +1215,20 @@ class LPResult:
                     cost_dn = None
                     cost_up = None
                 steps.append(
-                    SweepRangingStep(value=value, cost_dn=cost_dn, cost_up=cost_up)
+                    SweepRangingStep(
+                        value=value,
+                        cost_dn=cost_dn,
+                        cost_up=cost_up,
+                        x=np.asarray(solution, dtype=np.float64)
+                        if with_solution
+                        else None,
+                    )
                 )
         finally:
-            h.changeColCost(col, original_cost)
+            for name in touched:
+                h.changeColCost(
+                    self._var_index[name], self._orig_cost_by_name.get(name, 0.0)
+                )
         return steps
 
     def bound_headroom(self, var: str) -> Headroom | None:

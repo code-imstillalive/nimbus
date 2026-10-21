@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Every offer-curve point is what a plan at its price would do**
+  ([#1990](https://github.com/code-imstillalive/nimbus/issues/1990)). The sweep
+  moved only period 0's import or export cost, but a real plan at another price
+  also moves the battery's loss tie-break (#732), the emergency-import markup
+  (#390), the P2P shortfall rate and a price-derived soft SoC penalty, and it
+  re-solves a plan that imports and exports at once one-way (#238). So some
+  points, and the price range published with each, described plans no solve
+  would make. All of these now move with the swept price, each point is made
+  one-way the way `build_plan` does it, and each plateau's end is checked
+  against the real solve (bisected when it ends sooner). Dispatch is unchanged;
+  the sweep stays under 0.5 s.
+
 - **A battery's plan-consistent headroom never exceeds its physical headroom**
   ([#1985](https://github.com/code-imstillalive/nimbus/issues/1985)). For a battery
   already charging or discharging flat out, the flex signals'
