@@ -287,9 +287,10 @@ def test_a_discharge_taper_caps_discharging_at_the_curve(site):
 @SETTINGS
 @given(push_sites("discharge"), _num(0.0, 0.5), _num(1.0, 3.0))
 def test_a_spike_near_min_soc_discharges_only_what_is_left(site, above, factor):
-    """The spike override (#1865) when the battery is nearly empty: period 0
-    discharges what sits above Min SoC, never the full rate, and the plan
-    stays feasible."""
+    """The spike override (#567, #1865) when the battery is nearly empty:
+    period 0 discharges what sits above Min SoC, never the full rate, and the
+    plan stays feasible (the override's pin once contradicted the wash-trade
+    guard here and the plan came back infeasible)."""
     b = site["battery"]
     b["discharge_power_curve"] = None
     start = b["min_soc_kwh"] + above
