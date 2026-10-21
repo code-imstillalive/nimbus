@@ -13,6 +13,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 **Price sources learn each source's steady premium.** Another retailer's
 fees no longer pull the blend up or count as forecast error.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 21639d03**
+  (`release/0.94.477`), installed via HACS and restarted at 14:46; devhub's
+  own Nimbus sensors published 0.94.477 by 14:50. The log after the restart
+  showed only devhub's known baseline (mirror duplicate-unique-ID notices,
+  recorder attribute-size warnings, rename collisions); no price
+  consolidation errors. devhub's own plan entity is unavailable (its known
+  limitation), so the bias summary is checked on production's first plans.
+
 - **Price sources: a steady premium is not forecast error (#1786).** A source
   priced on another contract (e.g. a retailer that adds hedging and fees per
   kWh) sits a steady amount above the provider's settled price. Each source's
