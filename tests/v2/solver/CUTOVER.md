@@ -13,9 +13,15 @@ Mutation scores (fixed runner `5acb2c20`, same mutants for both sets):
 | `lp.py` (seed 7078, 20 mutants) | 13/20 | 18/20 |
 | `network.py::_build_plan_once` (seed 1837, 30 mutants) | 22/30 | 24/30 (#1957) |
 
-**In scope:** the 75 old files whose only subject is `solver.lp`,
-`solver.network` and `solver.elements` (605 tests). Files that also test
-another module stay until that module's own area is cut over.
+**In scope:** the old files whose only subject is `solver.lp` and
+`solver.network` (they may build their inputs from `solver.elements`): 72
+files. Files that also test another module stay until that module's own
+area is cut over.
+
+**Out of scope, for `elements.py`'s own cutover** (the scores above do not
+vouch for `elements.py`): `test_elements_battery_config_validation.py`,
+`test_elements_adequacy_windows_validation.py`,
+`test_elements_thermal_load_config_validation.py`.
 
 **How each row is checked:** read the old file in full; name the v2 test
 that asserts the same thing (or write one); for a new guard, plant the bug
@@ -39,5 +45,5 @@ the old file was written for and show both sets fail.
 
 ## Still to check
 
-The other 64 files, smallest first. Nothing is deleted until every row is
+The other 61 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
