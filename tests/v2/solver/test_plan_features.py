@@ -134,8 +134,12 @@ def test_the_release_valve_takes_only_what_the_limit_cannot(site):
     max(10 x the dearest import price, $5) per kWh, and the plan's import is
     the total drawn, the excess included (so the balance closes on it)."""
     plan = _solve(site)
+    # A load above the limit is planned through the valve, not refused: the
+    # whole horizon once went infeasible for 46 minutes over one transient.
+    assert plan.status == "optimal"
     h = site["hours"]
     excess = plan.grid_import_excess_kw
+    assert abs(plan.import_cap_breach_kwh - float(np.sum(excess * h))) < 1e-6
     assert (excess >= -TOL).all()
     assert (plan.grid_import_kw >= excess - TOL).all()
     within = plan.grid_import_kw - excess
