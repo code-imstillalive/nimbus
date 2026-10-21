@@ -14,7 +14,7 @@ Mutation scores (fixed runner `5acb2c20`, same mutants for both sets):
 | `network.py::_build_plan_once` (seed 1837, 30 mutants) | 22/30 | 24/30 (#1957) |
 
 **In scope:** the old files whose only subject is `solver.lp` and
-`solver.network` (they may build their inputs from `solver.elements`): 72
+`solver.network` (they may build their inputs from `solver.elements`): 69
 files. Files that also test another module stay until that module's own
 area is cut over.
 
