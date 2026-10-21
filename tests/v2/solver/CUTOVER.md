@@ -66,6 +66,11 @@ the old file was written for and show both sets fail.
 
 ## Found while checking
 
+- **#1985:** a battery's ranged headroom could exceed its physical headroom,
+  against its own docstring: HiGHS's bound ranging for a variable at its upper
+  bound is not capped there (a battery charging flat out read 0.32 kW of room).
+  Found by a v2 property over random sites; the old file's one scenario never
+  hit it. Fix and property in #1986.
 - **#481 with #897: past ~0.1/h a leakier tank plans less heat.** The coast
   reference front-loads the decay steps and the idle-fraction scaling cancels
   decay in the full-power periods where an early-heating plan sits, so total
@@ -131,8 +136,9 @@ the old file was written for and show both sets fail.
 | `test_solver_objective_completeness.py` | Mark Purcell's audit, item 2 | `test_plan_features::test_the_terminal_values_decide_what_is_kept` (export, salvage and headroom each 0-0.3: whichever of keeping and selling is worth more by 2c decides the final SoC, at the start or Min SoC), `::test_an_export_bonus_buys_exports_the_base_price_never_would` (no export without it; with it, exactly the least of the cap, the energy delivered and what the periods carry), `::test_the_shed_cost_decides_what_is_shed_beyond_the_limit` (exactly the excess over a 1 kW limit, or all of it when shedding is cheaper, at 5-minute to hourly periods) | planted salvage dropped, headroom dropped, headroom's sign flipped, the bonus not credited, the shed cost ignored: old and new fail; the shed cost not per hour, only the new catches (the old ran hourly) |
 | `test_467_calendar_departure_end_to_end.py` | #467 item 4 (Mark Purcell: HAEO's `scenario7_ev`, HAEO #361) | the LP: `test_plan_features::test_a_trip_deadline_is_bought_in_the_cheapest_hours_before_it` (4-16 periods of four price levels, any deadline, any reachable target: held at the deadline, paid exactly the greedy cheapest fill before it at 7 kW, nothing after; none at all without the deadline). **Stays** for `solver_inputs/calendar_trips`'s cutover: the event-to-deadline chain (distance parsing, odometer, soonest trip, clamp to the pack) | planted the target under-held: old and new fail; the deadline read at the plan's end and a last-period deadline dropped, only the new catches (the old cheap window sits before its deadline either way) |
 | `test_solver_battery_efficiency_loss_pricing.py` | #732 (Mark Purcell, for #731), #692 | `test_plan_features::test_the_loss_is_paid_in_the_plan_on_a_forced_charge` (price 1-80c, efficiency 0.85-0.99: the plan's total is the energy, the flat cost and the capped loss, exactly), `::test_a_battery_to_battery_transfer_pays_the_loss_on_both_legs` (#731's shape: each leg's own capped loss, no grid flow); the reported figure is the existing `::test_the_loss_tie_break_costs_what_its_rate_says`. Arbitrage surviving a wide spread is the existing battery invariants' | planted charge loss uncapped, discharge loss as 1 - eff, the loss at a flat price: old and new fail; the charge loss dropped from the objective but still reported: old and new fail, the existing v2 reporting test does not |
+| `test_solver_signals_grid_operator.py` | #491 (Signals 2/7 of #489), #492 | `test_network_paths::test_the_export_headroom_is_the_surplus_the_cap_holds_back` (any surplus at or over the cap: headroom is what the cap holds back, up to the connection's #266 combined cap; forced export cost minus the export price where it binds; down-flex mirrors it), `::test_a_deficit_has_the_import_cap_above_it_and_zero_below_it` (load headroom up the cap's room, down the deficit; no import headroom or forced cost with no sun), `::test_the_operator_signals_are_opt_in`, `::test_a_plan_that_did_not_solve_carries_no_signals`; kWh = kW x hours and the forced costs as reduced costs are the existing `test_plan_features::test_the_grid_flex_signals_agree_with_the_lp`; ranged within physical is #1986's property | planted down-flex mirroring import, load headroom up and down swapped, export headroom zeroed, battery ranging not opt-in: old and new fail. The old "no import headroom" holds only with no sun; the new test says so |
 
 ## Still to check
 
-The other 9 files, smallest first. Nothing is deleted until every row is
+The other 8 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

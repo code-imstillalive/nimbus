@@ -1142,3 +1142,94 @@ def test_an_away_mask_is_normalised_and_a_negative_index_refused():
     assert all(type(i) is int for i in cfg.unavailable_period_indices)
     with pytest.raises(ValueError, match="non-negative"):
         _car(unavailable_period_indices=frozenset({-1, 2}))
+
+
+# --- #491: the grid operator's headroom signals --------------------------------
+
+
+def _operator_plan(n, solar, load, import_cap, export_cap, signals=True):
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.10),
+            import_limit_kw=import_cap,
+            export_limit_kw=export_cap,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.full(n, solar)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load))],
+        compute_signals=signals,
+    )
+
+
+@SETTINGS
+@given(st.integers(1, 4), _num(0.0, 60.0), _num(0.5, 20.0), _num(2.0, 40.0))
+def test_the_export_headroom_is_the_surplus_the_cap_holds_back(
+    n, solar, load, export_cap
+):
+    """#491 (Signals 2/7 of #489). With spare sun at or over the export cap,
+    the export headroom is exactly what the cap holds back (0 at exact
+    saturation, 35 kW for 45 kW of surplus on a 10 kW cap): how far an
+    operator could lift it before curtailment stops, or before the
+    connection's own combined cap (#266, import + export within the larger
+    limit) binds instead. Where the cap binds,
+    relaxing it would earn the export price, so its forced cost is minus
+    that price (a reduced cost at an upper bound, minimising). The down-flex
+    figure mirrors it (until #493's envelope)."""
+    surplus = solar - load
+    if surplus < export_cap:
+        return
+    plan = _operator_plan(n, solar, load, 50.0, export_cap)
+    assert plan.status == "optimal"
+    sig = plan.grid_signals
+    np.testing.assert_allclose(
+        sig.grid_export_headroom_kw,
+        min(surplus, max(50.0, export_cap)) - export_cap,
+        atol=1e-6,
+    )
+    np.testing.assert_allclose(sig.flex_available_down_kw, sig.grid_export_headroom_kw)
+    if surplus > export_cap + 1e-3:
+        np.testing.assert_allclose(sig.forced_export_cost, -0.10, atol=1e-6)
+
+
+@SETTINGS
+@given(
+    st.integers(1, 4),
+    st.one_of(st.just(0.0), _num(0.0, 10.0)),
+    _num(0.5, 20.0),
+    _num(0.5, 40.0),
+)
+def test_a_deficit_has_the_import_cap_above_it_and_zero_below_it(n, solar, extra, room):
+    """#492's switchboard headroom on the same balance row: with only the
+    grid to serve a deficit, the load could grow by the import cap's room
+    and shrink by the deficit itself before the period's price changes.
+    With no sun, the grid is the only source: the import has no headroom of
+    its own and no forced cost (an equality holds it, not a bound). With
+    sun it could replace solar, so that holds only without it."""
+    load = solar + extra
+    plan = _operator_plan(n, solar, load, extra + room, 50.0)
+    assert plan.status == "optimal"
+    sig = plan.grid_signals
+    np.testing.assert_allclose(plan.grid_import_kw, extra, atol=1e-6)
+    np.testing.assert_allclose(sig.load_headroom_up_kwh, room, atol=1e-6)
+    np.testing.assert_allclose(sig.load_headroom_down_kwh, extra, atol=1e-6)
+    if solar == 0.0:
+        np.testing.assert_allclose(sig.grid_import_headroom_kw, 0.0, atol=1e-6)
+        np.testing.assert_allclose(sig.forced_import_cost, 0.0, atol=1e-6)
+
+
+def test_the_operator_signals_are_opt_in():
+    """#491: ranging is opt-in (it took a 288-period solve from 0.6 s to
+    5.6 s). Without it there are no grid signals and no battery ranging;
+    the battery's physical headroom needs none and is always there."""
+    plan = _operator_plan(4, 0.0, 5.0, 50.0, 50.0, signals=False)
+    assert plan.status == "optimal" and plan.grid_signals is None
+    (bs,) = plan.battery_signals
+    assert bs.available_up_kw is not None and bs.available_down_kw is not None
+    assert bs.available_up_ranging_kw is None and bs.available_down_ranging_kw is None
+
+
+def test_a_plan_that_did_not_solve_carries_no_signals():
+    plan = network._infeasible_plan(PeriodGrid(np.ones(2)), "infeasible", iterations=1)
+    assert plan.grid_signals is None and plan.battery_signals == []
