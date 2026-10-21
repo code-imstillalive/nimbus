@@ -15,7 +15,7 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 - The failing-model dump (#773) marks a phase dumped only once the write
   succeeds, so a transient failure never blocks the next capture (#1074,
   found in the IV&V pass since #1058).
-  Each phase gets one capture, named for its issue, in the configured
+  Each phase gets one capture, named for its issue (#1179), in the configured
   folder; a label cannot escape that folder or grow the filename past
   reason; nothing the write can throw reaches the solve; and only an
   alarming call (#945's tier), not a merely slow one, is captured.
@@ -52,7 +52,7 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   (#773): the LP's primal tolerance is widened to the MIP's for that block
   only (never narrowed), put back afterwards even on an exception, and a
   solver that refuses option calls never breaks the solve.
-- With a flat export bonus price, the capped bonus volume is claimed in
+- With a flat export bonus price (the cap in `p2p_export.py`, #355), the capped bonus volume is claimed in
   one block that runs to the end of the window (household, 20 Aug 2026:
   "our window closes 0.00"), never scattered ON/OFF across it, and the
   export itself does not move.
