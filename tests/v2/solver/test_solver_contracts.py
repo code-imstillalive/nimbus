@@ -61,6 +61,10 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   with a lower marginal price (#662: per kWh) is not a missed saving (#769's "smaller
   observation": a load needing hours cannot use one cheap period stranded
   among dear ones).
+- A binary variable (#238) is exactly [0, 1] and refuses another bound;
+  `is_mip` says whether any exists. A MIP's duals are recovered from the
+  pinned re-solve, so a binding row carries its real price and a slack row
+  zero, not the zeros a raw branch-and-bound returns.
 """
 
 from __future__ import annotations
@@ -852,3 +856,46 @@ def test_narrowing_an_adequacy_window_never_makes_the_plan_cheaper(site, data):
     # HiGHS stops a MIP within its relative gap (1e-4), so allow that much.
     tol = 1e-4 * max(1.0, abs(wide.total_cost)) + 1e-6
     assert narrow.total_cost >= wide.total_cost - tol
+
+
+@given(st.sampled_from([None, 0.5, 2.0]), st.sampled_from(["lb", "ub"]))
+def test_a_binary_is_zero_to_one_and_refuses_another_bound(value, which):
+    p = LPProblem()
+    assert not p.is_mip
+    p.add_variable("x", lb=0.0, ub=10.0)
+    assert not p.is_mip
+    if value is None:
+        p.add_variable("y", binary=True)
+        i = p._var_index["y"]
+        assert (p._lb[i], p._ub[i], p._binary[i]) == (0.0, 1.0, True)
+        assert not p._binary[p._var_index["x"]]
+        assert p.is_mip
+    else:
+        with pytest.raises(ValueError):
+            p.add_variable("y", binary=True, **{which: value})
+
+
+@SETTINGS
+@given(_num(1.0, 50.0), _num(0.1, 3.0), _num(0.0, 40.0), _num(1.0, 100.0))
+def test_a_mips_duals_are_recovered_from_the_pinned_resolve(cap, value, fixed, room):
+    """A switch with a fixed cost gates output up to `cap`; a second row
+    caps output at `cap + room`, never binding. On when the output is
+    worth more than the switch costs."""
+    if abs(value * cap - fixed) < 1e-3:
+        return
+    p = LPProblem()
+    p.add_variable("on", binary=True, cost=fixed)
+    p.add_variable("out", lb=0.0, ub=1000.0, cost=-value)
+    p.add_ub_constraint({"out": 1.0, "on": -cap}, 0.0, name="gate")
+    p.add_ub_constraint({"out": 1.0}, cap + room, name="slack")
+    result = p.solve()
+    assert result.status == "optimal"
+    on = value * cap > fixed
+    assert p.value_of(result, "on") == pytest.approx(1.0 if on else 0.0)
+    assert p.value_of(result, "out") == pytest.approx(cap if on else 0.0)
+    assert result.objective == pytest.approx(min(fixed - value * cap, 0.0))
+    assert result.duals["slack"] == pytest.approx(0.0, abs=1e-9)
+    assert {"on", "out"} <= set(result.reduced_costs)
+    if on:
+        # One more unit through the gate is worth `value`.
+        assert abs(result.duals["gate"]) == pytest.approx(value, rel=1e-6)
