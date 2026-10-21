@@ -1398,6 +1398,21 @@ def _prices_chart() -> dict[str, Any]:
                     **hidden,
                 }
             )
+    # Household, 21 Oct 2026 ("it was some 50 issues back... and still not
+    # working"): every series above is a data_generator, so the card drew
+    # at once, before the section had its width, and stayed a third wide
+    # until a reload. One series read from history makes the card wait for
+    # that fetch, as the battery chart above does, and it then draws full
+    # width. Tested on devhub against an unchanged copy and a
+    # redraw-on-resize copy: only this one was full width on every first
+    # visit. It draws nothing and is not in the header or the legend.
+    series.append(
+        {
+            "entity": plan,
+            "name": "First-load width",
+            "show": {"in_chart": False, "in_header": False, "in_legend": False},
+        }
+    )
     return _apex(
         "Prices ahead",
         "c/kWh, what the plan pays and earns, fees included. Solid: your price "
