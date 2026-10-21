@@ -2428,3 +2428,66 @@ def test_a_block_is_delivered_net_and_the_shortfall_is_bought_after_it(
     np.testing.assert_allclose(plan.grid_export_kw[after], 0.0, atol=1e-6)
     bought = float(np.sum(plan.grid_import_kw[after]))
     assert bought == pytest.approx(house * after_h - spare * eff, abs=1e-4)
+
+
+@SETTINGS
+@given(
+    st.lists(_num(1.0, 14.0), min_size=1, max_size=3),
+    _num(0.3, 3.0),
+    st.booleans(),
+)
+def test_a_block_is_net_with_the_house_on_top_when_import_is_cheap(rates, house, short):
+    """The household's rule (7 Oct 2026): a P2P block's rate is net to the
+    grid, "12 kW to the grid, the house on top". Measured that evening: with
+    import at 18.4c in the block and dearer after, the plan bought the house
+    from the grid and still counted the full export (meter -10.6 kW for a
+    12 kW block). Now nothing is imported in the block and the battery
+    carries the rate plus the house. A battery that can carry the block but
+    not the house as well delivers the block and shows the rest as a breach
+    through the penalised valve (#390), not as a quiet shortfall in net
+    export."""
+    k = len(rates)
+    n = k + 5
+    eff = 0.9263
+    need = sum(rates) / eff
+    initial = 2.444 + (need + 0.5 * house * k / eff if short else 60.0 + need)
+    fixed = np.full(n, np.nan)
+    fixed[:k] = rates
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.array([0.184] * k + [0.40] * 5),
+            export_price=np.full(n, 0.09),
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+            fixed_export_kw=fixed,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="battery",
+                capacity_kwh=122.2,
+                initial_soc_kwh=initial,
+                min_soc_kwh=2.444,
+                max_soc_kwh=122.2,
+                max_charge_kw=40.0,
+                max_discharge_kw=40.0,
+                charge_efficiency=eff,
+                discharge_efficiency=eff,
+                charge_cost=0.005,
+                discharge_cost=0.005,
+                salvage_value=0.30,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, house))],
+    )
+    assert plan.status == "optimal"
+    within = plan.grid_import_kw - plan.grid_import_excess_kw
+    np.testing.assert_allclose(plan.grid_export_kw[:k], rates, atol=1e-6)
+    np.testing.assert_allclose(within[:k], 0.0, atol=1e-6)
+    if short:
+        assert plan.import_cap_breach_kwh > 1e-3
+    else:
+        np.testing.assert_allclose(plan.grid_import_kw[:k], 0.0, atol=1e-6)
+        net = plan.battery_discharge_kw[:k] - plan.battery_charge_kw[:k]
+        np.testing.assert_allclose(net, np.asarray(rates) + house, atol=1e-3)
