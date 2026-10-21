@@ -2065,3 +2065,144 @@ def test_an_unreachable_departure_warns_once():
         log.setLevel(level)
     levels = [r.levelno for r in records if "cannot reach" in r.getMessage()]
     assert levels == [logging.WARNING, logging.DEBUG]
+
+
+# --- Mark Purcell's audit item 2: every objective term moves a decision ----------
+
+
+def _ablation_battery(**over):
+    return BatteryConfig(
+        **{
+            "name": "battery",
+            "capacity_kwh": 20.0,
+            "initial_soc_kwh": 10.0,
+            "min_soc_kwh": 2.0,
+            "max_soc_kwh": 20.0,
+            "max_charge_kw": 10.0,
+            "max_discharge_kw": 10.0,
+            "charge_efficiency": 0.99,
+            "discharge_efficiency": 0.99,
+            "charge_cost": 0.01,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.0,
+            "headroom_value": 0.0,
+            **over,
+        }
+    )
+
+
+def _empty_site(n, export, battery, **grid):
+    """No load, no sun, import too dear to ever buy: the battery's only
+    choice is how much of its energy to sell, so its terminal terms decide."""
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 5.0),
+            export_price=np.full(n, export) if np.isscalar(export) else export,
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+            **grid,
+        ),
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="load", forecast_kw=np.zeros(n))],
+    )
+
+
+@SETTINGS
+@given(_num(0.0, 0.3), _num(0.0, 0.3), _num(0.0, 0.3), st.integers(2, 6))
+def test_the_terminal_values_decide_what_is_kept(export, salvage, headroom, n):
+    """Mark Purcell's solver audit, item 2 (objective completeness): a term
+    that never changes an outcome is dead weight. With nothing else to
+    trade, a stored kWh either stays (worth `salvage_value`) or is sold
+    (worth the export price, less the discharge cost, plus
+    `headroom_value` for the room it frees). Whichever is worth more by a
+    clear margin decides the final SoC, at a corner: kept at the starting
+    10 kWh, or sold down to Min SoC."""
+    keep = salvage
+    sell = export * 0.99 - 0.01 + headroom
+    if abs(keep - sell) < 0.02:
+        return
+    plan = _empty_site(
+        n, export, _ablation_battery(salvage_value=salvage, headroom_value=headroom)
+    )
+    assert plan.status == "optimal"
+    final = float(plan.battery_soc_kwh[-1])
+    assert final == pytest.approx(10.0 if keep > sell else 2.0, abs=1e-4)
+
+
+@SETTINGS
+@given(
+    st.lists(st.booleans(), min_size=2, max_size=6),
+    _num(0.05, 0.6),
+    _num(1.0, 30.0),
+    _num(3.0, 18.0),
+)
+def test_an_export_bonus_buys_exports_the_base_price_never_would(
+    in_window, bonus, volume, stored
+):
+    """Audit item 2, the two-tier P2P bonus: at a base export price under
+    the discharge cost nothing is sold without it; with it, the battery
+    sells into the bonus periods exactly what it can, up to the cap: the
+    least of the cap, its energy above Min SoC as delivered, and what the
+    export limit carries in those periods."""
+    n = len(in_window)
+    price = np.where(in_window, bonus, 0.0)
+    battery = _ablation_battery(
+        initial_soc_kwh=2.0 + stored, max_soc_kwh=22.0, capacity_kwh=22.0
+    )
+    off = _empty_site(n, 0.005, battery)
+    on = _empty_site(
+        n,
+        0.005,
+        battery,
+        export_bonus_price=price,
+        export_bonus_volume_kwh=volume,
+    )
+    assert off.status == on.status == "optimal"
+    assert float(np.sum(off.grid_export_kw)) < 1e-6
+    carried = 10.0 * sum(in_window)  # max discharge, at the meter
+    claimed = float(np.sum(on.export_bonus_kw))
+    assert claimed == pytest.approx(min(volume, stored * 0.99, carried), abs=1e-4)
+
+
+@SETTINGS
+@given(
+    _num(1.5, 6.0),
+    _num(0.05, 0.6),
+    _num(0.01, 1.0),
+    st.integers(1, 4),
+    st.sampled_from([5 / 60, 0.5, 1.0]),
+)
+def test_the_shed_cost_decides_what_is_shed_beyond_the_limit(
+    forecast, price, shed_cost, n, width
+):
+    """Audit item 2, a sheddable load's `shed_cost`: against a 1 kW import
+    limit and no battery to help, the part above the limit must be shed;
+    the rest is shed only when shedding costs less than buying it, both per
+    kWh whatever the period length."""
+    if abs(shed_cost - price) < 1e-3:
+        return
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, price),
+            export_price=np.zeros(n),
+            import_limit_kw=1.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_ablation_battery(available=False)],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        sheddable_loads=[
+            SheddableLoadConfig(
+                name="pool",
+                forecast_kw=np.full(n, forecast),
+                shed_cost=shed_cost,
+                min_fraction=0.0,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    want = forecast if shed_cost < price else forecast - 1.0
+    np.testing.assert_allclose(plan.sheddable_loads[0].shed_kw, want, atol=1e-5)
