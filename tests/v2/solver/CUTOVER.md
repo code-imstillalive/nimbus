@@ -79,8 +79,9 @@ the old file was written for and show both sets fail.
 | `test_solver_adequacy_profit_horizon.py` | #482, #613, #612 | `test_solver_contracts::test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window` (windowed); `test_network_contracts::...profit...` (#1958); the unwindowed load: #1963's test | planted the credit capped at the first window only: the new property fails, the old file does not (its windows case sheds dearly, so the load runs regardless) |
 | `test_1406_proximal_anchor_is_a_switching_cost.py` | #1406 | `test_solver_contracts::test_the_proximal_anchor_costs_the_same_in_every_period`, `::test_smoothness_still_costs_per_hour`, `::test_an_idle_anchor_adds_nothing` | planted period 0's anchor shrunk by its length: old and new fail; planted smoothness without its hours factor: old and new fail |
 | `test_solver_adequacy_max_kwh_per_day.py` | #482 | `test_solver_contracts::test_max_kwh_per_day_caps_each_day`, `::test_a_daily_cap_of_zero_or_less_is_refused` | planted one global cap despite timestamps: old and new fail; planted no global fallback without timestamps: old and new fail |
+| `test_solver_degradation_cost.py` | Track B2 | `test_plan_features::test_the_plan_costs_what_its_flows_cost` (now drawing a cycle-wear rate, zero included, priced on throughput both ways); `test_solver_contracts::test_a_negative_cycle_wear_cost_is_refused`; the large-cost collapse follows from optimality (`test_plan_invariants::test_a_battery_never_costs_more_than_leaving_it_idle`) | planted cycle wear on charge only: old and new fail |
 
 ## Still to check
 
-The other 40 files, smallest first. Nothing is deleted until every row is
+The other 39 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

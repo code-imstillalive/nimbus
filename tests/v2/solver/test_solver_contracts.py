@@ -1309,3 +1309,11 @@ def test_a_daily_cap_of_zero_or_less_is_refused(cap):
             shortfall_price=5.0,
             max_kwh_per_day=cap,
         )
+
+
+@given(_num(0.0001, 5.0))
+def test_a_negative_cycle_wear_cost_is_refused(cost):
+    """Cycle wear (Track B2) is a cost; a negative one would pay the plan to
+    cycle the battery."""
+    with pytest.raises(ValueError):
+        _battery(degradation_cost_per_kwh=-cost)

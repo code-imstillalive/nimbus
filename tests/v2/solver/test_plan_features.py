@@ -91,6 +91,10 @@ def _parts(site, plan):
         plan.battery_charge_kw * b["charge_cost"] * h
         + plan.battery_discharge_kw * b["discharge_cost"] * h
     )
+    # Cycle wear (Track B2): $/kWh of throughput in either direction.
+    wear += b.get("degradation_cost_per_kwh", 0.0) * np.sum(
+        (plan.battery_charge_kw + plan.battery_discharge_kw) * h
+    )
     salvage = -b["salvage_value"] * plan.battery_soc_kwh[-1]
     shed = sum(
         float(np.sum(s.shed_kw * site["sheddable"]["shed_cost"] * h))
@@ -109,12 +113,14 @@ def _parts(site, plan):
 
 
 @SETTINGS
-@given(plain_sites())
-def test_the_plan_costs_what_its_flows_cost(site):
+@given(plain_sites(), st.sampled_from([0.0, 0.01, 0.05, 0.3]))
+def test_the_plan_costs_what_its_flows_cost(site, degradation):
     """The objective is the flows priced at the inputs (#390, #788): grid
-    energy, battery wear, salvage of the energy left, shedding, and the
-    release valve's markup, the loss tie-break and the charge earliness the
-    plan reports. Any coefficient changed inside the LP shows up as a gap."""
+    energy, battery wear (cycle wear too, at any rate, zero included),
+    salvage of the energy left, shedding, and the release valve's markup,
+    the loss tie-break and the charge earliness the plan reports. Any
+    coefficient changed inside the LP shows up as a gap."""
+    site["battery"]["degradation_cost_per_kwh"] = degradation
     plan = _solve(site)
     assert plan.status == "optimal"
     assert abs(plan.total_cost - _parts(site, plan)) < 1e-6
