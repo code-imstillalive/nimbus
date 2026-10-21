@@ -22,6 +22,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp, network
 from solver.elements import (
+    DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     MIN_CHARGE_DISCHARGE_COST_SPREAD,
     AdequacyLoadConfig,
     AdequacyWindow,
@@ -35,6 +36,7 @@ from solver.elements import (
 )
 from solver.network import DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW, build_plan
 from solver.p2p_export import realized_export_bonus_credit
+from test_network_paths import _idle_battery
 from test_plan_invariants import SETTINGS, TOL, _num, sites
 
 
@@ -669,6 +671,99 @@ def test_two_batteries_on_one_charger_share_it_discharging(site, share):
     carried = min(ceiling, 2 * b["max_discharge_kw"]) * float(np.sum(h))
     sold = float(np.sum(together * h))
     assert abs(sold - min(held, carried)) < 1e-4
+
+
+@SETTINGS
+@given(
+    st.lists(
+        st.tuples(st.integers(1, 4), st.integers(1, 6), _num(0.1, 12.0)),
+        min_size=1,
+        max_size=3,
+    ),
+    _num(0.3, 3.0),
+    st.sampled_from([0.5, 1.0]),
+    st.booleans(),
+)
+def test_each_window_delivers_its_own_target_inside_its_own_periods(
+    shapes, power, width, semi
+):
+    """#612 ("plan_forecast is 0.0 for 10-13 Sep ... later days' battery
+    plans ignore the daily 2 kWh"). A load with several daily windows,
+    separated by gaps: each window delivers its OWN target inside its OWN
+    periods, or all it can reach there; one window's surplus never counts
+    toward another's. Nothing runs between windows, even where the grid
+    pays to take power (a negative price in every gap). An unreachable window
+    is a priced shortfall, not an infeasible plan, and leaves every other
+    window served. The reported shortfall is the nearest window's alone
+    (#739, Mark Purcell: a future day's unreachable target leaked into
+    today's "will miss target"). Run once (#616, the default), a window
+    runs whole periods at full power: a target between two whole numbers of
+    periods is rounded up or left a priced shortfall, whichever costs less."""
+    windows = []
+    t = 0
+    for gap, length, target in shapes:
+        t += gap
+        windows.append(
+            AdequacyWindow(
+                earliest_period=t, deadline_period=t + length - 1, target_kwh=target
+            )
+        )
+        t += length
+    n = t + 2
+    inside = np.zeros(n, dtype=bool)
+    for w in windows:
+        inside[w.earliest_period : w.deadline_period + 1] = True
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.where(inside, 0.30, -0.10),
+            export_price=np.zeros(n),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=power,
+                target_kwh=windows[0].target_kwh,
+                earliest_period=windows[0].earliest_period,
+                deadline_period=windows[0].deadline_period,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                windows=tuple(windows),
+            )
+        ],
+        adequacy_semi_continuous=semi,
+    )
+    assert plan.status == "optimal"
+    (al,) = plan.adequacy_loads
+    step = power * width
+    for w in windows:
+        span = slice(w.earliest_period, w.deadline_period + 1)
+        reach = power * width * (w.deadline_period - w.earliest_period + 1)
+        delivered = float(np.sum(al.power_kw[span] * width))
+        if not semi or w.target_kwh >= reach:
+            assert delivered == pytest.approx(min(w.target_kwh, reach), abs=1e-4)
+            continue
+        down = step * np.floor(w.target_kwh / step + 1e-9)
+        up = min(down + step, reach)
+        short = (w.target_kwh - down) * DEFAULT_ADEQUACY_SHORTFALL_PRICE
+        run = (up - down) * 0.30
+        if short < run - 1e-6:
+            assert delivered == pytest.approx(down, abs=1e-4)
+        elif run < short - 1e-6:
+            assert delivered == pytest.approx(up, abs=1e-4)
+        else:
+            assert min(abs(delivered - down), abs(delivered - up)) <= 1e-4
+    assert np.all(al.power_kw[~inside] <= 1e-9)
+    first = windows[0]
+    span0 = slice(first.earliest_period, first.deadline_period + 1)
+    delivered0 = float(np.sum(al.power_kw[span0] * width))
+    assert al.shortfall_kwh == pytest.approx(
+        max(0.0, first.target_kwh - delivered0), abs=1e-4
+    )
 
 
 @SETTINGS
