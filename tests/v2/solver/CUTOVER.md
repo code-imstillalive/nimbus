@@ -86,8 +86,10 @@ the old file was written for and show both sets fail.
 | `test_solver_degradation_cost.py` | Track B2 | `test_plan_features::test_the_plan_costs_what_its_flows_cost` (now drawing a cycle-wear rate, zero included, priced on throughput both ways); `test_solver_contracts::test_a_negative_cycle_wear_cost_is_refused`; the large-cost collapse follows from optimality (`test_plan_invariants::test_a_battery_never_costs_more_than_leaving_it_idle`) | planted cycle wear on charge only: old and new fail |
 | `test_solver_grid_import_excess_slack.py` | #390 | `test_plan_features::test_the_release_valve_takes_only_what_the_limit_cannot` (now also: optimal with the load above the limit, and `import_cap_breach_kwh` = the excess energy) | planted no release valve (excess capped at 0): old and new fail |
 | `test_solver_battery_charge_earliness_preference.py` | #692, #613, #493 | `test_plan_features::test_charge_earliness_costs_what_its_rate_says` (earlier is cheaper for the same energy; zero budget, zero cost); `test_solver_contracts::test_charge_earliness_never_outweighs_a_real_price` | planted an economic-size budget (1.0): old and new fail |
+| `test_1360_retry_unknown.py` | #1360 | `test_solver_contracts::test_an_unknown_gets_one_interior_point_retry` (plain, calibrated and lex; rescued and not), `::test_the_retry_restores_the_solver_option`, `::test_a_mip_unknown_is_not_retried`, `::test_an_ordinary_solve_counts_no_retry` (behaviour, where the old file read the source text) | planted no interior-point retry, and no option restore: old and new fail |
+| `test_1360_failure_status_and_unknown_retries_recorded.py` | #1360, #1723 | the counting: `::test_an_unknown_gets_one_interior_point_retry` (attempted and recovered), `::test_a_quiet_solve_is_retried_but_never_counted`. **Stays** for `solver_publish.py`'s cutover: its last test reads that module's published attributes | planted no recovered count: old and new fail; planted a quiet (stochastic) solve counted: **only new fails** |
 
 ## Still to check
 
-The other 37 files, smallest first. Nothing is deleted until every row is
+The other 35 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.
