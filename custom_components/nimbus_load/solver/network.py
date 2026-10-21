@@ -4646,7 +4646,13 @@ def _build_plan_once(
                 ub = raw_ub
                 rc = raw_rc
             rc_kwh[t] = rc
-            degenerate[t] = is_degenerate
+            # nimbus issue #1981: a period whose own ceiling is ~0 (outside an
+            # adequacy window, or a sheddable forecast of 0) has no headroom
+            # either way, and its band below is clamped to zero width. The
+            # unclamped ranging can still report room there, depending on the
+            # basis HiGHS lands on (a sheddable load beside it was enough), so
+            # the flag follows the band, not the ranging.
+            degenerate[t] = is_degenerate or ub < _INTENT_TOL
             if ub < _INTENT_TOL:
                 # This period's own ceiling is itself ~0 -- nothing real
                 # to cap. UNLIMIT when the plan would genuinely take

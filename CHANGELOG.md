@@ -22,6 +22,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   load. The tier row now takes the excess off, as it already did below Min SoC
   (#328). Plans that end within Max SoC are unchanged.
 
+- **A load's shut period always reads as degenerate**
+  ([#1981](https://github.com/code-imstillalive/nimbus/issues/1981)). A period
+  outside an adequacy load's window has a zero band, but its `degenerate` flag in
+  the flex signals' `load_signals` followed the solver's unclamped ranging, so
+  another load in the same solve could turn it off. It now follows the band.
+  Dispatch is unchanged.
+
 ## [0.94.479] - 2026-10-21
 
 **DC-006 slice 2: the Forecaster reads the device setup in `active`.**

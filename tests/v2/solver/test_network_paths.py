@@ -20,6 +20,7 @@ from solver.elements import (
     GridConfig,
     LoadConfig,
     PeriodGrid,
+    SheddableLoadConfig,
     SolarConfig,
     ThermalLoadConfig,
 )
@@ -280,6 +281,51 @@ def test_a_thermal_load_on_a_price_tie_heats_at_the_first_instant(
     pw = plan.thermal_loads[0].power_kw
     assert pw[1] <= 1e-6
     assert abs(pw[0] - power) <= 1e-6
+
+
+@pytest.mark.parametrize("neighbour", [False, True])
+@pytest.mark.parametrize("price", [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)])
+def test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve(price, neighbour):
+    """#1981 (#492's flag): an adequacy period outside its window has a
+    ceiling of 0, so its band is zero width and it is degenerate. The flag
+    used to follow HiGHS's unclamped ranging instead, and a sheddable load
+    in the same solve was enough to turn it off."""
+    n = len(price)
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(price),
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        sheddable_loads=[
+            SheddableLoadConfig(name="pool", forecast_kw=np.ones(n), shed_cost=0.3)
+        ]
+        if neighbour
+        else None,
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=3.0,
+                target_kwh=1.0,
+                deadline_period=0,
+                earliest_period=0,
+                shortfall_price=5.0,
+            )
+        ],
+        adequacy_semi_continuous=False,
+        compute_signals=True,
+    )
+    assert plan.status == "optimal"
+    sig = plan.load_signals[-1]
+    assert sig.name == "hws"
+    for t in range(1, n):
+        assert sig.degenerate[t], t
+        assert sig.band_min_kw[t] == sig.band_max_kw[t] == pytest.approx(0.0)
 
 
 @SETTINGS
