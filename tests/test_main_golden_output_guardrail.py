@@ -801,7 +801,7 @@ _EXPECTED_FORECAST_SAMPLE = {
         # period_hours_arr[i] correction verified at the top-level
         # energy_shadow_price_now (this period's own copy of the same
         # power_balance_t0 dual, same value by construction).
-        "shadow_price": 0.3,
+        "shadow_price": 0.2999,  # nimbus #1964: the calibrated blend's dual, as energy_shadow_price_now
         # nimbus issue #493: no envelope entity configured in this
         # fixture -- flat static 15.0 at every period.
         "envelope_import_limit_kw": 15.0,
