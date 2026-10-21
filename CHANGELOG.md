@@ -30,6 +30,27 @@ running now, in yellow, beside the price that settles for it.
   a missing reading will be held, never read as zero, and each model keeps
   the battery sign it was trained with.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 472a83d9**,
+  installed untagged via HACS from `release/0.94.474` and restarted at about
+  10:03 AEST on 21 Oct. devhub's own per-battery SoC sensors published on
+  0.94.474 at 10:04:22. The log shows only the devhub-only baseline
+  (duplicate unique IDs, Forecaster drift notes, recorder attribute sizes,
+  mirrored sensors without a unit while the mirror reconnects); nothing from
+  this release. The Price sources card's template, rendered in devhub's Home
+  Assistant against production's mirrored plan: without `now` (production on
+  0.94.473) it shows no Now column and no error; with a `now` block added it
+  shows the yellow, bold Now column, the Settled row, a dash for a source with
+  no price now, and the Gap.
+  - **Not claimed live:** the `now` attribute from a real solve. devhub's own
+    plan entity loses its id to production's mirror (`unavailable` under
+    `_3`). Covered by `tests/test_consolidation_next_slots.py`,
+    `tests/test_price_sources_card.py` and the golden snapshots. The unit
+    Repair: devhub's device setup is not in shadow or active, so none is
+    raised; covered by the #1943 tests.
+- Consumer check: on the Solver tab, the Price sources table's first price
+  column is **Now**, in yellow, with the Settled price above each source's own
+  price for the interval running now.
+
 ## [0.94.473] - 2026-10-21
 
 **A new price source has to earn its place in the blend.** A price source
