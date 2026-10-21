@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **A battery above its Max SoC no longer loses the whole plan when terminal-value
+  tiers are set** ([#1987](https://github.com/code-imstillalive/nimbus/issues/1987)).
+  A live reading over Max SoC that could not discharge back under it by the tier
+  period made every solve infeasible, so nothing was planned for any battery or
+  load. The tier row now takes the excess off, as it already did below Min SoC
+  (#328). Plans that end within Max SoC are unchanged.
+
 ## [0.94.479] - 2026-10-21
 
 **DC-006 slice 2: the Forecaster reads the device setup in `active`.**
