@@ -81,8 +81,9 @@ the old file was written for and show both sets fail.
 | `test_solver_adequacy_max_kwh_per_day.py` | #482 | `test_solver_contracts::test_max_kwh_per_day_caps_each_day`, `::test_a_daily_cap_of_zero_or_less_is_refused` | planted one global cap despite timestamps: old and new fail; planted no global fallback without timestamps: old and new fail |
 | `test_solver_degradation_cost.py` | Track B2 | `test_plan_features::test_the_plan_costs_what_its_flows_cost` (now drawing a cycle-wear rate, zero included, priced on throughput both ways); `test_solver_contracts::test_a_negative_cycle_wear_cost_is_refused`; the large-cost collapse follows from optimality (`test_plan_invariants::test_a_battery_never_costs_more_than_leaving_it_idle`) | planted cycle wear on charge only: old and new fail |
 | `test_solver_grid_import_excess_slack.py` | #390 | `test_plan_features::test_the_release_valve_takes_only_what_the_limit_cannot` (now also: optimal with the load above the limit, and `import_cap_breach_kwh` = the excess energy) | planted no release valve (excess capped at 0): old and new fail |
+| `test_solver_battery_charge_earliness_preference.py` | #692, #613, #493 | `test_plan_features::test_charge_earliness_costs_what_its_rate_says` (earlier is cheaper for the same energy; zero budget, zero cost); `test_solver_contracts::test_charge_earliness_never_outweighs_a_real_price` | planted an economic-size budget (1.0): old and new fail |
 
 ## Still to check
 
-The other 38 files, smallest first. Nothing is deleted until every row is
+The other 37 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

@@ -1317,3 +1317,41 @@ def test_a_negative_cycle_wear_cost_is_refused(cost):
     cycle the battery."""
     with pytest.raises(ValueError):
         _battery(degradation_cost_per_kwh=-cost)
+
+
+@SETTINGS
+@given(st.integers(4, 12), _num(0.05, 0.4), _num(0.005, 0.1), st.data())
+def test_charge_earliness_never_outweighs_a_real_price(n, price, gap, data):
+    """The charge-earliness tie-break (#692) breaks ties toward charging
+    early, but a later period cheaper by half a cent or more still wins
+    every kWh."""
+    cheap = data.draw(st.integers(1, n - 1))
+    imp = np.full(n, price)
+    imp[cheap] = price - gap
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=0.0,
+        ),
+        batteries=[
+            _battery(
+                capacity_kwh=10.0,
+                initial_soc_kwh=1.0,
+                min_soc_kwh=1.0,
+                max_soc_kwh=6.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+                salvage_value=price + 0.2,  # worth filling
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+    )
+    assert plan.status == "optimal"
+    charged = plan.battery_charge_kw
+    assert charged[cheap] > 1e-6
+    others = np.delete(charged, cheap)
+    assert np.all(others < 1e-6), charged
