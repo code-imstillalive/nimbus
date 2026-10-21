@@ -39,6 +39,7 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from . import device_observation
 from .anomaly import ResidualDriftStatus, detect_residual_drift, residual_drift_status
 from .const import (
     CONF_BATTERY_SENSOR,
@@ -225,6 +226,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_retrain: Any = None
         self._retraining = False
+        # DC-006 slice 2 (nimbus #1574): the device setup's mode and
+        # document, read at most once a minute, and the last good reading
+        # of each observation input for `active` (device_observation).
+        self._observation_hold = device_observation.ObservationHold()
+        self._contract_state: tuple[str, dict[str, Any] | None] = ("legacy", None)
+        self._contract_read_at: datetime | None = None
+        #: The observation inputs of the last cycle, for diagnostics.
+        self._observation_inputs: dict[str, dict[str, Any]] = {}
         # nimbus issue #373 (Mark Purcell, codebase review): the only
         # operator-facing signal a retrain failure had before this was a
         # log line -- last_update_success stayed True (the *coordinator*
@@ -918,6 +927,23 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 in (TRAINING_SOURCE_LTS, TRAINING_SOURCE_HYBRID)
                 else None
             )
+            # DC-006 slice 2 (nimbus #1574): a model trained while the device
+            # setup is `active` learns the contract's canonical sign; in
+            # `legacy` nothing changes and the model is stamped "native".
+            mode, document = await self._async_contract_state()
+            trained_sign = device_observation.TRAINED_NATIVE
+            if mode == "active" and document is not None:
+                trained_sign = device_observation.TRAINED_CANONICAL
+                battery_events = _signed(
+                    battery_events,
+                    device_observation.sign_flip(document, "battery_power"),
+                )
+                grid_events = _signed(
+                    grid_events, device_observation.sign_flip(document, "grid_power")
+                )
+                solar_events = _signed(
+                    solar_events, device_observation.sign_flip(document, "solar_power")
+                )
             trained = await self.hass.async_add_executor_job(
                 _train_model_job,
                 load_events,
@@ -943,6 +969,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if trained is None:
                 self._note_retrain_without_model()
             if trained is not None:
+                trained.power_feature_sign = trained_sign
                 self._trained = trained
                 # nimbus issue #1556: a model again, so the failure episode ends.
                 self._retrain_failing_since = None
@@ -1467,6 +1494,71 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return DEFAULT_FALLBACK_HUMIDITY_PCT
 
+    async def _async_contract_state(self) -> tuple[str, dict[str, Any] | None]:
+        """(mode, document) of this entry's device setup, read at most once
+        a minute; `legacy` and no document when it cannot be read."""
+        now = dt_util.utcnow()
+        read_at = getattr(self, "_contract_read_at", None)
+        if read_at is not None and (now - read_at).total_seconds() < 60:
+            return self._contract_state
+        self._contract_read_at = now
+        try:
+            from . import device_storage
+
+            state = await device_storage.ContractStore(
+                device_storage.ha_backend(self.hass, self.entry.entry_id)
+            ).async_read()
+            self._contract_state = (
+                str(state.get("mode") or "legacy"),
+                state.get("document"),
+            )
+        except Exception:  # never block a forecast on the device setup
+            _LOGGER.debug("Device setup unreadable; legacy inputs", exc_info=True)
+            self._contract_state = ("legacy", None)
+        return self._contract_state
+
+    def _contract_observation(
+        self,
+        document: dict[str, Any],
+        now_utc: datetime,
+        legacy_reads: dict[str, tuple[str | None, float]],
+    ) -> tuple[float, float, float]:
+        """Battery, grid and solar feature values in `active`."""
+        legacy = {
+            name: {"entity_id": entity, "value": value}
+            for name, (entity, value) in legacy_reads.items()
+        }
+
+        from . import device_contract_ha
+
+        read_state = device_contract_ha._state_reader(self.hass)
+
+        trained = self._trained
+        means: dict[str, float] = {}
+        if trained is not None:
+            for feature in device_observation.FEATURE_OF.values():
+                idx = FEATURE_NAMES.index(feature)
+                if len(trained.x_mean) > idx:
+                    means[feature] = float(trained.x_mean[idx])
+        rows = device_observation.forecaster_inputs(
+            "active",
+            document,
+            legacy,
+            read_state,
+            now_utc,
+            self.__dict__.setdefault(
+                "_observation_hold", device_observation.ObservationHold()
+            ),
+            getattr(trained, "power_feature_sign", device_observation.TRAINED_NATIVE),
+            means,
+        )
+        self._observation_inputs = rows
+        return (
+            rows["battery_power"]["value"],
+            rows["grid_power"]["value"],
+            rows["solar_power"]["value"],
+        )
+
     def _current_measured_power(self, entity_id: str | None) -> float:
         """Real measured battery/grid/solar power (kW), held flat across
         the whole forecast horizon. Unlike temperature (has a real
@@ -1988,6 +2080,24 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         current_battery_kw = self._current_measured_power(self._battery_sensor)
         current_grid_kw = self._current_measured_power(self._grid_sensor)
         current_solar_kw = self._current_measured_power(self._solar_sensor)
+        # DC-006 slice 2 (nimbus #1574): in `active`, the three come from
+        # the device setup (device_observation.forecaster_inputs); in
+        # `legacy` they are exactly the three readings above.
+        mode, document = await self._async_contract_state()
+        if mode == "active" and document is not None:
+            current_battery_kw, current_grid_kw, current_solar_kw = (
+                self._contract_observation(
+                    document,
+                    now_utc,
+                    {
+                        "battery_power": (self._battery_sensor, current_battery_kw),
+                        "grid_power": (self._grid_sensor, current_grid_kw),
+                        "solar_power": (self._solar_sensor, current_solar_kw),
+                    },
+                )
+            )
+        else:
+            self._observation_inputs = {}
 
         # Real recent history, not just the model's own state -- this is
         # the lag-feature seed. Fetched with a comfortable multiple of
@@ -2294,6 +2404,15 @@ def _model_age_days(trained_at: datetime | None) -> float | None:
     if not isinstance(trained_at, datetime) or trained_at.tzinfo is None:
         return None
     return (datetime.now(UTC) - trained_at.astimezone(UTC)).total_seconds() / 86400
+
+
+def _signed(
+    events: list[tuple[datetime, float]], factor: float
+) -> list[tuple[datetime, float]]:
+    """`events` with every value multiplied by `factor` (1.0: unchanged)."""
+    if factor == 1.0:
+        return events
+    return [(t, v * factor + 0.0) for t, v in events]
 
 
 def _train_model_job(
