@@ -93,6 +93,7 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
@@ -102,7 +103,7 @@ import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from solver import lp
+from solver import lp, network
 from solver.elements import (
     AdequacyLoadConfig,
     AdequacyWindow,
@@ -1251,12 +1252,104 @@ def test_a_profitable_spread_still_moves_one_way_per_period(
     # One-way either already, or after the direction-exclusive re-solve.
     assert plan.direction_exclusivity in ("not_needed", "enforced")
     assert plan.direction_two_way_pairs == 0
+    assert plan.direction_exclusivity_enforced == (
+        plan.direction_exclusivity == "enforced"
+    )
     ch, dc = plan.battery_charge_kw, plan.battery_discharge_kw
     gi, ge = plan.grid_import_kw, plan.grid_export_kw
     assert (np.minimum(ch, dc) <= 1e-6).all()
     assert (np.minimum(gi, ge) <= 1e-6).all()
     assert (ch + dc <= power + 1e-6).all()
     assert (gi + ge <= limit + 1e-6).all()
+
+
+# --- #1751: the direction check names its outcome on every path ---------------
+
+
+def _spread_site() -> dict:
+    """#1535's counterexample: a constant 21.16c import against 61.66c
+    export, which the first solve answers two-way."""
+    n = 6
+    return {
+        "periods": PeriodGrid(np.full(n, 0.5)),
+        "grid": GridConfig(
+            import_price=np.full(n, 0.2116),
+            export_price=np.full(n, 0.6166),
+            import_limit_kw=32.0,
+            export_limit_kw=30.0,
+        ),
+        "batteries": [_battery()],
+        "solar": SolarConfig(forecast_kw=np.zeros(n)),
+        "loads": [LoadConfig(name="house", forecast_kw=np.full(n, 0.357))],
+    }
+
+
+def _re_solve(make):
+    """Run the real first solve; replace each direction-exclusive re-solve
+    with `make(real_re_solve)`."""
+    real = network._build_plan_thermal_fallback
+
+    def fake(**kw):
+        if "direction_binaries" not in kw:
+            return real(**kw)
+        return make(real(**kw))
+
+    return patch.object(network, "_build_plan_thermal_fallback", fake)
+
+
+def _first_two_way_pairs() -> tuple[Plan, int]:
+    first = network._build_plan_thermal_fallback(**_spread_site())
+    pairs = len(network._opposing_flow_binaries(first))
+    assert first.status == "optimal" and pairs > 0  # the premise
+    return first, pairs
+
+
+def test_a_declined_re_solve_keeps_the_two_way_plan_and_says_so():
+    """#1751 (Mark Purcell): a direction-exclusive re-solve that does not
+    come back optimal keeps the first (two-way) plan, and the plan says
+    `declined` with the two-way pairs counted, not only a log line."""
+    first, pairs = _first_two_way_pairs()
+    with (
+        _re_solve(lambda strict: dataclasses.replace(strict, status="time_limit")),
+        patch.object(network._LOGGER, "warning") as warn,
+    ):
+        plan = build_plan(**_spread_site())
+    assert plan.status == "optimal"
+    assert plan.direction_exclusivity == "declined"
+    assert plan.direction_two_way_pairs == pairs
+    assert not plan.direction_exclusivity_enforced
+    np.testing.assert_array_equal(plan.grid_export_kw, first.grid_export_kw)
+    warn.assert_called_once()
+    assert "time_limit" in warn.call_args.args
+
+
+def test_a_re_solve_still_two_way_is_counted():
+    """#1751: re-solves that come back optimal but two-way leave
+    `still_two_way` and the pairs still open; the re-solved plan is kept."""
+    first, pairs = _first_two_way_pairs()
+    with (
+        _re_solve(lambda _strict: first),
+        patch.object(network._LOGGER, "warning") as warn,
+    ):
+        plan = build_plan(**_spread_site())
+    assert plan.direction_exclusivity == "still_two_way"
+    assert plan.direction_two_way_pairs == pairs
+    # the re-solve's plan is the one kept, so it is marked as enforced
+    assert plan.direction_exclusivity_enforced
+    warn.assert_called_once()
+
+
+def test_a_failed_first_solve_is_not_checked():
+    """#1751: no direction check on a plan that did not solve."""
+    real = network._build_plan_thermal_fallback
+
+    def first_fails(**kw):
+        return dataclasses.replace(real(**kw), status="infeasible")
+
+    with patch.object(network, "_build_plan_thermal_fallback", first_fails):
+        plan = build_plan(**_spread_site())
+    assert plan.direction_exclusivity == "not_checked"
+    assert plan.direction_two_way_pairs == 0
 
 
 @SETTINGS
