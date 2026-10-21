@@ -68,7 +68,7 @@ and a deferrable load's value per kWh counted again without windows.
   - **Not claimed live:** the Now column with real numbers. The card reads
     production's mirrored plan, which is 0.94.473 and publishes no `now`.
     Covered by `tests/test_price_sources_card.py`. The adequacy value credit:
-    devhub has no unwindowed value-priced load; covered by
+    not exercised on a live load; covered by
     `tests/v2/solver/test_adequacy_value_credit.py`. The going-live blueprint
     was exercised on devhub for #1955 (logbook-only actions), not again here.
 - Consumer check: on the Solver tab, Prices ahead is full width on the first
