@@ -66,13 +66,19 @@ the old file was written for and show both sets fail.
 
 ## Found while checking
 
+- **A real dispatch bug, fixed in #1963:** since 0.94.206 an adequacy load's
+  `value_per_kwh` credit applied only to loads with `windows` (#634 put a
+  windowed-only `continue` above it). Neither set caught it: the old
+  profit-horizon tests only ever run a load its shortfall price already
+  forces, and v2 had no value test at all until today.
 - With export above import in every period of a 144-period, 5-minute plan
   (a synthetic arbitrage: 7.5c spread, no load), the direction-exclusive
   re-solve hit the 60 s per-call limit and the plan was kept two-way
   (`declined`, 84 pairs). The v2 spread property keeps plans to 12 periods;
   this is recorded here, not tested, until it is triaged on its own.
+| `test_solver_adequacy_profit_horizon.py` | #482, #613, #612 | `test_solver_contracts::test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window` (windowed); `test_network_contracts::...profit...` (#1958); the unwindowed load: #1963's test | planted the credit capped at the first window only: the new property fails, the old file does not (its windows case sheds dearly, so the load runs regardless) |
 
 ## Still to check
 
-The other 43 files, smallest first. Nothing is deleted until every row is
+The other 42 files, smallest first. Nothing is deleted until every row is
 checked and the branch coverage comparison is posted on #1837.

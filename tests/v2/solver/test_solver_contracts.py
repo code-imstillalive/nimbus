@@ -60,6 +60,8 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
   price (#483, sub-issue of #476; #613 dual): with import the marginal kWh, that is its energy at the
   import price of each period; under a free solar surplus, nothing. It is
   reported whether or not the load has a value (#482's profit needs one).
+  Its profit is its value less that cost, over every window (#612); a load
+  priced out everywhere runs nothing and earns exactly 0.
 - Narrowing an adequacy load's window never makes the plan cheaper: the
   plan it picks in the wide window is optimal for it, so an unused period
   with a lower marginal price (#662: per kWh) is not a missed saving (#769's "smaller
@@ -95,6 +97,7 @@ from hypothesis import strategies as st
 from solver import lp
 from solver.elements import (
     AdequacyLoadConfig,
+    AdequacyWindow,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -1145,3 +1148,57 @@ def test_a_profitable_spread_still_moves_one_way_per_period(
     assert (np.minimum(gi, ge) <= 1e-6).all()
     assert (ch + dc <= power + 1e-6).all()
     assert (gi + ge <= limit + 1e-6).all()
+
+
+@SETTINGS
+@given(_num(0.02, 0.6), _num(0.02, 0.6), st.booleans(), _num(0.3, 2.0))
+def test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window(
+    value, price, two_windows, power
+):
+    if abs(value - price) < 1e-3:
+        return
+    n = 24
+    target = power * 2  # two hours of the load
+    # Windowed only: an unwindowed load's credit is #1963's fix and test.
+    windows = (
+        AdequacyWindow(earliest_period=2, deadline_period=8, target_kwh=target),
+    ) + (
+        (AdequacyWindow(earliest_period=14, deadline_period=20, target_kwh=target),)
+        if two_windows
+        else ()
+    )
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, price),
+            export_price=np.zeros(n),
+            import_limit_kw=power + 5.0,
+            export_limit_kw=5.0,
+        ),
+        batteries=[_battery(available=False)],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="miner",
+                max_power_kw=power,
+                target_kwh=target,
+                earliest_period=2,
+                deadline_period=8,
+                shortfall_price=0.01,  # shedding is cheaper than running dear
+                value_per_kwh=value,
+                windows=windows,
+            )
+        ],
+    )
+    assert plan.status == "optimal"
+    (al,) = plan.adequacy_loads
+    energy = float(np.sum(al.power_kw))
+    if value < price:
+        assert energy <= 1e-6
+        assert abs(al.profit_horizon) <= 1e-6
+    else:
+        # The credit is capped at the target (#606): it runs each window's
+        # target, no more.
+        assert abs(energy - target * (2 if two_windows else 1)) <= 1e-4
+        assert abs(al.profit_horizon - (value - price) * energy) <= 1e-6
