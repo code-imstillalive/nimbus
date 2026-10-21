@@ -63,7 +63,6 @@ that dropped a real spike only one source saw would have cost about $250
 
 The Solver tab's **Price sources** table shows them side by side: each
 source's share of the blend and how far off it has been, then the prices.
-The first price column, **Now** (yellow), is the interval running now: the
-**Settled** row is the price the plan uses for it, and each source's own
-price for it sits beside it. The next intervals follow, with the **Blend**
-and its **Gap** to your provider below.
+The first price column, **Now** (yellow), is the interval running now, with
+each source's own price for it; the next intervals follow. Below the
+sources, the **Blend** and its **Gap** to your provider, in every column.

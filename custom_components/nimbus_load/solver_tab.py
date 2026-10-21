@@ -403,8 +403,8 @@ _PRICE_SAFETY = (_SAFETY_GUARD, _SAFETY_SOURCE, _SAFETY_HOLD, _SAFETY_CONSOLIDAT
 # own price for the next slots beside the blend. One row and one column per
 # source the install has; a single source says there is nothing to blend.
 # No fixed height: the section is as tall as its content. Household, 21 Oct
-# 2026: a yellow, bold Now column first, for the interval running now, with
-# a Settled row for the price the plan uses for it.
+# 2026: a yellow, bold Now column first, for the interval running now; one
+# column and no extra row ("one row one column").
 _NOW_COLOUR = "gold"
 _CONSOLIDATION_SOURCES = {
     "type": "markdown",
@@ -436,9 +436,6 @@ _CONSOLIDATION_SOURCES = {
         "{% if nw %}| <font color='{{ y }}'>**Now {{ as_timestamp(nw.get('time')) | timestamp_custom('%H:%M') }}**</font> {% endif %}"
         "{% for t in times %}| {{ as_timestamp(t) | timestamp_custom('%H:%M') }} {% endfor %}|\n"
         "|---|---|---|---|---|---{% if nw %}|---{% endif %}{% for t in times %}|---{% endfor %}|\n"
-        "{% if nw %}| <font color='{{ y }}'>**Settled**</font> | | | | | "
-        "| <font color='{{ y }}'>**{{ c(nw.get('settled')) }}**</font> "
-        "{% for t in times %}| {% endfor %}|\n{% endif %}"
         "{% for n in names %}{% set m = mae.get(n) or {} %}{% set v = srcs.get(n) or [] %}"
         "| {{ label.get(n, n) }} | {{ ((w.get(n) * 100) | round(0) | int ~ '%') if w.get(n) is not none else '—' }} "
         "{% for b in buckets %}| {{ ((m.get(b) * 100) | round(1) ~ '¢') if m.get(b) is not none else '—' }} {% endfor %}"
@@ -450,12 +447,12 @@ _CONSOLIDATION_SOURCES = {
         "{% if nw %}| <font color='{{ y }}'>**{{ c(nw.get('consolidated')) }}**</font> {% endif %}"
         "{% for i in range(times | length) %}| **{{ ((blend[i] * 100) | round(1)) if i < blend | length and blend[i] is not none else '—' }}** {% endfor %}|\n"
         "| <font color='violet'>Gap</font> | | | | | "
-        "{% if nw %}{% set b = nw.get('consolidated') %}{% set p0 = nw.get('settled') %}"
+        "{% if nw %}{% set b = nw.get('consolidated') %}{% set p0 = nsrc.get('primary') %}"
         "| {% if b is not none and p0 is not none %}<font color='violet'>**{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}**</font>{% endif %} {% endif %}"
         "{% for i in range(times | length) %}{% set b = blend[i] if i < blend | length else none %}{% set p0 = prim[i] if i < prim | length else none %}"
         "| {% if b is not none and p0 is not none %}<font color='violet'>{{ '+' if b > p0 else '' }}{{ ((b - p0) * 100) | round(1) }}</font>{% endif %} {% endfor %}|\n"
         "{% endif %}"
-        "\n*Now: the interval running now; Settled is the price the plan uses for it. "
+        "\n*Now: the interval running now. "
         "Off: how far each source's forecast has been from the price that settled, by how far ahead. Share: how much each counts in the blend; — while it is still being scored, when it does not count. Prices in ¢/kWh.*"
         "{% endif %}"
     ),
