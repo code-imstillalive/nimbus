@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.479] - 2026-10-21
+
+**DC-006 slice 2: the Forecaster reads the device setup in `active`.**
+
 - **Device setup, the Forecaster in `active` (#1574, DC-006 slice 2).** With the
   device setup in `active`, each Forecaster model reads its battery, grid and
   solar power inputs from the device setup: in the sign it was trained with,
@@ -30,6 +34,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   tolerance. It is now a tie-break on the secondary objective, as the other
   tie-breaks have been since #696, so it no longer meets a real price. A plan
   solved without the calibrated objective keeps the old tie-break.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 672a16ee**
+  (`release/0.94.478`), installed via HACS and restarted at 15:53 AEST;
+  devhub's own Nimbus sensors published 0.94.478 by 15:56. The log after the
+  restart showed only devhub's known baseline (mirror duplicate-unique-ID
+  notices). devhub's own plan entity is unavailable (its known limitation),
+  so the bonus block is checked on production's first P2P window.
+- Consumer check: on the Solver tab's Whole Plan, the P2P export bonus
+  (lightning bolt) runs as one unbroken block to the end of the window,
+  without dropping out and back in.
 
 ## [0.94.477] - 2026-10-21
 

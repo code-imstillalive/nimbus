@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.479",
+        "21 Oct 2026",
+        (
+            (
+                "**Device setup (`active` only):** the Forecaster reads its battery, "
+                "grid and solar inputs from the device setup. Installs on `legacy` "
+                "or `shadow` see no change."
+            ),
+        ),
+    ),
+    (
         "0.94.478",
         "21 Oct 2026",
         (
