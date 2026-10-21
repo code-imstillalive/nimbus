@@ -606,3 +606,85 @@ def test_a_circuit_naming_an_unknown_load_is_refused_by_name():
         a.adequacy_loads[0].power_kw, b.adequacy_loads[0].power_kw
     )
     assert a.total_cost == b.total_cost
+
+
+def _tank_plan(n=24, **coupling):
+    th = {
+        "name": "hws",
+        "max_power_kw": 3.0,
+        "initial_temperature_c": 40.0,
+        "target_temperature_c": 60.0,
+        "earliest_period": 0,
+        "deadline_period": n - 1,
+        "heating_rate_c_per_kwh": 8.0,
+        "idle_decay_c_per_hour": 0.3,
+        **coupling,
+    }
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="load", forecast_kw=np.ones(n))],
+        thermal_loads=[ThermalLoadConfig(**th)],
+    )
+
+
+def _tank_kwh(plan) -> float:
+    return float(plan.thermal_loads[0].power_kw.sum())
+
+
+@SETTINGS
+@given(_num(-5.0, 35.0), _num(0.0, 20.0), _num(0.01, 0.1), _num(0.0, 0.1))
+def test_a_colder_day_or_a_leakier_tank_never_needs_less_heat(
+    ambient, colder_by, coeff, leakier_by
+):
+    """#481: with ambient coupling the outdoor forecast reaches the plan.
+    Holding the 60 C deadline target (met exactly, the #774 guarantee
+    unrelaxed), a colder day or a larger loss coefficient never schedules
+    fewer kWh, and the difference is real once the tank sits above both
+    ambients."""
+    n = 24
+    base = _tank_plan(n, loss_coeff_per_h=coeff, ambient_c=(ambient,) * n)
+    cold = _tank_plan(n, loss_coeff_per_h=coeff, ambient_c=(ambient - colder_by,) * n)
+    leaky = _tank_plan(n, loss_coeff_per_h=coeff + leakier_by, ambient_c=(ambient,) * n)
+    for plan in (base, cold, leaky):
+        assert plan.status == "optimal"
+        assert plan.thermal_guarantee_relaxed == []
+        assert plan.thermal_loads[0].temperature_c[-1] == pytest.approx(60.0, abs=1e-5)
+    assert _tank_kwh(cold) >= _tank_kwh(base) - 1e-6
+    assert _tank_kwh(leaky) >= _tank_kwh(base) - 1e-6
+    if colder_by > 1.0:
+        assert _tank_kwh(cold) > _tank_kwh(base) + 1e-6
+
+
+def test_the_ambient_gap_is_clamped_and_the_coast_line_errs_low():
+    """#481: a tank below ambient gains no free warmth (no cooling term
+    exists), so it needs exactly the rise over the heating rate; and the
+    coast reference under-estimates decay for a heated tank: less heat than
+    a flat rate pinned to the coast line's own first step."""
+    n = 24
+    hot = _tank_plan(n, loss_coeff_per_h=0.05, ambient_c=(80.0,) * n)
+    assert _tank_kwh(hot) == pytest.approx((60.0 - 40.0) / 8.0, abs=1e-4)
+    ambient = _tank_plan(n, loss_coeff_per_h=0.05, ambient_c=(0.0,) * n)
+    flat = _tank_plan(n, idle_decay_c_per_hour=0.05 * 1.0 * (40.0 - 0.0))
+    assert _tank_kwh(ambient) < _tank_kwh(flat)
+
+
+def test_a_short_outdoor_forecast_holds_its_last_value():
+    """#481: an outdoor series shorter than the plan holds its last value
+    (sample-and-hold, like every other series) rather than reverting to the
+    flat model mid-horizon."""
+    n = 24
+    short = _tank_plan(n, loss_coeff_per_h=0.05, ambient_c=(0.0, 0.0, 0.0))
+    full = _tank_plan(n, loss_coeff_per_h=0.05, ambient_c=(0.0,) * n)
+    np.testing.assert_allclose(
+        short.thermal_loads[0].temperature_c,
+        full.thermal_loads[0].temperature_c,
+        atol=1e-6,
+    )
