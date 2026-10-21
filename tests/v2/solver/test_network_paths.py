@@ -1463,3 +1463,116 @@ def test_opening_a_window_short_costs_the_release_price():
     short = _reserve_plan(8.0, 15.0, 0.10, 0.15, window, n=12, imp=0.228)
     assert float(topped.batteries[0].soc_kwh[5]) >= 15.0 - 1e-6
     assert float(short.batteries[0].soc_kwh[5]) < 15.0 - 1.0
+
+
+# --- price risk aversion (household 21 Aug 2026; split by Mark Purcell) ----------
+
+
+def _risk_plan(imp, exp, *, upper=None, lower=None, a=0.0, b=0.0):
+    n = len(imp)
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(imp, dtype=float),
+            export_price=np.asarray(exp, dtype=float),
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+            import_price_upper=upper,
+            export_price_lower=lower,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="battery",
+                capacity_kwh=40.0,
+                initial_soc_kwh=20.0,
+                min_soc_kwh=2.0,
+                max_soc_kwh=40.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+                charge_efficiency=0.975,
+                discharge_efficiency=0.975,
+                charge_cost=0.005,
+                discharge_cost=0.01,
+                salvage_value=0.15,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
+        import_price_risk_aversion=a,
+        export_price_risk_aversion=b,
+    )
+
+
+@SETTINGS
+@given(
+    st.integers(2, 8),
+    st.data(),
+    st.sampled_from([0.0, 0.4, 1.0]),
+    st.sampled_from([0.0, 0.5, 1.0]),
+    st.booleans(),
+    st.booleans(),
+)
+def test_price_risk_plans_against_the_pessimistic_price_and_nothing_else(
+    n, data, a, b, with_upper, with_lower
+):
+    """Household, 21 Aug 2026 ("the forecasts are always wrong but they tend
+    to be more expensive in the afternoons"), split into two dials the same
+    day (Mark Purcell: hedging dear import must never also hedge cheap
+    export). The import dial leans each price toward its upper bound,
+    forecast + a x max(0, upper - forecast); the export dial leans the export
+    price toward its lower bound, forecast - b x max(0, forecast - lower). A
+    bound on the wrong side of the forecast moves nothing (clamped, never
+    inverted); a dial at 0, or no bound, moves nothing; and one dial never
+    touches the other side. The plan is exactly the plan for those prices
+    given directly, and it publishes them (household, 7 Sep: "moved slider,
+    nothing happened")."""
+    imp = np.array(data.draw(st.lists(_num(0.05, 0.6), min_size=n, max_size=n)))
+    exp = np.array(data.draw(st.lists(_num(0.0, 0.4), min_size=n, max_size=n)))
+    upper = (
+        np.array(data.draw(st.lists(_num(0.0, 1.0), min_size=n, max_size=n)))
+        if with_upper
+        else None
+    )
+    lower = (
+        np.array(data.draw(st.lists(_num(0.0, 0.5), min_size=n, max_size=n)))
+        if with_lower
+        else None
+    )
+    eff_imp = imp if upper is None else imp + a * np.maximum(0.0, upper - imp)
+    eff_exp = exp if lower is None else exp - b * np.maximum(0.0, exp - lower)
+    plan = _risk_plan(imp, exp, upper=upper, lower=lower, a=a, b=b)
+    direct = _risk_plan(eff_imp, eff_exp)
+    assert plan.status == direct.status == "optimal"
+    np.testing.assert_allclose(plan.effective_import_price, eff_imp, atol=1e-12)
+    np.testing.assert_allclose(plan.effective_export_price, eff_exp, atol=1e-12)
+    np.testing.assert_allclose(plan.battery_soc_kwh, direct.battery_soc_kwh, atol=1e-6)
+    assert plan.total_cost == pytest.approx(direct.total_cost, abs=1e-6)
+
+
+@SETTINGS
+@given(_num(0.0, 1.0), _num(1.0, 10.0), _num(0.0, 5.0), _num(0.0, 5.0))
+def test_the_solar_dial_publishes_the_solar_it_plans_with(risk, forecast, down, up):
+    """The solar dial's mirror (household, 7 Sep): the plan publishes the
+    solar it planned with, forecast - risk x max(0, forecast - lower), so a
+    zero-width band is honestly no effect whatever the dial says."""
+    n = 4
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(
+            forecast_kw=np.full(n, forecast),
+            lower_kw=np.full(n, max(0.0, forecast - down)),
+            upper_kw=np.full(n, forecast + up),
+        ),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
+        risk_aversion=risk,
+    )
+    assert plan.status == "optimal"
+    want = forecast - risk * min(down, forecast)
+    np.testing.assert_allclose(plan.effective_solar_kw, want, atol=1e-9)
