@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from solver import lp, network
 from solver.elements import (
     MIN_CHARGE_DISCHARGE_COST_SPREAD,
     AdequacyLoadConfig,
@@ -1666,3 +1667,185 @@ def test_the_export_bonus_cap_resets_at_each_calendar_midnight(
         period_starts=periods.period_starts,
     )
     assert abs(collected - settled) < 1e-5
+
+
+# --- #1818: an unreachable departure target is a priced shortfall --------------
+
+_DEP_N, _DEP_H, _EV_KW = 12, 0.5, 12.0
+_DEP_EFF = 0.95**0.5
+
+
+def _ev(deadline, target, initial=3.0, **extra):
+    """#1818's EV: 60 kWh, 5% SoC below a 20% floor, 12 kW."""
+    return BatteryConfig(
+        name="Test EV",
+        capacity_kwh=60.0,
+        initial_soc_kwh=initial,
+        min_soc_kwh=12.0,
+        max_soc_kwh=60.0,
+        max_charge_kw=_EV_KW,
+        max_discharge_kw=_EV_KW,
+        charge_efficiency=_DEP_EFF,
+        discharge_efficiency=_DEP_EFF,
+        charge_cost=0.005,
+        discharge_cost=0.01,
+        salvage_value=0.0,
+        must_have_soc_by_period_index=deadline,
+        must_have_soc_kwh=target,
+        **extra,
+    )
+
+
+def _reach(periods, kw=_EV_KW, initial=3.0):
+    return min(initial + periods * kw * _DEP_EFF * _DEP_H, 60.0)
+
+
+def _departure_plan(ev, *, options=None, adequacy=None):
+    lp._lex_calibration_failed_until = 0.0  # module state: never skip phases
+    return build_plan(
+        periods=PeriodGrid(
+            np.full(_DEP_N, _DEP_H), start=datetime(2026, 10, 16, 18, tzinfo=UTC)
+        ),
+        grid=GridConfig(
+            import_price=np.full(_DEP_N, 0.30),
+            export_price=np.full(_DEP_N, 0.05),
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=40.0,
+                initial_soc_kwh=20.0,
+                min_soc_kwh=4.0,
+                max_soc_kwh=40.0,
+                max_charge_kw=10.0,
+                max_discharge_kw=10.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.005,
+                discharge_cost=0.01,
+                salvage_value=0.05,
+            ),
+            ev,
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(_DEP_N)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(_DEP_N))],
+        adequacy_loads=adequacy,
+        solve_options=options,
+    )
+
+
+def _ev_of(plan):
+    return next(b for b in plan.batteries if b.name == "Test EV")
+
+
+@pytest.mark.parametrize("binaries", [False, True])
+@pytest.mark.parametrize("options", [None, "calibrated"])
+def test_an_unreachable_departure_target_charges_flat_out_and_prices_the_rest(
+    options, binaries, caplog
+):
+    """#1818 (a test install, 17 Oct 2026: an EV at 5% with 80% due in under
+    four hours of charging made the hard row unsatisfiable, presolve rejected
+    the model, and every cycle published `infeasible`, no dispatch for any
+    battery). Now the plan solves on every path production takes (the
+    calibrated solve, with binaries in the model) and logs no #773 ERROR:
+    the EV charges flat out to the deadline, the gap is the shortfall, and
+    it is priced as SoC penalty at the soft-SoC rate (#781: not left to
+    land in the terminal credit)."""
+    network._DEPARTURE_UNREACHABLE_WARNED.clear()
+    adequacy = (
+        [
+            AdequacyLoadConfig(
+                name=f"load{i}",
+                max_power_kw=2.0,
+                target_kwh=3.0,
+                deadline_period=_DEP_N - 1,
+                earliest_period=0,
+                shortfall_price=50.0,
+            )
+            for i in range(3)
+        ]
+        if binaries
+        else None
+    )
+    with caplog.at_level(logging.ERROR, logger="solver.lp"):
+        plan = _departure_plan(
+            _ev(1, 48.0),
+            options=lp.CalibratedOptions() if options else None,
+            adequacy=adequacy,
+        )
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert plan.status == "optimal"
+    ev = _ev_of(plan)
+    np.testing.assert_allclose(ev.charge_kw[:2], [_EV_KW, _EV_KW], atol=1e-6)
+    assert ev.soc_kwh[1] == pytest.approx(_reach(2), abs=1e-5)
+    short = plan.departure_target_shortfall_kwh["Test EV"]
+    assert short == pytest.approx(48.0 - _reach(2), abs=1e-5)
+    if not binaries:
+        rate = network.DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * 0.30
+        under = sum(max(0.0, 12.0 - float(s)) for s in ev.soc_kwh) + sum(
+            max(0.0, 4.0 - float(s)) for s in plan.batteries[0].soc_kwh
+        )
+        assert plan.soc_penalty_cost == pytest.approx(rate * (under + short), abs=1e-4)
+
+
+def test_a_departure_due_now_while_away_is_all_shortfall():
+    """#1818, from 08:00: the deadline resolved to period 0 with the car
+    away, so nothing can charge; the whole target is short and it solves."""
+    ev = _ev(0, 48.0, available=False, unavailable_until_period_index=2)
+    plan = _departure_plan(ev, options=lp.CalibratedOptions())
+    assert plan.status == "optimal"
+    assert plan.departure_target_shortfall_kwh["Test EV"] == pytest.approx(45.0)
+
+
+def test_a_shared_charger_ceiling_limits_the_reach():
+    """#1818 with #467: a 12 kW car on a 7 kW shared charger reaches less
+    than its own rate suggests; a target between the two reaches is
+    unreachable, so it is priced, not left to make the plan infeasible."""
+    target = 0.5 * (_reach(2, 7.0) + _reach(2))
+    ev = _ev(1, target, shared_charger_group="garage", shared_charger_max_kw=7.0)
+    plan = _departure_plan(ev, options=lp.CalibratedOptions())
+    assert plan.status == "optimal"
+    assert "Test EV" in plan.departure_target_shortfall_kwh
+
+
+@pytest.mark.parametrize(
+    ("deadline", "target", "initial"),
+    [(10, 48.0, 3.0), (1, None, 3.0), (6, 40.0, 30.0)],
+    ids=["below-floor-recovers", "exactly-at-reach", "in-range"],
+)
+def test_a_reachable_target_keeps_the_hard_row(deadline, target, initial):
+    """#1818: whenever the target is reachable, the model is the one it
+    was (the hard `battery_departure_deadline_*` row, no soft row, no
+    shortfall) and the target is met, including exactly at reach."""
+    target = _reach(2) if target is None else target
+    plan = _departure_plan(
+        _ev(deadline, target, initial), options=lp.CalibratedOptions()
+    )
+    assert plan.status == "optimal"
+    assert plan.departure_target_shortfall_kwh == {}
+    assert _ev_of(plan).soc_kwh[deadline] >= target - 1e-5
+    rows = set(plan.duals or {})
+    assert "battery_departure_deadline_Test EV" in rows
+    assert "battery_departure_deadline_soft_Test EV" not in rows
+
+
+def test_an_unreachable_departure_warns_once():
+    """#1818: one WARNING per departure, then DEBUG on every later cycle."""
+    network._DEPARTURE_UNREACHABLE_WARNED.clear()
+    records: list[logging.LogRecord] = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    log = logging.getLogger("solver.network")
+    log.addHandler(handler)
+    level = log.level
+    log.setLevel(logging.DEBUG)
+    try:
+        _departure_plan(_ev(1, 48.0))
+        _departure_plan(_ev(1, 48.0))
+    finally:
+        log.removeHandler(handler)
+        log.setLevel(level)
+    levels = [r.levelno for r in records if "cannot reach" in r.getMessage()]
+    assert levels == [logging.WARNING, logging.DEBUG]
