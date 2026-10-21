@@ -54,6 +54,13 @@ fees no longer pull the blend up or count as forecast error.
   still judged on raw prices, and the spread is unchanged. Shadow only while
   consolidation is off.
 
+- Consumer check: on the Solver tab's Price sources table, each source's own
+  price is unchanged (Amber still shows its own, higher price); once a source
+  has 50 settled samples at a lead, the Blend and Gap no longer carry its
+  steady premium. The plan's `price_consolidation` attribute gains
+  `bias_by_source_and_lead`; on production at 15:01 AEST it showed Amber about
+  2.5c above the provider at the 0-60 min leads.
+
 ## [0.94.476] - 2026-10-21
 
 **The Now column shows your provider's price.** On the first live plan with
