@@ -55,6 +55,26 @@ and a deferrable load's value per kWh counted again without windows.
   beats the price, as a windowed load already did. Loads with windows, and
   loads with no value set, are unchanged.
 
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 40af4d02**,
+  installed untagged via HACS from `release/0.94.475` and restarted (the
+  recorder's run began 13:23:30 AEST, 21 Oct). devhub's own per-battery SoC
+  sensors published on 0.94.475 at 13:24:52. The log shows only the
+  devhub-only baseline (duplicate unique IDs, Forecaster entity renames left
+  in place); nothing from this release. Prices ahead's hidden history series
+  was chosen by the household on devhub's own screen before this release:
+  full width on three first visits running, where an unchanged copy and a
+  redraw-on-resize copy needed a second visit. The one-column Price sources
+  card is on devhub's Solver tab and renders without error.
+  - **Not claimed live:** the Now column with real numbers. The card reads
+    production's mirrored plan, which is 0.94.473 and publishes no `now`.
+    Covered by `tests/test_price_sources_card.py`. The adequacy value credit:
+    not exercised on a live load; covered by
+    `tests/v2/solver/test_adequacy_value_credit.py`. The going-live blueprint
+    was exercised on devhub for #1955 (logbook-only actions), not again here.
+- Consumer check: on the Solver tab, Prices ahead is full width on the first
+  visit; the Price sources table's Now column is a single yellow column, with
+  no Settled row, once the plan publishes `now`.
+
 ## [0.94.474] - 2026-10-21
 
 **The Price sources table shows right now.** It starts with the interval
