@@ -215,6 +215,24 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.475",
+        "21 Oct 2026",
+        (
+            (
+                "**Going live:** a step-by-step guide, and a battery dispatch "
+                "blueprint with an arm switch, a fallback and a dwell."
+            ),
+            (
+                "**Solver tab:** the Price sources Now column is one column; "
+                "Prices ahead is full width on the first visit."
+            ),
+            (
+                "**Deferrable loads:** a value per kWh counts again on a load "
+                "without per-day windows."
+            ),
+        ),
+    ),
+    (
         "0.94.474",
         "21 Oct 2026",
         (

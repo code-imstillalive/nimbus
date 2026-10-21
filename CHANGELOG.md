@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.475] - 2026-10-21
+
+**Going live, and three fixes you can see.** A step-by-step guide and a
+ready-made automation for letting Nimbus drive the battery; the Price sources
+table's Now column as one column; Prices ahead full width on the first visit;
+and a deferrable load's value per kWh counted again without windows.
+
 - **The Price sources table's Now column is one column, no extra row**
   (household, 21 Oct 2026). 0.94.474 added a *Settled* row under the header;
   it is gone. The Now column shows each source's own price for the interval
