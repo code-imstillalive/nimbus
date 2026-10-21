@@ -821,3 +821,212 @@ def test_load_signals_are_opt_in():
         signals=False,
     )
     assert plan.status == "optimal" and plan.load_signals == []
+
+
+# --- the export floor ("don't sell below", household 20 Oct 2026) ---------------
+
+_FLOOR_N = 12
+_FLOOR_H = np.full(_FLOOR_N, 0.5)
+
+
+def _floor_battery(soc, capacity=15.0, **over):
+    return BatteryConfig(
+        **{
+            "name": "home",
+            "capacity_kwh": capacity,
+            "initial_soc_kwh": soc,
+            "min_soc_kwh": 2.0,
+            "max_soc_kwh": capacity,
+            "max_charge_kw": 36.0,
+            "max_discharge_kw": 36.0,
+            "charge_efficiency": 0.97,
+            "discharge_efficiency": 0.97,
+            "charge_cost": 0.0,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.0,
+            **over,
+        }
+    )
+
+
+def _floor_plan(floor, *, soc, surplus, morning_export, fixed=None, capacity=15.0, **b):
+    """The 20 Oct morning: four sunny half-hours with `surplus` kW spare,
+    two of cheaper grid with no sun, then an evening at 40c."""
+    n = _FLOOR_N
+    exp = np.array([morning_export] * 4 + [0.06] * 2 + [0.30] * 6)
+    imp = np.array([0.16] * 4 + [0.084] * 2 + [0.40] * 6)
+    return build_plan(
+        periods=PeriodGrid(_FLOOR_H),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=exp,
+            import_limit_kw=60.0,
+            export_limit_kw=40.0,
+            fixed_export_kw=fixed,
+            export_floor_price=floor,
+        ),
+        batteries=[_floor_battery(soc, capacity, **b)],
+        solar=SolarConfig(forecast_kw=np.array([3.0 + surplus] * 4 + [0.0] * 8)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 3.0))],
+    )
+
+
+@given(
+    st.lists(_num(-0.1, 0.5), min_size=1, max_size=12),
+    st.one_of(st.just(0.0), _num(0.01, 0.4)),
+)
+def test_the_floor_takes_away_all_but_the_residual_below_it(prices, floor):
+    """Below the floor an exported kWh keeps only the residual value; at or
+    above it, at or below the residual, and with the floor off (0), there is
+    no penalty. Never negative: the floor only ever makes export worth less."""
+    price = np.asarray(prices)
+    rates = network.export_floor_penalty_rates(price, floor)
+    res = network.EXPORT_FLOOR_RESIDUAL_VALUE
+    assert (rates >= 0).all()
+    for p_, r in zip(price, rates, strict=True):
+        if floor <= 0 or p_ >= floor or p_ <= res:
+            assert r == 0.0
+        else:
+            assert p_ - r == pytest.approx(res)
+
+
+@SETTINGS
+@given(_num(0.02, 0.14), _num(1.0, 6.0), _num(2.0, 15.0))
+def test_below_the_floor_spare_solar_is_stored_while_there_is_room(
+    morning_export, surplus, soc
+):
+    """The household's threshold, not an override. With the morning's
+    export price below a 15c floor, spare solar goes into the battery
+    before any of it is sold, and only what the battery cannot take is
+    exported; nothing is curtailed (the residual value keeps a full battery
+    exporting). Without the floor, the control: the same site is free to
+    sell. The penalty is exactly the floor's rates on what was exported."""
+    plan = _floor_plan(0.15, soc=soc, surplus=surplus, morning_export=morning_export)
+    assert plan.status == "optimal"
+    sunny = slice(0, 4)
+    stored = float(np.sum(plan.batteries[0].charge_kw[sunny] * _FLOOR_H[sunny]))
+    sold = float(np.sum(plan.grid_export_kw[sunny] * _FLOOR_H[sunny]))
+    spare = surplus * 2.0
+    room = (15.0 - soc) / 0.97
+    assert stored == pytest.approx(min(spare, room), abs=1e-4)
+    assert sold == pytest.approx(max(0.0, spare - room), abs=1e-4)
+    assert float(np.sum(plan.solar_curtailed_kw)) < 1e-6
+    rates = network.export_floor_penalty_rates(plan.effective_export_price, 0.15)
+    assert plan.export_floor_penalty_cost == pytest.approx(
+        float(np.sum(rates * plan.grid_export_kw * _FLOOR_H)), rel=1e-9, abs=1e-12
+    )
+
+
+def test_without_the_floor_the_morning_solar_is_sold():
+    """The 20 Oct control: 9c now against 8.4c grid later, so on price
+    alone the plan sells the spare solar and refills from the grid."""
+    plan = _floor_plan(0.0, soc=5.0, surplus=5.0, morning_export=0.09)
+    assert plan.status == "optimal"
+    assert float(np.sum(plan.grid_export_kw[:4] * _FLOOR_H[:4])) > 9.0
+    assert float(np.sum(plan.grid_import_kw[4:6] * _FLOOR_H[4:6])) > 9.0
+
+
+@SETTINGS
+@given(_num(0.02, 0.3), _num(1.0, 6.0), _num(2.0, 15.0), st.booleans())
+def test_a_floor_never_reached_changes_nothing(morning_export, surplus, soc, off):
+    """Off (0) is byte-identical to no floor at all. A floor at or below
+    every export price the plan sees decides nothing either: the plan is
+    the price-only plan, with no penalty, the evening export included."""
+    base = _floor_plan(0.0, soc=soc, surplus=surplus, morning_export=morning_export)
+    floor = 0.0 if off else min(morning_export, 0.06)
+    floored = _floor_plan(
+        floor, soc=soc, surplus=surplus, morning_export=morning_export
+    )
+    assert floored.export_floor_penalty_cost == 0.0
+    if off:
+        np.testing.assert_array_equal(floored.grid_export_kw, base.grid_export_kw)
+        np.testing.assert_array_equal(
+            floored.batteries[0].soc_kwh, base.batteries[0].soc_kwh
+        )
+        assert floored.total_cost == base.total_cost
+    else:
+        np.testing.assert_allclose(
+            floored.grid_export_kw, base.grid_export_kw, atol=1e-6
+        )
+        np.testing.assert_allclose(
+            floored.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-6
+        )
+
+
+@SETTINGS
+@given(_num(1.0, 4.0), _num(0.02, 0.14))
+def test_a_committed_export_below_the_floor_carries_no_penalty(rate, price):
+    """A P2P block's fixed rate below the floor, every other export price
+    above it: the floor cannot change a commitment, so it is not charged
+    for it and the plan is the floor-off plan. (Up to 4 kW: with the 3 kW
+    house that is what a full battery can deliver for the whole block.)"""
+    fixed = np.full(_FLOOR_N, np.nan)
+    fixed[6:9] = rate
+    exp = np.full(_FLOOR_N, 0.20)
+    exp[6:9] = price
+
+    def solve(floor):
+        return build_plan(
+            periods=PeriodGrid(_FLOOR_H),
+            grid=GridConfig(
+                import_price=np.array([0.16] * 4 + [0.084] * 2 + [0.40] * 6),
+                export_price=exp,
+                import_limit_kw=60.0,
+                export_limit_kw=40.0,
+                fixed_export_kw=fixed,
+                export_floor_price=floor,
+            ),
+            batteries=[_floor_battery(15.0)],
+            solar=SolarConfig(forecast_kw=np.zeros(_FLOOR_N)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(_FLOOR_N, 3.0))],
+        )
+
+    floored, base = solve(0.15), solve(0.0)
+    assert floored.status == base.status == "optimal"
+    np.testing.assert_allclose(floored.grid_export_kw[6:9], rate, atol=1e-6)
+    assert floored.export_floor_penalty_cost == pytest.approx(0.0, abs=1e-9)
+    np.testing.assert_allclose(
+        floored.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-6
+    )
+
+
+def test_a_spike_override_keeps_the_floor_on_the_free_part():
+    """Mark Purcell, #1924: at period 0 under a spike override the P2P
+    commitment is a floor, not a pin, and export above it is free. The
+    export floor stays live on that free part; on later committed periods
+    it does not."""
+    fixed = np.full(_FLOOR_N, np.nan)
+    fixed[0] = 2.0
+    fixed[6:9] = 2.0
+    exp = np.array([0.10] + [0.09] * 3 + [0.06] * 2 + [0.10] * 3 + [0.30] * 3)
+    plan = build_plan(
+        periods=PeriodGrid(_FLOOR_H),
+        grid=GridConfig(
+            import_price=np.array([0.16] * 4 + [0.084] * 2 + [0.40] * 6),
+            export_price=exp,
+            import_limit_kw=60.0,
+            export_limit_kw=40.0,
+            fixed_export_kw=fixed,
+            export_floor_price=0.15,
+        ),
+        batteries=[_floor_battery(15.0, spike_override_discharge_kw=10.0)],
+        solar=SolarConfig(forecast_kw=np.zeros(_FLOOR_N)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(_FLOOR_N, 3.0))],
+    )
+    assert plan.status == "optimal"
+    assert float(plan.grid_export_kw[0]) > 2.0 + 1e-6
+    rates = network.export_floor_penalty_rates(plan.effective_export_price, 0.15)
+    expected = float(rates[0] * plan.grid_export_kw[0] * _FLOOR_H[0])
+    assert expected > 0
+    assert plan.export_floor_penalty_cost == pytest.approx(expected, rel=1e-6)
+
+
+def test_a_negative_floor_is_refused():
+    with pytest.raises(ValueError, match="export_floor_price"):
+        GridConfig(
+            import_price=np.zeros(1),
+            export_price=np.zeros(1),
+            import_limit_kw=1.0,
+            export_limit_kw=1.0,
+            export_floor_price=-0.01,
+        )
