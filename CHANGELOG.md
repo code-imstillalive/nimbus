@@ -28,6 +28,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   time zone, not UTC** ([#2008](https://github.com/code-imstillalive/nimbus/issues/2008)).
   A timestamp with its own offset (`+10:00`, `Z`) reads exactly as before.
   Every source checked carries an offset, so nothing changes for them.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 79238a50**
+  (`release/0.94.484`), installed via HACS and restarted at 07:25 AEST. The
+  solver's first cycle published a full plan at 07:25:32 (version 0.94.484)
+  with no plan-failing Repair, and the load forecast totals kept reading. No
+  `Budget spent`, phase-breakdown or traceback line in the log, and no Nimbus
+  `ERROR` beyond the devhub-only baseline (duplicate unique IDs held by the
+  mirrored entities, the test EV's out-of-range SoC and unreachable departure
+  target, residual-drift notes, recorder attribute sizes).
+  - **Not observable on devhub:** the time each solve took (devhub's own solve
+    entities share their ids with the mirrored ones), a phase 2 that runs past
+    5 s, and a source with offset-less timestamps; each is carried by its PR's
+    tests and #2010's 40-site measurement.
+- Consumer check: the plan's cost is unchanged by #2010; on a site where the
+  tie-break search runs long, solves finish sooner and an equally cheap
+  schedule may be kept. No current source changes under #2015.
 
 ## [0.94.483] - 2026-10-23
 
