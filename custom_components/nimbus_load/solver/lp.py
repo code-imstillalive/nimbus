@@ -526,6 +526,20 @@ def _phase_record(entry: tuple[str, float, object, object, object, object]) -> N
         pass
 
 
+#: Phase 2 stopped on its own budget (PHASE2_SECONDARY_BUDGET_SECONDS): an
+#: expected outcome, so neither the slow-call diagnostic nor the per-solve
+#: breakdown treats it as alarming, and no model is dumped for it.
+_BUDGET_SPENT = "Budget spent"
+_NOT_ALARMING_STATUSES = frozenset({"Optimal", _BUDGET_SPENT})
+
+
+def _status_label(h: Any, *, budgeted: bool) -> str:
+    status = h.getModelStatus()
+    if budgeted and status == highspy.HighsModelStatus.kTimeLimit:
+        return _BUDGET_SPENT
+    return str(h.modelStatusToString(status))
+
+
 @contextlib.contextmanager
 def _phase_breakdown():
     """Collect every timed phase of one solve and emit a single summary.
@@ -546,7 +560,7 @@ def _phase_breakdown():
             if entries and any(e[1] >= _SLOW_LP_CALL_SECONDS for e in entries):
                 alarming = any(
                     e[1] >= _ALARMING_LP_CALL_SECONDS
-                    or (e[5] is not None and e[5] != "Optimal")
+                    or (e[5] is not None and e[5] not in _NOT_ALARMING_STATUSES)
                     for e in entries
                 )
                 rendered = " | ".join(
@@ -572,6 +586,7 @@ def _timed_lp_call(
     *,
     n_vars: int | None = None,
     n_binary: int | None = None,
+    budgeted: bool = False,
 ):
     """Time one HiGHS solve invocation, logging at WARNING when it exceeds
     `_SLOW_LP_CALL_SECONDS`. See that constant's own comment for why this
@@ -606,7 +621,7 @@ def _timed_lp_call(
             iterations = int(_info.simplex_iteration_count)
             nodes = _info.mip_node_count
             gap = _info.mip_gap
-            status = h.modelStatusToString(h.getModelStatus())
+            status = _status_label(h, budgeted=budgeted)
         except Exception:  # noqa: BLE001, S110 - diagnostics never fail a solve
             pass
         _phase_record((label, elapsed, iterations, nodes, gap, status))
@@ -631,7 +646,7 @@ def _timed_lp_call(
                 # slow-call line, which is the one that actually fires.
                 nodes = info.mip_node_count
                 gap = info.mip_gap
-                status = h.modelStatusToString(h.getModelStatus())
+                status = _status_label(h, budgeted=budgeted)
             except Exception:  # noqa: BLE001, S110 -- a diagnostic must
                 # never be the reason a solve cycle dies, and the elapsed
                 # time plus the label are worth logging without it.
@@ -639,7 +654,7 @@ def _timed_lp_call(
             # A successful, merely-slow call is information, not an alarm;
             # a non-optimal one always is, regardless of how long it took.
             alarming = elapsed >= _ALARMING_LP_CALL_SECONDS or (
-                status is not None and status != "Optimal"
+                status is not None and status not in _NOT_ALARMING_STATUSES
             )
             log = (
                 _LOGGER.warning
@@ -1816,14 +1831,21 @@ def _ensure_optimal_value(
     "status='Infeasible'" this project has only ever had to go on so
     far -- same diagnostic-logging-before-guessing discipline already
     used for #757."""
+    # Phase 2 on its own budget (_Phase2Budget): a spent budget is expected.
+    budgeted = phase == "phase2_secondary" and _phase2_budgeted()
     with _timed_lp_call(
         h,
         f"lex_phase:{phase}",
         n_vars=problem.n_variables if problem is not None else None,
         n_binary=len(binary_cols) if binary_cols is not None else None,
+        budgeted=budgeted,
     ):
         h.run()
     status = h.getModelStatus()
+    if budgeted and status == highspy.HighsModelStatus.kTimeLimit:
+        # Phase 2 on its own budget: expected, so no dump and no error.
+        msg = f"{phase} used its {PHASE2_SECONDARY_BUDGET_SECONDS:g} s budget"
+        raise _Phase2BudgetSpent(msg)
     if status != highspy.HighsModelStatus.kOptimal:
         info = h.getInfo()
         # nimbus issue #773: capture the real instance. Two synthetic
@@ -1947,6 +1969,118 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
 # timed-out MIP incumbent. That refresh is a pure LP at a fixed integer
 # point; measured on the joint stochastic problem it takes well under 1 s.
 PIN_REFRESH_SECONDS: float = 5.0
+
+# Speed (household, 22 Oct 2026): phase 2 only breaks
+# ties among plans phase 1 already proved equally cheap, yet on a site with
+# an EV and switchable loads it took 42-53 s of a solve whose phase 1 took
+# about 1 s. It now gets this budget. Spent, the tie-break is finished as an
+# LP on the better of two integral assignments, phase 1's and the best one
+# phase 2 had found (#773's tier 2, widened); the primary cost is unchanged
+# by construction, since both satisfy the primary-bound row.
+PHASE2_SECONDARY_BUDGET_SECONDS: float = 5.0
+
+
+class _Phase2BudgetSpent(ValueError):
+    """Phase 2 stopped on its own budget: expected, not a failure."""
+
+
+_PHASE2_BUDGET = threading.local()
+
+
+def _phase2_budgeted() -> bool:
+    """True while phase 2 runs on its own budget (this thread)."""
+    return bool(getattr(_PHASE2_BUDGET, "active", False))
+
+
+class _Phase2Budget:
+    """Phase 2's run-time budget on `h`, and a fresh limit for the phases
+    after it.
+
+    HiGHS (highspy 1.15.1, measured 22 Oct 2026) counts `time_limit`
+    differently by problem: a MIP run is limited from its own start, but an
+    LP run on the same handle is limited by `getRunTime()`, the handle's
+    total so far. So the budget is the limit itself (phase 2 is a MIP), and
+    the phases after it -- the pinned LPs -- get `getRunTime()` plus the
+    previous limit, not the previous limit: with the absolute value, a long
+    phase 1 + 2 left them no time at all (0 iterations, "Time limit reached",
+    then the single-objective fallback; seen twice on a test install,
+    22 Oct 19:14 and 19:22 AEST)."""
+
+    def __init__(self, h: highspy.Highs) -> None:
+        self._h = h
+        self._previous: float | None = None
+        try:
+            _status, raw = h.getOptionValue("time_limit")
+            self._previous = float(raw)  # type: ignore[arg-type]
+            h.setOptionValue(
+                "time_limit",
+                min(self._previous, PHASE2_SECONDARY_BUDGET_SECONDS),
+            )
+            _PHASE2_BUDGET.active = True
+        except Exception:  # noqa: BLE001 - a budget must never break a solve
+            self._previous = None
+
+    def restore(self) -> None:
+        _PHASE2_BUDGET.active = False
+        if self._previous is not None:
+            self._h.setOptionValue("time_limit", self._h.getRunTime() + self._previous)
+            self._previous = None
+
+
+def _feasible_incumbent(h: highspy.Highs) -> list[float] | None:
+    """The best integral point a time-limited MIP holds, or None. Read
+    before the model changes: pinning resets HiGHS's info."""
+    try:
+        feasible = int(h.getInfo().primal_solution_status) == int(
+            highspy.SolutionStatus.kSolutionStatusFeasible
+        )
+        return list(h.getSolution().col_value) if feasible else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _best_pinned_tie_break(
+    h: highspy.Highs,
+    binary_cols: list[int],
+    candidates: list[list[float]],
+    problem: LPProblem,
+) -> float:
+    """Pin each candidate's binaries, minimise the secondary as an LP, and
+    leave `h` holding the best. The first candidate is phase 1's point,
+    feasible by construction; a later one that fails is skipped."""
+
+    def solve_pinned(point: list[float]) -> float:
+        _pin_binaries_to_values(h, binary_cols, point)
+        # Same tolerance band as every other pinned re-solve -- the pinned
+        # values were accepted by branch-and-bound under
+        # mip_feasibility_tolerance, and a pure LP would otherwise re-check
+        # them ten times tighter. See _lp_tolerance_matching_mip().
+        with _lp_tolerance_matching_mip(h):
+            return _ensure_optimal_value(
+                h,
+                phase="phase2_secondary_pinned_lp",
+                problem=problem,
+                binary_cols=binary_cols,
+            )
+
+    best: tuple[float, int] | None = None
+    last = -1
+    for k, point in enumerate(candidates):
+        try:
+            value = solve_pinned(point)
+        except ValueError:
+            if k == 0:
+                raise
+            continue
+        last = k
+        if best is None or value < best[0] - 1e-9 * max(1.0, abs(value)):
+            best = (value, k)
+    if best is None:
+        msg = "phase 2: no pinned tie-break reached optimal"
+        raise ValueError(msg)
+    if best[1] != last:
+        solve_pinned(candidates[best[1]])
+    return best[0]
 
 
 def _accept_timed_out_incumbent(h: Any, problem: LPProblem) -> bool:
@@ -2567,14 +2701,36 @@ def _solve_with_options(
     # 2 still finds the genuine secondary optimum among every primary-tied
     # integer solution. What changes is only how long it takes to get
     # there.
+    budget: _Phase2Budget | None = None
     if binary_cols and phase1_point is not None:
         _offer_mip_start(h, phase1_point, phase="phase2_secondary")
+        budget = _Phase2Budget(h)
 
     try:
         secondary_value = _ensure_optimal_value(
-            h, phase="phase2_secondary", problem=problem, binary_cols=binary_cols
+            h,
+            phase="phase2_secondary",
+            problem=problem,
+            binary_cols=binary_cols,
+        )
+    except _Phase2BudgetSpent:
+        # Budget spent: finish the tie-break as an LP on the better of
+        # phase 1's switch choices and the best phase 2 had found. Both
+        # satisfy the primary-bound row, so the cost is unchanged.
+        assert budget is not None and phase1_point is not None
+        incumbent = _feasible_incumbent(h)
+        budget.restore()
+        candidates = [phase1_point] + ([incumbent] if incumbent is not None else [])
+        secondary_value = _best_pinned_tie_break(h, binary_cols, candidates, problem)
+        _LOGGER.debug(
+            "Nimbus: phase 2's tie-break used its %g s budget; finished as "
+            "an LP on %d candidate switch assignment(s), cost unchanged",
+            PHASE2_SECONDARY_BUDGET_SECONDS,
+            len(candidates),
         )
     except ValueError:
+        if budget is not None:
+            budget.restore()
         # nimbus issue #773, tier 2. Before this, a phase-2 failure fell
         # straight off a cliff: the caller caught the ValueError and
         # re-solved the whole problem single-objective, discarding the
@@ -2623,18 +2779,19 @@ def _solve_with_options(
             len(binary_cols),
             problem.n_variables,
         )
-        _pin_binaries_to_values(h, binary_cols, phase1_point)
-        # Same tolerance band as every other pinned re-solve in this
-        # function -- the pinned values were accepted by branch-and-bound
-        # under mip_feasibility_tolerance, and a pure LP would otherwise
-        # re-check them ten times tighter. See _lp_tolerance_matching_mip().
-        with _lp_tolerance_matching_mip(h):
-            secondary_value = _ensure_optimal_value(
-                h,
-                phase="phase2_secondary_pinned_lp",
-                problem=problem,
-                binary_cols=binary_cols,
-            )
+        secondary_value = _best_pinned_tie_break(
+            h, binary_cols, [phase1_point], problem
+        )
+    finally:
+        # Whatever leaves phase 2 -- including an exception neither handler
+        # above catches (HiGHS can raise a bare Exception) -- the per-thread
+        # budget flag is cleared, or a later solve on this reused executor
+        # thread would read it as budgeted (Mark Purcell's review of #2010;
+        # the same try/finally discipline as _phase_breakdown()). restore()
+        # is idempotent: the handlers above restore earlier, before their
+        # pinned LPs need the fresh window.
+        if budget is not None:
+            budget.restore()
 
     # nimbus issue #702: the real binary assignment is now decided --
     # phase 2's own (possibly MIP) solve just chose, among every
