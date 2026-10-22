@@ -418,6 +418,7 @@ try:
         fetch_entity_attribute_history_range,
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,
+        finite_float,
         ha_get,
         ha_post_state,
         import_fee_rate,
@@ -457,6 +458,7 @@ except ImportError:
         fetch_entity_attribute_history_range,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,  # noqa: F401 -- re-export: main()'s own call
+        finite_float,
         # moved to solver_plan.py (#1303); 8 test files still call it via THIS module
         ha_get,
         ha_post_state,
@@ -1546,6 +1548,12 @@ def set_native_hass(hass) -> None:
         raw_time_zone = getattr(getattr(hass, "config", None), "time_zone", None)
         try:
             LOCAL_TZ = ZoneInfo(raw_time_zone)
+            # solver_shared keeps its own LOCAL_TZ, read by _local() and the
+            # history readers -- the local hour behind TOU fees, the EV
+            # departure hour, day boundaries and P2P checkpoints. Left at its
+            # import-time default (Australia/Brisbane), every install outside
+            # that zone evaluated those in Brisbane time. One zone for both.
+            sys.modules[_local.__module__].LOCAL_TZ = LOCAL_TZ
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.exception(
                 "Nimbus: could not resolve hass.config.time_zone (%r) -- "
@@ -3326,7 +3334,7 @@ def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
     return None
 
 
-# nimbus #2004 (found from HAEO's #565, checked in the library's source):
+# nimbus #2004 (checked in the library's source):
 # Open-Meteo Solar Forecast's `watts` is the power from the instantaneous
 # irradiance at each 15-minute step, stored under the step's START
 # (`time_start = time - timedelta(minutes=15)`), so `watts[t]` is the power
@@ -4741,7 +4749,7 @@ def price_now(entity_id: str, fallback: float = 0.0) -> float:
         return safe_num(entity_id, fallback=fallback)
     scale = _price_scale_of_state(state)
     try:
-        return float(state["state"]) * scale
+        return finite_float(state["state"]) * scale
     except (KeyError, TypeError, ValueError):
         return safe_num(entity_id, fallback=fallback / scale) * scale
 
@@ -5580,7 +5588,7 @@ def check_aemo_p5min_disagreement(
     if expected_offset is None:
         return None
     try:
-        aemo_now = float(ha_get(regional_spot_sensor)["state"])
+        aemo_now = finite_float(ha_get(regional_spot_sensor)["state"])
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -6700,7 +6708,7 @@ def resolve_envelope_limit_kw(
         _note_envelope_limit_recovered(entity_id)
         return [v * scale for v in values]
     try:
-        live_value = float(state["state"]) * scale
+        live_value = finite_float(state["state"]) * scale
     except (KeyError, TypeError, ValueError):
         _warn_envelope_limit_dropped_once(entity_id, "reporting a non-numeric state")
         return [static_limit_kw] * n

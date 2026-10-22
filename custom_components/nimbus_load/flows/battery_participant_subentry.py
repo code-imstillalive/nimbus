@@ -28,8 +28,10 @@ from homeassistant.config_entries import (
 )
 from homeassistant.helpers import selector
 
+from ..availability import DOMAINS as AVAILABILITY_DOMAINS
 from ..const import (
     CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+    CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
     CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
     CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
@@ -238,7 +240,18 @@ def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema
         schema_dict,
         CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
         defaults.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY),
-        selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+        selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=list(AVAILABILITY_DOMAINS))
+        ),
+    )
+    # Which of its states mean "available" (availability.py): blank keeps
+    # "on" / "home"; a charger status sensor lists its own, e.g.
+    # "Charging, Connected".
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
+        defaults.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES),
+        selector.TextSelector(),
     )
     # #563 item 2, the departure-deadline half -- both fields optional,
     # and must be set together (see build_extra_batteries()'s own

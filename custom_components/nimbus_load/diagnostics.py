@@ -44,9 +44,10 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
-from . import load_run_state
+from . import availability, load_run_state
 from .const import (
     CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+    CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
     CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
     DOMAIN,
@@ -123,12 +124,19 @@ def _battery_participant_diagnostics(
         "available_entity": available_entity,
         "available_entity_state": available_state.state if available_state else None,
         # Same resolution build_extra_batteries() itself uses: no entity
-        # configured -> always available; anything but a live 'on' ->
-        # not available.
+        # configured -> always available; otherwise one of its available
+        # states (availability.py), anything else not available.
         "available": (
             True
             if not available_entity
-            else available_state is not None and available_state.state == "on"
+            else available_state is not None
+            and availability.is_available(
+                available_state.state,
+                availability.available_states(
+                    available_entity,
+                    data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES),
+                ),
+            )
         ),
         "charge_limit_entity": charge_limit_entity,
         "charge_limit_entity_state": (

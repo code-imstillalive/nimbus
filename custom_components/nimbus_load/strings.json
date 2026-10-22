@@ -433,6 +433,7 @@
             "battery_participant_degradation_cost_per_kwh": "Degradation cost (optional, $/kWh)",
             "battery_participant_charge_limit_entity": "Live charge-limit entity (optional)",
             "battery_participant_available_entity": "Availability sensor (optional)",
+            "battery_participant_available_states": "States that mean available (optional)",
             "battery_participant_departure_hour": "Departure hour (optional)",
             "battery_participant_must_have_soc_by_departure_percent": "Required SoC by departure (optional, %)",
             "battery_participant_shared_charger_group": "Shared charger group (optional)",
@@ -455,7 +456,8 @@
             "battery_participant_salvage_value": "A real $/kWh credit for energy remaining in THIS participant at the end of a solve's horizon. Leave blank for none (0.0) -- a genuine no-op, same convention as Degradation cost below.",
             "battery_participant_degradation_cost_per_kwh": "A real $/kWh cycle-wear cost for THIS participant. Leave blank for none.",
             "battery_participant_charge_limit_entity": "An optional live number entity (e.g. an EV's own charge-limit slider) whose CURRENT value overrides Maximum SoC above for every solve -- so a household changing this in the vehicle's own app doesn't also have to update this wizard.",
-            "battery_participant_available_entity": "An optional binary_sensor (e.g. \"located at home\", \"charge cable connected\") -- while it's off, this participant cannot charge or discharge at all for the whole solve. Leave blank if this participant is always available (a real second inverter).",
+            "battery_participant_available_entity": "An optional entity that says whether this participant is here (e.g. \"located at home\", \"charge cable connected\"): a binary_sensor, device_tracker, person, sensor, input_boolean or switch. While it is not in one of the states below, this participant cannot charge or discharge at all for the whole solve. Leave blank if this participant is always available (a real second inverter).",
+            "battery_participant_available_states": "The states of the availability entity in which this participant can charge or discharge, comma-separated, e.g. \"Charging, Connected\" for a charger status sensor. Leave blank to use \"on\" for a binary_sensor, input_boolean or switch, or \"home\" for a device_tracker or person; a plain sensor needs its states listed here, otherwise it never counts as available. Matching ignores case.",
             "battery_participant_departure_hour": "The wall-clock hour (0-23) this participant needs to be ready by. Leave blank for no deadline. Must be set together with Required SoC by departure below.",
             "battery_participant_must_have_soc_by_departure_percent": "The SoC this participant must reach by Departure hour above -- a real hard requirement, not a preference (e.g. a car needs to be drivable in the morning). Must be set together with Departure hour above.",
             "battery_participant_shared_charger_group": "A short name shared by every participant drawing from the SAME physical charger (e.g. two EVs on one DC charger) -- leave blank if this participant has its own dedicated charger.",
@@ -743,6 +745,14 @@
     "whole_house_sensor_unset": {
       "title": "Nimbus: no whole-house sensor is set",
       "description": "You have a load forecast, but Nimbus does not know which of your sensors is the whole house. Without it, no load gets the Forecaster's whole-house fixes (the overnight spike and stair-step corrections). Set **the whole-house sensor** in Nimbus → Configure → Solver: Solar & Load Forecasts (3 of 3): the live whole-house power sensor your household load forecast is built from. This message clears itself once it is set."
+    },
+    "plan_failing_error": {
+      "title": "Nimbus: no new plan for {cycles} cycles",
+      "description": "Since {since}, the solver has stopped before finding a plan on each of the last {cycles} cycles (the solver's reason: {reason}). Nimbus is keeping its last good plan; once that is five minutes old, the battery forecast shows as unavailable rather than as a plan it never made.\n\nThis happens when a solve runs out of time or the solver reports an internal error. The Nimbus log has one line per failed cycle with the solver's details. This clears itself on the next good plan."
+    },
+    "plan_failing_infeasible": {
+      "title": "Nimbus: no plan meets your settings",
+      "description": "Since {since}, on each of the last {cycles} cycles, the solver proved that no plan meets your current settings (the solver's reason: {reason}). Until this clears, the plan Nimbus publishes schedules no battery or load activity.\n\nCheck for a recent change that cannot all be met at once: battery Min or Max SoC, charge or discharge limits, grid import or export limits, or a load that must run within a window. While this lasts, the battery forecast's `status` attribute reads `infeasible`. This clears itself on the next good plan."
     }
   }
 }

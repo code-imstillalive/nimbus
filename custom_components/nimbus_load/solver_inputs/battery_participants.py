@@ -43,8 +43,9 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
 try:
-    from .. import solver_shared
+    from .. import availability, solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
+    import availability  # type: ignore[no-redef]
     import solver_shared  # type: ignore[no-redef]
 
 from .extra_batteries import (
@@ -364,6 +365,7 @@ def _resolve_battery_participant_history(
     try:
         from ..const import (
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
@@ -385,6 +387,7 @@ def _resolve_battery_participant_history(
     except ImportError:  # pragma: no cover - standalone/cron path
         from const import (
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
@@ -611,7 +614,14 @@ def _resolve_battery_participant_history(
                 # every period before it masked as home -- the exact
                 # opposite of the conservative posture stated above.
                 # Now genuinely honoured (backfill_first stays False).
-                home_numeric = [(t, 1.0 if v == "on" else 0.0) for t, v in home_hist]
+                states = availability.available_states(
+                    available_entity,
+                    data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES),
+                )
+                home_numeric = [
+                    (t, 1.0 if availability.is_available(v, states) else 0.0)
+                    for t, v in home_hist
+                ]
                 is_home = np.array(
                     sw.resample_history_nearest(home_numeric, grid_times, default=0.0)
                 )

@@ -89,12 +89,22 @@ Sign ambiguity, where a sensor's direction is not declared, is not resolved here
 | `source.kind` | read path | notes |
 |---|---|---|
 | `entity_state` | current state, plus `last_reported`/`last_changed` for freshness | On a write with the same state and attributes, HA core's `StateMachine.async_set` only sets `old_state.last_reported` and fires `state_reported`; the cached `State._as_dict` (an `under_cached_property`) is not cleared, so REST, websocket `get_states` and other serialised views keep the old `last_reported` (read in HA core 2025.1.4's `core.py`; measured on HA 2026.7.4, #1705). Freshness for an unchanged value therefore uses the live state object, not the serialised one |
-| `entity_attribute` | attribute path, through a **versioned adapter** | the adapter owns the provider's row shape: LocalVolts v2, AEMO NEM, NEM PD7DAY, Amber Express (`detailedForecast`, case-sensitive), Amber Electric (`forecasts`, plural), all already in `price_intervals.py` |
+| `entity_attribute` | attribute path, through a **versioned adapter** | the adapter owns the provider's row shape: LocalVolts v2, AEMO NEM, NEM PD7DAY, Amber Express (`detailedForecast`, case-sensitive), Amber Electric (`forecasts`, plural), all already in `price_intervals.py`. Forecast adapters (DC-006 decision 10a, `device_forecasts.py`), from today's solar readers: `nimbus_forecast` (`forecast: [{time, value, lower, upper}]`), `solcast` (`detailedForecast`; `pv_estimate` is the period's average kW, p10 and p90 its band) and `open_meteo_solar` (`watts`, W to kW). A source spanning several entities names the rest in `continued_by`; without its anchor it does not resolve |
 | `action_response` | a **known read-only** action, through a versioned adapter | only actions on an allow-list of read-only response actions (`openadr3_ven.get_forecast`, `amberelectric.get_forecasts`); any other action is refused, never called (DC-R15) |
 | `recorder_statistic` | long-term statistics, per its `interval_semantics` | an energy statistic stays energy; a statistic with no current-state entity is still a valid energy binding |
 | `constant` | the literal value and unit | through the same unit and dimension checks |
 | `derived` | a registered calculation over its `depends_on` | each dependency is resolved first; a run-time cycle is refused (DC-R16); any dependency `missing` makes the result `missing`, never a partial sum |
 | `model_output` | the Nimbus model's published output | its own coverage and training state are carried, not hidden |
+
+### A combined forecast (`combine: mean`)
+
+A Solar `generation_forecast` binding with an ordered `sources` list resolves each member on the plan's grid, then combines the members that resolved (DC-006 decision 10b; today's `build_solar_arrays`):
+
+- each member reports its own state and reason (`adapter_unknown`, `unavailable`, `shape_not_recognized`, `malformed`); a failed member is dropped, **never zero-filled**, because a solar estimate of 0 kW in daylight would drag the mean down rather than degrade it;
+- one member is its own value; several are the equal-weight mean, with the band the members' lowest lower and highest upper, each widened by half the members' spread;
+- no member resolved is `missing` (`no_member_resolved`), never a zero forecast.
+
+This is a separate mechanism from DC-003's totals over load devices, so the two failure rules cannot drift into each other (Mark Purcell, #1574).
 
 ## Intervals and coverage (DC-R06)
 

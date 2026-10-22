@@ -1074,6 +1074,14 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
         )
     ok = any_ok
 
+    # The "Nimbus cannot make a plan" Repair appears, or clears, as soon as
+    # the failing state flips, not at the next 15-minute health refresh.
+    entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+    if entry is not None:
+        from .setup_health import async_note_solve_outcome
+
+        await async_note_solve_outcome(hass, entry)
+
     # nimbus issue #937: capture today's day-ahead forecast, once per local
     # day, on the first solve that succeeds. Here rather than inside
     # _run_one_cycle() because that body runs on a worker thread and a Store
