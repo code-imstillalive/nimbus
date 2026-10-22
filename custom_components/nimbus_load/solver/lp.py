@@ -1993,10 +1993,18 @@ def _phase2_budgeted() -> bool:
 
 
 class _Phase2Budget:
-    """Phase 2's run-time budget on `h`, and the limit to put back for the
-    phases after it. HiGHS (highspy 1.15.1, measured 22 Oct 2026) counts
-    `time_limit` from the start of each `run()`, although `getRunTime()`
-    accumulates across runs, so the budget is the limit itself."""
+    """Phase 2's run-time budget on `h`, and a fresh limit for the phases
+    after it.
+
+    HiGHS (highspy 1.15.1, measured 22 Oct 2026) counts `time_limit`
+    differently by problem: a MIP run is limited from its own start, but an
+    LP run on the same handle is limited by `getRunTime()`, the handle's
+    total so far. So the budget is the limit itself (phase 2 is a MIP), and
+    the phases after it -- the pinned LPs -- get `getRunTime()` plus the
+    previous limit, not the previous limit: with the absolute value, a long
+    phase 1 + 2 left them no time at all (0 iterations, "Time limit reached",
+    then the single-objective fallback; seen twice on a test install,
+    22 Oct 19:14 and 19:22 AEST)."""
 
     def __init__(self, h: highspy.Highs) -> None:
         self._h = h
@@ -2015,7 +2023,7 @@ class _Phase2Budget:
     def restore(self) -> None:
         _PHASE2_BUDGET.active = False
         if self._previous is not None:
-            self._h.setOptionValue("time_limit", self._previous)
+            self._h.setOptionValue("time_limit", self._h.getRunTime() + self._previous)
             self._previous = None
 
 

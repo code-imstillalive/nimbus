@@ -107,17 +107,62 @@ def test_the_budget_is_put_back_for_the_phases_after_it(monkeypatch):
     seen = []
     real = lp._Phase2Budget.restore
 
+    runtimes = []
+
     def restore(self):
         seen.append(self._h.getOptionValue("time_limit")[1])
+        runtimes.append(self._h.getRunTime())
         real(self)
         seen.append(self._h.getOptionValue("time_limit")[1])
 
     with patch.object(lp._Phase2Budget, "restore", restore), _budget_spent():
         _switch_and_tie().solve(options=LexOptions())
+    # A fresh window for the pinned LPs: HiGHS limits an LP run by the
+    # handle's total run time, so the absolute limit could leave none.
     assert seen[:2] == [
         pytest.approx(2.5),
-        pytest.approx(lp.DEFAULT_TIME_LIMIT_SECONDS),
+        pytest.approx(runtimes[0] + lp.DEFAULT_TIME_LIMIT_SECONDS),
     ]
+
+
+def test_an_lp_after_the_limit_is_used_up_still_solves():
+    """The HiGHS behaviour the fresh window answers (highspy 1.15.1): after a
+    MIP uses up the handle's limit, an LP run on the same handle stops at
+    once -- 0 iterations, "Time limit reached" -- because an LP is limited
+    by the handle's total run time. With the fresh window it solves. A 0.3 s
+    limit on a knapsack HiGHS cannot finish stands in for 60 s."""
+    import highspy
+    import numpy as np
+
+    def relaxed_after_a_long_mip():
+        rng = np.random.default_rng(1)
+        h = highspy.Highs()
+        h.setOptionValue("output_flag", False)
+        n = 120
+        for i in range(n):
+            h.addVar(0.0, 1.0)
+            h.changeColCost(i, -float(rng.integers(1, 100)))
+            h.changeColIntegrality(i, highspy.HighsVarType.kInteger)
+        for _ in range(80):
+            a = rng.integers(1, 100, n).astype(float)
+            idx = np.arange(n, dtype=np.int32)
+            h.addRow(-highspy.kHighsInf, float(a.sum() / 2), n, idx, a)
+        h.setOptionValue("time_limit", 0.3)
+        h.run()  # the MIP spends the whole limit, as a long phase 1 + 2 does
+        for i in range(n):
+            h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
+        return h
+
+    stale = relaxed_after_a_long_mip()
+    stale.run()
+    assert stale.modelStatusToString(stale.getModelStatus()) == "Time limit reached"
+    assert stale.getInfo().simplex_iteration_count == 0
+
+    fresh = relaxed_after_a_long_mip()
+    budget = lp._Phase2Budget(fresh)  # reads the 0.3 s limit as "previous"
+    budget.restore()
+    fresh.run()
+    assert fresh.modelStatusToString(fresh.getModelStatus()) == "Optimal"
 
 
 def test_without_switches_there_is_no_budget():
