@@ -418,6 +418,7 @@ try:
         fetch_entity_attribute_history_range,
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,
+        finite_float,
         ha_get,
         ha_post_state,
         import_fee_rate,
@@ -457,6 +458,7 @@ except ImportError:
         fetch_entity_attribute_history_range,  # noqa: F401 -- re-export: reached as sw.<name> from solver_reports/ (#1301)
         fetch_entity_history_range,
         fetch_p2p_fixed_export_kw,  # noqa: F401 -- re-export: main()'s own call
+        finite_float,
         # moved to solver_plan.py (#1303); 8 test files still call it via THIS module
         ha_get,
         ha_post_state,
@@ -4741,7 +4743,7 @@ def price_now(entity_id: str, fallback: float = 0.0) -> float:
         return safe_num(entity_id, fallback=fallback)
     scale = _price_scale_of_state(state)
     try:
-        return float(state["state"]) * scale
+        return finite_float(state["state"]) * scale
     except (KeyError, TypeError, ValueError):
         return safe_num(entity_id, fallback=fallback / scale) * scale
 
@@ -5580,7 +5582,7 @@ def check_aemo_p5min_disagreement(
     if expected_offset is None:
         return None
     try:
-        aemo_now = float(ha_get(regional_spot_sensor)["state"])
+        aemo_now = finite_float(ha_get(regional_spot_sensor)["state"])
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -6700,7 +6702,7 @@ def resolve_envelope_limit_kw(
         _note_envelope_limit_recovered(entity_id)
         return [v * scale for v in values]
     try:
-        live_value = float(state["state"]) * scale
+        live_value = finite_float(state["state"]) * scale
     except (KeyError, TypeError, ValueError):
         _warn_envelope_limit_dropped_once(entity_id, "reporting a non-numeric state")
         return [static_limit_kw] * n

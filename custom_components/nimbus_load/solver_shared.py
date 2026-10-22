@@ -116,6 +116,7 @@ import functools
 import io
 import json
 import logging
+import math
 import os
 import urllib.error
 import urllib.request
@@ -1890,6 +1891,20 @@ def _version_stamp() -> dict[str, str]:
 # solver_writer.py. Fully self-contained apart from _LOGGER, which this
 # module owns -- so no qualification was needed and the body is byte-for-
 # byte what it was.
+def finite_float(value: object) -> float:
+    """`float(value)`, refusing NaN and infinity with ValueError.
+
+    Python's float() accepts "nan" and "inf", so a sensor reporting either
+    passed every reader's `except ValueError` and reached the plan (HAEO
+    0.5.0rc1 fixed the same in its own reader, its #584). Raised as
+    ValueError so each caller's existing fallback and warning apply."""
+    number = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(number):
+        msg = f"non-finite value {value!r}"
+        raise ValueError(msg)
+    return number
+
+
 def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     """Read entity_id's current state as a float, degrading gracefully
     (WARN + fallback) instead of crashing the whole solve cycle when the
@@ -1924,7 +1939,7 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     into now, thanks to resolve_min_soc_kwh() above.
     """
     try:
-        return float(ha_get(entity_id)["state"])
+        return finite_float(ha_get(entity_id)["state"])
     except (KeyError, TypeError, ValueError) as e:
         _LOGGER.warning(
             "Nimbus Solver: entity '%s' has a non-numeric state -- could "
