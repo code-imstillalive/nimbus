@@ -702,6 +702,17 @@ def resolve_min_soc_kwh(
     return min_soc_kwh
 
 
+def finite_float(value: object) -> float:
+    """`float(value)`, refusing NaN and infinity with ValueError: float()
+    accepts "nan" and "inf", so a sensor reporting either reached the plan
+    (the integration's solver_shared.finite_float, same fix)."""
+    number = float(value)  # type: ignore[arg-type]
+    if not math.isfinite(number):
+        msg = f"non-finite value {value!r}"
+        raise ValueError(msg)
+    return number
+
+
 def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     """Read entity_id's current state as a float, degrading gracefully
     (WARN + fallback) instead of crashing the whole solve cycle when the
@@ -736,7 +747,7 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     into now, thanks to resolve_min_soc_kwh() above.
     """
     try:
-        return float(ha_get(entity_id)["state"])
+        return finite_float(ha_get(entity_id)["state"])
     except (KeyError, TypeError, ValueError) as e:
         print(
             f"WARN: entity '{entity_id}' has a non-numeric state -- "
