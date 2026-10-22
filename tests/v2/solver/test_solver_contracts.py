@@ -1708,6 +1708,7 @@ def _dispatch(plan: Plan) -> tuple:
 _ORIGINS = st.sampled_from([None, "override", "learned", "fallback"])
 
 
+@SETTINGS
 @given(_ORIGINS, _ORIGINS)
 def test_thermal_rate_origins_are_labels_the_plan_never_reads(heating, decay):
     """#940: the heating-rate and idle-decay ORIGIN labels are echoed for
