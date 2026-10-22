@@ -451,6 +451,37 @@ _CYCLE_COUNTS = {"solves_attempted": 0, "solver_failures": 0}
 # healthy row, so the next episode says what it was.
 _LAST_FAILURE: dict[str, str | None] = {"raw_status": None, "at": None}
 
+# Consecutive cycles without an optimal plan, for the "Nimbus cannot make a
+# plan" Repair (setup_health.KIND_PLAN_FAILING; household, 22 Oct 2026).
+# Before, a solver that kept failing showed only in the log and a counter.
+# Reset by the next optimal plan.
+_FAILED_STREAK: dict[str, object] = {
+    "count": 0,
+    "since": None,
+    "status": None,
+    "raw_status": None,
+}
+
+
+def failed_streak() -> dict[str, object]:
+    """Consecutive non-optimal cycles: count, since (ISO, local), the last
+    status ("infeasible", "error", ...) and HiGHS's own reason."""
+    return dict(_FAILED_STREAK)
+
+
+def _note_plan_outcome(plan, now) -> None:
+    if plan.status == "optimal":
+        _FAILED_STREAK.update(count=0, since=None, status=None, raw_status=None)
+        return
+    count = int(_FAILED_STREAK["count"] or 0) + 1
+    _FAILED_STREAK.update(
+        count=count,
+        since=_FAILED_STREAK["since"] or now.isoformat(),
+        status=plan.status,
+        raw_status=plan.raw_status,
+    )
+
+
 _LOAD_FORECAST_SOURCE_KEYS = (
     "load_forecast_source_policy",
     "load_forecast_source_selected",
@@ -1883,6 +1914,7 @@ def publish_plan(
     sw = _solver_writer()
     solve_seconds = time.monotonic() - solve_started
     _CYCLE_COUNTS["solves_attempted"] += 1
+    _note_plan_outcome(plan, now)
     if plan.status == "optimal":
         save_plan_state(plan, period_hours_arr, grid_times[0])
     elif plan.solver_failed:
