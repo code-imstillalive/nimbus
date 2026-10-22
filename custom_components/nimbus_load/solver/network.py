@@ -401,7 +401,8 @@ DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SPREAD
 # earliness term is the ONLY soft cost ever applied to adequacy_vars.
 # Confirmed live by a real regression: at the full 0.01 spread, this
 # term's own per-period gradient OUTWEIGHED smoothness_weight=0.005 in
-# test_solver_intraplan_smoothness.py's own flat-price scenario,
+# the flat-price smoothness scenario (now tests/v2/solver/
+# test_solver_contracts.py's smoothness tests),
 # reintroducing the exact jagged charge/discharge burst that mechanism
 # exists to eliminate (front-loading charge until the battery's own
 # max_soc_kwh ceiling forced a sudden drop to a much slower rate for
@@ -3237,8 +3238,9 @@ def _build_plan_once(
             # source, and that's a property of the SOLVE'S OWN OUTPUT
             # (the power-balance shadow price), not something knowable
             # before the solve runs. Confirmed live: broke
-            # test_solver_multi_battery.py's own
-            # TestSimultaneousChargeAndDischargeAcrossBatteries (a
+            # the check that one battery may charge while another
+            # discharges (now tests/v2/solver/test_solver_contracts.py::
+            # test_one_battery_may_charge_while_another_discharges; a
             # battery absorbing free midday solar surplus while another,
             # unrelated battery legitimately discharged the same period
             # -- a real, physically legitimate reallocation, not a wash
@@ -3395,7 +3397,8 @@ def _build_plan_once(
             # terminal-value-equivalent in total, not one PER checkpoint.
             # With exactly one intermediate checkpoint (the shape this
             # project's own existing test suite already validates,
-            # test_solver_terminal_value_checkpoints.py) the scale factor is
+            # tests/v2/solver/test_plan_features.py's checkpoint tests) the
+            # scale factor is
             # exactly 1.0 -- this fix changes nothing for that case, it only
             # engages once there are 2+ intermediate checkpoints, which is
             # precisely where the compounding becomes severe.
