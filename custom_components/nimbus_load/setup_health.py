@@ -332,14 +332,19 @@ def _plan_failing_issue(streak: Mapping[str, Any] | None) -> HealthIssue | None:
     )
 
 
-def _solver_failed_streak() -> Mapping[str, Any] | None:
-    """solver_publish's streak, only if the solver has already loaded it:
-    importing it here would load the whole solver on the event loop."""
+def _solver_publish_module() -> Any:
+    """The solver_publish the running solver loaded, or None: importing it
+    here would load the whole solver on the event loop."""
     import sys
 
-    module = sys.modules.get(f"{__package__}.solver_publish") or sys.modules.get(
+    return sys.modules.get(f"{__package__}.solver_publish") or sys.modules.get(
         "solver_publish"
     )
+
+
+def _solver_failed_streak() -> Mapping[str, Any] | None:
+    """solver_publish's streak, only if the solver has already loaded it."""
+    module = _solver_publish_module()
     try:
         return module.failed_streak() if module is not None else None
     except Exception:  # noqa: BLE001 - a health read must never fail the refresh

@@ -28,12 +28,20 @@ ROOT = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_lo
 T0 = datetime.fromisoformat("2026-10-22T19:30:00+10:00")
 
 
+def _publish():
+    """The solver_publish setup_health reads. A test run may hold two copies
+    (the package one and the plain one); the Repair reads the one the
+    solver loaded, so the cycles are noted there."""
+    return sh._solver_publish_module() or solver_publish
+
+
 def _cycles(*statuses):
-    solver_publish._note_plan_outcome(SimpleNamespace(status="optimal"), T0)
+    pub = _publish()
+    pub._note_plan_outcome(SimpleNamespace(status="optimal"), T0)
     for i, status in enumerate(statuses):
         plan = SimpleNamespace(status=status, raw_status="Time limit reached")
-        solver_publish._note_plan_outcome(plan, T0 + timedelta(minutes=i))
-    return solver_publish.failed_streak()
+        pub._note_plan_outcome(plan, T0 + timedelta(minutes=i))
+    return pub.failed_streak()
 
 
 def _kinds(streak):
@@ -48,8 +56,8 @@ def test_the_streak_counts_failed_cycles_and_resets_on_a_good_plan():
     assert streak["count"] == 3
     assert streak["since"] == T0.isoformat()  # the first failure, kept
     assert streak["status"] == "infeasible"  # the latest
-    solver_publish._note_plan_outcome(SimpleNamespace(status="optimal"), T0)
-    assert solver_publish.failed_streak()["count"] == 0
+    _publish()._note_plan_outcome(SimpleNamespace(status="optimal"), T0)
+    assert _publish().failed_streak()["count"] == 0
 
 
 def test_no_repair_before_five_failed_cycles():
@@ -90,8 +98,10 @@ def test_both_repairs_have_their_text():
 
 
 def test_the_streak_is_read_only_once_the_solver_has_loaded_it():
-    with patch.dict(sys.modules, {"solver_publish": None}):
-        sys.modules.pop("custom_components.nimbus_load.solver_publish", None)
+    with patch.dict(
+        sys.modules,
+        {"solver_publish": None, "custom_components.nimbus_load.solver_publish": None},
+    ):
         assert sh._solver_failed_streak() is None
     _cycles("error")
     assert sh._solver_failed_streak()["count"] == 1
