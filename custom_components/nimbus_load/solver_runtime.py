@@ -74,7 +74,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import time
 import urllib.error
 from datetime import datetime
@@ -123,7 +122,7 @@ _price_latency_sensor = None
 # meantime. A plain asyncio.Future supports more than one simultaneous
 # awaiter with no interference, so this adds a second, harmless awaiter
 # rather than disturbing the original one.
-_in_flight_future: asyncio.Future[tuple[bool, bool]] | None = None
+_in_flight_future: asyncio.Future[bool] | None = None
 
 # nimbus issue #315 (Mark Purcell, 2026-08-31) -- "freshness watchdog trips
 # every ~44 min after reload, main-loop cadence degraded". Real, measured
@@ -230,7 +229,9 @@ _single_skip_total = 0
 # cycle that starts clears it (it reads fresh inputs), and a follow-up never
 # chains another, so the solver cannot run back to back indefinitely.
 _rerun_requested = False
-_cycle_state = threading.local()
+# Cycles that took the lock, ever: async_run_solve() compares it before and
+# after its own job to know whether that job ran a cycle or found one running.
+_cycles_started = 0
 # How many single-tick overlaps between summary WARNINGs. At the rate
 # measured on a real install (99/hour) this is roughly 4 lines an hour;
 # on a healthy install it is silent for days, which is the intent.
@@ -899,9 +900,10 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
                 _consecutive_lock_skips,
             )
         return False
+    global _cycles_started
     _consecutive_lock_skips = 0
     _rerun_requested = False
-    _cycle_state.ran = True
+    _cycles_started += 1
     cycle_started = time.monotonic()
     try:
         sw.main()
@@ -1013,14 +1015,6 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         sw.release_lock()
 
 
-def _run_one_cycle_reporting(hass: HomeAssistant) -> tuple[bool, bool]:
-    """`_run_one_cycle()`, and whether this call ran a cycle at all (False
-    when it found one already running)."""
-    _cycle_state.ran = False
-    ok = _run_one_cycle(hass)
-    return ok, bool(getattr(_cycle_state, "ran", False))
-
-
 def _take_rerun_request() -> bool:
     global _rerun_requested
     requested, _rerun_requested = _rerun_requested, False
@@ -1062,13 +1056,15 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
 
     any_ok = False
     for follow_up in (False, True):
-        future = hass.async_add_executor_job(_run_one_cycle_reporting, hass)
+        started_before = _cycles_started
+        future = hass.async_add_executor_job(_run_one_cycle, hass)
         _in_flight_future = future
         try:
-            ok, ran = await future
+            ok = await future
         finally:
             if _in_flight_future is future:
                 _in_flight_future = None
+        ran = _cycles_started > started_before
         any_ok = any_ok or ok
         if follow_up or not ran or not _take_rerun_request():
             break
