@@ -478,11 +478,9 @@ def parse_iso(s) -> datetime:
     # integer" rather than any hint this was ever a type mismatch.
     if isinstance(s, datetime):
         # Already a real datetime -- nothing to parse. HA's own internal
-        # convention is that stored datetimes are timezone-aware
-        # (almost certainly true here), but fall back to explicit UTC on
-        # the off chance it's naive, matching what a bare "...Z"-suffixed
-        # string would have meant on the REST-mode path above.
-        return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
+        # convention is that stored datetimes are timezone-aware; a naive
+        # one is read in the install's own zone, as a naive string is below.
+        return s if s.tzinfo is not None else s.replace(tzinfo=LOCAL_TZ)
     # nimbus issue #363 (Mark Purcell): a third-party source can genuinely
     # publish an offset-less ISO string (e.g. "2026-09-04T12:00:00", no
     # "Z"/"+00:00" suffix) -- datetime.fromisoformat() on that produces a
@@ -493,11 +491,18 @@ def parse_iso(s) -> datetime:
     # inside resample_forecast() -- and fetch_solar_source_safe()'s own
     # except clause only catches HTTPError/URLError/KeyError/
     # JSONDecodeError, so this took down the ENTIRE solve cycle with a
-    # traceback instead of the one source being safely dropped. Same
-    # "assume UTC for a genuinely naive value" treatment the datetime
-    # branch above already gets.
+    # traceback instead of the one source being safely dropped.
+    #
+    # nimbus #2008 (Mark Purcell, 23 Oct 2026): a naive value is read in the
+    # install's own zone (LOCAL_TZ, Home Assistant's zone since #2007), not
+    # UTC. #363 chose UTC only to stop the crash; an offset-less timestamp
+    # from a feed is almost always wall-clock time, and UTC was silently
+    # wrong everywhere but UTC+0 (10 h in Brisbane). Every source measured
+    # on 22 Oct carries an offset, so this changes nothing today. A new
+    # source that publishes naive timestamps must have its own convention
+    # confirmed before relying on this (DC-002, "Source variants").
     parsed = datetime.fromisoformat(s)
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=LOCAL_TZ)
 
 
 def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTPError:

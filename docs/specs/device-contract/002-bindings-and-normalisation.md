@@ -96,6 +96,8 @@ Sign ambiguity, where a sensor's direction is not declared, is not resolved here
 | `derived` | a registered calculation over its `depends_on` | each dependency is resolved first; a run-time cycle is refused (DC-R16); any dependency `missing` makes the result `missing`, never a partial sum |
 | `model_output` | the Nimbus model's published output | its own coverage and training state are carried, not hidden |
 
+**Timestamps without an offset** (#2008, Mark Purcell, 23 Oct 2026). A naive timestamp is read in the install's own zone (`LOCAL_TZ`, Home Assistant's zone), not UTC: an offset-less value from a feed is almost always wall-clock time. Every source measured on 22 Oct 2026 carries an offset, so this is a fallback. **Before relying on it for a new source that publishes naive timestamps, confirm that source's own convention** (local to the install, local to the provider, or UTC) and convert in its adapter if it is not the install's local time.
+
 ### A combined forecast (`combine: mean`)
 
 A Solar `generation_forecast` binding with an ordered `sources` list resolves each member on the plan's grid, then combines the members that resolved (DC-006 decision 10b; today's `build_solar_arrays`):
