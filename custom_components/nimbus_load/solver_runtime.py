@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import urllib.error
 from datetime import datetime
@@ -122,7 +123,7 @@ _price_latency_sensor = None
 # meantime. A plain asyncio.Future supports more than one simultaneous
 # awaiter with no interference, so this adds a second, harmless awaiter
 # rather than disturbing the original one.
-_in_flight_future: asyncio.Future[bool] | None = None
+_in_flight_future: asyncio.Future[tuple[bool, bool]] | None = None
 
 # nimbus issue #315 (Mark Purcell, 2026-08-31) -- "freshness watchdog trips
 # every ~44 min after reload, main-loop cadence degraded". Real, measured
@@ -221,6 +222,15 @@ _not_configured_warned = False
 # skip/succeed alternation, which by definition resets the consecutive
 # counter every time.
 _single_skip_total = 0
+
+# Speed, D (household, 22 Oct 2026, after HAEO 0.5.0rc1): a tick or price
+# change that finds a cycle still running used to be dropped, so a price
+# change landing mid-solve waited for the next tick. It now leaves this
+# request, and the running cycle runs ONE follow-up when it finishes. A
+# cycle that starts clears it (it reads fresh inputs), and a follow-up never
+# chains another, so the solver cannot run back to back indefinitely.
+_rerun_requested = False
+_cycle_state = threading.local()
 # How many single-tick overlaps between summary WARNINGs. At the rate
 # measured on a real install (99/hour) this is roughly 4 lines an hour;
 # on a healthy install it is silent for days, which is the intent.
@@ -372,6 +382,8 @@ def reset_module_state() -> None:
     _import_error_notified = False
     _price_latency_sensor = None
     _consecutive_lock_skips = 0
+    global _rerun_requested
+    _rerun_requested = False
     # nimbus issue #1296: cleared with its siblings, so a re-added entry does
     # not inherit a previous entry's consecutive count and warn immediately.
     _consecutive_not_configured = 0
@@ -827,8 +839,10 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         return False
     global _consecutive_lock_skips, _single_skip_total, _consecutive_not_configured
     global _not_configured_since, _not_configured_warned
+    global _rerun_requested
     if not sw.acquire_lock():
         _consecutive_lock_skips += 1
+        _rerun_requested = True
         # nimbus issue #315 made this a WARNING, because the silent-skip
         # mechanism behind "fires every ~44 min" had zero log breadcrumb,
         # and added the count so "a real multi-tick stall (several of
@@ -886,6 +900,8 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
             )
         return False
     _consecutive_lock_skips = 0
+    _rerun_requested = False
+    _cycle_state.ran = True
     cycle_started = time.monotonic()
     try:
         sw.main()
@@ -997,6 +1013,20 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         sw.release_lock()
 
 
+def _run_one_cycle_reporting(hass: HomeAssistant) -> tuple[bool, bool]:
+    """`_run_one_cycle()`, and whether this call ran a cycle at all (False
+    when it found one already running)."""
+    _cycle_state.ran = False
+    ok = _run_one_cycle(hass)
+    return ok, bool(getattr(_cycle_state, "ran", False))
+
+
+def _take_rerun_request() -> bool:
+    global _rerun_requested
+    requested, _rerun_requested = _rerun_requested, False
+    return requested
+
+
 async def async_run_solve(hass: HomeAssistant) -> bool:
     """Run one real Solver cycle in-process, right now. Returns True on a
     genuine, successful push to sensor.nimbus_solver_battery_forecast;
@@ -1030,13 +1060,23 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
 
         await async_ensure_snapshots_loaded(hass, entry_id)
 
-    future = hass.async_add_executor_job(_run_one_cycle, hass)
-    _in_flight_future = future
-    try:
-        ok = await future
-    finally:
-        if _in_flight_future is future:
-            _in_flight_future = None
+    any_ok = False
+    for follow_up in (False, True):
+        future = hass.async_add_executor_job(_run_one_cycle_reporting, hass)
+        _in_flight_future = future
+        try:
+            ok, ran = await future
+        finally:
+            if _in_flight_future is future:
+                _in_flight_future = None
+        any_ok = any_ok or ok
+        if follow_up or not ran or not _take_rerun_request():
+            break
+        _LOGGER.debug(
+            "Nimbus Solver: a tick or price change arrived during that cycle "
+            "-- running one follow-up now instead of waiting for the next tick"
+        )
+    ok = any_ok
 
     # nimbus issue #937: capture today's day-ahead forecast, once per local
     # day, on the first solve that succeeds. Here rather than inside
