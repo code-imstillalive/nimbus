@@ -223,7 +223,7 @@ _not_configured_warned = False
 # counter every time.
 _single_skip_total = 0
 
-# Speed, D (household, 22 Oct 2026, after HAEO 0.5.0rc1): a tick or price
+# Speed, D (household, 22 Oct 2026): a tick or price
 # change that finds a cycle still running used to be dropped, so a price
 # change landing mid-solve waited for the next tick. It now leaves this
 # request, and the running cycle runs ONE follow-up when it finishes. A

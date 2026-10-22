@@ -1,4 +1,4 @@
-"""Speed, D (household, 22 Oct 2026, after HAEO 0.5.0rc1): a tick or price
+"""Speed, D (household, 22 Oct 2026): a tick or price
 change that finds a solve still running is no longer dropped. The running
 cycle runs ONE follow-up when it finishes; a follow-up never chains another,
 and a cycle that starts clears any request made before it."""

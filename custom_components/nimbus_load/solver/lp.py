@@ -1969,7 +1969,7 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
 # point; measured on the joint stochastic problem it takes well under 1 s.
 PIN_REFRESH_SECONDS: float = 5.0
 
-# Speed (household, 22 Oct 2026, after HAEO 0.5.0rc1): phase 2 only breaks
+# Speed (household, 22 Oct 2026): phase 2 only breaks
 # ties among plans phase 1 already proved equally cheap, yet on a site with
 # an EV and switchable loads it took 42-53 s of a solve whose phase 1 took
 # about 1 s. It now gets this budget. Spent, the tie-break is finished as an

@@ -1,4 +1,4 @@
-"""Speed, A (household, 22 Oct 2026, after HAEO 0.5.0rc1): phase 2, the
+"""Speed, A (household, 22 Oct 2026): phase 2, the
 tie-break among plans phase 1 proved equally cheap, has its own budget.
 Spent, the tie-break finishes as an LP on the better of phase 1's switch
 choices and the best phase 2 had found. The primary cost is unchanged by
