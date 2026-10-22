@@ -177,6 +177,14 @@ start, #1179's calibration fallbacks and HiGHS snapshot, #1797's `absorb`) was
 reached only by old files that stay for another module; `test_lp_failure_paths`
 now checks each by behaviour. A few lines remain that only the old set reaches
 (`lp.py` 3, `network.py` 10); the files that reach them stay.
+The measurement itself, both runs' totals, the exact commands, the old file
+list and the old-only lines, is `coverage_comparison.json` beside this file.
+
+**Found while closing it:** calibration's `cost_not_preserved` fallback in
+`lp._calibrate_blend_weight` looks unreachable. Its probes run with the
+primary-bound row in place, so no probe can lose primary cost beyond the
+tolerance; only `probe_not_optimal` reaches the fallback
+(`test_lp_failure_paths` covers both). Not changed, recorded.
 
 The 75 in-scope files alone reach nothing the new set does not; the one line
 they did (#1360's logged-once return) has its own test, which a planted repeat
