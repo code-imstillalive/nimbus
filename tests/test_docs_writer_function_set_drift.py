@@ -192,6 +192,11 @@ def _integration_paths() -> list[str]:
 # publish these reports TO outside of a real running HA instance.
 INTENTIONAL_NATIVE_ONLY = frozenset(
     {
+        # The "Nimbus cannot make a plan" Repair (22 Oct 2026): the streak of
+        # cycles without an optimal plan, read by setup_health to raise a
+        # Home Assistant Repair. A cron process has no Repairs to raise.
+        "failed_streak",
+        "_note_plan_outcome",
         # nimbus #1797: these serve Home Assistant readers only -- the
         # response-only nimbus_load.get_stochastic_summary service, and the
         # decision-input capture / diagnostics download reading this
