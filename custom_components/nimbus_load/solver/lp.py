@@ -2782,9 +2782,16 @@ def _solve_with_options(
         secondary_value = _best_pinned_tie_break(
             h, binary_cols, [phase1_point], problem
         )
-
-    if budget is not None:
-        budget.restore()
+    finally:
+        # Whatever leaves phase 2 -- including an exception neither handler
+        # above catches (HiGHS can raise a bare Exception) -- the per-thread
+        # budget flag is cleared, or a later solve on this reused executor
+        # thread would read it as budgeted (Mark Purcell's review of #2010;
+        # the same try/finally discipline as _phase_breakdown()). restore()
+        # is idempotent: the handlers above restore earlier, before their
+        # pinned LPs need the fresh window.
+        if budget is not None:
+            budget.restore()
 
     # nimbus issue #702: the real binary assignment is now decided --
     # phase 2's own (possibly MIP) solve just chose, among every

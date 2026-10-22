@@ -208,3 +208,24 @@ def test_a_spent_budget_does_not_raise_the_solve_summary_to_a_warning(caplog):
         )
     summary = [r for r in caplog.records if "phase breakdown" in r.getMessage()]
     assert summary and all(r.levelno == logging.DEBUG for r in summary)
+
+
+def test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set():
+    """Mark Purcell's review of #2010: HiGHS can raise a bare Exception,
+    which neither phase-2 handler catches. Whatever happens to the solve,
+    the per-thread budget flag must be clear afterwards, or a later solve on
+    the same reused executor thread would read itself as budgeted."""
+    real = lp._ensure_optimal_value
+
+    def boom(h, *, phase="", problem=None, binary_cols=None):
+        if phase == "phase2_secondary":
+            assert lp._phase2_budgeted()  # the flag really was set
+            raise Exception("HiGHS: bare error")  # noqa: TRY002
+        return real(h, phase=phase, problem=problem, binary_cols=binary_cols)
+
+    with (
+        patch.object(lp, "_ensure_optimal_value", boom),
+        contextlib.suppress(Exception),
+    ):
+        _switch_and_tie().solve(options=LexOptions())
+    assert not lp._phase2_budgeted()
