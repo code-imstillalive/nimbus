@@ -28,7 +28,9 @@ def _found(*entities):
 
 def test_solcast_present_starts_it_on():
     assert fresh_install_default(
-        CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR, _found("sensor.bumbum_solbum_today"), False
+        CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+        _found("sensor.bumbum_solbum_today"),
+        False,
     )
 
 
