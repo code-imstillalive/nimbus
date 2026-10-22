@@ -20,10 +20,6 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   load is now only the sensor set in the whole-house cross-check field; the old
   fallback to one fixed entity name is gone.
 
-## [0.94.480] - 2026-10-22
-
-**A battery above its Max SoC with terminal-value tiers set no longer loses the whole plan; two flex-signal fixes.**
-
 ## [0.94.481] - 2026-10-22
 
 **Every offer-curve point is what a plan at its price would do.**
