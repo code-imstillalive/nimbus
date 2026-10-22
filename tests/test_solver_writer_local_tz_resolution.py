@@ -28,21 +28,49 @@ from __future__ import annotations
 
 import os
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 
 class TestLocalTzResolution(unittest.TestCase):
     def setUp(self):
         self._orig_local_tz = solver_writer.LOCAL_TZ
+        self._orig_shared_tz = solver_shared.LOCAL_TZ
         self._orig_native_hass = solver_writer.NATIVE.hass
 
     def tearDown(self):
         solver_writer.LOCAL_TZ = self._orig_local_tz
+        solver_shared.LOCAL_TZ = self._orig_shared_tz
         solver_writer.NATIVE.hass = self._orig_native_hass
+
+    def _native(self, time_zone):
+        hass = MagicMock()
+        hass.config.time_zone = time_zone
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NIMBUS_SOLVER_TIMEZONE", None)
+            solver_writer.set_native_hass(hass)
+
+    def test_the_local_hour_follows_the_install_s_own_zone(self):
+        """Before, solver_shared kept its import-time Australia/Brisbane:
+        _local() -- the hour behind TOU fees, the EV departure hour, day
+        boundaries and P2P checkpoints -- read 12:00 UTC as 22:00 on a
+        London install."""
+        solver_shared.LOCAL_TZ = ZoneInfo("Australia/Brisbane")
+        self._native("Europe/London")
+        self.assertEqual(solver_shared.LOCAL_TZ, ZoneInfo("Europe/London"))
+        noon_utc = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
+        self.assertEqual(solver_writer._local(noon_utc).hour, 13)  # BST
+
+    def test_a_brisbane_install_reads_exactly_as_before(self):
+        self._native("Australia/Brisbane")
+        noon_utc = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
+        self.assertEqual(solver_writer._local(noon_utc).hour, 22)
+        self.assertEqual(solver_shared.LOCAL_TZ, solver_writer.LOCAL_TZ)
 
     def test_set_native_hass_resolves_local_tz_from_hass_config(self):
         solver_writer.LOCAL_TZ = ZoneInfo("Australia/Brisbane")  # the old default
