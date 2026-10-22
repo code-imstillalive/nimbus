@@ -332,6 +332,214 @@ def test_the_retail_point_claims_only_the_range_a_real_solve_holds():
     assert fresh == pytest.approx(kw, abs=1e-4), (kw, interval, inside, fresh)
 
 
+def test_past_its_node_cap_a_point_is_made_one_way_the_way_build_plan_does(monkeypatch):
+    """Mark Purcell's #1993 review: past `_OFFER_CURVE_ONE_WAY_NODES` a point
+    falls back to one exact MIP on a copy, which follows `build_plan`'s own
+    rounds: binaries where the point is two-way, every pair only if that
+    leaves one. With the cap at 0 every two-way point takes that path; on a
+    site whose swept points import and export at once, each still matches a
+    fresh solve (a hair either side on a tie)."""
+    from solver import network
+
+    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+    n, solar, start = 2, [0.0, 0.0], 36.0
+    plan = _curve_plan(n, solar, start)
+    assert plan.status == "optimal"
+
+    def fresh(price):
+        return float(
+            _curve_plan(n, solar, start, imp0=price, curve=False).grid_import_kw[0]
+        )
+
+    for price, kw in plan.offer_curve_import:
+        if fresh(price) == pytest.approx(kw, abs=1e-4):
+            continue
+        eps = 1e-4 * max(1.0, abs(price))
+        assert round(kw, 4) in {round(fresh(price + d), 4) for d in (-eps, eps)}, (
+            price,
+            kw,
+        )
+
+
+def _cheap_banded_plan(imp0=None, curve=True):
+    """Raw prices of 1c with a band that hedges import up towards 60c: the
+    risk-adjusted prices the LP pays (54c) are fifty times the raw ones the
+    soft-SoC penalty is derived from, so the penalty (10 x 1c) is small
+    next to what recovering a battery below its Min SoC costs."""
+    n = 4
+    imp = np.full(n, 0.01)
+    if imp0 is not None:
+        imp[0] = imp0
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=np.full(n, 0.005),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+            import_price_upper=np.full(n, 0.60),
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=40.0,
+                initial_soc_kwh=2.0,
+                min_soc_kwh=8.0,
+                max_soc_kwh=32.0,
+                max_charge_kw=5.0,
+                max_discharge_kw=5.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.005,
+                discharge_cost=0.005,
+                salvage_value=0.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
+        import_price_risk_aversion=0.9,
+        compute_offer_curve=curve,
+    )
+
+
+def _cheap_banded_import(price):
+    """Period-0 ordinary import of a fresh plan at the raw price behind the
+    adjusted `price`."""
+    from solver.network import _raw_price_for_adjusted
+
+    raw = _raw_price_for_adjusted(price, 0.01, np.full(4, 0.60), 0.9, direction="up")
+    d = _cheap_banded_plan(imp0=raw, curve=False)
+    return float(d.grid_import_kw[0] - d.grid_import_excess_kw[0])
+
+
+def test_the_soft_soc_penalty_is_rebuilt_from_raw_prices():
+    """Mark Purcell's #1993 review: `build_plan` derives the soft-SoC
+    penalty from the RAW grid prices, the curve's points from the adjusted
+    ones. Here the battery starts 6 kWh under its Min SoC. With the penalty
+    read from raw prices (10c) it waits rather than pay 54c to recover;
+    read from the adjusted ones ($5.40) it would recover at once, so a
+    curve that rebuilt it from the adjusted prices buys where no plan does."""
+    plan = _cheap_banded_plan()
+    assert plan.status == "optimal"
+    for price, kw in plan.offer_curve_import:
+        if _cheap_banded_import(price) == pytest.approx(kw, abs=1e-4):
+            continue
+        eps = 1e-4 * max(1.0, abs(price))
+        sides = {round(_cheap_banded_import(price + e), 4) for e in (-eps, eps)}
+        assert round(kw, 4) in sides, (price, kw, sides)
+
+
+def _banded_plan(n, solar, start, aversion, imp0=None, exp0=None, curve=True):
+    """`_curve_plan`'s site with a price-risk band on both sides (#1993):
+    import could run to 0.60, export fall to 0.02, hedged by `aversion`."""
+    imp = np.full(n, 0.30)
+    exp = np.full(n, 0.10)
+    if imp0 is not None:
+        imp[0] = imp0
+    if exp0 is not None:
+        exp[0] = exp0
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=exp,
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+            import_price_upper=np.full(n, 0.60),
+            export_price_lower=np.full(n, 0.02),
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=40.0,
+                initial_soc_kwh=start,
+                min_soc_kwh=8.0,
+                max_soc_kwh=32.0,
+                max_charge_kw=5.0,
+                max_discharge_kw=5.0,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.01,
+                discharge_cost=0.01,
+                salvage_value=0.0,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.asarray(solar, dtype=float)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        import_price_risk_aversion=aversion,
+        export_price_risk_aversion=aversion,
+        compute_offer_curve=curve,
+    )
+
+
+@SETTINGS
+@given(_SITES, st.sampled_from([0.25, 0.5, 0.9]))
+def test_a_banded_curve_point_is_the_plan_at_the_raw_price_behind_it(site, aversion):
+    """Mark Purcell's #1993 review: the curve's prices are the risk-adjusted
+    (effective) ones the LP costs carry, but the derived soft-SoC penalty
+    reads the RAW prices. Each point is the period-0 flow of a fresh solve
+    at the raw price whose adjusted price is the point's (the inverse of the
+    one-sided hedge), so a site that starts outside its SoC bounds, with a
+    band on both sides, checks the penalty is rebuilt from raw prices."""
+    from solver.network import _raw_price_for_adjusted
+
+    n, solar, start, _options = _drawn(site)
+    plan = _banded_plan(n, solar, start, aversion)
+    assert plan.status == "optimal"
+    upper, lower = np.full(n, 0.60), np.full(n, 0.02)
+
+    def fresh(key, price, flow):
+        if key == "imp0":
+            raw = _raw_price_for_adjusted(price, 0.30, upper, aversion, direction="up")
+        else:
+            raw = _raw_price_for_adjusted(
+                price, 0.10, lower, aversion, direction="down"
+            )
+        d = _banded_plan(n, solar, start, aversion, curve=False, **{key: raw})
+        return float(getattr(d, flow)[0])
+
+    for curve, key, flow in (
+        (plan.offer_curve_import, "imp0", "grid_import_kw"),
+        (plan.offer_curve_export, "exp0", "grid_export_kw"),
+    ):
+        for price, kw in curve:
+            if fresh(key, price, flow) == pytest.approx(kw, abs=1e-4):
+                continue
+            eps = 1e-4 * max(1.0, abs(price))
+            sides = {round(fresh(key, price + d, flow), 4) for d in (-eps, eps)}
+            assert round(kw, 4) in sides, (key, price, kw, sides)
+
+
+@pytest.mark.parametrize(
+    "direction, raw, bound", [("up", 0.30, 0.60), ("down", 0.10, 0.02)]
+)
+@pytest.mark.parametrize("aversion", [0.0, 0.25, 0.9, 1.0])
+def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted(
+    direction, raw, bound, aversion
+):
+    """#1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
+    period 0 wherever an inverse exists; at an aversion of 1, inside the
+    band, every raw price adjusts to the bound, and the plan's own is kept."""
+    from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
+
+    band = np.array([bound])
+    for r in np.linspace(-0.5, 1.5, 41):
+        adjusted = float(
+            _risk_adjusted_one_sided(
+                np.array([r]), band, aversion, direction=direction
+            )[0]
+        )
+        back = _raw_price_for_adjusted(
+            adjusted, raw, band, aversion, direction=direction
+        )
+        # At the bound itself (to float noise) every raw price ties.
+        inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
+        if aversion >= 1.0 and inside:
+            assert back == raw
+        else:
+            assert back == pytest.approx(r, abs=1e-12)
+
+
 def test_the_offer_curve_is_opt_in_and_absent_from_a_failed_plan():
     """#494: off by default, so no extra solves; a plan that did not solve
     carries no curve, ranging or timing."""

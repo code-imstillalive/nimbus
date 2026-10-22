@@ -1281,6 +1281,33 @@ def _risk_adjusted_one_sided(
     return forecast - risk_aversion * np.maximum(0.0, forecast - bound)
 
 
+def _raw_price_for_adjusted(
+    adjusted: float,
+    raw: float,
+    bound: NDArray[np.float64] | None,
+    risk_aversion: float,
+    *,
+    direction: str,
+) -> float:
+    """The raw period-0 price whose `_risk_adjusted_one_sided()` value is
+    `adjusted` (nimbus #1990, Mark Purcell's #1993 review): the inverse of
+    `raw + a * max(0, bound - raw)` ("up") or `raw - a * max(0, raw - bound)`
+    ("down") at period 0. With no band, a zero aversion, or `adjusted` on
+    the far side of the bound, it is `adjusted` itself. At an aversion of 1
+    every raw price on the near side adjusts to the bound, so none is THE
+    raw price; the plan's own `raw` is kept."""
+    if bound is None or risk_aversion <= 0.0 or not len(bound):
+        return adjusted
+    b = float(bound[0])
+    tol = 1e-12 * max(1.0, abs(b))
+    if risk_aversion >= 1.0:
+        at_or_inside = adjusted <= b + tol if direction == "up" else adjusted >= b - tol
+        return raw if at_or_inside else adjusted
+    if (direction == "up" and adjusted >= b) or (direction == "down" and adjusted <= b):
+        return adjusted
+    return (adjusted - risk_aversion * b) / (1.0 - risk_aversion)
+
+
 def _anchor_source(new_idx: int, old_idx: int) -> int:
     """Which previous-plan period anchors new period `new_idx` (nimbus #1576).
 
@@ -4952,8 +4979,33 @@ def _build_plan_once(
                 costs[c0] = p._cost.get(c0, 0.0) + (new_c - old_c) * hours0
                 costs[d0] = p._cost.get(d0, 0.0) + (new_d - old_d) * hours0
             if soft_soc_other_rates is not None:
+                # The derived penalty reads the RAW grid prices, not the
+                # risk-adjusted ones the LP costs carry (Mark Purcell, #1993):
+                # period 0's raw price is the one whose adjusted price is the
+                # swept one.
+                raw_imp = np.array(grid.import_price, dtype=np.float64)
+                raw_exp = np.array(grid.export_price, dtype=np.float64)
+                if len(raw_imp):
+                    raw_imp[0] = _raw_price_for_adjusted(
+                        float(imp[0]),
+                        float(raw_imp[0]),
+                        grid.import_price_upper,
+                        import_price_risk_aversion,
+                        direction="up",
+                    )
+                if len(raw_exp):
+                    raw_exp[0] = _raw_price_for_adjusted(
+                        float(exp[0]),
+                        float(raw_exp[0]),
+                        grid.export_price_lower,
+                        export_price_risk_aversion,
+                        direction="down",
+                    )
                 penalty = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-                    float(np.max(imp)), float(np.max(exp)), *soft_soc_other_rates, 0.01
+                    float(np.max(raw_imp)) if len(raw_imp) else 0.0,
+                    float(np.max(raw_exp)) if len(raw_exp) else 0.0,
+                    *soft_soc_other_rates,
+                    0.01,
                 )
                 for b in batteries:
                     for var in (*underfill_vars[b.name], *overfill_vars[b.name]):
@@ -5012,13 +5064,32 @@ def _build_plan_once(
                     return pair
             return None
 
-        def _exact_mip(cost: dict[str, float], var: str) -> float | None:
-            q = copy.deepcopy(p)
-            q._cost.update(cost)
-            for name, fwd, rev, _excess in pairs:
-                _add_direction_binary(q, name, fwd, rev)
-            exact = q.solve()
-            return q.value_of(exact, var) if exact.status == "optimal" else None
+        def _exact_mip(
+            cost: dict[str, float], var: str, xs: NDArray[np.float64]
+        ) -> float | None:
+            """`build_plan`'s own rounds on a copy (Mark Purcell, #1993): a
+            binary first only where the point is two-way, then on every pair
+            if that leaves one two-way. On a tie the two can settle on
+            different answers, so this follows the same order."""
+            targeted = []
+            held: set[str] = set()
+            while (pair := _two_way(xs, frozenset(held))) is not None:
+                targeted.append(pair)
+                held.add(pair[0])
+            for rounds in (targeted, pairs):
+                q = copy.deepcopy(p)
+                q._cost.update(cost)
+                for name, fwd, rev, _excess in rounds:
+                    _add_direction_binary(q, name, fwd, rev)
+                exact = q.solve()
+                if exact.status != "optimal":
+                    return None
+                solved = np.array(
+                    [q.value_of(exact, v) for v in base_result._var_names]
+                )
+                if _two_way(solved, frozenset()) is None:
+                    return q.value_of(exact, var)
+            return q.value_of(exact, var)
 
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
             def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
@@ -5045,7 +5116,7 @@ def _build_plan_once(
                     zero, held = stack.pop()
                     nodes += 1
                     if nodes > _OFFER_CURVE_ONE_WAY_NODES:
-                        exact = _exact_mip(cost, var)
+                        exact = _exact_mip(cost, var, step.x)
                         return step.value if exact is None else exact
                     solved = base_result.resolve_variant(cost, zero)
                     if solved is None:
