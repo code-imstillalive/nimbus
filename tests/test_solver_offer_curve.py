@@ -724,69 +724,54 @@ class TestOfferCurveRangingWalkBackstop(unittest.TestCase):
 
 
 class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
-    """nimbus issue #678: confirms the walk finds MORE real structure in
-    this exact scenario than #494's old fixed 7-point grid ever did.
-    Real values confirmed directly against this branch's own solver
-    before writing these assertions (same discipline as every other
-    hand-worked test in this file) -- the old grid never sampled finely
-    enough inside [-10c, 10c] to find either of the two extra plateaus
-    below; the walk finds both as a structural guarantee, not a lucky
-    sample landing.
+    """nimbus issue #678: the walk finds this scenario's real structure, not
+    a fixed grid's samples. nimbus issue #1990: "real" means what a fresh
+    solve at each price plans; every level and step below was checked that
+    way (tests/v2/solver/test_offer_curve.py checks it on drawn sites).
     """
 
     def setUp(self):
         self.plan = _scenario_plan(compute_offer_curve=True)
 
     @staticmethod
-    def _distinct_plateaus(ranging, tol=1e-6):
-        # Group consecutive rows sharing the SAME (within float tolerance)
-        # ranging interval -- the retail solve's own harmless near-
-        # duplicate row (see _offer_curve_ranging_walk()'s own docstring)
-        # must not be double-counted as a second, distinct segment. Exact
-        # equality isn't enough (nimbus issue #705): retail and a walk
-        # step landing on the identical true plateau are two INDEPENDENT
-        # sweep_cost_with_ranging() calls at two different starting
-        # prices, so their own reported bounds can differ by float noise
-        # (e.g. 0.29999900000000074 vs 0.3) even though both describe the
-        # exact same real segment.
-        def close(a, b):
-            if a is None or b is None:
-                return a is b
-            return all(
-                x == y or (x not in (float("-inf"), float("inf")) and abs(x - y) < tol)
-                for x, y in zip(a, b, strict=True)
+    def _runs(curve, tol=1e-6):
+        # The kW levels in price order, consecutive equal levels merged: the
+        # walk also steps where the LP's basis changes but this kW does not.
+        runs: list[float] = []
+        for _price, kw in curve:
+            if not runs or abs(runs[-1] - kw) > tol:
+                runs.append(kw)
+        return runs
+
+    def test_import_curve_is_full_charge_below_minus_one_cent_then_nothing(self):
+        # nimbus issue #1990: this test used to pin four plateaus, 7.0,
+        # ~3.524, 2.0 and 0.0 kW, found by moving period 0's import cost
+        # alone. A fresh solve at each price plans 7.0 kW up to about -0.97c
+        # and 0.0 kW above (the #732 loss tie-break moves with the price
+        # too); the 3.524 and 2.0 kW levels were never a real plan's.
+        self.assertEqual(self._runs(self.plan.offer_curve_import), [7.0, 0.0])
+        (first_zero,) = [
+            price
+            for (price, kw), (prev, prev_kw) in zip(
+                self.plan.offer_curve_import[1:],
+                self.plan.offer_curve_import[:-1],
+                strict=True,
             )
+            if kw == 0.0 and prev_kw == 7.0
+        ]
+        self.assertAlmostEqual(first_zero, -0.0097, places=3)
 
-        seen: list[tuple[float, float] | None] = []
-        for interval in ranging:
-            if not seen or not close(seen[-1], interval):
-                seen.append(interval)
-        return len(seen)
-
-    def test_import_curve_now_has_four_real_plateaus_not_two(self):
-        # Real, confirmed-live values: 7.0 kW (-inf,-10c], ~3.524 kW
-        # (-10c,7.12c], 2.0 kW (7.12c,10c] -- genuinely new, the old
-        # fixed grid never sampled here -- 0.0 kW (10c,inf).
-        self.assertEqual(
-            self._distinct_plateaus(self.plan.offer_curve_import_ranging), 4
-        )
-        values = [round(kw, 6) for _price, kw in self.plan.offer_curve_import]
-        self.assertIn(2.0, values)
-
-    def test_export_curve_now_has_four_real_plateaus_not_two(self):
-        # Real, confirmed-live values: 0.0 kW (-inf,1c], ~0.1 kW
-        # (1c,10c] -- genuinely new -- 3.0 kW (10c,30c], 5.0 kW (30c,inf).
-        # nimbus issue #705: export now walks from the cap DOWN instead of
-        # the floor up, so this same real structure is found in the
-        # opposite order (and the walk's own 2nd-to-last step happens to
-        # land on the identical true plateau as the separate retail
-        # solve, at 0.1 -- two independent ranging calls, tiny float
-        # noise between them, not a fifth real segment).
-        self.assertEqual(
-            self._distinct_plateaus(self.plan.offer_curve_export_ranging), 4
-        )
-        values = [kw for _price, kw in self.plan.offer_curve_export]
-        self.assertTrue(any(abs(v - 0.1) < 1e-6 for v in values))
+    def test_export_curve_steps_at_two_ten_cents_and_five_dollars_thirty(self):
+        # Fresh solves (nimbus issue #1990): 0.0 kW below 2c, 0.1 kW to 10c,
+        # 3.0 kW to $5.30, 5.0 kW above, the last step only once period 0's
+        # price outweighs keeping the battery for later. nimbus issue #705:
+        # export walks from the cap down, so the $5.30 step is found first.
+        runs = self._runs(self.plan.offer_curve_export)
+        np.testing.assert_allclose(runs, [0.0, 0.1, 3.0, 5.0], atol=1e-6)
+        ranging = self.plan.offer_curve_export_ranging
+        top = ranging[-1]
+        self.assertIsNotNone(top)
+        self.assertAlmostEqual(top[0], 5.30, places=2)
 
     def test_walk_never_costs_more_solves_than_its_own_documented_ceiling(self):
         # _OFFER_CURVE_MAX_BREAKPOINTS walk steps + 1 mandatory retail
