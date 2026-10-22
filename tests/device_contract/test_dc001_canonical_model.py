@@ -379,6 +379,31 @@ def _bad(code):
         devices[1]["bindings"]["energy"] = _derived(
             "load_house", "energy", ["load_house.energy"]
         )
+    elif code == "combine_not_allowed":
+        devices[0]["bindings"]["power"] = {
+            "sources": [{"kind": "entity_state", "entity_id": "sensor.grid"}],
+            "combine": "mean",
+        }
+    elif code == "combine_unknown":
+        devices.append(
+            {
+                "id": "solar_1",
+                "kind": "solar",
+                "bindings": {
+                    "generation_forecast": {
+                        "sources": [
+                            {
+                                "kind": "entity_attribute",
+                                "entity_id": "sensor.solar_forecast",
+                                "attribute_path": "forecast",
+                                "adapter": {"name": "nimbus_forecast", "version": 1},
+                            }
+                        ],
+                        "combine": "median",
+                    }
+                },
+            }
+        )
     elif code == "accounting_kind_mismatch":
         doc["accounting"]["demand"]["root_load_id"] = "grid_main"
     elif code == "grid_missing":
@@ -405,6 +430,8 @@ _CODES = (
     "dependency_cycle",
     "accounting_kind_mismatch",
     "grid_missing",
+    "combine_not_allowed",
+    "combine_unknown",
 )
 
 
@@ -505,6 +532,9 @@ _DC_BUILDERS = frozenset(
         # DC-006 slice 2 (#1574): the Forecaster reads its battery, grid and
         # solar power inputs from the document, in `active` only.
         "coordinator.py",
+        # DC-006 slice 3 (#1574): forecast adapters and `combine: mean` read
+        # the combine roles from the contract. No consumer imports it yet.
+        "device_forecasts.py",
     }
 )
 
