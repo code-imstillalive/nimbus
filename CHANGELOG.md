@@ -41,6 +41,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - Under the hood: forecast adapters and their equivalence check for the
   device setup (#2003, nothing reads them yet), and the solver tests' rebuilt
   core (#1962).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at c6925fbb**
+  (`release/0.94.483`), installed via HACS and restarted at 06:50 AEST; Home
+  Assistant was back by 06:50:58 and Nimbus loaded. The solver's first cycle
+  published a full plan at 06:51:49 (version 0.94.483), and no plan-failing
+  Repair was raised. The new load forecast totals read on all 19 of devhub's own
+  load forecasts (e.g. a pool pump: 9.146 kWh over the next 24 h, peak 1.371 kW
+  at 08:00). No new Nimbus `ERROR` or traceback beyond the devhub-only baseline
+  (duplicate unique IDs held by the mirrored entities, the test EV's
+  out-of-range SoC and unreachable departure target, residual-drift notes,
+  recorder attribute sizes).
+  - **Not observable on devhub:** a `nan`/`inf` sensor state, a plan failing
+    five cycles in a row, and an install outside Brisbane; each is carried by
+    its PR's tests. devhub's local-hour rules read as before, as a Brisbane
+    install should.
+  - **Seen, cosmetic:** on a load whose next 24 h are all zero,
+    `peak_next_24h_at` is the current time written in UTC rather than local
+    time.
+- Consumer check: a Brisbane install's plan changes only where it uses
+  Open-Meteo solar (5-minute periods now read the solar at the right time);
+  it gains the load totals and two Repairs. An install elsewhere also has its
+  local-hour rules on its own clock.
 
 ## [0.94.482] - 2026-10-22
 
