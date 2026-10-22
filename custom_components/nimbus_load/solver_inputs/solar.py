@@ -53,6 +53,15 @@ def _solver_writer():
     return solver_writer
 
 
+def _resampler(entries: list[dict]):
+    """resample_instants() for a series of instantaneous readings
+    (Open-Meteo's `watts`, #2004), resample_forecast() for anything else."""
+    sw = _solver_writer()
+    if entries and all(p.get("instant") for p in entries):
+        return sw.resample_instants
+    return sw.resample_forecast
+
+
 def _fetch_solar_source_safe(
     entity_id: str,
     grid_times: list[datetime],
@@ -95,11 +104,12 @@ def _fetch_solar_source_safe(
         # Real, honest clamp: a ML forecaster can produce a tiny
         # negative excursion near zero (physically impossible for
         # solar) -- found live on this script's very first real run.
-        value = [max(0.0, v) for v in sw.resample_forecast(fc, "value", grid_times)]
+        resample = _resampler(fc)
+        value = [max(0.0, v) for v in resample(fc, "value", grid_times)]
         has_bounds = any(p.get("lower") is not None for p in fc)
         if has_bounds:
-            lower = [max(0.0, v) for v in sw.resample_forecast(fc, "lower", grid_times)]
-            upper = [max(0.0, v) for v in sw.resample_forecast(fc, "upper", grid_times)]
+            lower = [max(0.0, v) for v in resample(fc, "lower", grid_times)]
+            upper = [max(0.0, v) for v in resample(fc, "upper", grid_times)]
             lower = [min(lower[i], value[i]) for i in range(n_periods)]
             upper = [max(upper[i], value[i]) for i in range(n_periods)]
         else:
@@ -169,7 +179,8 @@ def _fetch_open_meteo_solar_raw(
     if not entries:
         return None
     entries.sort(key=lambda e: e["time"])
-    value = [max(0.0, v) for v in sw.resample_forecast(entries, "value", grid_times)]
+    resample = _resampler(entries)
+    value = [max(0.0, v) for v in resample(entries, "value", grid_times)]
     return value, list(value), list(value)
 
 
