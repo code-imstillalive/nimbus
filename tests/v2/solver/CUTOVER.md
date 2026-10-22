@@ -161,14 +161,26 @@ the old file was written for and show both sets fail.
 | `test_solver_lp_solve_options.py` | #696, #702, #773, #238 | `test_lp_properties::test_without_options_the_secondary_cost_is_never_read`, `::test_a_blended_solve_is_the_optimum_of_the_blended_cost` (weights 1e-6 to 10 on random problems), `::test_a_calibrated_solve_reports_the_primary_cost`, `::test_a_binary_choice_is_primary_first_then_secondary` (2-4 exclusive switches, primary ties drawn, secondaries up to 1000x, Lex / Calibrated / Blended: cheapest primary always, cheapest secondary among ties, the continuous tie broken and the row's dual the LP dual), `::test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so`, `::test_with_no_primary_cost_the_secondary_alone_picks_the_point`; keeping the primary, the true lexicographic optimum and the cooldown are the existing `::test_the_lexicographic_solve_keeps_the_primary_and_improves_the_secondary`, `::test_the_calibrated_solve_keeps_the_primary_within_its_tolerance`, `test_lp_paths::test_the_lexicographic_solve_reaches_the_true_lexicographic_optimum` and `::test_inside_the_cooldown_the_phased_solve_waits_and_says_for_how_long` | planted the blend ignoring the secondary, no options reading the secondary, the calibrated objective left blended, the binaries pinned from the primary-only phase (#702's first design): old and new fail |
 | `test_solver_offer_curve.py` | #494, #676, #678, #705, #733, #1990 | `test_offer_curve::test_the_offer_curve_is_an_ordered_ladder_anchored_on_the_plan` (drawn sites, calibrated or not: prices ascending from the floor, import never rising and export never falling, each price inside its own ordered interval, the walk's point ceiling, a point at retail), `::test_every_offer_curve_point_is_what_a_fresh_solve_at_its_price_does` (#733's direct re-solve, on every point), `::test_every_ranging_interval_holds_its_point_from_end_to_end`, `::test_the_offer_curve_is_opt_in_and_absent_from_a_failed_plan`, `::test_the_offer_curve_sweep_stays_under_half_a_second`, and #1990's targeted cases (emergency-import markup, retail interval, node-cap fallback, raw-price soft-SoC penalty, priced stand-in); the helper and walk classes (`TestOfferCurvePriceIntervalHelper`, `TestOfferCurveAbsentOnNonOptimalPlan`, `TestOfferCurveRangingWalkControlFlow`, `...Descending`, `...Backstop`) moved into the v2 file unchanged | planted #1990 undone (only the swept variable's own cost moved), no retail point, the ascending walk nudging backwards: old and new fail. #1993's eleven plants are caught by the v2 file |
 
-## Branch coverage (22 Oct, `pytest --cov --cov-branch`, the 75 checked old files against `tests/v2/solver`, the offer-curve file out of both)
+## Branch coverage (22 Oct, `pytest --cov --cov-branch`, the same code for both sets)
+
+Against the design's bar, **all 157 pre-v2 solver test files** (the set #1837
+measured on 21 Oct) against `tests/v2/solver`:
 
 | module | old lines | new lines | old branches | new branches |
 |---|---|---|---|---|
-| `lp.py` | 607/754 | 651/754 | 128/202 | 152/202 |
-| `network.py` | 871/963 | 877/963 | 374/424 | 378/424 |
+| `lp.py` | 724/795 (89.0%) | 744/795 (92.1%) | 181/222 | 193/222 |
+| `network.py` | 1098/1163 (93.1%) | 1127/1163 (95.7%) | 467/518 | 481/518 |
 
-The old set reached one line the new did not: `lp._note_unknown_retry`'s logged-once return (#1360). Now covered by `test_solver_contracts::test_a_repeated_unknown_is_counted_every_time_and_logged_once`, which a planted repeat fails and the old files do not. Nothing in `network.py` is reached by the old set alone.
+On 21 Oct the new set stood at 67% and 77%. The `lp.py` gap that remained
+this morning (46 lines: #1805's time-limited incumbent, #773's tier 2 and MIP
+start, #1179's calibration fallbacks and HiGHS snapshot, #1797's `absorb`) was
+reached only by old files that stay for another module; `test_lp_failure_paths`
+now checks each by behaviour. A few lines remain that only the old set reaches
+(`lp.py` 3, `network.py` 10); the files that reach them stay.
+
+The 75 in-scope files alone reach nothing the new set does not; the one line
+they did (#1360's logged-once return) has its own test, which a planted repeat
+fails and the old files do not.
 
 ## Still to check
 
