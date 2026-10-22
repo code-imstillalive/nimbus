@@ -8,6 +8,40 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.483] - 2026-10-23
+
+**Local-time rules use each install's own time zone; Open-Meteo solar read at the right time; two new Repairs; an EV's availability from a tracker or charger status.**
+
+- **Local-hour rules use the install's own time zone, not Brisbane's**
+  (#2007). Time-of-use network fees, the EV departure hour, day boundaries and
+  P2P checkpoints were worked out on Brisbane's clock on every install, so an
+  install elsewhere had them hours out (an hour in Sydney under daylight
+  saving). A Brisbane install reads exactly as before.
+- **Open-Meteo solar is read at the right time** ([#2004](https://github.com/code-imstillalive/nimbus/issues/2004)).
+  Its forecast values describe the power 15 minutes after their timestamp, so
+  the plan's 5-minute near-term periods read the solar 5–15 minutes early.
+  Each value is now placed at its own time and each period reads its
+  midpoint. Half-hour periods read exactly what they read before; Solcast is
+  unchanged.
+- **A sensor reporting `nan` or `inf` no longer reaches the plan** (#2006).
+  The battery's live level, price sensors, the AEMO spot check and a live
+  grid-limit sensor now take their usual fallback and warning instead.
+- **A Repair when Nimbus cannot make a plan** (#2009). After five cycles in a
+  row without a plan, a Repair says since when, whether the solver stopped
+  (the last good plan is kept) or no plan meets the settings (nothing is
+  scheduled), and what to check. It clears itself on the next good plan.
+- **A Repair when a load forecast has no whole-house sensor**
+  ([#1998](https://github.com/code-imstillalive/nimbus/issues/1998)), naming the
+  field, since the Forecaster's whole-house fixes need it.
+- **Each load forecast says what it adds up to** (#2011): energy over the next
+  24 hours and over the whole forecast, and the next 24 hours' peak and when.
+- **An EV's availability can be a device_tracker, person or charger status**
+  (#2012), with an optional list of the states that mean available (e.g.
+  `Charging, Connected`). An existing binary_sensor works exactly as before.
+- Under the hood: forecast adapters and their equivalence check for the
+  device setup (#2003, nothing reads them yet), and the solver tests' rebuilt
+  core (#1962).
+
 ## [0.94.482] - 2026-10-22
 
 **Solcast, Open-Meteo and LocalVolts are found by their integration, not by entity name.**
@@ -23,6 +57,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   that renamed nothing reads exactly the same entities as before. The whole-house
   load is now only the sensor set in the whole-house cross-check field; the old
   fallback to one fixed entity name is gone.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at a1a95e44**
+  (`release/0.94.482`), installed via HACS and restarted at 18:24 AEST; Home
+  Assistant was back by 18:25:49 and Nimbus loaded. The solver's 18:28 cycle was
+  `optimal`, and its whole-house reading (1.477 kW) came from the configured
+  whole-house cross-check sensor. No new Nimbus `ERROR` or traceback beyond the
+  devhub-only baseline (duplicate unique IDs held by the mirrored entities,
+  Forecaster renames left in place, residual-drift notes, recorder attribute sizes).
+  - **Not observable on devhub:** a renamed Solcast or Open-Meteo entity. devhub
+    renames none, so it reads the same entities as before, which is the
+    no-change half of this release; the rename half is carried by #1997's tests.
+- Consumer check: an install that renamed nothing sees no change; one whose
+  Solcast, Open-Meteo or LocalVolts entities were renamed now has them found.
 
 ## [0.94.481] - 2026-10-22
 

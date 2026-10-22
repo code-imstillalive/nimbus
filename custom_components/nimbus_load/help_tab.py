@@ -215,6 +215,30 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.483",
+        "23 Oct 2026",
+        (
+            (
+                "**Your time zone:** time-of-use fees, the EV departure hour "
+                "and day boundaries use your install's own time zone (they "
+                "used Brisbane's everywhere). Nothing changes in Brisbane."
+            ),
+            (
+                "**Open-Meteo solar** is read at the right time, so the next "
+                "hour's solar is no longer 5-15 minutes early."
+            ),
+            (
+                "**Two new Repairs:** when Nimbus cannot make a plan, and when "
+                "a load forecast has no whole-house sensor set."
+            ),
+            (
+                "**Load forecasts** show their energy for the next 24 hours "
+                "and the peak. **An EV's availability** can be a tracker, a "
+                "person or a charger status."
+            ),
+        ),
+    ),
+    (
         "0.94.482",
         "22 Oct 2026",
         (

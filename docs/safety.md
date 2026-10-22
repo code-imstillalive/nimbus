@@ -60,4 +60,10 @@ fixed:
 - fees counted twice;
 - a frozen price input;
 - a missing regional forecast;
-- an empty required Solver input.
+- an empty required Solver input;
+- a load forecast with no whole-house sensor set, so the Forecaster's
+  whole-house corrections cannot apply;
+- Nimbus unable to make a plan for five cycles in a row: either the solver
+  stopped before finding one (the last good plan is kept), or no plan meets
+  the current settings (the plan schedules nothing until it clears). It
+  appears and clears within a cycle.

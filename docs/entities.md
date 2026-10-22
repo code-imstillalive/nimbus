@@ -142,6 +142,22 @@ counter). Nimbus takes no such sensor in config, so it publishes no measurement
 rather than a wrong one. `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py`
 pins that absence.
 
+## Load forecast totals
+
+Each load's power forecast (`sensor.nimbus_<load>_power_forecast`, and each
+Power Signal's) also says what its forecast adds up to:
+
+| attribute | meaning |
+|---|---|
+| `energy_next_24h_kwh` | kWh forecast from now to 24 hours ahead |
+| `energy_forecast_kwh` | kWh over the whole published forecast from now |
+| `peak_next_24h_kw` | the highest forecast point in the next 24 hours |
+| `peak_next_24h_at` | when that peak is |
+
+They read the forecast the way the Solver does: each point holds until the
+next, the past does not count, and a point with no value is skipped, never
+read as zero. Temperature and humidity forecasts do not carry them.
+
 ## Attribute history: the parent sensors store none
 
 **`state_attr()` works live, but returns nothing for any past timestamp** on the large parent sensors (`sensor.nimbus_solver_battery_forecast`, `sensor.nimbus_health_report`). If you are writing a template, automation, or chart that looks back in time, read the flattened child sensors instead — they are ordinary sensors with ordinary history and long-term statistics.
