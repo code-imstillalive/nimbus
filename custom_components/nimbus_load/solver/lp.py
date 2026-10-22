@@ -1807,7 +1807,6 @@ def _ensure_optimal_value(
     phase: str = "",
     problem: LPProblem | None = None,
     binary_cols: list[int] | None = None,
-    budgeted: bool = False,
 ) -> float:
     """Run the solver and return its objective value, raising if the
     result isn't optimal. An intermediate lex/calibration PHASE failing
@@ -1832,6 +1831,8 @@ def _ensure_optimal_value(
     "status='Infeasible'" this project has only ever had to go on so
     far -- same diagnostic-logging-before-guessing discipline already
     used for #757."""
+    # Phase 2 on its own budget (_Phase2Budget): a spent budget is expected.
+    budgeted = phase == "phase2_secondary" and _phase2_budgeted()
     with _timed_lp_call(
         h,
         f"lex_phase:{phase}",
@@ -1983,6 +1984,14 @@ class _Phase2BudgetSpent(ValueError):
     """Phase 2 stopped on its own budget: expected, not a failure."""
 
 
+_PHASE2_BUDGET = threading.local()
+
+
+def _phase2_budgeted() -> bool:
+    """True while phase 2 runs on its own budget (this thread)."""
+    return bool(getattr(_PHASE2_BUDGET, "active", False))
+
+
 class _Phase2Budget:
     """Phase 2's run-time budget on `h`, and the limit to put back for the
     phases after it. HiGHS (highspy 1.15.1, measured 22 Oct 2026) counts
@@ -1999,10 +2008,12 @@ class _Phase2Budget:
                 "time_limit",
                 min(self._previous, PHASE2_SECONDARY_BUDGET_SECONDS),
             )
+            _PHASE2_BUDGET.active = True
         except Exception:  # noqa: BLE001 - a budget must never break a solve
             self._previous = None
 
     def restore(self) -> None:
+        _PHASE2_BUDGET.active = False
         if self._previous is not None:
             self._h.setOptionValue("time_limit", self._previous)
             self._previous = None
@@ -2029,18 +2040,26 @@ def _best_pinned_tie_break(
     """Pin each candidate's binaries, minimise the secondary as an LP, and
     leave `h` holding the best. The first candidate is phase 1's point,
     feasible by construction; a later one that fails is skipped."""
+
+    def solve_pinned(point: list[float]) -> float:
+        _pin_binaries_to_values(h, binary_cols, point)
+        # Same tolerance band as every other pinned re-solve -- the pinned
+        # values were accepted by branch-and-bound under
+        # mip_feasibility_tolerance, and a pure LP would otherwise re-check
+        # them ten times tighter. See _lp_tolerance_matching_mip().
+        with _lp_tolerance_matching_mip(h):
+            return _ensure_optimal_value(
+                h,
+                phase="phase2_secondary_pinned_lp",
+                problem=problem,
+                binary_cols=binary_cols,
+            )
+
     best: tuple[float, int] | None = None
     last = -1
     for k, point in enumerate(candidates):
-        _pin_binaries_to_values(h, binary_cols, point)
         try:
-            with _lp_tolerance_matching_mip(h):
-                value = _ensure_optimal_value(
-                    h,
-                    phase="phase2_secondary_pinned_lp",
-                    problem=problem,
-                    binary_cols=binary_cols,
-                )
+            value = solve_pinned(point)
         except ValueError:
             if k == 0:
                 raise
@@ -2052,14 +2071,7 @@ def _best_pinned_tie_break(
         msg = "phase 2: no pinned tie-break reached optimal"
         raise ValueError(msg)
     if best[1] != last:
-        _pin_binaries_to_values(h, binary_cols, candidates[best[1]])
-        with _lp_tolerance_matching_mip(h):
-            _ensure_optimal_value(
-                h,
-                phase="phase2_secondary_pinned_lp",
-                problem=problem,
-                binary_cols=binary_cols,
-            )
+        solve_pinned(candidates[best[1]])
     return best[0]
 
 
@@ -2692,7 +2704,6 @@ def _solve_with_options(
             phase="phase2_secondary",
             problem=problem,
             binary_cols=binary_cols,
-            budgeted=budget is not None,
         )
     except _Phase2BudgetSpent:
         # Budget spent: finish the tie-break as an LP on the better of
@@ -2760,18 +2771,9 @@ def _solve_with_options(
             len(binary_cols),
             problem.n_variables,
         )
-        _pin_binaries_to_values(h, binary_cols, phase1_point)
-        # Same tolerance band as every other pinned re-solve in this
-        # function -- the pinned values were accepted by branch-and-bound
-        # under mip_feasibility_tolerance, and a pure LP would otherwise
-        # re-check them ten times tighter. See _lp_tolerance_matching_mip().
-        with _lp_tolerance_matching_mip(h):
-            secondary_value = _ensure_optimal_value(
-                h,
-                phase="phase2_secondary_pinned_lp",
-                problem=problem,
-                binary_cols=binary_cols,
-            )
+        secondary_value = _best_pinned_tie_break(
+            h, binary_cols, [phase1_point], problem
+        )
 
     if budget is not None:
         budget.restore()

@@ -39,12 +39,10 @@ def _switch_and_tie(prefer_g1: float = 0.0) -> LPProblem:
 def _budget_spent():
     real = lp._ensure_optimal_value
 
-    def wrapper(h, *, phase="", problem=None, binary_cols=None, budgeted=False):
-        value = real(
-            h, phase=phase, problem=problem, binary_cols=binary_cols, budgeted=budgeted
-        )
+    def wrapper(h, *, phase="", problem=None, binary_cols=None):
+        value = real(h, phase=phase, problem=problem, binary_cols=binary_cols)
         if phase == "phase2_secondary":
-            assert budgeted
+            assert lp._phase2_budgeted()
             raise lp._Phase2BudgetSpent("phase2_secondary used its budget")
         return value
 
