@@ -5094,12 +5094,16 @@ def _build_plan_once(
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
             def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
                 x = step.x
-                first = None if x is None else _two_way(x, frozenset())
+                if x is None:
+                    return step.value, True
+                first = _two_way(x, frozenset())
                 if first is None:
                     return step.value, True
-                return one_way(price, step, first), False
+                return one_way(price, step, x, first), False
 
-            def one_way(price: float, step: SweepRangingStep, first) -> float:
+            def one_way(
+                price: float, step: SweepRangingStep, x: NDArray[np.float64], first
+            ) -> float:
                 cost = costs(price)
                 # The two-way point bounds every one-way plan from below:
                 # a leaf that matches it is optimal, and the search stops.
@@ -5116,7 +5120,7 @@ def _build_plan_once(
                     zero, held = stack.pop()
                     nodes += 1
                     if nodes > _OFFER_CURVE_ONE_WAY_NODES:
-                        exact = _exact_mip(cost, var, step.x)
+                        exact = _exact_mip(cost, var, x)
                         return step.value if exact is None else exact
                     solved = base_result.resolve_variant(cost, zero)
                     if solved is None:
