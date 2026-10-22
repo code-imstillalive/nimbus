@@ -104,13 +104,14 @@ Source variants, from #1574, each with its required fields:
 | `source.kind` | required | optional |
 |---|---|---|
 | `entity_state` | `entity_id` | `registry_id`, `config_entry_id` |
-| `entity_attribute` | `entity_id`, `attribute_path`, `adapter` (name + version) | `registry_id` |
+| `entity_attribute` | `entity_id`, `attribute_path`, `adapter` (name + version) | `registry_id`, `continued_by` (entity_ids whose rows continue the same series, e.g. Solcast's tomorrow; the first entity is the anchor) |
 | `action_response` | `action`, `target`, `response_path`, `adapter` (name + version) | `parameters` |
 | `recorder_statistic` | `statistic_id`, `interval_semantics` | |
 | `constant` | `value`, `unit` | |
 | `derived` | `calculation` (registered name), `depends_on` (list of `device_id.role`) | |
 | `model_output` | `model`, `target` (`device_id.role`) | |
 
+- **A combined forecast** (DC-006 decision 10b): a Solar `generation_forecast` binding may hold an ordered `sources` list with `combine: mean` in place of one `source`. Each member is a source variant above; DC-002 resolves the equal-weight mean of the members that resolve, dropping a failed member, never zero-filling it. No other role takes a list: a load forecast totals across load devices through DC-003.
 - **`registry_id` is how identity survives a rename** (DC-R02). When present, it is the reference of record; `entity_id` is a cached display value refreshed from the registry.
 - **Canonical signs** (#1574) are declared per role in `normalization.positive_direction`. DC-001 checks the declared direction is the canonical one for the role. A kind's signed `power` role carries the kind's sign: Grid `import`, Battery `discharge`, Solar `generation`, Load `consumption`. A magnitude role is positive in its own direction: Grid `import_power`/`import_energy` `import`, `export_power`/`export_energy` `export`; Battery `discharge_power`/`discharge_energy` `discharge`, `charge_power`/`charge_energy` `charge`; Solar `energy` `generation`; Load `energy` `consumption`. Roles without a flow (`soc`, prices, `temperature`) have no sign. Converting is DC-002's.
 
@@ -178,6 +179,8 @@ A pure function, `validate(document) -> list[Problem]`. It reads no sensors and 
 | `capacity_basis_missing` | battery capacity without `nominal`/`usable` |
 | `constraint_key_not_allowed_for_kind` | a constraint key the device's kind does not accept (the table's last column) |
 | `binding_source_duplicate` | the same source (same `registry_id`, else same `entity_id` + `attribute_path`, else same `statistic_id`) bound under the same role on two different devices. This catches the same total sensor bound to two `solar` devices |
+| `combine_not_allowed` | a `sources` list on a role that names one source (only Solar `generation_forecast` combines) |
+| `combine_unknown` | a `combine` other than `mean` |
 | `soc_bounds_inverted` | a battery's `soc_min` is greater than its `soc_max` when both are literal values (checkable without reading a sensor) |
 | `relationship_self`, `inclusion_cycle` | `child == parent`; a cycle in `included_in_measurement` |
 | `dependency_cycle` | a `derived`/`model_output` dependency reaches itself (DC-R16) |

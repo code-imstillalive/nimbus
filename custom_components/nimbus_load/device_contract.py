@@ -161,6 +161,14 @@ SOURCE_REQUIRED: dict[str, tuple[str, ...]] = {
     "model_output": ("model", "target"),
 }
 
+#: The roles whose binding may hold an ordered `sources` list, combined by
+#: `combine` (DC-006 decision 10b; device_forecasts.py). Load totals through
+#: DC-003 instead, a separate mechanism.
+COMBINE_ROLES: frozenset[tuple[str, str]] = frozenset(
+    {("solar", "generation_forecast")}
+)
+COMBINE_KINDS: frozenset[str] = frozenset({"mean"})
+
 
 @dataclass(frozen=True)
 class Problem:
@@ -326,23 +334,10 @@ def _validate_device(device: dict[str, Any], base: str, add: Any) -> None:
 def _validate_binding(
     binding: dict[str, Any], kind: str, role: str, path: str, add: Any
 ) -> None:
-    source = binding.get("source") or {}
-    variant = str(source.get("kind"))
-    required = SOURCE_REQUIRED.get(variant)
-    if required is None:
-        add(
-            "source_fields_missing",
-            f"{path}.source.kind",
-            f"{variant!r} is not a source kind",
-        )
+    if "sources" in binding:
+        _validate_combined(binding, kind, role, path, add)
     else:
-        missing = [f for f in required if source.get(f) in (None, "", [])]
-        if missing:
-            add(
-                "source_fields_missing",
-                f"{path}.source",
-                f"a {variant} source needs {', '.join(missing)}",
-            )
+        _validate_source(binding.get("source") or {}, f"{path}.source", add)
     direction = (binding.get("normalization") or {}).get("positive_direction")
     canonical = CANONICAL_ROLE_DIRECTION.get((kind, role))
     if direction is not None and canonical is not None and direction != canonical:
@@ -350,6 +345,65 @@ def _validate_binding(
             "sign_not_canonical",
             f"{path}.normalization.positive_direction",
             f"a {kind} {role} is positive for {canonical!r}, not {direction!r}",
+        )
+
+
+def _validate_source(source: dict[str, Any], path: str, add: Any) -> None:
+    variant = str(source.get("kind"))
+    required = SOURCE_REQUIRED.get(variant)
+    if required is None:
+        add(
+            "source_fields_missing",
+            f"{path}.kind",
+            f"{variant!r} is not a source kind",
+        )
+        return
+    missing = [f for f in required if source.get(f) in (None, "", [])]
+    if missing:
+        add(
+            "source_fields_missing",
+            path,
+            f"a {variant} source needs {', '.join(missing)}",
+        )
+    continued = source.get("continued_by")
+    if continued is not None and (
+        variant != "entity_attribute"
+        or not isinstance(continued, list)
+        or not all(isinstance(e, str) and e for e in continued)
+    ):
+        add(
+            "source_fields_missing",
+            f"{path}.continued_by",
+            "continued_by is a list of entity_ids on an entity_attribute source",
+        )
+
+
+def _validate_combined(
+    binding: dict[str, Any], kind: str, role: str, path: str, add: Any
+) -> None:
+    """An ordered `sources` list (DC-006 decision 10b): only on a role that
+    may combine, with a `combine` this reader knows, and each member a
+    valid source."""
+    if (kind, role) not in COMBINE_ROLES:
+        add(
+            "combine_not_allowed",
+            f"{path}.sources",
+            f"a {kind} {role} binding names one source",
+        )
+        return
+    if binding.get("combine") not in COMBINE_KINDS:
+        add(
+            "combine_unknown",
+            f"{path}.combine",
+            f"{binding.get('combine')!r} is not a combine ({sorted(COMBINE_KINDS)})",
+        )
+    sources = binding.get("sources")
+    if not isinstance(sources, list) or not sources:
+        add("source_fields_missing", f"{path}.sources", "sources is a non-empty list")
+        return
+    for j, source in enumerate(sources):
+        _validate_source(
+            source if isinstance(source, dict) else {}, f"{path}.sources[{j}]", add
         )
 
 
@@ -435,19 +489,31 @@ def _validate_binding_sources(devices: list[dict[str, Any]], add: Any) -> None:
     owner: dict[tuple[Any, ...], tuple[Any, str]] = {}
     for i, device in enumerate(devices):
         for role, binding in (device.get("bindings") or {}).items():
-            ident = _source_identity((binding or {}).get("source") or {})
-            if ident is None:
-                continue
-            key = (role, *ident)
-            if key in owner and owner[key][0] != device.get("id"):
-                add(
-                    "binding_source_duplicate",
-                    f"devices[{i}].bindings.{role}.source",
-                    f"the same source is bound as {role!r} on {owner[key][0]!r} "
-                    f"and {device.get('id')!r}",
-                )
-            else:
-                owner.setdefault(key, (device.get("id"), role))
+            for path, source in _binding_sources(binding or {}):
+                ident = _source_identity(source)
+                if ident is None:
+                    continue
+                key = (role, *ident)
+                if key in owner and owner[key][0] != device.get("id"):
+                    add(
+                        "binding_source_duplicate",
+                        f"devices[{i}].bindings.{role}.{path}",
+                        f"the same source is bound as {role!r} on "
+                        f"{owner[key][0]!r} and {device.get('id')!r}",
+                    )
+                else:
+                    owner.setdefault(key, (device.get("id"), role))
+
+
+def _binding_sources(binding: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """A binding's sources with their paths: its `source`, or each of an
+    ordered `sources` list."""
+    sources = binding.get("sources")
+    if isinstance(sources, list):
+        return [
+            (f"sources[{j}]", s) for j, s in enumerate(sources) if isinstance(s, dict)
+        ]
+    return [("source", binding.get("source") or {})]
 
 
 def _validate_dependencies(
