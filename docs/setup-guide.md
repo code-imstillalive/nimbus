@@ -173,6 +173,7 @@ Do not assume that the Forecaster remains available on an unsupported platform.
 2. Check that each source has a numeric state rather than `unknown` or `unavailable`.
 3. Confirm the unit of each source.
 4. Check the forecast attributes for future timestamps and values.
+   A timestamp should carry its time zone (`+10:00`, `Z`); one without is read in your Home Assistant time zone.
 5. Check the source sensors in **History**.
 
 Use power sensors in W or kW, not cumulative energy meters in kWh.
@@ -1384,7 +1385,7 @@ From Developer Tools → Actions, or any automation:
 | Service | Does |
 |---|---|
 | `nimbus_load.retrain` | Force an immediate retrain. Blank entity = everything |
-| `nimbus_load.solve_now` | Run one solve immediately: useful on a real price change rather than guessing a cron time |
+| `nimbus_load.solve_now` | Run one solve immediately: useful on a real price change rather than guessing a cron time. If a solve is already running, one more runs straight after it |
 | `nimbus_load.compute_quality_report` | Score any past window on demand |
 | `nimbus_load.rescore_history` | Re-score the last N days after a formula change. **Each day is a full oracle solve: start with 2 or 3** |
 | `nimbus_load.flex_telemetry_record` | Returns a nem-flex-telemetry v2.0 record. Needs `switch.nimbus_solver_flex_signals_enabled` on, which costs real solve time |
