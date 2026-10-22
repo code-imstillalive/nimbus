@@ -160,12 +160,12 @@ class TestItCannotLoop(unittest.TestCase):
             )
         )
 
-    def test_a_naive_timestamp_is_read_as_utc_and_still_spaced(self):
+    def test_a_naive_timestamp_is_read_and_still_spaced(self):
         """A naive `generated_at` cannot come from this publisher, which
         always writes `now.isoformat()` from an aware value. If one ever
-        appeared, `parse_iso()` anchors it to UTC (#363) rather than
-        raising, so it participates in the interval normally instead of
-        being treated as a special case.
+        appeared, `parse_iso()` anchors it (in the install's own zone since
+        #2008; UTC under #363) rather than raising, so it participates in
+        the interval normally instead of being treated as a special case.
 
         Pinned because the first version of this test asserted the
         opposite -- that a naive value would be kept -- on the assumption
@@ -173,8 +173,9 @@ class TestItCannotLoop(unittest.TestCase):
         guess about a helper's behaviour instead of reading it is how a
         test ends up documenting something that was never true.
 
-        00:00 UTC is 10:00 Brisbane, 11.5 h before NOW, so this is well
-        past the interval and re-scores.
+        00:00 read in the install's zone is at least 11.5 h before NOW in
+        any zone east of UTC-1.5 (21.5 h in Brisbane), so this is well past
+        the interval and re-scores.
         """
         self.assertFalse(
             solver_writer._keep_published_quality_score(
