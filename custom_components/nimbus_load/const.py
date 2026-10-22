@@ -437,6 +437,13 @@ CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY: Final = (
 CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY: Final = (
     "battery_participant_available_entity"
 )
+# The availability entity's states that mean "available" (22 Oct 2026),
+# comma-separated, e.g. "Charging, Connected" for a charger status sensor.
+# Blank: "on" for a binary_sensor/input_boolean/switch, "home" for a
+# device_tracker/person (availability.py).
+CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES: Final = (
+    "battery_participant_available_states"
+)
 # Optional departure deadline pair (#563 item 2, the second half) --
 # the LP is pushed to reach must_have_soc_by_departure_percent BY
 # departure_hour, the same "cumulative energy... plus target" HARD
