@@ -215,6 +215,24 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.484",
+        "23 Oct 2026",
+        (
+            (
+                "**Faster solves:** choosing between equally cheap plans now "
+                "takes at most 5 seconds; the plan's cost never changes."
+            ),
+            (
+                "**Price changes mid-solve** get one re-plan straight after, "
+                "instead of waiting for the next tick."
+            ),
+            (
+                "**Time zones:** a forecast time with no time zone is read in "
+                "yours, not UTC."
+            ),
+        ),
+    ),
+    (
         "0.94.483",
         "23 Oct 2026",
         (

@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.484] - 2026-10-23
+
+**Faster solves; a timestamp without a time zone is read in your own.**
+
+- **Solves are faster** (#2010). The step that chooses between equally cheap
+  plans (which hour a pool pump runs, for example) now gets at most 5 seconds.
+  When it runs out, the plan keeps the better of the two it has, so its cost
+  never changes. On 40 test sites shaped like a real install, the mean solve
+  went from 21.1 s to 12.9 s; cost was identical on all 40, and the battery
+  plan identical on 38 (on two it moved 2.4 kW in one period). A spent budget
+  shows as `Budget spent`, not as a time-limit warning.
+- **A price change during a solve gets one re-plan straight after it** (#2010),
+  instead of waiting for the next tick. Several in a row make one re-plan.
+- **The final step of a long solve always gets its time** (#2010). Before, a
+  long solve could leave it none, and the plan fell back to its simpler form
+  with a 5-minute cooldown.
+- **A forecast timestamp without a time zone is read in your Home Assistant
+  time zone, not UTC** ([#2008](https://github.com/code-imstillalive/nimbus/issues/2008)).
+  A timestamp with its own offset (`+10:00`, `Z`) reads exactly as before.
+  Every source checked carries an offset, so nothing changes for them.
+
 ## [0.94.483] - 2026-10-23
 
 **Local-time rules use each install's own time zone; Open-Meteo solar read at the right time; two new Repairs; an EV's availability from a tracker or charger status.**
@@ -41,6 +62,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - Under the hood: forecast adapters and their equivalence check for the
   device setup (#2003, nothing reads them yet), and the solver tests' rebuilt
   core (#1962).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at c6925fbb**
+  (`release/0.94.483`), installed via HACS and restarted at 06:50 AEST; Home
+  Assistant was back by 06:50:58 and Nimbus loaded. The solver's first cycle
+  published a full plan at 06:51:49 (version 0.94.483), and no plan-failing
+  Repair was raised. The new load forecast totals read on all 19 of devhub's own
+  load forecasts (e.g. a pool pump: 9.146 kWh over the next 24 h, peak 1.371 kW
+  at 08:00). No new Nimbus `ERROR` or traceback beyond the devhub-only baseline
+  (duplicate unique IDs held by the mirrored entities, the test EV's
+  out-of-range SoC and unreachable departure target, residual-drift notes,
+  recorder attribute sizes).
+  - **Not observable on devhub:** a `nan`/`inf` sensor state, a plan failing
+    five cycles in a row, and an install outside Brisbane; each is carried by
+    its PR's tests. devhub's local-hour rules read as before, as a Brisbane
+    install should.
+  - **Seen, cosmetic:** on a load whose next 24 h are all zero,
+    `peak_next_24h_at` is the current time written in UTC rather than local
+    time.
+- Consumer check: a Brisbane install's plan changes only where it uses
+  Open-Meteo solar (5-minute periods now read the solar at the right time);
+  it gains the load totals and two Repairs. An install elsewhere also has its
+  local-hour rules on its own clock.
 
 ## [0.94.482] - 2026-10-22
 
