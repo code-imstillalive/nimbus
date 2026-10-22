@@ -23,6 +23,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   that renamed nothing reads exactly the same entities as before. The whole-house
   load is now only the sensor set in the whole-house cross-check field; the old
   fallback to one fixed entity name is gone.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at a1a95e44**
+  (`release/0.94.482`), installed via HACS and restarted at 18:24 AEST; Home
+  Assistant was back by 18:25:49 and Nimbus loaded. The solver's 18:28 cycle was
+  `optimal`, and its whole-house reading (1.477 kW) came from the configured
+  whole-house cross-check sensor. No new Nimbus `ERROR` or traceback beyond the
+  devhub-only baseline (duplicate unique IDs held by the mirrored entities,
+  Forecaster renames left in place, residual-drift notes, recorder attribute sizes).
+  - **Not observable on devhub:** a renamed Solcast or Open-Meteo entity. devhub
+    renames none, so it reads the same entities as before, which is the
+    no-change half of this release; the rename half is carried by #1997's tests.
+- Consumer check: an install that renamed nothing sees no change; one whose
+  Solcast, Open-Meteo or LocalVolts entities were renamed now has them found.
 
 ## [0.94.481] - 2026-10-22
 
