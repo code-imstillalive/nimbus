@@ -63,6 +63,7 @@ from __future__ import annotations
 
 import logging
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import _solver_path  # noqa: F401
@@ -112,7 +113,11 @@ class TestSolarEntriesFromAttributes(unittest.TestCase):
         attrs = {"watts": {"2026-09-08T06:00:00+10:00": 2500.0}}
         result = solver_writer._solar_entries_from_attributes(attrs)
         self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["time"], "2026-09-08T06:00:00+10:00")
+        # nimbus #2004: the power at the key + 15 min, an instant.
+        self.assertEqual(
+            result[0]["time"], datetime.fromisoformat("2026-09-08T06:15:00+10:00")
+        )
+        self.assertTrue(result[0]["instant"])
         self.assertAlmostEqual(result[0]["value"], 2.5)
         self.assertNotIn("lower", result[0])
 

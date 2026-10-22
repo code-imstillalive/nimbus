@@ -3313,8 +3313,71 @@ def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
         ]
     watts = attrs.get("watts")
     if watts:
-        return [{"time": ts, "value": float(w) / 1000.0} for ts, w in watts.items()]
+        # nimbus #2004: each value is the power at its key + 15 min, an
+        # instant; read with resample_instants(), never held from its key.
+        return [
+            {
+                "time": parse_iso(ts) + OPEN_METEO_WATTS_LEAD,
+                "value": float(w) / 1000.0,
+                "instant": True,
+            }
+            for ts, w in watts.items()
+        ]
     return None
+
+
+# nimbus #2004 (found from HAEO's #565, checked in the library's source):
+# Open-Meteo Solar Forecast's `watts` is the power from the instantaneous
+# irradiance at each 15-minute step, stored under the step's START
+# (`time_start = time - timedelta(minutes=15)`), so `watts[t]` is the power
+# at t + 15 min. Held from its key it made the plan's 5-minute periods read
+# the power 5-15 minutes ahead. If the library ever re-keys `watts`, this
+# offset must come out (tests/test_2004_open_meteo_timing.py pins it).
+OPEN_METEO_WATTS_LEAD = timedelta(minutes=15)
+
+
+def resample_instants(
+    forecast: list[dict], value_key: str, grid_times: list[datetime]
+) -> list[float]:
+    """nimbus #2004: a series of instantaneous readings on the plan's grid.
+    Each period's value is the reading at its midpoint, linear between the
+    readings either side, which for a smoothly varying power is the
+    period's mean; before the first reading or after the last, that
+    reading is held, as resample_forecast() holds. The last period is taken
+    as long as the one before it. On a 30-minute period starting on the
+    half hour this is exactly the `watts` value keyed at its start, the
+    reading before #2004."""
+    pts = sorted(
+        (
+            (parse_iso(p["time"]), float(p[value_key]))
+            for p in forecast
+            if p.get(value_key) is not None
+        ),
+        key=lambda x: x[0],
+    )
+    if not pts:
+        return [0.0] * len(grid_times)
+    out = []
+    for i, start in enumerate(grid_times):
+        if i + 1 < len(grid_times):
+            mid = start + (grid_times[i + 1] - start) / 2
+        elif i > 0:
+            mid = start + (start - grid_times[i - 1]) / 2
+        else:
+            mid = start
+        if mid <= pts[0][0]:
+            out.append(pts[0][1])
+            continue
+        if mid >= pts[-1][0]:
+            out.append(pts[-1][1])
+            continue
+        for (t0, v0), (t1, v1) in itertools.pairwise(pts):
+            if t0 <= mid <= t1:
+                span = (t1 - t0).total_seconds()
+                frac = (mid - t0).total_seconds() / span if span else 0.0
+                out.append(v0 + (v1 - v0) * frac)
+                break
+    return out
 
 
 # nimbus issue #543 (Mark Purcell, real household finding): a solar
