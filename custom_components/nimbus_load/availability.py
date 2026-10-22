@@ -53,7 +53,8 @@ def available_states(
 ) -> frozenset[str]:
     """The states that mean available for `entity_id`: the household's own
     list when given, else its kind's standard one (empty for a plain
-    sensor)."""
+    sensor). The list is comma-separated, so a state whose own text holds a
+    comma cannot be listed (Home Assistant states practically never do)."""
     if isinstance(configured, str):
         configured = configured.split(",")
     listed = frozenset(_normal(s) for s in configured or () if _normal(s))

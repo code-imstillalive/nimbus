@@ -99,6 +99,13 @@ class TestTheLiveGate(unittest.TestCase):
         self.assertTrue(self._available("device_tracker.car", "home"))
         self.assertFalse(self._available("device_tracker.car", "not_home"))
 
+    def test_a_person_at_home_is_available(self):
+        """person and device_tracker share their states but are separate
+        kinds in the selector, so each is checked through the gate."""
+        self.assertTrue(self._available("person.driver", "home"))
+        self.assertFalse(self._available("person.driver", "not_home"))
+        self.assertFalse(self._available("person.driver", "Work"))  # a zone
+
     def test_a_charger_sensor_uses_its_listed_states(self):
         listed = "Charging, Connected"
         self.assertTrue(self._available("sensor.charger", "Charging", listed))
@@ -174,6 +181,40 @@ class TestDiagnosticsAndText(unittest.TestCase):
             {ENTITY: "device_tracker.car", "battery_participant_soc_sensor": "s.soc"},
         )
         self.assertIs(result["available"], True)
+
+    def test_diagnostics_reads_a_person_the_same_way(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from _ha_stubs import install_ha_stubs
+
+        install_ha_stubs()
+        from custom_components.nimbus_load import diagnostics
+
+        for state, expected in (("home", True), ("not_home", False)):
+            hass = MagicMock()
+            hass.states.get.return_value = _fake_state(state)
+            result = diagnostics._battery_participant_diagnostics(
+                hass,
+                {ENTITY: "person.driver", "battery_participant_soc_sensor": "s.soc"},
+            )
+            self.assertIs(result["available"], expected, state)
+
+    def test_the_form_offers_every_kind_and_the_states_field(self):
+        """The setup form's selector really takes the wider list, and the
+        states field is there."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from _ha_stubs import install_ha_stubs
+
+        install_ha_stubs()
+        from custom_components.nimbus_load.flows.battery_participant_subentry import (
+            _schema,
+        )
+
+        schema = _schema({})
+        entity = next(k for k in schema.schema if k == ENTITY)
+        self.assertEqual(
+            list(schema.schema[entity].config["domain"]), list(availability.DOMAINS)
+        )
+        self.assertIn(STATES, [str(k) for k in schema.schema])
 
     def test_the_field_has_its_label_and_help_text(self):
         for name in ("strings.json", "translations/en.json"):
