@@ -35,6 +35,10 @@ Conditions (stage 2):
   zero-export site can genuinely set it to the floor.
 - **contradictory battery settings** (#1800): Min SoC at or above Max SoC, or
   a Charge By target above Max SoC.
+- **no whole-house sensor set** (#1998): the hub has a Load forecast but the
+  whole-house cross-check field is blank, so no load gets the Forecaster's
+  whole-house fixes (#6, #7). Since #1994 that field is the only way the
+  Forecaster knows which load is the whole house.
 
 Both read the live number entities (the Solver tab's values), found by
 unique_id `<entry_id>_<key>`, never by entity_id.
@@ -62,7 +66,9 @@ try:
         CONF_SOLVER_MAX_CHARGE_KW,
         CONF_SOLVER_MAX_DISCHARGE_KW,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+        CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
         DOMAIN,
+        SUBENTRY_TYPE_LOAD,
     )
 except ImportError:  # pragma: no cover - standalone path
     from const import (  # type: ignore[no-redef]
@@ -78,7 +84,9 @@ except ImportError:  # pragma: no cover - standalone path
         CONF_SOLVER_MAX_CHARGE_KW,
         CONF_SOLVER_MAX_DISCHARGE_KW,
         CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+        CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
         DOMAIN,
+        SUBENTRY_TYPE_LOAD,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +102,7 @@ KIND_FEES_DOUBLED = "fees_on_top_of_flex_up"
 KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
+KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
 KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
 KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
 
@@ -145,6 +154,7 @@ def evaluate_health(
     fees_on_tariff: tuple[str, str] | None = None,
     regional_forecast_missing: tuple[str, str] | None = None,
     settings: Mapping[str, float] | None = None,
+    has_load_forecast: bool = False,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -263,6 +273,13 @@ def evaluate_health(
         )
 
     issues += _settings_issues(settings or {})
+
+    if has_load_forecast and not options.get(
+        CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR
+    ):
+        issues.append(
+            HealthIssue(key=KIND_WHOLE_HOUSE_UNSET, kind=KIND_WHOLE_HOUSE_UNSET)
+        )
 
     missing = [label for key, label in _REQUIRED_SOLVER_INPUTS if not options.get(key)]
     if missing:
@@ -389,6 +406,10 @@ async def async_refresh_health(
                 hass, dict(entry.options)
             ),
             settings=_live_settings(hass, entry),
+            has_load_forecast=any(
+                getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_LOAD
+                for sub in entry.subentries.values()
+            ),
         )
 
         current = set()
