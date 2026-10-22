@@ -1546,6 +1546,12 @@ def set_native_hass(hass) -> None:
         raw_time_zone = getattr(getattr(hass, "config", None), "time_zone", None)
         try:
             LOCAL_TZ = ZoneInfo(raw_time_zone)
+            # solver_shared keeps its own LOCAL_TZ, read by _local() and the
+            # history readers -- the local hour behind TOU fees, the EV
+            # departure hour, day boundaries and P2P checkpoints. Left at its
+            # import-time default (Australia/Brisbane), every install outside
+            # that zone evaluated those in Brisbane time. One zone for both.
+            sys.modules[_local.__module__].LOCAL_TZ = LOCAL_TZ
         except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's logger-objects can't trace _LOGGER through this file's dual-mode try/except import (nimbus issue #1301)
             _LOGGER.exception(
                 "Nimbus: could not resolve hass.config.time_zone (%r) -- "
