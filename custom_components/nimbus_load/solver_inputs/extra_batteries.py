@@ -44,8 +44,9 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
 try:
-    from .. import solver_shared
+    from .. import availability, solver_shared
 except ImportError:  # pragma: no cover - standalone/cron path
+    import availability  # type: ignore[no-redef]
     import solver_shared  # type: ignore[no-redef]
 
 # nimbus issue #563 item 3: no wizard field exists yet for a battery
@@ -226,6 +227,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     try:
         from ..const import (
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
@@ -250,6 +252,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     except ImportError:  # pragma: no cover - standalone/cron path
         from const import (
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
@@ -440,7 +443,13 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         available = True
         if available_entity:
             state_obj = solver_shared.NATIVE.hass.states.get(available_entity)
-            available = state_obj is not None and state_obj.state == "on"
+            available = state_obj is not None and availability.is_available(
+                state_obj.state,
+                availability.available_states(
+                    available_entity,
+                    data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES),
+                ),
+            )
         # nimbus issue #779: a currently-away participant is only gated
         # for the next _BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS, not
         # this whole solve's horizon -- resolved to a real period index
