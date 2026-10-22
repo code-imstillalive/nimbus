@@ -3328,7 +3328,7 @@ def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
     return None
 
 
-# nimbus #2004 (found from HAEO's #565, checked in the library's source):
+# nimbus #2004 (checked in the library's source):
 # Open-Meteo Solar Forecast's `watts` is the power from the instantaneous
 # irradiance at each 15-minute step, stored under the step's START
 # (`time_start = time - timedelta(minutes=15)`), so `watts[t]` is the power

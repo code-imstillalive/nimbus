@@ -1895,9 +1895,8 @@ def finite_float(value: object) -> float:
     """`float(value)`, refusing NaN and infinity with ValueError.
 
     Python's float() accepts "nan" and "inf", so a sensor reporting either
-    passed every reader's `except ValueError` and reached the plan (HAEO
-    0.5.0rc1 fixed the same in its own reader, its #584). Raised as
-    ValueError so each caller's existing fallback and warning apply."""
+    passed every reader's `except ValueError` and reached the plan. Raised
+    as ValueError so each caller's existing fallback and warning apply."""
     number = float(value)  # type: ignore[arg-type]
     if not math.isfinite(number):
         msg = f"non-finite value {value!r}"

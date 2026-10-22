@@ -1,6 +1,5 @@
-"""A sensor reporting "nan" or "inf" no longer reaches the plan (found from
-HAEO 0.5.0rc1's #584, checked in Nimbus's own readers). Python's float()
-accepts both, so they passed every reader's `except ValueError`; each reader
+"""A sensor reporting "nan" or "inf" no longer reaches the plan. Python's
+float() accepts both, so they passed every reader's `except ValueError`; each reader
 now takes its existing fallback, with its existing warning."""
 
 from __future__ import annotations
