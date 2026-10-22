@@ -28,6 +28,9 @@ from solver_inputs import solar
 
 NOW = datetime(2026, 10, 22, 0, 0, tzinfo=UTC)
 GRID = [NOW + timedelta(minutes=30 * i) for i in range(8)]
+#: The near-term grid: 5-minute periods, where Open-Meteo's instants are
+#: read at each period's midpoint (#2004), unlike a held value.
+FINE = [NOW + timedelta(minutes=5 * i) for i in range(30)]
 
 
 def _t(i):
@@ -76,7 +79,7 @@ STATES = {
 }
 
 
-def _legacy(options, auto_include, states):
+def _legacy(options, auto_include, states, grid=GRID):
     """Today's `build_solar_arrays`, read only: no live anchor, no gate."""
     cfg = {
         **options,
@@ -94,13 +97,17 @@ def _legacy(options, auto_include, states):
         patch.object(solver_writer, "ha_get", ha_get),
         patch.object(solar, "_apply_running_low_gate", lambda *a, **k: None),
     ):
-        return solar.build_solar_arrays(cfg, GRID, len(GRID), now=NOW)
+        return solar.build_solar_arrays(cfg, grid, len(grid), now=NOW)
 
 
-def _contract(options, auto_include, states):
+def _contract(options, auto_include, states, grid=GRID):
     binding = dfc.legacy_solar_binding(options, auto_include, KNOWN)
     return dfc.resolve_forecast(
-        binding, states.get, GRID, solver_writer.resample_forecast
+        binding,
+        states.get,
+        grid,
+        solver_writer.resample_forecast,
+        resample_instants=solver_writer.resample_instants,
     )
 
 
@@ -143,12 +150,19 @@ CASES = {
 }
 
 
+@pytest.mark.parametrize("grid", [GRID, FINE], ids=["30-minute", "5-minute"])
 @pytest.mark.parametrize("case", list(CASES))
-def test_the_contract_reads_what_today_reads(case):
+def test_the_contract_reads_what_today_reads(case, grid):
     options, auto_include = CASES[case]
     _same(
-        _legacy(options, auto_include, STATES), _contract(options, auto_include, STATES)
+        _legacy(options, auto_include, STATES, grid),
+        _contract(options, auto_include, STATES, grid),
     )
+
+
+def test_open_meteo_is_placed_where_the_solver_places_it():
+    """#2004's offset lives in two places; they must agree."""
+    assert dfc.OPEN_METEO_WATTS_LEAD == solver_writer.OPEN_METEO_WATTS_LEAD
 
 
 def test_the_members_are_today_s_members_in_today_s_order():
@@ -290,7 +304,11 @@ def test_one_source_stays_the_ordinary_binding():
     assert dfc.legacy_solar_binding({}, False, KNOWN) is None
     assert (
         dfc.resolve_forecast(
-            None, STATES.get, GRID, solver_writer.resample_forecast
+            None,
+            STATES.get,
+            GRID,
+            solver_writer.resample_forecast,
+            resample_instants=solver_writer.resample_instants,
         ).reason
         == "unbound"
     )

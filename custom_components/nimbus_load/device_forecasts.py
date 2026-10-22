@@ -31,15 +31,16 @@ What is read stops here. The running-low gate (#1784) and the live anchor
 transform the solar forecast after it is read; they are the consumer's.
 
 Pure: no Home Assistant import. `read_attributes(entity_id)` gives an
-entity's attributes, or None when it does not exist; `resample` is the
-Solver's own `resample_forecast`, passed in so the two sides cannot differ.
+entity's attributes, or None when it does not exist; `resample` and
+`resample_instants` are the Solver's own `resample_forecast` and
+`resample_instants` (#2004), passed in so the two sides cannot differ.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -47,12 +48,14 @@ import numpy as np
 try:
     from .device_contract import COMBINE_ROLES
     from .ml.blend import blend_forecast_array, cross_source_spread
+    from .solver_shared import parse_iso
 except ImportError:  # imported directly by the device-contract tests
     from device_contract import COMBINE_ROLES  # type: ignore[no-redef]
     from ml.blend import (  # type: ignore[no-redef]
         blend_forecast_array,
         cross_source_spread,
     )
+    from solver_shared import parse_iso  # type: ignore[no-redef]
 
 ReadAttributes = Callable[[str], Mapping[str, Any] | None]
 Resample = Callable[[list[dict], str, list[datetime]], list[float]]
@@ -84,23 +87,39 @@ def _solcast(attrs: Mapping[str, Any]) -> list[dict] | None:
     ]
 
 
+#: nimbus #2004: Open-Meteo's `watts[t]` is the power at t + 15 min, an
+#: instant (the Solver's `solver_writer.OPEN_METEO_WATTS_LEAD`; a test keeps
+#: the two equal).
+OPEN_METEO_WATTS_LEAD = timedelta(minutes=15)
+
+
 def _open_meteo(attrs: Mapping[str, Any]) -> list[dict] | None:
     watts = attrs.get("watts")
     if not watts:
         return None
-    return [{"time": ts, "value": float(w) / 1000.0} for ts, w in watts.items()]
+    return [
+        {
+            "time": parse_iso(ts) + OPEN_METEO_WATTS_LEAD,
+            "value": float(w) / 1000.0,
+            "instant": True,
+        }
+        for ts, w in watts.items()
+    ]
 
 
 @dataclass(frozen=True)
 class ForecastAdapter:
     """A versioned reader of one provider's forecast rows. `attribute` is the
     attribute it reads; `rows(attrs)` the rows, in kW, or None when the
-    entity does not publish that shape."""
+    entity does not publish that shape. `instant`: each row is a reading at
+    its own time, read at each period's midpoint (#2004), not a value held
+    from its time."""
 
     name: str
     version: int
     attribute: str
     rows: Callable[[Mapping[str, Any]], list[dict] | None]
+    instant: bool = False
 
 
 FORECAST_ADAPTERS: dict[tuple[str, int], ForecastAdapter] = {
@@ -108,7 +127,7 @@ FORECAST_ADAPTERS: dict[tuple[str, int], ForecastAdapter] = {
     # pv_estimate is the period's average kW, not the entity's kWh unit.
     ("solcast", 1): ForecastAdapter("solcast", 1, "detailedForecast", _solcast),
     ("open_meteo_solar", 1): ForecastAdapter(
-        "open_meteo_solar", 1, "watts", _open_meteo
+        "open_meteo_solar", 1, "watts", _open_meteo, instant=True
     ),
 }
 
@@ -179,6 +198,8 @@ def resolve_member(
     read_attributes: ReadAttributes,
     grid_times: list[datetime],
     resample: Resample,
+    *,
+    resample_instants: Resample,
 ) -> Member:
     """One forecast source on `grid_times`. Negative values are clamped to
     0 (a model's excursion below zero); a source with bounds has its lower
@@ -201,12 +222,17 @@ def resolve_member(
         attrs = read_attributes(entity_id)
         if attrs is None:
             continue
-        found = adapter.rows(attrs)
+        try:
+            found = adapter.rows(attrs)
+        except (KeyError, TypeError, ValueError):
+            return _missing(ids, name, "malformed")
         if found:
             rows.extend(found)
     if not rows:
         return _missing(ids, name, "shape_not_recognized")
     n = len(grid_times)
+    if adapter.instant:
+        resample = resample_instants
     try:
         value = [max(0.0, v) for v in resample(rows, "value", grid_times)]
         if any(p.get("lower") is not None for p in rows):
@@ -254,6 +280,8 @@ def resolve_forecast(
     read_attributes: ReadAttributes,
     grid_times: list[datetime],
     resample: Resample,
+    *,
+    resample_instants: Resample,
 ) -> Forecast:
     """A forecast binding: one `source`, or `sources` with `combine: mean`."""
     if not binding:
@@ -264,7 +292,14 @@ def resolve_forecast(
     elif binding.get("combine") != COMBINE_MEAN:
         return Forecast("missing", "combine_unknown", None, None, None, ())
     members = [
-        resolve_member(s, read_attributes, grid_times, resample) for s in sources
+        resolve_member(
+            s,
+            read_attributes,
+            grid_times,
+            resample,
+            resample_instants=resample_instants,
+        )
+        for s in sources
     ]
     return combine_mean(members)
 
