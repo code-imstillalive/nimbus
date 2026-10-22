@@ -594,6 +594,23 @@ def test_an_unknown_gets_one_interior_point_retry(options, rescued, _retry_count
         assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
 
 
+def test_a_repeated_unknown_is_counted_every_time_and_logged_once(
+    _retry_counts, caplog
+):
+    """#1360: one WARNING per retry kind per process, so a tester's 169
+    Unknowns in three hours do not flood the log; every one is still
+    counted, so the published total is the real one."""
+    with (
+        caplog.at_level("WARNING", logger=lp._LOGGER.name),
+        patch.object(highspy.Highs, "getModelStatus", _unknown(True)),
+    ):
+        for _ in range(3):
+            assert _bounded_lp().solve().status == "optimal"
+    assert lp.UNKNOWN_RETRIES == {"attempted": 3, "recovered": 3}
+    warned = [r for r in caplog.records if "#1360" in r.getMessage()]
+    assert len(warned) == 1
+
+
 @pytest.mark.parametrize("ends", ["kOptimal", "kUnknown"])
 def test_the_retry_restores_the_solver_option(ends, _retry_counts):
     """#1360: the handle's `solver` option is back to `choose` after the
@@ -1313,12 +1330,14 @@ class _PhaseHighs:
 
 def _clock(durations):
     """Elapsed times for `_timed_lp_call`: one entry and one exit tick per
-    call, `durations` apart."""
-    ticks = [0.0]
+    call, `durations` apart. Each call starts from 0 so its elapsed time is
+    `d` exactly: a running total minus its predecessor is not (1.5566 +
+    1.5566 + 5.0 - 3.1132 is just under 5.0, the slow line)."""
+    ticks = []
     for d in durations:
-        ticks += [ticks[-1] + d, ticks[-1] + d]
+        ticks += [0.0, d]
     it = iter(ticks)
-    return lambda: next(it, ticks[-1])
+    return lambda: next(it, 0.0)
 
 
 def _breakdowns(monkeypatch, durations, status="Optimal", raise_last=False):
@@ -1345,6 +1364,7 @@ def _breakdowns(monkeypatch, durations, status="Optimal", raise_last=False):
     return [r for r in records if "phase breakdown" in r.getMessage()]
 
 
+@SETTINGS
 @given(
     st.lists(_num(0.01, 59.0), min_size=1, max_size=4),
     st.sampled_from(["Optimal", "Infeasible", "Time limit reached"]),
