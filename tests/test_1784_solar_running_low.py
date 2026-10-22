@@ -40,6 +40,10 @@ TOMORROW = TODAY + timedelta(days=1)
 SENSOR = "sensor.pv_power"
 SOLCAST_TODAY = "sensor.solcast_pv_forecast_forecast_today"
 SOLCAST_TOMORROW = "sensor.solcast_pv_forecast_forecast_tomorrow"
+# nimbus #1994: what sensor.nimbus_solver_config publishes once the entity
+# registry has found Solcast (integration + unique_id); the gate reads this,
+# never an entity_id literal.
+KNOWN = {"known_sources": {"solcast": [SOLCAST_TODAY, SOLCAST_TOMORROW]}}
 
 
 def _day(day, p50_at, p10_at, with_p10=True):
@@ -120,6 +124,7 @@ def _cfg(**overrides):
         "solver_auto_include_known_solar": True,
         "solver_solar_power_sensor": SENSOR,
         "solver_solar_running_low_confirm_minutes": 0,
+        **KNOWN,
     }
     cfg.update(overrides)
     return cfg
@@ -324,7 +329,16 @@ class TestOnlyTodaysRemainingPeriods(_Base):
                 for t in hours
             ]
         }
-        return fake, now, grid, _cfg(solver_solar_forecast_sensor="sensor.own")
+        known = {
+            "solcast": [SOLCAST_TODAY, SOLCAST_TOMORROW],
+            "open_meteo": ["sensor.home_energy_production_today"],
+        }
+        return (
+            fake,
+            now,
+            grid,
+            _cfg(solver_solar_forecast_sensor="sensor.own", known_sources=known),
+        )
 
     def test_every_member_is_lowered_by_its_own_path(self):
         fake, now, grid, cfg = self._with_other_members(2000)  # ratio 0.5
@@ -454,7 +468,7 @@ class TestWithoutSolcastTheBlendIsTheReference(_Base):
 class TestInertAndOff(_Base):
     def test_without_any_forecast_there_is_no_reference(self):
         now = TODAY.replace(hour=10)
-        cfg = {"solver_solar_power_sensor": SENSOR}
+        cfg = {"solver_solar_power_sensor": SENSOR, **KNOWN}
         with (
             patch.object(
                 solver_writer, "ha_get", lambda e: {"attributes": {}, "state": "0"}
@@ -568,6 +582,7 @@ class TestConfirmation(_Base):
         cfg = {
             "solver_auto_include_known_solar": True,
             "solver_solar_power_sensor": SENSOR,
+            **KNOWN,
             **(cfg_extra or {}),
         }
         out = []
@@ -607,7 +622,7 @@ class TestConfirmation(_Base):
     def test_pending_since_is_published_and_cleared(self):
         p50, p10 = _flat_daylight(4.0, 1.5)
         today = _day(TODAY, p50, p10)
-        cfg = {"solver_solar_power_sensor": SENSOR}
+        cfg = {"solver_solar_power_sensor": SENSOR, **KNOWN}
         t0 = TODAY.replace(hour=10)
         result = self._evaluate(_Fake(today, history=_held(t0, 2000)), t0, cfg)
         self.assertEqual(result["pending_since"], t0.isoformat())

@@ -42,7 +42,7 @@ Pure apart from the `read_state` it is given: no `homeassistant` import.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -50,11 +50,23 @@ _LOGGER = logging.getLogger(__name__)
 
 STALE_AFTER = timedelta(minutes=60)
 STAMP_ATTRIBUTES = ("source_updated", "lastUpdate")
-LV_V2_PREFIX = "sensor.localvolts_v2_"
-LV_V2_STAMP_SIBLINGS = (
-    "sensor.localvolts_v2_current_buy_rate",
-    "sensor.localvolts_v2_current_sell_rate",
-)
+
+
+def lv_v2_siblings(
+    entity_ids: Iterable[str], localvolts_v2: Mapping[str, Any] | None
+) -> list[str]:
+    """LocalVolts v2's current-rate sensors, whose refresh stamp is the
+    source's, when any of `entity_ids` is a LocalVolts v2 sensor; else [].
+    `localvolts_v2` is `cfg["known_sources"]["localvolts_v2"]`: the entity
+    registry's answer by integration and unique_id (nimbus #1994), so a
+    renamed LocalVolts entity is still recognised."""
+    lv = localvolts_v2 or {}
+    entities = set(lv.get("entities") or [])
+    if not entities or not any(e in entities for e in entity_ids):
+        return []
+    return [e for e in (lv.get("stamp_siblings") or []) if isinstance(e, str)]
+
+
 FALLBACK_LABEL = "aemo_fallback"
 
 
@@ -84,7 +96,9 @@ def _stamp(
 
 
 def source_updated(
-    read_state: Callable[[str], dict[str, Any]], entity_ids: Iterable[str | None]
+    read_state: Callable[[str], dict[str, Any]],
+    entity_ids: Iterable[str | None],
+    localvolts_v2: Mapping[str, Any] | None = None,
 ) -> tuple[datetime | None, str | None]:
     """(oldest refresh stamp, the entity it came from) across the price
     entities and, for LV v2, its current-rate siblings; (None, None) when
@@ -95,13 +109,12 @@ def source_updated(
         stamp = _stamp(read_state, entity_id)
         if stamp is not None:
             found.append((stamp, entity_id))
-    if any(e.startswith(LV_V2_PREFIX) for e in ids):
-        for entity_id in LV_V2_STAMP_SIBLINGS:
-            if entity_id in ids:
-                continue
-            stamp = _stamp(read_state, entity_id)
-            if stamp is not None:
-                found.append((stamp, entity_id))
+    for entity_id in lv_v2_siblings(ids, localvolts_v2):
+        if entity_id in ids:
+            continue
+        stamp = _stamp(read_state, entity_id)
+        if stamp is not None:
+            found.append((stamp, entity_id))
     if not found:
         return None, None
     stamp, entity_id = min(found, key=lambda pair: pair[0])
@@ -113,11 +126,12 @@ def check(
     entity_ids: Iterable[str | None],
     now: datetime,
     stale_after: timedelta = STALE_AFTER,
+    localvolts_v2: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """The source's freshness, or None when it publishes no refresh stamp.
     Never raises."""
     try:
-        stamp, entity_id = source_updated(read_state, entity_ids)
+        stamp, entity_id = source_updated(read_state, entity_ids, localvolts_v2)
     except Exception as err:  # noqa: BLE001 -- a freshness probe must never break a solve
         _LOGGER.warning("Nimbus #1793: price freshness check failed: %s", err)
         return None

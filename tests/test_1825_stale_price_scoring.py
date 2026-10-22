@@ -137,10 +137,26 @@ def _fake_sw(stamp_rows, aemo_hist, offset=0.04, fee=0.10):
     ), calls
 
 
+# nimbus #1994: LocalVolts v2 as the entity registry finds it, which is how
+# the scoring tells a LocalVolts price apart and finds its refresh stamp.
+LV_STAMP_SIBLINGS = [
+    "sensor.localvolts_v2_current_buy_rate",
+    "sensor.localvolts_v2_current_sell_rate",
+]
 CFG = {
     "solver_import_price_sensor": "sensor.localvolts_v2_buy_flex_up",
     "solver_export_price_sensor": "sensor.localvolts_v2_sell_flex_up",
     "solver_regional_spot_current_price_sensor": "sensor.aemo_qld1_price",
+    "known_sources": {
+        "localvolts_v2": {
+            "entities": [
+                "sensor.localvolts_v2_buy_flex_up",
+                "sensor.localvolts_v2_sell_flex_up",
+                *LV_STAMP_SIBLINGS,
+            ],
+            "stamp_siblings": LV_STAMP_SIBLINGS,
+        }
+    },
 }
 SIBLING = ("sensor.localvolts_v2_current_buy_rate", "lastUpdate")
 
@@ -175,7 +191,7 @@ class TestStalePeriodsAreRepriced(unittest.TestCase):
         fake, calls = _fake_sw({SIBLING: _sixteen_october()}, [(DAY, 0.05)])
         _reprice(fake)
         read = {entity for entity, _attr in calls}
-        self.assertTrue(set(pf.LV_V2_STAMP_SIBLINGS) <= read)
+        self.assertTrue(set(LV_STAMP_SIBLINGS) <= read)
 
     def test_no_aemo_history_means_the_day_is_not_a_measurement(self):
         fake, _ = _fake_sw({SIBLING: _sixteen_october()}, [])

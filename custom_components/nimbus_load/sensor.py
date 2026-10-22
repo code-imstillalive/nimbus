@@ -47,6 +47,7 @@ from homeassistant.loader import async_get_integration
 from . import (
     done_condition,
     health,
+    known_sources,
     load_run_state,
     sensor_battery_soc,
     sensor_discovery,
@@ -2609,6 +2610,14 @@ class NimbusSolverConfigSensor(SensorEntity):
         attrs["aemo_30min_forecast_sensor"] = (
             self._discover_aemo_30min_forecast_sensor()
         )
+        # nimbus #1994: Solcast, Open-Meteo Solar Forecast and LocalVolts v2
+        # as the entity registry finds them (integration + unique_id), the
+        # only way any Solver reader finds these sources.
+        try:
+            attrs["known_sources"] = known_sources.resolve(self.hass)
+        except Exception:
+            _LOGGER.debug("Nimbus: known_sources lookup failed", exc_info=True)
+            attrs["known_sources"] = known_sources.EMPTY
         return attrs
 
     def _resolve_geocoded_region_and_prefix(self):

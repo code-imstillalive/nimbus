@@ -42,6 +42,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
+from . import known_sources
 from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
@@ -68,7 +69,6 @@ from .const import (
     DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED,
     DEFAULT_SOLVER_STOCHASTIC_DISPATCH,
     DOMAIN,
-    SOLCAST_TODAY_ENTITY_ID,
 )
 
 # Same reasoning as number.py: a plain restored local toggle, no hub to
@@ -328,14 +328,16 @@ async def async_setup_entry(
     )
 
 
-def fresh_install_default(key: str, get_state, default: bool) -> bool:
+def fresh_install_default(key: str, solcast_entities, default: bool) -> bool:
     """The first value a switch takes on an install where it has never
     existed (no restored state, no stored value, no option). Only
-    auto-include solar differs from its class default: ON when Solcast's own
-    entity is already there (1.0.0 one-click install, #1930)."""
+    auto-include solar differs from its class default: ON when Solcast is
+    already there (1.0.0 one-click install, #1930). `solcast_entities()` is
+    the entity registry's answer (`known_sources.solcast_entities`, #1994),
+    so a renamed Solcast entity still counts."""
     if key == CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR:
         try:
-            return get_state(SOLCAST_TODAY_ENTITY_ID) is not None or default
+            return bool(solcast_entities()) or default
         except Exception:
             _LOGGER.debug(
                 "Nimbus: Solcast lookup for the first default failed", exc_info=True
@@ -431,7 +433,11 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         # (#1930). Written to the Store so it is decided once, never again.
         hass = getattr(self, "hass", None)
         first = (
-            fresh_install_default(self._key, hass.states.get, self._default)
+            fresh_install_default(
+                self._key,
+                lambda: known_sources.solcast_entities(hass),
+                self._default,
+            )
             if hass is not None
             else self._default
         )

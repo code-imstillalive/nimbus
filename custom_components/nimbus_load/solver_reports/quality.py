@@ -95,7 +95,11 @@ PRICE_STALE_UNRELIABLE_SHARE = 0.25
 
 
 def _price_stamp_rows(
-    sw, entity_ids: list[str], day_start: datetime, day_end: datetime
+    sw,
+    entity_ids: list[str],
+    day_start: datetime,
+    day_end: datetime,
+    localvolts_v2: dict | None = None,
 ) -> list[list[tuple[datetime, datetime]]]:
     """Each price entity's recorded (time, refresh stamp) rows for the day,
     from the stamp attributes `price_freshness.check()` reads, plus the LV v2
@@ -104,8 +108,9 @@ def _price_stamp_rows(
     has a row to read."""
     price_freshness = sw.price_freshness
     ids = list(dict.fromkeys(e for e in entity_ids if e))
-    if any(e.startswith(price_freshness.LV_V2_PREFIX) for e in ids):
-        ids += [e for e in price_freshness.LV_V2_STAMP_SIBLINGS if e not in ids]
+    ids += [
+        e for e in price_freshness.lv_v2_siblings(ids, localvolts_v2) if e not in ids
+    ]
     out: list[list[tuple[datetime, datetime]]] = []
     for entity_id in ids:
         for attribute in price_freshness.STAMP_ATTRIBUTES:
@@ -158,7 +163,13 @@ def _reprice_stale_price_periods(
         "price_stale_unusable": False,
     }
     try:
-        rows = _price_stamp_rows(sw, [import_sensor, export_sensor], day_start, day_end)
+        rows = _price_stamp_rows(
+            sw,
+            [import_sensor, export_sensor],
+            day_start,
+            day_end,
+            (cfg.get("known_sources") or {}).get("localvolts_v2"),
+        )
         mask = price_freshness.stale_period_mask(rows, grid_times)
     except Exception as err:  # noqa: BLE001 -- the check must never stop a day being scored
         solver_shared._LOGGER.warning(

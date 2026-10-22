@@ -750,6 +750,14 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus #1994 -- external sources found through the entity registry
+        # (integration + unique_id), published as cfg["known_sources"], never
+        # by entity_id. The standalone copy still matches the fixed solar
+        # entity_ids and the LocalVolts prefix; it reads the same
+        # sensor.nimbus_solver_config, so the port is these three readers.
+        "known_solcast_entities",
+        "known_open_meteo_entities",
+        "lv_v2_siblings",
         # nimbus issue #1793 -- a stale price source falls back to AEMO.
         # Added urgently on 16 Oct 2026 to the native runtime first; the
         # standalone copy still plans on its source unchecked. Port next.

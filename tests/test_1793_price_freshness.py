@@ -40,6 +40,20 @@ LV2 = (
     "sensor.localvolts_v2_buy_flex_up",
     "sensor.localvolts_v2_sell_flex_up",
 )
+# nimbus #1994: LocalVolts v2 as the entity registry finds it (integration +
+# unique_id), which is how a LocalVolts price is told apart and its
+# current-rate stamp found; renamed entities keep the check.
+LV2_KNOWN = {
+    "entities": [
+        *LV2,
+        "sensor.localvolts_v2_current_buy_rate",
+        "sensor.localvolts_v2_current_sell_rate",
+    ],
+    "stamp_siblings": [
+        "sensor.localvolts_v2_current_buy_rate",
+        "sensor.localvolts_v2_current_sell_rate",
+    ],
+}
 
 
 def test_16_oct_lv_v2_before_53_reads_the_sibling_stamp():
@@ -53,7 +67,7 @@ def test_16_oct_lv_v2_before_53_reads_the_sibling_stamp():
             "sensor.localvolts_v2_current_buy_rate": {"lastUpdate": STAMP},
         }
     )
-    got = pf.check(read, LV2, NOW)
+    got = pf.check(read, LV2, NOW, localvolts_v2=LV2_KNOWN)
     assert got["stale"] is True
     assert got["entity_id"] == "sensor.localvolts_v2_current_buy_rate"
     assert got["age_minutes"] == 123.1
@@ -71,7 +85,7 @@ def test_the_oldest_stamp_decides():
             },
         }
     )
-    got = pf.check(read, LV2, NOW)
+    got = pf.check(read, LV2, NOW, localvolts_v2=LV2_KNOWN)
     assert got["stale"] is False
     assert got["entity_id"] == LV2[0]
     assert got["age_minutes"] == 33.0
@@ -91,7 +105,7 @@ def test_lv_v2_2_11_0_restamp_cannot_hide_the_stall():
             },
         }
     )
-    got = pf.check(read, LV2, NOW)
+    got = pf.check(read, LV2, NOW, localvolts_v2=LV2_KNOWN)
     assert got["stale"] is True
     assert got["entity_id"] == "sensor.localvolts_v2_current_buy_rate"
 

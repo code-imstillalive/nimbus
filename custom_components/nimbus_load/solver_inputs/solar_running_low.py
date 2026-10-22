@@ -330,15 +330,18 @@ def ratio_scale(ratio: float) -> float:
     return min(1.0, max(RATIO_FLOOR, ratio))
 
 
-def read_solcast_points(sw: Any) -> tuple[list[tuple[datetime, float]], bool]:
+def read_solcast_points(
+    sw: Any, cfg: dict
+) -> tuple[list[tuple[datetime, float]], bool]:
     """(period_start, p50) for every Solcast detailedForecast period, and
     whether every one of them also carries a p10. Reads Solcast's own two
-    entities (the same ones the auto-include path reads). A missing or
-    malformed forecast reads as no points."""
+    entities, as the entity registry finds them (nimbus #1994; the same ones
+    the auto-include path reads). A missing or malformed forecast reads as
+    no points."""
     points: list[tuple[datetime, float]] = []
     has_p10 = True
     try:
-        for eid in sorted(sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS):
+        for eid in sw.known_solcast_entities(cfg):
             if not sw.entity_exists(eid):
                 continue
             attrs = sw.ha_get(eid).get("attributes") or {}
@@ -457,7 +460,7 @@ def evaluate_gate(
         _turn_off("no_solar_power_sensor", "no solar power sensor")
         return _gate_result("no_solar_power_sensor"), False
 
-    points, solcast_p10 = read_solcast_points(sw)
+    points, solcast_p10 = read_solcast_points(sw, cfg)
     _remember_blend(now, blend_now_kw)
     if points:
         source = REFERENCE_SOLCAST
