@@ -122,7 +122,7 @@
           "solver_solar_forecast_sensor_3": "Optional: third solar forecast source to blend",
           "solver_load_forecast_sensor": "🔴 Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
           "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
-          "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip",
+          "solver_whole_house_cross_check_sensor": "Whole-house power sensor (the live one your household load forecast is built from)",
           "solver_solar_power_sensor": "Optional: real, currently-measured solar power sensor (not a forecast) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
           "solver_battery_power_sensor": "Optional: real, currently-measured net battery power sensor (kW, positive = discharging) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
           "solver_battery_power_positive_is_charge": "Tick ONLY if your battery sensor above reports the opposite convention (positive = charging, negative = discharging) -- e.g. SigEnergy plants. Leave unticked for the far more common positive = discharging convention.",
@@ -140,7 +140,7 @@
           "solver_solar_forecast_sensor_3": "Optional -- a third solar forecast source, same blending as the second.",
           "solver_load_forecast_sensor": "The single sensor the Solver treats as \"total household load\" for planning. A Nimbus Power Signal on your own whole-house power meter is the simplest choice -- or leave this and use the per-circuit list below instead, which is summed automatically.",
           "solver_load_forecast_entities": "If you'd rather the Solver build its total household load from several individual circuit forecasts (e.g. one Nimbus load per circuit breaker) instead of one whole-house sensor, list them here -- they're summed together every solve. Leave blank to use the single sensor above instead.",
-          "solver_whole_house_cross_check_sensor": "A real, currently-measured whole-house power sensor (not a forecast) the Solver compares its own very-first forecast period against, purely as a live sanity check surfaced on the forecast sensor's own attributes -- has no effect on the actual dispatch plan itself.",
+          "solver_whole_house_cross_check_sensor": "Your live whole-house power sensor, not a forecast. The Forecaster uses it to know which load is the whole house (its overnight spike and stair-step corrections apply to that load only), and the Solver compares its first forecast period against it as a sanity check. It does not change the dispatch plan directly.",
           "solver_solar_power_sensor": "Feeds the built-in quality score (EPR/regret/tracking, sensor.nimbus_solver_quality_report) with what your solar ACTUALLY produced yesterday, to compare the real dispatch against a perfect-foresight oracle. Genuinely different from the forecast sensor above -- this must be a real measurement, not a forecast.",
           "solver_battery_power_sensor": "Same quality-score role as the solar sensor above, for your battery's real net power (positive = discharging, negative = charging) -- both this and the solar sensor are required together for a score to be published.",
           "solver_battery_power_positive_is_charge": "Some hardware (confirmed on SigEnergy) reports the opposite sign to the convention this integration assumes everywhere else. Getting this wrong silently inverts every charge/discharge decision in the quality score, producing a nonsensical result (e.g. a negative EPR) -- if your published score looks impossible, this is the first thing to check.",
@@ -739,6 +739,10 @@
           "document_invalid": "That unit couldn't be saved into the device setup."
         }
       }
+    },
+    "whole_house_sensor_unset": {
+      "title": "Nimbus: no whole-house sensor is set",
+      "description": "You have a load forecast, but Nimbus does not know which of your sensors is the whole house. Without it, no load gets the Forecaster's whole-house fixes (the overnight spike and stair-step corrections). Set **the whole-house sensor** in Nimbus → Configure → Solver: Solar & Load Forecasts (3 of 3): the live whole-house power sensor your household load forecast is built from. This message clears itself once it is set."
     }
   }
 }
