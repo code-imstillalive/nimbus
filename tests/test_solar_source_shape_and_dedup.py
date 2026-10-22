@@ -132,46 +132,57 @@ class TestSolarEntriesFromAttributes(unittest.TestCase):
         self.assertIsNone(solver_writer._solar_entries_from_attributes({}))
 
 
+# nimbus #1994: the integrations' entities as the entity registry finds them,
+# published on sensor.nimbus_solver_config as `known_sources`; here, the
+# entity_ids an install that renamed nothing has.
+_KNOWN = {
+    "known_sources": {
+        "solcast": [
+            "sensor.solcast_pv_forecast_forecast_today",
+            "sensor.solcast_pv_forecast_forecast_tomorrow",
+        ],
+        "open_meteo": [
+            "sensor.home_energy_production_today",
+            "sensor.home_energy_production_tomorrow",
+            *(f"sensor.home_energy_production_d{d}" for d in range(2, 8)),
+        ],
+    }
+}
+
+
 class TestIsKnownSolarIntegrationEntity(unittest.TestCase):
     """nimbus issue #546: the real dedup decision -- whether a configured
     source should be skipped as a standalone member because it's one of
-    a known auto-included integration's own entities."""
+    a known auto-included integration's own entities. nimbus #1994: "known"
+    is what the entity registry found, so a renamed entity is still known
+    and a name that merely looks like Solcast's is not."""
+
+    def _known(self, entity_id, cfg=_KNOWN):
+        return solver_writer._is_known_solar_integration_entity(entity_id, cfg)
 
     def test_solcast_today_is_known(self):
-        self.assertTrue(
-            solver_writer._is_known_solar_integration_entity(
-                "sensor.solcast_pv_forecast_forecast_today"
-            )
-        )
+        self.assertTrue(self._known("sensor.solcast_pv_forecast_forecast_today"))
 
     def test_solcast_tomorrow_is_known(self):
-        self.assertTrue(
-            solver_writer._is_known_solar_integration_entity(
-                "sensor.solcast_pv_forecast_forecast_tomorrow"
-            )
-        )
+        self.assertTrue(self._known("sensor.solcast_pv_forecast_forecast_tomorrow"))
 
     def test_open_meteo_d7_is_known(self):
-        self.assertTrue(
-            solver_writer._is_known_solar_integration_entity(
-                "sensor.home_energy_production_d7"
-            )
-        )
+        self.assertTrue(self._known("sensor.home_energy_production_d7"))
 
     def test_an_unrelated_entity_is_not_known(self):
-        self.assertFalse(
-            solver_writer._is_known_solar_integration_entity(
-                "sensor.nimbus_solar_forecast"
-            )
-        )
+        self.assertFalse(self._known("sensor.nimbus_solar_forecast"))
 
     def test_similarly_named_but_different_entity_is_not_known(self):
         # A real, plausible near-miss -- must not fuzzy-match.
-        self.assertFalse(
-            solver_writer._is_known_solar_integration_entity(
-                "sensor.solcast_pv_forecast_forecast_d2"
-            )
-        )
+        self.assertFalse(self._known("sensor.solcast_pv_forecast_forecast_d2"))
+
+    def test_a_renamed_solcast_entity_is_known(self):
+        cfg = {"known_sources": {"solcast": ["sensor.bumbum_solbum_today"]}}
+        self.assertTrue(self._known("sensor.bumbum_solbum_today", cfg))
+        self.assertFalse(self._known("sensor.solcast_pv_forecast_forecast_today", cfg))
+
+    def test_nothing_found_means_nothing_is_known(self):
+        self.assertFalse(self._known("sensor.solcast_pv_forecast_forecast_today", {}))
 
 
 class TestWarnSolarSourceDroppedOnce(unittest.TestCase):
@@ -316,7 +327,7 @@ class TestSolarSourceWiringSourceInspection(unittest.TestCase):
         )
         self.assertNotIn("skip_entities", signature)
         block = _extract_function_source(self.src, "def _fetch_open_meteo_solar_raw(")
-        self.assertIn("_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS", block)
+        self.assertIn("known_open_meteo_entities(cfg)", block)  # nimbus #1994
         self.assertIn("_solar_entries_from_attributes(", block)
 
     def test_solcast_raw_no_longer_takes_a_skip_entities_parameter(self):
@@ -325,7 +336,7 @@ class TestSolarSourceWiringSourceInspection(unittest.TestCase):
         )
         self.assertNotIn("skip_entities", signature)
         block = _extract_function_source(self.src, "def _fetch_solcast_solar_raw(")
-        self.assertIn("_KNOWN_SOLCAST_SOLAR_ENTITY_IDS", block)
+        self.assertIn("known_solcast_entities(cfg)", block)  # nimbus #1994
         self.assertIn("_solar_entries_from_attributes(", block)
 
     def test_a_configured_source_is_skipped_as_standalone_when_auto_include_would_cover_it(

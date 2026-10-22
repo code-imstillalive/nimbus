@@ -64,7 +64,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
-from . import sensor_discovery
+from . import known_sources, sensor_discovery
 from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
@@ -181,17 +181,9 @@ def _registry_candidates(
     hass: HomeAssistant, domain: str, matches: Any
 ) -> dict[str, str]:
     """unique_id -> entity_id for the enabled sensors of every loaded
-    `domain` entry whose built-in unique_id satisfies `matches`."""
-    registry = er.async_get(hass)
-    found: dict[str, str] = {}
-    for entry in hass.config_entries.async_entries(domain):
-        if getattr(entry.state, "value", entry.state) != "loaded":
-            continue
-        for reg in er.async_entries_for_config_entry(registry, entry.entry_id):
-            uid = str(reg.unique_id or "")
-            if reg.domain == "sensor" and matches(uid) and reg.disabled_by is None:
-                found[uid] = reg.entity_id
-    return found
+    `domain` entry whose built-in unique_id satisfies `matches`: the one
+    registry lookup every source-finding path shares (nimbus #1994)."""
+    return known_sources.registry_sensors(hass, domain, matches)
 
 
 def _one_for_home_region(

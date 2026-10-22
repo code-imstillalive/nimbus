@@ -285,15 +285,17 @@ class TestAutoIncludeDedup(_SolarTestBase):
 
     def test_configured_known_entity_is_not_also_counted_standalone(self):
         known = "sensor.solcast_pv_forecast_forecast_today"
-        self.assertTrue(
-            solver_writer._is_known_solar_integration_entity(known),
-            "fixture precondition: this must be a recognised known entity",
-        )
         states = {known: _forecast_attrs([6.0] * _N)}
         cfg = {
             "solver_solar_forecast_sensor": known,
             "solver_auto_include_known_solar": True,
+            # nimbus #1994: Solcast as the entity registry finds it.
+            "known_sources": {"solcast": [known]},
         }
+        self.assertTrue(
+            solver_writer._is_known_solar_integration_entity(known, cfg),
+            "fixture precondition: this must be a recognised known entity",
+        )
         with (
             patch.object(solver_writer, "ha_get", lambda e: {"attributes": states[e]}),
             patch.object(solver_writer, "entity_exists", lambda e: e in states),

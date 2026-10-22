@@ -335,15 +335,14 @@ def test_seasonal_anchor_false_for_a_load_that_is_not_the_whole_house_meter():
     assert coord._seasonal_anchor is False
 
 
-def test_seasonal_anchor_falls_back_to_legacy_literal_when_wizard_field_unset():
-    # 2026-09-02 fix: an install upgrading from an older version that never
-    # configured CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR must not
-    # silently regress -- the legacy hardcoded sensor.logger_load_power
-    # literal is still checked as a fallback.
+def test_seasonal_anchor_has_no_entity_name_fallback_when_wizard_field_unset():
+    # nimbus #1994: the whole-house load is only the wizard-configured
+    # whole-house sensor. The old fallback to one household's own entity
+    # name (sensor.logger_load_power) is gone: a name is not configuration.
     coord = _make_load_coordinator(
         load_sensor="sensor.logger_load_power", whole_house_sensor=None
     )
-    assert coord._seasonal_anchor is True
+    assert coord._seasonal_anchor is False
 
 
 def test_seasonal_anchor_false_for_other_load_when_wizard_field_unset():

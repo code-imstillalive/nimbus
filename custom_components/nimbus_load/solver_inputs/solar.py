@@ -131,6 +131,7 @@ def _fetch_solar_source_safe(
 
 def _fetch_open_meteo_solar_raw(
     grid_times: list[datetime],
+    cfg: dict,
 ) -> tuple[list[float], list[float], list[float]] | None:
     """Real, DIRECT read of Open-Meteo Solar Forecast's own 8 native
     entities (today/tomorrow/d2..d7) -- reshaped from their native
@@ -153,11 +154,13 @@ def _fetch_open_meteo_solar_raw(
     real regression an entity-level skip caused).
     """
     sw = _solver_writer()
-    anchor = "sensor.home_energy_production_today"
-    if not sw.entity_exists(anchor):
+    # nimbus #1994: the integration's own entities as the entity registry
+    # finds them; today's is the anchor, as its fixed entity_id was.
+    known = sw.known_open_meteo_entities(cfg)
+    if not known or not sw.entity_exists(known[0]):
         return None
     entries: list[dict] = []
-    for eid in sw._KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS:
+    for eid in known:
         if not sw.entity_exists(eid):
             continue
         fc = sw._solar_entries_from_attributes(sw.ha_get(eid)["attributes"])
@@ -173,6 +176,7 @@ def _fetch_open_meteo_solar_raw(
 def _fetch_solcast_solar_raw(
     grid_times: list[datetime],
     n_periods: int,
+    cfg: dict,
 ) -> tuple[list[float], list[float], list[float]] | None:
     """Real, DIRECT read of Solcast's own 2 native entities
     (today/tomorrow) -- reshaped from their native detailedForecast
@@ -194,11 +198,12 @@ def _fetch_solcast_solar_raw(
     moved to the caller.
     """
     sw = _solver_writer()
-    anchor = "sensor.solcast_pv_forecast_forecast_today"
-    if not sw.entity_exists(anchor):
+    # nimbus #1994: as for Open-Meteo above, today's entity is the anchor.
+    known = sw.known_solcast_entities(cfg)
+    if not known or not sw.entity_exists(known[0]):
         return None
     entries: list[dict] = []
-    for eid in sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS:
+    for eid in known:
         if not sw.entity_exists(eid):
             continue
         fc = sw._solar_entries_from_attributes(sw.ha_get(eid)["attributes"])
@@ -333,7 +338,7 @@ def build_solar_arrays(
 
     def _skip_as_standalone_source(entity_id: str) -> bool:
         return auto_include_known_solar and sw._is_known_solar_integration_entity(
-            entity_id
+            entity_id, cfg
         )
 
     # Source 1: whatever's configured via the Solver settings wizard
@@ -342,7 +347,7 @@ def build_solar_arrays(
     if configured_entity and not _skip_as_standalone_source(configured_entity):
         _add_member(
             _fetch_solar_source_safe(configured_entity, grid_times, n_periods),
-            configured_entity in sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS,
+            configured_entity in sw.known_solcast_entities(cfg),
         )
 
     # Known real integrations (Open-Meteo, Solcast) -- ONLY included if
@@ -357,8 +362,8 @@ def build_solar_arrays(
     # more, unless this switch is explicitly turned on.
     if auto_include_known_solar:
         for fetcher, is_solcast in (
-            (lambda: _fetch_open_meteo_solar_raw(grid_times), False),
-            (lambda: _fetch_solcast_solar_raw(grid_times, n_periods), True),
+            (lambda: _fetch_open_meteo_solar_raw(grid_times, cfg), False),
+            (lambda: _fetch_solcast_solar_raw(grid_times, n_periods, cfg), True),
         ):
             result = fetcher()
             _add_member(result, is_solcast)
@@ -377,7 +382,7 @@ def build_solar_arrays(
             continue
         _add_member(
             _fetch_solar_source_safe(entity_id, grid_times, n_periods),
-            entity_id in sw._KNOWN_SOLCAST_SOLAR_ENTITY_IDS,
+            entity_id in sw.known_solcast_entities(cfg),
         )
 
     _apply_running_low_gate(

@@ -987,24 +987,14 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
 # switch turned ON explicitly to keep its current blend behaviour --
 # that is a one-time, visible, deliberate choice now, not silent magic.
 #
-# Worth remembering if this is ever revisited: the two anchors behind
-# this toggle are NOT equally portable. Solcast's anchor entity_id
-# (sensor.solcast_pv_forecast_forecast_today) is fixed by that
-# integration's own code, genuinely the same for any install. Open-
-# Meteo Solar Forecast's anchor (sensor.home_energy_production_today)
-# is whatever THIS household happened to name their own config entry
-# at setup time -- there is no guarantee a different household's install
-# of the same integration uses that name at all. The toggle makes the
-# behaviour visible and switchable either way, but does not by itself
-# make the Open-Meteo half of it portable.
+# nimbus #1994: both integrations are found through the entity registry by
+# their integration and built-in unique_id (known_sources.py), never by an
+# entity_id, so a renamed or localised entity is still found. A brand-new
+# install that already has Solcast starts with auto-include ON (1.0.0
+# one-click install, #1930; Mark's #1914 recommendation): a household on
+# Solcast should not have to find a switch to get the forecast it already
+# has. An existing switch keeps its value.
 CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
-# Solcast's own "today" entity, the anchor the auto-include path detects
-# Solcast by (solver_inputs/solar.py). Its id is fixed by that integration,
-# the same on any install. A brand-new install that already has it starts
-# with auto-include ON (1.0.0 one-click install, #1930; Mark's #1914
-# recommendation): a household on Solcast should not have to find a switch
-# to get the forecast it already has. An existing switch keeps its value.
-SOLCAST_TODAY_ENTITY_ID: Final = "sensor.solcast_pv_forecast_forecast_today"
 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 # Real-dispatch groundwork, phase 1 (2026-08-27) -- see solver_runtime.py's
 # own _log_dispatch_dry_run() docstring for the full story. Default False,

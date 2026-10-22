@@ -3208,34 +3208,25 @@ def resample_forecast(
     return out
 
 
-# nimbus issue #546 (Mark Purcell, real regression on his own v0.94.169
-# install, found the SAME day #542/#543 shipped): the known-integration
-# entity IDs fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()
-# already read, hoisted to real module-level constants (previously
-# duplicated as a local list inside each function) so the caller-site
-# dedup logic below can check against the SAME single source of truth,
-# never two lists that could silently drift apart.
-_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
-    {
-        "sensor.home_energy_production_today",
-        "sensor.home_energy_production_tomorrow",
-        "sensor.home_energy_production_d2",
-        "sensor.home_energy_production_d3",
-        "sensor.home_energy_production_d4",
-        "sensor.home_energy_production_d5",
-        "sensor.home_energy_production_d6",
-        "sensor.home_energy_production_d7",
-    }
-)
-_KNOWN_SOLCAST_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
-    {
-        "sensor.solcast_pv_forecast_forecast_today",
-        "sensor.solcast_pv_forecast_forecast_tomorrow",
-    }
-)
+# nimbus #1994: Solcast's and Open-Meteo Solar Forecast's own entities, as
+# the entity registry finds them (integration + unique_id), published by
+# sensor.nimbus_solver_config as `known_sources` (known_sources.py). Never an
+# entity_id literal: a renamed or localised entity is still found. One
+# accessor each, so the auto-include fetch, the #546 dedup and the #1784
+# running-low gate can never read two different lists.
+def known_solcast_entities(cfg: dict) -> list[str]:
+    """Solcast's today and tomorrow forecast entities, today first."""
+    known = (cfg or {}).get("known_sources") or {}
+    return [e for e in (known.get("solcast") or []) if isinstance(e, str)]
 
 
-def _is_known_solar_integration_entity(entity_id: str) -> bool:
+def known_open_meteo_entities(cfg: dict) -> list[str]:
+    """Open-Meteo Solar Forecast's today .. d7 production entities."""
+    known = (cfg or {}).get("known_sources") or {}
+    return [e for e in (known.get("open_meteo") or []) if isinstance(e, str)]
+
+
+def _is_known_solar_integration_entity(entity_id: str, cfg: dict) -> bool:
     """True when `entity_id` is one of Open-Meteo Solar Forecast's or
     Solcast's own native entities -- i.e. one the auto-include path
     (fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()) already
@@ -3270,10 +3261,9 @@ def _is_known_solar_integration_entity(entity_id: str) -> bool:
     already had (Solcast 2-day + Open-Meteo 8-day), just with Solcast's
     own shape now correctly read instead of silently dropped.
     """
-    return (
-        entity_id in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS
-        or entity_id in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS
-    )
+    return entity_id in known_open_meteo_entities(
+        cfg
+    ) or entity_id in known_solcast_entities(cfg)
 
 
 # nimbus issue #542 item 1 (Mark Purcell, real household finding): a

@@ -264,6 +264,7 @@ def build_price_arrays(
                 cfg.get("solver_export_price_sensor"),
             ),
             now,
+            localvolts_v2=(cfg.get("known_sources") or {}).get("localvolts_v2"),
         )
         if price_source_freshness and price_source_freshness["stale"]:
             live_spot = None

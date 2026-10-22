@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Solcast, Open-Meteo and LocalVolts are found by their integration, not by entity name**
+  ([#1994](https://github.com/code-imstillalive/nimbus/issues/1994)). Solar
+  auto-include, the solar running-low check, the new-install default for
+  auto-include and LocalVolts' stale-price check matched fixed entity IDs, so a
+  renamed (or non-English) Solcast or Open-Meteo entity was silently lost: with no
+  other solar source, every plan ran on 0 kW solar. They now find each source
+  through Home Assistant's entity registry by integration and built-in unique ID,
+  the way price auto-detection already did, so a rename changes nothing. An install
+  that renamed nothing reads exactly the same entities as before. The whole-house
+  load is now only the sensor set in the whole-house cross-check field; the old
+  fallback to one fixed entity name is gone.
+
 ## [0.94.480] - 2026-10-22
 
 **A battery above its Max SoC with terminal-value tiers set no longer loses the whole plan; two flex-signal fixes.**
