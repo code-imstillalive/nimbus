@@ -46,6 +46,7 @@ from homeassistant.loader import async_get_integration
 
 from . import (
     done_condition,
+    forecast_stats,
     health,
     known_sources,
     load_run_state,
@@ -1702,6 +1703,15 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
             ATTR_SOURCE_SENSOR: self._source_sensor,
+            # What the forecast adds up to (kW forecasts only): energy over
+            # the next 24 h and the whole forecast, and the next-24 h peak.
+            **(
+                {}
+                if self._signal_role in (SIGNAL_ROLE_TEMPERATURE, SIGNAL_ROLE_HUMIDITY)
+                else forecast_stats.energy_summary(
+                    data.get("forecast", []), datetime.now(UTC)
+                )
+            ),
         }
 
 

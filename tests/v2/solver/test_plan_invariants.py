@@ -422,3 +422,47 @@ def test_an_armed_price_spike_discharges_at_its_rate_now(site, share):
     allowed = above_min * b["discharge_efficiency"] / site["hours"][0]
     assert abs(plan.battery_discharge_kw[0] - min(rate, allowed)) < 1e-5
     assert plan.battery_charge_kw[0] <= TOL
+
+
+@SETTINGS
+@given(
+    sites(),
+    _num(0.0, 1.0),
+    st.frozensets(st.integers(0, 23)),
+    st.booleans(),
+    st.integers(min_value=0, max_value=3),
+)
+def test_a_spike_override_and_an_away_period_compose(
+    site, share, away, available, until
+):
+    """#953 (Mark Purcell, IV&V #950): the spike override's floor and the
+    away mask once built lb > ub on period 0 and the whole solve failed.
+    Together they always solve, and the gate wins: an away period 0 does not
+    discharge whatever the price; with period 0 free the override still pins
+    it; an unavailable battery never arms the override at all (#779's prefix
+    is read only then)."""
+    b = site["battery"]
+    sink = float(site["load"][0]) + site["export_limit"]
+    rate = round(share * min(b["max_discharge_kw"], sink), 4)
+    plan = _solve(
+        site,
+        spike_override_discharge_kw=rate,
+        unavailable_period_indices=away,
+        available=available,
+        unavailable_until_period_index=None if available else (until or None),
+    )
+    assert plan.status == "optimal"
+    if not available or 0 in away:
+        assert plan.battery_discharge_kw[0] <= TOL
+        assert plan.battery_charge_kw[0] <= TOL
+    else:
+        above_min = max(0.0, b["initial_soc_kwh"] - b["min_soc_kwh"])
+        allowed = above_min * b["discharge_efficiency"] / site["hours"][0]
+        assert abs(plan.battery_discharge_kw[0] - min(rate, allowed)) < 1e-5
+    n = len(site["hours"])
+    for t in range(n):
+        # Unavailable means away for the whole horizon, or before #779's
+        # return index when one is set.
+        whole_or_prefix = not available and (until == 0 or t < until)
+        if t in away or whole_or_prefix:
+            assert plan.battery_discharge_kw[t] <= TOL, t

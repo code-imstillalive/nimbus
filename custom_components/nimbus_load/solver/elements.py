@@ -1661,7 +1661,8 @@ class AdequacyLoadConfig:
     # only charged when the entire target sits at the deadline. A load
     # shifted partway down its window pays proportionally less, so the
     # real flip point sits above a naive `saving > X` reading. Measured
-    # in tests/test_adequacy_min_deferral_saving.py: a $0.50 saving is
+    # when this was written (#769; now guarded by tests/v2/solver/
+    # test_plan_features.py's deferral-penalty property): a $0.50 saving is
     # refused only once X passes $0.6875, not $0.50. That is correct
     # (a partial deferral should cost less than a full one) and it is
     # not what the one-line description says.
