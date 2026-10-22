@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.482",
+        "22 Oct 2026",
+        (
+            (
+                "**Solar auto-include:** Solcast and Open-Meteo are found by their "
+                "integration, so a renamed entity is still read. LocalVolts' "
+                "stale-price check works on renamed entities too."
+            ),
+        ),
+    ),
+    (
         "0.94.481",
         "22 Oct 2026",
         (
