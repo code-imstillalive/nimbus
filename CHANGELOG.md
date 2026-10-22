@@ -25,6 +25,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The sweep costs more solves: about 0.14 s on the 24-period test day (under
   #494's 0.5 s bar) and several times main's figure on a full horizon, inside
   the one-minute solver tick.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at f5579ba6**
+  (`release/0.94.481`), installed via HACS and restarted at 15:17 AEST; Home
+  Assistant was back at 15:17:43 and Nimbus loaded. Since then the solver has
+  cycled with no solver failure, no #773 fallback and no new Nimbus `ERROR` or
+  traceback against the pre-install log; the Forecaster sensors refreshed by 15:45.
+  - **Not observable on devhub:** the offer curve itself. devhub's own
+    offer-curve sensor cannot register (a mirrored entity holds its name), so
+    the change this release makes is carried by #1993's tests, not by a devhub
+    reading.
+- Consumer check: on an install with the offer curve switched on, each
+  published import and export point, and the price range shown with it, now
+  matches what a plan at that price would do; the plan itself is unchanged.
 
 ## [0.94.480] - 2026-10-22
 
