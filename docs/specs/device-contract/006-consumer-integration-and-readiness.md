@@ -81,8 +81,8 @@ Each slice is one PR, and changes one consumer family:
 |---|---|---|---|
 | 1 | **Readiness** | none: adds `device_readiness.py` and its sensor | none; it is new output |
 | 2 | **Observation** | the Forecaster's power inputs (`coordinator.py`, `power_input_check.py`), the Topology card | DC-002's units: `kw`, `KW`, ` kW `, lowercase `mw`, and **a power sensor with no unit at all** are read today (the last as kW, by design) and refused by the contract; sign from `normalization`, not `solver_battery_power_positive_is_charge` |
-| 3 | **Forecasting** | Solar and Load forecast inputs (`solver_inputs/solar.py`, `solver_inputs/load.py`) | a held forecast past its end is a gap (DC-002, recorded in `contract_divergences.json`) |
-| 4 | **Planning** | prices (`solver_inputs/prices.py`), Battery SoC and power (`solver_writer.py`), shared limits | overlapping provider rows refused, not first-kept; a price with no unit refused, not read as $/kWh; shared limits from `shared_constraints` |
+| 3 | **Forecasting** | Solar and Load forecast inputs (`solver_inputs/solar.py`, `solver_inputs/load.py`) | none expected: forecast adapters read today's shapes, several solar sources resolve to today's equal-weight mean (decision 10), load totals through DC-003; the slice's gate lists anything that still differs |
+| 4 | **Planning** | prices (`solver_inputs/prices.py`), Battery SoC and power (`solver_writer.py`), shared limits | overlapping provider rows refused, not first-kept; a price with no unit refused, not read as $/kWh; a price held past its end is a gap; shared limits from `shared_constraints` |
 | 5 | **Scoring** | `solver_reports/*` | a window whose site exchange does not reconcile is marked unreliable (DC-R10, F08) |
 | 6 | **Cards and compatibility** | the dispatch, forecast and topology cards' entity reads | none expected: cards read entities the views already name |
 
@@ -95,8 +95,8 @@ Planning moves after observation and forecasting have run in `active` on devhub 
 | Slice | Open entries it touches |
 |---|---|
 | Observation | F09: `w`, `kw`, `KW`, `Kw`, ` kW `, `mw`, no unit, no unit attribute |
-| Forecasting | F04: `expired_price` (held past its end) |
-| Planning | F04: `overlap` (first row kept), `price_unit_missing` (read as $/kWh) |
+| Forecasting | none recorded; the slice's equivalence gate records any it finds |
+| Planning | F04: `overlap` (first row kept), `price_unit_missing` (read as $/kWh), `expired_price` (held past its end) |
 
 ## Acceptance
 
@@ -143,3 +143,8 @@ Each is proposed as written above. The build follows these unless @purcell-lab c
 7. **Scoring marks, never corrects:** a window that does not reconcile publishes its score with a reliability reason.
 8. **Placement:** `device_readiness.py` pure, beside `device_contract.py`; each consumer's read goes through one helper, `device_contract_ha.resolved(hass, entry, device_kind, role)`, so the `active` check and the revision record are in one place.
 9. **Open divergences are settled per slice, before it merges** (table above), each by an explicit decision recorded in `approved_changes.json` or in DC-002's rules. **Units, decided by the household on 19 Oct 2026:** adopt the contract, with one Repair per affected power sensor before `active` is offered; the Repair lets the household declare W or kW on the binding (`normalization.native_unit`, `overridden: true`) or fix the sensor (*"tell nimbus in the repair i think is easier than correcting the whole sensor... but it is good to have a choice... and i do agree with strict direction"*). DC-002 gains one rule with the observation slice: a declared unit applies when the sensor states none or a non-exact spelling; a valid stated unit that differs from the declared one is refused (`declared_unit_conflicts`), never resolved either way.
+10. **Forecasting, decided by Mark Purcell on #1574 (22 Oct 2026):**
+    - **(a)** Versioned forecast adapters in DC-002's adapter table, built from today's parsers: `nimbus_forecast` (the generic `forecast: [{time, value, lower, upper}]`), `solcast` (today and tomorrow as one source) and `open_meteo_solar`.
+    - **(b)** A forecast role may bind an **ordered list** of sources with `combine: mean`: the equal-weight mean of the members that resolve, each member's state and reason reported, a failed member dropped, never zero-filled. One source stays the ordinary case. The solar `combine: mean` path and load's DC-003 sum of parts stay **separate mechanisms** in the resolver, so the never-zero-fill rule cannot drift between them.
+    - **(c)** Load's `demand_forecast` totals across load devices through DC-003; a single total sensor is a one-device site.
+    - **(d)** F04 `expired_price` is a price case and belongs to Planning (table above).
