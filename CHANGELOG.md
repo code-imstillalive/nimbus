@@ -8,6 +8,62 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.480] - 2026-10-22
+
+**A battery above its Max SoC with terminal-value tiers set no longer loses the whole plan; two flex-signal fixes.**
+
+- **A battery's plan-consistent headroom never exceeds its physical headroom**
+  ([#1985](https://github.com/code-imstillalive/nimbus/issues/1985)). For a battery
+  already charging or discharging flat out, the flex signals'
+  `available_up_ranging_kw` / `available_down_ranging_kw` could report room it
+  did not have, read from the solver's ranging of the limit itself. They are now
+  clamped to the physical figure. Dispatch is unchanged.
+
+- **A battery above its Max SoC no longer loses the whole plan when terminal-value
+  tiers are set** ([#1987](https://github.com/code-imstillalive/nimbus/issues/1987)).
+  A live reading over Max SoC that could not discharge back under it by the tier
+  period made every solve infeasible, so nothing was planned for any battery or
+  load. The tier row now takes the excess off, as it already did below Min SoC
+  (#328). Plans that end within Max SoC are unchanged.
+
+- **A load's shut period always reads as degenerate**
+  ([#1981](https://github.com/code-imstillalive/nimbus/issues/1981)). A period
+  outside an adequacy load's window has a zero band, but its `degenerate` flag in
+  the flex signals' `load_signals` followed the solver's unclamped ranging, so
+  another load in the same solve could turn it off. It now follows the band.
+  Dispatch is unchanged.
+
+## [0.94.479] - 2026-10-21
+
+**DC-006 slice 2: the Forecaster reads the device setup in `active`.**
+
+- **Device setup, the Forecaster in `active` (#1574, DC-006 slice 2).** With the
+  device setup in `active`, each Forecaster model reads its battery, grid and
+  solar power inputs from the device setup: in the sign it was trained with,
+  the last good reading held for up to its max age when one goes missing, and
+  then the model's own training mean (never 0) until it returns. A model
+  retrained in `active` learns the setup's sign (battery discharge-positive).
+  `legacy` and `shadow` installs read exactly what they read before; on a
+  healthy site a model trained in `legacy` is fed identical inputs in
+  `active`.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ab0146bf**
+  (`release/0.94.479`), installed via HACS and restarted at 18:40 AEST; devhub's
+  own Forecaster sensors published by 18:40:59. devhub's device setup is
+  `active` (revision 1, clean), so this release's code path is the one running.
+  The log after the restart showed only devhub's known baseline (mirror
+  duplicate-unique-ID notices, Forecaster rename notices).
+  - **Not claimed yet:** a retrain in `active` (the model learning the setup's
+    sign). devhub's models were last trained at 03:27; the first retrain on
+    this release is checked on the day-long devhub run before slice 3.
+- Consumer check: on an install in `legacy` or `shadow`, the Forecaster tab's
+  forecasts are unchanged from 0.94.478. In `active`, a battery, grid or solar
+  sensor that drops out keeps its last reading for its max age instead of
+  falling to 0.
+
+## [0.94.478] - 2026-10-21
+
+**The P2P export bonus is claimed in one block again.**
+
 - **The export bonus is claimed in one block again**
   ([#1964](https://github.com/code-imstillalive/nimbus/issues/1964)). With a
   flat bonus price and a cap that leaves one period partly claimed, the bonus
@@ -16,6 +72,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   tolerance. It is now a tie-break on the secondary objective, as the other
   tie-breaks have been since #696, so it no longer meets a real price. A plan
   solved without the calibrated objective keeps the old tie-break.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 672a16ee**
+  (`release/0.94.478`), installed via HACS and restarted at 15:53 AEST;
+  devhub's own Nimbus sensors published 0.94.478 by 15:56. The log after the
+  restart showed only devhub's known baseline (mirror duplicate-unique-ID
+  notices). devhub's own plan entity is unavailable (its known limitation),
+  so the bonus block is checked on production's first P2P window.
+- Consumer check: on the Solver tab's Whole Plan, the P2P export bonus
+  (lightning bolt) runs as one unbroken block to the end of the window,
+  without dropping out and back in.
 
 ## [0.94.477] - 2026-10-21
 
@@ -31,6 +96,32 @@ fees no longer pull the blend up or count as forecast error.
   contract's fees. The table still shows each source's own price, spikes are
   still judged on raw prices, and the spread is unchanged. Shadow only while
   consolidation is off.
+
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 21639d03**
+  (`release/0.94.477`), installed via HACS and restarted at 14:46; devhub's
+  own Nimbus sensors published 0.94.477 by 14:50. The log after the restart
+  showed only devhub's known baseline (mirror duplicate-unique-ID notices,
+  recorder attribute-size warnings, rename collisions); no price
+  consolidation errors. devhub's own plan entity is unavailable (its known
+  limitation), so the bias summary is checked on production's first plans.
+
+- **Price sources: a steady premium is not forecast error (#1786).** A source
+  priced on another contract (e.g. a retailer that adds hedging and fees per
+  kWh) sits a steady amount above the provider's settled price. Each source's
+  signed error is now tracked per lead as a bias; its MAE scores what is left
+  after removing it, and once a source has earned a weight it joins the blend
+  with its bias removed, so the blend is no longer pulled up by another
+  contract's fees. The table still shows each source's own price, spikes are
+  still judged on raw prices, and the spread is unchanged. Shadow only while
+  consolidation is off.
+
+- Consumer check: on the Solver tab's Price sources table, each source's own
+  price is unchanged (Amber still shows its own, higher price); once a source
+  has 50 settled samples at a lead, the Blend and Gap no longer carry its
+  steady premium. The plan's `price_consolidation` attribute gains
+  `bias_by_source_and_lead`; on production's first plan (15:01 AEST, few
+  samples yet) the second extra source (Amber) read 3.0c above the provider
+  at 0-5 min.
 
 ## [0.94.476] - 2026-10-21
 

@@ -1901,3 +1901,77 @@ def test_a_shared_charger_caps_its_group_and_no_one_else(cap):
     )
     assert (together <= cap + 1e-6).all()
     assert float(by["home"].charge_kw.max()) == pytest.approx(10.0, abs=1e-6)
+
+
+@pytest.mark.parametrize("neighbour", [False, True])
+@pytest.mark.parametrize("price", [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)])
+def test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve(price, neighbour):
+    """#1981 (#492's flag): an adequacy period outside its window has a
+    ceiling of 0, so its band is zero width and it is degenerate. The flag
+    used to follow HiGHS's unclamped ranging instead, and a sheddable load
+    in the same solve was enough to turn it off."""
+    n = len(price)
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=np.asarray(price),
+            export_price=np.zeros(n),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        ),
+        batteries=[_idle_battery()],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[],
+        sheddable_loads=[
+            SheddableLoadConfig(name="pool", forecast_kw=np.ones(n), shed_cost=0.3)
+        ]
+        if neighbour
+        else None,
+        adequacy_loads=[
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=3.0,
+                target_kwh=1.0,
+                deadline_period=0,
+                earliest_period=0,
+                shortfall_price=5.0,
+            )
+        ],
+        adequacy_semi_continuous=False,
+        compute_signals=True,
+    )
+    assert plan.status == "optimal"
+    sig = plan.load_signals[-1]
+    assert sig.name == "hws"
+    for t in range(1, n):
+        assert sig.degenerate[t], t
+        assert sig.band_min_kw[t] == sig.band_max_kw[t] == pytest.approx(0.0)
+
+
+@SETTINGS
+@given(sites())
+def test_a_battery_s_ranged_headroom_is_within_its_physical_headroom(site):
+    """#1985 (#491's promise): what ranging says a battery could still move
+    never exceeds what its limits and plan physically leave. HiGHS's bound
+    ranging for a battery charging flat out read 0.32 kW of room it did not
+    have."""
+    plan = build_plan(
+        periods=PeriodGrid(site["hours"]),
+        grid=GridConfig(
+            import_price=site["import_price"],
+            export_price=site["export_price"],
+            import_limit_kw=site["import_limit"],
+            export_limit_kw=site["export_limit"],
+        ),
+        batteries=[BatteryConfig(**site["battery"])],
+        solar=SolarConfig(forecast_kw=site["solar"]),
+        loads=[LoadConfig(name="house", forecast_kw=site["load"])],
+        compute_signals=True,
+    )
+    if plan.status != "optimal" or plan.grid_signals is None:
+        return
+    (bs,) = plan.battery_signals
+    assert (bs.available_up_ranging_kw <= bs.available_up_kw + 1e-9).all()
+    assert (bs.available_down_ranging_kw <= bs.available_down_kw + 1e-9).all()
+    assert (bs.available_up_ranging_kw >= 0).all()
+    assert (bs.available_down_ranging_kw >= 0).all()

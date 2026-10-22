@@ -215,6 +215,42 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.480",
+        "22 Oct 2026",
+        (
+            (
+                "**Terminal-value tiers:** a battery reading above its Max SoC no "
+                "longer makes the whole plan fail; the excess is planned off."
+            ),
+            (
+                "**Flex signals:** a battery's ranged headroom never exceeds its "
+                "physical headroom, and a load's shut period always reads as "
+                "degenerate."
+            ),
+        ),
+    ),
+    (
+        "0.94.479",
+        "21 Oct 2026",
+        (
+            (
+                "**Device setup (`active` only):** the Forecaster reads its battery, "
+                "grid and solar inputs from the device setup. Installs on `legacy` "
+                "or `shadow` see no change."
+            ),
+        ),
+    ),
+    (
+        "0.94.478",
+        "21 Oct 2026",
+        (
+            (
+                "**P2P export bonus:** claimed in one block at the end of the "
+                "window again, without dropping out and back in."
+            ),
+        ),
+    ),
+    (
         "0.94.477",
         "21 Oct 2026",
         (

@@ -239,3 +239,82 @@ def differences(
         if not same:
             out.append({"input": name, "field": "value", "legacy": va, "contract": vb})
     return out
+
+
+#: Observation input -> the Forecaster's feature name (`ml.features`).
+FEATURE_OF: dict[str, str] = {
+    "grid_power": "grid_kw",
+    "battery_power": "battery_kw",
+    "solar_power": "solar_kw",
+}
+
+
+def sign_flip(document: Mapping[str, Any], name: str) -> float:
+    """-1.0 when the binding's native sign is the opposite of the contract's
+    canonical sign for this input, else 1.0: native x flip = canonical."""
+    _option, device, role = OBSERVATION_INPUTS[name]
+    norm = _binding(document, device, role).get("normalization") or {}
+    native, canonical = (
+        norm.get("native_positive_direction"),
+        norm.get("positive_direction"),
+    )
+    return -1.0 if (native and canonical and native != canonical) else 1.0
+
+
+def forecaster_inputs(
+    mode: str,
+    document: Mapping[str, Any] | None,
+    legacy: Mapping[str, Mapping[str, Any]],
+    read_state: Reader,
+    now: datetime,
+    hold: ObservationHold,
+    trained_sign: str,
+    feature_means: Mapping[str, float],
+) -> dict[str, dict[str, Any]]:
+    """The value each observation feature takes for one Forecaster cycle.
+
+    `legacy` is `legacy_inputs()` for this model. Outside `active` (or with
+    no stored document) the value is exactly the legacy one, so nothing
+    changes. In `active`, an input the model does not use today (no entity
+    in `legacy`: not configured, the model's own target, an energy unit, or
+    a power signal) stays 0.0 as before: a feature that was never part of
+    the model is not missing data. Every other input comes from the
+    contract: held for up to its max age when missing (`ObservationHold`),
+    fed in the sign the model was trained with (`feature_value`), and once
+    `absent`, set to the model's training mean for that feature (neutral,
+    never a fabricated 0; Mark Purcell, #1574, 21 Oct 2026).
+
+    Returns `{input: {"value", "state", "entity_id"}}`; `state` is `legacy`,
+    `unused`, `valid`, `held_stale` or `absent`."""
+    out: dict[str, dict[str, Any]] = {}
+    active = mode == "active" and document is not None
+    for name in OBSERVATION_INPUTS:
+        row = legacy.get(name) or {}
+        entity = row.get("entity_id")
+        if not active:
+            out[name] = {
+                "value": row.get("value", 0.0),
+                "state": "legacy",
+                "entity_id": entity,
+            }
+            continue
+        if entity is None:
+            out[name] = {"value": 0.0, "state": "unused", "entity_id": None}
+    if not active:
+        return out
+    contract = contract_inputs(document, read_state, now, hold)
+    for name in OBSERVATION_INPUTS:
+        if name in out:
+            continue
+        got = contract.get(name) or {}
+        value = feature_value(document, name, got.get("value"), trained_sign)
+        state = got.get("state", "absent")
+        if value is None:
+            value = float(feature_means.get(FEATURE_OF[name], 0.0))
+            state = "absent"
+        out[name] = {
+            "value": float(value),
+            "state": state,
+            "entity_id": got.get("entity_id"),
+        }
+    return out

@@ -645,7 +645,8 @@ class BatterySignals:
     one variable can never exceed that variable's own remaining
     physical bound, since HiGHS caps `col_bound_up` at the variable's
     own ub) -- equal only when nothing about the plan's own economics
-    is the binding factor. `None` (the whole array) whenever ranging
+    is the binding factor (clamped to it, #1985: HiGHS's own figure for
+    a variable at its bound is not). `None` (the whole array) whenever ranging
     wasn't valid for that solve, same convention as `GridSignals`.
     """
 
@@ -3287,11 +3288,20 @@ def _build_plan_once(
                 # DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER) always costs strictly
                 # more than any terminal_value_breakpoints rate could credit
                 # back.
+                #
+                # nimbus issue #1987: the same on the ceiling side. A battery
+                # still above max_soc_kwh at idx (a live reading over it, and
+                # no way to discharge back under in time) asked the segments
+                # to hold more than they span, and the whole solve was
+                # infeasible. overfill[idx], pinned to max(0, soc - max_soc)
+                # by the same dominant penalty, takes the excess off; raising
+                # it further only shrinks the credit and adds penalty.
                 p.add_eq_constraint(
                     {
                         **{seg: 1.0 for seg in seg_vars},
                         soc_vars[b.name][idx]: -1.0,
                         underfill_vars[b.name][idx]: -1.0,
+                        overfill_vars[b.name][idx]: 1.0,
                     },
                     -b.min_soc_kwh,
                     name=f"terminal_value_segments_fill_{b.name}_{idx}",
@@ -4515,36 +4525,41 @@ def _build_plan_once(
     else:
         grid_signals = None
 
-    plan_battery_signals = [
-        BatterySignals(
+    def _battery_signals(i: int, b: BatteryConfig) -> BatterySignals:
+        up = (
+            b.max_charge_kw
+            - plan_batteries[i].charge_kw
+            + plan_batteries[i].discharge_kw
+        ).astype(np.float64)
+        down = (
+            b.max_discharge_kw
+            - plan_batteries[i].discharge_kw
+            + plan_batteries[i].charge_kw
+        ).astype(np.float64)
+        up_ranging = down_ranging = None
+        if result.ranging_valid:
+            # nimbus issue #1985: for a variable resting AT its upper bound,
+            # HiGHS's bound ranging says where that bound could move before
+            # the basis changes, which can lie above the bound itself -- a
+            # battery charging flat out read 0.32 kW of "plan-consistent"
+            # room it physically did not have. Clamped to the physical
+            # figure, which is what this field promises.
+            up_ranging = np.minimum(
+                [_headroom_up(f"battery_charge_{b.name}_{t}") for t in range(n)], up
+            )
+            down_ranging = np.minimum(
+                [_headroom_up(f"battery_discharge_{b.name}_{t}") for t in range(n)],
+                down,
+            )
+        return BatterySignals(
             name=b.name,
-            available_up_kw=(
-                b.max_charge_kw
-                - plan_batteries[i].charge_kw
-                + plan_batteries[i].discharge_kw
-            ).astype(np.float64),
-            available_down_kw=(
-                b.max_discharge_kw
-                - plan_batteries[i].discharge_kw
-                + plan_batteries[i].charge_kw
-            ).astype(np.float64),
-            available_up_ranging_kw=(
-                np.array(
-                    [_headroom_up(f"battery_charge_{b.name}_{t}") for t in range(n)]
-                )
-                if result.ranging_valid
-                else None
-            ),
-            available_down_ranging_kw=(
-                np.array(
-                    [_headroom_up(f"battery_discharge_{b.name}_{t}") for t in range(n)]
-                )
-                if result.ranging_valid
-                else None
-            ),
+            available_up_kw=up,
+            available_down_kw=down,
+            available_up_ranging_kw=up_ranging,
+            available_down_ranging_kw=down_ranging,
         )
-        for i, b in enumerate(batteries)
-    ]
+
+    plan_battery_signals = [_battery_signals(i, b) for i, b in enumerate(batteries)]
 
     # nimbus issue #492 (Signals 3/7 of #489): per-load intent bands --
     # see LoadSignals' own docstring for the full classification rule.
@@ -4631,7 +4646,13 @@ def _build_plan_once(
                 ub = raw_ub
                 rc = raw_rc
             rc_kwh[t] = rc
-            degenerate[t] = is_degenerate
+            # nimbus issue #1981: a period whose own ceiling is ~0 (outside an
+            # adequacy window, or a sheddable forecast of 0) has no headroom
+            # either way, and its band below is clamped to zero width. The
+            # unclamped ranging can still report room there, depending on the
+            # basis HiGHS lands on (a sheddable load beside it was enough), so
+            # the flag follows the band, not the ranging.
+            degenerate[t] = is_degenerate or ub < _INTENT_TOL
             if ub < _INTENT_TOL:
                 # This period's own ceiling is itself ~0 -- nothing real
                 # to cap. UNLIMIT when the plan would genuinely take

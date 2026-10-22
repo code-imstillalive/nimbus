@@ -2892,3 +2892,70 @@ def test_a_block_is_net_with_the_house_on_top_when_import_is_cheap(rates, house,
         np.testing.assert_allclose(plan.grid_import_kw[:k], 0.0, atol=1e-6)
         net = plan.battery_discharge_kw[:k] - plan.battery_charge_kw[:k]
         np.testing.assert_allclose(net, np.asarray(rates) + house, atol=1e-3)
+
+
+# --- #328 / #781: soft SoC bounds recover, and their penalty is what it says -----
+
+
+@SETTINGS
+@given(
+    st.booleans(),
+    _num(0.0, 0.95),
+    _num(0.3, 6.0),
+    st.sampled_from([0.5, 1.0]),
+    st.booleans(),
+    st.sampled_from([2.5, 50.0]),
+)
+def test_a_battery_outside_its_bounds_recovers_flat_out(
+    below, depth, rate_kw, width, tiers, penalty
+):
+    """#328 (Mark Purcell), #1987: Min and Max SoC are soft, so a live reading
+    outside them solves rather than raising, and the plan comes back
+    inside as fast as the battery can: from under the floor it charges
+    flat out until it reaches it, from over the ceiling it discharges flat
+    out until it is under. The penalty dominates every price, so it is never
+    worth staying out; and it is never inflated either, with terminal-value
+    tiers in play or not (the segment-fill row was infeasible below the
+    floor, #328, and above the ceiling, #1987). The plan reports exactly the rate x every kWh outside
+    (#781: it used to be misread as a terminal credit)."""
+    n, lo, hi = 12, 8.0, 32.0
+    start = lo * depth if below else hi + (40.0 - hi) * (1.0 - depth)
+    breakpoints = [(6.0, 0.3), (12.0, 0.15), (6.0, 0.05)] if tiers else None
+    battery = BatteryConfig(
+        name="battery",
+        capacity_kwh=40.0,
+        initial_soc_kwh=start,
+        min_soc_kwh=lo,
+        max_soc_kwh=hi,
+        max_charge_kw=rate_kw,
+        max_discharge_kw=rate_kw,
+        charge_efficiency=0.975,
+        discharge_efficiency=0.975,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.15,
+        terminal_value_breakpoints=breakpoints,
+        terminal_value_period_indices=[n - 1] if tiers else None,
+    )
+    plan = build_plan(
+        periods=PeriodGrid(np.full(n, width)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.25),
+            export_price=np.full(n, 0.10),
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+        ),
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
+        soft_soc_penalty_per_kwh=penalty,
+    )
+    assert plan.status == "optimal"
+    soc = plan.battery_soc_kwh
+    step = np.cumsum(np.full(n, rate_kw * width))
+    if below:
+        np.testing.assert_array_less(np.minimum(lo, start + step * 0.975) - 1e-5, soc)
+    else:
+        np.testing.assert_array_less(soc, np.maximum(hi, start - step / 0.975) + 1e-5)
+    outside = np.clip(lo - soc, 0.0, None).sum() + np.clip(soc - hi, 0.0, None).sum()
+    assert plan.soc_penalty_cost == pytest.approx(penalty * outside, abs=1e-6)
