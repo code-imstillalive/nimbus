@@ -758,6 +758,12 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "known_solcast_entities",
         "known_open_meteo_entities",
         "lv_v2_siblings",
+        # nimbus #2004 -- Open-Meteo's `watts` placed at its instant (key + 15
+        # min) and read at each period's midpoint. The standalone copy still
+        # holds each value from its key; the port is this reader and the
+        # watts branch of _solar_entries_from_attributes.
+        "resample_instants",
+        "_resampler",
         # nimbus issue #1793 -- a stale price source falls back to AEMO.
         # Added urgently on 16 Oct 2026 to the native runtime first; the
         # standalone copy still plans on its source unchecked. Port next.
