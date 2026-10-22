@@ -105,6 +105,15 @@ KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
 KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
 KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
 KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
+# Nimbus could not make a plan for PLAN_FAILING_AFTER cycles in a row
+# (household, 22 Oct 2026): the solver gave up, or proved no plan meets the
+# settings. One Repair, worded by which; it clears on the next good plan.
+KIND_PLAN_FAILING = "plan_failing"
+KIND_PLAN_FAILING_ERROR = "plan_failing_error"
+KIND_PLAN_FAILING_INFEASIBLE = "plan_failing_infeasible"
+#: Five one-minute cycles: when the battery forecast also turns unavailable
+#: on a solver that keeps giving up (solver_publish, #757).
+PLAN_FAILING_AFTER = 5
 
 # nimbus #1800: number.py's floor for these, which a fresh install starts on.
 PLACEHOLDER_FLOOR = 0.1
@@ -155,6 +164,7 @@ def evaluate_health(
     regional_forecast_missing: tuple[str, str] | None = None,
     settings: Mapping[str, float] | None = None,
     has_load_forecast: bool = False,
+    failed_streak: Mapping[str, Any] | None = None,
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -164,6 +174,8 @@ def evaluate_health(
     fees) from pricing_autodetect, or None; `fees_on_tariff` the same for a
     NEM PD7DAY import tariff (#1581). `settings` is the live value of each
     `SETTING_KEYS` number that exists; a missing one is not checked (#1800).
+    `failed_streak` is solver_publish.failed_streak(): consecutive cycles
+    without an optimal plan.
     """
     issues: list[HealthIssue] = []
 
@@ -290,7 +302,63 @@ def evaluate_health(
                 placeholders={"inputs": ", ".join(missing)},
             )
         )
+
+    plan_failing = _plan_failing_issue(failed_streak)
+    if plan_failing is not None:
+        issues.append(plan_failing)
     return issues
+
+
+def _plan_failing_issue(streak: Mapping[str, Any] | None) -> HealthIssue | None:
+    """The Repair for a solver that has not made a plan for
+    PLAN_FAILING_AFTER cycles in a row, worded by why."""
+    count = int((streak or {}).get("count") or 0)
+    if count < PLAN_FAILING_AFTER:
+        return None
+    since = str((streak or {}).get("since") or "")
+    try:
+        since = datetime.fromisoformat(since).strftime("%H:%M")
+    except ValueError:
+        pass
+    infeasible = (streak or {}).get("status") == "infeasible"
+    return HealthIssue(
+        key=KIND_PLAN_FAILING,
+        kind=KIND_PLAN_FAILING_INFEASIBLE if infeasible else KIND_PLAN_FAILING_ERROR,
+        placeholders={
+            "cycles": str(count),
+            "since": since or "unknown",
+            "reason": str((streak or {}).get("raw_status") or "not reported"),
+        },
+    )
+
+
+def _solver_failed_streak() -> Mapping[str, Any] | None:
+    """solver_publish's streak, only if the solver has already loaded it:
+    importing it here would load the whole solver on the event loop."""
+    import sys
+
+    module = sys.modules.get(f"{__package__}.solver_publish") or sys.modules.get(
+        "solver_publish"
+    )
+    try:
+        return module.failed_streak() if module is not None else None
+    except Exception:  # noqa: BLE001 - a health read must never fail the refresh
+        return None
+
+
+async def async_note_solve_outcome(hass: Any, entry: Any) -> None:
+    """After each solve: refresh the Repairs at once when the "cannot make a
+    plan" state flips, instead of waiting up to REFRESH_INTERVAL. Never
+    raises."""
+    try:
+        failing = _plan_failing_issue(_solver_failed_streak()) is not None
+        store = hass.data.setdefault(DOMAIN, {}).setdefault("setup_health", {})
+        key = f"{entry.entry_id}:plan_failing"
+        if store.get(key, False) != failing:
+            store[key] = failing
+            await async_refresh_health(hass, entry)
+    except Exception:
+        _LOGGER.debug("Nimbus: plan-failing check failed", exc_info=True)
 
 
 def _settings_issues(settings: Mapping[str, float]) -> list[HealthIssue]:
@@ -410,6 +478,7 @@ async def async_refresh_health(
                 getattr(sub, "subentry_type", None) == SUBENTRY_TYPE_LOAD
                 for sub in entry.subentries.values()
             ),
+            failed_streak=_solver_failed_streak(),
         )
 
         current = set()
