@@ -210,16 +210,18 @@ def test_each_window_that_cannot_measure_efficiency_says_why(kw, reason):
     assert _balance(**kw)["implied_efficiency_reason"] == reason
 
 
-def test_throughput_at_the_noise_floor_counts_as_none():
-    out = _balance(in_kwh=1e-6, final_soc_kwh=6.0)
+@pytest.mark.parametrize(("in_kwh", "out_kwh"), [(1e-6, 0.0), (0.0, 1e-6)])
+def test_throughput_at_the_noise_floor_counts_as_none(in_kwh, out_kwh):
+    out = _balance(in_kwh=in_kwh, out_kwh=out_kwh, final_soc_kwh=6.0)
     assert out["implied_efficiency_reason"] == "soc_moved_without_throughput"
 
 
 def test_the_balance_is_reported_to_the_watt_hour():
-    out = _balance(in_kwh=1.23456, final_soc_kwh=6.1)
+    out = _balance(in_kwh=1.23456, final_soc_kwh=6.12345)
     assert out["modelled_soc_delta_kwh"] == 1.173
-    assert out["residual_kwh"] == 0.073
-    assert out["implied_charge_efficiency"] == round(1.1 / 1.23456, 4)
+    assert out["measured_soc_delta_kwh"] == 1.123
+    assert out["residual_kwh"] == 0.049
+    assert out["implied_charge_efficiency"] == round(1.12345 / 1.23456, 4)
 
 
 def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
