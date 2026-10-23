@@ -46,6 +46,7 @@ def _grid(n, minutes=30):
         (5, 5, 9, True),
         (9, 5, 9, False),
         (4, 5, 9, False),
+        (17, 17, 7, True),
         (23, 17, 7, True),
         (3, 17, 7, True),
         (7, 17, 7, False),
@@ -125,6 +126,12 @@ def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, 
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
 
 
+def test_with_no_self_consumption_given_the_sum_is_the_circuits_alone(ha):
+    ha.states["sensor.a"] = _load([1.0, 2.0])
+    total, *_ = sw.sum_load_forecasts(["sensor.a"], _grid(2))
+    assert total == [1.0, 2.0]
+
+
 def test_no_circuits_is_just_self_consumption():
     total, lower, upper, failed, warnings, coverage = sw.sum_load_forecasts(
         [], _grid(2), 0.2
@@ -201,6 +208,18 @@ def test_a_charge_only_window_gives_the_implied_charge_efficiency():
 )
 def test_each_window_that_cannot_measure_efficiency_says_why(kw, reason):
     assert _balance(**kw)["implied_efficiency_reason"] == reason
+
+
+def test_throughput_at_the_noise_floor_counts_as_none():
+    out = _balance(in_kwh=1e-6, final_soc_kwh=6.0)
+    assert out["implied_efficiency_reason"] == "soc_moved_without_throughput"
+
+
+def test_the_balance_is_reported_to_the_watt_hour():
+    out = _balance(in_kwh=1.23456, final_soc_kwh=6.1)
+    assert out["modelled_soc_delta_kwh"] == 1.173
+    assert out["residual_kwh"] == 0.073
+    assert out["implied_charge_efficiency"] == round(1.1 / 1.23456, 4)
 
 
 def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
@@ -350,3 +369,75 @@ def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(
     assert out["load_nowcast_skill_reason"] == reason
     assert out["load_nowcast_skill_periods_measured"] == trail_points
     assert out["load_nowcast_skill_coverage"] == round(trail_points / 4, 3)
+
+
+# --- flex availability, the P2P step lookup, consolidation's spike rule ----------
+
+
+def test_flex_availability_is_period_zeros_headroom_within_the_grid_limits():
+    sig = SimpleNamespace(
+        available_up_kw=np.array([4.0, 9.0]), available_down_kw=np.array([3.0, 9.0])
+    )
+    plan = SimpleNamespace(
+        battery_signals=[sig, sig],
+        grid_import_kw=np.array([2.0, 0.0]),
+        grid_export_kw=np.array([0.0, 5.0]),
+    )
+    assert (
+        sw._flex_available_physical(plan, 7.0, 10.0)
+        == {
+            "flex_available_up_kw": 5.0,  # 8 kW of batteries, 5 kW left under the import limit
+            "flex_available_down_kw": 6.0,  # 6 kW of batteries, within 12 kW of export room
+        }
+    )
+    none = SimpleNamespace(
+        battery_signals=None, grid_import_kw=np.zeros(1), grid_export_kw=np.zeros(1)
+    )
+    assert sw._flex_available_physical(none, 7.0, 10.0) == {
+        "flex_available_up_kw": 0.0,
+        "flex_available_down_kw": 0.0,
+    }
+
+
+def test_the_raw_p2p_rate_counts_only_inside_its_window():
+    grid = _grid(4)
+    pts = [(grid[0], 0.2), (grid[2], 0.3)]
+    window = [1.0, 0.0, 2.0, 2.0]
+    # Outside the window (0 kW) no rate; inside, the latest real rate, then
+    # past the last real point the median of the real positive rates.
+    assert sw._resample_p2p_points(pts, grid, window) == [0.2, 0.0, 0.3, 0.25]
+    assert sw._resample_p2p_points([], grid, window) == [0.0] * 4
+
+
+def test_consolidation_keeps_spikes_unless_a_threshold_is_set(monkeypatch):
+    seen = []
+
+    def side(tracker, series, now, grid, hours, n_settled, settled, spike):
+        seen.append(spike)
+        return [], {}, False
+
+    monkeypatch.setattr(sw.price_consolidation, "consolidate_side", side)
+    monkeypatch.setattr(
+        sw, "_load_price_trackers", lambda: {"import": {}, "export": {}}
+    )
+    monkeypatch.setattr(sw, "_consolidation_sources", lambda *a: {})
+    monkeypatch.setattr(sw, "_record_price_errors", lambda *a: None)
+    monkeypatch.setattr(sw, "_loss_factor", lambda prices: {})
+    args = (
+        T0,
+        _grid(2),
+        [0.5, 0.5],
+        1,
+        None,
+        [0.1],
+        [0.1],
+        None,
+        None,
+        [0.1],
+        [0.1],
+        [],
+        [],
+    )
+    assert sw.apply_price_consolidation({}, *args)["mode"] == "shadow"
+    sw.apply_price_consolidation({"solver_price_spike_threshold": 3.0}, *args)
+    assert seen == [0.0, 0.0, 3.0, 3.0]
