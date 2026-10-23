@@ -465,3 +465,35 @@ def test_the_plan_refreshes_every_solve_and_is_not_published_without_period_hour
 def test_a_plan_load_whose_subentry_is_gone_is_still_decided_but_not_sent(site):
     site.solve(T0, sheddable={"gone": ON})
     assert site.state("gone").commanded_state is True and site.calls == []
+
+
+# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
+
+
+def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, caplog):
+    site.load("bad", "switch.bad")
+    site.load("good", "switch.good")
+    real = sw._resolve_controllable_load_tuning
+
+    def tuning(data, subentry):
+        if subentry.subentry_id == "bad":
+            raise RuntimeError("one load's config could not be read")
+        return real(data, subentry)
+
+    monkeypatch.setattr(sw, "_resolve_controllable_load_tuning", tuning)
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0, sheddable={"bad": ON, "good": ON})
+    assert [c[2]["entity_id"] for c in site.calls] == ["switch.good"]
+    assert "'bad'" in caplog.text and "NOT commanded" in caplog.text
+
+
+def test_a_failure_of_the_whole_cycle_is_a_warning_never_an_exception(site, caplog):
+    def broken(domain):
+        raise RuntimeError("config entries unavailable")
+
+    site.hass.config_entries = SimpleNamespace(async_entries=broken)
+    site.load("s", "switch.pump")
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0, sheddable={"s": ON})  # does not raise
+    assert site.calls == []
+    assert "NOT commanded" in caplog.text

@@ -161,7 +161,7 @@ class TestNoBareImportOfAStubInstallingModule(unittest.TestCase):
             self.assertFalse(_installs_a_global_stub(inside))
 
     def test_the_narrowness_is_real_not_assumed(self):
-        """Of the modules a sibling imports, exactly one installs a stub.
+        """Of the modules a sibling imports, none installs a stub.
 
         Stated over the IMPORTED set, not over every test file. Many test
         modules install stubs at import time -- measured, 11 of them -- and that
@@ -186,9 +186,11 @@ class TestNoBareImportOfAStubInstallingModule(unittest.TestCase):
             if (_TESTS / f"{name}.py").exists()
             and _installs_a_global_stub(_TESTS / f"{name}.py")
         )
+        # Empty since #1837 retired test_solver_writer_controllable_loads, the
+        # one sibling-imported stub installer this was written for.
         self.assertEqual(
             hazardous,
-            ["test_solver_writer_controllable_loads"],
+            [],
             "the set of sibling-imported stub-installing modules changed; each "
             "new one is a fresh instance of #1329",
         )

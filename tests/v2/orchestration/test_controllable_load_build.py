@@ -441,3 +441,16 @@ def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(
         assert adequacy == []
     else:
         assert adequacy[0].target_kwh == pytest.approx(target)
+
+
+def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
+    monkeypatch,
+):
+    monkeypatch.setattr(shared.NATIVE, "hass", None)
+    assert cl._evaluate_done_condition("binary_sensor.hot", None) is None
+    assert sw._discover_power_sensor_for_device("switch.pump") is None
+    monkeypatch.setattr(shared.NATIVE, "hass", SimpleNamespace())
+    assert sw._discover_power_sensor_for_device("") is None
+    # A cron run has no entity registry to read.
+    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", None)
+    assert sw._discover_power_sensor_for_device("switch.pump") is None

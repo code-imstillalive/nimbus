@@ -3,8 +3,9 @@
 DAILY, ongoing testing on devhub: "are HWS controllable loads actually
 activated, or just repeatedly scheduled and deferred?"
 
-The unit tests in `tests/test_solver_writer_controllable_loads.py`
-(`TestFlipFloppingRawDecisionNeverActivatesHws`) already prove
+The unit tests in `tests/v2/orchestration/test_dispatch.py`
+(`test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds`)
+already prove
 `apply_commanded_state_guard()`'s own debounce logic is sound in
 isolation -- a synthetic on/off/on/off sequence never falsely
 activates, and a genuinely stable decision does. What those tests

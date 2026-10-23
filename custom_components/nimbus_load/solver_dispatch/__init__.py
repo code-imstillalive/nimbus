@@ -44,11 +44,10 @@ pure `solver/` package (`network`).
 is exactly what spec 006's Invariants require, and what this module's first draft
 violated.
 
-The reasoning for violating it looked sound.
-`test_commanded_state_guard_reports_its_own_failure.py:298` did
-`patch.object(solver_writer, "_LOGGER")`, and `solver_writer._LOGGER` is an alias,
-so a `Mock` on it is invisible to code reading `solver_shared`. Using the seam
-made that test pass.
+The reasoning for violating it looked sound. A test of this guard (since
+retired by #1837) did `patch.object(solver_writer, "_LOGGER")`, and
+`solver_writer._LOGGER` is an alias, so a `Mock` on it is invisible to code
+reading `solver_shared`. Using the seam made that test pass.
 
 It also broke a **package-wide gate**:
 `test_callers_mode_counts_only_real_references.py::test_the_real_tree_now_finds_
