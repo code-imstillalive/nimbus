@@ -79,6 +79,7 @@ from .const import (
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
     CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+    CONF_BATTERY_SENSOR,
     CONF_BATTERY_TOWER_POWER_SOURCE,
     CONF_BATTERY_TOWER_SOC_SENSOR,
     CONF_BATTERY_TOWER_SOH_SENSOR,
@@ -3025,6 +3026,25 @@ class NimbusTopologyConfigSensor(SensorEntity):
             "battery_towers": battery_towers,
             "controllable_loads": self._controllable_loads(),
             "switchboard": {k: self._entry.options.get(k) for k in _SWITCHBOARD_KEYS},
+            "forecaster_meters": self._forecaster_meters(),
+        }
+
+    def _forecaster_meters(self) -> dict:
+        """The grid meter and battery power the Forecaster step already
+        names, for the card to use where nothing else has.
+
+        Household, 23 Oct 2026 (clean install): the Switchboard wizard no
+        longer asks for a grid meter or battery power sensor (a Power
+        Signal's role replaced them), so an install whose signals were left
+        at role "other" drew an empty Grid box. Kept apart from
+        `switchboard` on purpose: a filled switchboard field means the
+        wizard holds the Topology settings and the card's own YAML
+        switchboard is ignored (#1702); a fallback must not trigger that."""
+        options = self._entry.options
+        return {
+            "grid_meter": options.get(CONF_GRID_SENSOR),
+            "battery_power": options.get(CONF_BATTERY_SENSOR)
+            or options.get(CONF_SOLVER_BATTERY_POWER_SENSOR),
         }
 
 

@@ -200,3 +200,32 @@ def test_controllable_loads_are_listed_with_their_own_entities() -> None:
     assert load["delivered_today"] == "sensor.nimbus_pool_pump_delivered_today"
     assert load["target_today"] == "sensor.nimbus_pool_pump_target_today"
     assert load["status"] is None  # not registered here: unresolved, not guessed
+
+
+def test_forecaster_meters_are_published_apart_from_the_switchboard() -> None:
+    """Household, 23 Oct 2026: a clean install whose signals were left at
+    role "other" drew an empty Grid box. The Forecaster's Grid and Battery
+    sensors are published for the card's fallback, outside `switchboard` so
+    they cannot make the wizard look like it holds Topology (#1702)."""
+    from custom_components.nimbus_load.const import (
+        CONF_BATTERY_SENSOR,
+        CONF_GRID_SENSOR,
+    )
+
+    s = _sensor_with_hass(
+        _fake_entry(
+            {},
+            {
+                CONF_GRID_SENSOR: "sensor.grid_meter",
+                CONF_BATTERY_SENSOR: "sensor.battery_power",
+            },
+        )
+    )
+    with patch.object(sensor.er, "async_get") as mock_async_get:
+        mock_async_get.return_value.async_get_entity_id.return_value = None
+        attrs = s.extra_state_attributes
+    assert attrs["forecaster_meters"] == {
+        "grid_meter": "sensor.grid_meter",
+        "battery_power": "sensor.battery_power",
+    }
+    assert not any(attrs["switchboard"].values())

@@ -72,3 +72,14 @@ def test_controllable_loads_get_their_own_rows() -> None:
         assert f"ctrl.{key}" in tile
     # The load column (and so the bus) is tall enough for both lists.
     assert "(loads.length + ctrlLoads.length) * (tileH + tileGap)" in SRC
+
+
+def test_forecaster_meters_fill_only_an_empty_grid_or_battery() -> None:
+    """The Forecaster's meters are a last fallback: applied after the
+    wizard switchboard and the Power Signal roles, and only to an empty
+    field, so they never displace either."""
+    at = SRC.index("topoAttrs.forecaster_meters")
+    assert SRC.index("this._discoverPowerSignalsByRole()") < at
+    block = SRC[at : SRC.index("if (!cfg.whole_house)", at)]
+    assert "!cfg.switchboard.grid_meter && meters.grid_meter" in block
+    assert "!cfg.switchboard.battery_power && meters.battery_power" in block

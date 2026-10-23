@@ -999,6 +999,23 @@ class TopologyCard extends HTMLElement {
         },
       };
     }
+    // The Forecaster step's own Grid and Battery sensors, where neither the
+    // card, the wizard nor a Power Signal role named one (household, 23 Oct
+    // 2026: a clean install left at role "other" drew an empty Grid box).
+    // Applied last and only to an empty field, so it never displaces any of
+    // the above, and kept out of `switchboard` so it cannot make the wizard
+    // look like it holds the Topology settings (#1702).
+    const meters = (topoAttrs && topoAttrs.forecaster_meters) || {};
+    if ((meters.grid_meter && !cfg.switchboard.grid_meter) || (meters.battery_power && !cfg.switchboard.battery_power)) {
+      cfg = {
+        ...cfg,
+        switchboard: {
+          ...cfg.switchboard,
+          ...(!cfg.switchboard.grid_meter && meters.grid_meter ? { grid_meter: meters.grid_meter } : {}),
+          ...(!cfg.switchboard.battery_power && meters.battery_power ? { battery_power: meters.battery_power } : {}),
+        },
+      };
+    }
     if (!cfg.whole_house) {
       const derivedWholeHouse = this._discoverWholeHouseFromSolverConfig(cfg.switchboard);
       if (derivedWholeHouse) cfg = { ...cfg, whole_house: derivedWholeHouse };
