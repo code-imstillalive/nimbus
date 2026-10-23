@@ -1,0 +1,370 @@
+"""The flattened sensors: one entity per attribute of a parent sensor, so a
+household can chart, automate and keep history on each figure (#1837).
+
+Every table is driven the same way: built by its own factory, fed a parent
+payload carrying each of its keys, then left without one. Covers what lived
+in #335, #849, #1192, #1543 (detailed price forecasts) and the flattened
+sensor files.
+"""
+
+from __future__ import annotations
+
+import importlib
+import logging
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+sys.path.append(str(Path(__file__).resolve().parents[3]))
+from _ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+fl = importlib.import_module("custom_components.nimbus_load.sensor_flattened")
+
+ENTRY = SimpleNamespace(entry_id="hub1")
+DOMAIN = "nimbus_load"
+
+# factory, dispatch, prefix, device identifier suffix
+TABLES = {
+    "plan": (
+        fl.create_flattened_entities,
+        fl.dispatch_to_flattened,
+        "nimbus_solver",
+        "",
+    ),
+    "p2p": (
+        fl.create_flattened_entities_p2p,
+        fl.dispatch_to_flattened,
+        "nimbus_solver",
+        "_p2p",
+    ),
+    "quality": (
+        fl.create_flattened_entities_quality,
+        fl.dispatch_to_flattened_quality,
+        "nimbus_quality",
+        "_quality",
+    ),
+    "backtest": (
+        fl.create_flattened_entities_backtest,
+        fl.dispatch_to_flattened_backtest,
+        "nimbus_backtest",
+        "_backtest",
+    ),
+    "counterfactual": (
+        fl.create_flattened_entities_counterfactual,
+        fl.dispatch_to_flattened_counterfactual,
+        "nimbus_counterfactual",
+        "_counterfactual",
+    ),
+    "flex": (
+        fl.create_flattened_entities_flex,
+        fl.dispatch_to_flattened_flex,
+        "nimbus_flex",
+        "_flex",
+    ),
+    "flex_report": (
+        fl.create_flattened_entities_flex_report,
+        fl.dispatch_to_flattened_flex_report,
+        "nimbus_flex",
+        "_flex",
+    ),
+}
+
+
+class Clock:
+    def __init__(self):
+        self.now = 50.0
+
+    def __call__(self):
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    c = Clock()
+    monkeypatch.setattr(fl.time, "monotonic", c)
+    return c
+
+
+def _build(name, hub_device_id=None):
+    factory, dispatch, _prefix, _suffix = TABLES[name]
+    ents = (
+        factory(ENTRY, "0.94.485")
+        if name == "plan"
+        else factory(ENTRY, "0.94.485", hub_device_id)
+    )
+    for e in ents:
+        e.hass = SimpleNamespace(config=SimpleNamespace(currency="AUD"))
+        e.writes = 0
+
+        def write(e=e):
+            e.writes += 1
+
+        e.async_write_ha_state = write
+    return ents, dispatch
+
+
+def _payload(specs, value_of):
+    """A parent payload that carries every spec's key, dotted keys nested."""
+    out: dict = {}
+    for spec in specs:
+        if "." in spec.source_key:
+            top, sub = spec.source_key.split(".", 1)
+            out.setdefault(top, {})[sub] = value_of(spec)
+        else:
+            out[spec.source_key] = value_of(spec)
+    return out
+
+
+@pytest.mark.parametrize("name", sorted(TABLES))
+def test_each_table_builds_one_uniquely_named_entity_per_figure_on_its_device(name):
+    ents, _ = _build(name, hub_device_id="dev-hub")
+    _f, _d, prefix, suffix = TABLES[name]
+    ids = [e.entity_id for e in ents]
+    assert ents and len(ids) == len(set(ids))
+    assert all(i.startswith(f"sensor.{prefix}_") for i in ids)
+    assert all(e._attr_unique_id.startswith("hub1_") for e in ents)
+    device = ents[0]._attr_device_info
+    assert (DOMAIN, f"hub1{suffix}") in device["identifiers"]
+    if suffix:
+        assert device["via_device_id"] == "dev-hub"
+
+
+def test_no_two_tables_publish_the_same_entity():
+    every = [e.entity_id for name in TABLES for e in _build(name)[0]]
+    every += [e.entity_id for e in fl.create_flattened_entities_current(ENTRY, "1")]
+    duplicates = {i for i in every if every.count(i) > 1}
+    assert duplicates == set()
+
+
+@pytest.mark.parametrize("name", sorted(TABLES))
+def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
+    name, clock
+):
+    ents, dispatch = _build(name)
+    payload = _payload(
+        [e._spec for e in ents], lambda spec: f"v-{spec.entity_id_suffix}"
+    )
+    dispatch(ents, payload)
+    for e in ents:
+        assert e.native_value == f"v-{e._spec.entity_id_suffix}", e.entity_id
+        assert e.writes == 1 and e.available
+    dispatch(ents, {})  # a payload without these keys changes nothing
+    assert all(
+        e.native_value == f"v-{e._spec.entity_id_suffix}" and e.writes == 1
+        for e in ents
+    )
+
+
+def test_a_dotted_key_needs_its_parent_to_be_a_mapping():
+    tables = (
+        fl.FLATTENED_ATTRS,
+        fl.FLATTENED_ATTRS_P2P,
+        fl.FLATTENED_ATTRS_QUALITY,
+        fl.FLATTENED_ATTRS_BACKTEST,
+        fl.FLATTENED_ATTRS_COUNTERFACTUAL,
+        fl.FLATTENED_ATTRS_FLEX,
+        fl.FLATTENED_ATTRS_FLEX_REPORT,
+        fl.FLATTENED_ATTRS_CURRENT,
+    )
+    spec = next((s for t in tables for s in t if "." in s.source_key), None) or _spec(
+        source_key="outer.inner"
+    )
+    top, sub = spec.source_key.split(".", 1)
+    e = fl._FlattenedAttributeSensor(ENTRY, "1", spec)
+    e.hass = None
+    e.update_from_parent({top: "not a mapping"})
+    assert e.native_value is None
+    e.update_from_parent({top: {sub: 3}})
+    assert e.native_value == 3
+
+
+def _spec(**kw):
+    base = {
+        "source_key": "k",
+        "name": "K",
+        "entity_id_suffix": "k",
+        "entity_category": None,
+        "device_class": None,
+        "state_class": None,
+        "unit_of_measurement": None,
+        "suggested_display_precision": None,
+    }
+    return fl.FlattenedAttrSpec(**{**base, **kw})
+
+
+def _one(spec, hass=True):
+    e = fl._FlattenedAttributeSensor(ENTRY, "0.94.485", spec)
+    e.hass = SimpleNamespace(config=SimpleNamespace(currency="AUD")) if hass else None
+    e.writes = []
+    e.async_write_ha_state = lambda: e.writes.append(e.native_value)
+    return e
+
+
+def test_a_figure_can_carry_a_mapping_as_its_attributes():
+    e = _one(_spec(attrs_source_key="detail"))
+    e.update_from_parent({"k": 1, "detail": {"a": 1}})
+    assert e.extra_state_attributes == {"a": 1, "nimbus_version": "0.94.485"}
+    e.update_from_parent({"k": 2, "detail": "ignored"})
+    assert e.extra_state_attributes == {"a": 1, "nimbus_version": "0.94.485"}
+    assert _one(_spec()).extra_state_attributes == {"nimbus_version": "0.94.485"}
+
+
+@pytest.mark.parametrize(
+    ("unit", "shown"),
+    [(fl._CURRENCY, "AUD"), (fl._CURRENCY_PER_KWH, "AUD/kWh"), ("kWh", "kWh")],
+)
+def test_money_is_shown_in_the_households_currency(unit, shown):
+    e = _one(_spec(unit_of_measurement=unit))
+    assert e.native_unit_of_measurement == shown
+    e.hass.config.currency = ""
+    assert e.native_unit_of_measurement == (
+        None
+        if unit == fl._CURRENCY_PER_KWH
+        else ("" if unit == fl._CURRENCY else "kWh")
+    )
+    e.hass = None
+    assert e.native_unit_of_measurement == unit
+
+
+def test_an_overlong_text_state_is_truncated_and_logged_once(caplog):
+    fl._LOGGED_TRUNCATION.clear()
+    e = _one(_spec())
+    with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
+        e.update_from_parent({"k": "x" * 400})
+        e.update_from_parent({"k": "y" * 400})
+    assert len(e.native_value) == fl._MAX_STATE_LENGTH and e.native_value.endswith(
+        "..."
+    )
+    assert sum("character state" in r.getMessage() for r in caplog.records) == 1
+    assert fl._clamp_state_length(5, None) == 5
+
+
+def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
+    e = _one(_spec())
+    e.update_from_parent({"k": 1})
+    with caplog.at_level(logging.INFO, logger=fl._LOGGER.name):
+        clock.now += e._STALE_AFTER_SECONDS
+        e._async_recheck_availability(None)
+        e._async_recheck_availability(None)
+        e.update_from_parent({"k": 2})
+        e._async_recheck_availability(None)
+    assert e.available and len(e.writes) == 4
+    assert [r.levelno for r in caplog.records] == [logging.WARNING, logging.INFO]
+
+
+# --- the current period and its detailed price forecast ----------------------------------
+
+T0 = datetime(2026, 9, 20, 16, 0).astimezone()
+
+
+def _plan(n=3):
+    return {
+        "status": "optimal",
+        "forecast": [
+            {
+                "time": (T0 + timedelta(minutes=30 * i)).isoformat(),
+                "hours": 0.5,
+                "import_price": 0.2 + i,
+                "import_price_raw": 0.25,
+                "import_price_source": "primary",
+                "battery_kw": float(i),
+            }
+            for i in range(n)
+        ],
+    }
+
+
+def test_the_current_figures_read_period_zero_of_the_plan():
+    ents = fl.create_flattened_entities_current(ENTRY, "1")
+    for e in ents:
+        e.hass = None
+    plan = _plan()
+    fl.dispatch_to_flattened_current(ents, plan)
+    battery = [e for e in ents if e._spec.source_key == "battery_kw"]
+    assert battery and battery[0].native_value == 0.0
+    fl.dispatch_to_flattened_current(ents, {"forecast": []})
+    fl.dispatch_to_flattened_current(ents, {"forecast": ["junk"]})
+    assert battery[0].native_value == 0.0
+
+
+def test_a_price_figure_publishes_the_whole_horizon_as_a_detailed_forecast():
+    detailed = fl._detailed_price_forecast(_plan(), "import_price")
+    rows = detailed["detailedForecast"]
+    assert len(rows) == 3
+    assert rows[0] == {
+        "start": T0.isoformat(),
+        "end": (T0 + timedelta(minutes=30)).isoformat(),
+        "value": 0.2,
+        "value_raw": 0.25,
+        "source": "primary",
+    }
+    meta = detailed["detailed_forecast_meta"]
+    assert (meta["direction"], meta["periods"], meta["solve_status"]) == (
+        "import",
+        3,
+        "optimal",
+    )
+    assert meta["horizon_end"] == (T0 + timedelta(minutes=90)).isoformat()
+    for bad in (
+        {},
+        {"forecast": []},
+        {"forecast": [{"time": "x", "hours": 1}, {"no": "time"}, "junk"]},
+    ):
+        assert fl._detailed_price_forecast(bad, "import_price") is None
+
+
+def test_the_current_price_figure_carries_the_detailed_forecast():
+    spec = next((s for s in fl.FLATTENED_ATTRS_CURRENT if s.detailed_forecast_of), None)
+    assert spec is not None
+    e = _one(spec, hass=False)
+    plan = _plan()
+    for row in plan["forecast"]:
+        row[spec.detailed_forecast_of] = 0.3
+    fl.dispatch_to_flattened_current([e], plan)
+    assert len(e.extra_state_attributes["detailedForecast"]) == 3
+    assert "detailedForecast" in e._unrecorded_attributes
+
+
+# --- the hub device -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("behaviour", "found"),
+    [("found", "dev-1"), ("missing", None), ("broken", None), ("old_ha", None)],
+)
+def test_the_hub_device_is_found_when_home_assistant_can_say(
+    monkeypatch, behaviour, found
+):
+    def lookup(hass, identifier, config_entry_id):
+        if behaviour == "missing":
+            raise ValueError("no device")
+        if behaviour == "broken":
+            raise RuntimeError("registry")
+        return "dev-1"
+
+    if behaviour == "old_ha":
+        monkeypatch.delattr(fl.dr, "async_get_device_id_by_identifier", raising=False)
+    else:
+        monkeypatch.setattr(
+            fl.dr, "async_get_device_id_by_identifier", lookup, raising=False
+        )
+    assert fl.resolve_hub_device_id(None, ENTRY) == found
+    assert fl.resolve_via_device_field(found, "hub1") == (
+        {"via_device_id": found} if found else {"via_device": (DOMAIN, "hub1")}
+    )
+
+
+def test_every_table_key_is_distinct_within_its_table():
+    for table in (
+        fl.FLATTENED_ATTRS,
+        fl.FLATTENED_ATTRS_QUALITY,
+        fl.FLATTENED_ATTRS_FLEX,
+        fl.FLATTENED_ATTRS_CURRENT,
+    ):
+        suffixes = [s.entity_id_suffix for s in table]
+        assert len(suffixes) == len(set(suffixes))
