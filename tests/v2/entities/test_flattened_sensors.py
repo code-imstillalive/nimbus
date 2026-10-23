@@ -245,6 +245,28 @@ def test_an_overlong_text_state_is_truncated_and_logged_once(caplog):
     assert fl._clamp_state_length(5, None) == 5
 
 
+def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
+    """HA's limit is inclusive: exactly the limit is a legal state."""
+    at = "x" * fl._MAX_STATE_LENGTH
+    assert fl._clamp_state_length(at, "sensor.a") == at
+    over = fl._clamp_state_length(at + "x", "sensor.a")
+    assert len(over) == fl._MAX_STATE_LENGTH and over.endswith(
+        fl._STATE_TRUNCATION_SUFFIX
+    )
+    lead = "Grid export at zero (not economical right now)"
+    assert fl._clamp_state_length(lead + " " + "y" * 400, "sensor.a").startswith(lead)
+
+
+def test_each_entity_is_warned_about_once_on_its_own(caplog):
+    fl._LOGGED_TRUNCATION.clear()
+    with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
+        for entity in ("sensor.first", "sensor.second", "sensor.first"):
+            fl._clamp_state_length("z" * 500, entity)
+    warned = [r.getMessage() for r in caplog.records]
+    assert len(warned) == 2
+    assert "sensor.first" in warned[0] and "sensor.second" in warned[1]
+
+
 def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
     e = _one(_spec())
     e.update_from_parent({"k": 1})
