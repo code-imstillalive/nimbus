@@ -1,0 +1,177 @@
+"""Why the previous plan's first period cannot be held (#1577) (#1837).
+
+When last solve's period-0 setpoint is infeasible now, the explainer names
+the period-0 constraint it breaks. Checked against the real LP: on every
+site and pin below, the solver rejects the pin exactly when the explainer
+names something, and each named constraint is the one built to be broken.
+The explainer only reads; it never solves.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+
+import numpy as np
+import pytest
+from solver import pin_blockers
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SolarConfig,
+)
+from solver.network import build_plan
+
+N = 4
+
+
+def _site(*, soc=20.0, export_limit=40.0, fixed_export=None, **battery):
+    fields = {
+        "name": "home",
+        "capacity_kwh": 40.0,
+        "initial_soc_kwh": soc,
+        "min_soc_kwh": 4.0,
+        "max_soc_kwh": 40.0,
+        "max_charge_kw": 10.0,
+        "max_discharge_kw": 25.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+        "charge_cost": 0.006,
+        "discharge_cost": 0.006,
+        "salvage_value": 0.2,
+        **battery,
+    }
+    grid = GridConfig(
+        import_price=np.full(N, 0.30),
+        export_price=np.full(N, 0.05),
+        import_limit_kw=40.0,
+        export_limit_kw=export_limit,
+    )
+    if fixed_export is not None:
+        fixed = np.full(N, np.nan)
+        fixed[0] = fixed_export
+        grid = dataclasses.replace(grid, fixed_export_kw=fixed)
+    return {
+        "periods": PeriodGrid(np.full(N, 0.5)),
+        "grid": grid,
+        "batteries": [BatteryConfig(**fields)],
+        "solar": SolarConfig(forecast_kw=np.zeros(N)),
+        "loads": [LoadConfig(name="house", forecast_kw=np.full(N, 2.0))],
+    }
+
+
+def _status(site, pin, batteries=None):
+    batteries = batteries or site["batteries"]
+    pinned = [dataclasses.replace(batteries[0], period0_pin_net_kw=pin), *batteries[1:]]
+    return build_plan(**{**site, "batteries": pinned}).status
+
+
+def _blamed(site, pin, batteries=None):
+    found = pin_blockers.period0_pin_blockers(
+        pin,
+        batteries=batteries or site["batteries"],
+        grid=site["grid"],
+        hours0=0.5,
+        solar=site["solar"],
+        loads=site["loads"],
+    )
+    return [b.split(":", 1)[0] for b in found]
+
+
+@pytest.mark.parametrize(
+    ("site", "pin", "named"),
+    [
+        (_site(), -15.0, "battery_max_charge"),
+        (_site(), 30.0, "battery_max_discharge"),
+        (_site(soc=39.5), -4.0, "soc_capacity_headroom"),
+        (_site(soc=4.5), 5.0, "discharge_reserve"),
+        (_site(export_limit=2.0), 20.0, "grid_export_limit"),
+        (_site(fixed_export=5.0), -3.0, "p2p_fixed_window_charge_gate"),
+        (
+            _site(charge_power_curve=[(4.0, 10.0), (40.0, 1.0)]),
+            -9.0,  # the taper allows 10 - (20 - 4) * 0.25 = 6 kW at 20 kWh
+            "charge_power_curve",
+        ),
+    ],
+    ids=[
+        "charge_bound",
+        "discharge_bound",
+        "headroom",
+        "reserve",
+        "export_limit",
+        "p2p_gate",
+        "power_curve",
+    ],
+)
+def test_each_constraint_a_pin_breaks_is_the_one_named(site, pin, named):
+    assert _status(site, pin) == "infeasible"
+    assert _blamed(site, pin) == [named]
+
+
+@pytest.mark.parametrize(
+    "site",
+    [
+        _site(),
+        _site(soc=4.5),
+        _site(soc=39.5),
+        _site(export_limit=2.0),
+        _site(fixed_export=5.0),
+        _site(charge_power_curve=[(4.0, 10.0), (40.0, 1.0)]),
+    ],
+    ids=["plain", "low", "high", "export_cap", "p2p", "curve"],
+)
+def test_the_solver_rejects_a_pin_exactly_when_something_is_named(site):
+    """Sound (a feasible pin is never blamed) and, on these sites, complete
+    (an infeasible one is always explained)."""
+    feasible = 0
+    for pin in (-12.0, -9.0, -6.0, -4.0, -1.0, 0.0, 0.5, 2.0, 5.0, 15.0, 30.0):
+        optimal = _status(site, pin) == "optimal"
+        feasible += optimal
+        assert (_blamed(site, pin) == []) is optimal, pin
+    assert feasible >= 3
+
+
+def test_an_export_commitment_short_of_its_rate_is_allowed_at_a_price():
+    """#1761: the commitment's floor is soft, so a pin that cannot fund all
+    of it is feasible and blames nothing."""
+    site = _site(fixed_export=5.0)
+    assert _status(site, 2.0) == "optimal" and _blamed(site, 2.0) == []
+
+
+def test_a_pin_the_spike_override_lifts_is_never_blamed():
+    site = _site(soc=4.5)
+    spiked = [
+        dataclasses.replace(site["batteries"][0], spike_override_discharge_kw=5.0)
+    ]
+    assert _blamed(site, 20.0, spiked) == []
+
+
+def _with_ev(site, *, group_kw=None, ev_kw=None):
+    home = site["batteries"][0]
+    ev = dataclasses.replace(home, name="ev")
+    if ev_kw is not None:
+        ev = dataclasses.replace(ev, max_charge_kw=ev_kw, max_discharge_kw=ev_kw)
+    if group_kw is not None:
+        home, ev = (
+            dataclasses.replace(
+                b, shared_charger_group="g", shared_charger_max_kw=group_kw
+            )
+            for b in (home, ev)
+        )
+    return [home, ev]
+
+
+def test_a_shared_charger_is_checked_and_the_other_batterys_limits_never_blamed():
+    site = _site()
+    shared = _with_ev(site, group_kw=6.0)
+    assert _status(site, -8.0, shared) == "infeasible"
+    assert _blamed(site, -8.0, shared) == ["shared_charger_g"]
+    small_ev = _with_ev(site, ev_kw=1.0)
+    assert _status(site, 20.0, small_ev) == "optimal"
+    assert _blamed(site, 20.0, small_ev) == []
+    assert _blamed(site, 30.0, small_ev) == ["battery_max_discharge"]
+    for batteries in (shared, small_ev):
+        for pin in (-10.0, -6.0, -2.0, 0.0, 2.0, 8.0, 20.0, 25.0):
+            optimal = _status(site, pin, batteries) == "optimal"
+            assert (_blamed(site, pin, batteries) == []) is optimal, pin
