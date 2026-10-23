@@ -12,6 +12,7 @@ subentries and live states a Home Assistant install would hold.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import logging
 import sys
 import threading
@@ -451,8 +452,17 @@ def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
     assert sw._discover_power_sensor_for_device("switch.pump") is None
     monkeypatch.setattr(shared.NATIVE, "hass", SimpleNamespace())
     assert sw._discover_power_sensor_for_device("") is None
-    # A cron run has no entity registry to read.
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", None)
+    # A cron run has no entity registry to read. The import itself is made to
+    # fail: a None in sys.modules is returned as-is by `from ... import ...`
+    # once another test has imported the real registry.
+    real_import = builtins.__import__
+
+    def no_registry(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "homeassistant.helpers" and "entity_registry" in (fromlist or ()):
+            raise ImportError("no entity registry outside Home Assistant")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", no_registry)
     assert sw._discover_power_sensor_for_device("switch.pump") is None
 
 
