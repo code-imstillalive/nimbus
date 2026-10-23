@@ -190,7 +190,8 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
         now 0, which is #1437's own success condition, not the tool regressing.
         `resolve_controllable_load_power_sensor` carries the non-vacuity
         property instead: it is patched on the `solver_writer` module object by
-        `test_768_controllable_load_delivery_reconstruction.py`, so the three
+        the v2 tests (tests/v2/reports/test_controllable_load_history.py
+        among them), so the three
         modules that call it must go through the seam, and must never drop to 0.
         """
         package = (

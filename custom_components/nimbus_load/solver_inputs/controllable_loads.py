@@ -28,7 +28,8 @@ are not:
   changes, so it is read directly and needs no seam.
 - **`resolve_controllable_load_power_sensor` moves into this module and is still
   reached as `sw.resolve_controllable_load_power_sensor`.**
-  `test_768_controllable_load_delivery_reconstruction.py` patches it as
+  The v2 tests (`tests/v2/reports/test_controllable_load_history.py` among them)
+  patch it as
   `solver_writer.resolve_controllable_load_power_sensor`, and spec 003 keeps
   that target unchanged. A bare intra-module call would make the spy invisible —
   which is precisely how `compute_quality_report` cost four test failures in
