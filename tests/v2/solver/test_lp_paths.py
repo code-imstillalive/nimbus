@@ -65,7 +65,12 @@ def _true_lexicographic(spec) -> tuple[float, float]:
         terms = {f"x{j}": a[j] for j in range(spec["n"]) if a[j] != 0.0}
         q.add_ub_constraint(terms or {"x0": 1.0}, b, name=f"r{i}")
     primary = {f"x{j}": spec["cost"][j] for j in range(spec["n"])}
-    slack = lp._LEX_PRIMARY_TIE_ABS_SLACK + 1e-9 * max(1.0, abs(first.objective))
+    # The same tie slack the lexicographic mode allows itself: a looser
+    # oracle buys a better secondary the mode is not allowed to reach.
+    slack = max(
+        lp._LEX_PRIMARY_TIE_ABS_SLACK,
+        abs(first.objective) * lp._LEX_PRIMARY_TIE_REL_SLACK,
+    )
     q.add_ub_constraint(primary, first.objective + slack, name="primary_at_opt")
     second = q.solve()
     assert second.status == "optimal"

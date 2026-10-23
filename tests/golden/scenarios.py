@@ -67,6 +67,7 @@ def _load_all() -> None:
     from golden import (  # noqa: F401
         scenarios_native,
         scenarios_nemweb,
+        scenarios_rich,
         scenarios_synthetic,
         scenarios_thermal,
     )
