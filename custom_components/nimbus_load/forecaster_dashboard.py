@@ -360,8 +360,21 @@ def _sync_views(
             done.append(f"updated:{key}")
         else:
             # Rules 4 and 6: changed, the household's own, or deleted -- the
-            # new design goes beside it (or at the end), once.
-            if idx is None:
+            # new design goes beside it, once. A household tab with this
+            # tab's title is the one to compare against, so the new design
+            # goes straight after it (household, 23 Oct 2026: "you place
+            # forecaster next to mine with name 'Forecaster'"). Otherwise
+            # beside the tab Nimbus wrote, or one showing its card, or the end.
+            theirs = [
+                i
+                for i, v in enumerate(views)
+                if isinstance(v, dict)
+                and v.get("title") == spec["title"]
+                and v.get("path") != rec.get("path")
+            ]
+            if theirs:
+                idx = theirs[-1]
+            elif idx is None:
                 holding = [i for i, v in enumerate(views) if _holds_card(v, spec)]
                 idx = holding[-1] if holding else None
             view = build(spec, _free_path(spec, views))

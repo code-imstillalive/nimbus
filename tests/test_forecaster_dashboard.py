@@ -523,6 +523,57 @@ def test_a_deleted_tab_stays_deleted_until_its_design_changes(ha, monkeypatch) -
     assert _run(mod, ha.hass) == []  # deleted again: stays deleted
 
 
+def test_a_revised_forecaster_goes_beside_the_households_own_forecaster(
+    ha, monkeypatch
+) -> None:
+    """Household, 23 Oct 2026: the new design goes next to their own
+    Forecaster, titled "Forecaster", even when Nimbus's earlier tab was moved
+    or deleted, and their tab is never touched."""
+    mod = _load_module()
+    _run(mod, ha.hass)
+    dash = ha.dashboards["dashboard-nimbus"]
+    theirs = {
+        "title": "Forecaster",
+        "path": "my-forecaster",
+        "type": "sections",
+        "sections": [{"type": "grid", "cards": [{"type": "custom:apexcharts-card"}]}],
+    }
+    # Their own Forecaster first; Nimbus's earlier one deleted.
+    dash.config["views"] = [theirs] + [
+        v for v in dash.config["views"] if v.get("title") != "Forecaster"
+    ]
+    kept = copy.deepcopy(theirs)
+    _redesign(mod, monkeypatch, "forecaster")
+    assert _run(mod, ha.hass) == ["beside:forecaster@dashboard-nimbus"]
+    assert _titles(ha)[:3] == ["Forecaster", "Forecaster", "Topology"]
+    assert _views(ha)[0] == kept
+    assert "nimbus" not in _views(ha)[1]["title"].lower()
+
+
+def test_a_revised_tab_goes_beside_theirs_even_if_nimbus_tab_was_moved(
+    ha, monkeypatch
+) -> None:
+    """devhub, 23 Oct 2026: Nimbus's own Forecaster had ended up at the end,
+    edited; the new design still goes next to the household's own."""
+    mod = _load_module()
+    _run(mod, ha.hass)
+    views = ha.dashboards["dashboard-nimbus"].config["views"]
+    nimbus_fc = next(v for v in views if v.get("path") == "forecaster")
+    nimbus_fc["sections"][0]["cards"].append({"type": "markdown", "content": "x"})
+    views.remove(nimbus_fc)
+    views.append(nimbus_fc)  # moved to the end, and edited
+    theirs = {"title": "Forecaster", "path": "mine", "type": "sections", "sections": []}
+    views.insert(0, theirs)
+    kept = copy.deepcopy(views)
+    _redesign(mod, monkeypatch, "forecaster")
+    assert _run(mod, ha.hass) == ["beside:forecaster@dashboard-nimbus"]
+    after = _views(ha)
+    assert after[0] == kept[0]
+    assert after[1]["path"] == "forecaster-2"
+    assert after[1]["title"] == "Forecaster"
+    assert [v for v in after if v.get("path") != "forecaster-2"] == kept
+
+
 def test_a_design_change_never_edits_or_reorders_other_tabs(ha, monkeypatch) -> None:
     mod = _load_module()
     own = copy.deepcopy(NIMBUS_DASH)
