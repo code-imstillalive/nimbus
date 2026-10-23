@@ -454,3 +454,25 @@ def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
     # A cron run has no entity registry to read.
     monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", None)
     assert sw._discover_power_sensor_for_device("switch.pump") is None
+
+
+def test_a_configured_power_sensor_always_wins_and_discovery_only_fills_a_gap(
+    monkeypatch,
+):
+    asked = []
+    monkeypatch.setattr(
+        sw,
+        "_discover_power_sensor_for_device",
+        lambda device: asked.append(device) or "sensor.discovered",
+    )
+    configured = {
+        "controllable_load_power_sensor": "sensor.mine",
+        "controllable_load_device_entity": "switch.pump",
+    }
+    assert cl.resolve_controllable_load_power_sensor(configured) == "sensor.mine"
+    assert asked == []
+    unset = {"controllable_load_device_entity": "switch.pump"}
+    assert cl.resolve_controllable_load_power_sensor(unset) == "sensor.discovered"
+    assert asked == ["switch.pump"]
+    assert cl.resolve_controllable_load_power_sensor({}) == "sensor.discovered"
+    assert asked[-1] == ""

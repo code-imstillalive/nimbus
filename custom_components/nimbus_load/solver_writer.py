@@ -884,8 +884,8 @@ except ImportError:  # pragma: no cover - standalone/cron path
 #                                 test files reach it as solver_writer.apply_
 #                                 commanded_state_guard -- one via
 #                                 inspect.getsource() on it.
-#   _REAFFIRM_CAP_WARNED          test_reaffirm_cap_exhaustion_is_silent.py:187
-#                                 does solver_writer._REAFFIRM_CAP_WARNED.clear().
+#   _REAFFIRM_CAP_WARNED          a test (since retired, #1837) did
+#                                 solver_writer._REAFFIRM_CAP_WARNED.clear().
 #                                 An alias is exactly right: the set is mutated in
 #                                 place, never rebound, so identity holds.
 #

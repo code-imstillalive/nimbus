@@ -31,7 +31,7 @@ rule load-bearing rather than decorative:
                                        tests/gates/noop_patches.py structurally
                                        cannot observe (#1400/#1401)
     LOCAL_TZ                           rebound by direct assignment at 4 sites in
-                                       test_solver_writer_local_tz_resolution.py
+                                       a test file since retired (#1837)
 
 Only three kinds of name are imported directly, because none is ever patched and
 all bind stably: the standard library (`datetime`, `timedelta`,

@@ -497,3 +497,34 @@ def test_a_failure_of_the_whole_cycle_is_a_warning_never_an_exception(site, capl
         site.solve(T0, sheddable={"s": ON})  # does not raise
     assert site.calls == []
     assert "NOT commanded" in caplog.text
+
+
+# --- a device that will not follow, once the day's re-sends are spent (#875) ------------------
+
+
+def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
+    site, monkeypatch, caplog
+):
+    """Commanded on five hours ago, measured off ever since, and today's
+    re-send allowance used up: nothing more is sent, and the household is
+    told once that something else may be writing to the device."""
+    monkeypatch.setattr(guard, "_REAFFIRM_CAP_WARNED", set())
+    site.load("hws", "water_heater.hws")
+    now = T0 + timedelta(hours=10)
+    day = now.strftime("%Y-%m-%d")
+    site.seed(
+        "hws",
+        commanded_state=True,
+        commanded_since=now.timestamp() - 5 * 3600,
+        currently_on=False,
+        off_since=now.timestamp() - 4 * 3600,
+        day_key=day,
+        reaffirms_today=load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
+        reaffirms_today_day_key=day,
+    )
+    with caplog.at_level(logging.WARNING):
+        site.solve(now, sheddable={"hws": ON})
+        site.solve(now + STEP, sheddable={"hws": ON})
+    assert site.calls == []
+    warned = [r for r in caplog.records if "re-send cap" in r.getMessage()]
+    assert len(warned) == 1 and "'hws'" in warned[0].getMessage()

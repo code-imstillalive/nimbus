@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import types
 import urllib.request
 from datetime import UTC, datetime, timedelta
 
@@ -759,3 +760,29 @@ def test_a_setting_reads_its_default_only_when_unset_never_when_zero(
     assert shared._cfg_num(cfg, "k", 5.0) == number
     if integer is not None:
         assert shared._cfg_int(cfg, "k", 7) == integer
+
+
+@pytest.mark.parametrize(
+    ("zone", "expect"),
+    [("Australia/Perth", "Australia/Perth"), ("Not/AZone", None), (None, None)],
+    ids=["home_assistants_zone", "a_zone_that_does_not_exist", "no_config"],
+)
+def test_the_local_time_zone_is_home_assistants_own_unless_overridden(
+    monkeypatch, caplog, zone, expect
+):
+    """Every local hour -- tariff periods, departures, day boundaries --
+    reads one zone, the one Home Assistant is set to; one it cannot use
+    keeps the zone already in force."""
+    shared = importlib.import_module("solver_shared")
+    monkeypatch.delenv("NIMBUS_SOLVER_TIMEZONE", raising=False)
+    monkeypatch.setattr(sw, "LOCAL_TZ", sw.LOCAL_TZ)
+    monkeypatch.setattr(shared, "LOCAL_TZ", shared.LOCAL_TZ)
+    monkeypatch.setattr(shared.NATIVE, "hass", shared.NATIVE.hass)
+    before = sw.LOCAL_TZ
+    hass = types.SimpleNamespace(config=types.SimpleNamespace(time_zone=zone))
+    with caplog.at_level(logging.ERROR):
+        sw.set_native_hass(hass if zone else types.SimpleNamespace())
+    assert str(sw.LOCAL_TZ) == (expect or str(before))
+    if expect:
+        assert shared.LOCAL_TZ is sw.LOCAL_TZ
+    assert ("could not resolve" in caplog.text) is (expect is None)
