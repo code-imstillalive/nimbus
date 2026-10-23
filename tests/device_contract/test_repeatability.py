@@ -49,8 +49,9 @@ _RUNNER = (
 )
 
 
-def _outcomes(node_ids: list[str]) -> dict[str, str]:
-    """Run the given tests, in the given order, in one fresh interpreter."""
+def _outcomes(node_ids: list[str], cwd: Path = ROOT) -> dict[str, str]:
+    """Run the given tests, in the given order, in one fresh interpreter,
+    from `cwd` (which is also the child's rootdir)."""
     with tempfile.TemporaryDirectory() as tmp:
         ids_file = Path(tmp) / "node_ids.txt"
         ids_file.write_text("\n".join(node_ids), encoding="utf-8")
@@ -70,9 +71,11 @@ def _outcomes(node_ids: list[str]) -> dict[str, str]:
                 "-rA",
                 "-p",
                 "no:randomly",
+                "--rootdir",
+                str(cwd),
                 *PLUGINS,
             ],
-            cwd=ROOT,
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=False,
@@ -113,13 +116,15 @@ def test_negative_control_an_order_dependent_test_is_caught(tmp_path: Path) -> N
     reversed, or the gate above could never fail."""
     mod = tmp_path / "test_order_dependent.py"
     mod.write_text(
-        "STATE = []\n\n"
-        "def test_a_sets():\n    STATE.append(1)\n\n"
+        "STATE = []\n\ndef test_a_sets():\n    STATE.append(1)\n\n"
         "def test_b_needs_a():\n    assert STATE\n",
         encoding="utf-8",
     )
-    ids = [f"{mod}::test_a_sets", f"{mod}::test_b_needs_a"]
-    forward = _outcomes(ids)
-    reverse = _outcomes(list(reversed(ids)))
+    # Run from the module's own directory (#1837): from the repo, a path in
+    # the temp folder made the child list that folder while collecting, and a
+    # golden scenario's directory deleted mid-listing failed collection.
+    ids = [f"{mod.name}::test_a_sets", f"{mod.name}::test_b_needs_a"]
+    forward = _outcomes(ids, cwd=tmp_path)
+    reverse = _outcomes(list(reversed(ids)), cwd=tmp_path)
     assert set(forward.values()) == {"PASSED"}
     assert forward != reverse
