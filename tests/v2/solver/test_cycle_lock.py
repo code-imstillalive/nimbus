@@ -16,7 +16,10 @@ from solver import cycle_lock
 
 
 @pytest.fixture
-def lock_path(tmp_path):
+def lock_path(tmp_path, monkeypatch):
+    # The OS is never really asked: on Windows os.kill terminates the process
+    # it names, so a mutant probing this process's own PID would end the run.
+    monkeypatch.setattr(cycle_lock.os, "kill", lambda pid, sig: None)
     path = str(tmp_path / "solver.lock")
     yield path
     for _ in range(4):  # the process-local lock is shared with the whole suite
@@ -106,11 +109,14 @@ def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch, content
     assert _pid_in(lock_path) == str(os.getpid())
 
 
-def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path):
+def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypatch):
     """Left by an unclean stop: this process is alive, so asking the OS
     whether that PID runs would say yes and wedge every solve after."""
+    asked = []
+    monkeypatch.setattr(cycle_lock.os, "kill", lambda pid, sig: asked.append(pid))
     _pid_file(lock_path, str(os.getpid()))
     assert cycle_lock.acquire_lock(lock_path)
+    assert asked == []
 
 
 def test_releasing_what_was_never_taken_is_harmless(lock_path):
