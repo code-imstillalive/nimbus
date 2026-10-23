@@ -11,6 +11,7 @@ training and prediction files.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -177,3 +178,82 @@ def test_a_configured_schedule_overrides_the_model(house):
         3.7 if (t.hour >= 22 or t.hour < 2) else 0.0 for t in stamps
     ]
     assert result.model_lower is None
+
+
+# --- a burst load's running hold (#1703) ------------------------------------------------
+
+
+def _hold(house, readings, **kw):
+    stamps = [END + timedelta(minutes=STEP * i) for i in range(16)]
+    recent = [(END - timedelta(minutes=m), v) for m, v in readings]
+    out = model.predict(
+        house,
+        stamps,
+        [20.0] * 16,
+        [0.0] * 16,
+        recent,
+        STEP,
+        running_threshold_kw=1.0,
+        **kw,
+    )
+    return out.values
+
+
+def test_a_load_running_now_is_held_at_its_draw_for_the_hold_then_nothing(house):
+    # Drawing 3 kW for the last 30 minutes: hold 3 kW for an hour from the
+    # latest reading at or above the threshold, then nil.
+    values = _hold(house, [(30, 3.0), (15, 3.0), (0, 3.2)], run_hold_hours=1.0)
+    assert values[:4] == [3.2] * 4 and values[4:] == [0.0] * 12
+
+
+def test_a_short_dip_below_the_threshold_still_counts_as_running(house):
+    # Below for 7 minutes: inside the 10-minute grace.
+    values = _hold(house, [(15, 3.0), (8, 0.2)], run_hold_hours=1.0)
+    assert values[0] == 3.0
+    # Below for exactly the grace: it has stopped.
+    assert _hold(house, [(15, 3.0), (5, 0.2)], run_hold_hours=1.0) == [0.0] * 16
+    stopped = _hold(house, [(30, 3.0), (0, 0.2)], run_hold_hours=1.0)
+    assert stopped == [0.0] * 16
+
+
+def test_a_load_never_above_its_threshold_forecasts_nothing_unless_learned_when_off(
+    house,
+):
+    assert _hold(house, [(15, 0.3), (0, 0.2)]) == [0.0] * 16
+    learned = _hold(house, [(15, 0.3), (0, 0.2)], learned_when_off=True)
+    assert any(v > 0.0 for v in learned)
+    running = _hold(house, [(0, 3.0)], run_hold_hours=1.0, learned_when_off=True)
+    assert running[:4] == [3.0] * 4 and any(v > 0.0 for v in running[4:])
+
+
+# --- the seasonal anchor and the smoothing ---------------------------------------------------
+
+
+def _as_knn(trained):
+    """The same training data served by the learned k-NN model, not the
+    seasonal-naive one the forecaster rightly picks for a perfectly
+    periodic house."""
+    return dataclasses.replace(trained, model_type="knn")
+
+
+def test_the_seasonal_anchor_pulls_the_far_horizon_toward_the_usual_day(house):
+    knn = _as_knn(house)
+    stamps = [END + timedelta(minutes=STEP * i) for i in range(96)]
+    recent = [(t, 0.4) for t, _v in _events(_house, days=1)]  # a quiet last day
+    plain = model.predict(knn, stamps, [20.0] * 96, [0.0] * 96, recent, STEP).values
+    anchored = model.predict(
+        knn, stamps, [20.0] * 96, [0.0] * 96, recent, STEP, seasonal_anchor=True
+    ).values
+    peak = [i for i, t in enumerate(stamps) if 17 <= t.hour < 21]
+    assert np.mean([anchored[i] for i in peak]) > np.mean([plain[i] for i in peak])
+
+
+def test_the_learned_model_is_smoothed_from_step_to_step(house):
+    stamps = [END + timedelta(minutes=STEP * i) for i in range(96)]
+    recent = [(t, _house(t)) for t, _v in _events(_house, days=2)]
+    naive = model.predict(house, stamps, [20.0] * 96, [0.0] * 96, recent, STEP).values
+    knn = model.predict(
+        _as_knn(house), stamps, [20.0] * 96, [0.0] * 96, recent, STEP
+    ).values
+    assert np.abs(np.diff(naive)).max() == pytest.approx(2.1)  # the usual day, exactly
+    assert np.abs(np.diff(knn)).max() < 2.1  # no sharper than the real step

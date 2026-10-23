@@ -214,6 +214,11 @@ def test_each_grid_point_takes_the_last_reading_unless_it_is_stale_or_not_finite
     assert model.resample_last_value(events, grid) == [None, 1.0, 1.0, None, 3.0, 3.0]
     stale = model.resample_last_value(events, grid, max_staleness=timedelta(minutes=30))
     assert stale[-1] is None and stale[4] == 3.0
+    # A reading exactly as old as the limit is still fresh.
+    at_limit = model.resample_last_value(
+        events, [T0 + timedelta(minutes=50)], max_staleness=timedelta(minutes=30)
+    )
+    assert at_limit == [3.0]
 
 
 def test_a_reading_counts_as_observed_only_in_the_first_grid_point_after_it():
