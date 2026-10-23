@@ -25,9 +25,9 @@ from types import SimpleNamespace
 
 import pytest
 
-_TESTS = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(_TESTS))
-sys.path.insert(0, str(_TESTS.parent))
+# The repository root, for the package import; tests/ is already on the
+# path (pyproject), and must not shadow the package's own module names.
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
