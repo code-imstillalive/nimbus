@@ -26,6 +26,8 @@ import numpy as np
 import pytest
 import solver_shared as shared
 import solver_writer as sw
+import thermal_forecast
+from solver_dispatch import guard
 
 TZ = timezone(timedelta(hours=10))
 T0 = datetime(2026, 9, 11, 0, 0, tzinfo=TZ)
@@ -56,7 +58,7 @@ class Site:
         self._thread.start()
         self.calls: list[tuple] = []
         self.failing: set[str] = set()
-        self.loads: dict[str, dict] = {}
+        self.states: dict = {}
 
         async def call(domain, service, data, **kw):
             if domain in self.failing:
@@ -68,7 +70,7 @@ class Site:
         self.hass = SimpleNamespace(
             config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
             services=SimpleNamespace(async_call=call),
-            states=SimpleNamespace(get=lambda eid: None),
+            states=SimpleNamespace(get=self.states.get),
             loop=self.loop,
         )
 
@@ -80,7 +82,7 @@ class Site:
             subentry_id=sid, subentry_type="controllable_load", data=data
         )
 
-    def solve(self, now, *, sheddable=None, adequacy=None, hours=None):
+    def solve(self, now, *, sheddable=None, adequacy=None, hours=None, step=STEP):
         plan = SimpleNamespace(
             sheddable_loads=[
                 SimpleNamespace(subentry_id=s, served_kw=kw)
@@ -91,7 +93,7 @@ class Site:
                 for s, kw in (adequacy or {}).items()
             ],
         )
-        grid = [now + STEP * i for i in range(6)]
+        grid = [now + step * i for i in range(6)]
         sw.apply_commanded_state_guard(plan, now, grid, hours)
 
     def state(self, sid):
@@ -99,6 +101,12 @@ class Site:
             store=Store(None, 1, "nimbus_load_hub_load_run_state")
         )
         return asyncio.run(store.async_read(sid))
+
+    def seed(self, sid, **fields):
+        store = load_run_state.LoadRunStateStore(
+            store=Store(None, 1, "nimbus_load_hub_load_run_state")
+        )
+        asyncio.run(store.async_write(sid, load_run_state.LoadRunState(**fields)))
 
     def close(self):
         self.loop.call_soon_threadsafe(self.loop.stop)
@@ -114,8 +122,15 @@ def site(monkeypatch):
     monkeypatch.setattr(Store, "data", {})
     s = Site()
     monkeypatch.setattr(shared.NATIVE, "hass", s.hass)
-    # No power sensor on these loads: discovery is not what is tested here.
-    monkeypatch.setattr(sw, "resolve_controllable_load_power_sensor", lambda d: None)
+    # A load's power sensor is the one it names: discovery is not tested here.
+    monkeypatch.setattr(
+        sw,
+        "resolve_controllable_load_power_sensor",
+        lambda d: d.get("controllable_load_power_sensor"),
+    )
+    # No recorder: the daily rate relearn falls back to its defaults.
+    monkeypatch.setitem(sys.modules, "homeassistant.components.recorder", None)
+    monkeypatch.setattr(guard, "_FLOOR_CROSSING_WARNED", set())
     yield s
     s.close()
 
@@ -252,3 +267,201 @@ def test_a_failing_device_does_not_stop_the_others(site):
     site.failing = {"switch"}
     site.solve(T0, sheddable={"bad": ON, "good": ON})
     assert site.state("bad").commanded_state and site.state("good").commanded_state
+
+
+# --- the water heater's own temperature forecast ------------------------------------------
+
+HALF_HOUR = timedelta(minutes=30)
+LEARNED = {
+    "thermal_rates_learned_day_key": "2026-09-11",
+    "thermal_heating_rate_c_per_kwh": 8.0,
+    "thermal_idle_decay_c_per_hour": 0.5,
+    "thermal_rates_source": "learned",
+}
+
+
+def _heater(site, live, *, seed=None, done_when=None, **attrs):
+    data = {
+        "deferrable_done_entity": "water_heater.hws",
+        "controllable_load_power_sensor": "sensor.hws_power",
+        "deferrable_max_power_kw": 3.7,
+    }
+    if done_when:
+        data["deferrable_done_when"] = done_when
+    site.load("hws", **data)
+    site.seed("hws", **{**LEARNED, **(seed or {})})
+    site.states["water_heater.hws"] = SimpleNamespace(
+        state="eco", attributes={"current_temperature": live, **attrs}
+    )
+
+
+def _forecast(site, kw, *, step=HALF_HOUR, n=4):
+    site.solve(
+        T0 + timedelta(hours=8),
+        adequacy={"hws": np.full(n, kw) if np.isscalar(kw) else kw},
+        hours=np.full(n, step / timedelta(hours=1)),
+        step=step,
+    )
+    return site.state("hws")
+
+
+@pytest.mark.parametrize(
+    ("seed", "live", "kw", "anchor", "first"),
+    [
+        ({}, 55.2, 0.0, 55.2, 55.2 - 0.25),  # settled: the reading is the anchor
+        (
+            {"currently_on": True, "last_idle_temperature": 50.0},
+            40.0,
+            3.7,
+            50.0,
+            50.0 + 14.8,
+        ),
+        (
+            {
+                "off_since": (T0 + timedelta(hours=8, minutes=-1)).timestamp(),
+                "last_idle_temperature": 50.0,
+            },
+            39.0,
+            0.0,
+            50.0,
+            49.75,
+        ),  # stopped a minute ago: still settling
+    ],
+    ids=["settled", "heating", "settling"],
+)
+def test_a_reading_taken_while_heating_or_settling_never_becomes_the_anchor(
+    site, seed, live, kw, anchor, first
+):
+    _heater(site, live, seed=seed)
+    st = _forecast(site, kw)
+    assert st.last_idle_temperature == anchor
+    assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
+
+
+def test_during_a_hold_the_forecast_heats_from_the_first_period(site):
+    """#595: the dip in the plan is not what the device does while held on."""
+    since = (T0 + timedelta(hours=7, minutes=30)).timestamp()
+    _heater(
+        site,
+        50.0,
+        seed={
+            "last_idle_temperature": 50.0,
+            "commanded_state": True,
+            "commanded_since": since,
+        },
+    )
+    st = _forecast(site, np.array([0.0, 0.65, 0.0, 0.65, 0.0]), step=STEP, n=5)
+    assert st.commanded_state is True
+    assert st.temperature_forecast[0]["value"] == pytest.approx(
+        50.0 + 3.7 * 8.0 / 12, abs=0.01
+    )
+
+
+@pytest.mark.parametrize(
+    ("live", "attrs", "done_when", "first", "last"),
+    [
+        (58.0, {"temperature": 60.0}, None, 60.0, 60.0),  # its own setpoint
+        (58.0, {}, None, 58.0 + 14.8, None),  # nothing to cap at
+        (45.0, {"temperature": 45.0, "max_temp": 65.0}, None, 45.0 + 14.8, 65.0),
+        (58.0, {}, ">= 60", 60.0, 60.0),  # the done condition's threshold
+    ],
+    ids=["setpoint", "none", "max_temp_over_eco", "done_when"],
+)
+def test_the_forecast_never_heats_past_the_tanks_ceiling(
+    site, live, attrs, done_when, first, last
+):
+    _heater(site, live, done_when=done_when, **attrs)
+    st = _forecast(site, 3.7)
+    assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
+    if last is not None:
+        assert st.temperature_forecast[-1]["value"] == last
+
+
+@pytest.mark.parametrize(
+    ("seed", "source", "rate"),
+    [
+        ({"thermal_rates_learned_day_key": ""}, "fallback", None),
+        ({"thermal_rates_source": ""}, "fallback", None),  # stamped by an older learner
+        ({"thermal_heating_rate_c_per_kwh": 1.2}, "learned", 1.2),
+    ],
+    ids=["never", "older_learner", "today"],
+)
+def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
+    site, seed, source, rate
+):
+    _heater(site, 55.0, seed=seed)
+    st = _forecast(site, 0.0)
+    assert st.thermal_rates_source == source
+    assert st.thermal_rates_learned_day_key == "2026-09-11"
+    expect = thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH if rate is None else rate
+    assert st.thermal_heating_rate_c_per_kwh == expect
+
+
+def test_a_tank_forecast_to_reach_its_floor_says_when_and_warns_once_a_day(
+    site, caplog
+):
+    _heater(site, 45.4, min_temp=45.0)
+    with caplog.at_level(logging.WARNING):
+        st = _forecast(site, 0.0)
+        _forecast(site, 0.0)
+    assert st.floor_crossing_forecast_time is not None
+    assert st.floor_crossing_forecast_temperature <= 45.0
+    assert caplog.text.count("hardware floor") == 1
+    _heater(site, 55.0, min_temp=45.0)
+    assert _forecast(site, 0.0).floor_crossing_forecast_time is None
+
+
+# --- each load's own published plan ------------------------------------------------------------
+
+
+def test_each_load_publishes_its_plan_and_what_it_costs(site):
+    site.load("hws", deferrable_target_kwh=5.0)
+    site.load("pump", sheddable_nominal_kw=1.5)
+    hws = SimpleNamespace(
+        subentry_id="hws",
+        power_kw=np.array([2.0, 2.0, 0.0, 0.0]),
+        shortfall_kwh=0.3,
+        marginal_cost=21.891646007035034,
+        profit_horizon=3.140159265358979,
+    )
+    pump = SimpleNamespace(subentry_id="pump", served_kw=np.array([1.5, 0.8, 1.5, 1.5]))
+    plan = SimpleNamespace(sheddable_loads=[pump], adequacy_loads=[hws])
+    grid = [T0 + HALF_HOUR * i for i in range(4)]
+    sw.apply_commanded_state_guard(
+        plan,
+        T0,
+        grid,
+        np.full(4, 0.5),
+        tariff_attributed_cost_by_subentry={"hws": 21.891646007035034},
+    )
+    st = site.state("hws")
+    assert [p["value"] for p in st.plan_forecast] == [2.0, 2.0, 0.0, 0.0]
+    assert st.plan_forecast[0]["time"] == grid[0].isoformat()
+    assert [p["value"] for p in st.plan_delivered_kwh_forecast] == pytest.approx(
+        [1.0, 2.0, 2.0, 2.0]
+    )
+    assert (st.plan_target_kwh, st.plan_shortfall_kwh) == (5.0, 0.3)
+    assert (st.plan_marginal_cost, st.plan_profit_horizon) == (21.8916, 3.1402)
+    assert st.plan_tariff_attributed_cost == 21.8916 and st.plan_nominal_kw is None
+    shed = site.state("pump")
+    assert shed.plan_forecast[1]["value"] == 0.8 and shed.plan_nominal_kw == 1.5
+    assert shed.plan_target_kwh is None and shed.plan_tariff_attributed_cost is None
+
+
+def test_the_plan_refreshes_every_solve_and_is_not_published_without_period_hours(site):
+    site.load("pump", sheddable_nominal_kw=1.5)
+    hours = np.full(4, 5 / 60)
+    site.solve(T0, sheddable={"pump": np.full(4, 1.5)}, hours=hours)
+    site.solve(
+        T0 + STEP, sheddable={"pump": np.array([1.5, 0.9, 1.5, 1.5])}, hours=hours
+    )
+    st = site.state("pump")
+    assert st.commanded_state is True and st.plan_forecast[1]["value"] == 0.9
+    site.load("old", sheddable_nominal_kw=1.5)
+    site.solve(T0, sheddable={"old": ON})
+    assert site.state("old").plan_forecast is None
+
+
+def test_a_plan_load_whose_subentry_is_gone_is_still_decided_but_not_sent(site):
+    site.solve(T0, sheddable={"gone": ON})
+    assert site.state("gone").commanded_state is True and site.calls == []
