@@ -390,15 +390,17 @@ class _JointSolve:
         direction_binaries: frozenset[str],
     ) -> LPResult:
         call_started = time.monotonic()
-        flags = {
-            "thermal_hard_deadline": thermal_hard_deadline,
-            "direction_binaries": direction_binaries,
-        }
         remaining = None if self.deadline is None else self.deadline - time.monotonic()
         if remaining is not None and remaining <= 0.0:
             self.last_failure_raw_status = "stochastic_budget_exhausted"
             refused = LPResult(status="error", raw_status=self.last_failure_raw_status)
-            self._record(call_started, 0.0, refused, **flags)
+            self._record(
+                call_started,
+                0.0,
+                refused,
+                thermal_hard_deadline=thermal_hard_deadline,
+                direction_binaries=direction_binaries,
+            )
             return refused
         self.n_joint_solves += 1
         built: list[tuple[str, float, LPProblem]] = []
@@ -460,7 +462,13 @@ class _JointSolve:
             solve_kwargs.get("options"), self.blend_weight
         )
         result = joint.solve(**{**solve_kwargs, "options": options})
-        self._record(call_started, joint.time_limit_seconds, result, **flags)
+        self._record(
+            call_started,
+            joint.time_limit_seconds,
+            result,
+            thermal_hard_deadline=thermal_hard_deadline,
+            direction_binaries=direction_binaries,
+        )
         if result.status != "optimal":
             self.last_failure_raw_status = result.raw_status or result.status
             return result
