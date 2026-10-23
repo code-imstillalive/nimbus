@@ -2964,3 +2964,81 @@ def test_a_battery_outside_its_bounds_recovers_flat_out(
         np.testing.assert_array_less(soc, np.maximum(hi, start - step / 0.975) + 1e-5)
     outside = np.clip(lo - soc, 0.0, None).sum() + np.clip(soc - hi, 0.0, None).sum()
     assert plan.soc_penalty_cost == pytest.approx(penalty * outside, abs=1e-6)
+
+
+# --- a minimum export commitment, and limits that cannot be negative -------------------------
+
+
+def _export_site(min_export_kwh=None):
+    n = 4
+    battery = BatteryConfig(
+        name="home",
+        capacity_kwh=10.0,
+        initial_soc_kwh=8.0,
+        min_soc_kwh=1.0,
+        max_soc_kwh=10.0,
+        max_charge_kw=4.0,
+        max_discharge_kw=4.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.006,
+        discharge_cost=0.006,
+        salvage_value=0.25,
+    )
+    return build_plan(
+        periods=PeriodGrid(np.full(n, 0.5)),
+        grid=GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.02),  # exporting is not worth it on price
+            import_limit_kw=10.0,
+            export_limit_kw=10.0,
+            min_export_kwh=min_export_kwh,
+        ),
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
+    )
+
+
+def test_a_minimum_export_commitment_is_met_and_priced():
+    free = _export_site()
+    assert float(np.sum(free.grid_export_kw)) * 0.5 == pytest.approx(0.0, abs=1e-6)
+    bound = _export_site(min_export_kwh=2.0)
+    assert bound.status == "optimal"
+    assert float(np.sum(bound.grid_export_kw)) * 0.5 >= 2.0 - 1e-6
+    assert bound.total_cost > free.total_cost
+    assert "min_export_commitment" in bound.duals
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "says"),
+    [
+        ("max_charge_kw", -1.0, "cannot be negative"),
+        ("max_discharge_kw", -1.0, "cannot be negative"),
+        ("initial_soc_kwh", 11.0, "physical bounds"),
+        ("initial_soc_kwh", -0.5, "physical bounds"),
+        ("initial_soc_kwh", 0.5, None),  # below the floor but in the pack: allowed
+        ("initial_soc_kwh", 10.0, None),
+    ],
+)
+def test_a_battery_outside_its_physics_is_refused(field, value, says):
+    kwargs = {
+        "name": "home",
+        "capacity_kwh": 10.0,
+        "initial_soc_kwh": 5.0,
+        "min_soc_kwh": 1.0,
+        "max_soc_kwh": 10.0,
+        "max_charge_kw": 4.0,
+        "max_discharge_kw": 4.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+        "charge_cost": 0.006,
+        "discharge_cost": 0.006,
+        "salvage_value": 0.25,
+        field: value,
+    }
+    if says is None:
+        assert BatteryConfig(**kwargs).initial_soc_kwh == value
+        return
+    with pytest.raises(ValueError, match=says):
+        BatteryConfig(**kwargs)

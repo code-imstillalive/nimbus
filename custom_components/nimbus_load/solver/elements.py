@@ -1084,7 +1084,7 @@ class BatteryConfig:
         # `<= 0.0` -- exactly 0.0 is a real, if extreme, legitimate
         # config: "this direction is physically disabled" (a battery
         # that can only ever charge, or only ever discharge). Several
-        # existing tests (test_solver_backtest.py, test_solver_rolling.py)
+        # tests (tests/v2/solver/test_efficiency_backtest.py among them)
         # already rely on max_charge_kw=max_discharge_kw=0.0 to construct
         # a genuinely infeasible-but-validly-shaped scenario on purpose.
         if self.max_charge_kw < 0.0:

@@ -660,7 +660,7 @@ def resolve_min_soc_kwh(
     safety floor, not negotiable at that layer. But the dashboard's own
     "Battery Min SoC" number entity allows dragging all the way down to
     0% (number.py's own native_min_value=0, deliberately -- _cfg_num's
-    own docstring, and this file's test_solver_writer_cfg_defaults.py,
+    own docstring, and its tests (tests/v2/orchestration/test_writer_inputs.py),
     both already name "min_soc_percent set to 0% by an installer as a
     temporary bypass" as a real, legitimate use case, not user error).
 

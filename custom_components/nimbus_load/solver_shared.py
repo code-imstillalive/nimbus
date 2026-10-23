@@ -357,8 +357,8 @@ def resolve_effective_capacity_kwh(cfg: dict) -> float:
 
     The configured value is also vindicated by the same reading: 122.2 x
     0.98 = 119.756 against a measured 119.72, a difference of 0.03%. The
-    dial was right the whole time. Nothing read it. See
-    tests/test_effective_capacity_soh_derating.py for the full data.
+    dial was right the whole time. Nothing read it. The measurements are
+    in nimbus #1013.
 
     **Deliberately still one static number, not a live sensor.** The
     inverters do publish per-pack SoH and it drifts over years, and

@@ -712,3 +712,50 @@ def test_a_scalar_that_cannot_be_read_as_a_number_falls_back_and_says_which(
     with caplog.at_level(logging.WARNING):
         assert sw.safe_num("sensor.export_price", fallback=fallback) == expected
     assert ("sensor.export_price" in caplog.text) is warned
+
+
+# --- the stored previous plan, and the derated capacity --------------------------------------
+
+
+def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(tmp_path, monkeypatch):
+    path = tmp_path / "plan_state.json"
+    monkeypatch.setattr(sw, "PLAN_STATE_PATH", str(path))
+    assert sw.load_previous_plan() is None  # nothing stored
+    path.write_text('{"status": "infeasible"}', encoding="utf-8")
+    assert sw.load_previous_plan() is None
+    path.write_text("not json", encoding="utf-8")
+    assert sw.load_previous_plan() is None
+
+
+@pytest.mark.parametrize(
+    ("soh", "capacity"), [(80.0, 32.0), (100.0, 40.0), (0.0, 40.0), (130.0, 40.0)]
+)
+def test_state_of_health_derates_the_pack_and_a_nonsense_value_is_ignored_once(
+    caplog, monkeypatch, soh, capacity
+):
+    shared = importlib.import_module("solver_shared")
+    monkeypatch.setattr(shared, "_SOH_RANGE_WARNED", set())
+    cfg = {"solver_battery_capacity_kwh": 40.0, "solver_battery_soh_percent": soh}
+    with caplog.at_level(logging.WARNING):
+        assert shared.resolve_effective_capacity_kwh(cfg) == pytest.approx(capacity)
+        shared.resolve_effective_capacity_kwh(cfg)
+    assert caplog.text.count("State of Health") == (0 if 0 < soh <= 100 else 1)
+
+
+@pytest.mark.parametrize(
+    ("cfg", "number", "integer"),
+    [
+        ({}, 5.0, 7),
+        ({"k": None}, 5.0, 7),
+        ({"k": 0}, 0.0, 0),
+        ({"k": "2.5"}, 2.5, None),
+    ],
+    ids=["missing", "none", "zero_is_kept", "string"],
+)
+def test_a_setting_reads_its_default_only_when_unset_never_when_zero(
+    cfg, number, integer
+):
+    shared = importlib.import_module("solver_shared")
+    assert shared._cfg_num(cfg, "k", 5.0) == number
+    if integer is not None:
+        assert shared._cfg_int(cfg, "k", 7) == integer

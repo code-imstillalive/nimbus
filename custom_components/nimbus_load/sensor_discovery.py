@@ -3,8 +3,8 @@
 nimbus issue #954 (Mark Purcell, 48-hour IV&V #950). The two discovery
 rules below used to live as methods on `NimbusSolverConfigSensor`, and
 both were covered only by hand-copied mirrors of their logic inside
-`tests/test_nem_region.py` and `tests/test_aemo_30min_forecast_
-discovery.py` -- grepping `tests/` for either method name returned
+the NEM-region tests (since retired, #1837) and
+`tests/test_aemo_30min_forecast_discovery.py` -- grepping `tests/` for either method name returned
 nothing. The mirrors agreed with the real code, but agreement is not
 coverage: any future edit to the shipped methods would have kept the
 whole suite green while the shipped path quietly lost its only tests.

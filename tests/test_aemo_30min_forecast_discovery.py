@@ -22,7 +22,8 @@ and two of them this project has already paid for once:
   comparison with a silently-chosen source.
 
 Exercised through the same logic the sensor uses, in the style
-`test_nem_region.py` already established for #495's discovery half.
+the NEM-region tests (now `tests/v2/setup/test_input_checks.py`) set for
+#495's discovery half.
 """
 
 from __future__ import annotations

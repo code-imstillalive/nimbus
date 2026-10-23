@@ -424,7 +424,7 @@ def publish_flex_telemetry_record(
 #
 # PLAN_STATE_PATH deliberately does NOT move: its primary reader
 # load_previous_plan() stays in solver_writer.py (Phase 4's target, not
-# this one), and test_solver_writer_load_previous_plan.py patches it as
+# this one), and tests/v2/orchestration/test_writer_inputs.py patches it as
 # solver_writer.PLAN_STATE_PATH against BOTH functions. A plain
 # `from .solver_writer import PLAN_STATE_PATH` binds once at import time
 # and would silently break that patch -- nimbus #861's exact failure

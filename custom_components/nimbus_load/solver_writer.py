@@ -484,7 +484,7 @@ except ImportError:
 # (this file's own docstring reference above) is "every name keeps a
 # re-export," not "every name a caller still uses" -- an external
 # consumer (this repo's own tests, e.g. `solver_writer._SOH_RANGE_WARNED`
-# in test_effective_capacity_soh_derating.py) reaching for the OLD
+# in a test) reaching for the OLD
 # location must keep working. Ruff's F401 cannot see a caller in a
 # DIFFERENT file, so it reads these as dead imports; `# X as X` (the
 # usual explicit-re-export idiom) was tried and rejected, since ruff's
@@ -1091,7 +1091,7 @@ def resolve_min_soc_kwh(
     safety floor, not negotiable at that layer. But the dashboard's own
     "Battery Min SoC" number entity allows dragging all the way down to
     0% (number.py's own native_min_value=0, deliberately -- _cfg_num's
-    own docstring, and this file's test_solver_writer_cfg_defaults.py,
+    own docstring, and its tests (tests/v2/orchestration/test_writer_inputs.py),
     both already name "min_soc_percent set to 0% by an installer as a
     temporary bypass" as a real, legitimate use case, not user error).
 

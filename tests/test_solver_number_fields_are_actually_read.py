@@ -9,7 +9,7 @@ On the reference household it was set to 98%, in the reasonable belief
 it derated a 122.2 kWh pack to ~119.8 kWh, while the solver planned
 against the full 122.2. Fixed by `resolve_effective_capacity_kwh()`;
 the behaviour itself is tested in
-`test_effective_capacity_soh_derating.py`, this file tests the class.
+`tests/v2/orchestration/test_writer_inputs.py`, this file tests the class.
 
 **Why nimbus issue #538's guard did not catch it.** That one pairs every
 `number.py` field against `sensor.py`'s live-entity resolution list, and
