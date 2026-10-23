@@ -14904,6 +14904,7 @@
        "expected_cost": null,
        "expected_grid_cost": null,
        "fallback_reason": "no_solar_band",
+       "joint_calls": [],
        "joint_solves": 0,
        "joint_variables": 0,
        "mode": "shadow",
