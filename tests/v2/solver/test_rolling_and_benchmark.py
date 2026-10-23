@@ -156,9 +156,13 @@ def test_the_reference_day_is_fixed_and_scored():
     for key, value in scenario.items():
         if isinstance(value, np.ndarray):
             np.testing.assert_array_equal(value, again[key])
+    # The forecast is clipped at zero like real solar: dark at night.
+    assert scenario["solar_forecast_kw"].min() == 0.0
     result = run_reference_benchmark()
     assert result.scenario_version == REFERENCE_HOUSEHOLD_VERSION
-    assert np.isfinite(result.nimbus_value_add_dollars)
+    # Built to be better than persistence: a value add at or below zero on
+    # this day is the regression the benchmark exists to show.
+    assert result.nimbus_value_add_dollars > 0
     assert result.nimbus_value_add_dollars == pytest.approx(
         run_reference_benchmark().nimbus_value_add_dollars
     )
