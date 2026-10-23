@@ -9,15 +9,12 @@ required and neither substitutes for the other.
 
 Spec 007 step 2 says to move `LOCK_PATH` here verbatim alongside the functions.
 It stays in `solver_writer.py` instead, and the functions take it, because the
-tests rebind it in four places and **not one of them is visible to a
-literal-name scan**:
-
-| site | how |
-|---|---|
-| `tests/_isolated_state.py:74` | `patch.object(solver_writer, const, ...)`, `const` from a tuple of strings |
-| `tests/hass_integration/conftest.py:85` | same shape, its own tuple |
-| `tests/test_solve_overlap_guard.py:63` | `solver_writer.LOCK_PATH = ...`, direct assignment |
-| `tests/test_solver_writer_lock_self_pid.py:37` | direct assignment |
+tests rebound it in four places and **not one of them was visible to a
+literal-name scan**: two `patch.object(solver_writer, const, ...)` sites with
+`const` from a tuple of strings (`tests/_isolated_state.py`,
+`tests/hass_integration/conftest.py`), and two direct assignments in test files
+since retired (#1837). Their replacement, `tests/v2/solver/test_cycle_lock.py`,
+passes the path to the functions directly.
 
 Spec 007's own inventory table records `LOCK_PATH` as having **0 patch sites**
 for exactly that reason -- the same blindness #1400 and #1401 record for
