@@ -182,9 +182,10 @@ def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_stil
     site["loads"] = [
         LoadConfig(
             name="house",
-            forecast_kw=np.full(N, 2.0),
-            lower_kw=np.full(N, 1.0),
-            upper_kw=np.full(N, 4.0),
+            # Period 0 differs from the rest, so only period 0 can be read.
+            forecast_kw=np.array([2.0, 12.0, 12.0, 12.0]),
+            lower_kw=np.array([1.0, 10.0, 10.0, 10.0]),
+            upper_kw=np.array([4.0, 14.0, 14.0, 14.0]),
         )
     ]
     for pin in (-12.0, -4.0, 0.0, 0.5, 5.0, 30.0):
@@ -192,3 +193,46 @@ def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_stil
             assert _blamed(site, pin) == [], pin
         else:
             assert _blamed(site, pin), pin
+
+
+def test_given_the_solves_risk_aversion_a_banded_load_is_read_exactly_as_the_lp_did():
+    site = _site()
+    site["loads"] = [
+        LoadConfig(
+            name="house",
+            forecast_kw=np.array([2.0, 12.0, 12.0, 12.0]),
+            lower_kw=np.array([1.0, 10.0, 10.0, 10.0]),
+            upper_kw=np.array([4.0, 14.0, 14.0, 14.0]),
+        )
+    ]
+    # A tight export limit, so how much period 0's load absorbs decides it.
+    site["grid"] = dataclasses.replace(site["grid"], export_limit_kw=1.0)
+    for pin in (-12.0, -4.0, 0.0, 2.0, 3.0, 4.0, 5.0, 6.0):
+        optimal = (
+            build_plan(
+                **{
+                    **site,
+                    "risk_aversion": 0.5,
+                    "batteries": [
+                        dataclasses.replace(
+                            site["batteries"][0], period0_pin_net_kw=pin
+                        )
+                    ],
+                }
+            ).status
+            == "optimal"
+        )
+        blamed = pin_blockers.period0_pin_blockers(
+            pin,
+            batteries=site["batteries"],
+            grid=site["grid"],
+            hours0=0.5,
+            solar=site["solar"],
+            loads=site["loads"],
+            risk_aversion=0.5,
+        )
+        if optimal:
+            assert blamed == [], pin  # never blames a pin the LP accepts
+        if pin == 6.0:  # 6 kW into ~3 kW of load: 3 kW of export against 1
+            assert not optimal
+            assert [b.split(":", 1)[0] for b in blamed] == ["grid_export_limit"]
