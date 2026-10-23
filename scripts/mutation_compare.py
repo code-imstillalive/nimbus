@@ -189,6 +189,11 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=1837)
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--json")
+    ap.add_argument(
+        "--only",
+        default="",
+        help="comma-separated mutant numbers to replay from the same seed",
+    )
     a = ap.parse_args()
 
     path = Path(a.module)
@@ -204,7 +209,10 @@ def main() -> int:
             return 2
     rows = []
     try:
+        only = {int(x) for x in a.only.split(",") if x}
         for n, (index, kind) in enumerate(chosen, 1):
+            if only and n not in only:
+                continue
             try:
                 mutated, what = _mutate(original, index)
             except (ValueError, SyntaxError) as err:

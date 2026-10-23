@@ -17,6 +17,7 @@ import urllib.request
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import solver_shared
 import solver_writer as sw
 from golden.fake_ha import BASE, FakeHA, HistoryPoint
 
@@ -687,3 +688,27 @@ def test_no_readable_events_is_no_trips(cal, response):
     if response is not None:
         ha.service_responses = {"calendar.get_events": response}
     assert psw.fetch_calendar_trips("calendar.car", T0, T0 + timedelta(days=1)) == []
+
+
+# --- a scalar reading that is not a number ------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("state", "fallback", "expected", "warned"),
+    [
+        ({"state": "0.2847"}, 0.0, 0.2847, False),
+        ({"state": "-0.05"}, 0.0, -0.05, False),  # a negative price is real
+        ({"state": "2026-08-24T13:00:00+10:00"}, 0.0, 0.0, True),  # the live crash
+        ({"state": "unavailable"}, 0.0, 0.0, True),
+        ({}, 0.0, 0.0, True),
+        ({"state": "not-a-number"}, 0.15, 0.15, True),
+    ],
+    ids=["number", "negative", "timestamp", "unavailable", "no_state", "fallback"],
+)
+def test_a_scalar_that_cannot_be_read_as_a_number_falls_back_and_says_which(
+    monkeypatch, caplog, state, fallback, expected, warned
+):
+    monkeypatch.setattr(solver_shared, "ha_get", lambda _eid: state)
+    with caplog.at_level(logging.WARNING):
+        assert sw.safe_num("sensor.export_price", fallback=fallback) == expected
+    assert ("sensor.export_price" in caplog.text) is warned
