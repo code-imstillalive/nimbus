@@ -106,6 +106,12 @@ def test_a_sharp_disagreement_is_queued_for_the_next_periods_own_time(state):
     assert state.readings["calls"] == 0  # queueing reads nothing
 
 
+def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
+    _nowcast(NOON, 1.78, 15.89)
+    _nowcast(NOON, 1.78, 15.89)
+    assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
+
+
 def test_agreement_counts_toward_the_rate_but_queues_nothing(state):
     result, _grid_times = _nowcast(NOON, 15.0, 15.5)
     assert state.read()["nowcast_pending"] == []
@@ -229,7 +235,11 @@ def test_an_hour_ahead_prediction_is_graded_into_a_ratio(
         None,
         0,
     )
-    assert len(state.read()["pending"]) == 1 and state.readings["calls"] == 0
+    (queued,) = state.read()["pending"]
+    assert (
+        queued["target_time"] == (NOON + timedelta(hours=1)).isoformat()
+    )  # an hour ahead
+    assert state.readings["calls"] == 0
     monkeypatch.setattr(
         sw, "_kw_scale_factor", lambda e: scale
     )  # W: a ratio, never 1,121
