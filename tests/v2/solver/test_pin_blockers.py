@@ -175,3 +175,20 @@ def test_a_shared_charger_is_checked_and_the_other_batterys_limits_never_blamed(
         for pin in (-10.0, -6.0, -2.0, 0.0, 2.0, 8.0, 20.0, 25.0):
             optimal = _status(site, pin, batteries) == "optimal"
             assert (_blamed(site, pin, batteries) == []) is optimal, pin
+
+
+def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_still_sound():
+    site = _site(soc=4.5)
+    site["loads"] = [
+        LoadConfig(
+            name="house",
+            forecast_kw=np.full(N, 2.0),
+            lower_kw=np.full(N, 1.0),
+            upper_kw=np.full(N, 4.0),
+        )
+    ]
+    for pin in (-12.0, -4.0, 0.0, 0.5, 5.0, 30.0):
+        if _status(site, pin) == "optimal":
+            assert _blamed(site, pin) == [], pin
+        else:
+            assert _blamed(site, pin), pin
