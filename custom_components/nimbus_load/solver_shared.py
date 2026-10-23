@@ -41,7 +41,7 @@ the theory that some test asserts on a logger's own name); peer review
 (PR #1347) actually ran that check rather than assuming it and found the
 opposite: zero tests assert a logger by name string, while four existing
 suites (`test_solver_inputs_solar.py`,
-`test_solver_writer_battery_participants.py`,
+the battery-participant suite (since retired, #1837),
 `test_solar_source_shape_and_dedup.py`,
 `test_quality_report_achieved_energy_and_reliability.py`) capture log
 lines via `assertLogs(solver_writer._LOGGER, ...)` on modules that log

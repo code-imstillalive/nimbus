@@ -12,6 +12,7 @@ import sys
 import unittest
 from datetime import timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -27,12 +28,48 @@ from test_solver_writer_battery_participant_history import (
     _patch_history,
     battery_participants_inputs,
 )
-from test_solver_writer_battery_participants import (
-    _TESLA_DATA,
-    _fake_native_hass,
-    _fake_state,
-    _fake_subentry,
-)
+
+
+# The battery-participant fixtures this file once imported from
+# test_solver_writer_battery_participants.py (retired, #1837).
+def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
+    return SimpleNamespace(
+        subentry_id=subentry_id, subentry_type=subentry_type, data=data
+    )
+
+
+def _fake_state(value, entity_id: str = "sensor.fake"):
+    return SimpleNamespace(entity_id=entity_id, state=value, attributes={})
+
+
+def _fake_native_hass(subentries: list, states: dict | None = None):
+    entry = SimpleNamespace(subentries={s.subentry_id: s for s in subentries})
+    # ha_get() reads state.entity_id back out -- give each fake state its
+    # own real entity_id (the dict key) rather than a shared placeholder,
+    # same shape safe_num()'s own real caller (HA's state machine) has.
+    resolved_states = {
+        eid: SimpleNamespace(entity_id=eid, state=s.state, attributes=s.attributes)
+        for eid, s in (states or {}).items()
+    }
+    return SimpleNamespace(
+        config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
+        states=SimpleNamespace(get=lambda eid: resolved_states.get(eid)),
+    )
+
+
+_TESLA_DATA = {
+    "battery_participant_name": "ev_m3p",
+    "battery_participant_capacity_kwh": 60.0,
+    "battery_participant_soc_sensor": "sensor.m3p_t_battery_level",
+    "battery_participant_power_sensor": "sensor.sigen_inverter_dc_charger_output_power",
+    "battery_participant_power_positive_is_charge": True,
+    "battery_participant_max_charge_kw": 11.0,
+    "battery_participant_max_discharge_kw": 11.0,
+    "battery_participant_min_soc_percent": 20.0,
+    "battery_participant_max_soc_percent": 95.0,
+    "battery_participant_efficiency_percent": 92.0,
+}
+
 
 ROOT = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 ENTITY = "battery_participant_available_entity"
