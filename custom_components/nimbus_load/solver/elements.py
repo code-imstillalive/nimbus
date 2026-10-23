@@ -1805,7 +1805,7 @@ class ThermalLoadConfig:
     rationale was true when written. The invariant broke because the two
     changes sat on different issues and nothing checked the claim.
 
-    `tests/test_thermal_model_divergence.py` now pins both divergences to
+    `tests/v2/forecasting/test_thermal_models.py` now pins both divergences to
     their closed forms rather than asserting an agreement that does not
     hold. Resolving #897 -- deciding whether the learned rate is NET (what
     the fitter measures) or GROSS (what this recursion assumes) -- is what
