@@ -36,6 +36,26 @@ dashboard Nimbus generates.
   A single-battery install is unchanged.
 - **A revised tab goes right beside your own tab of the same title** (#2020),
   so the two can be compared, instead of at the end of the dashboard.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 3aa1bf00**
+  (`release/0.94.485`), installed via HACS and restarted at 17:57 AEST; all 126
+  Nimbus entities carrying a version read 0.94.485, and the first solve at
+  17:58:44 was `optimal`. `sensor.nimbus_topology_config` lists the test EV
+  beside both inverters, all six controllable loads with their own Commanded
+  State and today's sensors resolved, and the Forecaster's Grid and Battery
+  sensors as `forecaster_meters`. On the Topology tab (after a hard reload):
+  the whole-house headline with daily solar, battery and load; the Grid box at
+  -11.2 kW with both signals at Role Other; the EV with its SoC; a dashed row
+  per controllable load, the one commanded on lit. The Solver tab's "Battery,
+  now" and "At a glance" show "SoC Home battery" and "SoC Test EV" in place of
+  the fleet figure. No Nimbus `ERROR` or traceback in the log after the restart
+  (the only tracebacks were the restart request's own connection closing).
+  - **Not observable on devhub:** a revised tab placed beside a household tab of
+    the same title (#2020) needs a dashboard where Nimbus finds a missing
+    standard tab; carried by #2020's tests. A browser keeps the old card until
+    the version changes or a hard reload.
+- Consumer check: display only. Topology gains the EV, controllable loads and
+  the headline with nothing to configure; a card with its own `whole_house` or
+  switchboard keeps them. A single-battery install's Solver tab is unchanged.
 
 ## [0.94.484] - 2026-10-23
 
