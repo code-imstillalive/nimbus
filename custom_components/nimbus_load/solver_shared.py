@@ -40,9 +40,8 @@ different names. An earlier draft of spec 001 had this backwards
 the theory that some test asserts on a logger's own name); peer review
 (PR #1347) actually ran that check rather than assuming it and found the
 opposite: zero tests assert a logger by name string, while four existing
-suites (`test_solver_inputs_solar.py`,
-the battery-participant suite (since retired, #1837),
-`test_solar_source_shape_and_dedup.py`,
+suites (the solar-input suite, the battery-participant suite and the
+solar source-shape suite, all since retired, #1837; and
 `test_quality_report_achieved_energy_and_reliability.py`) capture log
 lines via `assertLogs(solver_writer._LOGGER, ...)` on modules that log
 through the six `solver_inputs/*.py` files this same spec repoints onto
