@@ -1,0 +1,1530 @@
+{
+ "pr": 2027,
+ "issue": 1837,
+ "mutation": {
+  "rerun": "python scripts/mutation_compare.py --module <module> --set old=@<old_set> --set new=@<new_set> --mutants <mutants> --seed <seed>; the old set runs at old_set_commit, where its files still exist",
+  "old_set_commit": "c12e9791",
+  "areas": [
+   {
+    "module": "custom_components/nimbus_load/solver_writer.py",
+    "seed": 2310,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1098_participant_away_during_window.py",
+     "tests/test_1120_quality_history_version_stamp.py",
+     "tests/test_1120_rescore_history_persists.py",
+     "tests/test_1149_energy_decomposition.py",
+     "tests/test_1149_rescore_syncs_energy_decomposition.py",
+     "tests/test_1162_epr_reason_names_every_cause.py",
+     "tests/test_1162_history_row_carries_the_verdict.py",
+     "tests/test_1162_regret_path_delta_share.py",
+     "tests/test_1164_rescore_syncs_reliability_fields.py",
+     "tests/test_1167_rescore_publishes_the_whole_report.py",
+     "tests/test_1172_no_capacity_measurement_from_a_power_sensor.py",
+     "tests/test_1176_nowcast_skill_reason.py",
+     "tests/test_1181_home_battery_power_coverage_is_published.py",
+     "tests/test_1188_nowcast_skill_reason_mislabels_length_mismatch.py",
+     "tests/test_1192_native_managed_set_covers_every_handler.py",
+     "tests/test_1200_provisional_row_repair.py",
+     "tests/test_1208_rescore_button_costs_more_than_one_milp.py",
+     "tests/test_1214_soc_history_empty_is_not_a_score.py",
+     "tests/test_1219_1220_publisher_owned_fields.py",
+     "tests/test_1228_soc_discrepancy_compares_like_for_like.py",
+     "tests/test_1236_warns_when_p2p_committed_without_settlement_sensor.py",
+     "tests/test_1248_history_never_shrinks.py",
+     "tests/test_1259_solar_nowcast_disagreement.py",
+     "tests/test_1290_calendar_all_day_event_is_local_not_utc.py",
+     "tests/test_1292_rescore_history_version_stamp_none_guard.py",
+     "tests/test_1296_not_configured_warning_spams_on_a_self_healing_race.py",
+     "tests/test_1303_plan_assembly_extraction.py",
+     "tests/test_1306_acquire_lock_stale_pid_recovery.py",
+     "tests/test_1306_phase7a_cycle_lock_facade.py",
+     "tests/test_1310_battery_fleet_characterization.py",
+     "tests/test_1324_deleted_runtime_files_are_not_in_config.py",
+     "tests/test_1333_no_message_claims_nimbus_does_not_dispatch.py",
+     "tests/test_1357_step2_oracle_bundle_builder.py",
+     "tests/test_1396_managed_skip_streak_warning.py",
+     "tests/test_1417_period0_pin_delta_instrument.py",
+     "tests/test_1437_native_hass_has_one_stable_home.py",
+     "tests/test_1463_hold_last_quality_score.py",
+     "tests/test_1465_meter_reconciliation.py",
+     "tests/test_1477_held_value_is_not_a_coverage_gap.py",
+     "tests/test_1496_quality_report_schema_rescore.py",
+     "tests/test_1537_generic_regional_tail.py",
+     "tests/test_1537_p2p_follows_configured_blocks.py",
+     "tests/test_1537_p2p_matched_rate_fallback.py",
+     "tests/test_1537_p2p_rate_reads_intervalend.py",
+     "tests/test_1577_infeasible_pin_reports_constraint.py",
+     "tests/test_1634_live_grid_meter.py",
+     "tests/test_1634_no_record_reason_retries.py",
+     "tests/test_1654_soft_reserve.py",
+     "tests/test_1658_peak_stays_at_its_own_interval.py",
+     "tests/test_1665_load_fallback_is_no_measurement.py",
+     "tests/test_1694_offset_pairs_by_interval.py",
+     "tests/test_1715_sleeping_ev_soc_is_held.py",
+     "tests/test_1784_solar_running_low.py",
+     "tests/test_1786_retail_from_rrp.py",
+     "tests/test_1797_price_error_history.py",
+     "tests/test_1807_solar_quantiles.py",
+     "tests/test_1825_stale_price_scoring.py",
+     "tests/test_2004_open_meteo_timing.py",
+     "tests/test_467_calendar_fetch.py",
+     "tests/test_582_same_day_window_helper.py",
+     "tests/test_768_delivery_is_published_without_moving_the_score.py",
+     "tests/test_battery_energy_balance.py",
+     "tests/test_battery_energy_balance_mixed_window_confound.py",
+     "tests/test_battery_power_sign_convention.py",
+     "tests/test_blend_price_with_secondary_sources.py",
+     "tests/test_blend_price_with_secondary_sources_coverage_aware.py",
+     "tests/test_build_tiered_grid_trading_interval.py",
+     "tests/test_charge_before_block.py",
+     "tests/test_charge_by.py",
+     "tests/test_charge_taper.py",
+     "tests/test_check_aemo_p5min_disagreement.py",
+     "tests/test_commanded_state_guard_reports_its_own_failure.py",
+     "tests/test_compute_report_for_window.py",
+     "tests/test_compute_tariff_attributed_cost.py",
+     "tests/test_controllable_load_power_sensor_discovery.py",
+     "tests/test_coverage_gate_names_the_short_sensor.py",
+     "tests/test_daily_flex_report.py",
+     "tests/test_discharge_cost_is_the_setting_daytime.py",
+     "tests/test_effective_capacity_soh_derating.py",
+     "tests/test_efficiency_backtest_report.py",
+     "tests/test_energy_out_exceeds_in_on_closed_loop.py",
+     "tests/test_epr_denominator_reason.py",
+     "tests/test_fetch_price_history_and_entity_history_range.py",
+     "tests/test_fetch_solver_config.py",
+     "tests/test_import_fee_rate_generic_path.py",
+     "tests/test_init_unload_resets_solver_runtime_globals.py",
+     "tests/test_kw_scale_factor.py",
+     "tests/test_load_forecast_coverage_hours.py",
+     "tests/test_load_forecast_empty_vs_malformed.py",
+     "tests/test_load_forecast_error_notification_lifecycle.py",
+     "tests/test_load_forecast_source_used.py",
+     "tests/test_load_forecast_transient_error_classification.py",
+     "tests/test_local_hour_is_used_everywhere.py",
+     "tests/test_main_infeasible_plan_status_line.py",
+     "tests/test_main_load_forecast_startup_race.py",
+     "tests/test_near_zero_summed_load_guard.py",
+     "tests/test_nimbus_only_soc_counterfactual.py",
+     "tests/test_nonfinite_sensor_states.py",
+     "tests/test_oversize_attrs_recorder_warning.py",
+     "tests/test_p2p_block_lead_time.py",
+     "tests/test_p2p_block_minutes.py",
+     "tests/test_p2p_bonus_gate_nan_periods.py",
+     "tests/test_p2p_bonus_is_gated_to_committed_periods.py",
+     "tests/test_p2p_bonus_pricing_reaches_the_oracle.py",
+     "tests/test_p2p_settlement_status.py",
+     "tests/test_participant_power_per_row_units.py",
+     "tests/test_participant_power_sanity_bound.py",
+     "tests/test_quality_history_carry_forward.py",
+     "tests/test_quality_report_achieved_energy_and_reliability.py",
+     "tests/test_quality_report_coverage_guard.py",
+     "tests/test_quality_report_degradation_cost_parity.py",
+     "tests/test_quality_report_negative_regret_guard.py",
+     "tests/test_quality_report_p2p_fixed_export.py",
+     "tests/test_quality_report_soc_clamp.py",
+     "tests/test_read_load_forecast_sensor.py",
+     "tests/test_read_load_forecast_sensor_degenerate_zero.py",
+     "tests/test_resample_generic_price_forecast.py",
+     "tests/test_resample_history_mean_time_weighted.py",
+     "tests/test_resample_history_nearest_backfill.py",
+     "tests/test_resolve_envelope_limit_kw.py",
+     "tests/test_scheduled_discharge_cost_and_salvage_value.py",
+     "tests/test_services_register_unregister_symmetry.py",
+     "tests/test_settled_current_block_not_blended.py",
+     "tests/test_solar_delivery_ratio.py",
+     "tests/test_solar_source_shape_and_dedup.py",
+     "tests/test_solve_overlap_guard.py",
+     "tests/test_solver_inputs_battery_soc.py",
+     "tests/test_solver_inputs_load_anchor_ordering.py",
+     "tests/test_solver_inputs_solar.py",
+     "tests/test_solver_reports_extraction.py",
+     "tests/test_solver_runtime_dispatch_dry_run.py",
+     "tests/test_solver_runtime_price_latency.py",
+     "tests/test_solver_runtime_slow_cycle_diagnostics.py",
+     "tests/test_solver_runtime_startup_config_sensor_race.py",
+     "tests/test_solver_runtime_wait_for_in_flight_solve.py",
+     "tests/test_solver_shared_facade_identity.py",
+     "tests/test_solver_writer_battery_participant_history.py",
+     "tests/test_solver_writer_battery_participants.py",
+     "tests/test_solver_writer_cfg_defaults.py",
+     "tests/test_solver_writer_controllable_load_live_tuning.py",
+     "tests/test_solver_writer_fixed_daily_charge_and_self_consume_hours.py",
+     "tests/test_solver_writer_flex_signals.py",
+     "tests/test_solver_writer_household_override_visibility.py",
+     "tests/test_solver_writer_import_and_token_laziness.py",
+     "tests/test_solver_writer_local_tz_resolution.py",
+     "tests/test_solver_writer_lock_self_pid.py",
+     "tests/test_solver_writer_max_discharge_resolve.py",
+     "tests/test_solver_writer_min_soc_floor.py",
+     "tests/test_solver_writer_native_managed_fallback_skip.py",
+     "tests/test_solver_writer_offer_curve_ranging.py",
+     "tests/test_solver_writer_parse_iso_naive_timestamps.py",
+     "tests/test_solver_writer_price_spike_override.py",
+     "tests/test_solver_writer_safe_num.py",
+     "tests/test_solver_writer_smoothness_and_proximal_weight_wiring.py",
+     "tests/test_speed_followup_replan.py",
+     "tests/test_spike_export_ceiling_ahead.py",
+     "tests/test_spike_night_block_floor.py",
+     "tests/test_sum_load_forecasts.py",
+     "tests/test_weather_forecast_mirror.py"
+    ],
+    "new_set": [
+     "tests/test_golden_master.py",
+     "tests/v2/orchestration"
+    ],
+    "old_killed": 8,
+    "new_killed": 20,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 1316: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 4166: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "constant",
+      "where": "line 9285: 0 -> 1",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 4636: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "compare",
+      "where": "line 4054: Gt -> GtE",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 2444: 0 -> 1",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 5485: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 6620: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "compare",
+      "where": "line 4083: Gt -> GtE",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "compare",
+      "where": "line 1292: GtE -> Gt",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 2482: Div -> Mult",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 9627: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 3209: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 2611: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 3149: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 2418: 0 -> 1",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 3003: 3 -> 6",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 7076: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "compare",
+      "where": "line 4636: Lt -> LtE",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "compare",
+      "where": "line 2924: LtE -> Lt",
+      "old": "survived",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/ml/model.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/device_contract/test_dc006_forecast_capture.py",
+     "tests/test_1195_weather_forecast_startup_race.py",
+     "tests/test_1217_retrain_is_staggered.py",
+     "tests/test_1295_forecast_snapshot_store_reread_every_cycle.py",
+     "tests/test_1475_coordinator_skips_refresh_while_stopping.py",
+     "tests/test_1540_feature_never_own_source.py",
+     "tests/test_1556_change_only_history.py",
+     "tests/test_1562_energy_unit_power_inputs.py",
+     "tests/test_1566_forecaster_covers_solver_horizon.py",
+     "tests/test_1575_deterministic_load_without_model.py",
+     "tests/test_1835_load_band_never_negative.py",
+     "tests/test_937_forecast_snapshot_store.py",
+     "tests/test_937_publish_forecast_regret.py",
+     "tests/test_coordinator_diagnostics_schema_stale_and_retrain_error.py",
+     "tests/test_coordinator_helpers.py",
+     "tests/test_coordinator_load_model_from_disk_robustness.py",
+     "tests/test_coordinator_lts_hybrid_training.py",
+     "tests/test_coordinator_persisted_model_degrades_never_crashes.py",
+     "tests/test_coordinator_residual_drift_wiring.py",
+     "tests/test_coordinator_retrain_all_feature_sources.py",
+     "tests/test_coordinator_retrain_failure_visibility.py",
+     "tests/test_coordinator_retrain_task_idempotent.py",
+     "tests/test_coordinator_setup_does_not_block_on_retrain.py",
+     "tests/test_coordinator_setup_registers_unload_safety_net.py",
+     "tests/test_coordinator_signal_role_convert_power.py",
+     "tests/test_coordinator_temperature_forecast.py",
+     "tests/test_forecast_grid_on_clock.py",
+     "tests/test_ml_blend.py",
+     "tests/test_solver_writer_controllable_loads.py",
+     "tests/test_solver_writer_thermal_load_resolution.py",
+     "tests/test_thermal_forecast.py",
+     "tests/test_thermal_model_divergence.py"
+    ],
+    "new_set": [
+     "tests/v2/forecasting"
+    ],
+    "old_killed": 5,
+    "new_killed": 7,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 2137: 2.0 -> 4.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "binop",
+      "where": "line 667: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 973: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 486: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "binop",
+      "where": "line 1931: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 1083: 1e-09 -> 2e-09",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 2137: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 1297: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "compare",
+      "where": "line 1942: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 1652: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 739: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "boolop",
+      "where": "line 1941: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 2068: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 2107: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "compare",
+      "where": "line 2078: Eq -> NotEq",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 1862: 0 -> 1",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "binop",
+      "where": "line 1996: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 963: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "compare",
+      "where": "line 547: Gt -> GtE",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 957: 5 -> 10",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/sensor.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1141_flex_signals_parent_payload_reaches_diagnostics.py",
+     "tests/test_1250_rescore_service_date_validation.py",
+     "tests/test_1253_currency_comes_from_hass_config.py",
+     "tests/test_1256_version_stamp_travels_with_the_computation.py",
+     "tests/test_1293_number_entities_hardcode_currency_symbol.py",
+     "tests/test_1314_thermal_band_mode_presets.py",
+     "tests/test_1376_rescore_history_survives_unload.py",
+     "tests/test_1405_reap_stale_worktrees.py",
+     "tests/test_1550_pricing_source_select.py",
+     "tests/test_1574_setup_health.py",
+     "tests/test_1581_pd7day_pricing_adapter.py",
+     "tests/test_1643_non_power_units.py",
+     "tests/test_1653_p5min.py",
+     "tests/test_1654_dispatch_hold.py",
+     "tests/test_1657_detailed_forecast.py",
+     "tests/test_1657_detailed_forecast_offsets.py",
+     "tests/test_1661_frozen_price_inputs.py",
+     "tests/test_1778_dispatch_rhs.py",
+     "tests/test_1778_p5min_false_spike.py",
+     "tests/test_1778_rule_d_control_room_rhs.py",
+     "tests/test_1786_price_consolidation.py",
+     "tests/test_1797_stochastic_dispatch.py",
+     "tests/test_1797_stochastic_visibility.py",
+     "tests/test_1800_placeholder_settings_repairs.py",
+     "tests/test_1800_wizard_asks_battery_numbers.py",
+     "tests/test_1998_whole_house_repair.py",
+     "tests/test_495_flex_telemetry_service.py",
+     "tests/test_496_flex_and_offer_curve_diagnostics.py",
+     "tests/test_496_last_record_reaches_diagnostics.py",
+     "tests/test_auto_include_solar_first_default.py",
+     "tests/test_clean_install_topology_and_soc.py",
+     "tests/test_diagnostics.py",
+     "tests/test_docs_every_number_setting_listed.py",
+     "tests/test_entities_doc_references_exist.py",
+     "tests/test_flattened_sensor_nimbus_version_gap.py",
+     "tests/test_flattened_state_length_guard.py",
+     "tests/test_forecast_sensor_lts_unit_remediation.py",
+     "tests/test_ha_call_service_with_response.py",
+     "tests/test_health_log_buffer.py",
+     "tests/test_household_mode_presets.py",
+     "tests/test_init_cron_suppression.py",
+     "tests/test_init_p2p_block_start_solve.py",
+     "tests/test_number_controllable_load_tuning.py",
+     "tests/test_number_self_consume_hours_one_time_change.py",
+     "tests/test_number_solver_settings.py",
+     "tests/test_number_stale_devices_cleanup.py",
+     "tests/test_participant_availability_states.py",
+     "tests/test_plan_failing_repair.py",
+     "tests/test_push_sensor_publishes_its_version.py",
+     "tests/test_push_sensor_restore_across_restart.py",
+     "tests/test_quality_report_attribute_size_budget.py",
+     "tests/test_regional_forecast_repair.py",
+     "tests/test_select_household_mode.py",
+     "tests/test_sensor_commanded_state_entity_id_migration.py",
+     "tests/test_sensor_controllable_load_schedule.py",
+     "tests/test_sensor_controllable_load_state.py",
+     "tests/test_sensor_flattened.py",
+     "tests/test_sensor_flattened_device_class_rules.py",
+     "tests/test_sensor_forecast_source_availability_debounce.py",
+     "tests/test_sensor_forecast_unrecorded_attributes.py",
+     "tests/test_sensor_health_report.py",
+     "tests/test_sensor_mirror_forecast_entities.py",
+     "tests/test_sensor_push_availability.py",
+     "tests/test_sensor_signal_role_attribute.py",
+     "tests/test_sensor_solver_config_entity_registry_resolution.py",
+     "tests/test_sensor_solver_config_flap.py",
+     "tests/test_sensor_solver_config_keys.py",
+     "tests/test_sensor_solver_push_entities.py",
+     "tests/test_sensor_status.py",
+     "tests/test_sensor_topology_config.py",
+     "tests/test_services.py",
+     "tests/test_services_set_controllable_load.py",
+     "tests/test_solver_push_attribute_size_budget.py",
+     "tests/test_stale_devices_cleanup.py",
+     "tests/test_switch_solver_toggle.py",
+     "tests/test_thermal_published_attributes.py"
+    ],
+    "new_set": [
+     "tests/v2/entities"
+    ],
+    "old_killed": 11,
+    "new_killed": 15,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "boolop",
+      "where": "line 3240: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 731: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 765: Eq -> NotEq",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "compare",
+      "where": "line 2911: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 3247: 3 -> 6",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 3378: 0.9 -> 1.8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "compare",
+      "where": "line 1381: NotEq -> Eq",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 800: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "compare",
+      "where": "line 3652: Lt -> LtE",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "compare",
+      "where": "line 3274: NotEq -> Eq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 3246: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 2497: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 1309: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 3928: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 2963: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "boolop",
+      "where": "line 2502: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "boolop",
+      "where": "line 2372: Or -> And",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "compare",
+      "where": "line 3262: Gt -> GtE",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 3378: 1 -> 2",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 2497: Div -> Mult",
+      "old": "survived",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/pricing_autodetect.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/device_contract/test_dc002_bindings_and_normalisation.py",
+     "tests/device_contract/test_dc006_units.py",
+     "tests/device_contract/test_legacy_characterisation.py",
+     "tests/test_1067_energy_dashboard_inherits_solver_sources.py",
+     "tests/test_1067_optional_fields_collapse_behind_advanced.py",
+     "tests/test_1067_suggestions_reach_the_form_they_are_wired_to.py",
+     "tests/test_1213_price_event_simulation.py",
+     "tests/test_1253_wizard_labels_use_the_household_currency.py",
+     "tests/test_1550_localvolts_v2_autodetect.py",
+     "tests/test_1570_power_units.py",
+     "tests/test_1574_device_resolver.py",
+     "tests/test_1574_setup_builder.py",
+     "tests/test_1578_aemo_nem_pricing_adapter.py",
+     "tests/test_1579_amber_core_pricing_adapter.py",
+     "tests/test_1580_amber_express_pricing_adapter.py",
+     "tests/test_1583_openadr_pricing_adapter.py",
+     "tests/test_1589_energy_prefs_unified_grid.py",
+     "tests/test_1643_refuse_non_power_units.py",
+     "tests/test_1686_pricing_suggestions_need_confirmation.py",
+     "tests/test_1994_known_sources.py",
+     "tests/test_467_participant_calendar_fields.py",
+     "tests/test_autodetect_extra_price_sources.py",
+     "tests/test_config_flow.py",
+     "tests/test_flows_battery_participant_subentry.py",
+     "tests/test_flows_battery_tower_subentry.py",
+     "tests/test_flows_controllable_load_subentry.py",
+     "tests/test_flows_duplicate_source_sensor.py",
+     "tests/test_flows_hub_options.py",
+     "tests/test_flows_load_subentry.py",
+     "tests/test_flows_power_source_subentry.py",
+     "tests/test_flows_pv_string_subentry.py",
+     "tests/test_flows_signal_subentry.py",
+     "tests/test_flows_subentry_optional_defaults.py",
+     "tests/test_nem_region.py",
+     "tests/test_translations_completeness.py"
+    ],
+    "new_set": [
+     "tests/v2/setup"
+    ],
+    "old_killed": 10,
+    "new_killed": 10,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 676: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 156: NotEq -> Eq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 783: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "boolop",
+      "where": "line 617: And -> Or",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 202: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "compare",
+      "where": "line 676: Eq -> NotEq",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 601: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "compare",
+      "where": "line 157: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "boolop",
+      "where": "line 877: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 714: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 762: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 663: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "compare",
+      "where": "line 664: Eq -> NotEq",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "boolop",
+      "where": "line 640: And -> Or",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "constant",
+      "where": "line 309: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "binop",
+      "where": "line 675: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "compare",
+      "where": "line 789: NotEq -> Eq",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "boolop",
+      "where": "line 559: And -> Or",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "boolop",
+      "where": "line 405: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 279: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_publish.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/device_contract/test_dc006_forecaster_inputs.py",
+     "tests/device_contract/test_dc006_observation_capture.py",
+     "tests/regression/test_flow_invariants.py",
+     "tests/test_1081_epr_repriced_through_evaluator.py",
+     "tests/test_1161_stale_power_history_is_not_throughput.py",
+     "tests/test_1302_controllable_loads_extraction.py",
+     "tests/test_1355_quality_history_store.py",
+     "tests/test_1357_oracle_controllable_loads.py",
+     "tests/test_1468_quality_history_fingerprint_misses_hourly_changes.py",
+     "tests/test_1480_curtailment_explains_path_delta.py",
+     "tests/test_1537_price_sensor_units.py",
+     "tests/test_1654_period0_hysteresis.py",
+     "tests/test_1656_pd7day_gap_is_not_free_energy.py",
+     "tests/test_1657_decision_inputs.py",
+     "tests/test_1698_amber_same_poll_spot.py",
+     "tests/test_1749_forecast_bias_tool.py",
+     "tests/test_1786_decision_input_source_series.py",
+     "tests/test_1793_price_freshness.py",
+     "tests/test_1797_stochastic_replay.py",
+     "tests/test_489_flex_ranging_once_per_interval.py",
+     "tests/test_495_flex_telemetry_record.py",
+     "tests/test_768_controllable_load_delivery_reconstruction.py",
+     "tests/test_absorb_surplus.py",
+     "tests/test_aemo_crosscheck.py",
+     "tests/test_anomaly_residual_drift.py",
+     "tests/test_command_divergence_detector.py",
+     "tests/test_cost_band.py",
+     "tests/test_cost_breakdown_reconciliation.py",
+     "tests/test_daily_quality_report.py",
+     "tests/test_dispatch_source_breakdown.py",
+     "tests/test_done_condition.py",
+     "tests/test_dst_wall_clock_arithmetic.py",
+     "tests/test_epr_denominator_boundary_operator_mismatch.py",
+     "tests/test_export_floor.py",
+     "tests/test_fixed_daily_charge_is_not_one_households.py",
+     "tests/test_flow_decomposition.py",
+     "tests/test_forecast_regret_level_vs_shape.py",
+     "tests/test_forecast_regret_near_zero_load_guard.py",
+     "tests/test_jstar_path_delta.py",
+     "tests/test_load_forecast_energy_summary.py",
+     "tests/test_load_run_state.py",
+     "tests/test_load_run_state_coordinator.py",
+     "tests/test_load_run_state_reaffirm.py",
+     "tests/test_main_golden_output_guardrail.py",
+     "tests/test_main_p2p_pin_binding_label.py",
+     "tests/test_main_report_failures_never_break_the_solve.py",
+     "tests/test_provisional_score_is_rescored.py",
+     "tests/test_quality_report_fleet_blended_soc.py",
+     "tests/test_quality_report_hour_folding.py",
+     "tests/test_quality_report_jref_export_bonus.py",
+     "tests/test_quality_report_oracle_contains_achieved.py",
+     "tests/test_quality_report_oracle_soft_floor_recovery.py",
+     "tests/test_quality_report_skip_logging.py",
+     "tests/test_reaffirm_cap_exhaustion_is_silent.py",
+     "tests/test_reference_benchmark.py",
+     "tests/test_regret_degradation_cost.py",
+     "tests/test_regret_evaluate_realized_cost_multi.py",
+     "tests/test_solver_backtest.py",
+     "tests/test_solver_contract_risk.py",
+     "tests/test_solver_counterfactuals.py",
+     "tests/test_solver_forecast_regret.py",
+     "tests/test_solver_modes.py",
+     "tests/test_solver_nowcast_skill.py",
+     "tests/test_solver_oracle_dispatch_multi.py",
+     "tests/test_solver_publish_household_load_total.py",
+     "tests/test_solver_rolling.py",
+     "tests/test_solver_stochastic.py",
+     "tests/test_solver_stochastic_p2p.py",
+     "tests/test_solver_stochastic_p2p_cap_branch_day.py",
+     "tests/test_solver_stochastic_soft_soc_and_combined_caps.py",
+     "tests/test_solver_writer_binding_constraint_label.py",
+     "tests/test_solver_writer_fixed_export_charge_clamp.py",
+     "tests/test_solver_writer_load_previous_plan.py",
+     "tests/test_solver_writer_per_battery_forecast.py",
+     "tests/test_solver_writer_risk_aversion_effect.py",
+     "tests/test_whole_house_live_load_diagnostic.py"
+    ],
+    "new_set": [
+     "tests/test_golden_master.py",
+     "tests/v2/reports"
+    ],
+    "old_killed": 8,
+    "new_killed": 10,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 2357: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 3185: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 297: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 1916: 1 -> 2",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 2891: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 159: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 2287: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 1325: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 923: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 762: Sub -> Add",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 2599: 24.0 -> 48.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 215: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 158: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 1725: 3 -> 6",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "compare",
+      "where": "line 1731: Gt -> GtE",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 2820: 2 -> 4",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 2479: 3 -> 6",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 1191: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 2968: 1 -> 2",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "boolop",
+      "where": "line 2083: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_dispatch/guard.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_writer_controllable_loads.py"
+    ],
+    "new_set": [
+     "tests/v2/orchestration/test_dispatch.py",
+     "tests/v2/orchestration/test_controllable_load_build.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 10,
+    "new_killed": 12,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "boolop",
+      "where": "line 852: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 151: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 319: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 957: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 1017: 4 -> 8",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 352: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 782: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 431: Mult -> Div",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 723: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 930: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 724: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 856: 3 -> 6",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "compare",
+      "where": "line 715: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "boolop",
+      "where": "line 915: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "boolop",
+      "where": "line 802: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "compare",
+      "where": "line 915: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 1053: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "boolop",
+      "where": "line 827: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 319: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 325: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/controllable_loads.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_writer_controllable_loads.py"
+    ],
+    "new_set": [
+     "tests/v2/orchestration/test_dispatch.py",
+     "tests/v2/orchestration/test_controllable_load_build.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 7,
+    "new_killed": 11,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 442: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 783: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 117: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 1308: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 516: And -> Or",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 1064: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 1279: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 1000: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 431: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 339: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 782: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 192: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "boolop",
+      "where": "line 1188: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 884: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "boolop",
+      "where": "line 976: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "compare",
+      "where": "line 815: LtE -> Lt",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 1052: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 1169: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "binop",
+      "where": "line 1225: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "boolop",
+      "where": "line 815: Or -> And",
+      "old": "survived",
+      "new": "killed"
+     }
+    ]
+   }
+  ],
+  "old_only_replayed_at_head": {
+   "how": "scripts/mutation_compare.py --only <mutant>, same seed and count, at this PR's head",
+   "rows": [
+    {
+     "module": "custom_components/nimbus_load/sensor.py",
+     "mutant": 3,
+     "where": "line 765: Eq -> NotEq",
+     "new_set": "tests/v2/entities",
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/sensor.py",
+     "mutant": 17,
+     "where": "line 2372: Or -> And",
+     "new_set": "tests/v2/entities",
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/pricing_autodetect.py",
+     "mutant": 4,
+     "where": "line 617: And -> Or",
+     "new_set": "tests/v2/setup",
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/pricing_autodetect.py",
+     "mutant": 14,
+     "where": "line 640: And -> Or",
+     "new_set": "tests/v2/setup",
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/solver_publish.py",
+     "mutant": 10,
+     "where": "line 762: Sub -> Add",
+     "new_set": "tests/v2/orchestration",
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/solver_publish.py",
+     "mutant": 15,
+     "where": "line 1731: Gt -> GtE",
+     "new_set": "tests/v2/orchestration",
+     "result": "killed"
+    }
+   ]
+  }
+ },
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before c12e9791 --retired @<the Deletes: lines of this PR's body>",
+  "before": "c12e9791",
+  "retired_files": 181,
+  "retired_lines_reached": 22283,
+  "kept_lines_reached": 38895,
+  "lost_line_count": 0,
+  "lost_lines": {}
+ }
+}

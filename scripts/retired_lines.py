@@ -162,11 +162,18 @@ def main() -> int:
                 (ROOT / p).unlink()
 
         kept, gone = _lines(combined), _lines(old)
+    reached = sum(len(v) for v in gone.values())
+    if not reached:
+        # A retired set that ran nothing would report "no line lost".
+        print(json.dumps({"error": "the retired files reached no line"}))
+        return 3
     lost = {m: sorted(gone[m] - kept.get(m, set())) for m in sorted(gone)}
     lost = {m: v for m, v in lost.items() if v}
     result = {
         "before": a.before,
         "retired_files": len(retired),
+        "retired_lines_reached": reached,
+        "kept_lines_reached": sum(len(v) for v in kept.values()),
         "lost_line_count": sum(len(v) for v in lost.values()),
         "lost_lines": lost,
     }
