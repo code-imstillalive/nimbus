@@ -89,8 +89,11 @@ from .const import (
     CONF_CONTROLLABLE_LOAD_KIND,
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+    CONF_CONTROLLABLE_LOAD_NAME,
+    CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DONE_ENTITY,
     CONF_DEFERRABLE_DONE_WHEN,
+    CONF_DEFERRABLE_MAX_POWER_KW,
     CONF_GRID_SENSOR,
     CONF_HOUSEHOLD_MODE,
     CONF_LOAD_SENSOR,
@@ -2970,6 +2973,49 @@ class NimbusTopologyConfigSensor(SensorEntity):
         separately."""
         return len(self._topology_lists()[0])
 
+    def _controllable_loads(self) -> list[dict]:
+        """One entry per controllable_load subentry, with the entity_ids of
+        its own Commanded State / Status / today's planned, delivered and
+        target sensors, resolved through the registry by unique_id.
+
+        Household, 23 Oct 2026 (clean install): the Topology card lists
+        every `load` subentry from its forecast sensor, but a controllable
+        load publishes no forecast, so a heat pump, pool pump or HWS under
+        Nimbus's control was missing from the diagram altogether."""
+        hass = getattr(self, "hass", None)
+        registry = er.async_get(hass) if hass is not None else None
+
+        def entity(subentry_id: str, suffix: str) -> str | None:
+            if registry is None:
+                return None
+            found = registry.async_get_entity_id(
+                "sensor", DOMAIN, f"{subentry_id}_{suffix}"
+            )
+            return found if isinstance(found, str) else None
+
+        out: list[dict] = []
+        for subentry in self._entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
+                continue
+            data = subentry.data
+            sid = subentry.subentry_id
+            out.append(
+                {
+                    "subentry_id": sid,
+                    "name": data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.title,
+                    "device_entity": data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
+                    "power_sensor": data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR),
+                    "max_power_kw": data.get(CONF_DEFERRABLE_MAX_POWER_KW),
+                    "commanded_state": entity(sid, "commanded_state"),
+                    "status": entity(sid, "status"),
+                    "planned_today": entity(sid, "planned_today"),
+                    "delivered_today": entity(sid, "delivered_today"),
+                    "target_today": entity(sid, "target_today"),
+                }
+            )
+        out.sort(key=lambda c: str(c["name"]))
+        return out
+
     @property
     def extra_state_attributes(self) -> dict:
         power_sources, pv_strings, battery_towers = self._topology_lists()
@@ -2977,6 +3023,7 @@ class NimbusTopologyConfigSensor(SensorEntity):
             "power_sources": power_sources,
             "pv_strings": pv_strings,
             "battery_towers": battery_towers,
+            "controllable_loads": self._controllable_loads(),
             "switchboard": {k: self._entry.options.get(k) for k in _SWITCHBOARD_KEYS},
         }
 

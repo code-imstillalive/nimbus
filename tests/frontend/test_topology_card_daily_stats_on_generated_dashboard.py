@@ -59,3 +59,16 @@ def test_it_applies_only_when_the_card_yaml_has_no_block() -> None:
     assert applied, "the derived headline must not override a YAML whole_house"
     # And it is in place before the header is drawn from cfg.whole_house.
     assert applied.start() < SRC.index("const wh = cfg.whole_house;")
+
+
+def test_controllable_loads_get_their_own_rows() -> None:
+    """Household, 23 Oct 2026: controllable loads were missing from the
+    diagram. They come from sensor.nimbus_topology_config's
+    controllable_loads list and are drawn after the forecast loads."""
+    assert "topoAttrs.controllable_loads" in _method("_discoverControllableLoads")
+    assert "this._discoverControllableLoads(topoAttrs)" in SRC
+    tile = _method("_controllableTile")
+    for key in ("commanded_state", "delivered_today", "target_today", "power_sensor"):
+        assert f"ctrl.{key}" in tile
+    # The load column (and so the bus) is tall enough for both lists.
+    assert "(loads.length + ctrlLoads.length) * (tileH + tileGap)" in SRC

@@ -410,6 +410,16 @@ class TopologyCard extends HTMLElement {
     return loads;
   }
 
+  // Household, 23 Oct 2026 (clean install): a controllable load (heat
+  // pump, pool pump, HWS under Nimbus's control) publishes no forecast
+  // sensor, so _discoverLoads() never found it and the diagram left it out.
+  // sensor.nimbus_topology_config lists each one with the entity_ids of its
+  // own Commanded State and today's delivered / target sensors.
+  _discoverControllableLoads(topoAttrs) {
+    const list = (topoAttrs && topoAttrs.controllable_loads) || [];
+    return list.filter((c) => c && (c.commanded_state || c.power_sensor || c.device_entity));
+  }
+
   // Auto-discovers the Grid and Battery Power Signal's real live sensor
   // (2026-08-23, nimbus v0.72.0's explicit signal_role attribute -- see
   // that project's own const.py comment on CONF_SIGNAL_ROLE for why
@@ -767,6 +777,47 @@ class TopologyCard extends HTMLElement {
     group.appendChild(statEl);
 
     return { group, cx: x, cy: y, healthy };
+  }
+
+  // One controllable load: its name, what Nimbus has commanded now (and its
+  // live power where the household set a power sensor), and today's
+  // delivered against target. Active (lit) while commanded on.
+  _controllableTile(x, y, w, h, ctrl) {
+    const cmd = this._entityState(ctrl.commanded_state);
+    const power = ctrl.power_sensor ? this._entityState(ctrl.power_sensor) : undefined;
+    const delivered = this._entityState(ctrl.delivered_today);
+    const target = this._entityState(ctrl.target_today);
+    const cmdText = cmd && cmd.state !== "unavailable" && cmd.state !== "unknown" ? cmd.state : null;
+    const healthy = cmdText !== null;
+    const active = cmdText === "on";
+    const color = !healthy ? COLORS.unavailable : active ? COLORS.load : COLORS.textDim;
+    const num = (st) => (st && !Number.isNaN(parseFloat(st.state)) ? parseFloat(st.state) : null);
+    const d = num(delivered), t = num(target);
+    const today = d !== null && t !== null ? `${d.toFixed(1)}/${t.toFixed(1)} kWh` : d !== null ? `${d.toFixed(1)} kWh` : "";
+    const value = power ? fmtValue(power).text : cmdText ? cmdText.toUpperCase() : "—";
+
+    const group = svgEl("g", {});
+    group.appendChild(svgEl("rect", {
+      x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 7,
+      fill: "#161619", stroke: color, "stroke-width": active ? 1.8 : 1.2,
+      "stroke-dasharray": "4 2", opacity: active ? 1 : 0.5,
+      class: active ? "glow" : "",
+    }));
+    if (active) group.appendChild(fillOverlay(x, y, w, h, 7, color));
+    group.appendChild(svgEl("circle", {
+      cx: x - w / 2 + 6, cy: y, r: 4,
+      fill: healthy ? COLORS.healthy : COLORS.unhealthy,
+    }));
+    const nameEl = svgEl("text", { x: x - w / 2 + 15, y: y + 2.5, class: "node-label", style: `fill:${COLORS.text}` });
+    nameEl.textContent = ctrl.name;
+    group.appendChild(nameEl);
+    const valueEl = svgEl("text", { x: x + w / 2 - 70, y: y + 3, "text-anchor": "end", class: "node-value-big", style: `fill:${color}` });
+    valueEl.textContent = value;
+    group.appendChild(valueEl);
+    const todayEl = svgEl("text", { x: x + w / 2 - 4, y: y + 3, "text-anchor": "end", class: "node-value-sub", style: `fill:${COLORS.textDim}` });
+    todayEl.textContent = today;
+    group.appendChild(todayEl);
+    return { group, active };
   }
 
   _loadTile(x, y, w, h, load, failedForecasts) {
@@ -1214,6 +1265,7 @@ class TopologyCard extends HTMLElement {
     // extended to cover the full load-list height, since every load is
     // literally directly wired to the switchboard in reality. ----
     const loads = this._discoverLoads();
+    const ctrlLoads = this._discoverControllableLoads(topoAttrs);
     const tileW = 300, tileH = 20, tileGap = 4;
     // busX must clear the widest battery row too, not just a fixed margin
     // off the inverter bar -- this exact bug (bus rendering on top of the
@@ -1228,7 +1280,7 @@ class TopologyCard extends HTMLElement {
     const busX = Math.max(invX + invBarW / 2 + 680, maxBatteryRightEdge + 170);
     const loadX0 = busX + 260;
     const loadsTop = rowTop;
-    const loadsBottom = loadsTop + loads.length * (tileH + tileGap) - tileGap;
+    const loadsBottom = loadsTop + (loads.length + ctrlLoads.length) * (tileH + tileGap) - tileGap;
 
     // ---- Switchboard bus: spans whichever is taller, the inverter zone
     // or the loads column, so every element on either side can tap it
@@ -1309,6 +1361,12 @@ class TopologyCard extends HTMLElement {
     loads.forEach((load, i) => {
       const ly = loadsTop + i * (tileH + tileGap);
       const tile = this._loadTile(loadX0 + tileW / 2, ly, tileW, tileH, load, failedForecasts);
+      lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
+      nodes.push(tile.group);
+    });
+    ctrlLoads.forEach((ctrl, j) => {
+      const ly = loadsTop + (loads.length + j) * (tileH + tileGap);
+      const tile = this._controllableTile(loadX0 + tileW / 2, ly, tileW, tileH, ctrl);
       lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
       nodes.push(tile.group);
     });

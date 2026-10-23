@@ -153,3 +153,50 @@ def test_the_glance_ring_follows_the_same_rule() -> None:
     assert "battery_0_soc_pct" not in ring(1)
     assert "current_soc_pct" not in ring(2)
     assert "battery_0_soc_pct" in ring(2) and "battery_1_soc_pct" in ring(2)
+
+
+def test_controllable_loads_are_listed_with_their_own_entities() -> None:
+    """Household, 23 Oct 2026: a heat pump or pool pump under Nimbus's
+    control was missing from the Topology card (it publishes no forecast,
+    the only thing the card listed loads by)."""
+    from custom_components.nimbus_load.const import (
+        CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+        CONF_CONTROLLABLE_LOAD_NAME,
+        CONF_DEFERRABLE_MAX_POWER_KW,
+        SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+    )
+
+    s = _sensor_with_hass(
+        _fake_entry(
+            {
+                "pp": _fake_subentry(
+                    "pp",
+                    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+                    {
+                        CONF_CONTROLLABLE_LOAD_NAME: "Pool Pump",
+                        CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: "switch.pool_pump",
+                        CONF_DEFERRABLE_MAX_POWER_KW: 1.5,
+                    },
+                )
+            },
+            {},
+        )
+    )
+    registered = {
+        "pp_commanded_state": "sensor.nimbus_pool_pump_commanded_state",
+        "pp_delivered_today": "sensor.nimbus_pool_pump_delivered_today",
+        "pp_target_today": "sensor.nimbus_pool_pump_target_today",
+    }
+    with patch.object(sensor.er, "async_get") as mock_async_get:
+        mock_async_get.return_value.async_get_entity_id.side_effect = (
+            lambda _domain, _platform, uid: registered.get(uid)
+        )
+        attrs = s.extra_state_attributes
+    (load,) = attrs["controllable_loads"]
+    assert load["name"] == "Pool Pump"
+    assert load["device_entity"] == "switch.pool_pump"
+    assert load["max_power_kw"] == 1.5
+    assert load["commanded_state"] == "sensor.nimbus_pool_pump_commanded_state"
+    assert load["delivered_today"] == "sensor.nimbus_pool_pump_delivered_today"
+    assert load["target_today"] == "sensor.nimbus_pool_pump_target_today"
+    assert load["status"] is None  # not registered here: unresolved, not guessed
