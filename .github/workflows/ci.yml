@@ -446,7 +446,7 @@ jobs:
       # can detach a patch from its reader is one that moves shipped code, so
       # that is where a full comparison earns its runtime.
       #
-      # CANARY mode otherwise: one file, ~20 live patch sites, ~3 minutes. It
+      # CANARY mode otherwise: one file, 28 live patch sites, ~3 minutes. It
       # does NOT check this PR for regressions, and its own log says so in
       # those words. What it checks is that the gate still MEASURES -- the
       # exact property that was broken twice (#1400: reported OK having
@@ -490,7 +490,7 @@ jobs:
           python tests/gates/noop_patches.py \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
-            --tests tests/test_compute_report_for_window.py \
+            --tests tests/test_price_watcher.py \
             --report-untracked
 
   # HACS validation and Add-on build are deferred until #48 (Dockerfile

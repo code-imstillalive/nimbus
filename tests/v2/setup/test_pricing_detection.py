@@ -393,6 +393,20 @@ def test_empty_fields_with_a_provider_installed_point_at_review_suggestions(worl
     assert pa.NOTIFY_AMBER_EXPRESS_DETECTED_ID not in notices  # one provider at a time
 
 
+def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
+    profile = _localvolts(world)
+    _first, *rest = profile
+    partly = _notices(world, {f: profile[f] for f in rest})
+    assert f"1 of Nimbus's {len(pa.LV_V2_PROFILE)}" in partly[pa.NOTIFY_DETECTED_ID]
+    world.calls.clear()
+    assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
+
+
+def test_an_openadr_price_on_a_side_already_chosen_is_not_reported(world):
+    world.add(pi.OPENADR_DOMAIN, "sensor.adr", "ven_price")
+    assert pa.NOTIFY_OPENADR_DETECTED_ID not in _notices(world, {IMPORT: "sensor.adr"})
+
+
 @pytest.mark.parametrize(
     ("domain", "uids", "notice"),
     [
