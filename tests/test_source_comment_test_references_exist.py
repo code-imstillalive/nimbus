@@ -8,8 +8,8 @@ guard for the flagship push sensors: `sensor.py` said
     to_dict() can produce is in this frozenset
 
 and no such file has ever existed. The guard it describes is real and
-does exactly that -- it just lives in
-`test_sensor_forecast_unrecorded_attributes.py`. An audit of the whole
+does exactly that -- it lived in the unrecorded-attributes tests (since
+#1837, `tests/v2/entities/test_controllable_load_sensors.py`). An audit of the whole
 integration then turned up a second one: `solver/elements.py` credited
 the exactly-100%-efficiency rejection to `test_network_synthetic.py`,
 which is also gone (the check lives in
@@ -172,7 +172,8 @@ class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
         attached rather than as an anonymous entry in the sweep above."""
         existing = _existing_test_filenames()
         for expected in (
-            "test_sensor_forecast_unrecorded_attributes.py",
+            # The guard moved to tests/v2 with #1837.
+            "test_controllable_load_sensors.py",
             "test_elements_battery_config_validation.py",
         ):
             with self.subTest(expected):
