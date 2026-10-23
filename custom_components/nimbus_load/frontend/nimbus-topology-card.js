@@ -410,6 +410,16 @@ class TopologyCard extends HTMLElement {
     return loads;
   }
 
+  // Household, 23 Oct 2026 (clean install): a controllable load (heat
+  // pump, pool pump, HWS under Nimbus's control) publishes no forecast
+  // sensor, so _discoverLoads() never found it and the diagram left it out.
+  // sensor.nimbus_topology_config lists each one with the entity_ids of its
+  // own Commanded State and today's delivered / target sensors.
+  _discoverControllableLoads(topoAttrs) {
+    const list = (topoAttrs && topoAttrs.controllable_loads) || [];
+    return list.filter((c) => c && (c.commanded_state || c.power_sensor || c.device_entity));
+  }
+
   // Auto-discovers the Grid and Battery Power Signal's real live sensor
   // (2026-08-23, nimbus v0.72.0's explicit signal_role attribute -- see
   // that project's own const.py comment on CONF_SIGNAL_ROLE for why
@@ -463,6 +473,28 @@ class TopologyCard extends HTMLElement {
       import: attrs.solver_import_price_sensor || null,
       export: attrs.solver_export_price_sensor || null,
     };
+  }
+
+  // The whole-house headline and its daily solar / battery / load stats
+  // drew only when the card's own YAML carried a `whole_house` block, and
+  // the dashboard Nimbus generates never writes one: a clean install showed
+  // none of them although the Switchboard daily sensors were configured.
+  // The Solver config already names the whole-house meter and its forecast,
+  // so the headline is taken from there; a card's own block still wins.
+  // null when the Solver names neither and no daily figure is configured.
+  _discoverWholeHouseFromSolverConfig(switchboard) {
+    const state = this._hass.states["sensor.nimbus_solver_config"];
+    const attrs = (state && state.attributes) || {};
+    const live = attrs.solver_whole_house_cross_check_sensor || null;
+    const forecast = attrs.solver_load_forecast_sensor || null;
+    const sb = switchboard || {};
+    const anyDaily =
+      sb.house_load_energy_daily ||
+      sb.solar_energy_daily ||
+      sb.battery_charge_daily ||
+      sb.battery_discharge_daily;
+    if (!live && !forecast && !anyDaily) return null;
+    return { live, forecast };
   }
 
   // Auto-discovers Power Source (inverter) / PV String / Battery Tower
@@ -747,6 +779,47 @@ class TopologyCard extends HTMLElement {
     return { group, cx: x, cy: y, healthy };
   }
 
+  // One controllable load: its name, what Nimbus has commanded now (and its
+  // live power where the household set a power sensor), and today's
+  // delivered against target. Active (lit) while commanded on.
+  _controllableTile(x, y, w, h, ctrl) {
+    const cmd = this._entityState(ctrl.commanded_state);
+    const power = ctrl.power_sensor ? this._entityState(ctrl.power_sensor) : undefined;
+    const delivered = this._entityState(ctrl.delivered_today);
+    const target = this._entityState(ctrl.target_today);
+    const cmdText = cmd && cmd.state !== "unavailable" && cmd.state !== "unknown" ? cmd.state : null;
+    const healthy = cmdText !== null;
+    const active = cmdText === "on";
+    const color = !healthy ? COLORS.unavailable : active ? COLORS.load : COLORS.textDim;
+    const num = (st) => (st && !Number.isNaN(parseFloat(st.state)) ? parseFloat(st.state) : null);
+    const d = num(delivered), t = num(target);
+    const today = d !== null && t !== null ? `${d.toFixed(1)}/${t.toFixed(1)} kWh` : d !== null ? `${d.toFixed(1)} kWh` : "";
+    const value = power ? fmtValue(power).text : cmdText ? cmdText.toUpperCase() : "—";
+
+    const group = svgEl("g", {});
+    group.appendChild(svgEl("rect", {
+      x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 7,
+      fill: "#161619", stroke: color, "stroke-width": active ? 1.8 : 1.2,
+      "stroke-dasharray": "4 2", opacity: active ? 1 : 0.5,
+      class: active ? "glow" : "",
+    }));
+    if (active) group.appendChild(fillOverlay(x, y, w, h, 7, color));
+    group.appendChild(svgEl("circle", {
+      cx: x - w / 2 + 6, cy: y, r: 4,
+      fill: healthy ? COLORS.healthy : COLORS.unhealthy,
+    }));
+    const nameEl = svgEl("text", { x: x - w / 2 + 15, y: y + 2.5, class: "node-label", style: `fill:${COLORS.text}` });
+    nameEl.textContent = ctrl.name;
+    group.appendChild(nameEl);
+    const valueEl = svgEl("text", { x: x + w / 2 - 70, y: y + 3, "text-anchor": "end", class: "node-value-big", style: `fill:${color}` });
+    valueEl.textContent = value;
+    group.appendChild(valueEl);
+    const todayEl = svgEl("text", { x: x + w / 2 - 4, y: y + 3, "text-anchor": "end", class: "node-value-sub", style: `fill:${COLORS.textDim}` });
+    todayEl.textContent = today;
+    group.appendChild(todayEl);
+    return { group, active };
+  }
+
   _loadTile(x, y, w, h, load, failedForecasts) {
     const liveState = this._entityState(load.live);
     const fcState = this._entityState(load.forecast);
@@ -925,6 +998,27 @@ class TopologyCard extends HTMLElement {
           ...(solverPrices.export ? { export_price: solverPrices.export } : {}),
         },
       };
+    }
+    // The Forecaster step's own Grid and Battery sensors, where neither the
+    // card, the wizard nor a Power Signal role named one (household, 23 Oct
+    // 2026: a clean install left at role "other" drew an empty Grid box).
+    // Applied last and only to an empty field, so it never displaces any of
+    // the above, and kept out of `switchboard` so it cannot make the wizard
+    // look like it holds the Topology settings (#1702).
+    const meters = (topoAttrs && topoAttrs.forecaster_meters) || {};
+    if ((meters.grid_meter && !cfg.switchboard.grid_meter) || (meters.battery_power && !cfg.switchboard.battery_power)) {
+      cfg = {
+        ...cfg,
+        switchboard: {
+          ...cfg.switchboard,
+          ...(!cfg.switchboard.grid_meter && meters.grid_meter ? { grid_meter: meters.grid_meter } : {}),
+          ...(!cfg.switchboard.battery_power && meters.battery_power ? { battery_power: meters.battery_power } : {}),
+        },
+      };
+    }
+    if (!cfg.whole_house) {
+      const derivedWholeHouse = this._discoverWholeHouseFromSolverConfig(cfg.switchboard);
+      if (derivedWholeHouse) cfg = { ...cfg, whole_house: derivedWholeHouse };
     }
     const lines = [];
     const nodes = [];
@@ -1188,6 +1282,7 @@ class TopologyCard extends HTMLElement {
     // extended to cover the full load-list height, since every load is
     // literally directly wired to the switchboard in reality. ----
     const loads = this._discoverLoads();
+    const ctrlLoads = this._discoverControllableLoads(topoAttrs);
     const tileW = 300, tileH = 20, tileGap = 4;
     // busX must clear the widest battery row too, not just a fixed margin
     // off the inverter bar -- this exact bug (bus rendering on top of the
@@ -1202,7 +1297,7 @@ class TopologyCard extends HTMLElement {
     const busX = Math.max(invX + invBarW / 2 + 680, maxBatteryRightEdge + 170);
     const loadX0 = busX + 260;
     const loadsTop = rowTop;
-    const loadsBottom = loadsTop + loads.length * (tileH + tileGap) - tileGap;
+    const loadsBottom = loadsTop + (loads.length + ctrlLoads.length) * (tileH + tileGap) - tileGap;
 
     // ---- Switchboard bus: spans whichever is taller, the inverter zone
     // or the loads column, so every element on either side can tap it
@@ -1283,6 +1378,12 @@ class TopologyCard extends HTMLElement {
     loads.forEach((load, i) => {
       const ly = loadsTop + i * (tileH + tileGap);
       const tile = this._loadTile(loadX0 + tileW / 2, ly, tileW, tileH, load, failedForecasts);
+      lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
+      nodes.push(tile.group);
+    });
+    ctrlLoads.forEach((ctrl, j) => {
+      const ly = loadsTop + (loads.length + j) * (tileH + tileGap);
+      const tile = this._controllableTile(loadX0 + tileW / 2, ly, tileW, tileH, ctrl);
       lines.push(this._line(busX + invBarW / 2, ly, loadX0, ly, tile.active, dominantColor));
       nodes.push(tile.group);
     });

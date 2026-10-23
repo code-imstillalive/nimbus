@@ -476,7 +476,8 @@ def test_an_unused_block_shows_only_its_rate() -> None:
     """A fee block's hours appear only once its rate is set. P2P hours
     have their own card in Advanced (household, 11 Oct)."""
     text = json.dumps(solver_tab.template())
-    assert text.count('"type": "conditional"') == 6  # 3 fee blocks x 2
+    # 3 fee blocks x 2, and one row per battery slot (4) on "Battery, now".
+    assert text.count('"type": "conditional"') == 6 + 4
 
 
 def test_a_conditional_row_whose_entity_is_missing_is_dropped() -> None:

@@ -1252,6 +1252,20 @@ SETTINGS: dict[str, tuple[str, str]] = {
         "Planned state of charge now (the fleet, on a multi-battery site).",
         "%.",
     ),
+    **{
+        f"nimbus_solver_battery_{slot}_soc_pct": (
+            (
+                "The home battery's planned state of charge now, shown in "
+                "place of the fleet figure on a site with an EV or other "
+                "battery participant."
+                if slot == 0
+                else f"Battery participant {slot}'s planned state of charge "
+                "now, under its own name."
+            ),
+            "% of that battery's own capacity.",
+        )
+        for slot in range(4)
+    },
     "nimbus_solver_equivalent_full_cycles": (
         "How hard the plan works the battery.",
         "kWh discharged over the plan ÷ usable capacity.",
