@@ -5,7 +5,7 @@ period." Item 1 (marginal_cost, network.py's own LP-native shadow-price
 figure) already shipped in an earlier pass (v0.94.271) -- this is the
 second, deliberately separate figure the same issue asks for.
 
-Pure-Python tests, same convention as test_flow_decomposition.py --
+Pure-Python tests, same convention as the flow-accounting tests --
 solver_writer.py has no homeassistant.* imports at module scope.
 """
 

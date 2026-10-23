@@ -1431,9 +1431,8 @@ def _flow_decomposition(
     the #629 sense (nothing was generated and then wasted in transit;
     it was simply never drawn from the panels' own real headroom).
 
-    Invariants (asserted in tests/test_flow_decomposition.py against
-    both synthetic cases and the real regression fixtures under
-    tests/regression/fixtures/):
+    Invariants (asserted in tests/v2/orchestration/test_flow_accounting.py
+    over generated periods and named cases):
       pv_to_load + pv_to_battery + pv_to_grid + pv_to_curtailment == solar_kw_i
       pv_to_load + battery_to_load + grid_to_load == load_kw_i
       pv_to_battery + grid_to_battery == charge_kw_i
