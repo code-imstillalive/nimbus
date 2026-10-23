@@ -1254,7 +1254,7 @@ _SENTINEL_MISSING: Any = object()
 # importing a new one from it breaks collection for every test that
 # touches sensor_flattened. Verified against the real installed HA
 # (MAX_LENGTH_STATE_STATE == 255) rather than copied from memory, and
-# test_flattened_state_length_guard.py re-asserts that equality against
+# tests/v2/entities/test_flattened_sensors.py re-asserts that equality against
 # the real constant whenever a real homeassistant is importable, so this
 # cannot silently drift if HA ever changes it.
 _MAX_STATE_LENGTH = 255

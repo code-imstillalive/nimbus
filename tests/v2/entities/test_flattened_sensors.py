@@ -369,3 +369,43 @@ def test_every_table_key_is_distinct_within_its_table():
     ):
         suffixes = [s.entity_id_suffix for s in table]
         assert len(suffixes) == len(set(suffixes))
+
+
+def test_the_state_length_limit_is_home_assistants_own():
+    """Defined locally so the stubs need not carry it; the real constant
+    decides, where Home Assistant is importable."""
+    real = pytest.importorskip("homeassistant.const")
+    if not hasattr(real, "MAX_LENGTH_STATE_STATE"):
+        pytest.skip("the installed homeassistant.const is a stub")
+    assert fl._MAX_STATE_LENGTH == real.MAX_LENGTH_STATE_STATE
+
+
+def _flattened_keys():
+    return {
+        spec.source_key
+        for name in dir(fl)
+        if name.startswith("FLATTENED_ATTRS")
+        for spec in getattr(fl, name)
+    }
+
+
+@pytest.mark.parametrize(
+    ("key", "has_a_child"),
+    [
+        # #849: varying numbers that had no history at all.
+        ("envelope_import_limit_kw", True),
+        ("envelope_export_limit_kw", True),
+        ("solar_risk_effect_now_kw", True),
+        ("import_price_risk_effect_now", True),
+        ("export_price_risk_effect_now", True),
+        ("load_whole_house_live_now_kw", True),
+        # Left out on measured grounds: constants, dicts, a 762-char text.
+        ("battery_kw_side", False),
+        ("battery_kw_sign_convention", False),
+        ("efficiency_convention", False),
+        ("load_forecast_source_used", False),
+        ("solve_diagnostics", False),
+    ],
+)
+def test_what_gets_its_own_history_and_what_deliberately_does_not(key, has_a_child):
+    assert (key in _flattened_keys()) is has_a_child
