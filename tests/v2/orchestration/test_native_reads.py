@@ -253,3 +253,14 @@ def test_an_unmanaged_entity_falls_back_to_a_raw_state_and_says_so(publish, capl
     assert any(
         "raw states.async_set fallback" in r.getMessage() for r in caplog.records
     )
+
+
+def test_a_state_read_inside_home_assistant_carries_when_it_changed(hass):
+    """The P2P rate merge (#1537) compares two sources by freshness, so the
+    in-process read returns last_updated just as the REST path does."""
+    state = types.SimpleNamespace(
+        entity_id="sensor.p2p", state="0.3", attributes={"a": 1}, last_updated=T0
+    )
+    hass.states.get = lambda eid: state if eid == "sensor.p2p" else None
+    got = sw.ha_get("sensor.p2p")
+    assert got["last_updated"] == T0.isoformat() and got["attributes"] == {"a": 1}

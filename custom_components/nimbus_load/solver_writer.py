@@ -3970,8 +3970,8 @@ def resample_real_p2p_rate(
     #
     # * ONE raw-triple source (every install configured before #1537,
     #   including the reference household's live one): the pre-#1537
-    #   algorithm, unchanged to the byte. Proven against a copy of it in
-    #   tests/test_1537_p2p_matched_rate_fallback.py.
+    #   algorithm, unchanged to the byte (its step lookup is pinned in
+    #   tests/v2/orchestration/test_writer_inputs.py).
     # * Anything else -- a `{time, value}` source, or two sources -- goes
     #   through the observation model below, which keeps each interval's own
     #   validity and coverage instead of collapsing "missing", "stale",

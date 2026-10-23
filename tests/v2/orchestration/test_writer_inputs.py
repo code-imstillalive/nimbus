@@ -17,6 +17,7 @@ import types
 import urllib.request
 from datetime import UTC, datetime, timedelta
 
+import numpy as np
 import pytest
 import solver_shared
 import solver_writer as sw
@@ -787,3 +788,198 @@ def test_the_local_time_zone_is_home_assistants_own_unless_overridden(
     if expect:
         assert shared.LOCAL_TZ is sw.LOCAL_TZ
     assert ("could not resolve" in caplog.text) is (expect is None)
+
+
+# --- two matched-rate sources, one answer per period (#1537) ---------------------------------
+
+M5 = timedelta(minutes=5)
+
+
+def _source(snapshot, *intervals, horizon=None, status="ok"):
+    return {
+        "status": status,
+        "snapshot": snapshot,
+        "horizon": horizon,
+        "intervals": [
+            (T0 + M5 * i, T0 + M5 * (i + 1), state, rate)
+            for i, state, rate in intervals
+        ],
+    }
+
+
+def _resolve(*sources, blocks=None, n=4):
+    return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
+
+
+def test_the_newest_answer_wins_even_when_it_says_no_match():
+    """Two snapshots of one provider are not independent evidence: a newer
+    explicit no-match beats an older match (Mark, PR #1592)."""
+    old = _source(T0, (0, sw.P2P_RATE, 0.3), (1, sw.P2P_RATE, 0.3))
+    new = _source(T0 + M5, (0, sw.P2P_NO_MATCH, 0.0))
+    assert _resolve(old, new) == [
+        0.0,
+        0.3,
+        0.0,
+        0.0,
+    ]  # where it is silent, the older answers
+    assert _resolve(new, old) == [
+        0.0,
+        0.3,
+        0.0,
+        0.0,
+    ]  # configured order does not matter
+    tie = _source(T0, (0, sw.P2P_RATE, 0.5))
+    assert _resolve(old, tie)[0] == 0.3  # a tie keeps the primary
+    unknown = _source(None, (0, sw.P2P_RATE, 0.9))
+    assert _resolve(unknown, old)[0] == 0.3  # an unknown snapshot is the oldest
+    assert (
+        _resolve(_source(T0, (0, sw.P2P_RATE, 0.0)))[0] == 0.0
+    )  # a $0 match is an answer
+
+
+def test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing():
+    feed = _source(
+        T0, (0, sw.P2P_RATE, 0.2), (1, sw.P2P_RATE, 0.0), (2, sw.P2P_NO_MATCH, 0.0)
+    )
+    # Period 3 is uncovered: inside a block it takes the median of the
+    # published rates (the $0 match counts, the no-match does not).
+    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 5.0]) == [0.2, 0.0, 0.0, 0.1]
+    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 0.0])[3] == 0.0  # outside the block
+    assert _resolve(feed)[3] == 0.0  # no blocks configured
+    down = _source(T0, (3, sw.P2P_RATE, 0.4), status=sw.P2P_UNAVAILABLE)
+    assert (
+        _resolve(down, blocks=[5.0] * 4) == [0.0] * 4
+    )  # an unavailable feed gives nothing
+
+
+def test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered():
+    horizon = (T0, T0 + 2 * M5)
+    feed = _source(T0, (0, sw.P2P_RATE, 0.3), horizon=horizon)
+    assert sw._p2p_observation_at(feed, T0 + M5) == (sw.P2P_NO_MATCH, 0.0)
+    assert sw._p2p_observation_at(feed, T0 + 3 * M5) == (sw.P2P_UNCOVERED, 0.0)
+    assert _resolve(feed, blocks=[5.0] * 4) == [0.3, 0.0, 0.3, 0.3]
+
+
+def test_no_source_one_unreadable_source_or_the_same_one_twice(monkeypatch):
+    grid = _grid(3, minutes=5)
+    assert sw.resample_real_p2p_rate(grid, None) == [0.0] * 3
+    monkeypatch.setattr(
+        sw, "ha_get", lambda eid: {"state": "1", "attributes": "broken"}
+    )
+    assert sw._read_p2p_state("sensor.p2p") is None
+    assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == [0.0] * 3
+    asked = []
+    monkeypatch.setattr(
+        sw, "ha_get", lambda eid: asked.append(eid) or {"attributes": {}}
+    )
+    sw.resample_real_p2p_rate(grid, "sensor.p2p", fallback_sensor_id="sensor.p2p")
+    assert asked == ["sensor.p2p"]  # configured twice, read once
+
+
+def test_one_raw_triple_feed_keeps_the_original_step_lookup(monkeypatch):
+    """The single raw-triple path is the pre-#1537 algorithm, unchanged:
+    each row's rate until the next, a malformed row skipped, and past the
+    feed the median rate inside a block and nothing outside one. Rows are
+    stamped at their interval's END: the row at T0+5 covers T0 to T0+5."""
+    rows = [
+        {"time": _iso(T0), "volume": 2.0, "proportionP2P": 0.5, "matchedCost": 0.2},
+        {"time": _iso(T0 + M5), "volume": "lots"},  # skipped, not fatal
+        {
+            "time": _iso(T0 + M5),
+            "volume": 1.0,
+            "proportionP2P": 1.0,
+            "matchedCost": 0.4,
+        },
+    ]
+    monkeypatch.setattr(
+        sw, "ha_get", lambda eid: {"state": "1", "attributes": {"forecast": rows}}
+    )
+    grid = _grid(4, minutes=5)
+    assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
+        [0.4, 0.0, 0.0, 0.0]
+    )
+    blocks = [5.0, 5.0, 5.0, 5.0]
+    assert sw.resample_real_p2p_rate(grid, "sensor.p2p", blocks) == pytest.approx(
+        [0.4, 0.3, 0.3, 0.3]
+    )
+
+
+BLOCKS = {
+    "solver_p2p_block_1_rate_kw": 11.5,
+    "solver_p2p_block_1_start_hour": 17,
+    "solver_p2p_block_1_end_hour": 24,
+}
+
+
+def test_a_second_rate_source_changes_neither_the_commitment_nor_the_volume(
+    monkeypatch,
+):
+    """A rate observation creates no commitment. Without a settlement
+    sensor the traded volume is the blocks' own committed energy, not a
+    fixed default, with or without the fallback source."""
+    from solver_inputs import prices
+
+    grid = _grid(3, minutes=5)
+    n = len(grid)
+    states = {
+        "sensor.a": {"state": "1", "attributes": {"forecast": []}},
+        "sensor.b": _p2p_state(
+            [{"time": _iso(t), "value": 0.5} for t in grid], unit_of_measurement="$/kWh"
+        ),
+    }
+    for name, value in {
+        "ha_get": lambda e: states.get(e, {"attributes": {"forecast": []}}),
+        "fetch_aemo_forecast": lambda _e: None,
+        "fetch_price_history": lambda *a, **k: [],
+        "compute_5min_offset": lambda *a, **k: {},
+        "compute_price_percentile_band": lambda *a, **k: {},
+        "resample_price_with_extrapolation": lambda *a, **k: ([0.1] * n, [True] * n),
+        "check_aemo_p5min_disagreement": lambda *a, **k: None,
+        "p2p_match_fraction": lambda **k: 0.65,
+        "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
+    }.items():
+        monkeypatch.setattr(sw, name, value)
+
+    def build(cfg):
+        return prices.build_price_arrays(
+            {
+                "solver_import_price_sensor": "sensor.i",
+                "solver_export_price_sensor": "sensor.e",
+                "solver_p2p_matched_rate_forecast_sensor": "sensor.a",
+                **cfg,
+            },
+            grid,
+            n,
+            grid[0],
+            True,
+            "sensor.array",
+        )
+
+    with_fallback = {**BLOCKS, "solver_p2p_matched_rate_forecast_sensor_2": "sensor.b"}
+    a, b = build(BLOCKS), build(with_fallback)
+    assert a.p2p_recent_volume_kwh == b.p2p_recent_volume_kwh
+    assert a.p2p_recent_volume_kwh == pytest.approx(
+        sw.p2p_blocks_daily_energy_kwh(BLOCKS)
+    )
+    assert a.p2p_recent_volume_kwh != 60.0
+    in_block = _grid(3, minutes=5, start=T0 + timedelta(hours=1))  # 17:00 Brisbane
+    committed = sw.fetch_p2p_fixed_export_kw(BLOCKS, in_block)
+    assert committed == pytest.approx([11.5] * 3)
+    np.testing.assert_array_equal(
+        committed, sw.fetch_p2p_fixed_export_kw(with_fallback, in_block)
+    )
+
+
+@pytest.mark.parametrize(
+    ("state", "snapshot"),
+    [
+        ({"attributes": {"lastUpdate": _iso(T0)}, "last_updated": _iso(T0 + M5)}, T0),
+        ({"attributes": {}, "last_updated": _iso(T0 + M5)}, T0 + M5),
+        ({"attributes": {"lastUpdate": "garbage"}, "last_updated": _iso(T0)}, T0),
+        ({"attributes": {}}, None),
+    ],
+)
+def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
+    state, snapshot
+):
+    assert sw._p2p_snapshot_time(state) == snapshot
