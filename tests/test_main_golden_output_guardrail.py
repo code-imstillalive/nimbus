@@ -208,6 +208,8 @@ _EXPECTED_ATTRS = {
         "expected_cost": None,
         "fallback_reason": "no_solar_band",
         "joint_solves": 0,
+        # #2025: one record per joint call; none without a band.
+        "joint_calls": [],
         "joint_variables": 0,
         "mode": "shadow",
         "no_sun_periods": 0,
