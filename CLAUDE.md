@@ -90,7 +90,8 @@ Before designing a solver, load-model, scoring or output mechanism:
 9. Confirm the touched issues are in the state you intended.
 
 Limits of devhub:
-- Its canonical `sensor.nimbus_*` entities carry production's mirrored data; its own are `_2`-suffixed. Read versions from a histogram of `nimbus_version` across entities, never one sensor.
+- Since 23 Oct 2026 it has no mirror of production: production's source readings arrive as read-only `*.testbox_*` copies, and every `sensor.nimbus_*` entity on it is its own. Read versions from a histogram of `nimbus_version` across entities, never one sensor.
+- Its Nimbus history began on 23 Oct 2026 (hourly long-term statistics imported from production for the training sensors), and it carries test devices and a test EV production does not; compare plans with production only with that in mind.
 - It runs a newer HA than production, so write "confirmed live on devhub (HA <version>)", and say so where a change could depend on the HA version.
 
 ## Deploy (household reference)
