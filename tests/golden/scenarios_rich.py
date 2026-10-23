@@ -476,3 +476,95 @@ register(
         cycles=2,
     )
 )
+
+
+# --- native mode: the same site inside Home Assistant, with an EV ----------
+
+EV_SOC = "sensor.fake_ev_soc"
+EV_POWER = "sensor.fake_ev_power"
+EV_HOME = "binary_sensor.fake_ev_home"
+EV_LIMIT = "number.fake_ev_charge_limit"
+GARAGE_SOC = "sensor.fake_garage_soc"
+
+
+def _participants() -> list:
+    from golden.fake_native import FakeSubentry
+
+    ev = {
+        "battery_participant_name": "Car",
+        "battery_participant_capacity_kwh": 60.0,
+        "battery_participant_min_soc_percent": 20.0,
+        "battery_participant_max_soc_percent": 100.0,
+        "battery_participant_max_charge_kw": 7.0,
+        "battery_participant_max_discharge_kw": 5.0,
+        "battery_participant_soc_sensor": EV_SOC,
+        "battery_participant_power_sensor": EV_POWER,
+        "battery_participant_power_positive_is_charge": True,
+        "battery_participant_efficiency_percent": 92.0,
+        "battery_participant_degradation_cost_per_kwh": 0.04,
+        "battery_participant_salvage_value": 0.10,
+        "battery_participant_charge_limit_entity": EV_LIMIT,
+        "battery_participant_available_entity": EV_HOME,
+        "battery_participant_departure_hour": 7,
+        "battery_participant_must_have_soc_by_departure_percent": 80.0,
+        "battery_participant_shared_charger_group": "garage",
+        "battery_participant_shared_charger_max_kw": 7.0,
+    }
+    garage = {
+        "battery_participant_name": "Garage battery",
+        "battery_participant_capacity_kwh": 10.0,
+        "battery_participant_max_charge_kw": 5.0,
+        "battery_participant_max_discharge_kw": 5.0,
+        "battery_participant_soc_sensor": GARAGE_SOC,
+        "battery_participant_shared_charger_group": "garage",
+        "battery_participant_shared_charger_max_kw": 7.0,
+    }
+    return [
+        FakeSubentry("golden_ev", "battery_participant", ev, "Car"),
+        FakeSubentry("golden_garage", "battery_participant", garage, "Garage battery"),
+    ]
+
+
+def _build_native(instant: str) -> FakeHA:
+    """The rich site's states and history, plus an EV that is home and a
+    second battery sharing its charger."""
+    fake = _build(instant)
+    now = _local(instant)
+    fake.states.update(
+        {
+            EV_SOC: {"state": "46.5", "attributes": {"unit_of_measurement": "%"}},
+            EV_POWER: {"state": "0.0", "attributes": {"unit_of_measurement": "kW"}},
+            EV_HOME: {"state": "on", "attributes": {}},
+            EV_LIMIT: {"state": "90", "attributes": {"min": 50, "max": 100}},
+            GARAGE_SOC: {"state": "70", "attributes": {"unit_of_measurement": "%"}},
+        }
+    )
+    stamps = [now - timedelta(minutes=15 * i) for i in range(2 * 96, 0, -1)]
+    fake.history[EV_POWER] = [
+        HistoryPoint(
+            last_changed=(d - timedelta(hours=10)).strftime("%Y-%m-%dT%H:%M:%S")
+            + "+00:00",
+            state=str(7.0 if 1 <= d.hour < 5 else 0.0),
+            attributes={"unit_of_measurement": "kW"},
+        )
+        for d in stamps
+    ]
+    return fake
+
+
+def _native(fake: FakeHA):
+    from golden.fake_native import FakeNativeHass
+
+    return FakeNativeHass(fake=fake, subentries=_participants())
+
+
+register(
+    Scenario(
+        name="rich_site_native_with_ev",
+        instant="2026-09-20T09:20:00+00:00",
+        build=lambda: _build_native("2026-09-20T09:20:00+00:00"),
+        native=_native,
+        purpose="the rich site in native mode: recorder reads, an EV due out at 07:00 and a battery sharing its charger",
+        cycles=2,
+    )
+)
