@@ -530,6 +530,10 @@ def _build_native(instant: str) -> FakeHA:
     second battery sharing its charger."""
     fake = _build(instant)
     now = _local(instant)
+    # A resolved location, so the flex telemetry record is built (#1634).
+    fake.states["sensor.nimbus_solver_config"]["attributes"].update(
+        {"region": "QLD1", "postcode_prefix": "410"}
+    )
     fake.states.update(
         {
             EV_SOC: {"state": "46.5", "attributes": {"unit_of_measurement": "%"}},

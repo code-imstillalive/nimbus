@@ -19277,14 +19277,72 @@
     },
     {
      "attributes": {
+      "clamped_fields": [],
       "friendly_name": "Nimbus Flex Telemetry",
       "generated_at": "2026-09-20T19:20:00+10:00",
-      "last_record_interval": null,
-      "reason": "region None is not one of ['NSW1', 'QLD1', 'SA1', 'TAS1', 'VIC1'] -- Nimbus resolves it from the Companion App's own geocoded-location sensor (see sensor_discovery.resolve_geocoded_region_and_prefix for the exact naming rule); exactly one usable such sensor is needed",
-      "reason_code": "region_unresolved"
+      "net_import_source": "plan",
+      "record": {
+       "assets": [
+        {
+         "asset_id": "home_battery",
+         "available_down_kw": 10.0,
+         "available_up_kw": 10.0,
+         "bidirectional_capable": true,
+         "capacity_kwh": 29.1,
+         "kind": "stationary_battery",
+         "setpoint_kw": 0.0,
+         "shadow_power_balance_price": 0.2467,
+         "soc_pct": 62.7
+        },
+        {
+         "asset_id": "car",
+         "available_down_kw": 5.0,
+         "available_up_kw": 7.0,
+         "bidirectional_capable": true,
+         "capacity_kwh": 60.0,
+         "kind": "stationary_battery",
+         "setpoint_kw": 0.0,
+         "shadow_power_balance_price": 0.2467,
+         "soc_pct": 46.5
+        },
+        {
+         "asset_id": "garage_battery",
+         "available_down_kw": 2.738,
+         "available_up_kw": 7.262,
+         "bidirectional_capable": true,
+         "capacity_kwh": 10.0,
+         "kind": "stationary_battery",
+         "setpoint_kw": -2.262,
+         "shadow_power_balance_price": 0.2467,
+         "soc_pct": 68.066
+        }
+       ],
+       "deferrable_load_kw": 0.0,
+       "deferrable_loads": [],
+       "envelope_export_limit_kw": 15.0,
+       "envelope_import_limit_kw": 20.0,
+       "flex_available_down_kw": 15.0,
+       "flex_available_up_kw": 20.0,
+       "house_load_kw": 2.262,
+       "interval_start_utc": "2026-09-20T09:15:00Z",
+       "naive_baseline_kw": 2.262,
+       "naive_baseline_method": "subtraction",
+       "net_import_kw": 0.0,
+       "postcode_prefix": "410",
+       "price_export_seen": 0.176,
+       "price_signal_seen": 0.376,
+       "region": "QLD1",
+       "schema_version": "2.0",
+       "shadow_energy_price": 0.2467,
+       "shadow_envelope_export_price": 0.0417,
+       "shadow_envelope_import_price": 0.191,
+       "shadow_load_forecast_price": null,
+       "shadow_solar_forecast_price": -0.2467,
+       "solar_kw": 0.0
+      }
      },
      "entity_id": "sensor.nimbus_flex_telemetry",
-     "state": "no_record"
+     "state": "2026-09-20T09:15:00Z"
     }
    ],
    "requests": [
@@ -19706,6 +19764,11 @@
     {
      "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_garage_soc",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.nimbus_solver_quality_report",
      "query": ""
     }
    ],
@@ -38901,6 +38964,75 @@
      },
      "entity_id": "sensor.nimbus_flex_signals",
      "state": 0.0
+    },
+    {
+     "attributes": {
+      "clamped_fields": [],
+      "friendly_name": "Nimbus Flex Telemetry",
+      "generated_at": "2026-09-20T19:25:00+10:00",
+      "net_import_source": "plan",
+      "record": {
+       "assets": [
+        {
+         "asset_id": "home_battery",
+         "available_down_kw": 10.0,
+         "available_up_kw": 10.0,
+         "bidirectional_capable": true,
+         "capacity_kwh": 29.1,
+         "kind": "stationary_battery",
+         "setpoint_kw": 0.0,
+         "shadow_power_balance_price": 0.246,
+         "soc_pct": 62.7
+        },
+        {
+         "asset_id": "car",
+         "available_down_kw": 5.0,
+         "available_up_kw": 7.0,
+         "bidirectional_capable": true,
+         "capacity_kwh": 60.0,
+         "kind": "stationary_battery",
+         "setpoint_kw": 0.0,
+         "shadow_power_balance_price": 0.246,
+         "soc_pct": 46.5
+        },
+        {
+         "asset_id": "garage_battery",
+         "available_down_kw": 2.738,
+         "available_up_kw": 7.262,
+         "bidirectional_capable": true,
+         "capacity_kwh": 10.0,
+         "kind": "stationary_battery",
+         "setpoint_kw": -2.262,
+         "shadow_power_balance_price": 0.246,
+         "soc_pct": 68.066
+        }
+       ],
+       "deferrable_load_kw": 0.0,
+       "deferrable_loads": [],
+       "envelope_export_limit_kw": 15.0,
+       "envelope_import_limit_kw": 20.0,
+       "flex_available_down_kw": 15.0,
+       "flex_available_up_kw": 20.0,
+       "house_load_kw": 2.262,
+       "interval_start_utc": "2026-09-20T09:20:00Z",
+       "naive_baseline_kw": 2.262,
+       "naive_baseline_method": "subtraction",
+       "net_import_kw": 0.0,
+       "postcode_prefix": "410",
+       "price_export_seen": 0.176,
+       "price_signal_seen": 0.376,
+       "region": "QLD1",
+       "schema_version": "2.0",
+       "shadow_energy_price": 0.246,
+       "shadow_envelope_export_price": 0.0466,
+       "shadow_envelope_import_price": 0.1973,
+       "shadow_load_forecast_price": null,
+       "shadow_solar_forecast_price": -0.246,
+       "solar_kw": 0.0
+      }
+     },
+     "entity_id": "sensor.nimbus_flex_telemetry",
+     "state": "2026-09-20T09:20:00Z"
     }
    ],
    "requests": [
@@ -39127,6 +39259,11 @@
     {
      "method": "NATIVE_GET",
      "path": "/api/states/sensor.fake_garage_soc",
+     "query": ""
+    },
+    {
+     "method": "NATIVE_GET",
+     "path": "/api/states/sensor.nimbus_solver_quality_report",
      "query": ""
     }
    ],
