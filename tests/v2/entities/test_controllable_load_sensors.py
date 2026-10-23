@@ -177,3 +177,80 @@ def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settin
     assert "plan_forecast" in s._unrecorded_attributes
     off = sm.NimbusControllableLoadStateSensor(_coordinator(), _hass(), None, sub, "1")
     assert off.native_value == "off"
+
+
+def test_the_temperature_forecast_shows_the_tank_now_and_the_planned_trajectory():
+    state = lrs.LoadRunState(
+        plan_temperature_forecast=[{"time": NOW.isoformat(), "value": 55.0}],
+        thermal_rates_source="learned",
+        thermal_heating_rate_c_per_kwh=2.0,
+    )
+    tank = SimpleNamespace(state="heat_pump", attributes={"current_temperature": 52.5})
+    sub = _sub(**{const.CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: "water_heater.tank"})
+    s = sm.NimbusControllableLoadTemperatureForecastSensor(
+        _coordinator(state), _hass({"water_heater.tank": tank}), None, sub, "1"
+    )
+    assert s.entity_id == "sensor.nimbus_hot_water_temperature_forecast"
+    assert s.native_value == 52.5
+    attrs = s.extra_state_attributes
+    assert attrs[const.ATTR_FORECAST] == [{"time": NOW.isoformat(), "value": 55.0}]
+    assert (attrs["thermal_rates_source"], attrs["heating_rate_c_per_kwh"]) == (
+        "learned",
+        2.0,
+    )
+    bare = sm.NimbusControllableLoadTemperatureForecastSensor(
+        _coordinator(), _hass(), None, _sub(), "1"
+    )
+    assert (
+        bare.native_value is None
+        and bare.extra_state_attributes[const.ATTR_FORECAST] == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("current", "taken", "moved"),
+    [
+        ("sensor.nimbus_hw1_commanded_state", False, True),  # the stale id: renamed
+        ("sensor.nimbus_hot_water_commanded_state", False, False),  # already right
+        ("sensor.something_custom", False, False),  # the household renamed it: left
+        (None, False, False),
+        ("sensor.nimbus_hw1_commanded_state", True, False),  # the right id is taken
+    ],
+)
+def test_a_stale_commanded_state_id_is_renamed_only_when_safe(
+    monkeypatch, current, taken, moved
+):
+    updates = []
+    registry = SimpleNamespace(
+        async_get_entity_id=lambda d, p, uid: (
+            current if uid == "hw1_commanded_state" else None
+        ),
+        async_get=lambda eid: (
+            object()
+            if taken and eid == "sensor.nimbus_hot_water_commanded_state"
+            else None
+        ),
+        async_update_entity=lambda eid, new_entity_id: updates.append(
+            (eid, new_entity_id)
+        ),
+    )
+    monkeypatch.setattr(sm.er, "async_get", lambda hass: registry)
+    sm._migrate_stale_commanded_state_entity_id(None, _sub())
+    assert updates == (
+        [
+            (
+                "sensor.nimbus_hw1_commanded_state",
+                "sensor.nimbus_hot_water_commanded_state",
+            )
+        ]
+        if moved
+        else []
+    )
+
+
+@pytest.mark.parametrize(
+    ("title", "slug"),
+    [("Hot Water", "hot_water"), ("  Pool / Spa!! ", "pool_spa"), ("***", "load")],
+)
+def test_a_load_title_becomes_a_safe_entity_id_part(title, slug):
+    assert sm._slug_for_entity_id(title) == slug
