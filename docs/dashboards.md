@@ -343,17 +343,22 @@ draws a box of its own:
   the switchboard colour (positive = discharging).
 
 Both win over any `switchboard.grid_meter` / `switchboard.battery_power`
-in the card YAML. Roles **Solar**, **Other**, **Temperature** and
+in the card YAML. Where neither a role nor the card names one, the
+Grid box uses the **Grid sensor** and **Battery sensor** from the
+Forecaster step, so a new install with its signals left at Role
+**Other** still shows the grid. Roles **Solar**, **Other**, **Temperature** and
 **Humidity** are not read here; solar comes from PV Strings. The
 whole-house Power Signal from setup guide §5 is therefore not drawn
 either. It appears on the Forecaster card instead, as the white Whole
 House line once it is the Solver's household load forecast, and every
 other Power Signal appears on the Forecaster's Power Signals chart.
 
-**Whole-house headline (optional).** Add a `whole_house` block to show
-the house's live and forecast power at the top left. The daily solar,
-battery and house-load kWh from **Configure → Topology diagram
-settings** are shown only inside this headline:
+**Whole-house headline.** The house's live and forecast power show at
+the top left, with the daily solar, battery and house-load kWh from
+**Configure → Topology diagram settings** beside them. They come from
+the Solver's whole-house sensor and household load forecast, so the
+generated dashboard shows them with nothing to add. A `whole_house`
+block in the card's YAML replaces that choice:
 
 ```yaml
 type: custom:nimbus-topology-card
@@ -363,6 +368,15 @@ whole_house:
   live: sensor.<your_sensor_name>
   forecast: sensor.nimbus_<your_sensor_name>_forecast
 ```
+
+**Battery participants** (an EV) are drawn as their own source and
+battery beside your inverters, with their SoC and capacity.
+
+**Controllable loads** (a heat pump, pool pump, hot water or appliance
+under Nimbus's control) get a dashed row each after the Loads: whether
+Nimbus has commanded it on (or its live power, where it has a power
+sensor) and today's delivered energy against its target. A row lights
+up while the load is commanded on.
 
 **Prices** on the Grid box come from the Solver's import and export
 price sensors (`sensor.nimbus_solver_config`). The Topology diagram

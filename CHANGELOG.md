@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.485] - 2026-10-23
+
+**What a new install sees: the EV, every controllable load and the daily figures on Topology, one SoC per battery, and a revised tab beside yours.**
+
+Found by setting Nimbus up from scratch on the test box, with only the
+dashboard Nimbus generates.
+
+- **Topology draws your EV** (#2021). A battery participant was drawn only on
+  an install with no inverters, strings or towers set up; it now appears as
+  its own source and battery beside them.
+- **Topology draws every controllable load** (#2021): a heat pump, pool pump,
+  hot water or appliance under Nimbus's control, as a dashed row after the
+  Loads, with whether Nimbus has it on (or its live power, where it has a
+  power sensor) and today's energy against its target. Before, none appeared.
+- **Topology shows the whole house and today's solar, battery and load
+  figures** (#2021) with nothing to add. They needed a `whole_house` block in
+  the card's YAML, which the generated dashboard never had; they now come from
+  the Solver's whole-house sensor and household load forecast, and a
+  `whole_house` block still replaces them.
+- **The Grid box shows the grid** on an install whose Power Signals were left at
+  Role Other (#2021), from the Forecaster's own Grid and Battery sensors. A
+  Role or a card setting still comes first.
+- **One SoC per battery on the Solver tab** (#2021). With an EV, "Battery,
+  now" and "At a glance" showed every battery's charge together, a figure no
+  meter reads; each battery now has its own row and ring under its own name.
+  A single-battery install is unchanged.
+- **A revised tab goes right beside your own tab of the same title** (#2020),
+  so the two can be compared, instead of at the end of the dashboard.
+
 ## [0.94.484] - 2026-10-23
 
 **Faster solves; a timestamp without a time zone is read in your own.**
@@ -28,6 +57,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   time zone, not UTC** ([#2008](https://github.com/code-imstillalive/nimbus/issues/2008)).
   A timestamp with its own offset (`+10:00`, `Z`) reads exactly as before.
   Every source checked carries an offset, so nothing changes for them.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 79238a50**
+  (`release/0.94.484`), installed via HACS and restarted at 07:25 AEST. The
+  solver's first cycle published a full plan at 07:25:32 (version 0.94.484)
+  with no plan-failing Repair, and the load forecast totals kept reading. No
+  `Budget spent`, phase-breakdown or traceback line in the log, and no Nimbus
+  `ERROR` beyond the devhub-only baseline (duplicate unique IDs held by the
+  mirrored entities, the test EV's out-of-range SoC and unreachable departure
+  target, residual-drift notes, recorder attribute sizes).
+  - **Not observable on devhub:** the time each solve took (devhub's own solve
+    entities share their ids with the mirrored ones), a phase 2 that runs past
+    5 s, and a source with offset-less timestamps; each is carried by its PR's
+    tests and #2010's 40-site measurement.
+- Consumer check: the plan's cost is unchanged by #2010; on a site where the
+  tie-break search runs long, solves finish sooner and an equally cheap
+  schedule may be kept. No current source changes under #2015.
 
 ## [0.94.483] - 2026-10-23
 

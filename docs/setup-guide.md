@@ -630,7 +630,7 @@ savings. Some model limits can carry penalties rather than prevent a solution.
 
 | Entity | Should look like |
 |---|---|
-| `sensor.nimbus_solver_current_soc_pct` | The plan's current-period SoC. Compare it with the independent battery measurement. |
+| `sensor.nimbus_solver_current_soc_pct` | The plan's current-period SoC. Compare it with the independent battery measurement. With a battery participant (an EV) it is every battery together; each battery's own is `sensor.nimbus_solver_battery_N_soc_pct`, and the Solver tab shows those instead. |
 | `sensor.nimbus_solver_current_load_kw` | The current-period load used in the plan, not an independent household measurement |
 | `sensor.nimbus_solver_current_import_price` | The price used for the current plan period. Compare it with the source tariff. |
 | `sensor.nimbus_solver_horizon_hours` | The planning horizon, which can exceed the coverage of the source forecasts |
@@ -1148,17 +1148,19 @@ entries it is ignoring, with a button to remove them.
 | Solar: one box per string | A **PV String** entry assigned to a Power Source | **+ Add → PV String** |
 | Battery: one box per tower, with SoC | A **Battery Tower** entry assigned to a Power Source | **+ Add → Battery Tower** |
 | One tile per appliance, live and forecast | Every **Load** ([§12](#12-loads--learn-one-appliance-at-a-time)), automatically | **+ Add → Load** |
-| Grid box: live power and arrow direction | The **Power Signal** whose **Role** is **Grid** | **+ Add → Power Signal**, Role **Grid** |
+| One dashed row per controllable load: commanded on/off and today's energy against target | Every **Controllable load**, automatically | Nothing extra |
+| An EV as its own source and battery | Every **Battery participant**, automatically | Nothing extra |
+| Grid box: live power and arrow direction | The **Power Signal** whose **Role** is **Grid**, else the Forecaster's **Grid sensor** | Nothing extra; optionally **+ Add → Power Signal**, Role **Grid** |
 | Battery share of the switchboard colour | The Power Signal whose Role is **Battery** | **+ Add → Power Signal**, Role **Battery** |
 | Buy and sell price on the Grid box | The Solver's import and export price fields ([§6](#screen-2-of-3--solver-grid-prices)) | Nothing extra |
 | Today's kWh figures | **Configure → Topology diagram settings** | Optional: step 8 below |
-| Whole-house headline, live / forecast | A `whole_house:` block in the card's YAML | Step 7 below |
+| Whole-house headline, live / forecast | The Solver's whole-house sensor and household load forecast, automatically | Optional: step 7 below replaces it |
 
 The diagram does **not** read:
 
 - **The whole-house Power Signal from [§5](#create-the-whole-house-load-signal).**
-  Its Role is Other, and the diagram uses only the Grid and Battery roles. Show the
-  house with step 7.
+  Its Role is Other, and the diagram uses only the Grid and Battery roles. The house
+  shows in the headline instead, from the Solver's whole-house sensor (step 7).
 - Power Signals with Role **Solar**, **Other**, **Temperature** or **Humidity**.
   Solar on the diagram comes from PV Strings. Power Signals, including the
   whole-house one, appear on the Forecaster card instead
@@ -1274,8 +1276,9 @@ Nimbus integration page ([§4](#4-add-the-integration)).
    forecast entity exists, before training finishes. Keep the forecast's default
    entity ID: the card finds Loads by the `sensor.nimbus_<your_sensor_name>_forecast`
    pattern and reads the live value from the source sensor named inside it.
-7. **House.** In the dashboard editor, open the Topology card's YAML and add a
-   `whole_house` block:
+7. **House (optional).** The headline already shows the Solver's whole-house
+   sensor and household load forecast. To show different ones, open the
+   Topology card's YAML in the dashboard editor and add a `whole_house` block:
 
    ```yaml
    type: custom:nimbus-topology-card

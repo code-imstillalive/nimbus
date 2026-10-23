@@ -215,6 +215,23 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.485",
+        "23 Oct 2026",
+        (
+            (
+                "**Topology** draws your EV, every controllable load, the "
+                "whole house and today's solar, battery and load figures, with "
+                "nothing to add to the card."
+            ),
+            (
+                "**Grid box** shows the grid even when no Power Signal has the "
+                "Grid role, from the Forecaster's Grid sensor."
+            ),
+            ("**One SoC per battery** on the Solver tab when you have an EV."),
+            ("**A revised tab** goes right beside your own tab of the same title."),
+        ),
+    ),
+    (
         "0.94.484",
         "23 Oct 2026",
         (
