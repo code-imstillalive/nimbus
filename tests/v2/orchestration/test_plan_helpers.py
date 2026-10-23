@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import solver_plan
+import solver_publish as publish
 from solver import pin_blockers
 from solver.elements import (
     BatteryConfig,
@@ -499,3 +500,55 @@ def test_a_relaxation_the_deterministic_plan_shares_is_not_a_refusal():
         )
         is None
     )
+
+
+# --- what is binding now, and each battery's own forecast ------------------------------------
+
+
+def _bound_plan(export_kw, reduced_cost=0.5):
+    zeros = np.zeros(2)
+    return SimpleNamespace(
+        reduced_costs={"grid_export_0": reduced_cost},
+        grid_export_kw=np.array([export_kw, 0.0]),
+        grid_import_kw=zeros,
+        battery_charge_kw=zeros,
+        battery_discharge_kw=zeros,
+    )
+
+
+@pytest.mark.parametrize(
+    ("export_kw", "pin", "label"),
+    [
+        (5.0, None, "Grid export limit"),  # exactly at the ceiling
+        (0.0, None, "Grid export at zero (not economical right now)"),
+        (3.0, 3.0, "Grid export pinned at 3.00 kW by P2P export commitment"),
+        (
+            3.0,
+            None,
+            "Grid export at 3.00 kW (unexpected -- neither its 0 nor 5.00 kW bound)",
+        ),
+    ],
+)
+def test_a_bound_is_named_by_which_bound_the_variable_sits_at(export_kw, pin, label):
+    plan = _bound_plan(export_kw)
+    assert publish.compute_binding_constraint_label(
+        plan, 5.0, 10.0, 4.0, 4.0, 0.5, fixed_export_kw_now=pin
+    ) == (label, 1.0)
+    assert publish.compute_binding_constraint_label(
+        _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
+    ) == ("Nothing currently binding", None)
+
+
+def test_each_battery_forecast_reads_its_own_capacity_and_a_zero_one_reads_zero():
+    bp = SimpleNamespace(
+        name="garage",
+        charge_kw=np.array([1.0]),
+        discharge_kw=np.array([0.0]),
+        soc_kwh=np.array([5.0]),
+    )
+    plan = SimpleNamespace(batteries=[bp])
+    grid = [START]
+    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 10.0})
+    assert row["forecast"][0]["soc_pct"] == 50.0
+    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 0.0})
+    assert row["forecast"][0]["soc_pct"] == 0.0
