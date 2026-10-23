@@ -517,11 +517,16 @@ def test_two_batteries_on_one_charger_share_its_limit(site, share):
         )
         for name in ("a", "c")
     ]
+    # Charging pays (stored energy is worth more than it costs) and pays
+    # most now: a rising positive price makes the early fill the one
+    # optimum. Paid to import instead, burning energy in round trips (one
+    # battery into the other) pays too, and the first period need not fill.
+    n = len(site["hours"])
     plan = build_plan(
         periods=PeriodGrid(site["hours"]),
         grid=GridConfig(
-            import_price=site["import_price"],
-            export_price=site["export_price"],
+            import_price=0.10 + 0.01 * np.arange(n),
+            export_price=np.zeros(n),
             import_limit_kw=4.0 * b["max_charge_kw"],
             export_limit_kw=site["export_limit"],
         ),
