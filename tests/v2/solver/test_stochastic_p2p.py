@@ -105,3 +105,18 @@ def test_without_p2p_fields_the_plan_is_unchanged_and_claims_nothing():
 )
 def test_every_combination_of_commitment_and_bonus_solves(fixed, bonus):
     _plan(fixed_export=fixed, bonus=bonus)
+
+
+def test_every_scenario_starts_from_where_stage_one_left_the_battery():
+    """SoC follows the flows across the stage boundary, in every scenario."""
+    plan = _plan(fixed_export=True)
+    eff_c, eff_d = 0.975, 0.975
+    last = float(plan.stage1_soc_kwh[-1])
+    for charge, discharge, soc in zip(
+        plan.stage2_charge_kw,
+        plan.stage2_discharge_kw,
+        plan.stage2_soc_kwh,
+        strict=True,
+    ):
+        expected = last + float(charge[0]) * eff_c - float(discharge[0]) / eff_d
+        assert float(soc[0]) == pytest.approx(expected, abs=1e-6)
