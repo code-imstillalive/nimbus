@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "gates"))
@@ -44,6 +45,29 @@ from noop_patches import (
     _integration_module_names,
     _static_direct_assignment_sites,
 )
+
+_SYNTHETIC_TEST = """from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import forecast_snapshot_store as fss
+
+solver_writer._LAST_KNOWN_QUALITY_HISTORY = {}
+fss._store_for = 0
+coordinator = object()
+coordinator.data = {}
+"""
+
+
+def _synthetic_sites() -> list[str]:
+    """The scan's hits on a tree with one package and one test file."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        pkg = root / "custom_components" / "nimbus_load"
+        pkg.mkdir(parents=True)
+        for name in ("solver_writer", "forecast_snapshot_store", "coordinator"):
+            (pkg / f"{name}.py").write_text("", encoding="utf-8")
+        (root / "tests").mkdir()
+        (root / "tests" / "test_x.py").write_text(_SYNTHETIC_TEST, encoding="utf-8")
+        sites = _static_direct_assignment_sites(root)
+    return [h.split()[-1] for hits in sites.values() for h in hits]
 
 
 class TestItFindsTheRealBlindSpot(unittest.TestCase):
@@ -62,8 +86,8 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
         replaced it with `solver_shared.NATIVE`, whose `hass` attribute lives on
         a stable object rather than being a rebound module name. So the old
         name must now be ZERO sites (the count #1437 said to verify the sweep
-        by), while the scan still finds the rebound module names that remain,
-        e.g. `solver_writer._LAST_KNOWN_QUALITY_HISTORY`."""
+        by), while the scan still finds a rebound module name such as
+        `solver_writer._LAST_KNOWN_QUALITY_HISTORY`."""
         sites = _static_direct_assignment_sites(REPO_ROOT)
         flat = [h for hits in sites.values() for h in hits]
         self.assertEqual(
@@ -71,17 +95,15 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
             [],
             "#1437 retargeted every _NATIVE_HASS write onto solver_writer.NATIVE",
         )
-        remaining = [
-            h for h in flat if h.endswith("solver_writer._LAST_KNOWN_QUALITY_HISTORY")
-        ]
-        self.assertGreater(
-            len(remaining),
-            0,
-            "expected the scan to still find solver_writer."
-            "_LAST_KNOWN_QUALITY_HISTORY assignments; if this dropped, either "
-            "the suite genuinely retargeted them (check before editing) or the "
-            "scan regressed.",
+        # The rebound module names that remain are found too. A synthetic tree,
+        # because the real files that once did this were retired by #1837.
+        synthetic = _synthetic_sites()
+        self.assertIn(
+            "solver_writer._LAST_KNOWN_QUALITY_HISTORY",
+            synthetic,
+            "the scan stopped seeing a plain module-attribute assignment",
         )
+        self.assertNotIn("coordinator.data", synthetic)
 
     def test_it_does_not_report_a_local_variable_that_shares_a_module_name(self):
         """The case that forced the import-binding check. `coordinator.py` is a
@@ -100,10 +122,9 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
         """`from ... import forecast_snapshot_store as fss` then
         `fss._store_for = ...` is a real direct assignment on a real module, and
         the loose version of this scan missed it entirely."""
-        sites = _static_direct_assignment_sites(REPO_ROOT)
-        flat = [h for hits in sites.values() for h in hits]
-        self.assertTrue(
-            any(h.endswith("fss._store_for") for h in flat),
+        self.assertIn(
+            "fss._store_for",
+            _synthetic_sites(),
             "an aliased module import's assignment is not being reported",
         )
 

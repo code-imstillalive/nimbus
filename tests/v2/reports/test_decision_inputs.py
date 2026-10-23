@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -277,3 +278,158 @@ def test_a_price_array_is_kept_per_field():
     body = di.source_series(attrs, "costsflexup")
     assert (body["value"], body["step_min"]) == ([30, 31], [0, 5])
     assert di.source_series({}, None) is None
+
+
+# --- each source as published -----------------------------------------------------------------
+
+pi = importlib.import_module("custom_components.nimbus_load.price_intervals")
+FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
+
+
+def _sample(name, sample=None):
+    d = json.loads((FIX / name).read_text(encoding="utf-8"))
+    return (d["samples"][sample] if sample else d)["selected_native_rows"]
+
+
+def _express():
+    return {
+        "forecast": _sample("1550_amber_express.json", "amber_express_general_simple"),
+        pi.AMBER_EXPRESS_DETAILED_KEY: _sample(
+            "1550_amber_express.json", "amber_express_general_detail"
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("attrs", "shape"),
+    [
+        (lambda: {"forecast": _sample("1550_aemo_nem_qld.json")}, pi.AEMO_NEM_DOMAIN),
+        (
+            lambda: {"forecast": _sample("1550_pd7day_qld_wholesale.json")},
+            pi.PD7DAY_DOMAIN,
+        ),
+        (
+            lambda: {
+                "forecast": _sample("1550_amber_core.json", "amber_import_action")
+            },
+            pi.AMBER_CORE_DOMAIN,
+        ),
+        (
+            lambda: {
+                "forecast": [],
+                pi.AMBER_CORE_ROWS_KEY: _sample(
+                    "1550_amber_core.json", "amber_import_action"
+                ),
+            },
+            pi.AMBER_CORE_DOMAIN,
+        ),
+        (_express, pi.AMBER_EXPRESS_DOMAIN),
+    ],
+    ids=["aemo", "pd7day", "amber_core", "amber_core_rows", "amber_express"],
+)
+def test_a_providers_series_is_kept_in_its_own_shape_and_reads_back(attrs, shape):
+    a = attrs()
+    body = di.source_series(a)
+    assert (body["shape"], body["to_dollars"]) == (shape, 1.0)
+    shape_again, intervals = di._provider_series(a)
+    assert shape_again == shape
+    stored = json.loads(json.dumps(body))
+    assert di.series_points(stored) == [(i.start, i.value) for i in intervals]
+    assert body["end"] == intervals[-1].end.isoformat()
+
+
+def test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read():
+    rows = [
+        {
+            "start": (T0 + timedelta(minutes=5 * i)).isoformat(),
+            "end": (T0 + timedelta(minutes=5 * i + 5)).isoformat(),
+            "value": v,
+        }
+        for i, v in enumerate([0.1, "x", 0.3])
+    ]
+    rows.append({"start": T0.isoformat(), "end": T0.isoformat(), "value": 1})
+    body = di.source_series({"forecast": rows})
+    assert (body["shape"], body["value"], body["step_min"]) == (
+        di.SHAPE_START_END,
+        [0.1, 0.3],
+        [0, 10],
+    )
+    assert body["end"] == (T0 + timedelta(minutes=15)).isoformat()
+
+
+def test_the_price_sources_are_the_configs_then_p5min_then_comparisons_once_each():
+    config = {
+        "solver_import_price_sensor": "sensor.buy",
+        "solver_export_price_sensor": "sensor.sell",
+        "solver_load_forecast_sensor": "sensor.load_fc",
+    }
+    out = di.price_source_entities(config, ["sensor.cmp", "sensor.buy", 5])
+    # Sorted by config key; the load forecast is not a price.
+    assert out == ["sensor.sell", "sensor.buy", di.P5MIN_ENTITY, "sensor.cmp"]
+    assert di.keyed_price_fields(
+        {
+            di.ARRAY_SENSOR_KEY: "sensor.array",
+            "solver_price_forecast_array_import_key": "buy",
+            "solver_price_forecast_array_export_key": "sell",
+        }
+    ) == {"sensor.array": ["buy", "sell"]}
+
+
+def _array_rows(n=12):
+    return [
+        {
+            "time": (T0 + timedelta(minutes=5 * i)).isoformat(),
+            "costsflexup": 0.2 + i / 100,
+            "earningsflexup": 0.05,
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.parametrize("comparison", [["sensor.cmp_aemo"], []])
+def test_a_horizon_keeps_the_array_per_key_and_each_comparison_source(site, comparison):
+    site.config[di.ARRAY_SENSOR_KEY] = "sensor.array"
+    site.states["sensor.array"] = SimpleNamespace(
+        state="0.2",
+        attributes={"forecast": _array_rows(), "unit_of_measurement": "$/kWh"},
+        last_updated=T0,
+    )
+    site.states["sensor.cmp_aemo"] = SimpleNamespace(
+        state="0.1",
+        attributes={"forecast": _sample("1550_aemo_nem_qld.json")},
+        last_updated=T0,
+    )
+    site.hass.config_entries = SimpleNamespace(
+        async_get_entry=lambda eid: SimpleNamespace(
+            options={"solver_price_comparison_sensors": comparison}
+        )
+    )
+    site.publish(0, 2.0)
+    site.capture()
+    site.publish(5, 2.0)
+    site.capture()
+    out = site.export(T0, T0 + timedelta(hours=1))
+    horizon, head = (
+        {line["entity_id"]: line for line in r["sources"]} for r in out["records"]
+    )
+    array = horizon["sensor.array"]
+    assert "series" not in array and set(array["series_fields"]) == {
+        "costsflexup",
+        "earningsflexup",
+    }
+    for key, fp in array["series_fields"].items():
+        assert out["series"][fp]["value"] == [row[key] for row in _array_rows()]
+    if comparison:
+        cmp_line = horizon["sensor.cmp_aemo"]
+        assert out["series"][cmp_line["series"]]["shape"] == pi.AEMO_NEM_DOMAIN
+    else:
+        assert "sensor.cmp_aemo" not in horizon
+    assert "sensor.cmp_aemo" not in head
+    refs = {
+        fp
+        for r in out["records"]
+        for line in r["sources"]
+        for fp in [line.get("series"), *(line.get("series_fields") or {}).values()]
+        if fp
+    }
+    assert refs == set(out["series"])
