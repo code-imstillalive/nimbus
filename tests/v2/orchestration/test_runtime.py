@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 import types
 import urllib.error
 from datetime import UTC, datetime, timedelta
@@ -29,6 +30,7 @@ import pytest
 # path (pyproject), and must not shadow the package's own module names.
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
+from _module_time import ModuleTime
 
 install_ha_stubs()
 
@@ -52,7 +54,7 @@ class Clock:
 def clean(monkeypatch):
     """Every test starts from a fresh module and a clock it controls."""
     clock = Clock()
-    monkeypatch.setattr(rt.time, "monotonic", clock)
+    monkeypatch.setattr(rt, "time", ModuleTime(clock))
     for name in (
         "forecast_snapshot_store",
         "quality_history_store",
@@ -702,3 +704,10 @@ def test_runtime_paths_persist_state_under_config_and_scaffolding_per_install(
     monkeypatch.setenv("NIMBUS_SOLVER_LOCK_PATH", "/mine.lock")
     rt.set_default_env_vars(FakeHass(config_dir="/srv/b"))
     assert os.environ["NIMBUS_SOLVER_LOCK_PATH"] == "/mine.lock"
+
+
+def test_the_tests_clock_never_reaches_the_event_loop():
+    """The clock is solver_runtime's own: asyncio reads the global
+    time.monotonic, and frozen it never lets a timer fall due on Linux."""
+    assert not isinstance(time.monotonic, Clock)
+    assert isinstance(rt.time.monotonic(), float)

@@ -241,6 +241,9 @@ jobs:
   test:
     name: Unit Tests (pytest)
     runs-on: ubuntu-latest
+    # A hung test otherwise runs to GitHub's 6-hour default (#1837: a frozen
+    # event-loop clock). A push to main takes ~29 minutes with the slow gate.
+    timeout-minutes: 60
     steps:
       - name: Check out code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
@@ -326,6 +329,7 @@ jobs:
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \
             --cov-report=xml \
+            -o faulthandler_timeout=1500 \
             -v
       - name: Run pytest (real HA harness, hass_integration only)
         # nimbus issue #358 (Mark Purcell): --cov-fail-under is a real

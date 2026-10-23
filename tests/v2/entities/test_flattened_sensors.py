@@ -20,6 +20,7 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
+from _module_time import ModuleTime
 
 install_ha_stubs()
 
@@ -86,7 +87,7 @@ class Clock:
 @pytest.fixture
 def clock(monkeypatch):
     c = Clock()
-    monkeypatch.setattr(fl.time, "monotonic", c)
+    monkeypatch.setattr(fl, "time", ModuleTime(c))
     return c
 
 
