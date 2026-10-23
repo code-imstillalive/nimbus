@@ -465,6 +465,28 @@ class TopologyCard extends HTMLElement {
     };
   }
 
+  // The whole-house headline and its daily solar / battery / load stats
+  // drew only when the card's own YAML carried a `whole_house` block, and
+  // the dashboard Nimbus generates never writes one: a clean install showed
+  // none of them although the Switchboard daily sensors were configured.
+  // The Solver config already names the whole-house meter and its forecast,
+  // so the headline is taken from there; a card's own block still wins.
+  // null when the Solver names neither and no daily figure is configured.
+  _discoverWholeHouseFromSolverConfig(switchboard) {
+    const state = this._hass.states["sensor.nimbus_solver_config"];
+    const attrs = (state && state.attributes) || {};
+    const live = attrs.solver_whole_house_cross_check_sensor || null;
+    const forecast = attrs.solver_load_forecast_sensor || null;
+    const sb = switchboard || {};
+    const anyDaily =
+      sb.house_load_energy_daily ||
+      sb.solar_energy_daily ||
+      sb.battery_charge_daily ||
+      sb.battery_discharge_daily;
+    if (!live && !forecast && !anyDaily) return null;
+    return { live, forecast };
+  }
+
   // Auto-discovers Power Source (inverter) / PV String / Battery Tower
   // subentries + the switchboard's own hub-level fields from sensor.
   // nimbus_topology_config (nimbus v0.68.0's NimbusTopologyConfigSensor
@@ -925,6 +947,10 @@ class TopologyCard extends HTMLElement {
           ...(solverPrices.export ? { export_price: solverPrices.export } : {}),
         },
       };
+    }
+    if (!cfg.whole_house) {
+      const derivedWholeHouse = this._discoverWholeHouseFromSolverConfig(cfg.switchboard);
+      if (derivedWholeHouse) cfg = { ...cfg, whole_house: derivedWholeHouse };
     }
     const lines = [];
     const nodes = [];

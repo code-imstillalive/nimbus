@@ -2832,11 +2832,24 @@ class NimbusTopologyConfigSensor(SensorEntity):
                     }
                 )
 
-        # One additional Power Source + Battery Tower pair per EV/
-        # battery_participant subentry (#563) -- the shared-charger
-        # group name is used as the derived source's name when set,
-        # since that's the real physical inverter/charger the
-        # participant shares, not the participant's own identity.
+        participant_sources, participant_towers = self._participant_topology()
+        power_sources.extend(participant_sources)
+        battery_towers.extend(participant_towers)
+        return power_sources, pv_strings, battery_towers
+
+    def _participant_topology(self) -> tuple[list[dict], list[dict]]:
+        """One additional Power Source + Battery Tower pair per EV/
+        battery_participant subentry (#563) -- the shared-charger
+        group name is used as the derived source's name when set,
+        since that's the real physical inverter/charger the
+        participant shares, not the participant's own identity.
+
+        Drawn on every install, including one with real Topology
+        subentries: a battery participant has no Topology subentry of its
+        own to be drawn from, so leaving it to the derived path alone hid
+        the EV from any household that had set up its inverters."""
+        power_sources: list[dict] = []
+        battery_towers: list[dict] = []
         for subentry in self._entry.subentries.values():
             if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
                 continue
@@ -2874,8 +2887,7 @@ class NimbusTopologyConfigSensor(SensorEntity):
                     "derived": True,
                 }
             )
-
-        return power_sources, pv_strings, battery_towers
+        return power_sources, battery_towers
 
     def _real_topology_lists(self) -> tuple[list[dict], list[dict], list[dict]]:
         """The three real Topology-wizard-subentry lists, exactly as
@@ -2932,11 +2944,20 @@ class NimbusTopologyConfigSensor(SensorEntity):
         orphaned/wizard-in-progress) PV String or Battery Tower that
         exists with no Power Source alongside it -- confirmed by a
         pre-existing test in this file that has exactly that shape.
+
+        Battery participants (an EV) are added to the real lists too:
+        they have no Topology subentry of their own, so they are never a
+        stand-in for one.
         """
         power_sources, pv_strings, battery_towers = self._real_topology_lists()
         if not (power_sources or pv_strings or battery_towers):
             return self._derive_topology()
-        return power_sources, pv_strings, battery_towers
+        participant_sources, participant_towers = self._participant_topology()
+        return (
+            power_sources + participant_sources,
+            pv_strings,
+            battery_towers + participant_towers,
+        )
 
     @property
     def native_value(self) -> int:

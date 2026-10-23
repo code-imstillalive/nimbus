@@ -106,7 +106,7 @@ _BATTERY_NOW: _Card = (
     [
         ("nimbus_solver_current_dispatch_direction", "Doing now"),
         ("nimbus_solver_current_battery_kw", "Battery power"),
-        ("nimbus_solver_current_soc_pct", "State of charge"),
+        ("soc_rows",),
         ("nimbus_solver_equivalent_full_cycles", "Cycles in plan"),
         ("nimbus_solver_lp_status", "Plan status"),
         ("nimbus_solver_solve_seconds", "Solve time"),
@@ -766,6 +766,30 @@ def _rows(rows: list[tuple[str, ...]]) -> list[dict[str, Any]]:
             # A divider with a line of explanation, inside the card.
             out.append({"type": "section", "label": row[1]})
             continue
+        if row[0] == "soc_rows":
+            # Household, 23 Oct 2026: with an EV the fleet figure (every
+            # battery's kWh over all their capacity) is a number no meter
+            # on the site reads. One row per battery there, the fleet row
+            # on a single-battery install; same switch as the plan chart.
+            out.append(
+                {
+                    **_row("nimbus_solver_current_soc_pct", "State of charge"),
+                    "nimbus_unless": _MULTI_BATTERY,
+                }
+            )
+            # Each battery's row exists only where its sensor does (a site
+            # with a battery participant), so it is a conditional row: an
+            # install without that sensor drops it whole.
+            for slot in range(len(_BATTERY_SOC_COLOURS)):
+                key = f"nimbus_solver_battery_{slot}_soc_pct"
+                out.append(
+                    {
+                        "type": "conditional",
+                        "conditions": [{"entity": f"@{key}", "state_not": "none"}],
+                        "row": _row(key, "${@name:" + key + "}"),
+                    }
+                )
+            continue
         if row[0] != "block":
             out.append(_row(*row))
             continue
@@ -911,8 +935,18 @@ def _glance_chart() -> dict[str, Any]:
                 "entity": "@nimbus_solver_current_soc_pct",
                 "name": "Battery now",
                 "color": "#3ddc84",
+                "nimbus_unless": _MULTI_BATTERY,
                 **ring,
             },
+            *(
+                {
+                    "entity": f"@nimbus_solver_battery_{slot}_soc_pct",
+                    "name": "${@name:nimbus_solver_battery_" + str(slot) + "_soc_pct}",
+                    "color": colour,
+                    **ring,
+                }
+                for slot, colour in enumerate(_BATTERY_SOC_COLOURS)
+            ),
             {
                 "entity": "@nimbus_solver_p2p_match_fraction",
                 "name": "P2P matched",
