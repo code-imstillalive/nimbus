@@ -657,6 +657,7 @@ def test_calendar_events_become_trips_with_a_timezone_each(cal):
                     },
                     {"start": "2026-09-24T08:00:00", "end": "2026-09-24T09:00:00"},
                     {"start": "nonsense", "end": "2026-09-24T09:00:00"},
+                    {"summary": "no times"},  # skipped, never defaulted
                     "not an event",
                 ]
             }

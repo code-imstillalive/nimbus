@@ -8899,8 +8899,7 @@ def fetch_calendar_trips(
         # #363's rule is kept exactly as-is for the timed shape -- an
         # external API handing back a naive-but-genuinely-UTC instant is a
         # real thing, and
-        # test_467_calendar_fetch.py::TestNaiveTimestampsCannotReachTheSolver
-        # pins it.
+        # tests/v2/orchestration/test_writer_inputs.py pins it.
         if started.tzinfo is None:
             started = started.replace(
                 tzinfo=LOCAL_TZ if _is_date_only(str(raw.get("start") or "")) else UTC
