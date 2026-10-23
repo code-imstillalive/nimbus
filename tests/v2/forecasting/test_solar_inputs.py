@@ -214,3 +214,19 @@ def test_auto_included_open_meteo_joins_the_blend(site):
     assert all(lo[i] < kw[i] < up[i] for i in range(N))
     del site["sensor.om_today"]  # the anchor entity gone: Open-Meteo is absent
     assert _arrays(cfg)[0] == [4.0] * N
+
+
+def test_a_source_that_comes_back_is_announced_and_warned_about_afresh_if_lost_again(
+    site, caplog
+):
+    cfg = {"solver_solar_forecast_sensor": "sensor.a"}
+    with caplog.at_level(logging.INFO):
+        site["sensor.a"] = {"nothing": 1}
+        _arrays(cfg)
+        site["sensor.a"] = _forecast([2.0] * N)
+        _arrays(cfg)
+        _arrays(cfg)  # once back, nothing more to say
+        site["sensor.a"] = {"nothing": 1}
+        _arrays(cfg)
+    said = [r.levelname for r in caplog.records if "sensor.a" in r.getMessage()]
+    assert said == ["WARNING", "INFO", "WARNING"]
