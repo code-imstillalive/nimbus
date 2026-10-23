@@ -550,6 +550,30 @@ def test_a_revised_forecaster_goes_beside_the_households_own_forecaster(
     assert "nimbus" not in _views(ha)[1]["title"].lower()
 
 
+def test_a_tab_the_household_marked_old_is_the_one_beside_which_it_goes(
+    ha, monkeypatch
+) -> None:
+    """The household renamed their own tab "Forecaster (OLD)" so it is never
+    touched (23 Oct 2026); a revised Forecaster goes right after it."""
+    mod = _load_module()
+    _run(mod, ha.hass)
+    views = ha.dashboards["dashboard-nimbus"].config["views"]
+    views[:] = [v for v in views if v.get("title") != "Forecaster"]
+    theirs = {
+        "title": "Forecaster (OLD)",
+        "path": "old",
+        "type": "sections",
+        "sections": [],
+    }
+    views.insert(0, theirs)
+    kept = copy.deepcopy(views)
+    _redesign(mod, monkeypatch, "forecaster")
+    assert _run(mod, ha.hass) == ["beside:forecaster@dashboard-nimbus"]
+    after = _views(ha)
+    assert [v["title"] for v in after[:2]] == ["Forecaster (OLD)", "Forecaster"]
+    assert [v for v in after if v.get("title") != "Forecaster"] == kept
+
+
 def test_a_revised_tab_goes_beside_theirs_even_if_nimbus_tab_was_moved(
     ha, monkeypatch
 ) -> None:

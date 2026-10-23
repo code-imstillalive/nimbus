@@ -272,6 +272,14 @@ def _pick_nimbus_dashboard(
     return max(candidates, key=lambda item: _nimbus_card_count(item[2]))
 
 
+def _is_their_title(title: Any, standard: str) -> bool:
+    """A tab titled as the standard tab, or as it with a household suffix such
+    as "Forecaster (OLD)": the household's tab to place a new design beside."""
+    return isinstance(title, str) and (
+        title == standard or title.startswith(standard + " (")
+    )
+
+
 def _sync_views(
     views: list[Any],
     mem: dict[str, Any],
@@ -361,7 +369,8 @@ def _sync_views(
         else:
             # Rules 4 and 6: changed, the household's own, or deleted -- the
             # new design goes beside it, once. A household tab with this
-            # tab's title is the one to compare against, so the new design
+            # tab's title, or that title marked as theirs ("Forecaster (OLD)",
+            # "Solver (OLD)"), is the one to compare against, so the new design
             # goes straight after it (household, 23 Oct 2026: "you place
             # forecaster next to mine with name 'Forecaster'"). Otherwise
             # beside the tab Nimbus wrote, or one showing its card, or the end.
@@ -369,7 +378,7 @@ def _sync_views(
                 i
                 for i, v in enumerate(views)
                 if isinstance(v, dict)
-                and v.get("title") == spec["title"]
+                and _is_their_title(v.get("title"), spec["title"])
                 and v.get("path") != rec.get("path")
             ]
             if theirs:
