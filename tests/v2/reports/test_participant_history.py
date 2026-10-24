@@ -537,3 +537,14 @@ def test_the_scorer_sets_every_field_the_live_solve_sets_but_the_live_away_flags
         "available",
         "unavailable_until_period_index",
     }
+
+
+def test_a_scalar_list_or_array_period_length_gives_the_same_deadline():
+    """The history path passes one scalar period length; every shape agrees,
+    and a tiered sequence is honoured rather than flattened (#1336)."""
+    kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
+    scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
+    assert scalar[0] == 5
+    assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
+    assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
+    assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
