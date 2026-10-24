@@ -68,7 +68,7 @@ class TestNoFieldWasAdded(unittest.TestCase):
         # 27 -> 28: nimbus #1537 item 3 (second P2P matched-rate source),
         # not this feature. 28 -> 29: nimbus #1786's comparison-only price
         # sources, not this feature either. 29 -> 31: nimbus #1786's two
-        # loss-factor code sensors (see test_config_surface_budget.py).
+        # loss-factor code sensors (see test_gates_source_and_docs.py).
         self.assertEqual(
             count,
             31,
