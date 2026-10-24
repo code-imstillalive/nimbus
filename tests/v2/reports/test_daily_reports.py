@@ -1376,3 +1376,24 @@ def test_a_named_rescore_solves_only_the_day_named(monkeypatch, only, scored):
     else:
         sw.rescore_quality_history({}, now, 10, only_dates=only)
     assert seen == scored
+
+
+# --- a day whose EPR denominator is unusable warns once (#1089) ------------------------------
+
+
+def test_an_unusable_denominator_is_warned_about_once_for_the_day(
+    ha, monkeypatch, caplog
+):
+    monkeypatch.setattr(sw, "_QUALITY_REPORT_EPR_DENOMINATOR_WARNED", set())
+    real = sw._compute_report_for_window
+
+    def flagged(*a, **k):
+        entry = real(*a, **k)
+        return {**entry, "epr_denominator_reason": "oracle_not_better_than_idle"}
+
+    monkeypatch.setattr(sw, "_compute_report_for_window", flagged)
+    first = [m for m in _published_warnings(caplog) if "DENOMINATOR" in m]
+    assert len(first) == 1 and "oracle_not_better_than_idle" in first[0]
+    assert DAY.date().isoformat() in first[0]
+    ha["states"].pop(sw.QUALITY_ENTITY_ID, None)
+    assert not [m for m in _published_warnings(caplog) if "DENOMINATOR" in m]

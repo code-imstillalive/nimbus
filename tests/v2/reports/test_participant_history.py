@@ -548,3 +548,29 @@ def test_a_scalar_list_or_array_period_length_gives_the_same_deadline():
     assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
     assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
     assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
+
+
+def test_a_shared_charger_reaches_the_scorer_widened_to_what_the_day_drew(
+    site, monkeypatch
+):
+    """#1109: the scorer's participants carry their shared charger, its cap
+    widened to the pair's peak simultaneous draw on the way out."""
+    shared = {
+        "battery_participant_shared_charger_group": "garage",
+        "battery_participant_shared_charger_max_kw": 6.0,
+    }
+    site.add({**EV, **shared}, sid="a")
+    site.add(
+        {
+            **EV,
+            **shared,
+            "battery_participant_name": "van",
+            "battery_participant_soc_sensor": "sensor.van_soc",
+        },
+        sid="b",
+    )
+    site.states["sensor.van_soc"] = "40.0"
+    site.power = every(5.0)  # each draws 5 kW at once: 10 kW through a 6 kW cap
+    out = resolve()
+    assert [b.shared_charger_group for b, *_ in out] == ["garage", "garage"]
+    assert [b.shared_charger_max_kw for b, *_ in out] == [pytest.approx(10.0)] * 2
