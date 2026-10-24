@@ -615,7 +615,7 @@ except ImportError:
     # solar.py reaches it as an ATTRIBUTE of this module
     # (sw.blend_forecast_array) so that this file stays the single
     # binding point for every shared helper -- see solver_inputs/
-    # __init__.py. (2) tests/test_solver_writer_import_and_token_
+    # __init__.py. (2) tests/v2/orchestration/test_import_and_token_
     # laziness.py asserts on its __module__ as the probe for nimbus
     # issue #349's "the relative import must not produce a second,
     # distinct top-level `ml` module" guarantee. Removing it would
@@ -623,7 +623,7 @@ except ImportError:
     from ml.blend import blend_forecast_array, cross_source_spread  # noqa: F401
     from solver import (  # noqa: F401 -- `lp` is a re-export: main()'s own
         # lp.CalibratedOptions() call moved to solver_plan.py (#1303), but
-        # test_solver_writer_smoothness_and_proximal_weight_wiring.py asserts
+        # tests/v2/orchestration/test_smoothness_and_proximal_weights.py asserts
         # against solver_writer.lp.CalibratedOptions at :215 and :225.
         cycle_lock,
         elements,
@@ -7305,7 +7305,7 @@ def _load_nowcast_skill_attributes(
 # `configured_usable_capacity_kwh` is still published, because what the
 # solver plans against is a fact worth stating (nimbus issue #1013).
 #
-# tests/test_1172_no_capacity_measurement_from_a_power_sensor.py pins
+# tests/test_1172_the_retracted_capacity_stays_retracted.py pins
 # this absence.
 
 

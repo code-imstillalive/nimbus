@@ -1098,7 +1098,7 @@ class BatteryConfig:
             raise ValueError(msg)
         # Strict < 1.0 on BOTH sides, not <= -- exactly 100% must be
         # REJECTED, not merely allowed at the boundary (real bug caught
-        # by tests/test_elements_battery_config_validation.py: an
+        # by tests/v2/solver/test_battery_config_validation.py: an
         # earlier version used <= 1.0, which let exactly 100%
         # silently pass validation, directly
         # contradicting the architecture sketch's own explicit call:

@@ -78,7 +78,7 @@ reached here via the deferred, by-MODULE `_solver_writer()` seam
 `solver_inputs/*.py`/`solver_publish.py` also use (see either module's own
 `_solver_writer()` docstring for the "relocating a function also relocates
 who its internal callers resolve" story, nimbus issue #861):
-`tests/test_solver_writer_import_and_token_laziness.py` source-scans
+`tests/v2/orchestration/test_import_and_token_laziness.py` source-scans
 `solver_writer.py` itself for the literal `open(TOKEN_PATH` call site inside
 a function literally named `_load_token()` -- moving that body would break a
 real, existing, unedited test.
@@ -686,7 +686,7 @@ _NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
         # a moment later. #1192's own reproduction is the flex family and
         # nothing else, which is the shape this predicts.
         #
-        # `test_1192_native_managed_set_covers_every_handler.py` now
+        # `tests/v2/orchestration/test_native_managed_set.py` now
         # derives the required set from sensor.py's own
         # register_entity_handler() call sites and fails if this one falls
         # behind again, so the next entity to get a handler cannot be

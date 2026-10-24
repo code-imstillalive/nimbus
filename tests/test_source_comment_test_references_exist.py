@@ -13,7 +13,7 @@ does exactly that -- it lived in the unrecorded-attributes tests (since
 integration then turned up a second one: `solver/elements.py` credited
 the exactly-100%-efficiency rejection to `test_network_synthetic.py`,
 which is also gone (the check lives in
-`test_elements_battery_config_validation.py`).
+`test_battery_config_validation.py`, in tests/v2 since #1837).
 
 Neither is cosmetic. A comment naming a test file is load-bearing
 documentation -- it is how the next person answers "is this constraint
@@ -174,7 +174,7 @@ class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
         for expected in (
             # The guard moved to tests/v2 with #1837.
             "test_controllable_load_sensors.py",
-            "test_elements_battery_config_validation.py",
+            "test_battery_config_validation.py",
         ):
             with self.subTest(expected):
                 self.assertIn(expected, existing)

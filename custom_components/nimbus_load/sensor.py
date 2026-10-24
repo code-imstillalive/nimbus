@@ -1441,7 +1441,7 @@ async def async_setup_entry(
         flex_report.entity_id,
     )
     # A literal entity_id, not solver_writer.FLEX_TELEMETRY_ENTITY_ID --
-    # test_1192_native_managed_set_covers_every_handler.py derives the
+    # tests/v2/orchestration/test_native_managed_set.py derives the
     # required set by walking this file's AST and refuses a non-literal
     # first argument rather than letting its own invariant silently shrink.
     # It caught this exact call written the other way.
@@ -3484,7 +3484,7 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     CURRENT install as stale: the exact inversion of what the check is for.
     Measured against the live reference household 2026-09-27 (ten keys,
     v0.94.426) before being corrected here, and
-    `tests/test_1179_solve_failure_is_self_diagnosing.py` now pins this
+    `tests/test_1179_the_failure_diagnostic_is_wired.py` now pins this
     sentence to the source so the two cannot drift apart again in silence.
     """
 

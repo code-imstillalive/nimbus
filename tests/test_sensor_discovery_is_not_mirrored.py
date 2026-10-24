@@ -5,7 +5,7 @@
 `_discover_aemo_30min_forecast_sensor()` (#452) were methods on
 `NimbusSolverConfigSensor`, and their only coverage was hand-copied
 mirrors of the logic inside the NEM-region tests (since retired, #1837)
-and `test_aemo_30min_forecast_discovery.py`. Grepping `tests/` for either
+and `test_aemo_forecast_discovery.py`. Grepping `tests/` for either
 method name returned nothing at all.
 
 The mirrors agreed with the real code, which is exactly why this was
