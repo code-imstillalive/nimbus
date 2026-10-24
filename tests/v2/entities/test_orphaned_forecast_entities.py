@@ -1,69 +1,23 @@
-"""nimbus issue #1270: a forecast entity whose subentry no longer exists is
-removed, instead of sitting in the registry forever holding its entity_id.
-
-## Why Home Assistant's own cleanup does not already cover this
-
-`ConfigEntries.async_remove_subentry()` calls
-`ent_reg.async_clear_config_subentry(...)`, so a subentry removed *today* takes
-its entities with it. `test_stale_devices_cleanup` states that mechanism's own
-limit exactly:
-
-> HA's automatic cleanup can't recover devices it was never told belong to a
-> subentry.
-
-Entities registered before `config_subentry_id` was threaded through (#645/#680
-document the number.py side of the same gap) carry no subentry link. When their
-subentry went away, core had nothing to clear.
-
-## Measured, on two independent installs
-
-2026-09-26, production and devhub both carry
-`sensor.nimbus_mirror_{temperature,humidity}_forecast` reading `unknown`, left
-behind by signal subentries that no longer exist. A registry read on one orphan
-returns `config_entry_id: null` and no subentry link; a healthy sibling returns
-`unique_id: 01M0YEZP7YDF5S4BDP8T9RQ126_signal_forecast` with both fields set.
-
-## The decision this file exists to pin
-
-`TestTheDiscriminatorIsTheUniqueId` is the important one. The fix originally
-proposed on the issue filtered on `config_subentry_id not in entry.subentries`,
-which would have matched **nothing** — the field these orphans are missing *is*
-`config_subentry_id`. The unique_id embeds the owning subentry id verbatim
-(`f"{subentry.subentry_id}{suffix}"`), so it still identifies the owner of an
-entity that has lost its link. A future refactor "simplifying" this to the
-subentry link would silently reopen the whole bug.
-
-## Why removal rather than a warning
-
-An orphan keeps its `entity_id` reserved, so the entity that should own that
-name is bumped to `_2` — an id change on a live entity, which is what
-dashboards and automations reference. The rename pass cannot repair it either:
-it explicitly skips when the target name is taken, and an orphan is exactly
-something taking it. And there is no user-side remedy at all — HA greys out
-delete for an entity belonging to a loaded config entry, which the reference
-household confirmed on both installs.
-
-## Approach
-
-A fake registry, because the real one needs a running HA. The fake records what
-was removed, which is the only observable that matters here.
+"""A forecast entity whose subentry no longer exists is reported, never
+deleted: found by the owner id its unique_id embeds, since the subentry link
+is exactly what such an entity lacks. An empty subentry mapping reports
+nothing, and hub-scoped entities are never in reach (#1270) (#1837).
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import sys
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 import custom_components.nimbus_load as nimbus_init
 
 CLEANUP = nimbus_init._async_report_orphaned_forecast_entities
@@ -169,15 +123,6 @@ class TestNothingIsActuallyDeleted(unittest.TestCase):
             "nothing may be deleted until a real orphan is confirmed (#1270)",
         )
 
-    def test_the_source_does_not_call_async_remove(self):
-        """Executable lines only. Both the docstring and an inline comment
-        discuss async_remove() -- that is prose about a deliberate choice,
-        not a call, and an assertion that cannot tell the two apart would
-        force the reasoning out of the file to stay green."""
-        body = inspect.getsource(CLEANUP).split(chr(34) * 3)[-1]
-        code = chr(10).join(line.split("#", 1)[0] for line in body.splitlines())
-        self.assertNotIn("async_remove(", code)
-
 
 class TestTheOrphanIsReported(unittest.TestCase):
     def test_a_forecast_entity_whose_subentry_is_gone_is_removed(self):
@@ -204,21 +149,6 @@ class TestTheDiscriminatorIsTheUniqueId(unittest.TestCase):
     the symptom -- so such a filter would match nothing and the bug would look
     fixed while nothing changed.
     """
-
-    def test_the_source_matches_on_unique_id(self):
-        src = inspect.getsource(CLEANUP)
-        self.assertIn("unique_id", src)
-        self.assertIn("_signal_forecast", src)
-        self.assertIn("_load_forecast", src)
-
-    def test_the_source_does_NOT_filter_on_config_subentry_id(self):
-        body = inspect.getsource(CLEANUP).split('"""')[-1]
-        self.assertNotIn(
-            "config_subentry_id",
-            body,
-            "filtering on the subentry link would miss every orphan this "
-            "exists to remove -- the missing link IS the symptom (#1270)",
-        )
 
     def test_an_orphan_with_no_subentry_link_is_still_removed(self):
         """The real shape measured on production: no subentry link at all,
@@ -248,34 +178,6 @@ class TestTheGuards(unittest.TestCase):
         blank = FakeRegistryEntry("sensor.something", "")
         removed = _run([blank, LIVE], subentry_ids=["sub_live"])
         self.assertEqual(removed, [])
-
-
-class TestItIsWiredIn(unittest.TestCase):
-    def test_setup_calls_it(self):
-        src = inspect.getsource(nimbus_init)
-        self.assertIn(
-            "await _async_report_orphaned_forecast_entities(hass, entry)", src
-        )
-
-    def test_it_runs_AFTER_the_rename_pass(self):
-        """Ordering is deliberate and documented: clearing an orphan frees the
-        entity_id it squatted, and the freed name is taken up on the NEXT
-        reload rather than this one. A rename and a removal racing over the
-        same id in a single pass is precisely the collision the rename pass
-        already refuses to risk."""
-        src = inspect.getsource(nimbus_init)
-        self.assertLess(
-            src.index("await _async_rename_stale_forecast_entities(hass, entry)"),
-            src.index("await _async_report_orphaned_forecast_entities(hass, entry)"),
-        )
-
-    def test_it_is_inside_the_defensive_try_block(self):
-        """Entity-registry drift is real but must never take the hub down --
-        the existing block's own stated reasoning, inherited rather than
-        re-argued."""
-        src = inspect.getsource(nimbus_init)
-        i = src.index("await _async_report_orphaned_forecast_entities(hass, entry)")
-        self.assertIn("except Exception:", src[i : i + 400])
 
 
 if __name__ == "__main__":

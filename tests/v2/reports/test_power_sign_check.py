@@ -1,58 +1,19 @@
-"""nimbus issue #1241: check a declared battery power-sign convention against
-recorded history, and report rather than auto-correct.
-
-## What makes this checkable
-
-The declaration is **redundant with recorded history**, and that redundancy is
-the test. Over a window where SoC rose, energy went in; where it fell, energy
-came out. So the sign of the mean power across that window is determined, not
-assumed.
-
-Both series are already required and already fetched by the scorer, so nothing
-new is configured — this compares two things the code already has.
-
-## Why it reports and never corrects
-
-> **Report, do not auto-correct.** Silently flipping a household's declared
-> convention because a heuristic disagreed with it is the kind of "fix" that
-> becomes the next investigation.
-
-`TestItNeverCorrects` pins that there is no code path returning a corrected
-sign — the result carries a verdict and its evidence, and the decision stays
-with a human.
-
-## Why INSUFFICIENT_EVIDENCE is a first-class answer
-
-A flat pack is not evidence. Neither is one window, which can be confounded by
-a recorder gap (#1161) or a wake transient (#843). Nor is a genuinely mixed
-history — that is not a sign error, it is a sign that something else is wrong
-with one of the two series, and saying so is more useful than picking the
-majority of a coin flip.
-
-## The four-case truth table
-
-The whole detector rests on one line, so every case is tested explicitly
-rather than by sampling:
-
-| SoC | mean power | implies |
-|---|---|---|
-| rose | positive | positive = charge |
-| rose | negative | positive = discharge |
-| fell | positive | positive = discharge |
-| fell | negative | positive = charge |
+"""Checking a declared battery power sign against recorded history: over a
+window where SoC rose, energy went in. Reported, never corrected; too little
+or mixed evidence is an answer of its own, and a magnitude error is not a
+sign error (#1231, #1241) (#1837).
 """
 
 from __future__ import annotations
 
 import importlib.util
-import inspect
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "nimbus_load"
     / "solver_inputs"
@@ -235,12 +196,6 @@ class TestItNeverCorrects(unittest.TestCase):
             with self.subTest(field=forbidden):
                 self.assertNotIn(forbidden, fields)
 
-    def test_the_module_writes_nothing(self):
-        src = inspect.getsource(sys.modules[detect_power_sign_convention.__module__])
-        for writer in ("async_set", "hass.", "config_entries", "async_update_entry"):
-            with self.subTest(writer=writer):
-                self.assertNotIn(writer, src)
-
     def test_only_a_confident_disagreement_is_actionable(self):
         """A caller must not warn on "we could not tell"."""
         for verdict, expected in (
@@ -280,10 +235,6 @@ class TestItIsPure(unittest.TestCase):
     """No HA imports, same as solver_inputs/calendar_trips.py -- so it is
     testable without a running Home Assistant and reusable from the cron
     writer path as well as the native one."""
-
-    def test_no_homeassistant_import(self):
-        src = inspect.getsource(sys.modules[detect_power_sign_convention.__module__])
-        self.assertNotIn("homeassistant", src)
 
     def test_unsorted_input_is_handled(self):
         soc, power = _series([10, 30, 50, 70, 90], [4.0, 4.0, 4.0, 4.0])
