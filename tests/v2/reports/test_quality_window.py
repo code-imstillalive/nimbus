@@ -1084,3 +1084,15 @@ def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so
     assert (
         scored["epr_reliable"] is False and scored["epr_reason"] == "price_source_stale"
     )
+
+
+# --- the capacity a report states (#1013, #1172) ----------------------------------------------
+
+
+def test_the_report_states_the_planned_capacity_and_no_measured_one(history):
+    """It states the derated capacity the solver plans against. The measured
+    capacity #1172 retracted (a power-sensor integral, wrong on a correctly
+    configured pack) is not published."""
+    report = window(cfg(solver_battery_soh_percent=90.0))
+    assert report["configured_usable_capacity_kwh"] == 45.0
+    assert not [k for k in report if k.startswith("measured_usable_capacity")]

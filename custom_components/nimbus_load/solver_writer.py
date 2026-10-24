@@ -7305,7 +7305,7 @@ def _load_nowcast_skill_attributes(
 # `configured_usable_capacity_kwh` is still published, because what the
 # solver plans against is a fact worth stating (nimbus issue #1013).
 #
-# tests/test_1172_the_retracted_capacity_stays_retracted.py pins
+# tests/test_1172_the_regret_card_drops_the_measured_capacity.py pins
 # this absence.
 
 
