@@ -14,6 +14,7 @@ import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import availability
 import numpy as np
 import pytest
 import solver_shared as shared
@@ -228,3 +229,107 @@ def test_an_away_participant_outside_its_range_is_not_warned_about(site, caplog)
     with caplog.at_level(logging.WARNING):
         eb.build_extra_batteries()
     assert "configured floor/ceiling" not in caplog.text
+
+
+# --- what says a participant is here (22 Oct 2026) ---------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("entity", "here"),
+    [
+        ("binary_sensor.x", "on"),
+        ("input_boolean.x", "on"),
+        ("switch.x", "on"),
+        ("device_tracker.car", "home"),
+        ("person.driver", "home"),
+    ],
+)
+def test_each_kind_keeps_its_standard_meaning(entity, here):
+    states = availability.available_states(entity, None)
+    assert availability.is_available(here, states)
+    for not_here in ("off", "not_home", None, "unknown", "unavailable"):
+        assert not availability.is_available(not_here, states)
+
+
+def test_a_sensor_is_here_only_in_the_states_the_household_lists():
+    listed = availability.available_states("sensor.charger", " Charging , Connected,")
+    assert listed == {"charging", "connected"}
+    assert availability.is_available("CHARGING", listed)
+    assert not availability.is_available("Idle", listed)
+    assert availability.available_states("sensor.charger", "") == frozenset()
+
+
+@pytest.mark.parametrize(
+    ("entity", "state", "listed", "available"),
+    [
+        ("binary_sensor.home", "on", None, True),
+        ("binary_sensor.home", "off", None, False),
+        ("device_tracker.car", "home", None, True),
+        ("device_tracker.car", "not_home", None, False),
+        ("person.driver", "home", None, True),
+        ("person.driver", "Work", None, False),  # a zone is not home
+        ("sensor.charger", "connected", "Charging, Connected", True),
+        ("sensor.charger", "Disconnected", "Charging, Connected", False),
+        ("sensor.charger", "Charging", None, False),  # none listed
+    ],
+)
+def test_the_live_gate_reads_the_same_states(site, entity, state, listed, available):
+    data = {**EV, "battery_participant_available_entity": entity}
+    if listed is not None:
+        data["battery_participant_available_states"] = listed
+    site.add("ev", data)
+    site.state("sensor.ev_soc", "55.0")
+    site.state(entity, state)
+    assert eb.build_extra_batteries()[0].available is available
+
+
+# --- a sleeping car's unreadable SoC (#1715) ---------------------------------------------------
+
+
+@pytest.fixture
+def car(site, monkeypatch):
+    monkeypatch.setattr(eb, "_LAST_GOOD_SOC", {})
+    monkeypatch.setattr(eb, "_SOC_UNREADABLE_WARNED", set())
+    site.add("car", EV)
+
+    def build(soc):
+        if soc is None:
+            site.states.pop("sensor.ev_soc", None)
+        else:
+            site.state("sensor.ev_soc", soc)
+        return eb.build_extra_batteries()
+
+    return build
+
+
+def _held(caplog):
+    return [r.getMessage() for r in caplog.records if "#1715" in r.getMessage()]
+
+
+def test_an_unreadable_soc_holds_the_last_reading_never_the_floor(car, caplog):
+    (awake,) = car("70")
+    with caplog.at_level(logging.WARNING):
+        (asleep,) = car("unavailable")
+    assert awake.initial_soc_kwh == pytest.approx(42.0) == asleep.initial_soc_kwh
+    (line,) = _held(caplog)
+    assert "holding" in line
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        car("unavailable")
+    assert _held(caplog) == []  # once per spell
+    car("65")
+    assert "car" not in eb._SOC_UNREADABLE_WARNED  # waking ends the spell
+
+
+@pytest.mark.parametrize("soc", ["unavailable", None], ids=["unavailable", "missing"])
+def test_with_nothing_to_hold_the_car_sits_out(car, caplog, soc):
+    with caplog.at_level(logging.WARNING):
+        assert car(soc) == []
+    assert soc is None or "leaving it out" in caplog.text
+
+
+def test_the_hold_runs_out(car):
+    car("70")
+    pct, read_at = eb._LAST_GOOD_SOC["car"]
+    eb._LAST_GOOD_SOC["car"] = (pct, read_at - eb._SOC_HOLD_SECONDS - 1)
+    assert car("unavailable") == []

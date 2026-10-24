@@ -443,3 +443,18 @@ def test_consolidation_keeps_spikes_unless_a_threshold_is_set(monkeypatch):
     assert sw.apply_price_consolidation({}, *args)["mode"] == "shadow"
     sw.apply_price_consolidation({"solver_price_spike_threshold": 3.0}, *args)
     assert seen == [0.0, 0.0, 3.0, 3.0]
+
+
+@pytest.mark.parametrize(
+    ("in_kwh", "out_kwh", "soc_delta", "closed"),
+    [
+        (108.136, 113.328, -0.240, True),  # back where it began, more out than in
+        (0.0, 79.044, -84.667, False),  # an evening's discharge
+        (92.971, 0.0, 100.954, False),  # a day's charge
+        (0.0, 0.0, 6.096, False),  # no throughput: nothing to compare
+    ],
+)
+def test_only_a_day_back_where_it_began_is_a_closed_loop(
+    in_kwh, out_kwh, soc_delta, closed
+):
+    assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed

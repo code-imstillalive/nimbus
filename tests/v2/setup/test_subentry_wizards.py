@@ -303,3 +303,17 @@ def test_only_load_and_signal_forecasters_can_collide():
         is None
     )
     assert flows.find_subentry_sharing_source_sensor(entry, "sensor.q") is None
+
+
+def test_a_participant_can_be_here_by_any_kind_of_entity_and_listed_states():
+    availability = importlib.import_module("custom_components.nimbus_load.availability")
+    schema = _mod("battery_participant_subentry")._schema({})
+    fields = {str(k): k for k in schema.schema}
+    entity = fields[const.CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY]
+    assert list(schema.schema[entity].config["domain"]) == list(availability.DOMAINS)
+    assert "battery_participant_available_states" in fields
+    root = Path(availability.__file__).resolve().parent
+    for name in ("strings.json", "translations/en.json"):
+        assert '"battery_participant_available_states"' in (root / name).read_text(
+            encoding="utf-8"
+        )
