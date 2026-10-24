@@ -2042,3 +2042,19 @@ def test_the_field_set_matches_the_schema_number():
         "QUALITY_REPORT_SCHEMA in solver_reports/quality.py and add "
         f"{{{quality.QUALITY_REPORT_SCHEMA + 1}: '{digest}'}} here."
     )
+
+
+# --- test_467_calendar_trip_windows -----------------------------------------------------------
+# #467: calendar trips are resolved into plain tuples, so the dependency points
+# one way: this module turns calendar data into numbers and the caller decides
+# which solver element to build. (Its Home Assistant boundary is enforced by
+# tests/v2/orchestration/test_calendar_trip_windows.py loading it by path with
+# no Home Assistant; an entity_id that is not Nimbus's own fails the #1994 gate.)
+
+
+def test_467_calendar_trips_imports_nothing_from_the_solver():
+    source = (_NIMBUS_LOAD / "solver_inputs" / "calendar_trips.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from ..solver" not in source
+    assert "import AdequacyWindow" not in source
