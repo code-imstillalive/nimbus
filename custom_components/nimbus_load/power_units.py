@@ -10,7 +10,7 @@ PowerConverter while the Solver used its own checks, so the two could
 disagree about the same sensor.
 
 The cards (frontend/*.js) carry the same table as `NIMBUS_POWER_TO_KW`;
-`tests/test_1570_power_units.py` checks each card's table against this one.
+`tests/test_1570_every_reader_and_card_converts.py` checks each card's table against this one.
 
 HA-import-free on purpose: the Solver also runs standalone, without Home
 Assistant. The units match HA's `UnitOfPower`.

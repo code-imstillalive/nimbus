@@ -64,7 +64,7 @@ const NIMBUS_FC_GEN = {
 class NimbusForecastCard extends HTMLElement {
   static powerScaleToKw(unit) {
     // nimbus #1570: the same table as power_units.py (POWER_TO_KW);
-    // tests/test_1570_power_units.py checks every card against it.
+    // tests/test_1570_every_reader_and_card_converts.py checks every card against it.
     const NIMBUS_POWER_TO_KW = {"mw": 1e3, "w": 1e-3, "kw": 1.0, "gw": 1e6, "tw": 1e9, "btu/h": 0.00029307107};
     const NIMBUS_POWER_EXACT = {"mW": 1e-6, "MW": 1e3};
     if (typeof unit !== 'string') return 1;

@@ -15,7 +15,7 @@ Built like the Solver tab (`solver_tab.template()`): sections with `@key`
 placeholders that `solver_tab.resolve()` binds to this install's entities.
 The wizard reference is generated from `strings.json`, the text the wizard
 itself shows, so the two cannot drift; every Solver-tab setting has an
-entry here, and `tests/test_1823_help_tab.py` fails if one is missing.
+entry here, and `tests/v2/entities/test_help_tab.py` fails if one is missing.
 """
 
 from __future__ import annotations
@@ -211,7 +211,7 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 
 #: (version, date, highlights), newest first. HACS installs only this folder,
 #: not the repo's CHANGELOG, so the notes live here. Every release adds its
-#: entry: tests/test_1823_help_tab.py fails when manifest.json's version is
+#: entry: tests/test_1823_the_help_tab_follows_the_wizard.py fails when manifest.json's version is
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
@@ -720,7 +720,7 @@ _TABS = (
 # entry per feature: what it does, when to use it, how to turn it on, what you
 # see, and its limits. Images are this repo's own screenshots under
 # docs/images/, served from GitHub (HACS installs only the integration folder);
-# `tests/test_1823_help_tab.py` fails if one is missing.
+# `tests/v2/entities/test_help_tab_features.py` fails if one is missing.
 
 IMAGES_URL = (
     "https://raw.githubusercontent.com/code-imstillalive/nimbus/main/docs/images"
@@ -1201,7 +1201,7 @@ GLOSSARY: tuple[tuple[str, str, str], ...] = (
 # ---- every Solver-tab row ---------------------------------------------------
 
 #: entity key -> (what it is, formula or example). Every entity row on the
-#: Solver tab must have one (tests/test_1823_help_tab.py).
+#: Solver tab must have one (tests/v2/entities/test_help_tab.py).
 SETTINGS: dict[str, tuple[str, str]] = {
     # Last day, scored
     "nimbus_quality_epr": (

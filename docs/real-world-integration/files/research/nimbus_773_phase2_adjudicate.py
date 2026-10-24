@@ -115,7 +115,7 @@ from solver.network import build_plan
 _REAL_ENSURE = lp._ensure_optimal_value
 
 # Deliberately the same shape as
-# tests/test_773_tolerance_and_tie_slack_end_to_end.py's own
+# tests/v2/solver/test_tolerance_and_tie_slack.py's own
 # _many_binaries_tied_price_scenario(), so results here are comparable with
 # that file's sweeps rather than being a third independent approximation.
 BRANCHING_SCENARIOS = [(24, 24, 1), (24, 24, 0), (32, 48, 0), (16, 24, 2)]

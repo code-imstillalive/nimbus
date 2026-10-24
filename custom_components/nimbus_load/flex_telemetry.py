@@ -19,7 +19,7 @@ to upstream `024f45c6`, provenance in `schema/PROVENANCE.md`) and declares
 `additionalProperties: false` at the top level. So the record is built as
 a closed dict and never as "the sensor's attributes minus the ones HA
 added" -- one extra or misnamed key fails validation outright, and
-`tests/test_495_flex_telemetry_record.py` validates what this function
+`tests/v2/reports/test_flex_telemetry_record.py` validates what this function
 returns against that file rather than against a reconstruction of it.
 
 ## The three measurement decisions, stated rather than implied
@@ -66,7 +66,7 @@ a saving while the battery charges. It does not, and no battery-excluding
 baseline can -- charging at that instant genuinely IS extra import, and
 the saving lands later on discharge. The honest form of that check is a
 whole-day one, which is where
-`tests/test_495_flex_telemetry_record.py::TestTheBaselineNetsOutOverADay`
+`tests/v2/reports/test_flex_telemetry_record.py::TestTheBaselineNetsOutOverADay`
 puts it.
 
 **3. A field with no Nimbus source is `null`, never a plausible zero.**
