@@ -874,3 +874,88 @@ def test_the_battery_reading_is_read_with_the_configured_sign(
         cfg(**extra), datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
     )
     assert (seen["charge"] == charge).all() and (seen["discharge"] == discharge).all()
+
+
+# --- each controllable load's delivery is published and moves no score (#768) ------------------
+
+
+HWS = {
+    "controllable_load_name": "Hot water",
+    "controllable_load_kind": "deferrable",
+    "controllable_load_device_entity": "water_heater.wwk302",
+    "controllable_load_power_sensor": "sensor.wwk302_power",
+    "deferrable_max_power_kw": 0.65,
+    "deferrable_target_kwh": 4.0,
+}
+
+
+def _hass(*subentries):
+    entry = SimpleNamespace(
+        entry_id="hub", subentries={s.subentry_id: s for s in subentries}
+    )
+    return SimpleNamespace(
+        config_entries=SimpleNamespace(async_entries=lambda _d: [entry]),
+        states=SimpleNamespace(get=lambda _e: None),
+    )
+
+
+@pytest.fixture
+def delivery(history, monkeypatch):
+    """0.65 kW through hours 2-4 and 0 the rest of the day: 1.95 kWh."""
+    history["sensor.real_battery"] = flat(1.0)
+    on = (DAY + timedelta(hours=2), DAY + timedelta(hours=5))
+    monkeypatch.setattr(
+        sw,
+        "fetch_entity_power_history_kw",
+        lambda _e, s, e: flat(lambda t: 0.65 if on[0] <= t < on[1] else 0.0, step=5)(
+            s, e
+        ),
+    )
+
+    def run(hass):
+        monkeypatch.setattr(sw.NATIVE, "hass", hass)
+        return window()
+
+    return run
+
+
+def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
+    hws = SimpleNamespace(
+        subentry_id="s_hws", subentry_type="controllable_load", data=HWS
+    )
+    (entry,) = delivery(_hass(hws))["controllable_load_delivery"]
+    assert (
+        entry["subentry_id"],
+        entry["name"],
+        entry["kind"],
+        entry["power_sensor"],
+    ) == (
+        "s_hws",
+        "Hot water",
+        "deferrable",
+        "sensor.wwk302_power",
+    )
+    assert entry["scorable"] and entry["delivered_kwh"] == pytest.approx(1.95, abs=1e-4)
+
+
+def test_no_loads_or_no_home_assistant_publishes_an_empty_list(delivery):
+    assert delivery(_hass())["controllable_load_delivery"] == []
+    assert delivery(None)["controllable_load_delivery"] == []
+
+
+def test_the_delivery_moves_no_scored_figure(delivery):
+    without = delivery(_hass())
+    hws = SimpleNamespace(
+        subentry_id="s_hws", subentry_type="controllable_load", data=HWS
+    )
+    with_load = delivery(_hass(hws))
+    fields = (
+        "epr",
+        "epr_pct",
+        "j_ref",
+        "j_ach",
+        "j_star",
+        "regret_dollars",
+        "scored_participants",
+    )
+    assert [without[f] for f in fields] == [with_load[f] for f in fields]

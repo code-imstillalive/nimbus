@@ -986,3 +986,116 @@ def test_a_failed_rescore_waits_out_its_backoff_before_trying_again(schema):
     assert schema() == (0, 1)  # held, not re-solved every cycle
     schema.clock["t"] += quality._SCHEMA_RESCORE_RETRY_SECONDS
     assert schema()[0] == 1
+
+
+# --- a provisional score is rescored once its settlement can land (#1082) ---------------------
+
+
+PROV_NOW = datetime(2026, 9, 17, 21, 30, tzinfo=TZ)
+
+
+def _prov(status, minutes_ago=180, **over):
+    return {
+        "latest_date": "2026-09-16",
+        "real_p2p_settlement_status": status,
+        "generated_at": (PROV_NOW - timedelta(minutes=minutes_ago)).isoformat(),
+        "report_schema": QUALITY_REPORT_SCHEMA,
+        **over,
+    }
+
+
+@pytest.mark.parametrize(
+    ("attrs", "keep"),
+    [
+        (_prov("applied"), True),
+        (_prov("no_sensor_configured"), True),  # permanent: never re-solve forever
+        (_prov("window_is_not_one_local_calendar_day"), True),
+        (_prov("no_settlement_entry_for_this_date"), False),
+        (_prov("settlement_sensor_unreadable"), False),
+        (_prov("no_settlement_entry_for_this_date", minutes_ago=10), True),  # spaced
+        (
+            {
+                k: v
+                for k, v in _prov("no_settlement_entry_for_this_date").items()
+                if k != "generated_at"
+            },
+            True,
+        ),
+        (_prov("no_settlement_entry_for_this_date", generated_at="not a date"), True),
+        (
+            _prov(
+                "no_settlement_entry_for_this_date", generated_at="2026-09-17T00:00:00"
+            ),
+            False,
+        ),  # naive, local
+    ],
+    ids=[
+        "applied",
+        "no_sensor",
+        "not_a_calendar_day",
+        "unsettled",
+        "unreadable",
+        "recent",
+        "no_stamp",
+        "bad_stamp",
+        "naive_stamp",
+    ],
+)
+def test_only_a_provisional_score_old_enough_is_rescored(attrs, keep):
+    assert sw._keep_published_quality_score(attrs, PROV_NOW) is keep
+
+
+def test_the_rescore_interval_is_the_boundary():
+    interval = int(sw._PROVISIONAL_RESCORE_INTERVAL.total_seconds() // 60)
+    status = "no_settlement_entry_for_this_date"
+    assert sw._keep_published_quality_score(
+        _prov(status, minutes_ago=interval - 1), PROV_NOW
+    )
+    assert not sw._keep_published_quality_score(
+        _prov(status, minutes_ago=interval + 1), PROV_NOW
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "minutes_ago", "recomputed"),
+    [
+        ("applied", 180, False),
+        ("no_settlement_entry_for_this_date", 180, True),
+        ("no_settlement_entry_for_this_date", 5, False),
+    ],
+    ids=["settled", "unsettled", "unsettled_recently"],
+)
+def test_the_publisher_falls_through_to_a_rescore_only_when_due(
+    ha, monkeypatch, status, minutes_ago, recomputed
+):
+    calls = []
+    ha["states"][sw.QUALITY_ENTITY_ID] = {
+        "state": "90.6",
+        "attributes": _prov(status, minutes_ago=minutes_ago),
+    }
+    monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
+    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: calls.append(1))
+    sw.publish_daily_quality_report({}, PROV_NOW)
+    assert bool(calls) is recomputed
+    if not recomputed:
+        assert len(ha["posts"]) == 1
+
+
+# --- the report always publishes its unit and state class -------------------------------------
+
+
+def test_a_published_report_names_percent_and_measurement(ha, monkeypatch):
+    """A raw state write before the entity is set up carries these keys
+    verbatim; a null unit raised a recurring Repair."""
+    entry = {
+        "epr": 0.5,
+        "epr_pct": 50.0,
+        "j_ref": 10.0,
+        "j_ach": 8.0,
+        "j_star": 6.0,
+        "regret_dollars": 2.0,
+    }
+    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: dict(entry))
+    sw.publish_daily_quality_report(cfg(), NOW)
+    ((_entity, _state, attrs),) = ha["posts"]
+    assert (attrs["unit_of_measurement"], attrs["state_class"]) == ("%", "measurement")
