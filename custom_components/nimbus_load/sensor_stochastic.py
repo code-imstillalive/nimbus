@@ -34,6 +34,7 @@ _REASONS = {
     "solar_band_not_calibrated": "solar band not calibrated yet",
     "shadow_solve_pending": "first check running",
     "deterministic_not_optimal": "main plan did not solve",
+    "deterministic_too_slow": "too slow to check",
     "thermal_guarantee_relaxed": "would relax a hot-water deadline",
     "nonanticipativity_violated": "scenarios disagreed on now",
     "scenario_cost_not_finite": "a scenario cost was not a number",

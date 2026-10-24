@@ -70,6 +70,10 @@ def _attach(entity):
             "Main plan: no solar spread",
         ),
         (
+            {"status": "skipped", "fallback_reason": "deterministic_too_slow"},
+            "Main plan: too slow to check",
+        ),
+        (
             {"fallback_reason": "cooldown_after:infeasible"},
             "Main plan: waiting to retry",
         ),
