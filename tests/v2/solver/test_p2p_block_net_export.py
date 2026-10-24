@@ -140,3 +140,60 @@ def _grid_for_ub(fixed=(12.0, 12.0, 12.0)):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_plan_builds_its_p2p_constraints_through_the_one_shared_module(monkeypatch):
+    """build_plan() uses p2p_export's helpers, never an inline copy of them,
+    so the two cannot drift apart (#355)."""
+    names = (
+        "charging_ub_during_fixed_window",
+        "grid_export_bounds",
+        "has_export_bonus",
+        "add_export_bonus_variable",
+        "add_export_bonus_le_export_constraint",
+        "set_export_bonus_cost",
+        "add_export_bonus_cumulative_caps",
+    )
+    called = set()
+    for name in names:
+        real = getattr(p2p_export, name)
+
+        def spy(*a, _real=real, _name=name, **k):
+            called.add(_name)
+            return _real(*a, **k)
+
+        monkeypatch.setattr(p2p_export, name, spy)
+    grid = GridConfig(
+        import_price=np.full(N, 0.30),
+        export_price=np.full(N, 0.09),
+        import_limit_kw=44.0,
+        export_limit_kw=44.0,
+        fixed_export_kw=np.array([12.0, 12.0, 12.0] + [np.nan] * (N - 3)),
+        export_bonus_price=np.full(N, 0.20),
+        export_bonus_volume_kwh=20.0,
+    )
+    battery = BatteryConfig(
+        name="battery",
+        capacity_kwh=100.0,
+        initial_soc_kwh=60.0,
+        min_soc_kwh=2.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=40.0,
+        max_discharge_kw=40.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.005,
+        discharge_cost=0.005,
+        salvage_value=0.10,
+    )
+    plan = build_plan(
+        periods=PeriodGrid(
+            hours=np.ones(N), start=datetime(2026, 10, 7, 11, 0, tzinfo=UTC)
+        ),
+        grid=grid,
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=np.zeros(N)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(N, LOAD_KW))],
+    )
+    assert plan.status == "optimal"
+    assert called == set(names)

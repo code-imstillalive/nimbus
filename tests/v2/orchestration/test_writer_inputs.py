@@ -1367,3 +1367,40 @@ def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     ((entity, start, end),) = calls
     assert entity == "sensor.price" and end - start == timedelta(days=days)
     assert datetime.now(UTC) - end < timedelta(seconds=10)
+
+
+def test_both_price_branches_return_every_field_of_a_frozen_record(
+    array_branch, monkeypatch
+):
+    """The price arrays are one frozen record whichever branch built them; a
+    field one branch forgot would fail here, on that branch (#735)."""
+    import dataclasses
+
+    from solver_inputs import prices
+
+    assert prices.PriceArrays.__dataclass_params__.frozen
+    rich = array_branch({})
+    n = len(EVENING)
+    monkeypatch.setattr(
+        sw,
+        "resample_generic_price_forecast_with_coverage",
+        lambda *_a: ([0.1] * n, [True] * n),
+    )
+    generic = prices.build_price_arrays(
+        {
+            "solver_import_price_sensor": "sensor.i",
+            "solver_export_price_sensor": "sensor.e",
+        },
+        EVENING,
+        n,
+        EVENING[0],
+        False,
+        None,
+    )
+    for built in (rich, generic):
+        assert isinstance(built, prices.PriceArrays)
+        assert {f.name for f in dataclasses.fields(built)} == set(
+            prices.PriceArrays.__dataclass_fields__
+        )
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            built.match_fraction = 0.0
