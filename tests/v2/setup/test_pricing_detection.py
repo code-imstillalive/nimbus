@@ -483,3 +483,52 @@ def test_a_retailer_named_template_counts_and_the_repair_has_its_own_text(monkey
         text = json.loads((root / name).read_text(encoding="utf-8"))
         entry = text["issues"][sh.KIND_NO_REGIONAL_FORECAST]["description"]
         assert "{found}" in entry and "{where}" in entry
+
+
+def test_with_localvolts_installed_the_missing_sensor_notice_says_what_to_choose(world):
+    _localvolts(world)
+    notices = _notices(world, {IMPORT: "sensor.gone", EXPORT: "sensor.also_gone"})
+    text = notices[pa.NOTIFY_MISSING_ID]
+    assert "`sensor.gone`" in text and "`sensor.also_gone`" in text and "them" in text
+    assert "Nimbus never replaces a saved choice" in text
+
+
+def test_a_matched_rate_without_an_array_names_localvolts_own_array(world):
+    profile = _localvolts(world)
+    notices = _notices(
+        world, {const.CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "sensor.rate"}
+    )
+    array = profile[const.CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR]
+    assert f"`{array}`" in notices[pa.NOTIFY_P2P_TRAP_ID]
+
+
+def test_fees_on_top_of_flex_up_are_warned_about_in_the_log(world, caplog, monkeypatch):
+    monkeypatch.setattr(
+        pa, "detect_fees_doubled", lambda *a, **k: ("sensor.lv", "0.05")
+    )
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _notices(world, {})
+    assert "counted twice" in caplog.text and "0.05" in caplog.text
+
+
+def test_a_second_provider_brings_its_export_price_too():
+    filled = {}
+    out = pa._extra_source_proposals(
+        filled,
+        [("Amber", {IMPORT: "sensor.amber_buy", EXPORT: "sensor.amber_sell"})],
+    )
+    assert [(f, e) for f, e, _s in out] == [
+        (const.CONF_SOLVER_IMPORT_PRICE_SENSOR_2, "sensor.amber_buy"),
+        (const.CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_sell"),
+    ]
+
+
+def test_a_price_sensor_named_for_a_nem_retailer_counts_as_nem(world):
+    world.add(pa.LV_V2_DOMAIN, "sensor.my_buy", "lv-e1_buy_flex_up")
+    hass = world.hass()
+    assert pa._is_nem_price(hass, "sensor.my_buy")  # by its integration
+    assert pa._is_nem_price(hass, "sensor.localvolts_costs_flex_up")  # by its name
+    assert not pa._is_nem_price(hass, "sensor.octopus_agile_import")
+    assert not pa._is_nem_price(hass, None)

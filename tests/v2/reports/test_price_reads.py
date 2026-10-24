@@ -545,3 +545,26 @@ def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch, row, expec
     monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
     grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
     assert sw.resample_generic_price_forecast("sensor.price", grid) == expected
+
+
+def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one():
+    import price_intervals as pi
+
+    good = _core("amber_import_action")[0]
+    rows = [
+        "not a row",
+        {k: v for k, v in good.items() if k != "per_kwh"},
+        {**good, "end_time": "garbage"},
+        {**good, "per_kwh": float("nan")},
+        good,
+    ]
+    (only,) = pi.amber_core_intervals(rows)
+    assert only.value == good["per_kwh"]
+
+
+def test_a_price_historys_unit_that_cannot_be_read_scales_by_one(monkeypatch):
+    def down(_e):
+        raise OSError("down")
+
+    monkeypatch.setattr(sw, "ha_get", down)
+    assert sw.price_unit_scale_of_history("sensor.price") == 1.0

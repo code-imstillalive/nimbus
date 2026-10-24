@@ -409,3 +409,9 @@ def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch)
 
 def _refuse(*_a, **_k):
     raise sw.urllib.error.URLError("no network in tests")
+
+
+def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
+    site.add({**EV, "battery_participant_power_positive_is_charge": False})
+    ((_b, charge, discharge, _f, _s),) = resolve()
+    assert (charge == 0.0).all() and (discharge == 5.0).all()
