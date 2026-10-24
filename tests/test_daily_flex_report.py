@@ -6,7 +6,7 @@ offered-vs-realised/envelope-curtailment arithmetic"), shipped separately
 from the sensor half (switch.nimbus_solver_flex_signals_enabled,
 sensor.nimbus_flex_signals -- v0.94.282/v0.94.283).
 
-Same test-doubling convention as test_compute_report_for_window.py:
+Same test-doubling convention as tests/v2/reports/test_quality_window.py:
 patches fetch_entity_history_range/fetch_entity_attribute_history_range
 directly (the real functions, not a reimplementation), synthetic but
 physically real scenarios.

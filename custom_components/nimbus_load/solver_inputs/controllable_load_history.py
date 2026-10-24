@@ -27,7 +27,7 @@ sequencing decision, 2026-09-27:
 So nothing here reaches the oracle. `compute_quality_report()`'s own
 `build_plan()` call is untouched, every EPR and regret figure is
 bit-identical to before (pinned by
-`tests/test_768_delivery_is_published_without_moving_the_score.py`), and
+`tests/v2/reports/test_quality_window.py`), and
 the reconstruction is PUBLISHED as a measurement so it can be checked
 against a real install before anything is scored against it. The wiring
 is issue #1357. That is the same order #1242 used for

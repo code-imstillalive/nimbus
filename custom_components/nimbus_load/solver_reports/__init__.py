@@ -54,7 +54,7 @@ ever patched and all bind stably: the standard library (`datetime`,
 **`compute_quality_report` is NOT one of them, and getting that wrong is
 worth recording.** It comes from the pure `solver/` package, so it looks
 like it belongs in the list above -- and it was put there.
-`test_battery_power_sign_convention.py` patches it as
+The battery-sign test (now in `tests/v2/reports/test_quality_window.py`) patches it as
 `patch.object(solver_writer, "compute_quality_report", side_effect=spy)`, to
 intercept the real per-battery arrays the scorer built; that is the cleanest
 interception point available for what the code decided the household's

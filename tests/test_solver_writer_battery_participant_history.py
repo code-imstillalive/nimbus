@@ -142,7 +142,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
     def test_builds_a_real_battery_and_dispatch_from_history(self):
         """A steady +5kW reading on a power_positive_is_charge=True
         sensor (SigEnergy-style) must be read as CHARGING throughout --
-        same sign convention test_battery_power_sign_convention.py
+        same sign convention tests/v2/reports/test_quality_window.py
         already locks in for the home battery, mirrored here for a
         participant."""
         solver_writer.NATIVE.hass = _fake_native_hass(
