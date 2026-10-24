@@ -1,12 +1,11 @@
-"""nimbus #1797: two-stage stochastic dispatch inside the main solve.
+"""The two-stage stochastic solve wired into the main solve (#1797) (#1837).
 
-Covers the model (`solver/stochastic_dispatch.py`: scenarios, stage 1,
-non-anticipativity, the weighted objective, a hand-built hedge), the LP
-plumbing it needs (`LPProblem.absorb()`, `build_plan(lp_solve_hook=)`), the
-orchestration (`solver_plan.run_stochastic_dispatch()`: shadow cadence, drive,
-every fallback) and the real `main()`: with the switch off the plan is
-byte-identical to a run without the stochastic solve at all, and with it on
-the published plan is the stochastic one.
+The model's scenarios, stage 1, non-anticipativity and weighted objective;
+the LP plumbing it needs (`LPProblem.absorb()`, `build_plan(lp_solve_hook=)`);
+the orchestration in `solver_plan.run_stochastic_dispatch()` (shadow cadence,
+drive and every fallback); and the real `main()`: switched off, the plan is
+byte-identical to a run without the stochastic solve, and on, the published
+plan is the stochastic one.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
-import _solver_path  # noqa: F401
 import numpy as np
 import pytest
 import solver_plan

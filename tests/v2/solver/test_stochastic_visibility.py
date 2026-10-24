@@ -1,11 +1,9 @@
-"""nimbus #1797, PR B: seeing the stochastic solve.
+"""Seeing the stochastic solve from this install's own run (#1797) (#1837).
 
-devhub's canonical plan sensor carries production's plan (a mirrored entity
-overwrites the id), so the `stochastic` attribute cannot be read there. These
-cover the paths that read the install's OWN solve instead: each scenario's
-SoC and battery path, the in-process snapshot behind the response-only
-`nimbus_load.get_stochastic_summary`, and the decision-input capture and
-diagnostics download preferring what this process posted.
+Each scenario's SoC and battery path, the in-process snapshot behind the
+response-only `nimbus_load.get_stochastic_summary`, and the decision-input
+capture and diagnostics preferring what this process posted over a state
+another writer may own.
 """
 
 from __future__ import annotations
@@ -16,13 +14,12 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import _solver_path  # noqa: F401
 import numpy as np
 import pytest
 import solver_plan
 from solver import network
 from solver import stochastic_dispatch as sd
-from test_1797_stochastic_dispatch import T0, _tiered_inputs
+from test_stochastic_orchestration import T0, _tiered_inputs
 
 
 @pytest.fixture(autouse=True)

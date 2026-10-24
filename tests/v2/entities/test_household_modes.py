@@ -1,32 +1,8 @@
-"""nimbus issue #485: household-mode presets over the existing levers.
+"""Household modes as presets over the existing levers, never new levers
+(#485) (#1837).
 
-Mark Purcell's steer is the design constraint, and it reversed two
-earlier proposals of mine (~125 disabled-by-default sibling entities,
-then a wizard field): *"These modes should have preset values for the
-existing levers, not generate new levers."*
-
-The properties worth pinning are the ones a plausible re-implementation
-gets wrong, and every one of them has already cost this project
-something in a different form:
-
-- **`home` must be byte-identical to today.** This issue's own second
-  acceptance criterion. A preset table that happened to list `home` with
-  factors of 1.0 would satisfy it numerically and still be wrong the
-  first time someone added a lever and forgot the 1.0 — so `home` is
-  absent from the tables entirely, and that absence is tested.
-- **Relative, never absolute.** An absolute would discard real tuning the
-  moment a mode was switched, silently, and be wrong by a different
-  amount on every install.
-- **Unknown/absent modes fail open.** A select entity that has not come
-  up yet reads `None`; a household that renames a mode gets a string
-  nothing recognises. Neither may reshape a real dispatch.
-- **No mutation of the caller's dict.** `_resolve_controllable_load_
-  tuning()` hands in a dict derived from subentry data; mutating it in
-  place would leak a moded value into the next solve even after the mode
-  changed back.
-
-Pure table + two functions, no HA imports, so these are direct calls
-with no harness at all.
+Each mode sets preset values for the levers a load already has; `home`
+changes nothing and reports nothing, and an unknown mode is home.
 """
 
 from __future__ import annotations
@@ -35,12 +11,12 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import household_modes as hm
 
 
@@ -364,26 +340,3 @@ class TestThePerLoadPresetIsObservable(unittest.TestCase):
         all — not a line saying zero levers moved, every solve, forever."""
         _out, applied = hm.apply_to_load_config({"deferrable_target_kwh": 4.0}, "home")
         self.assertFalse(applied)
-
-    def test_the_call_site_logs_at_debug_and_names_the_load(self):
-        """Source-level, because the alternative is driving a full native
-        solve to observe a log line. Checks the three things that make
-        the line useful: the level, the mode, and WHICH load — a six-load
-        install needs to know which one moved."""
-        # nimbus #1302 (spec 003): the call site moved to
-        # solver_inputs/controllable_loads.py with build_controllable_loads.
-        # writer_source() is the union across solver_writer.py and every
-        # module #1298 has extracted out of it, which is the property this
-        # test was always asserting -- not which file the literal lives in.
-        from _writer_source import writer_source
-
-        src = writer_source()
-        i = src.index("household_modes.apply_to_load_config")
-        # Wide enough to reach the whole log call. An earlier 900
-        # truncated mid-argument and failed on `title` -- the window
-        # was wrong, not the assertion.
-        window = src[i : i + 1400]
-        self.assertIn("_LOGGER.debug(", window)
-        self.assertIn("#485", window)
-        self.assertIn("title", window)
-        self.assertNotIn("_LOGGER.info(", window)

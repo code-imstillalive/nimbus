@@ -201,3 +201,33 @@ def test_the_floor_is_the_configured_minimum_else_the_done_condition():
         is None
     )
     assert tf.resolve_floor_temperature(None, None, parse) is None
+
+
+def _series(rows):
+    """[(minutes, temperature, power)] from T0."""
+    return [(T0 + timedelta(minutes=m), temp, p) for m, temp, p in rows]
+
+
+IDLE_BEFORE = [(0, 50.0, 0.0), (30, 49.6, 0.0)]
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        # heating for one 5-minute sample: too short to trust
+        IDLE_BEFORE + [(35, 49.5, 3.6), (40, 52.0, 0.0), (70, 51.6, 0.0)],
+        # the history opens mid-run: no idle reading before it
+        [(0, 50.0, 3.6), (30, 53.0, 3.6), (60, 56.0, 0.0), (90, 55.6, 0.0)],
+        # it ends before the tank settles after the run
+        IDLE_BEFORE
+        + [(35, 49.5, 3.6), (65, 53.0, 3.6), (68, 53.2, 0.0), (69, 53.1, 0.0)],
+        # it ran and the tank got no warmer
+        IDLE_BEFORE
+        + [(35, 49.5, 3.6), (65, 49.5, 3.6), (70, 49.0, 0.0), (100, 48.6, 0.0)],
+    ],
+    ids=["too_short", "at_the_edge", "never_settled", "no_gain"],
+)
+def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate(rows):
+    rates = tf.learn_thermal_rates(_series(rows), on_threshold_kw=0.5)
+    assert rates.heating_sample_count == 0
+    assert rates.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH

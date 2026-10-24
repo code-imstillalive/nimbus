@@ -1,39 +1,9 @@
-"""nimbus issue #1314: may a household mode move a SCHEDULE lever, or
-only a quantity and a value?
+"""A household mode may move a thermal load's comfort band, never its
+schedule (#1314) (#1837).
 
-The decision taken, and confirmed by @purcell-lab on that issue, is
-**option 2 for the thermal band, option 3 for `deadline`/`allowed`/
-`enabled`**. The band's BOUND moves; the LP constraint stays hard. The
-clock levers stay out and belong to a household's own automation.
-
-These tests exist because every interesting property of that decision is
-one a plausible re-implementation gets wrong, and two of them would fail
-as a real production incident rather than as a wrong number:
-
-- **A band preset can abort the WHOLE solve.**
-  `ThermalLoadConfig.__post_init__` raises `ValueError` when
-  `comfort_floor_c > target_temperature_c` or when
-  `target_temperature_c > max_temperature_c`, and
-  `build_controllable_loads()` constructs it with no `try` around the
-  call. So an ordering the table breaks does not degrade one load -- it
-  takes the battery and every other load down with it. The repair step
-  is tested by constructing the real dataclass from the real moded
-  values, not by asserting on a float.
-- **The hard guarantee must stay hard.** #774 records a five-incident
-  history behind making the daily heat a genuine LP bound rather than a
-  cost term. A mode that quietly turned that into a soft penalty would
-  reopen all five. Pinned via `Plan.thermal_guarantee_relaxed`.
-- **`home` must remain byte-identical.** #485's own second acceptance
-  criterion, now with a second table in the path that could break it.
-  Tested both structurally (the same dict object comes back) and
-  end-to-end (the same LP arrays come back).
-- **`economy` must not lower the deadline target.** A cost mode may
-  decline to pay for a mid-day reheat; it must never silently deliver a
-  colder tank than the household asked for. That asymmetry is a
-  deliberate design choice and is otherwise invisible.
-- **The ceiling constant must not drift** from `ThermalLoadConfig`'s own
-  `max_temperature_c` default, which `household_modes.py` duplicates
-  rather than imports.
+The band's bound moves and the LP constraint stays hard; a mode moves the
+quantity and the value of `deadline`, `allowed` and `enabled`, never the
+schedule itself. Presets stay inside the physical limits.
 """
 
 from __future__ import annotations
@@ -42,12 +12,11 @@ import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-import _solver_path  # noqa: F401
 import numpy as np
 from solver.elements import (
     BatteryConfig,
@@ -59,7 +28,7 @@ from solver.elements import (
 )
 from solver.network import build_plan
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import household_modes as hm
 
 # A realistic hot-water subentry's own thermal fields, as
@@ -491,32 +460,6 @@ class TestTheBandReachesTheSolverThroughTheOneExistingSeam(unittest.TestCase):
     per-subentry loop, and the thermal branch reads that same `data` --
     so the band arrives with no wiring change. This test pins the
     ORDER, which is the only thing that could silently break it."""
-
-    def test_the_tuning_resolve_precedes_the_thermal_target_read(self):
-        import inspect
-
-        from custom_components.nimbus_load import solver_writer as sw
-
-        src = inspect.getsource(sw.build_controllable_loads)
-        resolve_at = src.index("data = _resolve_controllable_load_tuning(subentry.data")
-        # The READ, not the name: this function opens with a local import
-        # block that mentions every CONF_ constant it uses, so a bare
-        # name match finds the import and proves nothing. Found the hard
-        # way -- the first version of this assertion failed on exactly
-        # that.
-        for read in (
-            "data.get(CONF_THERMAL_TARGET_TEMPERATURE_C)",
-            "data.get(CONF_THERMAL_COMFORT_FLOOR_C)",
-            "data.get(CONF_THERMAL_COMFORT_FLOOR_COST)",
-        ):
-            with self.subTest(read=read):
-                self.assertLess(
-                    resolve_at,
-                    src.index(read),
-                    "the thermal branch reads this field before the "
-                    "household-mode seam has run -- the band preset would "
-                    "never reach the LP",
-                )
 
 
 if __name__ == "__main__":

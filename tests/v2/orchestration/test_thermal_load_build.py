@@ -1,9 +1,8 @@
-"""nimbus issue #774: real tests for build_controllable_loads()'s own
-kind=thermal branch -- ConfigSubentry -> solver.elements.ThermalLoadConfig
-resolution. Same _fake_native_hass/_fake_subentry mocking pattern already
-established by test_solver_writer_controllable_loads.py/test_solver_writer_
-battery_participants.py (each test file keeps its own small copy of these
-helpers, not a shared import -- this project's own established convention).
+"""A thermal controllable load's subentry becomes the solver's
+ThermalLoadConfig (#774) (#1837).
+
+Its sensors, band, rates and costs are read from the subentry and live
+states; one that cannot be built is skipped with a warning, never a crash.
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-import _solver_path  # noqa: F401
 import load_run_state
 import solver_writer
 import thermal_forecast
