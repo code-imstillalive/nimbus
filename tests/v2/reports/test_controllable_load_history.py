@@ -348,3 +348,16 @@ def test_scoring_controllable_loads_is_off_unless_switched_on():
     from const import DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED
 
     assert DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED is False
+
+
+def test_an_elapsed_days_window_opens_at_its_own_hour_not_at_the_start(monkeypatch):
+    """The oracle is scoring a day already over: a 06:00-16:00 window opens at
+    its own hour, never at period 0 the way a window already in progress
+    does on a live solve (#1357)."""
+    window = {
+        **DISHWASHER,
+        "deferrable_earliest_hour": 6.0,
+        "deferrable_deadline_hour": 16.0,
+    }
+    (load,) = _oracle(monkeypatch, [_ran(at=(8, 9))], {"s1": window}).adequacy
+    assert load.earliest_period > 0  # an in-progress window would open at 0

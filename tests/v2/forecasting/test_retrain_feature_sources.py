@@ -78,6 +78,7 @@ def _make_coordinator() -> NimbusCoordinator:
     coord.subentry = MagicMock()
     coord.subentry.subentry_id = "test-subentry-all-features"
     coord.subentry.subentry_type = SUBENTRY_TYPE_LOAD
+    coord.subentry.title = "House load"
     coord.subentry.data = {CONF_LOAD_SENSOR: "sensor.load"}
     coord._retraining = False
     coord._trained = None
@@ -176,3 +177,6 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
     # nimbus issue #1556: the default recorder source declares the whole
     # window change-only, so the boundary is passed through and set.
     assert captured["change_only_from"] is not None
+    # nimbus issue #1206: the training log lines name the signal, from the
+    # subentry's own title.
+    assert captured["label"] == "House load"

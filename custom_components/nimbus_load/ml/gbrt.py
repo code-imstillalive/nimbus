@@ -101,7 +101,7 @@ def _build_tree(
         # champion, so the first candidate to reach a given value wins) --
         # this is required for bit-identical split decisions, not just
         # equivalent-ish ones. See
-        # tests/test_gbrt_split_vectorization_equivalence.py, which pins a
+        # tests/test_gates_suite.py, which pins a
         # verbatim copy of the original loop as a differential oracle.
         n_left = distinct + 1
         n_right = n - n_left

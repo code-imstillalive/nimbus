@@ -73,7 +73,7 @@ project, not a moving target.
 
 ### How the drift check works
 
-`tests/test_vendored_telemetry_schema.py` holds two layers, deliberately
+`tests/test_gates_source_and_docs.py` holds two layers, deliberately
 separate:
 
 1. **Always-on, offline.** The vendored file's sha256 and its identity

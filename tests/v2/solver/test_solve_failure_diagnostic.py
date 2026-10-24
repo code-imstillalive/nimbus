@@ -355,9 +355,8 @@ class TestTheFailureLineNamesEverything(unittest.TestCase):
 def _solve_diagnostics_dict() -> ast.Dict:
     """The `solve_diagnostics` dict literal inside solver_writer.py.
 
-    Parsed rather than imported: the same approach
-    `test_solve_diagnostics_load_counts.py` already uses for this payload,
-    because reaching it at runtime means driving the whole publish path.
+    Parsed rather than imported, because reaching it at runtime means
+    driving the whole publish path.
     """
     # nimbus #1304 (spec 005): this content moved to solver_publish.py.
     # The union of solver_writer.py and every module #1298 has extracted is

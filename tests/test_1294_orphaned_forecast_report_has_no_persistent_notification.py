@@ -25,7 +25,7 @@ instance is invisible in the default HA UI, exactly the gap the two sibling
 mechanisms above already exist to close.
 
 Uses the same fake-registry harness as
-`tests/test_1270_orphaned_forecast_entities_are_reported.py`, extended with
+`tests/v2/entities/test_orphaned_forecast_entities.py`, extended with
 a fake `hass.services.async_call` to observe whether a notification fires.
 """
 

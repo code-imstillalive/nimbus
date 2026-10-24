@@ -525,3 +525,21 @@ def test_which_period_a_window_opens_in(
         )
         == expect
     )
+
+
+def test_a_household_mode_moving_a_loads_lever_says_which_at_debug(site, caplog):
+    """#485: once per load per solve, so DEBUG, and naming the load."""
+    site.load("hws", controllable_load_name="Hot water", **HWS)
+    site.entry.subentries["hws"].title = "Hot water"
+    site.state("select.nimbus_household_mode", "away")
+    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
+        _shed, (load,), _grid = site.build()
+    moved = [r for r in caplog.records if "#485" in r.getMessage()]
+    assert [r.levelno for r in moved] == [logging.DEBUG]
+    assert "'away'" in moved[0].getMessage() and "'Hot water'" in moved[0].getMessage()
+    assert load.target_kwh == pytest.approx(HWS["deferrable_target_kwh"] * 0.5)
+    caplog.clear()
+    site.state("select.nimbus_household_mode", "home")
+    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
+        site.build()
+    assert not [r for r in caplog.records if "#485" in r.getMessage()]

@@ -50,7 +50,7 @@ retired by #1837) did `patch.object(solver_writer, "_LOGGER")`, and
 reading `solver_shared`. Using the seam made that test pass.
 
 It also broke a **package-wide gate**:
-`test_callers_mode_counts_only_real_references.py::test_the_real_tree_now_finds_
+`test_gates_suite.py::test_the_real_tree_now_finds_
 zero_logger_callers` asserts **zero** real seam-shaped `_LOGGER` references
 anywhere outside `solver_writer.py` -- Phase 2a's own success condition, since
 `_LOGGER` has lived in `solver_shared.py` since then. And

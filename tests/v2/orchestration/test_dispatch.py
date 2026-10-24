@@ -551,3 +551,42 @@ def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
     assert site.calls == []
     warned = [r for r in caplog.records if "re-send cap" in r.getMessage()]
     assert len(warned) == 1 and "'hws'" in warned[0].getMessage()
+
+
+def test_a_thermal_load_samples_and_learns_its_own_rates(site):
+    """#873: the idle sampler and the rate fitter run for every load kind;
+    a thermal load used to reach its own branch and learn nothing."""
+    from solver.network import ThermalLoadPlan
+
+    site.load(
+        "hws",
+        deferrable_done_entity="water_heater.hws",
+        controllable_load_power_sensor="sensor.hws_power",
+        controllable_load_kind="thermal",
+    )
+    site.seed("hws", thermal_rates_learned_day_key="")
+    site.states["water_heater.hws"] = SimpleNamespace(
+        state="eco", attributes={"current_temperature": 55.2}
+    )
+    now = T0 + timedelta(hours=8)
+    plan = SimpleNamespace(
+        sheddable_loads=[],
+        adequacy_loads=[],
+        thermal_loads=[
+            ThermalLoadPlan(
+                name="hws",
+                subentry_id="hws",
+                power_kw=np.zeros(4),
+                temperature_c=np.full(4, 55.0),
+            )
+        ],
+    )
+    sw.apply_commanded_state_guard(
+        plan, now, [now + HALF_HOUR * i for i in range(4)], np.full(4, 0.5)
+    )
+    st = site.state("hws")
+    assert st.last_idle_temperature == pytest.approx(55.2)
+    assert st.thermal_rates_learned_day_key == "2026-09-11"
+    assert (
+        st.thermal_rates_source == "fallback"
+    )  # no recorder here: the defaults, stamped

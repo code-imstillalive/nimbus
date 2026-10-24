@@ -135,3 +135,20 @@ def test_a_source_gone_for_two_refreshes_makes_the_forecast_unavailable(caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert sum("is now unavailable" in m for m in messages) == 1
     assert sum("available again" in m for m in messages) == 1
+
+
+def test_both_recursive_validation_metrics_are_published():
+    data = {
+        "state": 1.0,
+        "forecast": [],
+        "validation_recursive_mae": {"knn": 0.2, "gbrt": 0.1, "naive": 0.3},
+        "validation_recursive_mae_by_horizon": {"96": {"knn": 0.4}},
+    }
+    attrs = _sensor(data=data).extra_state_attributes
+    assert (
+        attrs[const.ATTR_VALIDATION_RECURSIVE_MAE] == data["validation_recursive_mae"]
+    )
+    assert (
+        attrs[const.ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON]
+        == data["validation_recursive_mae_by_horizon"]
+    )

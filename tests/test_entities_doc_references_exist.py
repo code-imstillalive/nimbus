@@ -3,7 +3,7 @@ actually creates, and every unit `docs/entities.md` claims must match the
 spec that produces it.
 
 `README.md` has had this guard since nimbus issue #364
-(`test_readme_entity_references_exist.py`). `docs/entities.md` — the
+(`test_gates_source_and_docs.py`). `docs/entities.md` — the
 per-entity table a user reads to find out what exists — had none, and it
 was wrong: it listed `sensor.nimbus_quality_uplift_available` as a real
 entity with a unit and a meaning. That sensor was **deliberately
@@ -85,7 +85,7 @@ _FLATTENED_PY = _NIMBUS / "sensor_flattened.py"
 # protecting an error, not a deliberate spelling.
 #
 # Note the two guards check OPPOSITE directions and both are needed:
-# `test_readme_entity_references_exist` asserts the README still MENTIONS
+# `test_gates_source_and_docs` asserts the README still MENTIONS
 # entities that exist (catching a rename that leaves the docs silent);
 # this one asserts every id the README NAMES is real (catching an id that
 # never existed). Only the second would have caught the above.
