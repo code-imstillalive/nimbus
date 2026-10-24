@@ -1094,3 +1094,109 @@ def test_energy_the_house_never_drew_is_published_not_absorbed():
     """12 kWh claimed across two 2 kW hours: only 4 can be removed."""
     r = _cl_report(_bundle(kwh=6.0))
     assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
+
+
+# --- the SoC discrepancy statistic itself (#427, #445, #571, #681, #949) ------------------------
+
+
+H0 = datetime(2026, 8, 24, 0, 0, tzinfo=sw.LOCAL_TZ)
+
+
+def _stats(real, ach, capacity=100.0):
+    rows = {H0.isoformat(): {} if ach is None else {"soc_pct": ach}}
+    return sw._soc_discrepancy_stats([([(H0, real)], capacity)], rows)
+
+
+@pytest.mark.parametrize(
+    ("real", "ach", "gap", "reliable", "reason"),
+    [
+        (55.0, 50.0, 5.0, True, None),
+        (60.0, 327.67, 40.0, False, "out_of_range"),  # clamped, flagged
+        (20.0, -85.0, 20.0, False, "out_of_range"),
+        (0.0, -9.0, 0.0, True, None),  # integration loss at a real empty pack
+        (100.0, 104.5, None, True, None),  # and at a full one
+        (2.0, -9.0, None, False, "out_of_range"),  # just past the edge
+        (-5.0, -9.0, None, False, "out_of_range"),  # the sensor itself out of range
+    ],
+    ids=[
+        "in_range",
+        "over_100",
+        "below_0",
+        "empty_edge",
+        "full_edge",
+        "past_edge",
+        "sensor_out",
+    ],
+)
+def test_the_gap_is_bounded_and_flagged_only_away_from_a_real_edge(
+    real, ach, gap, reliable, reason
+):
+    out = _stats(real, ach)
+    if gap is not None:
+        assert out["soc_discrepancy_max_pct"] == gap
+    assert out["soc_discrepancy_reliable"] is reliable
+    assert out["soc_discrepancy_reason"] == reason
+
+
+def test_both_sides_out_of_range_never_exceed_100():
+    out = _stats(-40.0, 500.0)
+    assert (
+        out["soc_discrepancy_max_pct"] <= 100.0 and not out["soc_discrepancy_reliable"]
+    )
+
+
+def test_each_hours_values_are_published_for_an_outside_check():
+    (row,) = _stats(55.0, 50.0)["soc_discrepancy_hourly"]
+    expected = {
+        "hour": H0.isoformat(),
+        "real_pct": 55.0,
+        "ach_pct": 50.0,
+        "gap_pct": 5.0,
+        "out_of_range": False,
+        "boundary_exempted": False,
+    }
+    assert {k: row[k] for k in expected} == expected
+    over = _stats(60.0, 327.67)["soc_discrepancy_hourly"][0]
+    assert over["out_of_range"] and over["gap_pct"] == 40.0
+    edge = _stats(0.0, -9.0)["soc_discrepancy_hourly"][0]
+    assert edge["out_of_range"] and edge["boundary_exempted"]
+    h1 = H0 + timedelta(hours=1)
+    two = sw._soc_discrepancy_stats(
+        [([(H0, 55.0), (h1, 40.0)], 100.0)],
+        {H0.isoformat(): {"soc_pct": 50.0}, h1.isoformat(): {"soc_pct": 20.0}},
+    )["soc_discrepancy_hourly"]
+    assert {r["hour"]: r["gap_pct"] for r in two} == {
+        H0.isoformat(): 5.0,
+        h1.isoformat(): 20.0,
+    }
+    assert sw._soc_discrepancy_stats([], {})["soc_discrepancy_hourly"] is None
+    assert _stats(55.0, None)["soc_discrepancy_hourly"] is None
+
+
+@pytest.mark.parametrize(
+    ("fleet", "ach", "gap", "reliable"),
+    [
+        ([(20.0, 100.0), (80.0, 50.0), (80.0, 50.0)], 50.0, 0.0, True),
+        ([(20.0, 100.0)], 50.0, 30.0, False),  # the home sensor alone
+        (
+            [(60.0, 100.0), (0.0, 10.0)],
+            60.0 / 110.0 * 100.0,
+            0.0,
+            True,
+        ),  # weighted by capacity
+        (
+            [(50.0, 100.0), (None, 60.0)],
+            50.0,
+            0.0,
+            True,
+        ),  # a participant with no sensor is dropped
+    ],
+    ids=["fleet_agrees", "home_only", "capacity_weighted", "no_sensor"],
+)
+def test_the_real_side_is_the_capacity_weighted_fleet(fleet, ach, gap, reliable):
+    socs = [([] if v is None else [(H0, v)], cap) for v, cap in fleet]
+    out = sw._soc_discrepancy_stats(socs, {H0.isoformat(): {"soc_pct": ach}})
+    assert out["soc_discrepancy_max_pct"] == pytest.approx(gap, abs=1e-6)
+    assert out["soc_discrepancy_reliable"] is reliable
+    if len(fleet) == 3:
+        assert out["soc_discrepancy_mean_pct"] == 0.0

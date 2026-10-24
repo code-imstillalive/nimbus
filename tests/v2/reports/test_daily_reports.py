@@ -8,12 +8,14 @@ a history that only ever grows. Synthetic histories only.
 
 from __future__ import annotations
 
+import logging
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
 import pytest
 import solver_writer as sw
+from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
 TZ = sw.LOCAL_TZ
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
@@ -255,3 +257,289 @@ def test_a_new_day_is_scored_and_published_with_its_date(ha):
 def test_nothing_to_publish_publishes_nothing(ha):
     sw.publish_nimbus_only_soc_counterfactual(cfg(solver_solar_power_sensor=None), NOW)
     assert ha["posts"] == []
+
+
+# --- yesterday's quality report ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        {"solver_solar_power_sensor": None},
+        {"solver_battery_power_sensor": None},
+        {"solver_whole_house_cross_check_sensor": None},
+    ],
+    ids=["no_solar", "no_battery", "no_load"],
+)
+def test_yesterdays_report_needs_its_sensors_and_their_history(ha, missing):
+    assert sw.compute_daily_quality_report(cfg(**missing), NOW) is None
+    ha["series"]["sensor.real_solar"] = lambda s, e: []
+    assert sw.compute_daily_quality_report(cfg(), NOW) is None
+
+
+def _report(ha, **kw):
+    ha["series"].pop("sensor.real_soc", None)
+    return sw.compute_daily_quality_report(
+        cfg(solver_battery_soc_sensor=None, **kw), NOW
+    )
+
+
+def test_an_idle_battery_on_an_arbitrage_day_leaves_regret_on_the_table(ha):
+    r = _report(ha)
+    assert r["scored_participants"] == ["home"]
+    assert r["epr_pct"] == pytest.approx(r["epr"] * 100, abs=0.01)
+    assert (r["tracking_fidelity"], r["tracking_cost"]) == (1.0, 0.0)
+    assert r["j_ach"] == pytest.approx(r["j_ref"], abs=1e-6)  # idle is the reference
+    assert (
+        r["j_star"] <= r["j_ach"] + 1e-9
+        and r["regret_dollars"] > 0.0
+        and r["epr"] < 1.0
+    )
+    assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (0.0, 0.0)
+    assert {"theoretical_maximum_yield", "value_captured", "uplift_available"} <= set(r)
+    assert (
+        r["soc_discrepancy_max_pct"],
+        r["soc_discrepancy_mean_pct"],
+        r["soc_discrepancy_reliable"],
+    ) == (None, None, None)
+
+
+def test_each_hour_is_one_self_describing_row_that_balances(ha):
+    r = _report(ha)
+    fields = [
+        "import_price_aud_per_kwh",
+        "export_price_aud_per_kwh",
+        "load_kw",
+        "solar_kw",
+        "battery_kw",
+        "grid_kw",
+        "soc_pct",
+    ]
+    for key in ("j_ref_hourly", "j_ach_hourly", "j_star_hourly"):
+        rows = r[key]
+        assert list(rows) == [(DAY + timedelta(hours=h)).isoformat() for h in range(24)]
+        for row in rows.values():
+            assert list(row) == fields and all(
+                isinstance(row[f], float) for f in fields
+            )
+            assert row["load_kw"] - row["solar_kw"] + row["battery_kw"] - row[
+                "grid_kw"
+            ] == pytest.approx(0.0, abs=1e-4)
+
+
+def test_an_elapsed_day_credits_no_leftover_energy_and_splits_the_efficiency(
+    ha, monkeypatch
+):
+    built = []
+    real = sw.elements.BatteryConfig
+    monkeypatch.setattr(
+        sw.elements, "BatteryConfig", lambda **kw: built.append(kw) or real(**kw)
+    )
+    _report(ha, solver_salvage_value=0.12, solver_efficiency_percent=90.0)
+    last = built[-1]
+    assert (
+        last["salvage_value"] == 0.0 and last.get("terminal_value_breakpoints") is None
+    )
+    assert (
+        last["charge_efficiency"]
+        == last["discharge_efficiency"]
+        == pytest.approx(0.9**0.5)
+    )
+
+
+def test_an_oracle_that_cannot_solve_is_no_report_not_a_crash(ha, monkeypatch):
+    def fail(**_kw):
+        raise RuntimeError("Oracle solve failed")
+
+    monkeypatch.setattr(sw, "compute_quality_report", fail)
+    assert _report(ha) is None
+
+
+@pytest.mark.parametrize(
+    ("thresholds", "reliable", "reason"),
+    [
+        ({}, False, "disagreement"),
+        (
+            {
+                "solver_soc_discrepancy_max_threshold_pct": 100.0,
+                "solver_soc_discrepancy_mean_threshold_pct": 100.0,
+            },
+            True,
+            None,
+        ),
+    ],
+    ids=["default", "wide"],
+)
+def test_a_real_soc_sensor_drifting_away_is_measured(ha, thresholds, reliable, reason):
+    ha["series"]["sensor.real_soc"] = lambda s, e: [
+        (DAY + timedelta(hours=h), 50.0 + 2.0 * h) for h in range(24)
+    ]
+    r = sw.compute_daily_quality_report(cfg(**thresholds), NOW)
+    assert (r["soc_discrepancy_max_pct"], r["soc_discrepancy_mean_pct"]) == (
+        pytest.approx(46.0, abs=0.01),
+        pytest.approx(23.0, abs=0.01),
+    )
+    assert (r["soc_discrepancy_reliable"], r["soc_discrepancy_reason"]) == (
+        reliable,
+        reason,
+    )
+
+
+@pytest.mark.parametrize(
+    ("history", "dollars", "volume"),
+    [
+        ({"2026-08-24": {"export_cost": 12.5, "export_volume": 50.0}}, 12.5, 50.0),
+        ({"2026-08-01": {}}, 0.0, 0.0),
+    ],
+    ids=["yesterday", "other_day_only"],
+)
+def test_the_p2p_settlement_is_yesterdays_own_or_nothing(ha, history, dollars, volume):
+    ha["states"]["sensor.settled"] = {"attributes": {"history": history}}
+    r = _report(ha, solver_p2p_settlement_history_sensor="sensor.settled")
+    assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (dollars, volume)
+
+
+def test_a_brief_spike_at_the_hour_does_not_set_the_hours_direction(ha):
+    """#428: -2.66 kW all hour with one +20.9 kW sample at 04:00 is an
+    export hour, as the meter said."""
+    spike = DAY + timedelta(hours=4)
+    ha["series"]["sensor.real_load"] = flat(1.058)
+    ha["series"]["sensor.real_battery"] = lambda s, e: [
+        (t, 20.939 if t == spike else v) for t, v in flat(-2.66, step=1)(s, e)
+    ]
+    r = _report(ha, solver_battery_power_positive_is_charge=True)
+    assert r["j_ach_hourly"][spike.isoformat()]["grid_kw"] < 0.0
+
+
+# --- history resampling -----------------------------------------------------------------------
+
+
+def test_the_nearest_reading_at_or_before_each_time_or_the_default():
+    pts = [(DAY, 1.0), (DAY + timedelta(hours=1), 2.0), (DAY + timedelta(hours=2), 3.0)]
+    assert sw.resample_history_nearest(pts, [DAY + timedelta(minutes=90)]) == [2.0]
+    assert sw.resample_history_nearest(
+        [], [DAY, DAY + timedelta(hours=1)], default=0.42
+    ) == [0.42, 0.42]
+
+
+def test_a_period_mean_is_time_weighted_and_dilutes_a_brief_spike():
+    pts = [
+        (DAY, 1.0),
+        (DAY + timedelta(minutes=5), 2.0),
+        (DAY + timedelta(minutes=10), 3.0),
+        (DAY + timedelta(minutes=20), 100.0),
+    ]
+    assert sw.resample_history_mean(pts, [DAY], period_hours=0.25) == [2.0]
+    at = DAY + timedelta(hours=4)
+    spike = [
+        (at, 20.939),
+        (at + timedelta(minutes=1), -2.6),
+        (at + timedelta(minutes=5), -2.7),
+        (at + timedelta(minutes=10), -2.6),
+    ]
+    assert sw.resample_history_nearest(spike, [at]) == [20.939]
+    (mean,) = sw.resample_history_mean(spike, [at], period_hours=0.25)
+    assert mean == pytest.approx(
+        (20.939 * 60 - 2.6 * 240 - 2.7 * 300 - 2.6 * 300) / 900, abs=1e-6
+    )
+    assert sw.resample_history_mean(
+        [(DAY - timedelta(hours=2), 7.0)], [DAY], period_hours=0.25
+    ) == [7.0]
+    assert sw.resample_history_mean([], [DAY], period_hours=0.25, default=0.42) == [
+        0.42
+    ]
+
+
+# --- publishing yesterday's report ------------------------------------------------------------
+
+
+def test_a_scored_day_is_re_pushed_and_says_so(ha, monkeypatch, caplog):
+    existing = {
+        "state": "0.75",
+        "attributes": {
+            "latest_date": "2026-08-24",
+            "report_schema": QUALITY_REPORT_SCHEMA,
+        },
+    }
+    ha["states"][sw.QUALITY_ENTITY_ID] = existing
+    monkeypatch.setattr(
+        sw, "compute_daily_quality_report", lambda *_a: pytest.fail("recomputed")
+    )
+    with caplog.at_level(logging.DEBUG, logger=sw._LOGGER.name):
+        sw.publish_daily_quality_report(cfg(), NOW)
+    assert ha["posts"] == [
+        (sw.QUALITY_ENTITY_ID, existing["state"], existing["attributes"])
+    ]
+    assert "fast-path hit" in caplog.text
+
+
+def test_a_new_day_is_published_with_its_score_and_nothing_is_published_without_one(
+    ha, monkeypatch, caplog
+):
+    entry = {
+        "epr": 0.5,
+        "epr_pct": 50.0,
+        "theoretical_maximum_yield": 1.0,
+        "value_captured": 0.5,
+        "uplift_available": 0.5,
+        "j_ref": 10.0,
+        "j_ach": 8.0,
+        "j_star": 6.0,
+        "regret_dollars": 2.0,
+        "tracking_fidelity": 1.0,
+        "tracking_cost": 0.0,
+        "real_p2p_dollars": 0.0,
+        "real_p2p_volume_kwh": 0.0,
+    }
+    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: dict(entry))
+    sw.publish_daily_quality_report(cfg(), NOW)
+    ((entity, state, attrs),) = ha["posts"]
+    assert (entity, state, attrs["latest_date"], attrs["epr"], attrs["epr_pct"]) == (
+        sw.QUALITY_ENTITY_ID,
+        50.0,
+        "2026-08-24",
+        0.5,
+        50.0,
+    )
+    ha["posts"].clear()
+    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: None)
+    with caplog.at_level(logging.DEBUG, logger=sw._LOGGER.name):
+        sw.publish_daily_quality_report(cfg(), NOW)
+    assert ha["posts"] == [] and "no report for" in caplog.text
+
+
+@pytest.fixture
+def warned():
+    saved = set(sw._QUALITY_REPORT_UNRELIABLE_WARNED)
+    sw._QUALITY_REPORT_UNRELIABLE_WARNED.clear()
+    yield
+    sw._QUALITY_REPORT_UNRELIABLE_WARNED.clear()
+    sw._QUALITY_REPORT_UNRELIABLE_WARNED.update(saved)
+
+
+def _published_warnings(caplog):
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
+        sw.publish_daily_quality_report(cfg(), END)
+    return [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+
+@pytest.mark.parametrize("shape", ["out_of_range", "disagreement"])
+def test_an_unreliable_day_warns_once_naming_why(ha, warned, caplog, shape):
+    if shape == "out_of_range":
+        ha["series"]["sensor.real_battery"] = flat(20.0)
+    else:
+        ha["series"]["sensor.real_battery"] = flat(
+            lambda t: 3.0 if t < DAY + timedelta(hours=3) else 0.0
+        )
+    first = _published_warnings(caplog)
+    assert any(
+        "soc_discrepancy_reliable=False" in m and f"reason={shape}" in m for m in first
+    )
+    assert not any(
+        "soc_discrepancy_reliable=False" in m for m in _published_warnings(caplog)
+    )
+
+
+def test_a_reliable_day_never_warns(ha, warned, caplog):
+    assert not any("soc_discrepancy_reliable" in m for m in _published_warnings(caplog))
