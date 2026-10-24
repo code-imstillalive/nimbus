@@ -40,3 +40,48 @@ def test_main_hands_the_record_the_helpers_answer(freezer):
         stack.enter_context(isolated_state_paths(sw))
         sw.main()
     assert seen["house_load_kw"] == 12.34
+
+
+@pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
+def test_a_deferred_ranging_reaches_both_flex_publishers_as_hold_last(freezer):
+    """#489: when this cycle's ranging was deferred, both the flex signals
+    and the telemetry record hold their last values."""
+    import dataclasses
+
+    import solver_plan
+
+    attrs = copy.deepcopy(guardrail._SOLVER_CONFIG_ATTRS)
+    base = guardrail._make_ha_get()
+
+    def ha_get(entity_id):
+        if entity_id == "sensor.nimbus_solver_config":
+            return {"state": "configured", "attributes": attrs}
+        return base(entity_id)
+
+    real = solver_plan.assemble_and_solve_plan
+    held = {}
+    with contextlib.ExitStack() as stack:
+        mp = stack.enter_context(pytest.MonkeyPatch.context())
+        mp.setattr(sw, "ha_get", ha_get)
+        mp.setattr(solver_shared, "ha_get", ha_get)
+        mp.setattr(sw, "ha_post_state", lambda *a, **k: None)
+        mp.setattr(
+            solver_plan,
+            "assemble_and_solve_plan",
+            lambda *a, **k: dataclasses.replace(
+                real(*a, **k), flex_ranging_deferred=True
+            ),
+        )
+        mp.setattr(
+            sw,
+            "publish_flex_signals",
+            lambda plan, *, hold_last=False: held.__setitem__("signals", hold_last),
+        )
+        mp.setattr(
+            solver_publish,
+            "publish_flex_telemetry_record",
+            lambda *a, **k: held.__setitem__("record", k.get("hold_last")),
+        )
+        stack.enter_context(isolated_state_paths(sw))
+        sw.main()
+    assert held == {"signals": True, "record": True}
