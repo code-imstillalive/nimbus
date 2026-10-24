@@ -3484,7 +3484,7 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     CURRENT install as stale: the exact inversion of what the check is for.
     Measured against the live reference household 2026-09-27 (ten keys,
     v0.94.426) before being corrected here, and
-    `tests/test_1179_the_failure_diagnostic_is_wired.py` now pins this
+    `tests/test_gates_source_and_docs.py` (its #1179 section) now pins this
     sentence to the source so the two cannot drift apart again in silence.
     """
 

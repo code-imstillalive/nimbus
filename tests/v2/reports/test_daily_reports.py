@@ -1376,3 +1376,42 @@ def test_a_named_rescore_solves_only_the_day_named(monkeypatch, only, scored):
     else:
         sw.rescore_quality_history({}, now, 10, only_dates=only)
     assert seen == scored
+
+
+# --- a day whose EPR denominator is unusable warns once (#1089) ------------------------------
+
+
+def test_an_unusable_denominator_is_warned_about_once_for_the_day(
+    ha, monkeypatch, caplog
+):
+    monkeypatch.setattr(sw, "_QUALITY_REPORT_EPR_DENOMINATOR_WARNED", set())
+    real = sw._compute_report_for_window
+
+    def flagged(*a, **k):
+        entry = real(*a, **k)
+        return {**entry, "epr_denominator_reason": "oracle_not_better_than_idle"}
+
+    monkeypatch.setattr(sw, "_compute_report_for_window", flagged)
+    first = [m for m in _published_warnings(caplog) if "DENOMINATOR" in m]
+    assert len(first) == 1 and "oracle_not_better_than_idle" in first[0]
+    assert DAY.date().isoformat() in first[0]
+    ha["states"].pop(sw.QUALITY_ENTITY_ID, None)
+    assert not [m for m in _published_warnings(caplog) if "DENOMINATOR" in m]
+
+
+def test_a_re_scored_day_without_a_snapshot_keeps_its_earlier_verdict_and_only_that():
+    """#937: a day scored once with its snapshot and re-pushed by a cycle
+    that could not recompute it keeps its day-ahead verdict, and the row
+    never carries the headline-only decomposition."""
+    field = sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD
+    prior = {"history": {"2026-09-12": {**_row(90.0), field: -0.5224}}}
+    entry = {
+        **_row(91.0),
+        "forecast_regret_reason": "no_forecast_snapshot_for_this_day",
+        "forecast_regret_load_level_error_dollars": 1.0,
+        "forecast_regret_load_shape_error_dollars": 1.0,
+        "forecast_regret_solar_error_dollars": 1.0,
+    }
+    row = sw._carry_forward_quality_history(prior, "2026-09-12", entry)["2026-09-12"]
+    assert row[field] == -0.5224
+    assert not {k for k in row if k.startswith("forecast_regret_")}

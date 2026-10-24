@@ -232,6 +232,110 @@ def test_a_probe_that_does_not_solve_is_named_a_symptom():
     assert r.calibration_fallback_reason == "probe_not_optimal"
 
 
+@contextlib.contextmanager
+def _calibration_spy(edit=None):
+    """Record what `_calibrate_blend_weight` returned, optionally editing its
+    diagnostics (never the weight) before the solve reads them."""
+    seen = []
+    real = lp._calibrate_blend_weight
+
+    def spy(*a, **k):
+        out = real(*a, **k)
+        seen.append(out)
+        return edit(out) if edit else out
+
+    with patch.object(lp, "_calibrate_blend_weight", spy):
+        yield seen
+
+
+def test_the_result_carries_the_weight_the_final_solve_ran_at():
+    """#1179: the weight was once unpacked into `_` and lost. It is the
+    calibrator's first value, the one the blended solve ran at."""
+    with _calibration_spy() as seen:
+        r = _near_tie(10.0).solve(options=CalibratedOptions())
+    ((weight, _cost, fell_back, reason),) = seen
+    assert 1e-12 <= weight <= 1e-1
+    assert r.calibration_weight_used == weight
+    assert (r.calibration_min_weight_fallback, r.calibration_fallback_reason) == (
+        fell_back,
+        reason,
+    )
+
+
+def test_the_diagnostics_are_reported_and_never_steer_the_solve():
+    """#1179 is observability only: the same weight with the fallback flag and
+    reason flipped gives the same dispatch, and the result reports the flipped
+    values as given."""
+    plain = _near_tie(10.0).solve(options=CalibratedOptions())
+    with _calibration_spy(lambda o: (o[0], o[1], not o[2], "cost_not_preserved")):
+        flipped = _near_tie(10.0).solve(options=CalibratedOptions())
+    np.testing.assert_allclose(flipped.x, plain.x)
+    assert flipped.objective == pytest.approx(plain.objective)
+    assert flipped.calibration_min_weight_fallback is (
+        not plain.calibration_min_weight_fallback
+    )
+    assert flipped.calibration_fallback_reason == "cost_not_preserved"
+
+
+@pytest.mark.parametrize(
+    ("failing", "reason"),
+    [
+        (set(), "cost_not_preserved"),
+        ({0}, "probe_not_optimal"),
+        ({1}, "probe_not_optimal"),
+    ],
+    ids=["both_solve", "largest_fails", "smallest_fails"],
+)
+def test_a_probe_that_did_not_solve_outranks_a_cost_that_moved(failing, reason):
+    """#1179: when no weight in the bracket keeps the primary, the fallback is
+    `cost_not_preserved` only when both ends solved; either end not solving
+    makes it `probe_not_optimal`. The calibrator is told the lex optimum was
+    a dollar cheaper than it was, so every probe that solves reads as having
+    lost primary cost."""
+    real = lp._calibrate_blend_weight
+
+    def stricter(h, cols, primary, secondary, lex_cost, tol):
+        return real(h, cols, primary, secondary, lex_cost - 1.0, tol)
+
+    with _probes_fail(failing), patch.object(lp, "_calibrate_blend_weight", stricter):
+        r = _near_tie(10.0).solve(options=CalibratedOptions())
+    assert r.status == "optimal"
+    assert r.calibration_min_weight_fallback
+    assert r.calibration_fallback_reason == reason
+    assert r.calibration_weight_used == pytest.approx(1e-12)
+
+
+def test_a_failed_final_solve_still_carries_the_calibration(monkeypatch):
+    """#1179: the failing cycle is the one that needs them most."""
+    monkeypatch.setattr(lp, "_dump_failing_model", lambda *a, **k: "model.mps")
+    state = {"final": False}
+    with _probes_fail(None):
+        probing_call = lp._timed_lp_call
+        probing_status = highspy.Highs.getModelStatus
+
+        @contextlib.contextmanager
+        def timed(h, label, **kw):
+            with probing_call(h, label, **kw):
+                yield
+            state["final"] = state["final"] or label == "calibrate_blend_final"
+
+        def status(self):
+            if state["final"]:
+                return highspy.HighsModelStatus.kTimeLimit
+            return probing_status(self)
+
+        with (
+            patch.object(lp, "_timed_lp_call", timed),
+            patch.object(highspy.Highs, "getModelStatus", status),
+        ):
+            r = _near_tie(10.0).solve(options=CalibratedOptions())
+    assert r.status == "error"
+    assert r.calibration_min_weight_fallback
+    assert r.calibration_fallback_reason == "probe_not_optimal"
+    assert r.calibration_weight_used == pytest.approx(1e-12)
+    assert r.failing_model_path == "model.mps"
+
+
 # --- #1179: the HiGHS snapshot never breaks a failing cycle ----------------------
 
 

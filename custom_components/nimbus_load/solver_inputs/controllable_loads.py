@@ -42,7 +42,7 @@ reads them.
 
 ## `_LOGGER` is `solver_shared._LOGGER`, never `sw._LOGGER`
 
-`tests/test_callers_mode_counts_only_real_references.py` asserts **zero**
+`tests/test_gates_suite.py` asserts **zero**
 `sw._LOGGER`-shaped references outside `solver_writer.py` — Phase 2a's own
 success condition. `solver_writer._LOGGER` is an identity alias of
 `solver_shared._LOGGER` (spec 001), so the five test files that patch

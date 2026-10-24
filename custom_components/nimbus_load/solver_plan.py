@@ -315,6 +315,11 @@ STOCHASTIC_DRIVE_BUDGET_SECONDS = 10.0
 # Shadow solves get the per-call limit and a total budget of their own; they
 # run off the dispatch path, so they can afford a MIP.
 STOCHASTIC_SHADOW_BUDGET_SECONDS = 30.0
+# #2025 (Mark Purcell's backstop): a cycle whose deterministic solve alone
+# took at least this share of the shadow budget skips the shadow solve. The
+# joint problem is three copies of that one, so it cannot fit the budget,
+# and a shadow computation must never cost more than it is worth.
+STOCHASTIC_SHADOW_SKIP_SHARE = 0.5
 # Kept for the shadow slow-solve threshold's history: a drive solve is bounded
 # by STOCHASTIC_DRIVE_BUDGET_SECONDS instead.
 STOCHASTIC_DRIVE_TIME_LIMIT_SECONDS = STOCHASTIC_DRIVE_BUDGET_SECONDS
@@ -497,6 +502,18 @@ def _run_shadow(
     """Start a shadow solve when one is due and none is running; return the
     latest finished summary (or a placeholder before the first)."""
     state = _STOCHASTIC_STATE
+    if deterministic_seconds >= STOCHASTIC_SHADOW_SKIP_SHARE * (
+        STOCHASTIC_SHADOW_BUDGET_SECONDS
+    ):
+        _log_fallback_once(
+            "deterministic_too_slow",
+            f"the main plan alone took {deterministic_seconds:.1f} s of the "
+            f"{STOCHASTIC_SHADOW_BUDGET_SECONDS:.0f} s shadow budget, so no "
+            "shadow solve this cycle; dispatch is unaffected",
+        )
+        return _stochastic_fallback(
+            "shadow", now, "deterministic_too_slow", plan, deterministic_seconds
+        )
     with _STOCHASTIC_LOCK:
         last_seconds = state["last_seconds"]
         slow = last_seconds is not None and last_seconds > STOCHASTIC_SLOW_SECONDS

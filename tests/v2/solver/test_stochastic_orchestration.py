@@ -422,6 +422,40 @@ def test_a_slow_shadow_solve_backs_off_for_an_hour():
         assert spy.call_count == 2
 
 
+@pytest.mark.parametrize(
+    ("seconds", "runs"), [(14.9, True), (15.0, False), (23.6, False)]
+)
+def test_a_main_plan_that_used_half_the_shadow_budget_skips_the_shadow(
+    seconds, runs, caplog
+):
+    """#2025: the joint problem is three copies of the main one, so a main
+    solve that alone took half the shadow budget leaves no room for it. That
+    cycle publishes a skip naming why, logs it once, and dispatch is
+    untouched; a faster main plan still gets its shadow."""
+    kw, det, stoch = _det_and_stoch()
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+        for minute in (0, 6):
+            published, summary = solver_plan.run_stochastic_dispatch(
+                {},
+                now=T0 + timedelta(minutes=minute),
+                plan=det,
+                build_kwargs=kw,
+                deterministic_seconds=seconds,
+            )
+            assert published is det
+    assert spy.call_count == (2 if runs else 0)
+    if runs:
+        assert summary["status"] == "optimal"
+        return
+    assert summary["status"] == "skipped"
+    assert summary["fallback_reason"] == "deterministic_too_slow"
+    assert summary["deterministic_solve_seconds"] == seconds
+    (warning,) = [
+        r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
+    ]
+    assert f"took {seconds:.1f} s of the 30 s shadow budget" in warning.getMessage()
+
+
 def test_drive_publishes_the_stochastic_plan():
     kw, det, stoch = _det_and_stoch()
     det = dataclasses.replace(det, offer_curve_import=[(0.1, 2.0)])

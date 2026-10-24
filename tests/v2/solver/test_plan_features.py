@@ -14,11 +14,12 @@ slack constraint.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 from solver import lp, network
 from solver.elements import (
@@ -1664,8 +1665,37 @@ def test_an_adequacy_window_past_the_plan_is_refused_naming_the_plan(n, past):
     assert f"({deadline})" in msg and f"(0..{n - 1})" in msg
 
 
+_NEAR_EMPTY = {
+    "adequacy": None,
+    "sheddable": None,
+    "thermal": None,
+    "hours": np.full(14, 0.25),
+    "import_price": np.zeros(14),
+    "export_price": np.zeros(14),
+    "import_limit": 0.0,
+    "export_limit": 1.0,
+    "load": np.zeros(14),
+    "solar": np.zeros(14),
+    "battery": {
+        "name": "b",
+        "capacity_kwh": 23.0625,
+        "initial_soc_kwh": 6.9188,
+        "min_soc_kwh": 6.91875,
+        "max_soc_kwh": 23.0625,
+        "max_charge_kw": 1.0,
+        "max_discharge_kw": 1.0,
+        "charge_efficiency": 0.875,
+        "discharge_efficiency": 0.875,
+        "charge_cost": 0.005,
+        "discharge_cost": 0.0625,
+        "salvage_value": 0.0,
+    },
+}
+
+
 @SETTINGS
 @given(plain_sites(), _num(-1.0, 1.0))
+@example(_NEAR_EMPTY, 1.0)  # 0.000175 kW of room: once rounded to an impossible pin
 def test_a_period0_pin_holds_the_battery_at_its_rate(site, share):
     """The period-0 pin (#1417, behind #1654's direction hysteresis): a pinned
     net rate is what period 0 does, discharging for a positive pin and
@@ -1688,7 +1718,9 @@ def test_a_period0_pin_holds_the_battery_at_its_rate(site, share):
             / (b["charge_efficiency"] * h0),
             site["import_limit"] - float(site["load"][0]),
         )
-    pin = round(share * max(0.0, room) * 0.99, 4)
+    # Cut toward zero, never rounded: rounding a room of 0.000175 kW gave a
+    # pin of 0.0002, more than the battery could do (infeasible, correctly).
+    pin = math.trunc(share * max(0.0, room) * 0.99 * 1e4) / 1e4
     plan = _solve(site, period0_pin_net_kw=pin)
     assert plan.status == "optimal"
     assert abs(plan.battery_discharge_kw[0] - max(pin, 0.0)) < 1e-5

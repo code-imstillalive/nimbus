@@ -7,8 +7,7 @@ own LP-derived plan (a THIRD distinct sensor class/push site, after
 NimbusForecastSensor fixed in v0.89.1 and the household-load-total
 push fixed in v0.92.1 for #187), so neither earlier fix ever reached it.
 
-Source-inspection style, matching the existing precedent in
-tests/test_solver_writer_load_total_state_consistency.py -- main()'s
+Source-inspection style -- main()'s
 own real pipeline is too large to mock end-to-end for this; reading the
 real, deployed source and asserting the exact push call carries both
 keys is a real, if lightweight, guard against a future regression.

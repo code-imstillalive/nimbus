@@ -1324,7 +1324,7 @@ def _collapse_optionals_into_advanced(
     **Nothing is removed and nothing is renamed.** Every field keeps its key,
     its marker class, its default/suggested_value and its validator; it just
     renders inside a collapsed group. The wizard's own field count is
-    unchanged, which is why `test_config_surface_budget` still passes at 47 --
+    unchanged, which is why `test_gates_source_and_docs` still passes at 47 --
     this is about what a new installer must READ before submitting, not about
     taking capability away from an existing one.
 

@@ -211,7 +211,7 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 
 #: (version, date, highlights), newest first. HACS installs only this folder,
 #: not the repo's CHANGELOG, so the notes live here. Every release adds its
-#: entry: tests/test_1823_the_help_tab_follows_the_wizard.py fails when manifest.json's version is
+#: entry: tests/v2/entities/test_help_tab.py fails when manifest.json's version is
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (

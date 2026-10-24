@@ -165,3 +165,66 @@ def test_cron_runs_again_once_the_suppression_window_has_elapsed():
     _setup_and_fire_periodic_solve("entry_cron_elapsed", run_solve)
 
     run_solve.assert_called_once()
+
+
+def _setup_recording(order, report=None):
+    entry = _make_entry("entry_orphans")
+    hass = _make_hass()
+
+    async def rename(_hass, _entry):
+        order.append("rename")
+
+    async def default_report(_hass, _entry):
+        order.append("report")
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(nimbus_init.health, "install_log_buffer_handler")
+        )
+        stack.enter_context(
+            patch.object(nimbus_init.services, "async_register_services")
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init.frontend,
+                "async_register_frontend",
+                new=AsyncMock(return_value=None),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init,
+                "async_get_integration",
+                new=AsyncMock(return_value=MagicMock()),
+            )
+        )
+        stack.enter_context(
+            patch.object(nimbus_init, "async_track_utc_time_change", new=MagicMock())
+        )
+        stack.enter_context(
+            patch.object(nimbus_init, "_async_rename_stale_forecast_entities", rename)
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init,
+                "_async_report_orphaned_forecast_entities",
+                report or default_report,
+            )
+        )
+        return asyncio.run(nimbus_init.async_setup_entry(hass, entry))
+
+
+def test_setup_reports_orphans_after_the_rename_and_survives_a_failing_report():
+    """#1270: the orphan report runs on every setup, after the rename pass,
+    and a failure in it never takes the hub down."""
+    order = []
+    assert _setup_recording(order) is True
+    assert order == ["rename", "report"]
+
+    async def broken(_hass, _entry):
+        order.append("broken")
+        raise RuntimeError("registry drift")
+
+    order.clear()
+    assert _setup_recording(order, report=broken) is True
+    assert order == ["rename", "broken"]

@@ -47,7 +47,7 @@ def _make_hass() -> MagicMock:
     return MagicMock()
 
 
-def test_concurrent_calls_for_the_same_entry_only_run_setup_once():
+def test_concurrent_calls_for_the_same_entry_only_run_setup_once(monkeypatch):
     nimbus_init._setup_tasks.clear()
     entry = MagicMock()
     entry.entry_id = "test-entry-reentrancy"
@@ -65,7 +65,7 @@ def test_concurrent_calls_for_the_same_entry_only_run_setup_once():
         await release.wait()
         return True
 
-    nimbus_init._async_setup_entry_impl = _fake_impl
+    monkeypatch.setattr(nimbus_init, "_async_setup_entry_impl", _fake_impl)
     hass = _make_hass()
 
     async def _run() -> tuple[bool, bool]:
@@ -93,7 +93,7 @@ def test_concurrent_calls_for_the_same_entry_only_run_setup_once():
     assert result_second is True
 
 
-def test_a_later_call_after_the_first_finished_runs_setup_fresh():
+def test_a_later_call_after_the_first_finished_runs_setup_fresh(monkeypatch):
     """The guard must not permanently wedge a config entry -- once a
     genuinely-completed setup's task is .done(), a real subsequent call
     (a normal reload, or a legitimate later re-entry) must run the setup
@@ -109,7 +109,7 @@ def test_a_later_call_after_the_first_finished_runs_setup_fresh():
         call_count += 1
         return True
 
-    nimbus_init._async_setup_entry_impl = _fake_impl
+    monkeypatch.setattr(nimbus_init, "_async_setup_entry_impl", _fake_impl)
     hass = _make_hass()
 
     async def _run() -> None:
@@ -127,7 +127,7 @@ def test_a_later_call_after_the_first_finished_runs_setup_fresh():
     )
 
 
-def test_setup_tasks_dict_is_cleaned_up_after_completion():
+def test_setup_tasks_dict_is_cleaned_up_after_completion(monkeypatch):
     """A real, if lower-stakes, hygiene check: the module-level dict this
     guard relies on must not accumulate a stale entry for an entry_id
     whose setup has already finished -- an unbounded leak here would be a
@@ -140,7 +140,7 @@ def test_setup_tasks_dict_is_cleaned_up_after_completion():
     async def _fake_impl(hass, entry) -> bool:
         return True
 
-    nimbus_init._async_setup_entry_impl = _fake_impl
+    monkeypatch.setattr(nimbus_init, "_async_setup_entry_impl", _fake_impl)
     hass = _make_hass()
 
     asyncio.run(nimbus_init.async_setup_entry(hass, entry))
