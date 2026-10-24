@@ -8,6 +8,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.486] - 2026-10-24
+
+**A price spike no longer stops the plan when your battery's live discharge limit is below the spike rate.**
+
+- **The spike override fits the live discharge limit** (#2026, #2029).
+  - The problem: with the spike override armed and a live max-discharge entity set, a live limit below the spike discharge rate made every solve fail during the spike, so no plan was published.
+  - Now the spike rate is cut to the live limit for that solve, with one warning per spike.
+  - A spike rate above your static max-discharge setting is still refused, because that is a settings mistake.
+- **The stochastic plan's summary records every solve it attempts** (#2025, #2030): each one's own time, time limit, outcome and gap, as `joint_calls`.
+  - It changes no plan. It shows which solve runs out of time when the stochastic plan falls back on a large install.
+- The setup guide notes that the flex telemetry record reports every battery, an EV included, as `stationary_battery`.
+
 ## [0.94.485] - 2026-10-23
 
 **What a new install sees: the EV, every controllable load and the daily figures on Topology, one SoC per battery, and a revised tab beside yours.**
@@ -36,6 +48,26 @@ dashboard Nimbus generates.
   A single-battery install is unchanged.
 - **A revised tab goes right beside your own tab of the same title** (#2020),
   so the two can be compared, instead of at the end of the dashboard.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 3aa1bf00**
+  (`release/0.94.485`), installed via HACS and restarted at 17:57 AEST; all 126
+  Nimbus entities carrying a version read 0.94.485, and the first solve at
+  17:58:44 was `optimal`. `sensor.nimbus_topology_config` lists the test EV
+  beside both inverters, all six controllable loads with their own Commanded
+  State and today's sensors resolved, and the Forecaster's Grid and Battery
+  sensors as `forecaster_meters`. On the Topology tab (after a hard reload):
+  the whole-house headline with daily solar, battery and load; the Grid box at
+  -11.2 kW with both signals at Role Other; the EV with its SoC; a dashed row
+  per controllable load, the one commanded on lit. The Solver tab's "Battery,
+  now" and "At a glance" show "SoC Home battery" and "SoC Test EV" in place of
+  the fleet figure. No Nimbus `ERROR` or traceback in the log after the restart
+  (the only tracebacks were the restart request's own connection closing).
+  - **Not observable on devhub:** a revised tab placed beside a household tab of
+    the same title (#2020) needs a dashboard where Nimbus finds a missing
+    standard tab; carried by #2020's tests. A browser keeps the old card until
+    the version changes or a hard reload.
+- Consumer check: display only. Topology gains the EV, controllable loads and
+  the headline with nothing to configure; a card with its own `whole_house` or
+  switchboard keeps them. A single-battery install's Solver tab is unchanged.
 
 ## [0.94.484] - 2026-10-23
 
