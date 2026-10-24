@@ -455,3 +455,29 @@ def test_a_live_number_that_is_not_this_hubs_own_is_skipped(world):
         const.CONF_SOLVER_BATTERY_CAPACITY_KWH,  # registered, but no entity loaded
         const.CONF_SOLVER_MAX_CHARGE_KW,  # not registered
     ]
+
+
+def _default_of(form, key):
+    for marker in form["data_schema"].schema:
+        if str(marker) == key:
+            d = getattr(marker, "default", None)
+            value = d() if callable(d) else d
+            sv = (getattr(marker, "description", None) or {}).get("suggested_value")
+            return sv if sv is not None else value
+    return None
+
+
+def test_the_energy_dashboard_fills_only_what_the_household_has_not_saved(world):
+    """#1067: the dashboard's battery sensor is offered when the field is
+    empty, and a saved choice always wins over it."""
+    world.suggestions["dashboard"] = {
+        "solver_battery_soc_sensor": "sensor.dashboard_soc"
+    }
+    empty = _run(_flow().async_step_solver_battery())
+    assert _default_of(empty, "solver_battery_soc_sensor") == "sensor.dashboard_soc"
+    saved = _run(
+        _flow(
+            {"solver_battery_soc_sensor": "sensor.saved_soc"}
+        ).async_step_solver_battery()
+    )
+    assert _default_of(saved, "solver_battery_soc_sensor") == "sensor.saved_soc"
