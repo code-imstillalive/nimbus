@@ -19,6 +19,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The stochastic plan's summary records every solve it attempts** (#2025, #2030): each one's own time, time limit, outcome and gap, as `joint_calls`.
   - It changes no plan. It shows which solve runs out of time when the stochastic plan falls back on a large install.
 - The setup guide notes that the flex telemetry record reports every battery, an EV included, as `stationary_battery`.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at bc948231**
+  (`release/0.94.486`), installed via HACS and restarted at 13:10 AEST. 123 of
+  the 126 Nimbus entities carrying a version read 0.94.486. The other three
+  (`sensor.nimbus_efficiency_backtest`, `sensor.nimbus_counterfactual_soc`,
+  `sensor.nimbus_flex_report`) still showed 0.94.485 at 13:12: they were restored
+  at startup and had not been republished yet. The first solve, generated
+  13:11:00, was `optimal` in 27.4 s. The first stochastic shadow run published
+  `joint_calls`: one call, 65.5 s of wall time against a 20.0 s limit, ending
+  `Time limit reached`. HiGHS's own phase breakdown for that call totals 20.1 s,
+  so the rest of the call is spent before the solver starts (#2025). No Nimbus
+  `ERROR` or traceback in the log after the restart; the WARNINGs are the ones
+  this install already logged before it.
+  - **Not observable on devhub:** the spike clamp (#2026). Devhub's live
+    max-discharge entity reads `max` 40 kW, the same as its spike rate, and no
+    spike was active (import 0.0994 $/kWh against a 0.85 threshold). Raising the
+    rate or lowering the threshold would mean writing a `number.nimbus_solver_*`
+    entity production also has. The clamp is carried by the
+    `spike_override_above_live_ceiling` golden scenario, which runs the real
+    `main()`, and by `tests/v2/orchestration/test_spike_override_ceiling.py`.
+- Consumer check: no setting changes. An install with an armed spike override
+  and a live max-discharge entity below its spike rate now gets a plan, at the
+  live ceiling, during a spike; every other install plans exactly as before.
+  The stochastic summary gains `joint_calls`; nothing reads it but the summary.
 
 ## [0.94.485] - 2026-10-23
 
