@@ -397,6 +397,29 @@ def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
     assert st.thermal_heating_rate_c_per_kwh == expect
 
 
+def test_a_recorder_that_fails_mid_fetch_falls_back_like_no_recorder(
+    site, monkeypatch, caplog
+):
+    class Broken:
+        async def async_add_executor_job(self, *_args):
+            raise RuntimeError("recorder gone")
+
+    recorder = types.ModuleType("homeassistant.components.recorder")
+    recorder.get_instance = lambda _hass: Broken()
+    recorder.history = SimpleNamespace(state_changes_during_period=None)
+    monkeypatch.setitem(sys.modules, "homeassistant.components.recorder", recorder)
+    _heater(site, 55.0, seed={"thermal_rates_learned_day_key": ""})
+    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
+        st = _forecast(site, 0.0)
+    assert st.thermal_rates_source == "fallback"
+    assert st.thermal_heating_rate_c_per_kwh == (
+        thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+    )
+    assert "thermal history fetch failed for water_heater.hws/sensor.hws_power" in (
+        caplog.text
+    )
+
+
 def test_a_tank_forecast_to_reach_its_floor_says_when_and_warns_once_a_day(
     site, caplog
 ):
