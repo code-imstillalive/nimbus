@@ -1036,3 +1036,51 @@ def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog)
     assert (lines[0].levelno, lines[-1].levelno) == (logging.INFO, logging.WARNING)
     assert "sensor.combined_soc" in lines[0].getMessage()
     assert DAY.date().isoformat() in lines[0].getMessage()
+
+
+# --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
+
+
+@pytest.mark.parametrize(
+    ("key", "metered", "status"),
+    [
+        ("switchboard_grid_meter_sensor", 2.0, "agrees"),  # load 2 kW from the grid
+        ("switchboard_grid_meter_sensor", 9.0, "disagrees"),
+        ("grid_sensor", 9.0, "disagrees"),  # the Forecaster's grid sensor, failing that
+    ],
+)
+def test_the_window_is_checked_against_the_households_grid_meter(
+    history, key, metered, status
+):
+    history["sensor.grid_meter"] = flat(metered)
+    scored = window(cfg(**{key: "sensor.grid_meter"}))
+    assert scored["meter_reconciliation"]["status"] == status
+    if status == "disagrees":
+        assert scored["epr_reliable"] is False
+        assert scored["epr_reason"] == "grid_meter_disagrees"
+
+
+def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so(
+    history, monkeypatch
+):
+    from solver_reports import quality as q
+
+    base = window()
+
+    def reprice(_sw, _cfg, _grid, _hours, _start, _end, imp, exp):
+        imp[:] = imp * 3.0  # the price the score must then be priced on
+        return {
+            "price_stale_periods": 48,
+            "price_stale_minutes": 1440,
+            "price_stale_windows": ["00:00-00:00"],
+            "price_stale_repriced": False,
+            "price_stale_unusable": True,
+        }
+
+    monkeypatch.setattr(q, "_reprice_stale_price_periods", reprice)
+    scored = window()
+    assert scored["j_ref"] == pytest.approx(3.0 * base["j_ref"], rel=1e-6)
+    assert scored["price_stale_unusable"] is True
+    assert (
+        scored["epr_reliable"] is False and scored["epr_reason"] == "price_source_stale"
+    )
