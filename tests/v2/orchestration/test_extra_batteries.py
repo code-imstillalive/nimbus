@@ -333,3 +333,68 @@ def test_the_hold_runs_out(car):
     pct, read_at = eb._LAST_GOOD_SOC["car"]
     eb._LAST_GOOD_SOC["car"] = (pct, read_at - eb._SOC_HOLD_SECONDS - 1)
     assert car("unavailable") == []
+
+
+# --- a participant that can never move is built, and said once (#1067) ------------------------
+
+
+def test_a_participant_with_no_power_limits_is_built_and_warned_about_once(
+    site, caplog, monkeypatch
+):
+    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+    stuck = {
+        **EV,
+        "battery_participant_max_charge_kw": 0.0,
+        "battery_participant_max_discharge_kw": 0.0,
+    }
+    site.add("stuck", stuck)
+    site.state("sensor.ev_soc", "55.0")
+    for _ in range(2):
+        with caplog.at_level(logging.WARNING):
+            (b,) = eb.build_extra_batteries()  # still built: a warning, not a skip
+    (line,) = [r.getMessage() for r in caplog.records if "#1067" in r.getMessage()]
+    assert all(
+        s in line for s in ("oracle", "j_star", "Set real", "remove the participant")
+    )
+    assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
+        {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
+    ],
+)
+def test_a_one_directional_participant_is_not_warned_about(
+    site, caplog, monkeypatch, limits
+):
+    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+    site.add("ev", {**EV, **limits})
+    site.state("sensor.ev_soc", "55.0")
+    with caplog.at_level(logging.WARNING):
+        assert len(eb.build_extra_batteries()) == 1
+    assert "#1067" not in caplog.text
+
+
+def test_two_immobile_participants_are_each_named(site, caplog, monkeypatch):
+    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+    stuck = {
+        **EV,
+        "battery_participant_max_charge_kw": 0.0,
+        "battery_participant_max_discharge_kw": 0.0,
+    }
+    site.add("a", {**stuck, "battery_participant_name": "car"})
+    site.add(
+        "b",
+        {
+            **stuck,
+            "battery_participant_name": "van",
+            "battery_participant_soc_sensor": "sensor.b_soc",
+        },
+    )
+    site.state("sensor.ev_soc", "55.0")
+    site.state("sensor.b_soc", "40.0")
+    with caplog.at_level(logging.WARNING):
+        eb.build_extra_batteries()
+    assert eb._IMMOBILE_PARTICIPANT_WARNED == {"a", "b"}  # by subentry, not by name

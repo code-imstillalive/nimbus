@@ -14,7 +14,7 @@ day is still scored. Synthetic data only.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import load_run_state
@@ -415,3 +415,125 @@ def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
     site.add({**EV, "battery_participant_power_positive_is_charge": False})
     ((_b, charge, discharge, _f, _s),) = resolve()
     assert (charge == 0.0).all() and (discharge == 5.0).all()
+
+
+# --- a departure requirement reaches the oracle, as demanding as the day (#1111) ----------------
+
+DEP_START = datetime(2026, 9, 17, tzinfo=UTC)  # UTC-stamped: local 07:00 is index 21
+DEP_GRID = [DEP_START + timedelta(hours=h) for h in range(24)]
+
+
+def deadline(charge, discharge=None, **over):
+    kw = {
+        "grid_times": DEP_GRID,
+        "period_hours": [1.0] * 24,
+        "departure_hour": 7,
+        "must_have_soc_pct": 80.0,
+        "capacity_kwh": 60.0,
+        "initial_soc_kwh": 20.0,
+        "actual_charge_kw": np.asarray(charge, dtype=float),
+        "actual_discharge_kw": np.zeros(len(charge))
+        if discharge is None
+        else np.asarray(discharge, dtype=float),
+        "efficiency": 0.97,
+    }
+    kw.update(over)
+    return bp._participant_departure_deadline(**kw)
+
+
+@pytest.mark.parametrize(
+    ("charge", "kwh"),
+    [
+        ([10.0] * 7 + [0.0] * 17, 48.0),  # met its target: the configured 80 %
+        ([20.0] * 24, 48.0),  # overshot: never more than configured
+        ([0.0] * 24, 20.0),  # not plugged in: what it started with
+        ([2.0] * 7 + [0.0] * 17, 20.0 + 7 * 2 * 0.97),  # what it reached by 07:00
+        ([0.0] * 22 + [20.0, 20.0], 20.0),  # charge after departure counts for nothing
+    ],
+    ids=["met", "overshot", "unplugged", "partial", "after_departure"],
+)
+def test_the_requirement_is_the_configured_one_or_what_the_day_reached(charge, kwh):
+    idx, got = deadline(charge)
+    assert idx == 21  # the departure hour in local time, not 07:00 UTC
+    assert got == pytest.approx(kwh)
+
+
+def test_discharge_before_departure_is_debited_and_it_never_goes_negative():
+    _i, kwh = deadline(np.zeros(24), [5.0] + [0.0] * 23)
+    assert kwh < 20.0
+    _i, kwh = deadline(np.zeros(24), np.full(24, 50.0))
+    assert kwh >= 0.0
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"departure_hour": None, "must_have_soc_pct": None},
+        {"must_have_soc_pct": None},  # half configured is unset, as live
+        {"departure_hour": None},
+        {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
+    ],
+    ids=["neither", "hour_only", "percent_only", "outside_the_window"],
+)
+def test_no_departure_requirement(over):
+    n = len(over.get("grid_times", DEP_GRID))
+    assert deadline([0.0] * n, **over) == (None, None)
+
+
+DEPARTING = {
+    **EV,
+    "battery_participant_departure_hour": 7,
+    "battery_participant_must_have_soc_by_departure_percent": 80.0,
+}
+
+
+def test_the_scorers_participant_carries_its_departure_requirement(site, monkeypatch):
+    site.add(DEPARTING)
+    site.soc = every(55.0)
+    ((battery, *_rest),) = resolve()
+    assert battery.must_have_soc_by_period_index == 7  # 07:00 on the local grid
+    # charging 5 kW from 33 kWh: as demanding as the day reached, never past 80 %
+    assert 33.0 < battery.must_have_soc_kwh <= 0.80 * 60.0
+
+
+def test_the_scorer_sets_every_field_the_live_solve_sets_but_the_live_away_flags(
+    site, monkeypatch
+):
+    """The drift #1109 and #1111 were, found by comparing the two builders:
+    every BatteryConfig field the live solve gives a participant, the
+    scorer's oracle gets too, except the whole-horizon "away right now"
+    pair the day's per-period mask replaces."""
+    import dataclasses
+
+    from solver.elements import BatteryConfig
+    from solver_inputs import extra_batteries as eb
+
+    data = {
+        **DEPARTING,
+        "battery_participant_available_entity": "binary_sensor.ev_home",
+        "battery_participant_shared_charger_group": "garage",
+        "battery_participant_shared_charger_max_kw": 15.0,
+    }
+    site.add(data)
+    site.states["binary_sensor.ev_home"] = "on"
+    site.presence = [
+        (DAY + timedelta(hours=h), "on" if h % 5 else "off") for h in range(24)
+    ]
+    defaults = {
+        f.name: f.default
+        for f in dataclasses.fields(BatteryConfig)
+        if f.default is not dataclasses.MISSING
+    }
+    from solver.elements import PeriodGrid
+
+    (live,) = eb.build_extra_batteries(PeriodGrid(np.ones(24), start=DAY))
+    ((scored, *_r),) = resolve()
+
+    def set_fields(b):
+        return {k for k, d in defaults.items() if getattr(b, k) != d}
+
+    assert {"must_have_soc_by_period_index", "shared_charger_group"} <= set_fields(live)
+    assert set_fields(live) - set_fields(scored) <= {
+        "available",
+        "unavailable_until_period_index",
+    }
