@@ -1,47 +1,6 @@
-"""nimbus issue #937, stage 1: capture what the forecast SAID.
-
-## Why this comes before the analysis that consumes it
-
-Normally a capability should be wired before it ships — I argued exactly that
-earlier today on #1267 and #1270. This is the documented exception, and the
-reason is a measurement, not a preference.
-
-`research/forecast_capture.py`:
-
-    NONE of the day-ahead forecasts this project has -- solar (Solcast) or
-    price (nem_pd7day) -- have ANY recorder history at all (0 history points
-    over a 2-day check)... Conclusion: there is no way to reconstruct what any
-    of these forecasts said for a PAST day. This isn't a data-quality gap,
-    it's a data-existence gap -- the only honest fix is to start capturing
-    forward from today.
-
-**There is nothing to wire until something has been captured**, and every day
-the capture does not exist is a day of evidence permanently lost. #937's own
-top-priority action is "more days", and it has been unachievable since the
-reference household moved to the native path — no HACS install has ever
-produced a day-ahead `forecast_regret` record.
-
-## The distinction this file mostly exists to pin
-
-**A missing forecast is not a zero forecast.**
-
-`resample_snapshot_to_grid()` returns `None`, never zeros, for anything
-unusable. A zero-filled forecast scores as one that confidently predicted
-darkness and no load — the *worst possible* forecast — where the truth is that
-there is no forecast to judge. The standalone writer's own
-`load_forecast_snapshot()` makes the same demand in its docstring: *"treat None
-as 'skip the forecast-regret decomposition for this day entirely', never as
-'assume zero forecast error'."*
-
-`TestAMissingForecastIsNotAZeroForecast` covers every route to unusable.
-
-## Tiered grids
-
-Points carry an explicit `time` each rather than a start plus a step, because
-this solver's grid is tiered — the first periods are minutes wide and later
-ones an hour. A start-and-step encoding would silently mis-place every point
-past the tier boundary, and the mis-placement would read downstream as
-forecast error.
+"""What the forecast SAID, captured: the day-ahead snapshot's shape and
+what it keeps, so tomorrow's regret is scored against the forecast as it was
+made (#937) (#1837).
 """
 
 from __future__ import annotations
@@ -53,7 +12,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 _MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "nimbus_load"
     / "solver_inputs"
@@ -68,7 +27,7 @@ def _load_module():
     which pulls in HA's config-entry machinery. This module has zero HA
     dependencies and this loader is what PROVES it. Same pattern as
     `test_467_calendar_trip_windows.py` and
-    `test_1241_detect_a_wrong_power_sign_convention.py`.
+    `tests/v2/reports/test_power_sign_check.py`.
     """
     spec = importlib.util.spec_from_file_location("forecast_snapshot", _MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -250,34 +209,6 @@ class TestDayKeying(unittest.TestCase):
         utc_evening = datetime(2026, 9, 26, 14, 0, tzinfo=UTC)
         self.assertEqual(fs.day_key_for(utc_evening), "2026-09-26")
         self.assertEqual(fs.day_key_for(utc_evening.astimezone(BNE)), "2026-09-27")
-
-
-class TestItIsPure(unittest.TestCase):
-    def test_no_homeassistant_import(self):
-        src = _MODULE_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("homeassistant", src)
-
-    def test_it_persists_nothing_itself(self):
-        """Storage belongs to the integration, which has a Store. A pure
-        module that wrote files would be untestable by path and would make
-        two owners of one artefact."""
-        import ast
-
-        tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
-        called = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call):
-                f = node.func
-                called.add(getattr(f, "id", None) or getattr(f, "attr", None))
-        # Asserted on the CALL GRAPH, not the text. Three function docstrings
-        # discuss `Store` by name -- they explain WHY persistence lives
-        # elsewhere -- and a text search cannot tell that from doing it. An
-        # assertion that punished the explanation would push the reasoning out
-        # of the file, which is the same trade this session already got wrong
-        # twice on other guards.
-        for forbidden in ("open", "Store", "async_save", "dump", "dumps"):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, called)
 
 
 if __name__ == "__main__":

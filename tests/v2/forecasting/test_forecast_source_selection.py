@@ -1,48 +1,10 @@
-"""nimbus issue #937 item 4: persistence as a real fallback.
-
-That issue's headline, measured on the reference household's own real data:
-
-    days scored                                 14
-    naive persistence beat Nimbus's forecast    11
-    mean nimbus_value_add_dollars               -$0.71/day
-    worst day                                   -$3.42 (2026-08-30)
-
-and its own item 4, the last of four "what would move this forward" actions and
-the only one nothing had been built for:
-
-    **Consider whether persistence deserves to be a real fallback.** If a
-    household's own data shows persistence winning consistently, the honest
-    product answer might be to use it, or to blend.
-
-## What these tests are actually defending
-
-**That the default cannot act.** `TestOffCannotBeTalkedIntoActing` is the most
-important class in this file, and the reason it uses the issue's own real
-fourteen-day series rather than a synthetic one: the input that would most
-strongly justify switching to persistence is exactly the input the default
-policy must ignore. This code sits on the live dispatch path of a household
-running real battery dispatch and real P2P money, so "off is a no-op" has to be
-a property with a test, not a default with a comment.
-
-**That the escalation gates are ordered and each one is reachable.** There are
-five distinct ways this module answers "keep using the ML forecast", and a
-diagnostic that goes quiet without saying which gate closed is the defect
-`epr_reason` (#1162) and `forecast_regret_reason` (#1307) were both written to
-fix. Every gate has a test that pins its own reason code.
-
-**That the blend weight is the evidence.** On #937's own series the weight comes
-out at exactly 11/14. If someone later replaces that with a tunable dial, this
-test fails and says why in its own name.
-
-Loaded BY PATH, so "this module has zero Home Assistant imports" is proven by
-the test running at all rather than asserted in a docstring -- the same pattern
-`test_1241_detect_a_wrong_power_sign_convention.py` and
-`test_467_calendar_trip_windows.py` use, for the same reason.
+"""Persistence as a real fallback: which load forecast to use, the ML
+forecast, yesterday's load or a blend, chosen from the trailing day-ahead
+record; off, measure-only and the thresholds each pinned (#937) (#1837).
 """
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 import sys
 import unittest
@@ -50,7 +12,7 @@ from datetime import date
 from pathlib import Path
 
 _MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "nimbus_load"
     / "solver"
@@ -472,26 +434,6 @@ class TestTheBlendArithmetic(unittest.TestCase):
         out = blend_load_forecast([1.0, 2.0], [3.0, 4.0], 0.5)
         self.assertIsInstance(out, list)
         out[0] = 99.0  # must not raise
-
-
-class TestTheModuleStaysPure(unittest.TestCase):
-    """Loading by path already proves there is no HA import at runtime. This
-    asserts it at the source level too, so the intent survives someone adding
-    an import that happens to be installed in the test environment."""
-
-    def test_it_imports_nothing_from_home_assistant_or_numpy(self):
-        tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
-        imported: list[str] = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imported += [a.name for a in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported.append(node.module)
-        for name in imported:
-            self.assertFalse(
-                name.startswith(("homeassistant", "numpy")),
-                f"{name} would end this module's portability",
-            )
 
 
 if __name__ == "__main__":

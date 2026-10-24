@@ -1,50 +1,5 @@
-"""nimbus #937: the recursive-validation fallback log named the wrong
-cause for half the circuits it fires on.
-
-`model_type` is decided from `validation_recursive_mae`, falling back to
-one-step `validation_mae` when that cannot be computed. The fallback is
-logged rather than silent -- but it said:
-
-    "Too few origins for recursive validation -- falling back to
-     one-step selection -> using %s"
-
-for **both** ways the metric can come back empty, and only one of them is
-about origins.
-
-**Measured on the reference household, 2026-09-18.** Nine of eighteen
-circuits publish an empty `validation_recursive_mae` and therefore select
-on one-step error. Several carry 4,100-4,300 training points:
-
-    empty:      hws_l1(4296) hws_l3(4290) ac_l1(4194) oven(4194)
-                b1(4194) ctp(4194) lounge(4271) heater(4194) lt_l2(521)
-    populated:  lt_l1(4167) pool1(1097) pool_2(1040) comms(4167)
-                ldry(1285) pw_l1(4166) pw_l2(4167) ac_l2(2740) ac_b1(505)
-
-Training volume does not separate those groups -- the empty side holds
-most of the *largest* sets, and the two smallest circuits land on
-opposite sides (521 empty, 505 populated).
-
-The actual gate is in `_recursive_multistep_mae()`, which counts an error
-only for a genuinely OBSERVED forward point:
-
-    if (actual is not None and math.isfinite(actual)
-            and i < len(load_observed) and load_observed[i]):
-        errors.append(abs(pred - actual))
-    ...
-    if not errors:
-        return None
-
-So the metric is empty when no origin's forward window contains an
-observed actual. That is observation **density**, not history length, and
-on a circuit whose sensor idles and reports on change it does not improve
-with time. Those loads select on one-step error **permanently**.
-
-"Too few origins" sent a reader looking for more history, which cannot
-help. The distinction being tested here is the difference between "wait"
-and "this will never happen" -- which is the entire reason a diagnostic
-names a cause at all, and the same lesson `mixed_window_not_decisive`
-(#1073) and `participant_away_during_window` (#1098) each cost a real
-investigation to learn.
+"""When recursive validation cannot be computed and one-step error decides
+the model, the log names that cause, not another (#937) (#1837).
 """
 
 from __future__ import annotations

@@ -1,47 +1,5 @@
-"""nimbus #937: when both validation criteria exist, say whether they
-agree — so the fallback's blind spot becomes observable instead of
-hand-measured.
-
-Half the reference household's circuits cannot compute
-`validation_recursive_mae` at all and therefore select on one-step error
-**permanently** — that is observation density, not warm-up, and v0.94.391
-made the log message say so. What it did not say is whether the fallback
-criterion actually reaches a different answer.
-
-**Measured by hand across the fleet on 2026-09-18**, on the nine circuits
-carrying both metrics:
-
-    circuit      one-step pick   recursive pick   agree
-    pw_pool1     naive           naive            YES
-    pw_pool_2    naive           naive            YES
-    pw_comms     gbrt            knn              NO
-    pw_ldry      gbrt            gbrt             YES
-    pw_l1        gbrt            knn              NO
-    lt_l1        gbrt            gbrt             YES
-    pw_l2        knn             knn              YES
-    pw_ac_l2     gbrt            gbrt             YES
-    pw_ac_b1     gbrt            gbrt             YES
-                                                  7 of 9
-
-**Both disagreements are one-step preferring `gbrt` where recursive
-prefers `knn`. Neither goes the other way.** That direction is predicted
-by this package's own module docstring: k-NN's prediction is a weighted
-average of observed `y_train` values — a convex combination, structurally
-bounded — while GBRT is an unbounded additive sum with no clipping.
-Recursive validation is the only one of the two criteria that feeds
-predictions back as inputs, so it is the only one that can see the
-difference. One-step selection therefore does not fail randomly; it
-systematically over-picks the model class most exposed to recursive
-drift.
-
-A hand-run query across one install at one moment cannot show an
-agreement **rate**. A line per retrain per load can, which is why this is
-logged rather than computed once.
-
-Logged rather than published as an attribute, deliberately: it is
-evidence for a decision #937 has not taken, not a signal anything
-consumes. Publishing it would invite something to depend on it before the
-decision is made.
+"""When both validation criteria exist, the model report says whether they
+agree, so the one-step fallback's blind spot is observable (#937) (#1837).
 """
 
 from __future__ import annotations
