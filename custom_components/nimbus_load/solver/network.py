@@ -273,7 +273,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any, Protocol
@@ -1483,10 +1483,54 @@ def _add_intraplan_smoothness_penalty(
         )
 
 
+def _add_group_direction_binary(
+    p: LPProblem, name: str, forwards: Sequence[str], reverses: Sequence[str]
+) -> None:
+    """Every `forwards` variable or every `reverses` variable is zero, never
+    some of each (nimbus issue #2031): batteries on one shared charger
+    cannot charge one from another through it. One binary for the group,
+    each variable's own upper bound its big-M. Adds nothing when either
+    side is already fixed at 0 by its bounds."""
+    if p.has_variable(name):
+        return  # already constrained by the solve this copy came from
+    fwd = [(v, p.upper_bound(v)) for v in forwards if p.upper_bound(v) > 0.0]
+    rev = [(v, p.upper_bound(v)) for v in reverses if p.upper_bound(v) > 0.0]
+    if not fwd or not rev:
+        return
+    y = p.add_variable(name, binary=True)
+    for v, ub in fwd:
+        p.add_ub_constraint({v: 1.0, y: -ub}, 0.0)
+    for v, ub in rev:
+        p.add_ub_constraint({v: 1.0, y: ub}, ub)
+
+
+def _shared_charger_groups(
+    batteries: Sequence[BatteryConfig],
+) -> dict[str, list[BatteryConfig]]:
+    """The shared-charger groups a direction binary can apply to: two or more
+    members and a declared `shared_charger_max_kw` (#2031). A single member
+    has its own `battery_dir_` binary, and a group with no ceiling has no
+    cap row either."""
+    groups: dict[str, list[BatteryConfig]] = {}
+    for b in batteries:
+        if b.shared_charger_group is not None:
+            groups.setdefault(b.shared_charger_group, []).append(b)
+    return {
+        g: members
+        for g, members in groups.items()
+        if len(members) >= 2
+        and any(m.shared_charger_max_kw is not None for m in members)
+    }
+
+
 def _add_direction_binary(p: LPProblem, name: str, forward: str, reverse: str) -> None:
     """At most one of `forward` / `reverse` is non-zero (nimbus issue #238):
     forward <= ub_f * y, reverse <= ub_r * (1 - y), y binary. Adds nothing
     when either variable is already fixed at 0 by its own upper bound."""
+    if p.has_variable(name):
+        # The offer curve's exact solve copies a problem whose own direction
+        # rounds may already hold this binary; registering it twice raised.
+        return
     ub_f, ub_r = p.upper_bound(forward), p.upper_bound(reverse)
     if ub_f <= 0.0 or ub_r <= 0.0:
         return
@@ -3994,6 +4038,19 @@ def _build_plan_once(
             p.add_ub_constraint(
                 terms, ceiling, name=f"shared_charger_{group_name}_t{t}"
             )
+            # #2031 (Mark Purcell): one charger is one conversion path, so
+            # its members all charge or all discharge in a period, never one
+            # into another to burn energy in losses. Added only where the
+            # direction rounds name it, like every other direction binary.
+            if len(members) >= 2 and f"charger_dir_{group_name}_{t}" in (
+                direction_binaries
+            ):
+                _add_group_direction_binary(
+                    p,
+                    f"charger_dir_{group_name}_{t}",
+                    [charge_vars[m.name][t] for m in members],
+                    [discharge_vars[m.name][t] for m in members],
+                )
 
     # ---- Power balance at the switchboard, every period ----
     # Mechanism 3 continued: plain loads' own effective (pessimistic-
@@ -5699,7 +5756,7 @@ def build_plan(
     plan = _build_plan_thermal_fallback(**kwargs)
     if plan.status != "optimal":
         return plan
-    opposing = _opposing_flow_binaries(plan)
+    opposing = _opposing_flow_binaries(plan, batteries)
     if not opposing:
         return replace(plan, direction_exclusivity="not_needed")
     n_periods = len(plan.grid_export_kw)
@@ -5743,7 +5800,7 @@ def build_plan(
                 direction_two_way_pairs=len(opposing),
             )
         plan = replace(strict, direction_exclusivity_enforced=True)
-        opposing = _opposing_flow_binaries(plan)
+        opposing = _opposing_flow_binaries(plan, batteries)
         if not opposing:
             return replace(plan, direction_exclusivity="enforced")
     _warn(
@@ -5769,11 +5826,14 @@ _ALL_DIRECTIONS: frozenset[str] = _AllDirections()
 _OPPOSING_TOLERANCE_KW = 1e-6
 
 
-def _opposing_flow_binaries(plan: Plan) -> frozenset[str]:
+def _opposing_flow_binaries(
+    plan: Plan, batteries: Sequence[BatteryConfig] = ()
+) -> frozenset[str]:
     """The direction-binary names for every period where ordinary grid import
-    AND export, or one battery's charge AND discharge, are both above a
-    solver tolerance. #390's penalised emergency import is not ordinary
-    import and is not counted."""
+    AND export, one battery's charge AND discharge, or a shared charger's
+    members' charge AND discharge (#2031), are both above a solver tolerance.
+    #390's penalised emergency import is not ordinary import and is not
+    counted."""
     names: set[str] = set()
     excess = plan.grid_import_excess_kw
     ordinary = plan.grid_import_kw - excess if excess.size else plan.grid_import_kw
@@ -5786,4 +5846,13 @@ def _opposing_flow_binaries(plan: Plan) -> frozenset[str]:
             np.minimum(b.charge_kw, b.discharge_kw) > _OPPOSING_TOLERANCE_KW
         ):
             names.add(f"battery_dir_{b.name}_{t}")
+    by_name = {b.name: b for b in plan.batteries}
+    for group, members in _shared_charger_groups(batteries).items():
+        plans = [by_name[m.name] for m in members if m.name in by_name]
+        if len(plans) < 2:
+            continue
+        charge = np.sum([bp.charge_kw for bp in plans], axis=0)
+        discharge = np.sum([bp.discharge_kw for bp in plans], axis=0)
+        for t in np.flatnonzero(np.minimum(charge, discharge) > _OPPOSING_TOLERANCE_KW):
+            names.add(f"charger_dir_{group}_{t}")
     return frozenset(names)
