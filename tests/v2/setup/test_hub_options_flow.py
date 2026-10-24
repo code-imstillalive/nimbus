@@ -1034,7 +1034,7 @@ def test_suggests_solar_and_battery_when_type_and_class_match():
 def test_wrong_device_class_is_never_suggested():
     # Real, documented precedent this guards against: a plausible-looking
     # sensor that is genuinely the wrong KIND (e.g. a power sensor, or a
-    # HAEO plan/forecast sensor) must never be proposed at all.
+    # another optimiser's plan/forecast sensor) must never be proposed at all.
     import asyncio
     from unittest.mock import AsyncMock, patch
 

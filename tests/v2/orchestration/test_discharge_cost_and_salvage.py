@@ -10,7 +10,7 @@ import solver_writer
 class TestScheduleDefaultsToTheVisibleSettings(unittest.TestCase):
     """13 Oct 2026: with no schedule keys set (every install: nothing writes
     them), every hour uses the install's own Discharge Cost and Salvage
-    Value. The old defaults were HAEO's 5pm/midnight/7am cost schedule
+    Value. The old defaults were a borrowed 5pm/midnight/7am cost schedule
     (0.09 from 07:00 to 17:00), which made the reference household's plan
     sell nothing into a 43.5c spike at 12:46 while its Discharge Cost read
     0.01."""

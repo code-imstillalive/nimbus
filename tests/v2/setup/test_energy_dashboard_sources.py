@@ -119,7 +119,7 @@ class TestTheThingsItCanHonestlyInherit(unittest.TestCase):
 
 class TestTypeSafety(unittest.TestCase):
     """Safeguard 1. `sensor.grid_active_power` looks like the obvious grid sensor
-    and is a HAEO forecast on this very install."""
+    and is another optimiser's forecast on this very install."""
 
     def test_a_soc_field_pointing_at_the_wrong_device_class_is_refused(self):
         out = _suggest(
