@@ -1099,3 +1099,109 @@ def test_a_published_report_names_percent_and_measurement(ha, monkeypatch):
     sw.publish_daily_quality_report(cfg(), NOW)
     ((_entity, _state, attrs),) = ha["posts"]
     assert (attrs["unit_of_measurement"], attrs["state_class"]) == ("%", "measurement")
+
+
+# --- the day-ahead verdict is kept in the history row (#937) ----------------------------------
+
+
+def test_the_row_field_is_one_character_and_its_own():
+    field = sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD
+    taken = {
+        sw._QUALITY_HISTORY_VERSION_FIELD,
+        sw._QUALITY_HISTORY_RELIABILITY_FIELD,
+        sw._QUALITY_HISTORY_PROVISIONAL_FIELD,
+        *sw._QUALITY_HISTORY_FIELDS,
+    }
+    assert len(field) == 1 and field not in taken
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        (
+            {
+                "forecast_regret_reason": None,
+                "forecast_regret_nimbus_value_add_dollars": -0.71234567,
+            },
+            -0.7123,
+        ),
+        *[
+            (
+                {
+                    "forecast_regret_reason": reason,
+                    "forecast_regret_nimbus_value_add_dollars": -1.5,
+                },
+                None,
+            )
+            for reason in (
+                "native_only",
+                "no_forecast_snapshot_for_this_day",
+                "snapshot_unusable_for_this_grid",
+                "previous_day_history_unavailable",
+                "no_persistence_baseline",
+                "decomposition_solve_failed",
+            )
+        ],
+        *[
+            (
+                {
+                    "forecast_regret_reason": None,
+                    "forecast_regret_nimbus_value_add_dollars": bad,
+                },
+                None,
+            )
+            for bad in (None, "sideways", float("nan"), float("inf"), True)
+        ],
+        ({"forecast_regret_reason": None}, None),
+        ({"epr": 0.9}, None),  # an older release's entry
+    ],
+)
+def test_only_a_real_verdict_is_recorded_never_a_made_up_zero(entry, expected):
+    got = sw._day_ahead_value_add_for_history(entry)
+    assert got == (pytest.approx(expected) if expected is not None else None)
+
+
+def test_the_trailing_record_is_read_from_this_installs_own_report(ha, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        sw, "resolve_real_entity_id", lambda e: seen.append(e) or "sensor.own_report"
+    )
+    ha["states"]["sensor.own_report"] = {
+        "attributes": {
+            "history": {
+                "2026-09-11": {"epr": 0.9, "f": -0.5224},
+                "2026-09-12": {"epr": 0.9, "f": 0.32},
+                "2026-09-13": {"epr": 0.9},
+                "2026-09-14": "not a row",
+                17: {"f": -9.9},
+                "2026-09-15": {"f": "sideways"},
+                "2026-09-16": {"f": True},
+            }
+        }
+    }
+    assert sw.read_day_ahead_value_add_history() == {
+        "2026-09-11": -0.5224,
+        "2026-09-12": 0.32,
+    }
+    assert seen == [sw.QUALITY_ENTITY_ID]
+
+
+@pytest.mark.parametrize(
+    "attrs", [{}, {"history": None}, {"history": []}, {"history": "x"}]
+)
+def test_a_missing_history_is_no_record(ha, monkeypatch, attrs):
+    monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
+    ha["states"][sw.QUALITY_ENTITY_ID] = {"attributes": attrs}
+    assert sw.read_day_ahead_value_add_history() == {}
+
+
+@pytest.mark.parametrize(
+    "exc", [urllib.error.URLError("down"), TimeoutError(), OSError("refused")]
+)
+def test_an_unreachable_home_assistant_is_no_record(monkeypatch, exc):
+    def boom(_e):
+        raise exc
+
+    monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
+    monkeypatch.setattr(sw, "ha_get", boom)
+    assert sw.read_day_ahead_value_add_history() == {}
