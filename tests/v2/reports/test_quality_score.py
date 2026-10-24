@@ -23,16 +23,19 @@ import solver_writer as sw
 from solver import epr as epr_mod
 from solver import meter_reconciliation as mr
 from solver.elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
     PeriodGrid,
+    SheddableLoadConfig,
     SolarConfig,
 )
 from solver.epr import compute_epr, denominator_reason
 from solver.p2p_export import grid_export_bounds
 from solver.quality_report import (
     _MIN_POSITIVE_SOC_KWH,
+    OracleControllableLoads,
     _curtailment_repricing,
     _hourly_means_by_key,
     _soc_envelope_containing_achieved,
@@ -41,6 +44,7 @@ from solver.quality_report import (
     compute_quality_report,
 )
 from solver.regret import evaluate_realized_cost, evaluate_realized_cost_multi
+from solver_inputs import battery_participants as participants
 
 qr = sys.modules[compute_quality_report.__module__]
 N = 24
@@ -846,3 +850,247 @@ def test_each_unreliable_condition_warns_from_its_own_set():
         id(sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED),
     }
     assert len(sets) == 3
+
+
+# --- a shared charger's cap reaches the oracle, as wide as the day and no wider (#1109) --------
+
+
+Z6 = np.zeros(6)
+
+
+def _ev(name, group, cap):
+    return BatteryConfig(
+        name=name,
+        capacity_kwh=60.0,
+        initial_soc_kwh=30.0,
+        min_soc_kwh=0.0,
+        max_soc_kwh=60.0,
+        max_charge_kw=15.0,
+        max_discharge_kw=15.0,
+        charge_efficiency=0.97,
+        discharge_efficiency=0.97,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.0,
+        shared_charger_group=group,
+        shared_charger_max_kw=cap,
+    )
+
+
+def _caps(members):
+    rows = [
+        (_ev(n, g, cap), np.asarray(c, float), Z6, 0.0, []) for n, g, cap, c in members
+    ]
+    return [
+        r[0].shared_charger_max_kw
+        for r in participants._widen_shared_charger_cap_to_achieved(rows)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("members", "expected"),
+    [
+        (
+            [
+                ("a", "g", 25.0, [5, 5, 5, 0, 0, 0]),
+                ("b", "g", 25.0, [5, 5, 0, 0, 0, 0]),
+            ],
+            [25.0, 25.0],
+        ),
+        (
+            [
+                ("a", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
+                ("b", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
+            ],
+            [25.0, 25.0],
+        ),
+        (
+            [
+                ("a", "g", 25.0, [15, 15, 0, 0, 0, 0]),
+                ("b", "g", 25.0, [14, 12, 0, 0, 0, 0]),
+            ],
+            [29.0, 29.0],
+        ),
+        (
+            [
+                ("a", "g", 5.0, [10, 10, 10, 10, 0, 0]),
+                ("b", "g", 5.0, [10, 10, 10, 10, 0, 0]),
+            ],
+            [20.0, 20.0],
+        ),
+        (
+            [("a", "g", 10.0, [15, 0, 0, 0, 0, 0])],
+            [10.0],
+        ),  # a group of one is a per-battery limit
+        ([("home", None, None, [99] * 6)], [None]),
+        ([("a", "g", None, [9] * 6), ("b", "g", None, [9] * 6)], [None, None]),
+        (
+            [
+                ("a", "g", 10.0, [12] * 6),
+                ("b", "g", 10.0, [1] * 6),
+                ("c", "s", 10.0, [30] * 6),
+                ("d", "s", 10.0, [1] * 6),
+            ],
+            [13.0, 13.0, 31.0, 31.0],
+        ),
+        ([], []),
+    ],
+    ids=[
+        "under",
+        "at_the_cap",
+        "over",
+        "peak_not_total",
+        "one_member",
+        "no_group",
+        "no_cap",
+        "two_groups",
+        "empty",
+    ],
+)
+def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only(members, expected):
+    assert _caps(members) == expected
+
+
+def test_only_the_cap_moves():
+    a, d = np.array([5.0, 5.0, 0, 0, 0, 0]), np.array([0, 0, 3.0, 0, 0, 0])
+    ((_cfg, charge, discharge, final, _soc),) = (
+        participants._widen_shared_charger_cap_to_achieved(
+            [(_ev("ev1", "g", 25.0), a, d, 41.5, [])]
+        )
+    )
+    np.testing.assert_array_equal(charge, a)
+    np.testing.assert_array_equal(discharge, d)
+    assert final == 41.5
+
+
+# --- the oracle can re-time the day's controllable loads, and only the oracle (#1357) ----------
+
+
+def _cl_report(controllable=..., house=2.0):
+    imp = np.full(N, 0.30)
+    imp[1:5] = 0.10
+    grid = _grid(imp=imp, exp=0.05)
+    solar = np.zeros(N)
+    solar[9:15] = 6.0
+    battery = _jstar_battery()
+    zero = np.zeros(N)
+    kw = {}
+    if controllable is not ...:
+        kw["controllable_loads"] = controllable
+    return compute_quality_report(
+        periods=PeriodGrid(hours=HOURS, start=SEP15),
+        grid_residual=grid,
+        grid_oracle=grid,
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=solar),
+        load=LoadConfig(name="house", forecast_kw=np.full(N, house)),
+        timestamps=[SEP15 + timedelta(hours=i) for i in range(N)],
+        real_p2p_dollars_earned=0.0,
+        commanded_charge_kw=[zero],
+        commanded_discharge_kw=[zero],
+        actual_charge_kw=[zero],
+        actual_discharge_kw=[zero],
+        final_soc_kwh_actual=[battery.initial_soc_kwh],
+        **kw,
+    )
+
+
+def _ran(periods, kwh):
+    a = np.zeros(N)
+    a[list(periods)] = kwh
+    return a
+
+
+def _dishwasher(target):
+    return AdequacyLoadConfig(
+        name="dishwasher",
+        max_power_kw=2.0,
+        target_kwh=target,
+        earliest_period=0,
+        deadline_period=N - 1,
+        shortfall_price=4.0,
+    )
+
+
+def _bundle(periods=(18, 19), kwh=2.0, **kw):
+    delivered = _ran(periods, kwh)
+    return OracleControllableLoads(
+        adequacy=(_dishwasher(float(delivered.sum())),),
+        delivered_kwh_by_period=delivered,
+        **kw,
+    )
+
+
+SCALARS = (
+    "j_ref",
+    "j_ach",
+    "j_star",
+    "tracking_cost",
+    "p2p_commitment_shortfall_kwh",
+    "j_star_evaluator",
+    "j_star_path_delta",
+)
+
+
+def test_no_controllable_loads_scores_exactly_as_before():
+    omitted = _cl_report()
+    for other in (_cl_report(None), _cl_report(OracleControllableLoads())):
+        assert [getattr(other, k) for k in SCALARS] == [
+            getattr(omitted, k) for k in SCALARS
+        ]
+    assert (
+        omitted.oracle_controllable_loads_scored,
+        omitted.oracle_controllable_loads_skipped,
+    ) == ((), ())
+    assert omitted.oracle_controllable_loads_unsubtracted_kwh == 0.0
+
+
+def test_the_bundle_cannot_be_built_inconsistently():
+    with pytest.raises(ValueError, match="double-count"):
+        OracleControllableLoads(adequacy=(_dishwasher(4.0),))
+    with pytest.raises(ValueError, match="never give it back"):
+        OracleControllableLoads(delivered_kwh_by_period=_ran((18, 19), 2.0))
+    ok = _bundle(skipped=(("tank", "kind=thermal"),))
+    assert len(ok.adequacy) == 1 and ok.skipped == (("tank", "kind=thermal"),)
+
+
+def test_only_the_oracle_sees_the_load_re_timed():
+    plain, wired = (
+        _cl_report(),
+        _cl_report(_bundle(skipped=(("tank", "kind=thermal"),))),
+    )
+    for history in ("j_ach", "j_ref", "p2p_commitment_shortfall_kwh"):
+        assert getattr(wired, history) == pytest.approx(
+            getattr(plain, history), abs=1e-6
+        )
+    assert wired.oracle_controllable_loads_scored == ("dishwasher",)
+    assert wired.oracle_controllable_loads_skipped == (("tank", "kind=thermal"),)
+
+
+def test_freedom_given_to_the_oracle_never_makes_it_or_the_headline_worse():
+    plain = _cl_report()
+    for wired in (_cl_report(_bundle()), _cl_report(_bundle(periods=(19, 20)))):
+        assert wired.j_star <= plain.j_star + 1e-6
+        assert (
+            wired.epr.theoretical_maximum_yield
+            >= plain.epr.theoretical_maximum_yield - 1e-6
+        )
+        assert wired.oracle_controllable_loads_unsubtracted_kwh == 0.0
+
+
+def test_a_sheddable_load_is_accepted_too():
+    profile = np.zeros(N)
+    profile[12:16] = 1.5
+    pool = SheddableLoadConfig(name="pool", forecast_kw=profile, shed_cost=0.45)
+    r = _cl_report(
+        OracleControllableLoads(
+            sheddable=(pool,), delivered_kwh_by_period=profile * HOURS
+        )
+    )
+    assert r.oracle_controllable_loads_scored == ("pool",)
+
+
+def test_energy_the_house_never_drew_is_published_not_absorbed():
+    """12 kWh claimed across two 2 kW hours: only 4 can be removed."""
+    r = _cl_report(_bundle(kwh=6.0))
+    assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
