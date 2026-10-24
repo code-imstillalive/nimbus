@@ -111,7 +111,9 @@ def run_isolated(name: str, cycles: int | None = None) -> dict[str, Any]:
             env=child_env(workdir),
             capture_output=True,
             text=True,
-            timeout=600,
+            # 20 min: with every time limit off (child.py, #2043) a scenario
+            # solves its MIPs to the end, the rich EV one ~10 min on CI.
+            timeout=1200,
             check=False,
         )
         if proc.returncode != 0:

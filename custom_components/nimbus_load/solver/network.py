@@ -1667,6 +1667,14 @@ _OFFER_CURVE_BISECT_STEPS: int = 16
 # nimbus issue #1990: warm re-solves one offer-curve point may spend making
 # its plan one-way before falling back to one exact MIP.
 _OFFER_CURVE_ONE_WAY_NODES: int = 32
+# nimbus issue #2031 (Mark Purcell): the exact work one plan's offer curves
+# may do in all, import and export together, in direction pairs: each exact
+# fallback costs as many as the problem has. A 2-period site gets hundreds of
+# fallbacks; a 96-period site with an EV and a shared charger (~1,000 pairs)
+# gets two. Past it, a point keeps the best one-way plan its search found,
+# else the sweep's own (#2010's bounded secondary computation). A count, not
+# seconds, so the curve is the same on any machine.
+_OFFER_CURVE_EXACT_PAIR_BUDGET: int = 2000
 
 
 def _offer_curve_ranging_walk(
@@ -5098,31 +5106,55 @@ def _build_plan_once(
         # solver, not a MIP. Past its node cap, one exact MIP on a copy.
         base_result = _offer_curve_base_result
         index = base_result._var_index
-        pairs = [
-            (f"grid_dir_{t}", grid_import[t], grid_export[t], grid_import_excess[t])
-            for t in range(n)
-        ] + [
-            (
-                f"battery_dir_{b.name}_{t}",
-                charge_vars[b.name][t],
-                discharge_vars[b.name][t],
-                None,
-            )
-            for b in batteries
-            for t in range(n)
-        ]
+        # Each pair: its binary's name, the forward and reverse variables
+        # (several for a shared charger's members, #2031), and the excess
+        # import that does not count as ordinary import.
+        pairs = (
+            [
+                (
+                    f"grid_dir_{t}",
+                    (grid_import[t],),
+                    (grid_export[t],),
+                    grid_import_excess[t],
+                )
+                for t in range(n)
+            ]
+            + [
+                (
+                    f"battery_dir_{b.name}_{t}",
+                    (charge_vars[b.name][t],),
+                    (discharge_vars[b.name][t],),
+                    None,
+                )
+                for b in batteries
+                for t in range(n)
+            ]
+            + [
+                (
+                    f"charger_dir_{g}_{t}",
+                    tuple(charge_vars[m.name][t] for m in members),
+                    tuple(discharge_vars[m.name][t] for m in members),
+                    None,
+                )
+                for g, members in _shared_charger_groups(batteries).items()
+                for t in range(n)
+            ]
+        )
 
         def _two_way(xs: NDArray[np.float64], held: frozenset[str]):
             for pair in pairs:
                 name, fwd, rev, excess = pair
                 if name in held:
                     continue
-                a, b_ = float(xs[index[fwd]]), float(xs[index[rev]])
+                a = sum(float(xs[index[v]]) for v in fwd)
+                b_ = sum(float(xs[index[v]]) for v in rev)
                 if excess is not None:
                     a -= float(xs[index[excess]])
                 if min(a, b_) > _OPPOSING_TOLERANCE_KW:
                     return pair
             return None
+
+        exact_left = [_OFFER_CURVE_EXACT_PAIR_BUDGET // max(1, len(pairs))]
 
         def _exact_mip(
             cost: dict[str, float], var: str, xs: NDArray[np.float64]
@@ -5140,7 +5172,7 @@ def _build_plan_once(
                 q = copy.deepcopy(p)
                 q._cost.update(cost)
                 for name, fwd, rev, _excess in rounds:
-                    _add_direction_binary(q, name, fwd, rev)
+                    _add_group_direction_binary(q, name, fwd, rev)
                 exact = q.solve()
                 if exact.status != "optimal":
                     return None
@@ -5173,13 +5205,16 @@ def _build_plan_once(
                 # The sweep already solved the root: start at its two branches.
                 name, fwd, rev, _excess = first
                 stack: list[tuple[tuple[str, ...], frozenset[str]]] = [
-                    ((rev,), frozenset({name})),
-                    ((fwd,), frozenset({name})),
+                    (tuple(rev), frozenset({name})),
+                    (tuple(fwd), frozenset({name})),
                 ]
                 while stack:
                     zero, held = stack.pop()
                     nodes += 1
                     if nodes > _OFFER_CURVE_ONE_WAY_NODES:
+                        if exact_left[0] <= 0:
+                            break  # the budget is spent: the best leaf, if any
+                        exact_left[0] -= 1
                         exact = _exact_mip(cost, var, x)
                         return step.value if exact is None else exact
                     solved = base_result.resolve_variant(cost, zero)
@@ -5197,8 +5232,8 @@ def _build_plan_once(
                             break
                         continue
                     name, fwd, rev, _excess = pair
-                    stack.append(((*zero, rev), held | {name}))
-                    stack.append(((*zero, fwd), held | {name}))
+                    stack.append(((*zero, *rev), held | {name}))
+                    stack.append(((*zero, *fwd), held | {name}))
                 # None feasible: `build_plan` keeps the two-way plan too.
                 return best[1] if best else step.value
 

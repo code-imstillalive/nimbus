@@ -1076,6 +1076,10 @@ _PAID_ALL_DAY = (-1.0, -1.0, -1.0)
 # Paid to import in one period only: the plan's own direction round already
 # holds a battery's binary that the curve's exact solve then needs too.
 _PAID_ONCE = (0.10, -1.0, 0.30, 0.30, 0.30, 0.30)
+# Paid to import late only: the plan needs no direction round, so only the
+# curve's own rounds keep a point swept at period 0 from charging one member
+# from the other.
+_PAID_LATE = (0.20, 0.20, 0.20, -1.0, 0.20, 0.20)
 
 
 def _shared_charger_plan(imp0=None, curve=True, prices=_PAID_ALL_DAY):
@@ -1137,7 +1141,12 @@ def test_a_curve_on_a_plan_with_direction_rounds_does_not_register_a_binary_twic
     assert plan.offer_curve_import
 
 
-def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(monkeypatch):
+@pytest.mark.parametrize(
+    "prices", [_PAID_ALL_DAY, _PAID_LATE], ids=["paid_all_day", "paid_late"]
+)
+def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(
+    prices, monkeypatch
+):
     """#2031: the curve forbids what the plan forbids, a shared charger's
     members charging one from another, so each point is still the period-0
     import a fresh solve at its price plans, or at a tie, a value between
@@ -1147,7 +1156,6 @@ def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(monkeypatch)
     from solver import network
 
     monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    prices = _PAID_ALL_DAY
     plan = _shared_charger_plan(prices=prices)
     assert plan.status == "optimal"
     assert plan.offer_curve_import
@@ -1167,3 +1175,38 @@ def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(monkeypatch)
         eps = 1e-4 * max(1.0, abs(price))
         low, high = sorted(fresh(price + d) for d in (-eps, eps))
         assert low - 1e-4 <= kw <= high + 1e-4, (price, kw, low, high)
+
+
+# The site's 12 direction pairs: 3 grid, 6 battery, 3 shared charger. A
+# budget of 12 buys one exact fallback: its targeted and its every-pair round.
+@pytest.mark.parametrize(
+    ("budget", "most"), [(0, 0), (12, 2), (None, None)], ids=["spent", "one", "default"]
+)
+def test_the_curves_exact_work_is_bounded(budget, most, monkeypatch):
+    """#2031 (Mark Purcell): past its budget of direction pairs, a point keeps
+    the best one-way plan its search found instead of an exact MIP, so a
+    large site's curve cannot run on (#2010's bounded secondary work)."""
+    import copy as copy_mod
+
+    from solver import lp, network
+
+    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+    if budget is not None:
+        monkeypatch.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
+    copies = []
+    real = copy_mod.deepcopy
+
+    def deepcopy(obj, *a, **k):
+        if isinstance(obj, lp.LPProblem):
+            copies.append(obj)
+        return real(obj, *a, **k)
+
+    monkeypatch.setattr(network.copy, "deepcopy", deepcopy)
+    plan = _shared_charger_plan()
+    assert plan.status == "optimal"
+    assert plan.offer_curve_import
+    if most is None:
+        assert len(copies) > 2  # unbounded by the tests above
+    else:
+        assert len(copies) <= most
+        assert (len(copies) > 0) == (most > 0)
