@@ -529,3 +529,19 @@ def test_no_usable_spot_in_progress_is_none(rows):
     import price_intervals as pi
 
     assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        ({"value": 0.20, "calibrated": 0.99}, [0.20]),  # value first, as it always was
+        ({"raw_value": 8.999, "calibrated": 0.105355}, [0.105355]),  # never raw_value
+        ({"spike_credible": True}, None),
+    ],
+    ids=["value_over_calibrated", "calibrated_not_raw", "neither"],
+)
+def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch, row, expected):
+    rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
+    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
+    grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
+    assert sw.resample_generic_price_forecast("sensor.price", grid) == expected

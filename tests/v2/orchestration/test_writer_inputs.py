@@ -1303,3 +1303,67 @@ def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
     assert array_branch(settled, recent=47.7).p2p_recent_volume_kwh == 47.7
     none = array_branch({})
     assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
+
+
+# --- one entity's recorded history, and the price history that wraps it (#363) ---------------
+
+
+def test_history_is_read_sorted_skipping_what_is_not_a_number(ha):
+    def pt(minutes, state):
+        return HistoryPoint(_iso(T0 + timedelta(minutes=minutes)), state, {})
+
+    ha.history["sensor.price"] = [
+        pt(60, "0.25"),
+        pt(0, "0.10"),
+        pt(10, "unknown"),
+        pt(20, "unavailable"),
+        pt(30, "not-a-number"),
+    ]
+    got = sw.fetch_entity_history_range(
+        "sensor.price", T0 - timedelta(hours=1), T0 + timedelta(hours=2)
+    )
+    assert [v for _t, v in got] == [0.10, 0.25]
+    assert got[0][0] < got[1][0]
+    assert (
+        sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
+    )
+
+
+def test_a_failed_history_read_is_no_history(monkeypatch):
+    def boom(*_a, **_k):
+        raise urllib.error.HTTPError("url", 500, "server error", {}, None)
+
+    monkeypatch.setattr(sw.NATIVE, "hass", None)
+    monkeypatch.setattr(sw, "_load_token", lambda: "t")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert (
+        sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1)) == []
+    )
+
+
+def test_a_local_window_is_asked_for_in_utc(monkeypatch):
+    seen = {}
+
+    def capture(req, timeout=None):
+        seen["url"] = req.full_url
+        raise urllib.error.URLError("stop")
+
+    monkeypatch.setattr(sw.NATIVE, "hass", None)
+    monkeypatch.setattr(sw, "_load_token", lambda: "t")
+    monkeypatch.setattr(urllib.request, "urlopen", capture)
+    start = datetime(2026, 9, 1, tzinfo=sw.LOCAL_TZ)
+    sw.fetch_entity_history_range("sensor.price", start, start + timedelta(days=1))
+    for t in (start, start + timedelta(days=1)):
+        assert t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") in seen["url"]
+
+
+@pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])
+def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
+    calls = []
+    monkeypatch.setattr(
+        sw, "fetch_entity_history_range", lambda *a: calls.append(a) or []
+    )
+    sw.fetch_price_history("sensor.price", **kwargs)
+    ((entity, start, end),) = calls
+    assert entity == "sensor.price" and end - start == timedelta(days=days)
+    assert datetime.now(UTC) - end < timedelta(seconds=10)
