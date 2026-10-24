@@ -287,9 +287,9 @@ class TestAgainstTheRealRepo(unittest.TestCase):
     """
 
     _REAL_FILES: ClassVar[list[str]] = [
-        "tests/test_household_mode_presets.py",
-        "tests/test_fetch_solver_config.py",
-        "tests/test_controllable_load_power_sensor_discovery.py",
+        # The three files first named here were retired by #1837; this one
+        # records 28 live patch sites over 19 tests (measured).
+        "tests/test_price_watcher.py",
     ]
 
     def test_zero_regressions_on_a_real_slice_compared_to_itself(self):

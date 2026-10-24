@@ -1,0 +1,246 @@
+"""The stochastic check's sensor (one line a household can read, and its
+scenarios on the plan's own grid) and one SoC sensor per battery (#1837).
+
+Covers what lived in #569, #1797 (the stochastic tab) and the stochastic and
+per-battery SoC files.
+"""
+
+from __future__ import annotations
+
+import importlib
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+sys.path.append(str(Path(__file__).resolve().parents[3]))
+from _ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+st = importlib.import_module("custom_components.nimbus_load.sensor_stochastic")
+bs = importlib.import_module("custom_components.nimbus_load.sensor_battery_soc")
+const = importlib.import_module("custom_components.nimbus_load.const")
+
+ENTRY = SimpleNamespace(entry_id="hub1")
+T0 = datetime(2026, 9, 20, 16, 0).astimezone()
+
+
+def _attach(entity):
+    entity.hass = None
+    return entity
+
+
+# --- the headline -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("summary", "line"),
+    [
+        (None, "Not running"),
+        ({"status": "optimal"}, "Hedge computed"),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": 2.0,
+                "deterministic_period0_battery_kw": 2.04,
+            },
+            "Agrees with the main plan",
+        ),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": 1.5,
+                "deterministic_period0_battery_kw": 3.0,
+            },
+            "Discharges 1.5 kW where the main plan discharges 3.0 kW",
+        ),
+        (
+            {
+                "status": "optimal",
+                "stage1_battery_kw": 0.0,
+                "deterministic_period0_battery_kw": -2.0,
+            },
+            "Holds where the main plan charges 2.0 kW",
+        ),
+        (
+            {"status": "optimal", "fallback_reason": "no_solar_band"},
+            "Main plan: no solar spread",
+        ),
+        (
+            {"fallback_reason": "cooldown_after:infeasible"},
+            "Main plan: waiting to retry",
+        ),
+        ({"fallback_reason": "error:ValueError"}, "Main plan: check failed"),
+        ({"fallback_reason": "something_new"}, "Main plan: something new"),
+        ({}, "Main plan: skipped"),
+    ],
+)
+def test_the_headline_says_what_the_check_did_in_plain_words(summary, line):
+    assert st.headline(summary) == line
+
+
+# --- scenarios on the plan's grid ------------------------------------------------------
+
+
+def _plan(n=4, minutes=30):
+    return [
+        {
+            "time": (T0 + timedelta(minutes=minutes * i)).isoformat(),
+            "hours": minutes / 60,
+            "soc_pct": 50.0 + i,
+        }
+        for i in range(n)
+    ]
+
+
+def test_scenarios_without_their_own_times_are_read_period_by_period():
+    rows = st.scenario_rows(
+        {
+            "forecast": _plan(3),
+            "stochastic_paths": {"soc_pct": {"p10": [40, 41], "p90": [60, 61, 62]}},
+        }
+    )
+    assert [r["main"] for r in rows] == [50.0, 51.0, 52.0]
+    assert [r["p10"] for r in rows] == [40, 41, None]
+    assert [r["p90"] for r in rows] == [60, 61, 62]
+
+
+def test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end():
+    ends = [(T0 + timedelta(hours=h)).isoformat() for h in (1, 2)]
+    source = {
+        "forecast": _plan(4),
+        "stochastic_paths": {"ends": ends, "soc_pct": {"p50": [10.0, 20.0]}},
+    }
+    rows = st.scenario_rows(source)
+    # Period ends: 16:30 (before the paths start), 17:00, 17:30 (halfway), 18:00.
+    assert [r["p50"] for r in rows] == [None, 10.0, 15.0, 20.0]
+
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        {"ends": ["x"], "soc_pct": {"p50": [1]}},
+        {"ends": [T0.isoformat()], "soc_pct": {"p50": [1, 2]}},
+    ],
+)
+def test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period(paths):
+    rows = st.scenario_rows({"forecast": _plan(2), "stochastic_paths": paths})
+    assert [r["p50"] for r in rows] == paths["soc_pct"]["p50"][:2] + [None] * (
+        2 - len(paths["soc_pct"]["p50"][:2])
+    )
+
+
+def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
+    assert st.scenario_rows({}) == []
+    rows = st.scenario_rows({"forecast": [*_plan(1), "junk"], "stochastic_paths": "x"})
+    assert rows == [{"time": _plan(1)[0]["time"], "hours": 0.5, "main": 50.0}]
+    ends = [T0.isoformat(), (T0 + timedelta(hours=1)).isoformat()]
+    gap = st.scenario_rows(
+        {
+            "forecast": [{"time": T0.isoformat(), "hours": 0.5}],
+            "stochastic_paths": {"ends": ends, "soc_pct": {"p": [None, 4.0]}},
+        }
+    )
+    assert gap[0]["p"] is None
+
+
+def test_the_sensor_publishes_the_headline_and_keeps_the_detail_out_of_history():
+    (s,) = st.create(ENTRY, "1")
+    _attach(s)
+    plan = {"stochastic": {"status": "optimal"}, "forecast": _plan(2)}
+    s.update_from_parent(plan["forecast"][0], parent_attributes=plan)
+    assert s.native_value == "Hedge computed"
+    assert s.extra_state_attributes["stochastic"] == {"status": "optimal"}
+    assert len(s.extra_state_attributes["forecast"]) == 2
+    assert {"forecast", "stochastic"} <= s._unrecorded_attributes
+    assert s.entity_id == "sensor.nimbus_solver_stochastic"
+
+
+# --- one SoC sensor per battery ----------------------------------------------------------
+
+
+def _participant(sid, name=None):
+    return SimpleNamespace(
+        subentry_id=sid,
+        subentry_type=const.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        data={const.CONF_BATTERY_PARTICIPANT_NAME: name} if name else {},
+    )
+
+
+def test_a_single_battery_site_gets_no_per_battery_sensors():
+    entry = SimpleNamespace(
+        entry_id="hub1",
+        subentries={"l": SimpleNamespace(subentry_type="load", data={})},
+    )
+    assert bs.battery_names(entry) == [] and bs.create(entry, "1") == []
+
+
+def test_each_battery_gets_a_slot_home_first_up_to_four():
+    subs = {
+        f"s{i}": _participant(f"s{i}", None if i == 2 else f"EV{i}") for i in range(5)
+    }
+    entry = SimpleNamespace(entry_id="hub1", subentries=subs)
+    assert bs.battery_names(entry) == ["home", "EV0", "EV1", "s2"]
+    sensors = bs.create(entry, "1")
+    assert [s.entity_id for s in sensors] == [
+        f"sensor.nimbus_solver_battery_{i}_soc_pct" for i in range(4)
+    ]
+    assert [s._attr_name for s in sensors] == [
+        "SoC Home battery",
+        "SoC EV0",
+        "SoC EV1",
+        "SoC s2",
+    ]
+
+
+def test_a_battery_sensor_reads_its_own_row_of_the_plan():
+    entry = SimpleNamespace(entry_id="hub1", subentries={"a": _participant("a", "Car")})
+    home, car = (_attach(s) for s in bs.create(entry, "1"))
+    plan = {
+        "forecast": _plan(2),
+        "batteries": [
+            {
+                "name": "home",
+                "forecast": [
+                    {"time": "t0", "soc_pct": 80.0},
+                    {"time": "t1", "soc_pct": 82.0},
+                ],
+            },
+            {"name": "Car", "forecast": [{"time": "t0", "soc_pct": 46.5}, "junk"]},
+        ],
+    }
+    for s in (home, car):
+        s.update_from_parent(plan["forecast"][0], parent_attributes=plan)
+    assert (home.native_value, car.native_value) == (80.0, 46.5)
+    assert home.extra_state_attributes["forecast"] == [
+        {"time": "t0", "hours": 0.5, "soc_pct": 80.0},
+        {"time": "t1", "hours": 0.5, "soc_pct": 82.0},
+    ]
+    assert car.extra_state_attributes["battery_name"] == "Car"
+
+
+@pytest.mark.parametrize(
+    "batteries",
+    [
+        [],
+        [{"name": "Car", "forecast": "x"}],
+        [{"name": "Car", "forecast": [{"soc_pct": None}]}],
+        ["junk"],
+    ],
+)
+def test_a_battery_the_plan_skipped_keeps_its_last_value(batteries):
+    entry = SimpleNamespace(entry_id="hub1", subentries={"a": _participant("a", "Car")})
+    _home, car = (_attach(s) for s in bs.create(entry, "1"))
+    car.update_from_parent(
+        {},
+        parent_attributes={
+            "batteries": [{"name": "Car", "forecast": [{"soc_pct": 70.0}]}]
+        },
+    )
+    car.update_from_parent(
+        {}, parent_attributes={"forecast": _plan(1), "batteries": batteries}
+    )
+    assert car.native_value == 70.0

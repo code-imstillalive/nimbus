@@ -241,6 +241,9 @@ jobs:
   test:
     name: Unit Tests (pytest)
     runs-on: ubuntu-latest
+    # A hung test otherwise runs to GitHub's 6-hour default (#1837: a frozen
+    # event-loop clock). A push to main takes ~29 minutes with the slow gate.
+    timeout-minutes: 60
     steps:
       - name: Check out code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
@@ -326,6 +329,7 @@ jobs:
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \
             --cov-report=xml \
+            -o faulthandler_timeout=1500 \
             -v
       - name: Run pytest (real HA harness, hass_integration only)
         # nimbus issue #358 (Mark Purcell): --cov-fail-under is a real
@@ -446,7 +450,7 @@ jobs:
       # can detach a patch from its reader is one that moves shipped code, so
       # that is where a full comparison earns its runtime.
       #
-      # CANARY mode otherwise: one file, ~20 live patch sites, ~3 minutes. It
+      # CANARY mode otherwise: one file, 28 live patch sites, ~3 minutes. It
       # does NOT check this PR for regressions, and its own log says so in
       # those words. What it checks is that the gate still MEASURES -- the
       # exact property that was broken twice (#1400: reported OK having
@@ -490,7 +494,7 @@ jobs:
           python tests/gates/noop_patches.py \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
-            --tests tests/test_compute_report_for_window.py \
+            --tests tests/test_price_watcher.py \
             --report-untracked
 
   # HACS validation and Add-on build are deferred until #48 (Dockerfile

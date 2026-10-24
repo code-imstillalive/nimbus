@@ -80,8 +80,43 @@ _EXEMPT = {
 }
 
 
+#: Drivers whose paths are redirected by the process that launches them, each
+#: mapped to that launcher. The golden master runs `main()` in a child process
+#: whose environment `harness.py` builds; the check below reads the harness.
+_ISOLATED_BY_ENV = {"golden/child.py": "golden/harness.py"}
+
+
 def _test_files() -> list[Path]:
-    return sorted(p for p in _TESTS.glob("test_*.py") if p.name not in _EXEMPT)
+    """Every Python file under tests/, subfolders included (#1837 moved the
+    main()-driving tests into tests/golden)."""
+    return sorted(
+        p
+        for p in _TESTS.rglob("*.py")
+        if p.name not in _EXEMPT and "__pycache__" not in p.parts
+    )
+
+
+def _rel(path: Path) -> str:
+    return path.relative_to(_TESTS).as_posix()
+
+
+def _env_var_of_each_persisted_path() -> dict[str, str]:
+    """`solver_writer`'s own `CONST = os.environ.get("ENV", ...)` pairs."""
+    writer = _TESTS.parent / "custom_components" / "nimbus_load" / "solver_writer.py"
+    out = {}
+    for node in ast.parse(writer.read_text(encoding="utf-8")).body:
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        args = node.value.args
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Name)
+                and target.id in PERSISTED_PATH_CONSTANTS
+                and args
+                and isinstance(args[0], ast.Constant)
+            ):
+                out[target.id] = args[0].value
+    return out
 
 
 def _isolates(tree: ast.AST) -> bool:
@@ -135,10 +170,10 @@ class TestEveryMainDrivingTestIsolatesItsStatePaths(unittest.TestCase):
                 SyntaxError
             ) as exc:  # pragma: no cover - a parse error is its own failure
                 self.fail(f"{path.name} does not parse: {exc}")
-            if not _calls_main(tree):
+            if not _calls_main(tree) or _rel(path) in _ISOLATED_BY_ENV:
                 continue
             if not _isolates(tree):
-                offenders.append(path.name)
+                offenders.append(_rel(path))
         self.assertEqual(
             offenders,
             [],
@@ -155,15 +190,26 @@ class TestEveryMainDrivingTestIsolatesItsStatePaths(unittest.TestCase):
         helper -- the loop above would examine nothing and pass.
         """
         driving = [
-            p.name
+            _rel(p)
             for p in _test_files()
             if _calls_main(ast.parse(p.read_text(encoding="utf-8")))
         ]
-        self.assertGreaterEqual(
-            len(driving),
-            5,
-            f"expected several main()-driving test files, found {driving}",
-        )
+        # Since #1837 the golden master is the main()-driving test.
+        self.assertIn("golden/child.py", driving)
+
+    def test_a_launcher_redirects_every_persisted_path(self):
+        env = _env_var_of_each_persisted_path()
+        self.assertEqual(sorted(env), sorted(PERSISTED_PATH_CONSTANTS))
+        for driver, launcher in _ISOLATED_BY_ENV.items():
+            src = (_TESTS / launcher).read_text(encoding="utf-8")
+            missing = sorted(c for c, var in env.items() if f'"{var}"' not in src)
+            self.assertEqual(
+                missing,
+                [],
+                f"{launcher} runs {driver}, which drives the real "
+                "solver_writer.main(), but leaves these persisted paths at their "
+                "/opt defaults (nimbus #1330): " + ", ".join(missing),
+            )
 
 
 class TestTheHardcodedPathConventionIsGone(unittest.TestCase):

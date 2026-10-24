@@ -63,6 +63,7 @@ from __future__ import annotations
 import ast
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -79,12 +80,14 @@ def _installs_a_global_stub(path: Path) -> bool:
         tree = ast.parse(path.read_text(encoding="utf-8"))
     except SyntaxError:  # pragma: no cover - a parse error is its own failure
         return False
-    for node in tree.body:
-        for sub in ast.walk(node):
-            if isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-                continue
-            if not isinstance(sub, ast.Assign):
-                continue
+    # Walked by hand: `ast.walk` would still descend into a def's body.
+    pending = list(tree.body)
+    while pending:
+        sub = pending.pop()
+        if isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        pending.extend(ast.iter_child_nodes(sub))
+        if isinstance(sub, ast.Assign):
             for target in sub.targets:
                 if (
                     isinstance(target, ast.Subscript)
@@ -142,12 +145,20 @@ class TestNoBareImportOfAStubInstallingModule(unittest.TestCase):
         If `_FakeRunStateStore` ever moves behind a helper call, the hazardous
         set goes empty and the real check above passes while examining nothing.
         """
-        target = _TESTS / "test_solver_writer_controllable_loads.py"
-        self.assertTrue(
-            _installs_a_global_stub(target),
-            f"{target.name} installs a stub into sys.modules at module level; if "
-            "that stopped being true, re-derive this guard's premise",
-        )
+        # Synthetic modules, so the check survives any one test file being
+        # retired (#1837), and covers the function-body case too.
+        with tempfile.TemporaryDirectory() as tmp:
+            installer = Path(tmp) / "test_installer.py"
+            installer.write_text(
+                "import sys\nsys.modules['x'] = object()\n", encoding="utf-8"
+            )
+            inside = Path(tmp) / "test_inside.py"
+            inside.write_text(
+                "import sys\ndef f():\n    sys.modules['x'] = object()\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(_installs_a_global_stub(installer))
+            self.assertFalse(_installs_a_global_stub(inside))
 
     def test_the_narrowness_is_real_not_assumed(self):
         """Of the modules a sibling imports, exactly one installs a stub.
