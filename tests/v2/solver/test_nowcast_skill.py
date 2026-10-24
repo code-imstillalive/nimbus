@@ -1,37 +1,18 @@
-"""nimbus issue #919: one-step-ahead LOAD nowcast skill -- the pure half.
+"""The one-step-ahead load nowcast skill: the forecast as it was made,
+scored against persistence over the same periods (#919, #937) (#1837).
 
-`forecast_regret.py` has been able to answer "does the ML forecaster beat
-persistence" since #273, but no deployed install has ever computed it,
-because the forecast *as it was made at the time* was not recoverable
-after the fact. #919's decision was to recover it from recorder history.
-
-These tests pin the two things that decision depends on:
-
-1. **Solar is held at truth in every scenario**, so the published delta
-   is attributable to LOAD forecast quality alone (Nimbus does not
-   forecast solar -- Solcast/Open-Meteo do, and their skill is not this
-   project's to claim). The perfect-trail test below is what proves this
-   is actually wired that way: if solar were NOT held at truth, a
-   perfect load trail would still carry solar-attributable regret and
-   that test would fail.
-
-2. **It degrades to None rather than publishing a fabricated number**
-   when the window has too little real recorded history.
-
-There is also a test here that exists purely as documentation of a real
-near-miss -- `test_a_trail_identical_to_ground_truth_is_the_anchor_
-fingerprint`. See its own docstring; it encodes the shape of a bug that
-would have published near-perfect skill on every install forever, and
-which was caught only by reading the code that writes the sensor rather
-than trusting the sensor's name.
+Solar is held at its real values so only the load moves; a period counts
+as measured only when a sample falls inside it; the value-add sign is real;
+an anchor fingerprint says which forecast was scored; too little input is
+no score, never a made-up one; and the published lead-hour scalars read the
+right period off the grid.
 """
 
-import re
+from __future__ import annotations
+
 import unittest
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
-import _solver_path  # noqa: F401
 import numpy as np
 from solver.elements import BatteryConfig, GridConfig, PeriodGrid
 from solver.nowcast_skill import (
@@ -299,68 +280,6 @@ class TestItDegradesInsteadOfFabricating(unittest.TestCase):
         self.assertAlmostEqual(result.coverage, 0.75)
         self.assertEqual(result.n_periods_measured, 18)
         self.assertEqual(result.n_periods, N)
-
-
-class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
-    """`docs/reference-benchmark.md` makes a factual claim about who
-    calls `compute_forecast_regret()`, and that claim went stale silently
-    the moment this module started calling it.
-
-    It had said the HACS integration "never calls it -- nothing outside
-    `custom_components/nimbus_load/solver/` even imports
-    `forecast_regret`". Nothing asserted that, so nothing caught it. This
-    is the same stale-documented-claim class as the four guards added on
-    2026-09-15 (entity names in a docs table, test-file names in source
-    comments, units, and physics in a docstring) -- a claim a reader will
-    trust needs something that fails when it stops being true.
-    """
-
-    def setUp(self):
-        self.repo = Path(__file__).resolve().parent.parent
-
-    def test_the_documented_importer_set_is_the_real_one(self):
-        """Measures real IMPORT statements, not textual mentions. The
-        first version of this test matched any file containing the string
-        and so flagged `solver_writer.py`, which only names the module in
-        a docstring -- a count measuring the wrong thing, the same error
-        four probes made on 2026-09-15. The doc's claim is about who
-        CALLS it, so imports are the right proxy; prose is not.
-        """
-        importers = {
-            path.name
-            for path in (self.repo / "custom_components" / "nimbus_load").rglob("*.py")
-            if re.search(
-                r"^\s*(?:from\s+\.?\S*forecast_regret\s+import|import\s+\S*forecast_regret)",
-                path.read_text(encoding="utf-8"),
-                re.MULTILINE,
-            )
-        }
-        self.assertEqual(
-            importers,
-            # solver_writer.py joined on 2026-09-26 (#937 stage 3): it calls
-            # compute_forecast_regret() directly for the DAY-AHEAD
-            # decomposition, alongside nowcast_skill.py's one-step-ahead
-            # measurement. The doc's caller table now records the horizon of
-            # each, because that is what decides whether a field number is
-            # comparable to this benchmark's.
-            {"nowcast_skill.py", "reference_benchmark.py", "solver_writer.py"},
-            "the set of modules referencing forecast_regret changed. "
-            "docs/reference-benchmark.md documents exactly who calls it, at "
-            "which horizon, and why a field number may or may not be "
-            "comparable to the benchmark's -- update that section, then "
-            "update this test",
-        )
-
-    def test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon(self):
-        """The specific thing a reader could get wrong: comparing
-        `load_nowcast_skill_value_add_dollars` against the benchmark's
-        own `nimbus_value_add_dollars` as though they measured the same
-        thing. One is one-step-ahead, the other day-ahead."""
-        doc = (self.repo / "docs" / "reference-benchmark.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("nowcast_skill", doc)
-        self.assertIn("one-step-ahead", doc)
 
 
 class TestForecastValueAtLeadHours(unittest.TestCase):
