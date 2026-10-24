@@ -1773,5 +1773,14 @@
     }
    ]
   }
+ },
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before fd0d671a --retired @<the Deletes: lines of this PR's body>",
+  "before": "fd0d671a",
+  "retired_files": 29,
+  "retired_lines_reached": 14794,
+  "kept_lines_reached": 38910,
+  "lost_line_count": 0,
+  "lost_lines": {}
  }
 }
