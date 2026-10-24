@@ -257,3 +257,60 @@ def test_the_learned_model_is_smoothed_from_step_to_step(house):
     ).values
     assert np.abs(np.diff(naive)).max() == pytest.approx(2.1)  # the usual day, exactly
     assert np.abs(np.diff(knn)).max() < 2.1  # no sharper than the real step
+
+
+# --- which criterion chose the model, and what the other would have chosen (#937) ------------
+
+
+def _sparse(gap_hours):
+    start = END - timedelta(days=21)
+    out, t = [], start
+    while t < END:
+        out.append((t, _house(t)))
+        t += timedelta(hours=gap_hours)
+    return out
+
+
+def _selection_log(caplog, events, **kw):
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=model._LOGGER.name):
+        trained = model.train_model(
+            load_events=events,
+            temp_events=_temps(),
+            humidity_events=[],
+            curtailment_events=[],
+            start=END - timedelta(days=21),
+            end=END,
+            resample_minutes=STEP,
+            min_training_points=50,
+            label="probe",
+            **kw,
+        )
+    (line,) = [
+        r.getMessage()
+        for r in caplog.records
+        if "Model validation (recursive" in r.getMessage()
+        or "Recursive validation unavailable" in r.getMessage()
+    ]
+    return trained, line
+
+
+def test_recursive_selection_reports_whether_one_step_would_agree(caplog):
+    trained, line = _selection_log(caplog, _events(_house))
+    assert f"-> using {trained.model_type} (one-step would have chosen" in line
+    assert line.endswith("-- agrees)")
+    trained, line = _selection_log(
+        caplog, _sparse(5), change_only_from=END - timedelta(days=21)
+    )
+    assert f"-> using {trained.model_type} " in line
+    assert "DIFFERS, so this load is one the fallback would get wrong" in line
+
+
+def test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such(caplog):
+    trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
+    assert line.startswith("probe: Recursive validation unavailable (")
+    assert "no OBSERVED actual" in line and "which more history will not change" in line
+    assert "origin(s) available" in line and "Too few origins" not in line
+    assert line.endswith(
+        f"falling back to one-step selection -> using {trained.model_type}"
+    )
