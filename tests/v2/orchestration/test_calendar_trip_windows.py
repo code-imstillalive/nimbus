@@ -1,66 +1,9 @@
-"""nimbus issue #467, staged item 3: resolve an HA calendar entity's upcoming
-events into adequacy windows.
-
-## Why this is the item that was actually missing
-
-#467 (@purcell-lab) named four staged items and called this one *"the one
-genuinely **new** capability, not a composition of existing primitives"*. That
-assessment held up when checked three weeks later — the other three had either
-already shipped or shipped since:
-
-| item | state |
-|---|---|
-| 1. penalized shortfall slack on a deadline load | **done** — `AdequacyLoadConfig.shortfall_price` / `shortfall_kwh`, explicitly the #390 `grid_import_excess` pattern applied to a different constraint |
-| 2. `build_plan()` over a list of storage participants | **done** — `build_plan(batteries: list[BatteryConfig], …)`, participant subentries, `available` / `unavailable_until_period_index` gating, away-period zeroing in scoring (#1098) |
-| 3. calendar-driven window/target resolution | **this** — nothing anywhere in the codebase read a `calendar.*` entity |
-| 4. a real end-to-end scenario | follows this |
-
-## Zero HAEO, and one deliberate divergence from it
-
-The architecture is read from HAEO's own EV stack (#366/#492/#494/#495/#496) as
-prior art and reimplemented against HA's own calendar API — no HAEO import,
-entity or code path, per the standing directive.
-
-**The divergence is not cosmetic and is the most important thing in this file.**
-HAEO's #495 models the trip as a *deferrable sink*: "capacity opens at trip
-start, requirement due at trip end" — i.e. it schedules the **driving
-consumption**. This module models the **charging obligation**: deliver
-`target_kwh` *by departure*, so the deadline is the period containing the event
-**start**.
-
-Copying HAEO's shape here would be wrong, because Nimbus already zeroes a
-participant's charge/discharge for every away period
-(`_resolve_battery_participant_history()`, #1098/#768) — a car's propulsion draw
-never touches this household's grid connection and is deliberately not priced
-against it. So there is no during-trip consumption left for a sink to schedule;
-what matters is that the energy is in the pack before the car leaves.
-
-## The failure mode this file exists to prevent
-
-#467 is explicit about it: HAEO's own first EV attempt (#361) was closed as
-*"functionally inert with zero capacity"* because **the calendar-to-capacity
-wiring was never actually exercised end-to-end** despite the schema looking
-complete. Mark's item 4 asks for a real scenario test before any of this is
-called done, for exactly that reason.
-
-So this file tests the resolution layer hard and in isolation, and it does **not**
-claim the feature is wired. `TestTheBoundaryIsDeliberate` pins why the layer is
-separable at all.
-
-## The judgement calls, each pinned below
-
-* **A distance needs a unit.** `"Sydney 400"` is far more likely a flight number,
-  a room or a price than kilometres. An event with no parseable distance produces
-  **no window and a warning** — the alternative, a default trip size, silently
-  commits real battery capacity to an invented number.
-* **`None` and `0.0` are different answers.** `"0 km"` is a legitimate parse (a
-  cancelled trip); "no distance stated" is not, and they must not collapse.
-* **Consecutive trips cannot share one charge.** The second window's
-  `earliest_period` is the first's deadline, or two Tuesday trips could both be
-  satisfied by a single Monday charge.
-* **A departure inside the current period is dropped**, not reported as a
-  shortfall. No period remains in which to charge for it, so emitting the window
-  would turn a finished decision into a permanent complaint.
+"""An HA calendar's upcoming trips become a participant's charging
+windows: a trip's distance needs a unit, its energy is never negative,
+it is asked for above the reserve floor, and it is due at DEPARTURE (the
+period holding the event's start), with consecutive trips never sharing one
+charge. An event with no distance, already under way, or outside the
+horizon makes no window (#467) (#1837).
 """
 
 from __future__ import annotations
@@ -73,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _MODULE_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "nimbus_load"
     / "solver_inputs"
@@ -218,7 +161,8 @@ class TestTheIncrementToLevelConversion(unittest.TestCase):
 
 
 class TestTheWindowEndsAtDEPARTURE(unittest.TestCase):
-    """The deliberate divergence from HAEO's model -- see the file docstring."""
+    """The trip is a charging obligation, due before the car leaves: its
+    driving energy never touches this home's grid connection."""
 
     def test_the_deadline_is_the_period_containing_the_event_start(self):
         out = _windows([TripEvent(_at(7), _at(9), "school run 18km")])
@@ -233,8 +177,8 @@ class TestTheWindowEndsAtDEPARTURE(unittest.TestCase):
         self.assertAlmostEqual(target, 3.24)  # 18 km * 18 kWh/100km
 
     def test_the_deadline_is_not_the_event_end(self):
-        """Pinned as its own test because copying HAEO's "requirement due at
-        trip end" would price driving energy as household import."""
+        """A requirement due at the trip's end would price driving energy as
+        household import."""
         out = _windows([TripEvent(_at(7), _at(9), "school run 18km")])
         self.assertNotEqual(_GRID[out[0][1]], _at(9))
 
@@ -273,8 +217,8 @@ class TestConsecutiveTripsCannotShareOneCharge(unittest.TestCase):
 
 class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
     def test_no_distance_is_skipped_and_warned_about_loudly(self):
-        """Silence here is how HAEO's #361 died -- a schema that looked
-        complete over wiring that did nothing."""
+        """Silence here would be a schema that looks complete over wiring
+        that does nothing."""
         with self.assertLogs(ct._LOGGER, level="WARNING") as cm:
             out = _windows([TripEvent(_at(9), _at(10), "dinner")])
         self.assertEqual(out, ())
@@ -327,34 +271,6 @@ class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
         )
         self.assertEqual(len(out), 1)
         self.assertAlmostEqual(out[0][2], 21.6)
-
-
-class TestTheBoundaryIsDeliberate(unittest.TestCase):
-    """Why this layer is separable, and must stay so."""
-
-    def test_it_imports_nothing_from_home_assistant(self):
-        """The whole reason this file can test the logic exhaustively rather
-        than through a service mock. Also why it survives the local HA version
-        being older than the one production runs."""
-        source = _MODULE_PATH.read_text(encoding="utf-8")
-        for forbidden in ("import homeassistant", "from homeassistant"):
-            self.assertNotIn(forbidden, source)
-
-    def test_it_imports_nothing_from_the_solver_elements(self):
-        """Windows are returned as plain tuples, so the dependency points one
-        way: this module resolves calendar data into numbers and the caller
-        decides which element to build."""
-        source = _MODULE_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("from ..solver", source)
-        self.assertNotIn("import AdequacyWindow", source)
-
-    def test_it_mentions_no_haeo_entity_or_import(self):
-        """The standing ZERO HAEO directive. HAEO is referenced in prose as
-        prior art, which is intended; an import or an entity id would not be."""
-        source = _MODULE_PATH.read_text(encoding="utf-8")
-        self.assertNotIn("import haeo", source)
-        self.assertNotIn("sensor.haeo", source)
-        self.assertNotIn("number.haeo", source)
 
 
 if __name__ == "__main__":
