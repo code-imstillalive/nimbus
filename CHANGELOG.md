@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.487] - 2026-10-25
+
+**The stochastic check stops failing on a household whose main plan is already slow, and the Solver tab puts the plan first.**
+
+- **The stochastic shadow check skips a cycle whose main plan alone took half its budget** (#2025, #2042).
+  - The check solves three copies of the main plan, so a main plan that took 15 s or more of its 30 s budget cannot fit, and every check there ended in `stochastic_error`.
+  - The skipped cycle publishes `fallback_reason: deterministic_too_slow`, and `sensor.nimbus_solver_stochastic` reads "Main plan: too slow to check". It logs once.
+  - Dispatch is unaffected: the check is off the dispatch path unless *Drive the battery (experimental)* is on.
+- **A stochastic solve that stops at its time limit keeps a near-optimal answer** (#2025, #2042).
+  - That is a plan within 0.1% of the best possible, the rule the blended solve already followed (#1805), now also when the main plan used no tie-break options.
+  - Only the stochastic solve opts in. The main plan never accepts an unproven answer.
+- **The stochastic summary's `joint_calls`** now give each call's HiGHS time alone (`joint_solve_seconds`), and the gap of an answer kept at the time limit.
+- **Solver tab:** after the summary buttons, the order is Plan, Money, Performance (household request, #2034).
+- The test suite's rebuild (#1837) finished its five steps (#2035 to #2039). Shipped code changed only in comments.
+
 ## [0.94.486] - 2026-10-24
 
 **A price spike no longer stops the plan when your battery's live discharge limit is below the spike rate.**
@@ -19,6 +34,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The stochastic plan's summary records every solve it attempts** (#2025, #2030): each one's own time, time limit, outcome and gap, as `joint_calls`.
   - It changes no plan. It shows which solve runs out of time when the stochastic plan falls back on a large install.
 - The setup guide notes that the flex telemetry record reports every battery, an EV included, as `stationary_battery`.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at bc948231**
+  (`release/0.94.486`), installed via HACS and restarted at 13:10 AEST. 123 of
+  the 126 Nimbus entities carrying a version read 0.94.486. The other three
+  (`sensor.nimbus_efficiency_backtest`, `sensor.nimbus_counterfactual_soc`,
+  `sensor.nimbus_flex_report`) still showed 0.94.485 at 13:12: they were restored
+  at startup and had not been republished yet. The first solve, generated
+  13:11:00, was `optimal` in 27.4 s. The first stochastic shadow run published
+  `joint_calls`: one call, 65.5 s of wall time against a 20.0 s limit, ending
+  `Time limit reached`. HiGHS's own phase breakdown for that call totals 20.1 s,
+  so the rest of the call is spent before the solver starts (#2025). No Nimbus
+  `ERROR` or traceback in the log after the restart; the WARNINGs are the ones
+  this install already logged before it.
+  - **Not observable on devhub:** the spike clamp (#2026). Devhub's live
+    max-discharge entity reads `max` 40 kW, the same as its spike rate, and no
+    spike was active (import 0.0994 $/kWh against a 0.85 threshold). Raising the
+    rate or lowering the threshold would mean writing a `number.nimbus_solver_*`
+    entity production also has. The clamp is carried by the
+    `spike_override_above_live_ceiling` golden scenario, which runs the real
+    `main()`, and by `tests/v2/orchestration/test_spike_override_ceiling.py`.
+- Consumer check: no setting changes. An install with an armed spike override
+  and a live max-discharge entity below its spike rate now gets a plan, at the
+  live ceiling, during a spike; every other install plans exactly as before.
+  The stochastic summary gains `joint_calls`; nothing reads it but the summary.
 
 ## [0.94.485] - 2026-10-23
 
