@@ -1725,7 +1725,7 @@
         "j_star": -6.9611,
         "r": "m",
         "regret_dollars": 7.0543,
-        "v": "0.94.485"
+        "v": "<nimbus version>"
        }
       },
       "hourly_regret": {
@@ -2443,7 +2443,7 @@
        "tolerance_fraction": 0.1,
        "tolerance_kwh": 2.0
       },
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "oracle_controllable_loads_scored": [],
       "oracle_controllable_loads_skipped": [],
       "oracle_controllable_loads_unsubtracted_kwh": 0.0,
@@ -2686,7 +2686,7 @@
       "friendly_name": "Nimbus Flex Report",
       "generated_at": "2026-09-21T00:05:00+10:00",
       "latest_date": "2026-09-20",
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "offered_down_kwh": null,
       "offered_up_kwh": null,
       "price_response_curve": [
@@ -2731,7 +2731,7 @@
       "latest_date": "2026-09-20",
       "nimbus_only_soc_checkpoint_pct": 100.0,
       "nimbus_only_soc_close_pct": 5.0,
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "p2p_configured": true,
       "real_soc_anchor_pct": 29.7,
       "real_soc_checkpoint_pct": 76.6,
@@ -2779,7 +2779,7 @@
       "friendly_name": "Nimbus Efficiency Backtest",
       "generated_at": "2026-09-21T00:05:00+10:00",
       "latest_date": "2026-09-20",
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "scored_under": "configured",
       "spread_dollars": 0.8898,
       "worst_candidate": "85%",
@@ -18853,7 +18853,7 @@
         "j_star": -6.9611,
         "r": "m",
         "regret_dollars": 7.0543,
-        "v": "0.94.485"
+        "v": "<nimbus version>"
        }
       },
       "hourly_regret": {
@@ -19571,7 +19571,7 @@
        "tolerance_fraction": 0.1,
        "tolerance_kwh": 2.0
       },
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "oracle_controllable_loads_scored": [],
       "oracle_controllable_loads_skipped": [],
       "oracle_controllable_loads_unsubtracted_kwh": 0.0,
@@ -19814,7 +19814,7 @@
       "friendly_name": "Nimbus Flex Report",
       "generated_at": "2026-09-21T00:05:00+10:00",
       "latest_date": "2026-09-20",
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "offered_down_kwh": null,
       "offered_up_kwh": null,
       "price_response_curve": [
@@ -19859,7 +19859,7 @@
       "latest_date": "2026-09-20",
       "nimbus_only_soc_checkpoint_pct": 100.0,
       "nimbus_only_soc_close_pct": 5.0,
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "p2p_configured": true,
       "real_soc_anchor_pct": 29.7,
       "real_soc_checkpoint_pct": 76.6,
@@ -19907,7 +19907,7 @@
       "friendly_name": "Nimbus Efficiency Backtest",
       "generated_at": "2026-09-21T00:05:00+10:00",
       "latest_date": "2026-09-20",
-      "nimbus_version": "0.94.485",
+      "nimbus_version": "<nimbus version>",
       "scored_under": "configured",
       "spread_dollars": 0.8898,
       "worst_candidate": "85%",

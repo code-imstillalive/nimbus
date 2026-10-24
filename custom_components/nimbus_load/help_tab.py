@@ -215,6 +215,21 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.486",
+        "24 Oct 2026",
+        (
+            (
+                "**Price spikes:** with the spike override armed, a live "
+                "discharge limit below your spike rate no longer stops the "
+                "plan; Nimbus discharges at the live limit."
+            ),
+            (
+                "**Stochastic plan:** its summary records each solve it "
+                "attempts, so a time-out can be traced to the one that ran out."
+            ),
+        ),
+    ),
+    (
         "0.94.485",
         "23 Oct 2026",
         (
