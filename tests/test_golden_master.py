@@ -83,6 +83,15 @@ def _stable_paths(text: str) -> str:
     return text.replace("<TMP>" + "\\", "<TMP>/")
 
 
+# The running release, as manifest.json gives it. A record that publishes it
+# (a `nimbus_version` attribute, a quality-history entry's `v`) would
+# otherwise change on every release, with no behaviour behind the change.
+_VERSION = json.loads((harness.PKG / "manifest.json").read_text(encoding="utf-8"))[
+    "version"
+]
+VERSION_TOKEN = "<nimbus version>"
+
+
 def canonical(value: Any) -> Any:
     if isinstance(value, dict):
         return {
@@ -93,7 +102,7 @@ def canonical(value: Any) -> Any:
     if isinstance(value, float):
         return float(repr(value))
     if isinstance(value, str):
-        return _stable_paths(value)
+        return VERSION_TOKEN if value == _VERSION else _stable_paths(value)
     return value
 
 
