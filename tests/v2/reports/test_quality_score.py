@@ -35,7 +35,7 @@ from solver.quality_report import (
     _widen_export_pin_to_achieved,
     compute_quality_report,
 )
-from solver.regret import evaluate_realized_cost_multi
+from solver.regret import evaluate_realized_cost, evaluate_realized_cost_multi
 
 N = 24
 HOURS = np.ones(N)
@@ -540,3 +540,87 @@ def test_the_history_row_names_the_meter_unless_the_soc_failed_too():
         epr_reason="achieved_soc_unreliable:disagreement",
     )
     assert sw._epr_reliability_code(day) == sw._RELIABILITY_SOC
+
+
+# --- achieved cost for a fleet on one grid connection (#768) ----------------------------------
+
+
+def _small(name="battery", **kw):
+    return _battery(
+        name=name,
+        capacity_kwh=30.0,
+        initial=15.0,
+        min_soc_kwh=2.0,
+        max_soc_kwh=30.0,
+        max_charge_kw=15.0,
+        max_discharge_kw=15.0,
+        **kw,
+    )
+
+
+def _fleet_cost(batteries, charge, discharge, final, n=2, load=1.0, exp=0.05):
+    return evaluate_realized_cost_multi(
+        hours=np.full(n, 1.0),
+        load_real_kw=np.full(n, load),
+        solar_real_kw=np.zeros(n),
+        import_price_real=np.full(n, 0.30),
+        export_price_real=np.full(n, exp),
+        batteries=batteries,
+        charge_committed_kw=charge,
+        discharge_committed_kw=discharge,
+        final_soc_kwh=final,
+    )
+
+
+def test_one_battery_costs_exactly_what_the_single_battery_evaluator_says():
+    n = 6
+    battery = _small(salvage_value=0.05)
+    charge = np.array([0.0, 0.0, 5.0, 5.0, 0.0, 0.0])
+    discharge = np.array([2.0, 2.0, 0.0, 0.0, 3.0, 3.0])
+    single = evaluate_realized_cost(
+        hours=np.full(n, 1.0),
+        load_real_kw=np.full(n, 3.0),
+        solar_real_kw=np.zeros(n),
+        import_price_real=np.full(n, 0.30),
+        export_price_real=np.full(n, 0.08),
+        charge_committed_kw=charge,
+        discharge_committed_kw=discharge,
+        charge_cost=battery.charge_cost,
+        discharge_cost=battery.discharge_cost,
+        final_soc_kwh=18.0,
+        salvage_value=battery.salvage_value,
+        grid_import_limit_kw=30.0,
+        grid_export_limit_kw=30.0,
+    )
+    multi = _fleet_cost(
+        [battery], [charge], [discharge], [18.0], n=n, load=3.0, exp=0.08
+    )
+    assert multi.total_cost == pytest.approx(single.total_cost, abs=1e-9)
+    for field in ("grid_import_kw", "grid_export_kw", "cost_per_period"):
+        np.testing.assert_allclose(getattr(single, field), getattr(multi, field))
+
+
+def test_a_fleet_nets_on_one_grid_and_prices_each_battery_at_its_own_cost():
+    cheap, pricey = (
+        _small("cheap", discharge_cost=0.01),
+        _small("pricey", discharge_cost=0.20),
+    )
+    zero, four = np.zeros(2), np.full(2, 4.0)
+    a = _fleet_cost([cheap], [zero], [four], [10.0]).total_cost
+    b = _fleet_cost([pricey], [zero], [four], [10.0]).total_cost
+    assert b - a == pytest.approx(1.52, abs=1e-6)
+    fleet = _fleet_cost([cheap, pricey], [zero, zero], [four, four], [10.0, 10.0])
+    np.testing.assert_allclose(fleet.grid_export_kw, 7.0)
+    np.testing.assert_allclose(fleet.grid_import_kw, 0.0)
+    assert fleet.total_cost == pytest.approx(
+        -0.05 * 7.0 * 2 + (0.01 + 0.20) * 4.0 * 2, abs=1e-6
+    )
+
+
+def test_each_batterys_leftover_is_credited_and_mismatched_lists_are_refused():
+    zero = np.zeros(1)
+    a, b = _small("a", salvage_value=0.10), _small("b", salvage_value=0.20)
+    cost = _fleet_cost([a, b], [zero, zero], [zero, zero], [10.0, 20.0], n=1, load=0.0)
+    assert cost.total_cost == pytest.approx(-5.0, abs=1e-6)
+    with pytest.raises(ValueError):
+        _fleet_cost([_small()], [np.zeros(2), np.zeros(2)], [np.zeros(2)], [10.0])

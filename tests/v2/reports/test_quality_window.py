@@ -794,3 +794,83 @@ def test_an_unusable_price_day_is_not_reliable_and_names_the_price_source_first(
         "price_stale_unusable": True,
     }
     assert sw._epr_reliability_code(entry) == sw._RELIABILITY_PRICE
+
+
+# --- the oracle keeps a fixed P2P export block (2026-09-01, #1001) ------------------------------
+
+
+def _bell(t):
+    hour = t.hour + t.minute / 60.0
+    return 30.0 * max(0.0, 1 - ((hour - 12) / 6) ** 2) if 6 <= hour <= 18 else 0.0
+
+
+@pytest.fixture
+def p2p_day(history):
+    history["sensor.real_solar"] = flat(_bell)
+    history["sensor.real_load"] = flat(1.0)
+    history["sensor.import_price"] = flat(lambda t: 0.55 if 17 <= t.hour < 20 else 0.15)
+    history["sensor.export_price"] = flat(lambda t: 0.11 if 17 <= t.hour < 20 else 0.05)
+    return cfg(
+        solver_battery_capacity_kwh=122.2,
+        solver_max_charge_kw=40.0,
+        solver_max_discharge_kw=40.0,
+        solver_salvage_value=0.0,
+        solver_grid_max_import_kw=42.0,
+        solver_grid_max_export_kw=42.0,
+    )
+
+
+def test_the_oracle_never_exports_past_a_fixed_p2p_block_and_is_free_outside_it(
+    p2p_day,
+):
+    assert window(p2p_day, partial=False) is not None  # no block: unaffected
+    block = {
+        **p2p_day,
+        "solver_p2p_block_1_rate_kw": 11.5,
+        "solver_p2p_block_1_start_hour": 17,
+        "solver_p2p_block_1_end_hour": 24,
+    }
+    rows = window(block, partial=False)["j_star_hourly"]
+    for hour in range(17, 24):
+        assert (
+            rows[(DAY + timedelta(hours=hour)).isoformat()]["grid_kw"] >= -11.5 - 0.05
+        )
+    assert rows[(DAY + timedelta(hours=3)).isoformat()]["grid_kw"] != pytest.approx(
+        -11.5, abs=0.05
+    )
+
+
+# --- the battery sensor's sign (#299) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("reading", "flag", "charge", "discharge"),
+    [
+        (5.0, None, 0.0, 5.0),  # the default: positive is discharge
+        (5.0, False, 0.0, 5.0),
+        (5.0, True, 5.0, 0.0),  # a positive-is-charge sensor
+        (-5.0, True, 0.0, 5.0),
+    ],
+    ids=["default", "explicit_false", "flipped", "flipped_negative"],
+)
+def test_the_battery_reading_is_read_with_the_configured_sign(
+    history, monkeypatch, reading, flag, charge, discharge
+):
+    history["sensor.real_battery"] = flat(reading)
+    history["sensor.real_load"] = flat(3.0)
+    seen = {}
+    real = sw.compute_quality_report
+
+    def spy(**kw):
+        seen["charge"], seen["discharge"] = (
+            kw["actual_charge_kw"][0],
+            kw["actual_discharge_kw"][0],
+        )
+        return real(**kw)
+
+    monkeypatch.setattr(sw, "compute_quality_report", spy)
+    extra = {} if flag is None else {"solver_battery_power_positive_is_charge": flag}
+    assert sw.compute_daily_quality_report(
+        cfg(**extra), datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
+    )
+    assert (seen["charge"] == charge).all() and (seen["discharge"] == discharge).all()
