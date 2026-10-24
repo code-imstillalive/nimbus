@@ -55,7 +55,8 @@ the cross-call seam problem explicitly (a single indirection point that
 tests can still patch), not assume relocation is behaviour-preserving
 just because the functions are pure moves.
 
-`tests/test_solver_inputs_solar.py::TestDeferredImportSeamIsLoadBearing`
+`tests/v2/forecasting/test_solar_inputs.py` (every test there patches
+`solver_writer`, and one asserts `solar.py` binds none of these helpers)
 pins this so the pattern can't be quietly refactored away.
 """
 

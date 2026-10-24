@@ -1,0 +1,783 @@
+{
+ "pr": 2035,
+ "issue": 1837,
+ "mutation": {
+  "rerun": "python scripts/mutation_compare.py --module <module> --set old=@<old_set> --set new=@<new_set> --mutants <mutants> --seed <seed>; the old set runs at old_set_commit, where its files still exist",
+  "old_set_commit": "2ae09622",
+  "areas": [
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/solar.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_inputs_solar.py",
+     "tests/test_2004_open_meteo_timing.py",
+     "tests/test_1784_solar_running_low.py",
+     "tests/test_solar_source_shape_and_dedup.py"
+    ],
+    "new_set": [
+     "tests/v2/forecasting/test_solar_inputs.py",
+     "tests/v2/forecasting/test_solar_running_low.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 7,
+    "new_killed": 7,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 839: 4 -> 8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 60: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 331: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 448: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 787: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 812: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 738: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 571: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 468: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 447: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 858: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 557: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 782: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 523: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 468: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "binop",
+      "where": "line 850: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 743: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "compare",
+      "where": "line 718: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 774: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 747: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/solar_running_low.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1784_solar_running_low.py"
+    ],
+    "new_set": [
+     "tests/v2/forecasting/test_solar_running_low.py"
+    ],
+    "old_killed": 15,
+    "new_killed": 15,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 603: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 306: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 561: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 322: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 577: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "compare",
+      "where": "line 484: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 353: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 472: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 439: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 233: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "compare",
+      "where": "line 380: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "compare",
+      "where": "line 289: LtE -> Lt",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 468: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 305: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 439: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 454: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "binop",
+      "where": "line 289: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "boolop",
+      "where": "line 484: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "compare",
+      "where": "line 603: GtE -> Gt",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "boolop",
+      "where": "line 209: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/solar_quantiles.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1807_solar_quantiles.py"
+    ],
+    "new_set": [
+     "tests/v2/forecasting/test_solar_quantiles.py"
+    ],
+    "old_killed": 10,
+    "new_killed": 10,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "binop",
+      "where": "line 363: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 134: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 382: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 365: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "binop",
+      "where": "line 254: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "binop",
+      "where": "line 177: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 313: 4 -> 8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 227: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 281: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 181: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 416: 1e-09 -> 2e-09",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 188: 1.0 -> 2.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "compare",
+      "where": "line 359: NotEq -> Eq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 363: 1e-09 -> 2e-09",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "constant",
+      "where": "line 365: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 314: 4 -> 8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "compare",
+      "where": "line 217: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 454: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 365: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 165: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   }
+  ]
+ },
+ "hand_plants": {
+  "why": "solver_writer.py and solar.py are too large for 20 random mutants to say much about one file's properties, so each property was planted by hand",
+  "measurements": {
+   "old_set": [
+    "tests/test_solar_delivery_ratio.py",
+    "tests/test_1259_solar_nowcast_disagreement.py"
+   ],
+   "new_set": [
+    "tests/v2/forecasting/test_solar_measurements.py"
+   ],
+   "rows": [
+    {
+     "plant": 1,
+     "file": "solver_writer.py",
+     "where": "if not solar_sensor:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 2,
+     "file": "solver_writer.py",
+     "where": "0.0 <= float(r[\"ratio\"]) <= SOLAR_DELIVERY_MAX_PLAUSIBLE_RATIO",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 3,
+     "file": "solver_writer.py",
+     "where": "if target_time > now:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 4,
+     "file": "solver_writer.py",
+     "where": "if forecast_kw >= SOLAR_DELIVERY_MIN_FORECAST_KW:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 5,
+     "file": "solver_writer.py",
+     "where": "* kw_scale",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 6,
+     "file": "solver_writer.py",
+     "where": "\"ratio\": actual_kw / forecast_kw}",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 7,
+     "file": "solver_writer.py",
+     "where": "and _safe_fromisoformat(r[\"time\"]) >= cutoff",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 8,
+     "file": "solver_writer.py",
+     "where": "target = now + timedelta(minutes=SOLAR_DELIVERY_LOOKAHEAD_MINUTES)",
+     "old": "survived",
+     "new": "survived",
+     "new_with_added_tests": "killed"
+    },
+    {
+     "plant": 9,
+     "file": "solver_writer.py",
+     "where": "state[\"pending\"] = still_pending",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 10,
+     "file": "solver_writer.py",
+     "where": "state[\"ratios\"] = ratios",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 11,
+     "file": "solver_writer.py",
+     "where": "< SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD,",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 12,
+     "file": "solver_writer.py",
+     "where": "\"solar_delivery_sample_count\": len(ratios),",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 13,
+     "file": "solver_writer.py",
+     "where": "if isinstance(data, dict) and \"pending\" in data and \"ratios\" in data:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 14,
+     "file": "solver_writer.py",
+     "where": "state.update(data)",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 15,
+     "file": "solar.py",
+     "where": "if not cfg.get(\"solver_nowcast_measurement_enabled\"):",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 16,
+     "file": "solar.py",
+     "where": "if target_time > now:",
+     "old": "survived",
+     "new": "survived",
+     "new_with_added_tests": "killed"
+    },
+    {
+     "plant": 17,
+     "file": "solar.py",
+     "where": "# measurement that was never taken.",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 18,
+     "file": "solar.py",
+     "where": "\"anchor_abs_error_kw\": round(abs(anchor_kw - actual_kw), 3)",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 19,
+     "file": "solar.py",
+     "where": "return parsed is not None and parsed >= cutoff",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 20,
+     "file": "solar.py",
+     "where": "if max(anchor_now, forecast_next) >= sw.SOLAR_DELIVERY_MIN_FORECAST_KW",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 21,
+     "file": "solar.py",
+     "where": "if disagreement_kw >= sw.SOLAR_NOWCAST_DISAGREEMENT_KW:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 22,
+     "file": "solar.py",
+     "where": "\"target_time\": grid_times[1].isoformat(),",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 23,
+     "file": "solar.py",
+     "where": "state[\"nowcast_pending\"] = still_pending",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 24,
+     "file": "solar.py",
+     "where": "if _err(e, \"forecast_abs_error_kw\") < _err(e, \"anchor_abs_error_kw\")",
+     "old": "survived",
+     "new": "survived"
+    },
+    {
+     "plant": 25,
+     "file": "solar.py",
+     "where": "round(len(disagreements) / len(considered), 4) if considered else None",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 26,
+     "file": "solar.py",
+     "where": "round(forecast_closer / resolved, 4) if resolved else None",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 27,
+     "file": "solar.py",
+     "where": "round(disagreement_kw, 3) if disagreement_kw is not None else None",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 28,
+     "file": "solar.py",
+     "where": "considered.append(now.isoformat())",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 29,
+     "file": "solar.py",
+     "where": "state[\"nowcast_disagreements\"] = disagreements",
+     "old": "killed",
+     "new": "killed"
+    }
+   ],
+   "old_killed": 26,
+   "new_killed": 26,
+   "new_killed_with_added_tests": 28
+  },
+  "weather_mirror": {
+   "old_set": [
+    "tests/test_weather_forecast_mirror.py"
+   ],
+   "new_set": [
+    "tests/v2/forecasting/test_weather_mirror.py"
+   ],
+   "rows": [
+    {
+     "plant": 1,
+     "where": "entity_id = cfg.get(\"solver_weather_forecast_sensor\")",
+     "old": "survived",
+     "new": "survived"
+    },
+    {
+     "plant": 2,
+     "where": "hourly = _fetch_weather_hourly_forecast(entity_id)",
+     "old": "survived",
+     "new": "survived"
+    },
+    {
+     "plant": 3,
+     "where": "round(float(p[\"temperature\"]), 1)",
+     "old": "survived",
+     "new": "killed"
+    },
+    {
+     "plant": 4,
+     "where": "and p.get(\"temperature\") is not None",
+     "old": "survived",
+     "new": "killed"
+    },
+    {
+     "plant": 5,
+     "where": "and p.get(\"humidity\") is not None",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 6,
+     "where": "temp_points[0][\"value\"]",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 7,
+     "where": "\"forecast\": temp_points,",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 8,
+     "where": "\"forecast\": humidity_points, \"source\": entity_id",
+     "old": "survived",
+     "new": "killed"
+    },
+    {
+     "plant": 9,
+     "where": "if humidity_points:",
+     "old": "killed",
+     "new": "killed"
+    },
+    {
+     "plant": 10,
+     "where": "\"unit_of_measurement\": \"\u00b0C\"",
+     "old": "survived",
+     "new": "killed"
+    }
+   ],
+   "old_killed": 4,
+   "new_killed": 8
+  }
+ },
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before 2ae09622 --retired @<the Deletes: lines of this PR's body>",
+  "before": "2ae09622",
+  "retired_files": 8,
+  "retired_lines_reached": 5060,
+  "kept_lines_reached": 38982,
+  "lost_line_count": 0,
+  "lost_lines": {}
+ }
+}

@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib
 import logging
 import types
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 
@@ -983,3 +984,35 @@ def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
     state, snapshot
 ):
     assert sw._p2p_snapshot_time(state) == snapshot
+
+
+def test_the_access_token_comes_from_the_environment_then_its_file(
+    monkeypatch, tmp_path
+):
+    for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    token_file = tmp_path / "token"
+    monkeypatch.setattr(sw, "TOKEN_PATH", str(token_file))
+
+    def fresh():
+        monkeypatch.setattr(sw, "_TOKEN_LOADED", False)
+        monkeypatch.setattr(sw, "_TOKEN", None)
+        return sw._load_token()
+
+    assert fresh() is None  # no environment, no file
+    token_file.write_text("from-file\n", encoding="utf-8")
+    assert fresh() == "from-file"
+    monkeypatch.setenv("HA_TOKEN", "from-env")
+    assert fresh() == "from-env"
+    token_file.write_text("changed", encoding="utf-8")
+    assert sw._load_token() == "from-env"  # read once, then kept
+
+
+def test_a_power_sensor_that_cannot_be_read_is_taken_as_kw(monkeypatch):
+    shared = importlib.import_module("solver_shared")
+
+    def unreachable(eid):
+        raise urllib.error.URLError("down")
+
+    monkeypatch.setattr(shared, "ha_get", unreachable)
+    assert shared._kw_scale_factor("sensor.pv") == 1.0

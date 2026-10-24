@@ -3340,7 +3340,7 @@ def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
 # (`time_start = time - timedelta(minutes=15)`), so `watts[t]` is the power
 # at t + 15 min. Held from its key it made the plan's 5-minute periods read
 # the power 5-15 minutes ahead. If the library ever re-keys `watts`, this
-# offset must come out (tests/test_2004_open_meteo_timing.py pins it).
+# offset must come out (tests/v2/forecasting/test_solar_inputs.py pins it).
 OPEN_METEO_WATTS_LEAD = timedelta(minutes=15)
 
 
