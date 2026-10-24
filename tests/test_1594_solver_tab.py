@@ -112,7 +112,8 @@ def _what(card):
 
 def test_the_sections_are_the_agreed_ones_in_order() -> None:
     """The household's reviews on devhub, 11 Oct 2026: Solve now on the very
-    top row, then five blocks, each opened by a full-width band."""
+    top row, then five blocks, each opened by a full-width band. Household,
+    24 Oct 2026: the Plan first, then Money, then Performance."""
     layout: list[list] = [["top"]]
     for section in solver_tab.template():
         cards = section["cards"]
@@ -132,24 +133,6 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "tile: Plan"),
             (1, "tile: Solve time"),
             (1, "tile: Limiting the plan now"),
-        ],
-        [
-            "Performance",
-            (4, "How the plan's 4-day estimate has moved"),
-            (1, "Nimbus Solver Quality (EPR / Regret)"),
-            (1, "At a glance"),
-            (1, "Score by day"),
-            (1, "Where the plan's cost comes from"),
-        ],
-        [
-            "Money",
-            (1, "Last day, scored"),
-            (1, "Money, plan ahead"),
-            (1, "Where the cost comes from"),
-            (1, "Battery, now"),
-            (1, "markdown: Yesterday and tomorrow, kWh"),
-            (1, "markdown: The plan's cost, by day, $"),
-            (2, "Battery energy, tomorrow"),
         ],
         [
             "Plan",
@@ -180,6 +163,24 @@ def test_the_sections_are_the_agreed_ones_in_order() -> None:
             (1, "nimbus:risk-slider"),
             (1, "nimbus:risk-slider"),
             (1, "markdown: What the sliders do"),
+        ],
+        [
+            "Money",
+            (1, "Last day, scored"),
+            (1, "Money, plan ahead"),
+            (1, "Where the cost comes from"),
+            (1, "Battery, now"),
+            (1, "markdown: Yesterday and tomorrow, kWh"),
+            (1, "markdown: The plan's cost, by day, $"),
+            (2, "Battery energy, tomorrow"),
+        ],
+        [
+            "Performance",
+            (4, "How the plan's 4-day estimate has moved"),
+            (1, "Nimbus Solver Quality (EPR / Regret)"),
+            (1, "At a glance"),
+            (1, "Score by day"),
+            (1, "Where the plan's cost comes from"),
         ],
         [
             "Basic settings",
@@ -527,9 +528,9 @@ def test_an_entities_card_with_nothing_left_is_dropped() -> None:
     view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
     assert [[_block(c) for c in s["cards"]] for s in view] == [
         [None],  # Solve now needs no entity
-        ["Performance"],
-        ["Money"],
         ["Plan"],
+        ["Money"],
+        ["Performance"],
         ["Basic settings"],
         ["Advanced settings"],
         ["More settings"],
