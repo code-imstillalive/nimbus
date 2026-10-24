@@ -3222,13 +3222,6 @@ def _solve_highs(
     _ranging_valid_on_non_optimal = False if ranging else None
 
     status = h.getModelStatus()
-    # #2025: the plain solve keeps a time-limited MIP incumbent under the
-    # same rule the blended one does (#1805). The MIP pin below then
-    # re-solves the pinned LP, so it gets time of its own: the limit counts
-    # the whole Highs object's run time, already spent.
-    if options is None and binary_cols and _accept_timed_out_incumbent(h, problem):
-        h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
-        status = highspy.HighsModelStatus.kOptimal
     # nimbus #1360 (a tester's install, 11 Oct 2026): HiGHS returned
     # "Unknown" 169 times in three hours -- about 100 simplex iterations, a
     # few primal infeasibilities of up to ~7 left, objective ~-$888 with a
@@ -3256,6 +3249,13 @@ def _solve_highs(
             # Nested, not merged: #1360's source test pins the line above.
             if not _diagnostics_quiet():
                 UNKNOWN_RETRIES["recovered"] += 1
+    # #2025: the plain solve keeps a time-limited MIP incumbent under the
+    # same rule the blended one does (#1805). The MIP pin below then
+    # re-solves the pinned LP, so it gets time of its own: the limit counts
+    # the whole Highs object's run time, already spent.
+    if options is None and binary_cols and _accept_timed_out_incumbent(h, problem):
+        h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
+        status = highspy.HighsModelStatus.kOptimal
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
         return LPResult(
