@@ -574,3 +574,35 @@ def test_a_shared_charger_reaches_the_scorer_widened_to_what_the_day_drew(
     out = resolve()
     assert [b.shared_charger_group for b, *_ in out] == ["garage", "garage"]
     assert [b.shared_charger_max_kw for b, *_ in out] == [pytest.approx(10.0)] * 2
+
+
+# --- a participant with no away-gate (#1247) --------------------------------------------------
+
+
+def test_an_ungated_participant_is_named_once_and_its_history_is_left_alone(
+    site, caplog, monkeypatch
+):
+    """Without the entity there is no evidence of when it was away, so the
+    report says what that costs and how to fix it, and changes nothing."""
+    monkeypatch.setattr(bp, "_UNGATED_PARTICIPANT_WARNED", set())
+    site.add({**EV, "battery_participant_available_entity": "binary_sensor.ev_home"})
+    site.presence = [(DAY, "on")]
+    with caplog.at_level("WARNING"):
+        resolve()
+    assert not [r for r in caplog.records if "available_entity" in r.getMessage()]
+
+    site.add(EV)
+    site.power = [
+        (DAY + timedelta(hours=h), -8.0 if h in AWAY else 5.0) for h in range(24)
+    ]
+    with caplog.at_level("WARNING"):
+        ((battery, charge, discharge, _f, _s),) = resolve()
+        resolve()
+    (record,) = [r for r in caplog.records if "available_entity" in r.getMessage()]
+    message = record.getMessage().lower()
+    for phrase in ("'ev'", "driving", "grid connection", "regret", "epr"):
+        assert phrase in message
+    assert "battery_participant_available_entity" in message
+    assert battery.unavailable_period_indices is None
+    for h in range(24):
+        assert (charge[h], discharge[h]) == ((0.0, 8.0) if h in AWAY else (5.0, 0.0))

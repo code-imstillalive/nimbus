@@ -310,3 +310,25 @@ def test_setup_replaces_the_old_number_entities_with_times(monkeypatch):
     ]
     p2p = [t for t in added if t._key.startswith("solver_p2p_")]
     assert p2p and all(t._attr_device_info["name"] == "Nimbus P2P" for t in p2p)
+
+
+def test_the_price_event_arm_is_its_own_switch_and_starts_off(monkeypatch):
+    """#1213: a simulated price event must never be something an install
+    drifts into, so its arm is a separate switch that starts off."""
+    added = []
+    monkeypatch.setattr(
+        swm,
+        "async_get_integration",
+        lambda hass, d: _value(SimpleNamespace(version=None)),
+    )
+    monkeypatch.setattr(swm, "Store", lambda *a: MemoryStore())
+    _run(
+        swm.async_setup_entry(
+            None, SimpleNamespace(entry_id="hub1", options={}), added.extend
+        )
+    )
+    arm = next(
+        s for s in added if s.entity_id == "switch.nimbus_solver_price_event_enabled"
+    )
+    assert arm._attr_name == "Price Event Simulation Armed"
+    assert arm._attr_is_on is False

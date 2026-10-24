@@ -1520,3 +1520,22 @@ def test_the_section_detector_sees_a_fully_qualified_import(tmp_path):
         encoding="utf-8",
     )
     assert _imports_section(path)
+
+
+# --- test_1213_the_price_event_is_wired -------------------------------------------------------
+# #1213: the price event field's description states the close-your-window
+# requirement, the one mistake that turns a test into a lasting distortion,
+# in both string files. Asserted on two load-bearing phrases, and never on a
+# brace pair, which hassfest reads as a placeholder and rejects.
+
+
+def test_1213_both_string_files_describe_the_price_event_field():
+    base = _REPO_ROOT / "custom_components" / "nimbus_load"
+    for name in ("strings.json", "translations/en.json"):
+        blob = json.loads((base / name).read_text(encoding="utf-8"))
+        dumped = json.dumps(blob)
+        assert "solver_price_event_sensor" in dumped, name
+        assert "value of 0" in dumped, name
+        assert "holds forward" in dumped, name
+        desc = blob["options"]["step"]["solver_grid"]["data_description"]
+        assert "{" not in desc["solver_price_event_sensor"], name
