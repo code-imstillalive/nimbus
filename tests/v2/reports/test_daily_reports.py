@@ -9,14 +9,17 @@ a history that only ever grows. Synthetic histories only.
 from __future__ import annotations
 
 import logging
+import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 import solver_writer as sw
+from _module_time import ModuleTime
 from solver_reports.quality import QUALITY_REPORT_SCHEMA
 
+quality = sys.modules[sw.publish_daily_quality_report.__module__]
 TZ = sw.LOCAL_TZ
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
 DAY = datetime(2026, 8, 24, tzinfo=TZ)
@@ -543,3 +546,443 @@ def test_an_unreliable_day_warns_once_naming_why(ha, warned, caplog, shape):
 
 def test_a_reliable_day_never_warns(ha, warned, caplog):
     assert not any("soc_discrepancy_reliable" in m for m in _published_warnings(caplog))
+
+
+# --- rescoring days already in the table (#1120) ----------------------------------------------
+
+
+RESCORE_NOW = datetime(2026, 9, 20, 6, 30, tzinfo=TZ)
+
+
+def _entry(epr):
+    return {
+        "epr": epr,
+        "epr_pct": round(epr * 100.0, 2),
+        "j_ref": 6.0,
+        "j_ach": -24.0,
+        "j_star": -25.0,
+        "regret_dollars": 1.0,
+    }
+
+
+@pytest.fixture
+def rescore(ha, monkeypatch):
+    seen = []
+    scores = {"fn": lambda day: _entry(0.9)}
+
+    def window(_cfg, start, end, allow_partial):
+        seen.append((start, end, allow_partial))
+        return scores["fn"](start.date().isoformat())
+
+    monkeypatch.setattr(sw, "_compute_report_for_window", window)
+    monkeypatch.setattr(sw, "_nimbus_version", lambda: "0.94.396")
+
+    def run(days, existing=None, **kw):
+        ha["states"][sw.QUALITY_ENTITY_ID] = (
+            existing
+            if existing is not None
+            else {"state": "94.81", "attributes": {"latest_date": None, "history": {}}}
+        )
+        ha["posts"].clear()
+        result = sw.rescore_quality_history({}, RESCORE_NOW, days)
+        return result, (ha["posts"][-1] if ha["posts"] else None)
+
+    run.seen, run.scores = seen, scores
+    return run
+
+
+@pytest.mark.parametrize("bad", [0, -1, sw._RESCORE_MAX_DAYS + 1])
+def test_the_day_count_is_bounded(ha, bad):
+    with pytest.raises(ValueError):
+        sw.rescore_quality_history({}, RESCORE_NOW, bad)
+
+
+def test_the_cap_itself_is_allowed(rescore):
+    rescore.scores["fn"] = lambda day: None
+    result, _ = rescore(sw._RESCORE_MAX_DAYS)
+    assert result["days_requested"] == sw._RESCORE_MAX_DAYS
+
+
+def test_a_stale_row_is_rewritten_stamped_and_others_left_exactly(rescore):
+    rescore.scores["fn"] = lambda day: _entry(0.9481)
+    untouched = {"epr": 0.5, "v": "0.90.0"}
+    existing = {
+        "state": "94.81",
+        "attributes": {
+            "history": {
+                "2026-08-01": dict(untouched),
+                "2026-09-19": {"epr": 1.064, "j_star": -6.84, "v": "0.94.375"},
+            }
+        },
+    }
+    result, (_e, _s, attrs) = rescore(1, existing)
+    row = attrs["history"]["2026-09-19"]
+    assert (row["epr"], row["j_star"], row["v"]) == (
+        pytest.approx(0.9481),
+        pytest.approx(-25.0),
+        "0.94.396",
+    )
+    assert attrs["history"]["2026-08-01"] == untouched
+    assert result["rescored_count"] == 1
+    assert (
+        result["rescored"][0]["before"]["epr"],
+        result["rescored"][0]["after"]["epr"],
+    ) == (1.064, pytest.approx(0.9481))
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [{"state": "unknown", "attributes": {"latest_date": None}}, {"state": None}],
+    ids=["no_history_key", "no_attributes"],
+)
+def test_a_table_that_never_existed_is_built(rescore, existing):
+    result, (_e, _s, attrs) = rescore(2, existing)
+    assert result["rescored_count"] == 2 and sorted(attrs["history"]) == [
+        "2026-09-18",
+        "2026-09-19",
+    ]
+
+
+def test_one_bad_day_is_skipped_with_its_reason_and_the_rest_still_publish(rescore):
+    def score(day):
+        if day == "2026-09-18":
+            raise RuntimeError("oracle infeasible")
+        return None if day == "2026-09-17" else _entry(0.9)
+
+    rescore.scores["fn"] = score
+    result, (_e, _s, attrs) = rescore(3)
+    assert (result["rescored_count"], result["skipped_count"]) == (1, 2)
+    reasons = {s["date"]: s["reason"] for s in result["skipped"]}
+    assert (
+        "RuntimeError" in reasons["2026-09-18"]
+        and "oracle infeasible" in reasons["2026-09-18"]
+    )
+    assert "no usable real history" in reasons["2026-09-17"]
+    assert "2026-09-19" in attrs["history"]
+    rescore.scores["fn"] = lambda day: None
+    result, post = rescore(3)
+    assert result["rescored_count"] == 0 and not result["published"] and post is None
+
+
+def test_rescoring_the_published_day_moves_the_headline_and_an_older_day_does_not(
+    rescore,
+):
+    rescore.scores["fn"] = lambda day: _entry(0.9481)
+    _r, (_e, state, attrs) = rescore(
+        1,
+        {
+            "state": "106.43",
+            "attributes": {
+                "latest_date": "2026-09-19",
+                "history": {"2026-09-19": {"epr": 1.064}},
+            },
+        },
+    )
+    assert state == 94.81 and attrs["epr"] == pytest.approx(0.9481)
+    assert (attrs["j_star"], attrs["regret_dollars"]) == (
+        pytest.approx(-25.0),
+        pytest.approx(1.0),
+    )
+    rescore.scores["fn"] = lambda day: _entry(0.5) if day == "2026-09-17" else None
+    old = {
+        "state": "106.43",
+        "attributes": {
+            "latest_date": "2026-09-19",
+            "epr": 1.064,
+            "history": {"2026-09-17": {"epr": 0.2}},
+        },
+    }
+    _r, (_e, state, attrs) = rescore(3, old)
+    assert (state, attrs["epr"], attrs["history"]["2026-09-17"]["epr"]) == (
+        "106.43",
+        1.064,
+        0.5,
+    )
+
+
+def test_each_day_is_rescored_whole_from_yesterday_back(rescore):
+    rescore(3)
+    assert [s.date().isoformat() for s, _e, _p in rescore.seen] == [
+        "2026-09-19",
+        "2026-09-18",
+        "2026-09-17",
+    ]
+    for start, end, partial in rescore.seen:
+        assert start.tzinfo == TZ and (start.hour, start.minute) == (0, 0)
+        assert end - start == timedelta(days=1) and partial is False
+
+
+# --- the history never shrinks on a degraded read (#1248) -------------------------------------
+
+
+def _row(epr):
+    return {
+        "epr": epr,
+        "j_ref": 1.0,
+        "j_ach": -1.0,
+        "j_star": -2.0,
+        "regret_dollars": 1.0,
+    }
+
+
+@pytest.fixture
+def native(monkeypatch):
+    monkeypatch.setattr(sw, "_LAST_KNOWN_QUALITY_HISTORY", {})
+    monkeypatch.setattr(sw.NATIVE, "hass", object())
+    yield
+    sw._LAST_KNOWN_QUALITY_HISTORY = {}
+
+
+def _carry(prior, day, epr, read="ok"):
+    return sw._carry_forward_quality_history(
+        prior_attrs={} if prior is None else {"history": prior},
+        day_key=day,
+        day_entry=_row(epr),
+        prior_read=read,
+    )
+
+
+TEN = {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)}
+
+
+def _warnings(caplog):
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_a_degraded_read_keeps_every_known_row_and_today_still_lands(native, caplog):
+    assert len(_carry(TEN, "2026-09-25", 68.9)) == 10
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+    assert len(out) == 11 and set(TEN) <= set(out)
+    (line,) = _warnings(caplog)
+    assert all(
+        s in line
+        for s in (
+            "#1248",
+            "unavailable",
+            "#1217",
+            "2026-09-16",
+            "2026-09-25",
+            "10 earlier row(s)",
+        )
+    )
+
+
+def test_ten_degraded_cycles_cannot_erode_it_and_todays_fresh_row_wins(native):
+    _carry(TEN, "2026-09-25", 21.11)
+    for _ in range(10):
+        out = _carry(None, "2026-09-25", 68.9, read="unavailable")
+    assert (
+        len(out) == 10
+        and out["2026-09-25"]["epr"] == 68.9
+        and out["2026-09-16"]["epr"] == 106.0
+    )
+
+
+def test_the_cache_lives_only_in_one_native_process(native, monkeypatch):
+    _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+    assert len(sw._LAST_KNOWN_QUALITY_HISTORY) == 2
+    sw.set_native_hass(
+        object()
+    )  # a reload: another instance's rows must not carry over
+    assert sw._LAST_KNOWN_QUALITY_HISTORY == {}
+    sw._LAST_KNOWN_QUALITY_HISTORY = dict(TEN)
+    monkeypatch.setattr(
+        sw.NATIVE, "hass", None
+    )  # the cron path: nothing to recover from
+    assert len(_carry(None, "2026-09-26", 55.0, read="unavailable")) == 1
+    sw._LAST_KNOWN_QUALITY_HISTORY = {}
+    _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+    assert sw._LAST_KNOWN_QUALITY_HISTORY == {}  # and nothing written to it either
+
+
+@pytest.mark.parametrize(
+    ("read", "cached", "rows", "warning"),
+    [
+        ("absent", TEN, 1, None),  # a 404: a real first publish, whatever is cached
+        ("unavailable", {}, 1, "rescore_history"),  # it existed and its rows are gone
+        ("unreachable", {}, 1, None),  # says nothing about whether rows existed
+        ("unavailable", {"2026-09-26": _row(55.0)}, 1, None),  # nothing to rescue
+        (
+            "unreachable",
+            {"2026-09-24": _row(87.3), "2026-09-25": _row(68.9)},
+            3,
+            "recovering the 2 earlier row(s)",
+        ),
+        ("ok", {}, 1, None),
+    ],
+    ids=[
+        "first_publish",
+        "unavailable_uncached",
+        "unreachable_uncached",
+        "nothing_to_rescue",
+        "unreachable_recovers",
+        "fresh_install",
+    ],
+)
+def test_how_an_empty_read_is_classified(native, caplog, read, cached, rows, warning):
+    if cached:
+        _carry(dict(cached), max(cached), 1.0)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
+        out = _carry(None if read != "ok" else {}, "2026-09-26", 55.0, read=read)
+    assert len(out) == rows
+    found = _warnings(caplog)
+    if warning:
+        assert any(warning in m for m in found)
+        if warning == "rescore_history":
+            assert any("not retrievable" in m for m in found)
+    else:
+        assert found == []
+
+
+def test_the_ordinary_paths_grow_rewrite_and_skip_a_malformed_row_quietly(
+    native, caplog
+):
+    two = {"2026-09-24": _row(87.3), "2026-09-25": _row(21.11)}
+    assert len(_carry(two, "2026-09-26", 55.0)) == 3
+    rewritten = _carry(two, "2026-09-25", 68.9)
+    assert len(rewritten) == 2 and rewritten["2026-09-25"]["epr"] == 68.9
+    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
+        out = _carry(
+            {"2026-09-24": _row(87.3), "bad": "not a dict", 42: {"epr": 1}},
+            "2026-09-25",
+            68.9,
+        )
+    assert (
+        {"2026-09-24", "2026-09-25"} <= set(out)
+        and "bad" not in out
+        and _warnings(caplog) == []
+    )
+
+
+def test_the_cap_holds_after_recovery_and_the_cache_is_a_trimmed_copy(native):
+    cap = sw._QUALITY_HISTORY_MAX_DAYS
+    full = {
+        (date(2026, 1, 1) + timedelta(days=i)).isoformat(): _row(float(i))
+        for i in range(cap)
+    }
+    out = _carry(full, "2026-12-31", 99.0)
+    assert len(out) == cap and "2026-12-31" in out and "2026-01-01" not in out
+    assert (
+        len(sw._LAST_KNOWN_QUALITY_HISTORY) == cap
+        and "2026-01-01" not in sw._LAST_KNOWN_QUALITY_HISTORY
+    )
+    assert len(_carry(None, "2027-01-01", 88.0, read="unavailable")) == cap
+    out.clear()
+    assert len(sw._LAST_KNOWN_QUALITY_HISTORY) == cap
+
+
+# --- the last good score is held over an unscoreable new day (#1463) --------------------------
+
+
+@pytest.fixture
+def held(ha, monkeypatch):
+    quality._QUALITY_HOLD_WARNED.clear()
+    monkeypatch.setattr(sw, "compute_daily_quality_report", lambda *_a: None)
+    yield
+    quality._QUALITY_HOLD_WARNED.clear()
+
+
+def _hold(ha, caplog, existing):
+    ha["states"][sw.QUALITY_ENTITY_ID] = existing
+    ha["posts"].clear()
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
+        sw.publish_daily_quality_report({}, datetime(2026, 9, 30, 0, 5, tzinfo=TZ))
+    return ha["posts"], _warnings(caplog)
+
+
+def test_after_midnight_the_previous_report_stays_alive_naming_its_own_day(
+    ha, held, caplog
+):
+    prev = {
+        "state": 76.78,
+        "attributes": {"latest_date": "2026-09-28", "epr": 0.7678, "history": {}},
+    }
+    posts, warns = _hold(ha, caplog, prev)
+    ((entity, state, attrs),) = posts
+    assert (entity, state, attrs["latest_date"]) == (
+        sw.QUALITY_ENTITY_ID,
+        76.78,
+        "2026-09-28",
+    )
+    assert len(warns) == 1 and "#1463" in warns[0]
+    posts, warns = _hold(ha, caplog, prev)
+    assert len(posts) == 1 and warns == []  # held every cycle, warned once a day
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        {"state": "unavailable", "attributes": {"latest_date": "2026-09-28"}},
+        {"state": 50.0, "attributes": {}},
+    ],
+    ids=["already_unavailable", "undated"],
+)
+def test_nothing_is_held_without_a_genuine_dated_score(ha, held, caplog, existing):
+    posts, _w = _hold(ha, caplog, existing)
+    assert posts == []
+
+
+# --- a day scored by an older release is rescored once (#1496) --------------------------------
+
+
+@pytest.fixture
+def schema(ha, monkeypatch):
+    quality._SCHEMA_RESCORE_TRIED.clear()
+    computed = []
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(
+        sw, "compute_daily_quality_report", lambda *_a: computed.append(1)
+    )
+    monkeypatch.setattr(quality, "time", ModuleTime(lambda: clock["t"]))
+
+    def run(**attrs):
+        base = {
+            "latest_date": "2026-09-30",
+            "real_p2p_settlement_status": "no_sensor_configured",
+            "generated_at": "x",
+            **attrs,
+        }
+        ha["states"][sw.QUALITY_ENTITY_ID] = {"state": 76.78, "attributes": base}
+        computed.clear()
+        ha["posts"].clear()
+        sw.publish_daily_quality_report({}, datetime(2026, 10, 1, 10, 0, tzinfo=TZ))
+        return len(computed), len(ha["posts"])
+
+    run.clock = clock
+    yield run
+    quality._SCHEMA_RESCORE_TRIED.clear()
+
+
+@pytest.mark.parametrize(
+    ("stamp", "rescored"),
+    [(None, 1), ("garbage", 1), ("current", 0)],
+    ids=["pre_stamp", "unreadable", "current"],
+)
+def test_an_older_or_unreadable_schema_is_rescored_a_current_one_is_not(
+    schema, stamp, rescored
+):
+    attrs = (
+        {}
+        if stamp is None
+        else {
+            "report_schema": quality.QUALITY_REPORT_SCHEMA
+            if stamp == "current"
+            else stamp
+        }
+    )
+    computed, posts = schema(**attrs)
+    assert computed == rescored
+    if not rescored:
+        assert posts == 1
+
+
+def test_a_failed_rescore_waits_out_its_backoff_before_trying_again(schema):
+    schema()
+    schema.clock["t"] += 17
+    assert schema() == (0, 1)  # held, not re-solved every cycle
+    schema.clock["t"] += quality._SCHEMA_RESCORE_RETRY_SECONDS
+    assert schema()[0] == 1
