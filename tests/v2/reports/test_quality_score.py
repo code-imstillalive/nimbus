@@ -12,12 +12,15 @@ only.
 
 from __future__ import annotations
 
+import sys
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
 import solver_writer as sw
+from solver import epr as epr_mod
 from solver import meter_reconciliation as mr
 from solver.elements import (
     BatteryConfig,
@@ -26,9 +29,11 @@ from solver.elements import (
     PeriodGrid,
     SolarConfig,
 )
+from solver.epr import compute_epr, denominator_reason
 from solver.p2p_export import grid_export_bounds
 from solver.quality_report import (
     _MIN_POSITIVE_SOC_KWH,
+    _curtailment_repricing,
     _hourly_means_by_key,
     _soc_envelope_containing_achieved,
     _soc_pct_at_hour_boundaries,
@@ -37,6 +42,7 @@ from solver.quality_report import (
 )
 from solver.regret import evaluate_realized_cost, evaluate_realized_cost_multi
 
+qr = sys.modules[compute_quality_report.__module__]
 N = 24
 HOURS = np.ones(N)
 CAP = 122.2
@@ -624,3 +630,219 @@ def test_each_batterys_leftover_is_credited_and_mismatched_lists_are_refused():
     assert cost.total_cost == pytest.approx(-5.0, abs=1e-6)
     with pytest.raises(ValueError):
         _fleet_cost([_small()], [np.zeros(2), np.zeros(2)], [np.zeros(2)], [10.0])
+
+
+# --- j_star priced two ways, and the difference explained (#1081, #1480) -----------------------
+
+
+SEP15 = datetime(2026, 9, 15, 0, 0, tzinfo=UTC)
+
+
+def _jstar_battery():
+    return _battery(
+        capacity_kwh=100.0,
+        initial=50.0,
+        min_soc_kwh=2.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=20.0,
+        max_discharge_kw=20.0,
+        discharge_cost=np.full(N, 0.01),
+    )
+
+
+def _jstar_report(grid=None, solar=None, oracle=None, real_p2p=0.0):
+    grid = grid or _grid(imp=0.30, exp=0.05)
+    if solar is None:
+        solar = np.zeros(N)
+        solar[8:15] = 8.0
+    zero, battery = np.zeros(N), _jstar_battery()
+    return compute_quality_report(
+        periods=PeriodGrid(hours=HOURS, start=SEP15),
+        grid_residual=grid,
+        grid_oracle=oracle or grid,
+        batteries=[battery],
+        solar=SolarConfig(forecast_kw=solar),
+        load=LoadConfig(name="house", forecast_kw=np.full(N, 1.0)),
+        timestamps=[SEP15 + timedelta(hours=i) for i in range(N)],
+        real_p2p_dollars_earned=real_p2p,
+        commanded_charge_kw=[zero],
+        commanded_discharge_kw=[zero],
+        actual_charge_kw=[zero],
+        actual_discharge_kw=[zero],
+        final_soc_kwh_actual=[battery.initial_soc_kwh],
+    )
+
+
+def _explained(r):
+    assert r.j_star_path_delta == pytest.approx(
+        round(r.j_star - r.j_star_evaluator, 4), abs=1e-4
+    )
+    assert (
+        r.j_star_path_delta_explained + r.j_star_path_delta_unexplained
+        == pytest.approx(r.j_star_path_delta, abs=1e-3)
+    )
+    return r
+
+
+def test_the_lp_and_the_evaluator_differ_only_by_the_lps_own_terms():
+    """No bonus: a real gap (the soft-SoC penalty and the #731 / #692
+    tie-breaks the evaluator never pays), all of it explained."""
+    r = _explained(_jstar_report())
+    assert isinstance(r.j_star_evaluator, float) and r.j_star_evaluator != 0.0
+    assert abs(r.j_star_path_delta) > 0.1
+    assert abs(r.j_star_path_delta_unexplained) < 0.01
+
+
+def test_a_bonus_priced_oracle_still_reprices_to_a_finite_delta():
+    bonus = np.zeros(N)
+    bonus[17:24] = 0.20
+    oracle = GridConfig(
+        import_price=np.full(N, 0.30),
+        export_price=np.full(N, 0.05),
+        import_limit_kw=42.0,
+        export_limit_kw=42.0,
+        export_bonus_price=bonus,
+        export_bonus_volume_kwh=20.0,
+    )
+    r = _explained(_jstar_report(oracle=oracle, real_p2p=3.0))
+    assert np.isfinite(r.j_star_path_delta)
+
+
+def test_curtailment_on_a_negative_price_hour_is_explained_too():
+    imp, exp = np.full(N, 0.30), np.full(N, 0.05)
+    imp[12], exp[12] = -0.157, -0.160
+    solar = np.zeros(N)
+    solar[9:16] = 30.0
+    r = _explained(_jstar_report(grid=_grid(imp=imp, exp=exp), solar=solar))
+    assert abs(r.j_star_path_delta_unexplained) < 0.01
+
+
+def test_the_negative_price_day_really_curtails(monkeypatch):
+    seen = {}
+    real = qr.build_plan
+
+    def spy(*a, **kw):
+        seen["plan"], seen["grid"] = real(*a, **kw), kw["grid"]
+        return seen["plan"]
+
+    monkeypatch.setattr(qr, "build_plan", spy)
+    test_curtailment_on_a_negative_price_hour_is_explained_too()
+    term = _curtailment_repricing(
+        seen["plan"],
+        hours=HOURS,
+        import_price=seen["grid"].import_price,
+        export_price=seen["grid"].export_price,
+    )
+    assert float(np.sum(seen["plan"].solar_curtailed_kw)) > 1.0 and abs(term) > 0.05
+
+
+def _plan(gi, ge, curt):
+    return SimpleNamespace(
+        grid_import_kw=np.array(gi, float),
+        grid_export_kw=np.array(ge, float),
+        solar_curtailed_kw=np.array(curt, float),
+    )
+
+
+@pytest.mark.parametrize(
+    ("plan", "hours", "imp", "exp", "expected"),
+    [
+        (_plan([42.0], [0.0], [4.83]), [0.5], [-0.1572], [-0.16], 0.5 * 4.83 * -0.1572),
+        (
+            _plan([1.0], [0.0], [3.0]),
+            [1.0],
+            [0.30],
+            [0.05],
+            0.30 * 1.0 + 0.05 * 2.0,
+        ),  # crosses
+        (_plan([5.0, 0.0], [0.0, 3.0], [0.0, 0.0]), [1, 1], 0.3, 0.05, 0.0),
+    ],
+    ids=["importing", "crosses_to_export", "none"],
+)
+def test_the_curtailment_term_is_exact(plan, hours, imp, exp, expected):
+    term = _curtailment_repricing(plan, hours=hours, import_price=imp, export_price=exp)
+    assert term == pytest.approx(expected, abs=1e-6)
+
+
+# --- EPR's denominator is checked (#1089, #1104) ----------------------------------------------
+
+
+J_REF, J_ACH, J_STAR, J_STAR_EVAL = 5.4897, 8.9872, 6.9308, 4.4419  # 17 Sep
+
+
+@pytest.mark.parametrize(
+    ("j_ref", "j_star", "flagged"),
+    [
+        (5.366, -22.0619, False),  # the oracle beats idle
+        (J_REF, J_STAR, True),
+        (0.0, 2.43, True),  # #1001's committed loss
+        (3.0, 3.0, False),  # nothing to arbitrage
+        (J_REF, J_STAR_EVAL, False),  # only the numerator negative
+    ],
+    ids=["normal", "17_sep", "committed_loss", "flat", "numerator_only"],
+)
+def test_an_oracle_no_better_than_idle_is_flagged_and_nothing_else(
+    j_ref, j_star, flagged
+):
+    reason = denominator_reason(j_ref=j_ref, j_star=j_star)
+    assert (reason == "oracle_not_better_than_idle") if flagged else reason is None
+    if flagged:
+        assert not any(
+            w in reason
+            for w in (
+                "1081",
+                "1001",
+                "mismatch",
+                "path",
+                "commitment",
+                "bug",
+                "invalid",
+            )
+        )
+
+
+def test_the_17_sep_day_published_its_242_percent_from_two_negatives():
+    r = compute_epr(j_ref=J_REF, j_ach=J_ACH, j_star=J_STAR)
+    assert r.denominator_reason == "oracle_not_better_than_idle"
+    assert (r.value_captured, r.theoretical_maximum_yield, r.epr) == (
+        pytest.approx(-3.4975, abs=1e-4),
+        pytest.approx(-1.4411, abs=1e-4),
+        pytest.approx(2.427, abs=1e-3),
+    )
+    honest = compute_epr(j_ref=J_REF, j_ach=J_ACH, j_star=J_STAR_EVAL)
+    assert honest.denominator_reason is None
+    assert (
+        honest.theoretical_maximum_yield == pytest.approx(1.0478, abs=1e-4)
+        and honest.epr < -3.0
+    )
+    clean = compute_epr(j_ref=5.366, j_ach=-20.8856, j_star=-22.0619)
+    assert clean.denominator_reason is None and clean.epr == pytest.approx(
+        0.9571, abs=1e-4
+    )
+
+
+@pytest.mark.parametrize("delta", [0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411])
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+def test_a_flat_day_is_never_both_perfect_and_flagged(delta, sign):
+    r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
+    degenerate = r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
+    assert not (degenerate and r.denominator_reason is not None)
+
+
+def test_every_negative_denominator_divided_by_is_flagged():
+    eps = epr_mod._DEGENERATE_YIELD_ABS
+    for j_star in (eps, 2 * eps, 10 * eps, 1e-6, 1.4411):
+        r = compute_epr(j_ref=0.0, j_ach=4.0, j_star=j_star)
+        if abs(r.theoretical_maximum_yield) >= eps:
+            assert r.denominator_reason is not None, j_star
+    assert compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0).epr == 1.0
+    assert eps < abs(J_REF - J_STAR) / 1e3
+
+
+def test_each_unreliable_condition_warns_from_its_own_set():
+    sets = {
+        id(sw._QUALITY_REPORT_UNRELIABLE_WARNED),
+        id(sw._QUALITY_REPORT_NEGATIVE_REGRET_WARNED),
+        id(sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED),
+    }
+    assert len(sets) == 3
