@@ -737,3 +737,31 @@ def test_the_dashboard_is_built_after_the_platforms():
     )
     dashboard = src.index("await async_ensure_nimbus_dashboard(hass)")
     assert dashboard > forward
+
+
+def test_the_help_tabs_strings_are_read_off_the_loop_before_the_tabs_build(
+    ha, monkeypatch
+) -> None:
+    """#1823: HA logged a blocking read of strings.json on the event loop
+    from the Help tab (v0.94.462 on devhub). The executor reads it once
+    before the tabs are built, and building them reads no file."""
+    mod = _load_module()
+    mod.help_tab._strings.cache_clear()
+    events = []
+
+    async def executor(fn, *args):
+        events.append(("executor", getattr(fn, "__name__", fn)))
+        return fn(*args)
+
+    ha.hass.async_add_executor_job = executor
+    real_sync = mod._sync_views
+
+    def sync(*a, **k):
+        events.append(("sync", None))
+        with monkeypatch.context() as m:
+            m.setattr(Path, "read_text", lambda *_a, **_k: pytest.fail("re-read"))
+            return real_sync(*a, **k)
+
+    monkeypatch.setattr(mod, "_sync_views", sync)
+    _run(mod, ha.hass)
+    assert events.index(("executor", "_strings")) < events.index(("sync", None))

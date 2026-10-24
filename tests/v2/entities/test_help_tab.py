@@ -111,3 +111,51 @@ def test_a_new_install_gets_help_last() -> None:
     views, done = dash._sync_views([], {}, [], created=True, resolve=lambda v: v)
     assert views[-1]["title"] == "Help"
     assert "added:help" in done
+
+
+# --- the wizard's own screens and words -----------------------------------------------------
+
+
+def test_every_wizard_screen_with_fields_has_its_section() -> None:
+    strings = json.loads((PACKAGE / "strings.json").read_text(encoding="utf-8"))
+    covered = {path for _title, path in help_tab.WIZARD_STEPS}
+    expected = set()
+    for top in ("config", "options"):
+        for step, body in strings[top].get("step", {}).items():
+            if body.get("data"):
+                expected.add((top, "step", step))
+    for sub, body in strings["config_subentries"].items():
+        for step, step_body in body.get("step", {}).items():
+            if step_body.get("data"):
+                expected.add(("config_subentries", sub, "step", step))
+    assert sorted(expected - covered) == []
+
+
+def test_a_wizard_screen_keeps_the_wizards_own_words_and_red_markers() -> None:
+    strings = json.loads((PACKAGE / "strings.json").read_text(encoding="utf-8"))
+    step = strings["options"]["step"]["solver_battery"]
+    md = help_tab.wizard_step(
+        "Configure → Solver settings → screen 1 of 3",
+        ("options", "step", "solver_battery"),
+    )
+    assert step["title"] in md
+    for label in step["data"].values():
+        assert help_tab._cell(label) in md
+    assert "🔴" in md  # the required SoC sensor keeps its marker
+
+
+def test_whats_new_lists_this_release() -> None:
+    """A release that does not add its entry fails here."""
+    manifest = json.loads((PACKAGE / "manifest.json").read_text(encoding="utf-8"))
+    versions = [v for v, _day, _items in help_tab.WHATS_NEW]
+    assert manifest["version"] in versions
+    assert versions == sorted(
+        versions, key=lambda v: tuple(map(int, v.split("."))), reverse=True
+    )
+    assert help_tab.RELEASES_URL in help_tab.whats_new_markdown()
+
+
+def test_no_jinja_text_comes_in_from_the_wizard_strings() -> None:
+    """The wizard text is pasted into markdown the template engine renders."""
+    raw = (PACKAGE / "strings.json").read_text(encoding="utf-8")
+    assert "{{" not in raw and "{%" not in raw

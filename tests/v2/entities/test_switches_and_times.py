@@ -332,3 +332,40 @@ def test_the_price_event_arm_is_its_own_switch_and_starts_off(monkeypatch):
     )
     assert arm._attr_name == "Price Event Simulation Armed"
     assert arm._attr_is_on is False
+
+
+def test_the_p2p_block_times_are_times_and_only_times(monkeypatch):
+    """#565: each P2P block's start and end is a time entity on the P2P
+    sub-device, never also a number, and the solver config reads all six as
+    times."""
+    monkeypatch.setattr(
+        tm.er,
+        "async_get",
+        lambda hass: SimpleNamespace(
+            async_get_entity_id=lambda *a: None, async_remove=lambda e: None
+        ),
+    )
+    monkeypatch.setattr(
+        tm,
+        "async_get_integration",
+        lambda hass, d: _value(SimpleNamespace(version="1")),
+    )
+    monkeypatch.setattr(tm, "Store", lambda *a: MemoryStore())
+    added = []
+    _run(
+        tm.async_setup_entry(
+            None, SimpleNamespace(entry_id="hub1", options={}), added.extend
+        )
+    )
+    blocks = {
+        getattr(const, f"CONF_SOLVER_P2P_BLOCK_{n}_{end}_HOUR"): f"P2P Block {n} {word}"
+        for n in (1, 2, 3)
+        for end, word in (("START", "From"), ("END", "Until"))
+    }
+    named = {t._key: t for t in added if t._key in blocks}
+    assert {k: t._attr_name for k, t in named.items()} == blocks
+    assert all(t._attr_device_info["name"] == "Nimbus P2P" for t in named.values())
+    number = importlib.import_module("custom_components.nimbus_load.number")
+    assert not set(blocks) & {d.key for d in number._DESCRIPTIONS}
+    sensor = importlib.import_module("custom_components.nimbus_load.sensor")
+    assert set(blocks) <= set(sensor._SOLVER_TIME_ENTITY_KEYS)
