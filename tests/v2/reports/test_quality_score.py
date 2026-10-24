@@ -13,9 +13,12 @@ only.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
+import solver_writer as sw
+from solver import meter_reconciliation as mr
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -26,7 +29,9 @@ from solver.elements import (
 from solver.p2p_export import grid_export_bounds
 from solver.quality_report import (
     _MIN_POSITIVE_SOC_KWH,
+    _hourly_means_by_key,
     _soc_envelope_containing_achieved,
+    _soc_pct_at_hour_boundaries,
     _widen_export_pin_to_achieved,
     compute_quality_report,
 )
@@ -339,3 +344,199 @@ def test_a_loss_making_commitment_skipped_neither_beats_the_oracle_nor_hides():
         ).p2p_commitment_shortfall_kwh
         == 0.0
     )
+
+
+# --- the SoC discrepancy compares like with like (#1228) --------------------------------------
+
+
+BRIS = ZoneInfo("Australia/Brisbane")
+SEP24 = datetime(2026, 9, 24, 0, 0, tzinfo=BRIS)
+
+
+def _quarters(n_hours):
+    return np.full(n_hours * 4, 0.25)
+
+
+def _bounds(hours, soc, initial, day=SEP24):
+    return _soc_pct_at_hour_boundaries(
+        hours=hours, soc_pct=soc, initial_soc_pct=initial, day_start=day
+    )
+
+
+def _means(hours, soc, day=SEP24):
+    return _hourly_means_by_key(hours=hours, per_period={"soc_pct": soc}, day_start=day)
+
+
+def _key(h, day=SEP24):
+    return (day + timedelta(hours=h)).isoformat()
+
+
+def test_an_hours_sample_is_the_soc_as_it_begins():
+    """Hour 0 is the initial SoC; later hours the end of the period before
+    (the per-period array is end-of-period)."""
+    quarter = _bounds(_quarters(3), np.arange(12, dtype=float), -1.0)
+    assert [quarter[_key(h)] for h in range(3)] == [-1.0, 3.0, 7.0]
+    hourly = _bounds(np.full(3, 1.0), np.array([10.0, 20.0, 30.0]), 5.0)
+    assert [hourly[_key(h)] for h in range(3)] == [5.0, 10.0, 20.0]
+    assert _bounds(np.array([]), np.array([]), 1.0) == {}
+
+
+@pytest.mark.parametrize(
+    ("n_hours", "day"),
+    [(24, SEP24), (30, SEP24), (4, datetime(2026, 9, 24, tzinfo=UTC))],
+    ids=["day", "longer_window", "utc"],
+)
+def test_the_samples_and_the_hourly_rows_share_their_keys(n_hours, day):
+    hours = _quarters(n_hours)
+    soc = np.linspace(0.0, 100.0, len(hours))
+    rows, bounds = _means(hours, soc, day), _bounds(hours, soc, 0.0, day)
+    assert list(rows) == list(bounds) and len(rows) == n_hours
+
+
+def _ramp(rate=12.0, n_hours=6):
+    hours = _quarters(n_hours)
+    soc = 10.0 + rate * (np.arange(len(hours)) + 1) * 0.25
+    real = [(SEP24, 10.0)] + [
+        (SEP24 + timedelta(minutes=15 * (i + 1)), float(v)) for i, v in enumerate(soc)
+    ]
+    return _means(hours, soc), _bounds(hours, soc, 10.0), real
+
+
+def test_a_mean_sits_most_of_a_ramp_above_the_hours_start():
+    rows, bounds, _ = _ramp()
+    offsets = {k: rows[k]["soc_pct"] - bounds[k] for k in rows}
+    assert list(offsets.values()) == pytest.approx([12.0 * 0.625] * 6)
+
+
+def test_a_sensor_tracking_the_ramp_exactly_agrees_only_when_compared_like_for_like():
+    rows, bounds, real = _ramp()
+    fixed = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=bounds)
+    assert fixed["soc_discrepancy_basis"] == "hour_boundary"
+    assert float(fixed["soc_discrepancy_max_pct"]) < 0.5
+    assert fixed["soc_discrepancy_reliable"]
+    before = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=None)
+    assert before["soc_discrepancy_basis"] == "hourly_mean"
+    assert float(before["soc_discrepancy_max_pct"]) > 5.0
+    partial = dict(list(bounds.items())[:2])
+    mixed = sw._soc_discrepancy_stats(
+        [(real, 100.0)], rows, ach_soc_pct_at_hour=partial
+    )
+    assert mixed["soc_discrepancy_basis"] == "mixed"
+
+
+def test_a_real_disagreement_is_still_caught_and_absence_names_no_basis():
+    rows, bounds, real = _ramp(n_hours=4)
+    shifted = [(t, v + 20.0) for t, v in real]
+    out = sw._soc_discrepancy_stats(
+        [(shifted, 100.0)], rows, ach_soc_pct_at_hour=bounds
+    )
+    assert float(out["soc_discrepancy_max_pct"]) > 15.0
+    assert (out["soc_discrepancy_reliable"], out["soc_discrepancy_reason"]) == (
+        False,
+        "disagreement",
+    )
+    none = sw._soc_discrepancy_stats([], {}, ach_soc_pct_at_hour={})
+    assert none["soc_discrepancy_max_pct"] is None
+    assert "soc_discrepancy_basis" in none and none["soc_discrepancy_basis"] is None
+
+
+# --- the reconstruction is checked against the grid meter (#1465) -----------------------------
+
+
+def _metered(imp, exp):
+    return [imp / 12.0] * 12 + [-exp / 12.0] * 12
+
+
+def _reconcile(metered, imp, exp, stale=0.0, sensor="sensor.grid"):
+    return mr.reconcile(
+        meter_sensor=sensor,
+        metered_kw=metered,
+        period_hours=[1.0] * 24 if metered is not None else None,
+        stale_periods_pct=stale,
+        reconstructed_import_kwh=imp,
+        reconstructed_export_kwh=exp,
+    )
+
+
+def test_a_reconstruction_double_counting_the_meter_disagrees_either_sign():
+    """5 Oct: reconstructed 71.6 / 88.6 kWh against a meter's 32.7 / 69.5."""
+    r = _reconcile(_metered(32.740, 69.530), 71.579, 88.642)
+    assert r["status"] == mr.DISAGREES and "kWh" in r["reason"]
+    assert (r["metered_import_kwh"], r["metered_export_kwh"]) == (
+        pytest.approx(32.740),
+        pytest.approx(69.530),
+    )
+    assert r["import_residual_kwh"] == pytest.approx(38.839, abs=1e-3)
+    assert r["tolerance_kwh"] == pytest.approx(10.227, abs=1e-3)
+    flipped = _reconcile(_metered(69.530, 32.740), 71.579, 88.642)
+    assert flipped["status"] == mr.DISAGREES
+    assert (
+        max(abs(flipped["import_residual_kwh"]), abs(flipped["export_residual_kwh"]))
+        > 19.0
+    )
+    assert _reconcile(_metered(30.0, 70.0), 45.0, 70.0)["status"] == mr.DISAGREES
+
+
+@pytest.mark.parametrize(
+    ("metered", "imp", "exp", "sign"),
+    [
+        (_metered(30.0, 70.0), 31.5, 66.5, "positive_is_import"),  # 5 % apart
+        (_metered(40.0, 20.0), 20.0, 40.0, "positive_is_export"),
+        (_metered(1.0, 2.0), 2.5, 0.5, None),  # the floor, on a quiet day
+    ],
+    ids=["within_tolerance", "export_positive_meter", "quiet_day"],
+)
+def test_agreement_within_the_declared_tolerance(metered, imp, exp, sign):
+    r = _reconcile(metered, imp, exp)
+    assert r["status"] == mr.AGREES and "reason" not in r
+    if sign:
+        assert r["meter_sign"] == sign
+    else:
+        assert r["tolerance_kwh"] == mr.TOLERANCE_FLOOR_KWH
+
+
+@pytest.mark.parametrize("stale", [10.5, 50.0, None])
+def test_no_meter_or_too_little_of_its_history_is_not_evidence(stale):
+    assert _reconcile(_metered(32.7, 69.5), 71.6, 88.6, stale=stale)["status"] == (
+        mr.INSUFFICIENT_COVERAGE
+    )
+    none = _reconcile(None, 71.579, 88.642, stale=None, sensor=None)
+    assert none["status"] == mr.NOT_CHECKED
+    assert none["reconstructed_import_kwh"] == pytest.approx(71.579)
+    assert (
+        mr.TOLERANCE_FRACTION,
+        mr.TOLERANCE_FLOOR_KWH,
+        mr.MAX_STALE_PERIODS_PCT,
+    ) == (
+        0.10,
+        2.0,
+        10.0,
+    )
+
+
+@pytest.mark.parametrize(
+    "status", [mr.AGREES, mr.NOT_CHECKED, mr.INSUFFICIENT_COVERAGE, None]
+)
+def test_only_a_disagreeing_meter_changes_the_epr_verdict(status):
+    assert sw._epr_reliability(True, True, None, mr.DISAGREES) is False
+    assert sw._epr_reliability(None, True, None, mr.DISAGREES) is False
+    assert sw._epr_reliability(True, True, None, status) is True
+    assert sw._epr_reliability(None, True, None, status) is None
+    assert sw._epr_reliability(False, True, None, status) is False
+
+
+def test_the_history_row_names_the_meter_unless_the_soc_failed_too():
+    day = {
+        "epr_reliable": False,
+        "regret_reliable": True,
+        "epr_denominator_reason": None,
+        "soc_discrepancy_reliable": True,
+        "epr_reason": "grid_meter_disagrees",
+        "meter_reconciliation": {"status": mr.DISAGREES},
+    }
+    assert sw._epr_reliability_code(day) == sw._RELIABILITY_METER == "m"
+    day.update(
+        soc_discrepancy_reliable=False,
+        epr_reason="achieved_soc_unreliable:disagreement",
+    )
+    assert sw._epr_reliability_code(day) == sw._RELIABILITY_SOC
