@@ -77,7 +77,7 @@ fixed_export_kw is actually set (GridConfig.fixed_export_kw is None ->
 neither function does anything); (3) is a genuinely separate,
 independently optional mechanism (a household can have
 export_bonus_price/volume configured without ever using fixed_export_kw,
-or vice versa -- see test_solver_stochastic_p2p.py's own scenario matrix,
+or vice versa -- see tests/v2/solver/test_stochastic_p2p.py's scenario matrix,
 which exercises all four real on/off combinations explicitly, not just
 the "both on" case).
 

@@ -23,7 +23,7 @@ argued, because "a capability present and unwired" and "a capability
 present and quietly wired" are indistinguishable from a diff that adds
 both a reconstruction and a report field.
 
-`test_768_controllable_load_delivery_reconstruction.py` covers the
+`tests/v2/reports/test_controllable_load_history.py` covers the
 reconstruction's own arithmetic; this file covers only its arrival and its
 inertness.
 """

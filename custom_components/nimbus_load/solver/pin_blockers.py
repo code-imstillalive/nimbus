@@ -26,13 +26,13 @@ configured limit produces the same infeasibility. `UNEXPLAINED` is not
 evidence that a device is safe to control or that a limit should be relaxed.
 Nothing consumes this output as evidence: it is a DEBUG log line and a field
 on the instrument's record, never a Repair, a limit change or a dispatch input
-(`tests/test_1577_infeasible_pin_reports_constraint.py` pins that statically).
+(`tests/test_1577_nothing_consumes_the_pin_explanation.py` pins that statically).
 One caller acts on it, and only to skip a solve: #1654's period-0 hysteresis
 does not re-solve a pin this module proves infeasible (#773, 19 Oct devhub
 dump). An infeasible pin publishes the free plan either way, so the dispatch
 is identical and only the label (`blocked` rather than `switched`) differs;
 an empty or unexplained list re-solves exactly as before
-(`tests/test_1654_period0_hysteresis.py` pins that on the real LP).
+(`tests/v2/orchestration/test_plan_helpers.py` pins that).
 
 Every check is a period-0 restatement of a row or bound `network.build_plan()`
 already builds for batteries[0] (the site each one mirrors is named on it),
@@ -40,9 +40,9 @@ evaluated with every OTHER variable at its most permissive value. So each
 reported blocker is a PROOF of infeasibility on its own: it can under-report
 (a multi-period coupling -- e.g. a later hard SoC floor -- is not a period-0
 bound and comes back as `UNEXPLAINED`), but it cannot accuse a constraint that
-was not actually violated. `tests/test_1577_infeasible_pin_reports_constraint.py`
-pins both halves: each blocker on a pin the real LP rejects, and an empty list
-on every pin the real LP accepts.
+was not actually violated. `tests/v2/solver/test_pin_blockers.py` pins both
+halves against the real LP: each blocker on a pin it rejects, and an empty list
+on every pin it accepts.
 
 Why not HiGHS's IIS (`Highs.getIis`, present in highspy >= 1.15): it would
 return row INDICES, and most of the battery rows it would name -- the SoC

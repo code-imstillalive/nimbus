@@ -3,8 +3,8 @@ _resolve_battery_participant_history() -- the retrospective, HISTORY-
 based sibling of build_extra_batteries() that lets
 compute_daily_quality_report() score the whole real battery fleet
 (home + EV battery_participants), not just the home pack. Same
-solver_writer.NATIVE.hass-mocking pattern as
-test_solver_writer_battery_participants.py.
+solver_writer.NATIVE.hass-mocking pattern as the battery-participant
+suite this file was written beside (retired by #1837).
 """
 
 from __future__ import annotations

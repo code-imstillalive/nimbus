@@ -11,7 +11,7 @@ can finally see the outdoor forecast.
 
 So the learner and the projection both modelled ambient coupling and the LP did
 not. `ThermalLoadConfig`'s own docstring records this divergence, and
-`tests/test_thermal_model_divergence.py` pins it to its closed form rather than
+`tests/v2/forecasting/test_thermal_models.py` pins it to its closed form rather than
 asserting an agreement that does not hold.
 
 The consequence for #481's acceptance criteria is stronger than "unimplemented":

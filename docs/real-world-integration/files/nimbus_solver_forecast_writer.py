@@ -660,7 +660,7 @@ def resolve_min_soc_kwh(
     safety floor, not negotiable at that layer. But the dashboard's own
     "Battery Min SoC" number entity allows dragging all the way down to
     0% (number.py's own native_min_value=0, deliberately -- _cfg_num's
-    own docstring, and this file's test_solver_writer_cfg_defaults.py,
+    own docstring, and its tests (tests/v2/orchestration/test_writer_inputs.py),
     both already name "min_soc_percent set to 0% by an installer as a
     temporary bypass" as a real, legitimate use case, not user error).
 
@@ -3931,9 +3931,8 @@ def _flow_decomposition(
     the #629 sense (nothing was generated and then wasted in transit;
     it was simply never drawn from the panels' own real headroom).
 
-    Invariants (asserted in tests/test_flow_decomposition.py against
-    both synthetic cases and the real regression fixtures under
-    tests/regression/fixtures/):
+    Invariants (asserted in tests/v2/orchestration/test_flow_accounting.py
+    over generated periods and named cases):
       pv_to_load + pv_to_battery + pv_to_grid + pv_to_curtailment == solar_kw_i
       pv_to_load + battery_to_load + grid_to_load == load_kw_i
       pv_to_battery + grid_to_battery == charge_kw_i

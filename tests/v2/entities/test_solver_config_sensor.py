@@ -169,3 +169,67 @@ def test_location_meters_and_known_sources_are_carried(monkeypatch):
 
     monkeypatch.setattr(sm.known_sources, "resolve", broken)
     assert s.extra_state_attributes["known_sources"] == sm.known_sources.EMPTY
+
+
+# --- every setting the solve reads reaches it (#485, 2026-08-23) -----------------------------
+# The solver reads its settings only through this sensor's attributes. A key
+# saved by the wizard or set on a live entity but missing from these tables
+# is a setting that silently does nothing, and each has happened.
+
+_number = importlib.import_module("custom_components.nimbus_load.number")
+_hub_options = importlib.import_module(
+    "custom_components.nimbus_load.flows.hub_options"
+)
+_const = importlib.import_module("custom_components.nimbus_load.const")
+
+
+def test_every_key_the_wizard_saves_is_exposed():
+    assert [
+        k
+        for k in _hub_options._SOLVER_WIZARD_SCHEMA_KEYS
+        if k not in sm._SOLVER_ALL_KEYS
+    ] == []
+
+
+def test_every_number_entity_is_read_live_not_from_saved_options():
+    keys = [d.key for d in _number._DESCRIPTIONS]
+    assert [k for k in keys if k not in sm._SOLVER_NUMBER_ENTITY_KEYS] == []
+
+
+def test_every_switch_the_solve_reads_is_read_live():
+    read_by_the_solve = (
+        _const.CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+        _const.CONF_SOLVE_ON_PRICE_CHANGE,
+        _const.CONF_SOLVER_OFFER_CURVE_ENABLED,
+        _const.CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+        _const.CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+        _const.CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+        _const.CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
+    )
+    assert [
+        k for k in read_by_the_solve if k not in sm._SOLVER_SWITCH_ENTITY_KEYS
+    ] == []
+    # Dry run is read from its live switch directly, never through the solve.
+    assert _const.CONF_SOLVER_DISPATCH_DRY_RUN not in sm._SOLVER_SWITCH_ENTITY_KEYS
+
+
+def test_the_household_mode_is_exposed_and_read_live():
+    assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_ALL_KEYS
+    assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_SELECT_ENTITY_KEYS
+
+
+def test_every_live_setting_is_exposed_to_the_solve():
+    live = (
+        set(sm._SOLVER_NUMBER_ENTITY_KEYS)
+        | set(sm._SOLVER_TIME_ENTITY_KEYS)
+        | set(sm._SOLVER_SWITCH_ENTITY_KEYS)
+        | set(sm._SOLVER_SELECT_ENTITY_KEYS)
+    )
+    # Read by __init__.py's price watcher directly, not by the solve.
+    not_solve_inputs = {"solve_on_price_change", "solve_on_price_change_debounce_s"}
+    assert sorted(live - set(sm._SOLVER_ALL_KEYS) - not_solve_inputs) == []
+    for key in (
+        _const.CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+        _const.CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+    ):  # the two fields of the 2026-08-23 incident
+        assert key in sm._SOLVER_ALL_KEYS

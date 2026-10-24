@@ -13,7 +13,7 @@ span of `main()`'s own body into a new one, and **the parameterisation is the
 change** -- names that were `main()` locals become arguments. No "strip the
 prefixes and diff" applies. Safety here rests entirely on behavioural
 equivalence via the golden master, plus the deliberate mutation check in
-`tests/test_1303_plan_assembly_extraction.py`. #1380's review made exactly this
+`tests/v2/orchestration/test_plan_assembly.py`. #1380's review made exactly this
 point and asked for it to be stated where the code lives.
 
 ## Why a result object rather than `-> network.Plan`

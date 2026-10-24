@@ -57,7 +57,7 @@ change in the Solver/regret logic itself.
    affecting change, look at whether nimbus_value_add_dollars moved and
    in which direction, and record that in the CHANGELOG entry for the
    change -- the same way a performance benchmark gets quoted, not
-   gated on. tests/test_reference_benchmark.py checks the SCENARIO's
+   gated on. tests/v2/solver/test_rolling_and_benchmark.py checks the SCENARIO's
    own structural invariants (determinism, oracle-never-beaten) and
    loose sanity bounds, deliberately not an exact-value regression test
    that would need updating every time the Solver legitimately improves.
@@ -224,8 +224,8 @@ def _reference_persistence_curves(
     deliberately NOT random -- a fixed phase shift plus a fixed scale
     factor, same analytic-not-random discipline as the real curves
     above. The shift/scale values themselves are arbitrary but FIXED,
-    matching the existing test_solver_forecast_regret.py fixture's own
-    "yesterday, flat-shifted" reasoning.
+    matching the "yesterday, flat-shifted" reasoning of the forecast-regret
+    tests' first fixture (since retired, #1837).
     """
     # mypy issue #384: numpy widens ndarray[float64] * python-float to
     # floating[Any] in its own stubs -- a real stub-precision gap, not a

@@ -305,6 +305,12 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch):
         ("1 Main Rd, Canberra ACT 2600", "NSW1", "260"),
         ("Hobart tas 7000", "TAS1", "700"),
         ("Perth WA 6000", None, "600"),  # not in the NEM
+        ("Darwin NT 0800", None, "080"),
+        ("1 King William St, Adelaide SA 5000", "SA1", "500"),
+        # "Wantirna" holds "NT"; the state is the one beside the postcode.
+        ("2 High St, Wantirna South VIC 3152", "VIC1", "315"),
+        ("4 George St, Sydney NSW 2000", "NSW1", "200"),
+        ("75001 Paris, France", None, None),
         ("Somewhere", None, None),
         (None, None, None),
     ],
@@ -315,10 +321,10 @@ def test_the_region_and_postcode_prefix_come_from_the_geocoded_address(
     assert nem.resolve_region_and_prefix(address) == (region, prefix)
 
 
-def test_a_malformed_postcode_has_no_prefix():
-    assert (
-        nem.postcode_prefix("40001") is None and nem.nem_region_for_state(None) is None
-    )
+@pytest.mark.parametrize("postcode", ["40001", "400", "abcd", None])
+def test_a_malformed_postcode_is_refused_not_truncated(postcode):
+    assert nem.postcode_prefix(postcode) is None
+    assert nem.nem_region_for_state(None) is None
 
 
 # --- the pricing source profiles ------------------------------------------------------------------
@@ -427,3 +433,23 @@ def test_installing_creates_the_hub_once_and_points_at_the_settings():
         ).__name__
         == "NimbusHubOptionsFlow"
     )
+
+
+def test_the_region_is_read_from_the_one_geocoded_location_that_answers():
+    sd = importlib.import_module("custom_components.nimbus_load.sensor_discovery")
+
+    def state(eid, value):
+        return SimpleNamespace(entity_id=eid, state=value)
+
+    phone = state(
+        "sensor.phone_geocoded_location", "1 Queen St, Brisbane QLD 4000, Australia"
+    )
+    asleep = state("sensor.tablet_geocoded_location", "unavailable")
+    assert sd.resolve_geocoded_region_and_prefix([phone, asleep]) == (
+        nem.resolve_region_and_prefix(phone.state)
+    )
+    other = state(
+        "sensor.car_geocoded_location", "1 George St, Sydney NSW 2000, Australia"
+    )
+    assert sd.resolve_geocoded_region_and_prefix([phone, other]) == (None, None)
+    assert sd.resolve_geocoded_region_and_prefix([asleep]) == (None, None)

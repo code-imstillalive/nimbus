@@ -1,0 +1,1786 @@
+{
+ "pr": 2028,
+ "issue": 1837,
+ "mutation": {
+  "rerun": "python scripts/mutation_compare.py --module <module> --set old=@<old_set> --set new=@<new_set> --mutants <mutants> --seed <seed>; the old set runs at old_set_commit, where its files still exist",
+  "old_set_commit": "fd0d671a",
+  "areas": [
+   {
+    "module": "custom_components/nimbus_load/solver_dispatch/guard.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_writer_controllable_loads.py"
+    ],
+    "new_set": [
+     "tests/v2/orchestration/test_dispatch.py",
+     "tests/v2/orchestration/test_controllable_load_build.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 10,
+    "new_killed": 12,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "boolop",
+      "where": "line 852: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 151: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 319: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 957: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 1017: 4 -> 8",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 352: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 782: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 431: Mult -> Div",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 723: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 930: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 724: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 856: 3 -> 6",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "compare",
+      "where": "line 715: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "boolop",
+      "where": "line 915: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "boolop",
+      "where": "line 802: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "compare",
+      "where": "line 915: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 1053: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "boolop",
+      "where": "line 827: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 319: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 325: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/controllable_loads.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_writer_controllable_loads.py"
+    ],
+    "new_set": [
+     "tests/v2/orchestration/test_dispatch.py",
+     "tests/v2/orchestration/test_controllable_load_build.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 7,
+    "new_killed": 11,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 442: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 783: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 117: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 1308: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 516: And -> Or",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 1064: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 1279: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 1000: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 431: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 339: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 782: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 192: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "boolop",
+      "where": "line 1188: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 884: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "boolop",
+      "where": "line 976: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "compare",
+      "where": "line 815: LtE -> Lt",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 1052: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 1169: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "binop",
+      "where": "line 1225: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "boolop",
+      "where": "line 815: Or -> And",
+      "old": "survived",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/pin_blockers.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1577_infeasible_pin_reports_constraint.py",
+     "tests/test_1654_period0_hysteresis.py",
+     "tests/test_1303_plan_assembly_extraction.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_pin_blockers.py",
+     "tests/v2/solver/test_stochastic_dispatch.py",
+     "tests/v2/orchestration/test_plan_assembly.py",
+     "tests/v2/orchestration/test_plan_helpers.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 10,
+    "new_killed": 10,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 206: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "binop",
+      "where": "line 179: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 109: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 178: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "compare",
+      "where": "line 194: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 98: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 178: Div -> Mult",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 181: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 192: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 160: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 148: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 177: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 96: 0 -> 1",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "compare",
+      "where": "line 223: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 192: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "boolop",
+      "where": "line 223: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "compare",
+      "where": "line 207: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 206: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "boolop",
+      "where": "line 220: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "compare",
+      "where": "line 235: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_plan.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1577_infeasible_pin_reports_constraint.py",
+     "tests/test_1654_period0_hysteresis.py",
+     "tests/test_1303_plan_assembly_extraction.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_pin_blockers.py",
+     "tests/v2/solver/test_stochastic_dispatch.py",
+     "tests/v2/orchestration/test_plan_assembly.py",
+     "tests/v2/orchestration/test_plan_helpers.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 6,
+    "new_killed": 12,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "compare",
+      "where": "line 611: NotEq -> Eq",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 1086: 4 -> 8",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 224: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "boolop",
+      "where": "line 1087: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 936: And -> Or",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "compare",
+      "where": "line 1267: LtE -> Lt",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 1406: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 1739: 0.01 -> 0.02",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 972: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "compare",
+      "where": "line 732: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 198: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "compare",
+      "where": "line 1280: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 433: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 1312: Mult -> Div",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 1312: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "boolop",
+      "where": "line 1483: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "boolop",
+      "where": "line 1486: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 1256: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "boolop",
+      "where": "line 1099: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 636: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/stochastic_dispatch.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1577_infeasible_pin_reports_constraint.py",
+     "tests/test_1654_period0_hysteresis.py",
+     "tests/test_1303_plan_assembly_extraction.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_pin_blockers.py",
+     "tests/v2/solver/test_stochastic_dispatch.py",
+     "tests/v2/orchestration/test_plan_assembly.py",
+     "tests/v2/orchestration/test_plan_helpers.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 0,
+    "new_killed": 13,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "binop",
+      "where": "line 479: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 397: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 166: Eq -> NotEq",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 397: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "binop",
+      "where": "line 667: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "boolop",
+      "where": "line 875: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 915: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 449: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "boolop",
+      "where": "line 820: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "compare",
+      "where": "line 565: Gt -> GtE",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 401: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 445: Add -> Sub",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 415: 0.05 -> 0.1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 398: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "compare",
+      "where": "line 870: Eq -> NotEq",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "boolop",
+      "where": "line 659: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 903: 100.0 -> 200.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 509: 0 -> 1",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "binop",
+      "where": "line 903: Div -> Mult",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 382: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/reference_benchmark.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_reference_benchmark.py",
+     "tests/test_solver_forecast_regret.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_rolling_and_benchmark.py",
+     "tests/v2/solver/test_forecast_regret_and_nowcast.py"
+    ],
+    "old_killed": 4,
+    "new_killed": 3,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 160: 0.9 -> 1.8",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 211: 0.4 -> 0.8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 141: GtE -> Gt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 192: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 193: 21 -> 42",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 141: 0.22 -> 0.44",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "compare",
+      "where": "line 139: GtE -> Gt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 254: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 213: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 189: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 254: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 192: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 234: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 139: 21 -> 42",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 234: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "binop",
+      "where": "line 189: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 176: 0.015 -> 0.03",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 166: 1.5 -> 3.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 165: 7.5 -> 15.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 192: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/forecast_regret.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_reference_benchmark.py",
+     "tests/test_solver_forecast_regret.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_rolling_and_benchmark.py",
+     "tests/v2/solver/test_forecast_regret_and_nowcast.py"
+    ],
+    "old_killed": 5,
+    "new_killed": 9,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 281: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 366: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 146: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "compare",
+      "where": "line 367: GtE -> Gt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "compare",
+      "where": "line 366: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "binop",
+      "where": "line 338: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 148: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "binop",
+      "where": "line 370: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 230: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 368: Mult -> Div",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 188: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 178: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 170: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 161: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "constant",
+      "where": "line 231: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 427: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "binop",
+      "where": "line 376: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 366: 1e-06 -> 2e-06",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "binop",
+      "where": "line 133: Sub -> Add",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 337: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/controllable_load_history.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_768_controllable_load_delivery_reconstruction.py"
+    ],
+    "new_set": [
+     "tests/v2/reports/test_controllable_load_history.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 3,
+    "new_killed": 3,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 489: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 452: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 251: NotEq -> Eq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "boolop",
+      "where": "line 497: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "binop",
+      "where": "line 482: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 466: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "boolop",
+      "where": "line 254: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "boolop",
+      "where": "line 496: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 489: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 482: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 475: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 197: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 509: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "boolop",
+      "where": "line 482: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "compare",
+      "where": "line 475: LtE -> Lt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 459: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "constant",
+      "where": "line 497: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 516: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "boolop",
+      "where": "line 524: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "binop",
+      "where": "line 489: Div -> Mult",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_inputs/extra_batteries.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_writer_battery_participants.py"
+    ],
+    "new_set": [
+     "tests/v2/orchestration/test_extra_batteries.py",
+     "tests/test_golden_master.py"
+    ],
+    "old_killed": 9,
+    "new_killed": 10,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 466: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "boolop",
+      "where": "line 116: And -> Or",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 431: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "boolop",
+      "where": "line 653: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 446: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 419: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 125: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 125: 60.0 -> 120.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 412: 100.0 -> 200.0",
+      "old": "survived",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 396: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 470: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 128: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 595: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 641: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "compare",
+      "where": "line 313: Eq -> NotEq",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "compare",
+      "where": "line 397: LtE -> Lt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "boolop",
+      "where": "line 362: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "constant",
+      "where": "line 432: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 643: 0.999 -> 1.998",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 564: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/backtest.py",
+    "seed": 1837,
+    "mutants": 15,
+    "old_set": [
+     "tests/test_solver_backtest.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_efficiency_backtest.py"
+    ],
+    "old_killed": 7,
+    "new_killed": 7,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "binop",
+      "where": "line 318: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 318: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "constant",
+      "where": "line 114: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 4,
+      "kind": "binop",
+      "where": "line 121: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 318: 0.5 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 229: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 121: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "compare",
+      "where": "line 124: Lt -> LtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 121: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 228: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "binop",
+      "where": "line 121: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 128: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 121: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 122: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 128: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/stochastic.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_solver_stochastic_p2p.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_stochastic_p2p.py",
+     "tests/v2/solver/test_stochastic_modes_counterfactuals.py"
+    ],
+    "old_killed": 10,
+    "new_killed": 9,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 483: 1.0 -> 2.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 197: Lt -> LtE",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "compare",
+      "where": "line 207: NotEq -> Eq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 446: 1.0 -> 2.0",
+      "old": "killed",
+      "new": "survived"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 632: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "binop",
+      "where": "line 441: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "binop",
+      "where": "line 412: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 461: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 419: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 658: 2 -> 4",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 528: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 451: 1.0 -> 2.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 345: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 247: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "constant",
+      "where": "line 546: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "constant",
+      "where": "line 481: 1.0 -> 2.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 17,
+      "kind": "binop",
+      "where": "line 203: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 601: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "constant",
+      "where": "line 527: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 659: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver/cycle_lock.py",
+    "seed": 1837,
+    "mutants": 2,
+    "old_set": [
+     "tests/test_solve_overlap_guard.py",
+     "tests/test_solver_writer_lock_self_pid.py"
+    ],
+    "new_set": [
+     "tests/v2/solver/test_cycle_lock.py"
+    ],
+    "old_killed": 1,
+    "new_killed": 1,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "compare",
+      "where": "line 139: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "constant",
+      "where": "line 142: 0 -> 1",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   }
+  ],
+  "old_only_replayed_at_head": {
+   "how": "scripts/mutation_compare.py --only <mutant>, same seed and count, at this PR's head",
+   "rows": [
+    {
+     "module": "custom_components/nimbus_load/solver/pin_blockers.py",
+     "mutant": 13,
+     "where": "line 96: 0 -> 1",
+     "new_set": [
+      "tests/v2/solver/test_pin_blockers.py",
+      "tests/v2/solver/test_stochastic_dispatch.py",
+      "tests/v2/orchestration/test_plan_assembly.py",
+      "tests/v2/orchestration/test_plan_helpers.py",
+      "tests/test_golden_master.py"
+     ],
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/solver/reference_benchmark.py",
+     "mutant": 9,
+     "where": "line 213: 0.0 -> 1.0",
+     "new_set": [
+      "tests/v2/solver/test_rolling_and_benchmark.py",
+      "tests/v2/solver/test_forecast_regret_and_nowcast.py"
+     ],
+     "result": "killed"
+    },
+    {
+     "module": "custom_components/nimbus_load/solver/stochastic.py",
+     "mutant": 4,
+     "where": "line 446: 1.0 -> 2.0",
+     "new_set": [
+      "tests/v2/solver/test_stochastic_p2p.py",
+      "tests/v2/solver/test_stochastic_modes_counterfactuals.py"
+     ],
+     "result": "killed"
+    }
+   ]
+  }
+ },
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before fd0d671a --retired @<the Deletes: lines of this PR's body>",
+  "before": "fd0d671a",
+  "retired_files": 29,
+  "retired_lines_reached": 14794,
+  "kept_lines_reached": 38910,
+  "lost_line_count": 0,
+  "lost_lines": {}
+ }
+}

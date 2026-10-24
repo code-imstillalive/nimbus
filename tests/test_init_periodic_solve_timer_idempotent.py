@@ -7,8 +7,8 @@ _periodic_solve calling solver_runtime.async_run_solve() once a minute each,
 not one solve double-writing (solver_writer.py has exactly one
 ha_post_state() call site per entity -- ruled out by reading the source).
 
-Same root mechanism nimbus PR #210 already fixed for retrain (this
-project's own test_coordinator_setup_does_not_block_on_retrain.py: HA
+Same root mechanism nimbus PR #210 already fixed for retrain (as #210's
+own regression test recorded it, since retired by #1837: HA
 abandoning/retrying a slow async_setup_entry() while the original attempt's
 own coroutine keeps running in the background, eventually finishing and
 re-registering everything a second time) -- just a different slow step

@@ -245,6 +245,28 @@ def test_an_overlong_text_state_is_truncated_and_logged_once(caplog):
     assert fl._clamp_state_length(5, None) == 5
 
 
+def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
+    """HA's limit is inclusive: exactly the limit is a legal state."""
+    at = "x" * fl._MAX_STATE_LENGTH
+    assert fl._clamp_state_length(at, "sensor.a") == at
+    over = fl._clamp_state_length(at + "x", "sensor.a")
+    assert len(over) == fl._MAX_STATE_LENGTH and over.endswith(
+        fl._STATE_TRUNCATION_SUFFIX
+    )
+    lead = "Grid export at zero (not economical right now)"
+    assert fl._clamp_state_length(lead + " " + "y" * 400, "sensor.a").startswith(lead)
+
+
+def test_each_entity_is_warned_about_once_on_its_own(caplog):
+    fl._LOGGED_TRUNCATION.clear()
+    with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
+        for entity in ("sensor.first", "sensor.second", "sensor.first"):
+            fl._clamp_state_length("z" * 500, entity)
+    warned = [r.getMessage() for r in caplog.records]
+    assert len(warned) == 2
+    assert "sensor.first" in warned[0] and "sensor.second" in warned[1]
+
+
 def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
     e = _one(_spec())
     e.update_from_parent({"k": 1})
@@ -369,3 +391,43 @@ def test_every_table_key_is_distinct_within_its_table():
     ):
         suffixes = [s.entity_id_suffix for s in table]
         assert len(suffixes) == len(set(suffixes))
+
+
+def test_the_state_length_limit_is_home_assistants_own():
+    """Defined locally so the stubs need not carry it; the real constant
+    decides, where Home Assistant is importable."""
+    real = pytest.importorskip("homeassistant.const")
+    if not hasattr(real, "MAX_LENGTH_STATE_STATE"):
+        pytest.skip("the installed homeassistant.const is a stub")
+    assert fl._MAX_STATE_LENGTH == real.MAX_LENGTH_STATE_STATE
+
+
+def _flattened_keys():
+    return {
+        spec.source_key
+        for name in dir(fl)
+        if name.startswith("FLATTENED_ATTRS")
+        for spec in getattr(fl, name)
+    }
+
+
+@pytest.mark.parametrize(
+    ("key", "has_a_child"),
+    [
+        # #849: varying numbers that had no history at all.
+        ("envelope_import_limit_kw", True),
+        ("envelope_export_limit_kw", True),
+        ("solar_risk_effect_now_kw", True),
+        ("import_price_risk_effect_now", True),
+        ("export_price_risk_effect_now", True),
+        ("load_whole_house_live_now_kw", True),
+        # Left out on measured grounds: constants, dicts, a 762-char text.
+        ("battery_kw_side", False),
+        ("battery_kw_sign_convention", False),
+        ("efficiency_convention", False),
+        ("load_forecast_source_used", False),
+        ("solve_diagnostics", False),
+    ],
+)
+def test_what_gets_its_own_history_and_what_deliberately_does_not(key, has_a_child):
+    assert (key in _flattened_keys()) is has_a_child

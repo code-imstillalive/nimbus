@@ -41,7 +41,7 @@ the theory that some test asserts on a logger's own name); peer review
 (PR #1347) actually ran that check rather than assuming it and found the
 opposite: zero tests assert a logger by name string, while four existing
 suites (`test_solver_inputs_solar.py`,
-`test_solver_writer_battery_participants.py`,
+the battery-participant suite (since retired, #1837),
 `test_solar_source_shape_and_dedup.py`,
 `test_quality_report_achieved_energy_and_reliability.py`) capture log
 lines via `assertLogs(solver_writer._LOGGER, ...)` on modules that log
@@ -357,8 +357,8 @@ def resolve_effective_capacity_kwh(cfg: dict) -> float:
 
     The configured value is also vindicated by the same reading: 122.2 x
     0.98 = 119.756 against a measured 119.72, a difference of 0.03%. The
-    dial was right the whole time. Nothing read it. See
-    tests/test_effective_capacity_soh_derating.py for the full data.
+    dial was right the whole time. Nothing read it. The measurements are
+    in nimbus #1013.
 
     **Deliberately still one static number, not a live sensor.** The
     inverters do publish per-pack SoH and it drifts over years, and

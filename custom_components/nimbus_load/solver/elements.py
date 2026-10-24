@@ -1084,7 +1084,7 @@ class BatteryConfig:
         # `<= 0.0` -- exactly 0.0 is a real, if extreme, legitimate
         # config: "this direction is physically disabled" (a battery
         # that can only ever charge, or only ever discharge). Several
-        # existing tests (test_solver_backtest.py, test_solver_rolling.py)
+        # tests (tests/v2/solver/test_efficiency_backtest.py among them)
         # already rely on max_charge_kw=max_discharge_kw=0.0 to construct
         # a genuinely infeasible-but-validly-shaped scenario on purpose.
         if self.max_charge_kw < 0.0:
@@ -1805,7 +1805,7 @@ class ThermalLoadConfig:
     rationale was true when written. The invariant broke because the two
     changes sat on different issues and nothing checked the claim.
 
-    `tests/test_thermal_model_divergence.py` now pins both divergences to
+    `tests/v2/forecasting/test_thermal_models.py` now pins both divergences to
     their closed forms rather than asserting an agreement that does not
     hold. Resolving #897 -- deciding whether the learned rate is NET (what
     the fitter measures) or GROSS (what this recursion assumes) -- is what

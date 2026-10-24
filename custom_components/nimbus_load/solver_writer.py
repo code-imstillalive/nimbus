@@ -484,7 +484,7 @@ except ImportError:
 # (this file's own docstring reference above) is "every name keeps a
 # re-export," not "every name a caller still uses" -- an external
 # consumer (this repo's own tests, e.g. `solver_writer._SOH_RANGE_WARNED`
-# in test_effective_capacity_soh_derating.py) reaching for the OLD
+# in a test) reaching for the OLD
 # location must keep working. Ruff's F401 cannot see a caller in a
 # DIFFERENT file, so it reads these as dead imports; `# X as X` (the
 # usual explicit-re-export idiom) was tried and rejected, since ruff's
@@ -884,8 +884,8 @@ except ImportError:  # pragma: no cover - standalone/cron path
 #                                 test files reach it as solver_writer.apply_
 #                                 commanded_state_guard -- one via
 #                                 inspect.getsource() on it.
-#   _REAFFIRM_CAP_WARNED          test_reaffirm_cap_exhaustion_is_silent.py:187
-#                                 does solver_writer._REAFFIRM_CAP_WARNED.clear().
+#   _REAFFIRM_CAP_WARNED          a test (since retired, #1837) did
+#                                 solver_writer._REAFFIRM_CAP_WARNED.clear().
 #                                 An alias is exactly right: the set is mutated in
 #                                 place, never rebound, so identity holds.
 #
@@ -1091,7 +1091,7 @@ def resolve_min_soc_kwh(
     safety floor, not negotiable at that layer. But the dashboard's own
     "Battery Min SoC" number entity allows dragging all the way down to
     0% (number.py's own native_min_value=0, deliberately -- _cfg_num's
-    own docstring, and this file's test_solver_writer_cfg_defaults.py,
+    own docstring, and its tests (tests/v2/orchestration/test_writer_inputs.py),
     both already name "min_soc_percent set to 0% by an installer as a
     temporary bypass" as a real, legitimate use case, not user error).
 
@@ -3970,8 +3970,8 @@ def resample_real_p2p_rate(
     #
     # * ONE raw-triple source (every install configured before #1537,
     #   including the reference household's live one): the pre-#1537
-    #   algorithm, unchanged to the byte. Proven against a copy of it in
-    #   tests/test_1537_p2p_matched_rate_fallback.py.
+    #   algorithm, unchanged to the byte (its step lookup is pinned in
+    #   tests/v2/orchestration/test_writer_inputs.py).
     # * Anything else -- a `{time, value}` source, or two sources -- goes
     #   through the observation model below, which keeps each interval's own
     #   validity and coverage instead of collapsing "missing", "stale",
@@ -8943,8 +8943,7 @@ def fetch_calendar_trips(
         # #363's rule is kept exactly as-is for the timed shape -- an
         # external API handing back a naive-but-genuinely-UTC instant is a
         # real thing, and
-        # test_467_calendar_fetch.py::TestNaiveTimestampsCannotReachTheSolver
-        # pins it.
+        # tests/v2/orchestration/test_writer_inputs.py pins it.
         if started.tzinfo is None:
             started = started.replace(
                 tzinfo=LOCAL_TZ if _is_date_only(str(raw.get("start") or "")) else UTC

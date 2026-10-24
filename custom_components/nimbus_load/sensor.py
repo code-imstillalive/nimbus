@@ -313,7 +313,8 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # _SOLVER_WIZARD_SCHEMA_KEYS and genuinely saved into entry.options,
     # but this bridge sensor must ALSO expose them or
     # fetch_solver_config() never sees them. Caught immediately by this
-    # file's own test_sensor_solver_config_keys.py before it ever shipped.
+    # file's own guard (now tests/v2/entities/test_solver_config_sensor.py)
+    # before it ever shipped.
     CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
@@ -335,7 +336,8 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # saved into entry.options by the wizard's own solver_battery step,
     # but not exposed here means fetch_solver_config() (this bridge
     # sensor's own only real consumer) can never see it either. Caught
-    # by this file's own real test_sensor_solver_config_keys.py, which
+    # by this file's own real guard (now tests/v2/entities/
+    # test_solver_config_sensor.py), which
     # exists specifically to catch this exact class of mistake.
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
@@ -475,7 +477,7 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # fetch_solver_config() -- the writer's only channel for reading
     # config -- can never see it, so the whole price-event feature
     # would have been inert on a real install however many times the
-    # wizard was submitted. Caught by test_sensor_solver_config_keys.py
+    # wizard was submitted. Caught by the key guard (now tests/v2/entities/test_solver_config_sensor.py)
     # before it shipped, exactly as the notes above say it was for the
     # price and envelope fields.
     CONF_SOLVER_PRICE_EVENT_SENSOR,
@@ -484,7 +486,8 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # entry.options by the wizard's own solver_grid step, but not exposed
     # here means fetch_solver_config() (this bridge sensor's own only
     # real consumer) can never see it. Caught by this file's own real
-    # test_sensor_solver_config_keys.py before it ever shipped.
+    # key guard (now tests/v2/entities/test_solver_config_sensor.py) before
+    # it ever shipped.
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     # nimbus issue #692: a genuine number.py entity from the start (see
@@ -500,7 +503,8 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # this file's own _SOLVER_NUMBER_ENTITY_KEYS comment below), same
     # "must be exposed here too or fetch_solver_config() never sees it"
     # requirement as every field above -- caught by this file's own real
-    # test_sensor_solver_config_keys.py before it ever shipped.
+    # key guard (now tests/v2/entities/test_solver_config_sensor.py) before
+    # it ever shipped.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH,
     CONF_SOLVER_STOCHASTIC_STAGE1_MINUTES,
@@ -1770,7 +1774,7 @@ class NimbusControllableLoadStateSensor(
     # v0.94.195) were never added here when they shipped, even though
     # the class docstring above already describes the #362/#581 posture
     # every per-cycle-churning series is supposed to follow). See
-    # test_sensor_forecast_unrecorded_attributes.py's own generic
+    # tests/v2/entities/test_controllable_load_sensors.py's own generic
     # guard -- it asserts every list-valued field LoadRunState.
     # to_dict() can produce is in this frozenset, specifically so the
     # next new series (there have been four this week alone) can't

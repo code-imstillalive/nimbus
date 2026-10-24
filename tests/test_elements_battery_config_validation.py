@@ -13,7 +13,7 @@ item 3: `BatteryConfig.__post_init__` had two real validation gaps.
 
 The fix deliberately rejects NEGATIVE max_charge_kw/max_discharge_kw only
 (`< 0.0`), not exactly zero -- several existing tests
-(test_solver_backtest.py, test_solver_rolling.py) rely on
+(tests/v2/solver/test_efficiency_backtest.py among them) rely on
 max_charge_kw=max_discharge_kw=0.0 ("this direction is physically
 disabled") to construct a genuinely infeasible-but-validly-shaped
 scenario on purpose, and an over-strict `<= 0.0` first draft of this fix

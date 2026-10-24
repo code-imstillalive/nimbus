@@ -284,3 +284,20 @@ def test_the_battery_forecast_also_feeds_its_current_period_children(monkeypatch
     sensor._flattened_current_entities = ["now"]
     sensor.update_from_solver(1.0, {})
     assert seen == [["now"]]
+
+
+def test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder():
+    """The recorder drops a state's whole attribute dict past 16 KB, and a
+    field recomputed every poll writes a fresh row every poll (#362)."""
+    assert sm.NimbusSolverQualityReportSensor._unrecorded_attributes == frozenset(
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            "soc_discrepancy_hourly",
+        }
+    )
+    assert sm.NimbusHealthReportSensor._unrecorded_attributes == frozenset(
+        {"recent_errors", "recent_warnings", "subentry_status", "generated_at"}
+    )

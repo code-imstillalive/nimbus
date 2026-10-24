@@ -424,7 +424,7 @@ def publish_flex_telemetry_record(
 #
 # PLAN_STATE_PATH deliberately does NOT move: its primary reader
 # load_previous_plan() stays in solver_writer.py (Phase 4's target, not
-# this one), and test_solver_writer_load_previous_plan.py patches it as
+# this one), and tests/v2/orchestration/test_writer_inputs.py patches it as
 # solver_writer.PLAN_STATE_PATH against BOTH functions. A plain
 # `from .solver_writer import PLAN_STATE_PATH` binds once at import time
 # and would silently break that patch -- nimbus #861's exact failure
@@ -1431,9 +1431,8 @@ def _flow_decomposition(
     the #629 sense (nothing was generated and then wasted in transit;
     it was simply never drawn from the panels' own real headroom).
 
-    Invariants (asserted in tests/test_flow_decomposition.py against
-    both synthetic cases and the real regression fixtures under
-    tests/regression/fixtures/):
+    Invariants (asserted in tests/v2/orchestration/test_flow_accounting.py
+    over generated periods and named cases):
       pv_to_load + pv_to_battery + pv_to_grid + pv_to_curtailment == solar_kw_i
       pv_to_load + battery_to_load + grid_to_load == load_kw_i
       pv_to_battery + grid_to_battery == charge_kw_i

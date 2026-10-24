@@ -552,3 +552,11 @@ def test_each_battery_forecast_reads_its_own_capacity_and_a_zero_one_reads_zero(
     assert row["forecast"][0]["soc_pct"] == 50.0
     (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 0.0})
     assert row["forecast"][0]["soc_pct"] == 0.0
+
+
+def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):
+    def misaligned(periods, previous):
+        raise ValueError("no period starts")
+
+    monkeypatch.setattr(solver_plan.network, "_align_previous_periods", misaligned)
+    assert solver_plan._anchor_target_kw(charging, charging) == (None, None)

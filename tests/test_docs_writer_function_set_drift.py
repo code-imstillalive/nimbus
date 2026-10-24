@@ -1346,7 +1346,7 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # keyword-only arguments), which is why Phase 4 leans on the golden
         # master and a deliberate mutation check rather than the
         # byte/AST-identity proof Phases 1-3 could give. See
-        # tests/test_1303_plan_assembly_extraction.py.
+        # tests/v2/orchestration/test_plan_assembly.py.
         "assemble_and_solve_plan",
     }
 )
