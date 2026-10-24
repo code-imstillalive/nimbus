@@ -331,8 +331,8 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # writer, which has no quality-report publisher. The cron QUALITY
         # writer, which does, carries its own copy of this helper and the
         # same _QUALITY_HISTORY_VERSION_FIELD; see
-        # tests/test_1120_quality_history_version_stamp.py's own
-        # TestTheCronCopyStampsToo, which pins that port.
+        # tests/test_1120_the_cron_copy_stamps_its_rows.py, which pins
+        # that port.
         "_nimbus_version",
         # nimbus #1256: `{"nimbus_version": <release>}` or `{}`, splatted into
         # the four daily publishers' attributes so the stamp travels with the

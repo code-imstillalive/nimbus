@@ -17,7 +17,7 @@ import logging
 import sys
 import threading
 import types
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -486,3 +486,42 @@ def test_a_configured_power_sensor_always_wins_and_discovery_only_fills_a_gap(
     assert asked == ["switch.pump"]
     assert cl.resolve_controllable_load_power_sensor({}) == "sensor.discovered"
     assert asked[-1] == ""
+
+
+# --- a same-day window already open starts now (#582) ------------------------------------------
+
+
+def _at(hour, minute=0):
+    return datetime(2026, 9, 18, hour, minute, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    ("now", "earliest_hour", "deadline_hour", "earliest", "deadline", "expect"),
+    [
+        (_at(6, 1), 6.0, 16.0, 96, 40, 0),  # open since 06:00: starts now, not tomorrow
+        (_at(6), 6.0, 16.0, 96, 40, 0),  # both edges inclusive
+        (_at(16), 6.0, 16.0, 96, 40, 0),
+        (_at(16, 1), 6.0, 16.0, 96, 40, 96),  # closed: tomorrow's
+        (_at(5, 59), 6.0, 16.0, 4, 40, 4),  # not yet open
+        (_at(17), 6.0, 16.0, 52, 88, 52),
+        (_at(2), 22.0, 6.0, 80, 16, 80),  # a real overnight window
+        (_at(23), 22.0, 6.0, 4, 28, 4),
+        (_at(8), 6.0, 16.0, 0, 40, 0),  # already in order
+        (_at(8), 6.0, 16.0, 40, 40, 40),  # a one-period window
+        (_at(8), None, 16.0, 96, 40, 96),
+        (_at(8), 6.0, None, 96, 40, 96),
+    ],
+)
+def test_which_period_a_window_opens_in(
+    now, earliest_hour, deadline_hour, earliest, deadline, expect
+):
+    assert (
+        cl._earliest_period_for_same_day_window(
+            now=now,
+            earliest_hour=earliest_hour,
+            deadline_hour=deadline_hour,
+            earliest_period=earliest,
+            deadline_period=deadline,
+        )
+        == expect
+    )

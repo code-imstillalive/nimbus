@@ -115,7 +115,9 @@ def test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash(site, 
     if case == "other_kind":
         site.add({"load_sensor": "sensor.pool"}, kind="load")
     elif case == "no_power_sensor":
-        site.add({k: v for k, v in EV.items() if k != "battery_participant_power_sensor"})
+        site.add(
+            {k: v for k, v in EV.items() if k != "battery_participant_power_sensor"}
+        )
     elif case == "no_history":
         site.power = site.soc = []
         site.add()
@@ -144,7 +146,9 @@ AWAY = range(8, 11)
 )
 def test_driving_while_away_never_reaches_the_home_grid(site, entity, here, gone):
     site.add({**EV, "battery_participant_available_entity": entity})
-    site.power = [(DAY + timedelta(hours=h), -8.0 if h in AWAY else 5.0) for h in range(24)]
+    site.power = [
+        (DAY + timedelta(hours=h), -8.0 if h in AWAY else 5.0) for h in range(24)
+    ]
     site.presence = [
         (DAY + timedelta(hours=h), gone if h in AWAY else here) for h in range(24)
     ]
@@ -257,7 +261,10 @@ def rest(monkeypatch):
 
 
 def _row(hour, state, unit="kW"):
-    row = {"state": str(state), "last_changed": (DAY + timedelta(hours=hour)).isoformat()}
+    row = {
+        "state": str(state),
+        "last_changed": (DAY + timedelta(hours=hour)).isoformat(),
+    }
     if unit is not None:
         row["attributes"] = {"unit_of_measurement": unit}
     return row

@@ -1354,7 +1354,10 @@ def test_an_unreadable_settlement_has_not_arrived(monkeypatch, exc):
 
 @pytest.mark.parametrize(
     ("only", "scored"),
-    [({"2026-09-21"}, ["2026-09-21"]), (None, ["2026-09-24", "2026-09-23", "2026-09-22"])],
+    [
+        ({"2026-09-21"}, ["2026-09-21"]),
+        (None, ["2026-09-24", "2026-09-23", "2026-09-22"]),
+    ],
     ids=["named_day_only", "every_day"],
 )
 def test_a_named_rescore_solves_only_the_day_named(monkeypatch, only, scored):
