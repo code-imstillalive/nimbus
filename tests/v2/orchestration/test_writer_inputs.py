@@ -1016,3 +1016,290 @@ def test_a_power_sensor_that_cannot_be_read_is_taken_as_kw(monkeypatch):
 
     monkeypatch.setattr(shared, "ha_get", unreachable)
     assert shared._kw_scale_factor("sensor.pv") == 1.0
+
+
+# --- a price event the household arms to test the plan (#1213) ------------------------------
+
+EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
+ARMED = {
+    "solver_price_event_enabled": True,
+    "solver_price_event_sensor": "sensor.event",
+}
+
+
+def _steps(*pairs):
+    return [
+        {"time": (EVENT_DAY + timedelta(hours=h)).isoformat(), "value": v}
+        for h, v in pairs
+    ]
+
+
+@pytest.fixture
+def event(monkeypatch):
+    def run(state, n=8, cfg=ARMED, minutes=30):
+        monkeypatch.setattr(sw, "ha_get", lambda _e: state)
+        return sw.resolve_price_event_delta(
+            cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
+        )
+
+    return run
+
+
+def _forecast(points):
+    return {"state": "0.0", "attributes": {"forecast": points}}
+
+
+@pytest.mark.parametrize(
+    ("cfg", "n", "points"),
+    [
+        (
+            {**ARMED, "solver_price_event_enabled": False},
+            8,
+            _steps((0, 20.0), (2, 0.0)),
+        ),
+        ({"solver_price_event_enabled": True}, 8, _steps((0, 20.0))),
+        (ARMED, 0, _steps((0, 20.0))),
+        (ARMED, 8, _steps((48, 20.0), (50, 0.0))),  # misses this horizon
+    ],
+    ids=["switch_off", "no_sensor", "empty_grid", "outside_the_horizon"],
+)
+def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
+    event, cfg, n, points
+):
+    assert event(_forecast(points), n=n, cfg=cfg) is None
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        None,
+        {"state": "0.0", "attributes": {}},
+        _forecast([{"time": "not-a-date", "value": "nope"}, {"nothing": 1}, "x"]),
+    ],
+    ids=["unreadable", "no_forecast", "nothing_parses"],
+)
+def test_an_armed_event_that_cannot_be_read_warns_and_applies_nothing(
+    event, caplog, state
+):
+    with caplog.at_level(logging.WARNING):
+        assert event(state, n=4) is None
+    assert "#1213" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("points", "n", "expected"),
+    [
+        (_steps((2, 20.0), (4, 0.0)), 12, [0.0] * 4 + [20.0] * 4 + [0.0] * 4),
+        (_steps((0, 20.0), (2, 0.0)), 8, [20.0] * 4 + [0.0] * 4),
+        (_steps((4, 0.0), (0, 20.0), (2, 5.0)), 10, [20.0] * 4 + [5.0] * 4 + [0.0] * 2),
+        (
+            [{"time": "not-a-date", "value": 5.0}, *_steps((1, 20.0), (3, 0.0))],
+            8,
+            [0.0] * 2 + [20.0] * 4 + [0.0] * 2,
+        ),
+    ],
+    ids=["zero_before_never_backfilled", "closed", "unsorted", "one_bad_row"],
+)
+def test_the_delta_is_a_step_that_starts_at_its_first_point(event, points, n, expected):
+    assert event(_forecast(points), n=n) == expected
+
+
+def test_an_event_that_never_closes_holds_and_says_so(event, caplog):
+    with caplog.at_level(logging.WARNING):
+        assert event(_forecast(_steps((0, 20.0))), n=6) == [20.0] * 6
+    assert "never closes" in caplog.text and "#1213" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("points", "window", "delta"),
+    [
+        (_steps((18, 20.0), (20, 0.0)), range(36, 40), 20.0),  # a price-cap evening
+        (_steps((11, -1.0), (15, 0.0)), range(22, 30), -1.0),  # a negative midday
+    ],
+)
+def test_a_days_event_lands_on_its_own_hours_only(event, points, window, delta):
+    out = event(_forecast(points), n=48)
+    assert [i for i, d in enumerate(out) if d] == list(window)
+    assert {out[i] for i in window} == {delta}
+
+
+# --- P2P follows the household's own blocks (#1537) ------------------------------------------
+
+LV_ROW = {"proportionP2P": 0.569915, "matchedCost": 0.268861, "volume": 0.9368}
+LV_RATE = 0.268861 / (0.9368 * 0.569915)
+MIDDAY = _grid(
+    3, minutes=5, start=datetime(2026, 10, 6, 1, 0, tzinfo=UTC)
+)  # 11:00 local
+EVENING = _grid(
+    3, minutes=5, start=datetime(2026, 10, 6, 7, 0, tzinfo=UTC)
+)  # 17:00 local
+
+
+def _lv_rates(monkeypatch, grid, window, rows=None, **row):
+    if rows is None:
+        rows = [
+            {"intervalEnd": (t + timedelta(minutes=5)).isoformat(), **LV_ROW, **row}
+            for t in grid
+        ]
+    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
+    return sw.resample_real_p2p_rate(grid, "sensor.p2p", window)
+
+
+NAN = float("nan")
+
+
+@pytest.mark.parametrize(
+    ("grid", "window", "expected"),
+    [
+        (MIDDAY, [5.0] * 3, [LV_RATE] * 3),  # a block at any hour gets its rate
+        (EVENING, [NAN] * 3, [0.0] * 3),  # outside the blocks, even at 17:00
+        (MIDDAY, [NAN, 5.0, 0.0], [0.0, LV_RATE, 0.0]),  # per period; 0 kW pins
+        (MIDDAY, None, [LV_RATE] * 3),  # no block: matched at any hour (#1559)
+        (EVENING, None, [LV_RATE] * 3),
+    ],
+    ids=[
+        "midday_block",
+        "evening_outside",
+        "per_period",
+        "no_block_midday",
+        "no_block_evening",
+    ],
+)
+def test_the_matched_rate_counts_inside_the_households_own_blocks(
+    monkeypatch, grid, window, expected
+):
+    assert _lv_rates(monkeypatch, grid, window) == pytest.approx(expected)
+
+
+def test_past_the_feed_a_block_keeps_its_rate_and_no_block_assumes_nothing(monkeypatch):
+    rows = [{"intervalEnd": (EVENING[0] + timedelta(minutes=5)).isoformat(), **LV_ROW}]
+    assert _lv_rates(monkeypatch, EVENING, None, rows=rows) == pytest.approx(
+        [LV_RATE, 0.0, 0.0]
+    )
+    assert _lv_rates(monkeypatch, EVENING, [11.5] * 3, rows=rows) == pytest.approx(
+        [LV_RATE] * 3
+    )
+
+
+def test_an_unmatched_interval_or_a_misaligned_window_is_no_block(monkeypatch):
+    assert _lv_rates(monkeypatch, MIDDAY, None, proportionP2P=0.0) == [0.0] * 3
+    assert _lv_rates(monkeypatch, MIDDAY, [5.0]) == _lv_rates(monkeypatch, MIDDAY, None)
+
+
+def _blocks(*blocks):
+    cfg = {}
+    for n, (rate, start, end) in enumerate(blocks, 1):
+        cfg[f"solver_p2p_block_{n}_rate_kw"] = rate
+        cfg[f"solver_p2p_block_{n}_start_hour"] = start
+        cfg[f"solver_p2p_block_{n}_end_hour"] = end
+    return cfg
+
+
+@pytest.mark.parametrize(
+    ("cfg", "kwh"),
+    [
+        (_blocks((11.5, 17, 24)), 80.5),
+        (_blocks((14.0, 14, 17), (4.0, 17, 18), (17.0, 18, 21)), 97.0),
+        ({}, 0.0),
+        (
+            _blocks((0.0, 17, 24), (5.0, 20, 18)),
+            0.0,
+        ),  # no rate; an end before its start
+        ({**_blocks((11.5, 17, 24)), "solver_p2p_block_lead_time_minutes": 1}, 80.5),
+    ],
+    ids=["one", "three", "none", "invalid", "lead_time"],
+)
+def test_a_days_committed_energy_is_the_sum_of_its_blocks(cfg, kwh):
+    assert sw.p2p_blocks_daily_energy_kwh(cfg) == pytest.approx(kwh)
+
+
+@pytest.mark.parametrize(
+    ("cfg", "volume"),
+    [
+        (_blocks((11.5, 17, 24)), 80.5),  # the wizard's default 0 becomes the blocks'
+        ({**_blocks((11.5, 17, 24)), "solver_p2p_bonus_volume_kwh": 40}, 40.0),
+        ({}, 0.0),
+    ],
+    ids=["from_blocks", "configured", "none"],
+)
+def test_the_generic_branchs_p2p_volume(monkeypatch, cfg, volume):
+    from solver_inputs import prices
+
+    n = len(EVENING)
+    monkeypatch.setattr(
+        sw,
+        "resample_generic_price_forecast_with_coverage",
+        lambda *_a: ([0.1] * n, [True] * n),
+    )
+    out = prices.build_price_arrays(
+        {
+            "solver_import_price_sensor": "sensor.i",
+            "solver_export_price_sensor": "sensor.e",
+            **cfg,
+        },
+        EVENING,
+        n,
+        EVENING[0],
+        False,
+        None,
+    )
+    assert out.p2p_recent_volume_kwh == pytest.approx(volume)
+
+
+@pytest.fixture
+def array_branch(monkeypatch):
+    from solver_inputs import prices
+
+    n = len(EVENING)
+    seen = {}
+
+    def rate(grid, sensor_id=None, window=None, **_k):
+        seen["window"] = window
+        return [0.5] * len(grid)
+
+    def build(cfg, recent=60.0):
+        for name, value in {
+            "ha_get": lambda _e: {"attributes": {"forecast": []}},
+            "fetch_aemo_forecast": lambda _e: None,
+            "fetch_price_history": lambda *a, **k: [],
+            "compute_5min_offset": lambda *a, **k: {},
+            "compute_price_percentile_band": lambda *a, **k: {},
+            "resample_price_with_extrapolation": lambda *a, **k: (
+                [0.1] * n,
+                [True] * n,
+            ),
+            "resample_real_p2p_rate": rate,
+            "check_aemo_p5min_disagreement": lambda *a, **k: None,
+            "p2p_match_fraction": lambda **k: 0.65,
+            "p2p_recent_avg_volume_kwh": lambda **k: recent,
+        }.items():
+            monkeypatch.setattr(sw, name, value)
+        return prices.build_price_arrays(
+            {
+                "solver_import_price_sensor": "sensor.i",
+                "solver_export_price_sensor": "sensor.e",
+                **cfg,
+            },
+            EVENING,
+            n,
+            EVENING[0],
+            True,
+            "sensor.array",
+        )
+
+    build.seen = seen
+    return build
+
+
+def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
+    array_branch,
+):
+    blocks = _blocks((11.5, 17, 24))
+    out = array_branch(blocks)
+    assert array_branch.seen["window"] == [11.5] * 3
+    assert out.p2p_recent_volume_kwh == pytest.approx(80.5)
+    assert out.export_bonus_price == pytest.approx([0.4] * 3)  # premium over spot
+    settled = {**blocks, "solver_p2p_settlement_history_sensor": "sensor.hist"}
+    assert array_branch(settled, recent=47.7).p2p_recent_volume_kwh == 47.7
+    none = array_branch({})
+    assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0

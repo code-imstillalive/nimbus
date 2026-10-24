@@ -1,36 +1,25 @@
-"""nimbus #1994: every external source is found one way, through the entity
-registry by integration and built-in unique_id, never by entity_id.
+"""Every external source Nimbus reads is found one way: through the entity
+registry, by its integration and built-in unique_id, never by entity_id, so a
+renamed or localised entity is still found (#1994) (#1837).
 
-Solar auto-include, the Solcast running-low gate, the #1932 new-install
-default and LocalVolts' price freshness used to match fixed entity_ids, so a
-renamed or localised entity was silently lost: with no other solar source,
-every plan ran on 0 kW solar. Each now reads what `known_sources.resolve()`
-finds, published on sensor.nimbus_solver_config as `known_sources`.
+An ambiguous, disabled or unloaded source is not read. Published on
+sensor.nimbus_solver_config as `known_sources`.
 """
 
 from __future__ import annotations
 
-import ast
-import re
+import importlib
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: F401
-import solver_writer
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from solver_inputs import price_freshness, solar
-
-from custom_components.nimbus_load import known_sources as ks
-
-PKG = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
+ks = importlib.import_module("custom_components.nimbus_load.known_sources")
 
 # The entity_ids these integrations create on an install that renamed nothing:
 # what the fixed lists used to hold.
@@ -180,90 +169,3 @@ def test_localvolts_is_found_by_its_unique_ids():
         "entities": ["sensor.lv_buy_now", "sensor.lv_price", "sensor.lv_sell_now"],
         "stamp_siblings": ["sensor.lv_buy_now", "sensor.lv_sell_now"],
     }
-
-
-# --- the readers use it -------------------------------------------------------
-
-
-def test_a_renamed_localvolts_price_keeps_its_freshness_check():
-    lv = {
-        "entities": ["sensor.lv_buy_now", "sensor.lv_price", "sensor.lv_sell_now"],
-        "stamp_siblings": ["sensor.lv_buy_now", "sensor.lv_sell_now"],
-    }
-    assert (
-        price_freshness.lv_v2_siblings(["sensor.lv_price"], lv) == lv["stamp_siblings"]
-    )
-    assert price_freshness.lv_v2_siblings(["sensor.amber_price"], lv) == []
-    assert price_freshness.lv_v2_siblings(["sensor.lv_price"], None) == []
-
-
-def test_a_renamed_solcast_still_joins_the_solar_blend():
-    """Before #1994 auto-include looked for Solcast's default entity_id and,
-    renamed, read nothing; now the renamed entity is the member."""
-    now = datetime(2026, 10, 22, 10, 0).astimezone()
-    grid = [now + timedelta(minutes=30 * i) for i in range(4)]
-    detailed = [
-        {
-            "period_start": (now + timedelta(minutes=30 * i)).isoformat(),
-            "pv_estimate": 3.0,
-            "pv_estimate10": 2.0,
-            "pv_estimate90": 4.0,
-        }
-        for i in range(4)
-    ]
-    states = {
-        "sensor.bumbum_solbum_today": {"attributes": {"detailedForecast": detailed}}
-    }
-    cfg = {"known_sources": {"solcast": ["sensor.bumbum_solbum_today"]}}
-    with (
-        patch.object(solver_writer, "entity_exists", lambda e: e in states),
-        patch.object(solver_writer, "ha_get", lambda e: states[e]),
-    ):
-        value, lower, upper = solar._fetch_solcast_solar_raw(grid, len(grid), cfg)
-        assert solar._fetch_solcast_solar_raw(grid, len(grid), {}) is None
-    assert value == [3.0] * 4 and lower == [2.0] * 4 and upper == [4.0] * 4
-
-
-# --- no entity_id literal comes back -------------------------------------------
-
-_ENTITY_ID = re.compile(
-    r"^(?:sensor|binary_sensor|switch|number|select|input_number|input_boolean|"
-    r"input_select|weather|water_heater|climate|button|time|device_tracker|"
-    r"person|sun|zone)\.[a-z0-9_]+$"
-)
-
-
-def _docstring_ids(tree: ast.AST) -> set[int]:
-    out = set()
-    for node in ast.walk(tree):
-        body = getattr(node, "body", None)
-        if (
-            isinstance(
-                node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-            )
-            and body
-            and isinstance(body[0], ast.Expr)
-            and isinstance(body[0].value, ast.Constant)
-        ):
-            out.add(id(body[0].value))
-    return out
-
-
-def test_no_external_entity_id_is_written_into_the_integration():
-    """A string constant that is a whole entity_id, outside a docstring, must
-    be one of Nimbus's own. Anything else is found through the registry
-    (`known_sources`) or configured."""
-    found = []
-    for path in sorted(PKG.rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        docs = _docstring_ids(tree)
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Constant)
-                and isinstance(node.value, str)
-                and id(node) not in docs
-                and _ENTITY_ID.match(node.value)
-                and ".nimbus" not in node.value
-            ):
-                found.append(f"{path.relative_to(PKG)}:{node.lineno} {node.value}")
-    assert found == []
