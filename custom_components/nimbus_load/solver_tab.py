@@ -1856,19 +1856,10 @@ def template() -> list[dict[str, Any]]:
     row = {"rows": 8}
     half = {"rows": 7}
     plan = {"rows": 12}
+    # Household, 24 Oct 2026: after the top row, the Plan first, then Money,
+    # then Performance.
     return [
         *_top_row(),
-        banners["Performance"],
-        _section([_cost_chart()], 4, {"rows": 6}),
-        _section([_styled(_HOUSEHOLD_QUALITY, _QUALITY_STYLE)], 1, row),
-        _section([_styled(_glance_chart(), _CHART_FIGURES_BELOW)], 1, row),
-        _section([_styled(_score_chart(), _CHART_FIGURES_BELOW)], 1, row),
-        _section([_styled(_breakdown_chart(), _CHART_FIGURES_BELOW)], 1, row),
-        banners["Money"],
-        *(_section([_card(c)], 1) for c in _MONEY_ROW),
-        _section([_styled(_energy_table(), _FILL_NO_SCROLL)], 1, half),
-        _section([_styled(_per_day_money(), _FILL_NO_SCROLL)], 1, half),
-        _section([_styled(_energy_pie(), _FILL)], 2, half),
         banners["Plan"],
         _section([_chart()], 4),
         # Household, 20 Oct 2026: on a first visit this chart drew a third of
@@ -1909,6 +1900,17 @@ def template() -> list[dict[str, Any]]:
             for days in ((0, 1), (2, 3))
         ),
         *_risk_row(),
+        banners["Money"],
+        *(_section([_card(c)], 1) for c in _MONEY_ROW),
+        _section([_styled(_energy_table(), _FILL_NO_SCROLL)], 1, half),
+        _section([_styled(_per_day_money(), _FILL_NO_SCROLL)], 1, half),
+        _section([_styled(_energy_pie(), _FILL)], 2, half),
+        banners["Performance"],
+        _section([_cost_chart()], 4, {"rows": 6}),
+        _section([_styled(_HOUSEHOLD_QUALITY, _QUALITY_STYLE)], 1, row),
+        _section([_styled(_glance_chart(), _CHART_FIGURES_BELOW)], 1, row),
+        _section([_styled(_score_chart(), _CHART_FIGURES_BELOW)], 1, row),
+        _section([_styled(_breakdown_chart(), _CHART_FIGURES_BELOW)], 1, row),
         banners["Basic settings"],
         *(_section([_card(c)], 1) for c in _BASIC_ROW),
         banners["Advanced settings"],
