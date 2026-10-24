@@ -20,7 +20,7 @@ import re
 import unittest
 from pathlib import Path
 
-from _writer_source import writer_source
+from _writer_source import writer_source, writer_source_paths, writer_trees
 
 # --- test_readme_entity_references_exist ------------------------------------------------------
 # Regression test for nimbus issue #364 (Mark Purcell, codebase review):
@@ -1539,3 +1539,84 @@ def test_1213_both_string_files_describe_the_price_event_field():
         assert "holds forward" in dumped, name
         desc = blob["options"]["step"]["solver_grid"]["data_description"]
         assert "{" not in desc["solver_price_event_sensor"], name
+
+
+# --- test_1179_the_diagnostics_steer_nothing --------------------------------------------------
+# #1179: the blend weight, HiGHS's own numbers and the dumped model are
+# observability only. The solve never branches on the weight it reports, the
+# writer branches on the diagnostics exactly once (whether to print a path it
+# has), and sensor.py's staleness fingerprint names how many keys
+# `solve_diagnostics` emits. The fallback flag and reason are tested by
+# behaviour in tests/v2/solver/test_lp_failure_paths.py.
+
+_SOLVER_DIR = _REPO_ROOT / "custom_components" / "nimbus_load" / "solver"
+
+
+def _conditions(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return [
+        ast.unparse(n.test)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.If, ast.While, ast.IfExp))
+    ]
+
+
+def test_1179_the_solver_never_branches_on_the_weight_it_reports():
+    for name in ("lp.py", "network.py"):
+        hits = [
+            t for t in _conditions(_SOLVER_DIR / name) if "calibration_weight_used" in t
+        ]
+        assert hits == [], f"{name} branches on the reported weight: {hits}"
+
+
+def test_1179_the_writer_branches_on_the_highs_diagnostics_only_to_log_them():
+    hits = [
+        t
+        for path in writer_source_paths()
+        for t in _conditions(path)
+        if "highs_info" in t or "failing_model_path" in t
+    ]
+    assert hits == ["plan.failing_model_path is not None"], hits
+
+
+def test_1179_sensor_py_names_how_many_solve_diagnostics_keys_there_are():
+    keys = None
+    for _path, tree in writer_trees():
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                for k, v in zip(node.keys, node.values, strict=True):
+                    if (
+                        isinstance(k, ast.Constant)
+                        and k.value == "solve_diagnostics"
+                        and isinstance(v, ast.Dict)
+                    ):
+                        keys = [c for c in v.keys if isinstance(c, ast.Constant)]
+    assert keys is not None, "no solve_diagnostics dict literal in the writer"
+    words = [
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+    ]
+    words += [f"twenty-{w}" for w in words[1:10]]
+    doc = (_REPO_ROOT / "custom_components" / "nimbus_load" / "sensor.py").read_text(
+        encoding="utf-8"
+    )
+    assert f"emits **{words[len(keys)]}**" in doc, len(keys)
