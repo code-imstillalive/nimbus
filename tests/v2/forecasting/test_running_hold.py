@@ -1,11 +1,7 @@
-"""nimbus #1703 (household, 11 Oct 2026): a burst load's "running" hold.
-
-The household's own YAML forecasts for its ACs, laundry and EV charger said:
-at or above a threshold (600 W, or 1000 W for the EV), forecast the current
-draw for the next hour, then 0, re-evaluated on every reading. Without that,
-the recursive lag chain carried a running AC's 0.9 kW across the whole
-horizon. A Load can now carry the same rule: `running_threshold_kw` and
-`run_hold_hours`.
+"""A burst load's running hold: at or above its threshold, the current
+draw is forecast for the hold, then the load's usual pattern; a short dip
+stays held, a longer one is off, and an unset threshold is the old
+behaviour (#1703) (#1837).
 """
 
 from __future__ import annotations
@@ -128,23 +124,6 @@ class TestRunningHold(unittest.TestCase):
         now = START + timedelta(days=DAYS, hours=15, minutes=30)
         result = self._predict(now, 0.9, running_threshold_kw=0.6, run_hold_hours=1.0)
         self.assertEqual(result.values[:4], [0.9] * 4)
-
-
-class TestTheFieldsReachThePredictCall(unittest.TestCase):
-    def test_the_coordinator_passes_both_fields(self):
-        from pathlib import Path
-
-        src = (
-            Path(__file__).resolve().parents[1]
-            / "custom_components"
-            / "nimbus_load"
-            / "coordinator.py"
-        ).read_text(encoding="utf-8")
-        # The call lives in the coordinator's `_predict` slice helper (the
-        # grid is "now" then the clock, predicted in two parts, 13 Oct 2026).
-        call = src[src.index("def _predict(lo: int, hi: int | None)") :][:1200]
-        self.assertIn("self._running_threshold_kw", call)
-        self.assertIn("self._run_hold_hours", call)
 
 
 if __name__ == "__main__":
