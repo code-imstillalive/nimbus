@@ -4493,6 +4493,50 @@ def resolve_price_spike_override(
     return discharge_kw, spike_detected
 
 
+# nimbus #2026: whether the clamp below has already warned during the current
+# episode. Cleared as soon as the override fits again, so the next episode
+# warns once more.
+_SPIKE_OVERRIDE_CLAMP_WARNED = False
+
+
+def clamp_spike_override_to_live_ceiling(
+    cfg: dict, spike_override_kw: float | None, max_discharge_kw: float
+) -> float | None:
+    """nimbus #2026 (Mark Purcell's decision on the issue): an armed spike
+    rate within the static `solver_max_discharge_kw` but above the live
+    ceiling (`solver_max_discharge_live_entity`'s `max`, which can sit
+    below the static setting through derating, no configuration error)
+    is clamped to that live ceiling, with one warning per episode.
+    Rejecting it made every solve fail during the very spike the
+    override exists for.
+
+    A rate above the static setting as well is a real misconfiguration,
+    so it is passed through unchanged and BatteryConfig still rejects it
+    loudly (#567).
+    """
+    global _SPIKE_OVERRIDE_CLAMP_WARNED
+    static_kw = _cfg_num(cfg, "solver_max_discharge_kw", max_discharge_kw)
+    if (
+        spike_override_kw is None
+        or spike_override_kw <= max_discharge_kw
+        or spike_override_kw > static_kw
+    ):
+        _SPIKE_OVERRIDE_CLAMP_WARNED = False
+        return spike_override_kw
+    if not _SPIKE_OVERRIDE_CLAMP_WARNED:
+        _SPIKE_OVERRIDE_CLAMP_WARNED = True
+        _LOGGER.warning(
+            "Nimbus Solver: the price spike discharge rate (%.2f kW) is above "
+            "the live max-discharge ceiling (%.2f kW from %s) -- discharging "
+            "at the live ceiling instead. Logged once until the rate fits "
+            "again.",
+            spike_override_kw,
+            max_discharge_kw,
+            cfg.get("solver_max_discharge_live_entity"),
+        )
+    return max_discharge_kw
+
+
 def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, float]]:
     """Real recorded history for a single sensor's numeric state, as
     (local time, value) points -- the shared building block for
@@ -9809,6 +9853,9 @@ def main() -> None:
     # purely on detection.
     spike_override_kw, price_spike_active = resolve_price_spike_override(
         cfg, import_price[0]
+    )
+    spike_override_kw = clamp_spike_override_to_live_ceiling(
+        cfg, spike_override_kw, max_discharge_kw
     )
     # nimbus issue #1303 (spec 004, Phase 4 of #1298): the 244-line plan-
     # assembly span that used to sit inline here now lives in solver_plan.py.

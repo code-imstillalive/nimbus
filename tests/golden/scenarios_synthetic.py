@@ -79,3 +79,30 @@ register(
         cycles=2,
     )
 )
+
+
+# nimbus #2026: an armed spike rate within the static max-discharge setting
+# but above the live ceiling's `max`, during a spike. The plan must still be
+# published, discharging at the live ceiling, with one warning.
+def _spike_above_live_ceiling() -> FakeHA:
+    config = {
+        **BASE_CONFIG,
+        "solver_max_discharge_live_entity": "number.fake_max_discharge",
+        "solver_price_spike_override_armed": True,
+        "solver_price_spike_discharge_kw": 5.0,
+        "solver_price_spike_alert_entity": "binary_sensor.fake_spike",
+    }
+    states = base_states(config)
+    states["number.fake_max_discharge"] = {"state": "4.0", "attributes": {"max": 4.0}}
+    states["binary_sensor.fake_spike"] = {"state": "on", "attributes": {}}
+    return FakeHA(states=states)
+
+
+register(
+    Scenario(
+        name="spike_override_above_live_ceiling",
+        instant="2026-09-06T10:00:00+00:00",
+        build=_spike_above_live_ceiling,
+        purpose="#2026: the spike rate is clamped to the live ceiling, not refused",
+    )
+)

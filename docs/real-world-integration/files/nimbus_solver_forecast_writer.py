@@ -2929,6 +2929,42 @@ def resolve_price_spike_override(
     return discharge_kw, spike_detected
 
 
+# nimbus #2026: whether the clamp below has already warned during the current
+# episode. Cleared as soon as the override fits again.
+_SPIKE_OVERRIDE_CLAMP_WARNED = False
+
+
+def clamp_spike_override_to_live_ceiling(
+    cfg: dict, spike_override_kw: float | None, max_discharge_kw: float
+) -> float | None:
+    """nimbus #2026: an armed spike rate within the static
+    `solver_max_discharge_kw` but above the live ceiling
+    (`solver_max_discharge_live_entity`'s `max`) is clamped to that live
+    ceiling, with one warning per episode, instead of failing every solve
+    during the spike. A rate above the static setting as well is a real
+    misconfiguration and is passed through, so BatteryConfig still refuses
+    it (#567). Same function as the integration's solver_writer.py."""
+    global _SPIKE_OVERRIDE_CLAMP_WARNED
+    static_kw = _cfg_num(cfg, "solver_max_discharge_kw", max_discharge_kw)
+    if (
+        spike_override_kw is None
+        or spike_override_kw <= max_discharge_kw
+        or spike_override_kw > static_kw
+    ):
+        _SPIKE_OVERRIDE_CLAMP_WARNED = False
+        return spike_override_kw
+    if not _SPIKE_OVERRIDE_CLAMP_WARNED:
+        _SPIKE_OVERRIDE_CLAMP_WARNED = True
+        print(
+            f"WARN: the price spike discharge rate ({spike_override_kw:.2f} kW) "
+            f"is above the live max-discharge ceiling ({max_discharge_kw:.2f} kW "
+            f"from {cfg.get('solver_max_discharge_live_entity')}) -- discharging "
+            "at the live ceiling instead. Logged once until the rate fits again.",
+            file=sys.stderr,
+        )
+    return max_discharge_kw
+
+
 def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, float]]:
     """Real recorded history for a single sensor's numeric state, as
     (local time, value) points -- the shared building block for
@@ -5074,6 +5110,9 @@ def main() -> None:
     # whether spike_override_kw ends up armed/active.
     spike_override_kw, price_spike_active = resolve_price_spike_override(
         cfg, import_price[0], grid_times
+    )
+    spike_override_kw = clamp_spike_override_to_live_ceiling(
+        cfg, spike_override_kw, max_discharge_kw
     )
     battery = elements.BatteryConfig(
         name="home",  # nimbus issue #467: single real household battery
