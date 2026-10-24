@@ -415,7 +415,17 @@ class _JointSolve:
             )
             if capture.problem is None:
                 self.last_failure_raw_status = f"scenario_{label}_not_built"
-                return LPResult(status="error", raw_status=self.last_failure_raw_status)
+                unbuilt = LPResult(
+                    status="error", raw_status=self.last_failure_raw_status
+                )
+                self._record(
+                    call_started,
+                    None,
+                    unbuilt,
+                    thermal_hard_deadline=thermal_hard_deadline,
+                    direction_binaries=direction_binaries,
+                )
+                return unbuilt
             built.append((label, weight, capture.problem))
 
         joint = LPProblem()

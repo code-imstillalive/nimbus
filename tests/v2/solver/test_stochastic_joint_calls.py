@@ -106,3 +106,20 @@ def test_a_call_refused_by_the_spent_budget_is_recorded_too():
         "thermal_hard_deadline": True,  # the first attempt is the hard one
         "direction_binaries": 0,
     }
+
+
+def test_a_scenario_that_cannot_be_built_is_recorded_too(monkeypatch):
+    real = network._build_plan_once
+
+    def build(**kw):
+        if kw.get("lp_solve_hook").__class__.__name__ == "_Capture":
+            return None  # the scenario's problem is never captured
+        return real(**kw)
+
+    monkeypatch.setattr(network, "_build_plan_once", build)
+    result = sd.build_stochastic_plan(_inputs())
+    assert result.status != "optimal"
+    last = result.joint_calls[-1]
+    assert last["raw_status"] == result.raw_status
+    assert last["raw_status"].endswith("_not_built")
+    assert last["time_limit_seconds"] is None and last["status"] == "error"
