@@ -118,6 +118,7 @@ value of energy in the same units as a deterministic plan's.
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -349,6 +350,36 @@ class _JointSolve:
     # own net stage-1 battery kW (discharge positive), which must agree.
     nonanticipativity_max_gap: float | None = None
     scenario_stage1_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # #2025: one record per call build_plan() makes, in order, so a
+    # time-limit fallback names the call that ran out rather than the total.
+    calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def _record(
+        self,
+        started: float,
+        limit: float | None,
+        result: LPResult,
+        *,
+        thermal_hard_deadline: bool,
+        direction_binaries: frozenset[str],
+    ) -> None:
+        gap = result.highs_info.get("mip_gap")
+        self.calls.append(
+            {
+                "call": len(self.calls) + 1,
+                "solve_seconds": round(time.monotonic() - started, 3),
+                "time_limit_seconds": None if limit is None else round(limit, 3),
+                "status": result.status,
+                "raw_status": result.raw_status,
+                "mip_gap": (
+                    float(gap)
+                    if isinstance(gap, (int, float)) and math.isfinite(gap)
+                    else None
+                ),
+                "thermal_hard_deadline": bool(thermal_hard_deadline),
+                "direction_binaries": len(direction_binaries),
+            }
+        )
 
     def __call__(
         self,
@@ -358,10 +389,19 @@ class _JointSolve:
         thermal_hard_deadline: bool,
         direction_binaries: frozenset[str],
     ) -> LPResult:
+        call_started = time.monotonic()
         remaining = None if self.deadline is None else self.deadline - time.monotonic()
         if remaining is not None and remaining <= 0.0:
             self.last_failure_raw_status = "stochastic_budget_exhausted"
-            return LPResult(status="error", raw_status=self.last_failure_raw_status)
+            refused = LPResult(status="error", raw_status=self.last_failure_raw_status)
+            self._record(
+                call_started,
+                0.0,
+                refused,
+                thermal_hard_deadline=thermal_hard_deadline,
+                direction_binaries=direction_binaries,
+            )
+            return refused
         self.n_joint_solves += 1
         built: list[tuple[str, float, LPProblem]] = []
         for label, weight, solar in self.others:
@@ -375,7 +415,17 @@ class _JointSolve:
             )
             if capture.problem is None:
                 self.last_failure_raw_status = f"scenario_{label}_not_built"
-                return LPResult(status="error", raw_status=self.last_failure_raw_status)
+                unbuilt = LPResult(
+                    status="error", raw_status=self.last_failure_raw_status
+                )
+                self._record(
+                    call_started,
+                    None,
+                    unbuilt,
+                    thermal_hard_deadline=thermal_hard_deadline,
+                    direction_binaries=direction_binaries,
+                )
+                return unbuilt
             built.append((label, weight, capture.problem))
 
         joint = LPProblem()
@@ -422,6 +472,13 @@ class _JointSolve:
             solve_kwargs.get("options"), self.blend_weight
         )
         result = joint.solve(**{**solve_kwargs, "options": options})
+        self._record(
+            call_started,
+            joint.time_limit_seconds,
+            result,
+            thermal_hard_deadline=thermal_hard_deadline,
+            direction_binaries=direction_binaries,
+        )
         if result.status != "optimal":
             self.last_failure_raw_status = result.raw_status or result.status
             return result
@@ -603,6 +660,8 @@ class StochasticResult:
     objective_mode: str | None = None
     nonanticipativity_max_gap: float | None = None
     scenario_stage1_battery_kw: dict[str, list[float]] = field(default_factory=dict)
+    # #2025: every joint call build_plan() made (_JointSolve.calls).
+    joint_calls: list[dict[str, Any]] = field(default_factory=list)
     # The commit window this solve used (minutes); K is its period count.
     stage1_minutes: float = STAGE1_MINUTES
     # Every battery's SoC at the horizon's last period, per scenario: the
@@ -764,6 +823,7 @@ def build_stochastic_plan(
             n_joint_solves=hook.n_joint_solves,
             raw_status=hook.last_failure_raw_status or hook.last_raw_status,
             objective_mode=hook.objective_mode,
+            joint_calls=list(hook.calls),
         )
     expected = sum(
         weights[i] * hook.scenario_costs[SCENARIO_LABELS[i]]
@@ -796,6 +856,7 @@ def build_stochastic_plan(
         fleet_capacity_kwh=float(sum(b.capacity_kwh for b in base["batteries"])),
         thermal_guarantee_relaxed=tuple(plan.thermal_guarantee_relaxed),
         direction_exclusivity=plan.direction_exclusivity,
+        joint_calls=list(hook.calls),
     )
 
 
@@ -838,6 +899,7 @@ def summary_attribute(
         "stochastic_solve_seconds": _rounded(result.solve_seconds),
         "deterministic_solve_seconds": _rounded(deterministic_solve_seconds),
         "joint_solves": int(result.n_joint_solves),
+        "joint_calls": [dict(c) for c in result.joint_calls],
         "joint_variables": int(result.n_joint_variables),
         "nonanticipativity_rows": int(result.n_nonanticipativity_rows),
         "nonanticipativity_max_gap": _rounded(result.nonanticipativity_max_gap),
