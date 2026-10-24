@@ -1371,6 +1371,9 @@ class LPProblem:
     # HiGHS's time limit counts the whole Highs object's run time, so the
     # instant pinned-LP refresh after it hit the same, already-spent limit.
     accept_time_limited_mip_gap: float | None = None
+    # #2025: the gap of the time-limited incumbent the last solve kept, read
+    # before the pin refresh resets HiGHS's info. None when none was kept.
+    accepted_mip_gap: float | None = None
 
     @property
     def is_mip(self) -> bool:
@@ -1642,6 +1645,7 @@ class LPProblem:
         decided by the primary-only MIP solve before any secondary cost
         is read.
         """
+        self.accepted_mip_gap = None
         if not self.quiet_diagnostics:
             return _solve_highs(
                 self, ranging=ranging, keep_basis=keep_basis, options=options
@@ -2102,6 +2106,7 @@ def _accept_timed_out_incumbent(h: Any, problem: LPProblem) -> bool:
     gap = float(info.mip_gap)
     if not feasible or not gap <= limit:
         return False
+    problem.accepted_mip_gap = gap
     _LOGGER.info(
         "Nimbus #1805: keeping a time-limited MIP incumbent (mip_gap=%.3g <= %.3g)",
         gap,
@@ -3217,6 +3222,13 @@ def _solve_highs(
     _ranging_valid_on_non_optimal = False if ranging else None
 
     status = h.getModelStatus()
+    # #2025: the plain solve keeps a time-limited MIP incumbent under the
+    # same rule the blended one does (#1805). The MIP pin below then
+    # re-solves the pinned LP, so it gets time of its own: the limit counts
+    # the whole Highs object's run time, already spent.
+    if options is None and binary_cols and _accept_timed_out_incumbent(h, problem):
+        h.setOptionValue("time_limit", h.getRunTime() + PIN_REFRESH_SECONDS)
+        status = highspy.HighsModelStatus.kOptimal
     # nimbus #1360 (a tester's install, 11 Oct 2026): HiGHS returned
     # "Unknown" 169 times in three hours -- about 100 simplex iterations, a
     # few primal infeasibilities of up to ~7 left, objective ~-$888 with a

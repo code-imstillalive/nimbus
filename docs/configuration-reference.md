@@ -350,7 +350,11 @@ dashboard rows say so:
 
 - **Drive the battery (experimental)**, on the Solver tab's Stochastic card
   (`switch.nimbus_solver_stochastic_dispatch`): the stochastic plan drives the
-  battery instead of the main plan.
+  battery instead of the main plan. While it is off, the same plan is still
+  checked in the background against the main one. A cycle whose main plan
+  alone took 15 s or more skips that check, because the check solves three
+  copies of it; `sensor.nimbus_solver_stochastic` then reads "Main plan: too
+  slow to check".
 - **Blend drives plan (experimental)**, on the Solver tab
   (`switch.nimbus_solver_price_consolidation_live`): every price source,
   combined, prices the plan instead of your provider alone.

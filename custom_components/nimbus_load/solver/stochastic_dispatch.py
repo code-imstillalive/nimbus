@@ -362,8 +362,12 @@ class _JointSolve:
         *,
         thermal_hard_deadline: bool,
         direction_binaries: frozenset[str],
+        joint_solve_seconds: float | None = None,
+        accepted_mip_gap: float | None = None,
     ) -> None:
         gap = result.highs_info.get("mip_gap")
+        if accepted_mip_gap is not None:
+            gap = accepted_mip_gap
         self.calls.append(
             {
                 "call": len(self.calls) + 1,
@@ -378,6 +382,13 @@ class _JointSolve:
                 ),
                 "thermal_hard_deadline": bool(thermal_hard_deadline),
                 "direction_binaries": len(direction_binaries),
+                # The HiGHS solve alone, without building the scenarios: on
+                # a call that overran its limit, says whether HiGHS did.
+                "joint_solve_seconds": (
+                    None
+                    if joint_solve_seconds is None
+                    else round(joint_solve_seconds, 3)
+                ),
             }
         )
 
@@ -471,6 +482,7 @@ class _JointSolve:
         options, self.objective_mode = joint_options(
             solve_kwargs.get("options"), self.blend_weight
         )
+        solve_started = time.monotonic()
         result = joint.solve(**{**solve_kwargs, "options": options})
         self._record(
             call_started,
@@ -478,6 +490,8 @@ class _JointSolve:
             result,
             thermal_hard_deadline=thermal_hard_deadline,
             direction_binaries=direction_binaries,
+            joint_solve_seconds=time.monotonic() - solve_started,
+            accepted_mip_gap=joint.accepted_mip_gap,
         )
         if result.status != "optimal":
             self.last_failure_raw_status = result.raw_status or result.status

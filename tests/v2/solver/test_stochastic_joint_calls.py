@@ -105,6 +105,7 @@ def test_a_call_refused_by_the_spent_budget_is_recorded_too():
         "mip_gap": None,
         "thermal_hard_deadline": True,  # the first attempt is the hard one
         "direction_binaries": 0,
+        "joint_solve_seconds": None,  # refused before any solve ran
     }
 
 
@@ -123,3 +124,23 @@ def test_a_scenario_that_cannot_be_built_is_recorded_too(monkeypatch):
     assert last["raw_status"] == result.raw_status
     assert last["raw_status"].endswith("_not_built")
     assert last["time_limit_seconds"] is None and last["status"] == "error"
+
+
+def test_a_call_names_its_own_solve_time_and_a_kept_incumbents_gap(monkeypatch):
+    """#2025: devhub's failing call took 63 s against a 20 s limit, which the
+    call's total alone cannot split into building and solving; and a kept
+    time-limited incumbent's gap is read before the pin refresh resets it."""
+    from solver import lp
+
+    real = lp.LPProblem.solve
+
+    def solve(self, **kw):
+        result = real(self, **kw)
+        self.accepted_mip_gap = 4e-4
+        return result
+
+    monkeypatch.setattr(lp.LPProblem, "solve", solve)
+    result = sd.build_stochastic_plan(_inputs())
+    last = result.joint_calls[-1]
+    assert last["mip_gap"] == 4e-4
+    assert 0.0 <= last["joint_solve_seconds"] <= last["solve_seconds"]
