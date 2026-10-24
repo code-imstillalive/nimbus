@@ -1,25 +1,24 @@
-"""nimbus #1778, Mark Purcell's dispatch-side RHS test (16 Oct 2026),
-diagnostic only. Fixtures are real NEMWeb rows, trimmed to QLD1's price and a
-handful of constraints (tests/fixtures/dispatch_rhs/):
+"""Dispatch's own right-hand side for a constraint P5MIN violates, compared
+run by run: the evidence that a P5MIN spike is a modelling error, not a
+market (#1778) (#1837).
 
-- 15 Oct: DispatchIS 16:10 with P5MIN 16:15. `CA_BRIS_59E2F7DC_1` binds in
-  dispatch at ~2,950 MW; P5MIN has it at ~1,400 MW and violated, and runs to
-  the $23,200 cap while dispatch is $103/MWh.
-- 16 Oct: DispatchIS 10:45 with P5MIN 10:50 (ratio ~0.47, no P5MIN spike: the
-  spike was in pre-dispatch, past P5MIN's horizon), then DispatchIS 10:50
-  with P5MIN 10:55, the run in which AEMO corrected the RHS (ratio 1.00)."""
+Fixtures are public NEMWeb rows trimmed to QLD1's price and a handful of
+constraints (tests/fixtures/dispatch_rhs/): a 15 Oct pair where P5MIN runs
+to the cap while dispatch is ~$103/MWh, and 16 Oct pairs before and after
+AEMO corrected the right-hand side.
+"""
 
 from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
 
-_PKG = Path(__file__).resolve().parents[1] / "custom_components" / "nimbus_load"
+_PKG = Path(__file__).resolve().parents[3] / "custom_components" / "nimbus_load"
 _spec = importlib.util.spec_from_file_location("dispatch_rhs", _PKG / "dispatch_rhs.py")
 dr = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(dr)
 
-FIX = Path(__file__).resolve().parent / "fixtures" / "dispatch_rhs"
+FIX = Path(__file__).resolve().parents[2] / "fixtures" / "dispatch_rhs"
 
 
 def _text(prefix: str) -> str:
@@ -114,12 +113,11 @@ def test_the_p5min_sensor_publishes_the_check_and_logs_once(caplog) -> None:
     import sys
     from unittest.mock import MagicMock
 
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import _solver_path  # noqa: F401
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from _ha_stubs import install_ha_stubs
 
     install_ha_stubs()
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
     from custom_components.nimbus_load import p5min
     from custom_components.nimbus_load import sensor_p5min as sp
 

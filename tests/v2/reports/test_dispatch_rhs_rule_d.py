@@ -1,17 +1,11 @@
-"""nimbus #1778 rule (d): Mark Purcell's dispatch-side RHS test, live for
-control-room (`CA_`) constraints only.
+"""Rule (d) of the false-spike guard: a control-room (`CA_`) constraint
+whose P5MIN right-hand side reads about half of dispatch's arms the guard
+even without a forecast violation, renews while the evidence holds and
+releases on the corrected run; other constraints stay diagnostic (#1778)
+(#1837).
 
-Real NEMWeb rows (tests/fixtures/dispatch_rhs/):
-- 16 Oct DispatchIS 10:45 with P5MIN 10:50: `CA_BRIS_59E3F2B6_1` binds in
-  dispatch at ~2,550 MW, P5MIN has it at ~1,190 MW (ratio 0.47) and prices
-  nothing high; the spike was in pre-dispatch, past P5MIN's horizon.
-- 16 Oct DispatchIS 10:50 with P5MIN 10:55: AEMO corrected the RHS (1.00).
-
-Measured on every P5MIN run of 13-16 Oct 2026 (1,152 runs, NEMWeb Archive):
-`CA_` rows read 0.46-0.50 of dispatch's RHS in every false-spike run and
-0.96-1.09 in all ~160 others; non-`CA_` rows (`NRM_NSW1_VIC1`, `V::N_NIL_V2`,
-`#R..._RAMP`) read under 0.6 on ordinary runs every day, so they stay
-diagnostic."""
+Fixtures are public NEMWeb rows (tests/fixtures/dispatch_rhs/).
+"""
 
 from __future__ import annotations
 
@@ -19,16 +13,15 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: F401
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import dispatch_rhs as dr
 from custom_components.nimbus_load import p5min, p5min_guard
 
-FIX = Path(__file__).resolve().parent / "fixtures" / "dispatch_rhs"
+FIX = Path(__file__).resolve().parents[2] / "fixtures" / "dispatch_rhs"
 NEM = p5min.NEM_TIME
 
 

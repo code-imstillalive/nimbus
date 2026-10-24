@@ -1,13 +1,12 @@
-"""nimbus #1778 (Mark Purcell): distrust a P5MIN spike that an infeasible run
-produced, or that dispatch contradicted.
+"""A P5MIN spike the market itself contradicts is not planned on (#1778)
+(#1837).
 
-Fixtures are real NEMWEB files from 15 Oct 2026 (public AEMO market data),
-`tests/fixtures/p5min/2026-10-15/`: P5MIN runs 15:45-16:50 and DISPATCHIS
-15:45-16:50, cut to QLD1's prices, CASESOLUTION's violation totals, the
-violated CONSTRAINTSOLUTION rows (plus three non-violated ones per run, so a
-parser that forgot the filter is caught) and dispatch's CA_BRIS rows.
-
-Every test names the rule it pins.
+Rule (a): a run whose first interval violates a constraint and forecasts at
+or near the cap is infeasible. Rule (b): dispatch came in far below the
+forecast for the same interval. While either holds, forward spikes are
+replaced; a clean run releases. The threshold is 5,000 $/MWh or 90 % of the
+cap, and 0 turns the guard off. The fixtures are public AEMO NEMWEB files
+from 15 Oct 2026 (market data, not household data).
 """
 
 from __future__ import annotations
@@ -21,20 +20,19 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: F401
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import solver_writer
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import number as number_mod
 from custom_components.nimbus_load import p5min, p5min_guard
 from custom_components.nimbus_load import sensor_p5min as sp
 
 NEM = p5min.NEM_TIME
-DIR = Path(__file__).resolve().parent / "fixtures" / "p5min" / "2026-10-15"
+DIR = Path(__file__).resolve().parents[2] / "fixtures" / "p5min" / "2026-10-15"
 OCT9 = sorted((DIR.parent / "2026-10-09").glob("*.CSV"))
 RUNS = sorted(DIR.glob("PUBLIC_P5MIN_*.CSV"))
 DISPATCH = sorted(DIR.glob("PUBLIC_DISPATCHIS_*.CSV"))

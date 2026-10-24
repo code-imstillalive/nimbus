@@ -1,7 +1,8 @@
-"""nimbus #1653 / #1658: AEMO's 5-minute pre-dispatch, parsed and published.
+"""AEMO's 5-minute pre-dispatch run, parsed for one region and published,
+and which region an install is in (#1653, #1658) (#1837).
 
-The fixture is a real NEMWEB file (public AEMO market data, trimmed to the
-REGIONSOLUTION table): run 2026-10-09 11:50, published 11:46:20.
+The fixture is a public NEMWEB file trimmed to the REGIONSOLUTION table:
+run 2026-10-09 11:50, published 11:46:20.
 """
 
 from __future__ import annotations
@@ -11,18 +12,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: F401
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import p5min
 from custom_components.nimbus_load import sensor_p5min as sp
 
 FIXTURE = (
-    Path(__file__).resolve().parent
+    Path(__file__).resolve().parents[2]
     / "fixtures"
     / "p5min"
     / "PUBLIC_P5MIN_202610091150_20261009114620.CSV"
