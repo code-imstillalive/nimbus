@@ -194,6 +194,27 @@ def test_nonanticipativity_holds_and_stage1_is_equal_across_scenarios():
     assert res.scenario_costs["p50"] > res.scenario_costs["p90"]
 
 
+def test_a_shared_chargers_direction_is_a_stage1_decision():
+    """#2031: one direction for all of a charger's members; in stage 1 it is
+    the same in every scenario, like a battery's own."""
+    kw = _tiered_inputs()
+    home = kw["batteries"][0]
+    group = {"shared_charger_group": "garage", "shared_charger_max_kw": 6.0}
+    kw["batteries"] = [
+        dataclasses.replace(home, name="car_a", **group),
+        dataclasses.replace(home, name="car_b", **group),
+    ]
+    capture = sd._Capture()
+    network._build_plan_once(
+        **kw, lp_solve_hook=capture, direction_binaries=network._ALL_DIRECTIONS
+    )
+    names = sd.stage1_decision_names(
+        capture.problem, 2, batteries=kw["batteries"], load_names=[]
+    )
+    assert {"charger_dir_garage_0", "charger_dir_garage_1"} <= set(names)
+    assert "charger_dir_garage_2" not in names
+
+
 def test_stage1_decision_names_cover_the_decisions_and_nothing_else():
     kw = _tiered_inputs()
     capture = sd._Capture()

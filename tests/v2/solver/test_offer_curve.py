@@ -1070,3 +1070,100 @@ class TestOfferCurveRangingWalkBackstop(unittest.TestCase):
         self.assertEqual(len(fake.calls), 5)
         backstop_price = fake.calls[4][1][0]
         self.assertAlmostEqual(backstop_price, (1.0 + 0.5) / 2.0)
+
+
+_PAID_ALL_DAY = (-1.0, -1.0, -1.0)
+# Paid to import in one period only: the plan's own direction round already
+# holds a battery's binary that the curve's exact solve then needs too.
+_PAID_ONCE = (0.10, -1.0, 0.30, 0.30, 0.30, 0.30)
+
+
+def _shared_charger_plan(imp0=None, curve=True, prices=_PAID_ALL_DAY):
+    """#2031's site: paid to import, two batteries on one 7 kW charger."""
+    imp = np.array(prices, dtype=float)
+    n = len(imp)
+    if imp0 is not None:
+        imp[0] = imp0
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    return build_plan(
+        periods=PeriodGrid(np.ones(n)),
+        grid=GridConfig(
+            import_price=imp,
+            export_price=np.full(n, -2.0),
+            import_limit_kw=28.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=[
+            BatteryConfig(
+                name=name,
+                capacity_kwh=5.0,
+                initial_soc_kwh=0.0 if prices == _PAID_ALL_DAY else 2.0,
+                min_soc_kwh=0.0,
+                max_soc_kwh=4.375,
+                max_charge_kw=7.0,
+                max_discharge_kw=7.0,
+                charge_efficiency=0.875,
+                discharge_efficiency=0.875,
+                charge_cost=0.005,
+                discharge_cost=0.005,
+                salvage_value=0.0,
+                **group,
+            )
+            for name in ("a", "c")
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[
+            LoadConfig(
+                name="house",
+                forecast_kw=np.zeros(n) if prices == _PAID_ALL_DAY else np.ones(n),
+            )
+        ],
+        compute_offer_curve=curve,
+    )
+
+
+def test_a_curve_on_a_plan_with_direction_rounds_does_not_register_a_binary_twice(
+    monkeypatch,
+):
+    """The curve's exact solve copies a problem whose own direction rounds may
+    already hold a binary. It registered it again and raised `Variable
+    'battery_dir_c_0' already registered` (found on #2031's site)."""
+    from solver import network
+
+    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+    plan = _shared_charger_plan(prices=_PAID_ONCE)
+    assert plan.status == "optimal"
+    assert plan.direction_exclusivity == "enforced"
+    assert plan.offer_curve_import
+
+
+def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(monkeypatch):
+    """#2031: the curve forbids what the plan forbids, a shared charger's
+    members charging one from another, so each point is still the period-0
+    import a fresh solve at its price plans, or at a tie, a value between
+    what fresh solves a hair either side plan.
+    Through the exact-MIP path: on this paid-to-import site the node search
+    takes minutes, on `main` as well."""
+    from solver import network
+
+    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+    prices = _PAID_ALL_DAY
+    plan = _shared_charger_plan(prices=prices)
+    assert plan.status == "optimal"
+    assert plan.offer_curve_import
+
+    def fresh(price):
+        return float(
+            _shared_charger_plan(imp0=price, curve=False, prices=prices).grid_import_kw[
+                0
+            ]
+        )
+
+    for price, kw in plan.offer_curve_import:
+        if fresh(price) == pytest.approx(kw, abs=1e-4):
+            continue
+        # A price where the plan jumps between two answers is a tie: either,
+        # or any blend of them, is optimal there.
+        eps = 1e-4 * max(1.0, abs(price))
+        low, high = sorted(fresh(price + d) for d in (-eps, eps))
+        assert low - 1e-4 <= kw <= high + 1e-4, (price, kw, low, high)

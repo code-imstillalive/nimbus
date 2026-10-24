@@ -1903,6 +1903,127 @@ def test_a_shared_charger_caps_its_group_and_no_one_else(cap):
     assert float(by["home"].charge_kw.max()) == pytest.approx(10.0, abs=1e-6)
 
 
+def _paid_to_import(*batteries, import_price=-1.0, export_price=-2.0):
+    """#2031's reproduction: three hours, paid to import, nothing to serve."""
+    return build_plan(
+        periods=PeriodGrid(np.ones(3)),
+        grid=GridConfig(
+            import_price=np.full(3, import_price),
+            export_price=np.full(3, export_price),
+            import_limit_kw=28.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=list(batteries),
+        solar=SolarConfig(forecast_kw=np.zeros(3)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(3))],
+    )
+
+
+def _small(name, **kw):
+    return BatteryConfig(
+        name=name,
+        capacity_kwh=5.0,
+        initial_soc_kwh=0.0,
+        min_soc_kwh=0.0,
+        max_soc_kwh=4.375,
+        max_charge_kw=7.0,
+        max_discharge_kw=7.0,
+        charge_efficiency=0.875,
+        discharge_efficiency=0.875,
+        charge_cost=0.005,
+        discharge_cost=0.005,
+        salvage_value=0.0,
+        **kw,
+    )
+
+
+def test_a_first_solve_through_one_charger_both_ways_is_flagged():
+    """#2031: the first solve, before any direction round, discharges one
+    member into the other; the rounds start from that being named."""
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    batteries = [_small("a", **group), _small("c", **group)]
+    first = network._build_plan_thermal_fallback(
+        periods=PeriodGrid(np.ones(3)),
+        grid=GridConfig(
+            import_price=np.full(3, -1.0),
+            export_price=np.full(3, -2.0),
+            import_limit_kw=28.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=batteries,
+        solar=SolarConfig(forecast_kw=np.zeros(3)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(3))],
+    )
+    charging = sum(b.charge_kw for b in first.batteries)
+    discharging = sum(b.discharge_kw for b in first.batteries)
+    opposed = np.flatnonzero(np.minimum(charging, discharging) > 1e-6)
+    assert opposed.size
+    flagged = network._opposing_flow_binaries(first, batteries)
+    assert {f"charger_dir_g_{t}" for t in opposed} <= flagged
+    assert not any(
+        n.startswith("charger_dir_") for n in network._opposing_flow_binaries(first)
+    )
+
+
+def test_one_charger_never_charges_one_member_from_another():
+    """#2031 (Mark Purcell): a shared charger is one conversion path. Paid to
+    import, the plan once discharged one member into the other through it to
+    burn energy in losses, and used 6.5 of its 7 kW in period 0. Now its
+    members all charge or all discharge, and period 0 fills the charger."""
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    plan = _paid_to_import(_small("a", **group), _small("c", **group))
+    assert plan.status == "optimal"
+    assert plan.direction_exclusivity == "enforced"
+    charging = sum(b.charge_kw for b in plan.batteries)
+    discharging = sum(b.discharge_kw for b in plan.batteries)
+    assert (np.minimum(charging, discharging) <= 1e-6).all()
+    assert float(charging[0]) == pytest.approx(7.0, abs=1e-6)
+
+
+@pytest.mark.parametrize(
+    "groups",
+    [
+        ({}, {}),  # two independent batteries
+        ({"shared_charger_group": "g", "shared_charger_max_kw": 7.0}, {}),  # one member
+        ({"shared_charger_group": "g"}, {"shared_charger_group": "g"}),  # no ceiling
+    ],
+    ids=["no_group", "one_member", "no_ceiling"],
+)
+def test_only_a_shared_charger_with_a_ceiling_gets_the_binary(groups):
+    """Independent batteries may still charge and discharge at once; that is
+    real. A one-member group has its own battery binary, and a group with no
+    declared ceiling has no cap row to share."""
+    batteries = [_small("a", **groups[0]), _small("c", **groups[1])]
+    assert network._shared_charger_groups(batteries) == {}
+    plan = _paid_to_import(*batteries)
+    assert not any(
+        n.startswith("charger_dir_")
+        for n in network._opposing_flow_binaries(plan, batteries)
+    )
+
+
+def test_a_plan_one_way_through_the_charger_needs_no_binary():
+    """Charging pays and pays most now: both members fill, nothing flows back,
+    and the plan is returned as first solved."""
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    batteries = [_small("a", **group), _small("c", **group)]
+    plan = build_plan(
+        periods=PeriodGrid(np.ones(3)),
+        grid=GridConfig(
+            import_price=np.array([0.10, 0.11, 0.12]),
+            export_price=np.zeros(3),
+            import_limit_kw=28.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=batteries,
+        solar=SolarConfig(forecast_kw=np.zeros(3)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(3))],
+    )
+    assert plan.status == "optimal"
+    assert network._opposing_flow_binaries(plan, batteries) == frozenset()
+    assert plan.direction_exclusivity == "not_needed"
+
+
 @pytest.mark.parametrize("neighbour", [False, True])
 @pytest.mark.parametrize("price", [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)])
 def test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve(price, neighbour):
