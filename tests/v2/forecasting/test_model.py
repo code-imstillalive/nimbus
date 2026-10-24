@@ -314,3 +314,27 @@ def test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such(caplog):
     assert line.endswith(
         f"falling back to one-step selection -> using {trained.model_type}"
     )
+
+
+# --- the horizon curve: selection at 4 h, a diagnostic out to a day (#937) --------------------
+
+
+def test_selection_validates_4_h_and_the_diagnostic_reaches_a_day_at_a_bounded_cost():
+    minutes = 15  # the forecaster's resample step
+    assert model.RECURSIVE_VALIDATION_HORIZON_STEPS * minutes / 60 == 4.0
+    horizons = model.RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS
+    assert max(horizons) * minutes / 60 >= 24.0
+    assert all(h > model.RECURSIVE_VALIDATION_HORIZON_STEPS for h in horizons)
+    assert model.RECURSIVE_VALIDATION_DIAGNOSTIC_MAX_ORIGINS * sum(horizons) <= 2000
+
+
+def test_the_model_is_chosen_by_the_selection_metric_never_the_diagnostic(house):
+    chosen = min(house.validation_recursive_mae, key=house.validation_recursive_mae.get)
+    assert house.model_type == chosen
+    assert house.validation_recursive_mae_by_horizon  # measured, and only measured
+
+
+def test_a_model_pickled_before_the_horizon_curve_still_has_it():
+    old = model.TrainedModel.__new__(model.TrainedModel)
+    old.__setstate__({"model_type": "knn", "validation_mae": {}})
+    assert old.validation_recursive_mae_by_horizon == {}
