@@ -22,7 +22,7 @@ def _fake_plan(
     """A minimal duck-typed stand-in for network.Plan -- only the 5
     attributes compute_binding_constraint_label() actually reads. Same
     pragmatic, stub-based approach as this file's own sibling
-    test_solver_writer_max_discharge_resolve.py (which uses a plain
+    test_max_discharge_resolve.py (which uses a plain
     dict for `cfg` rather than a real config-entry object) -- Python's
     own type hints are not enforced at runtime, and a real network.Plan
     would require constructing an unrelated PeriodGrid/sheddable_loads/

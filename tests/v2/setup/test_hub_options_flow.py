@@ -1,0 +1,1560 @@
+"""The hub options flow: its schemas and steps, and a cleared field staying
+cleared (#1837).
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+import voluptuous as vol
+
+from custom_components.nimbus_load.const import (
+    ATTR_SIGNAL_ROLE,
+    ATTR_SUBENTRY_TYPE,
+    CONF_BATTERY_SENSOR,
+    CONF_FORECAST_HORIZON_HOURS,
+    CONF_HUMIDITY_SENSOR,
+    CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
+    CONF_SOLVER_BATTERY_POWER_SENSOR,
+    CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+    CONF_TEMPERATURE_FORECAST_SENSOR,
+    CONF_TEMPERATURE_SENSOR,
+    SIGNAL_ROLE_BATTERY,
+    SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_SOLAR,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
+)
+from custom_components.nimbus_load.flows.hub_options import (
+    NimbusHubOptionsFlow,
+    _discover_nimbus_load_forecast_candidates,
+    _energy_dashboard_switchboard_suggestions,
+    _forecaster_schema,
+    _solver_battery_schema,
+    _solver_grid_schema,
+    _solver_sources_schema,
+    _switchboard_schema,
+    _type_safe_entity_suggestions,
+)
+
+
+def _find_marker(schema: vol.Schema, key: str):
+    return next(k for k in schema.schema if k == key)
+
+
+def _make_flow(options: dict) -> NimbusHubOptionsFlow:
+    flow = NimbusHubOptionsFlow.__new__(NimbusHubOptionsFlow)
+    flow.config_entry = MagicMock(options=options)
+    flow._solver_data = {}
+    flow.hass = MagicMock()
+    return flow
+
+
+# -- _forecaster_schema: entity fields must use suggested_value, not default --
+
+
+def test_forecaster_schema_entity_field_uses_suggested_value_not_default():
+    # The exact 2026-08-22 fix this guards against: a plain default= on an
+    # entity field makes voluptuous silently re-inject the OLD value the
+    # instant a user clears the picker and submits, since the frontend
+    # omits the key entirely for a cleared field.
+    schema = _forecaster_schema({CONF_TEMPERATURE_SENSOR: "sensor.outdoor_temp"})
+    marker = _find_marker(schema, CONF_TEMPERATURE_SENSOR)
+    assert marker.default is vol.UNDEFINED
+    assert marker.description == {"suggested_value": "sensor.outdoor_temp"}
+
+
+def test_forecaster_schema_entity_field_with_no_stored_value_yet():
+    schema = _forecaster_schema({})
+    marker = _find_marker(schema, CONF_TEMPERATURE_SENSOR)
+    assert marker.default is vol.UNDEFINED
+    assert marker.description == {"suggested_value": None}
+
+
+def test_forecaster_schema_numeric_field_uses_real_default_not_suggested_value():
+    # Numeric fields (horizon/retrain hour/train days) are fine with a
+    # real default= -- HA won't let a Required-style numeric field submit
+    # truly empty anyway, so "sticky" is correct behaviour there (per the
+    # function's own docstring).
+    # 120, not 72: since #1566 a value below the Solver's plan (97 h) is
+    # shown raised, which test_1566 covers.
+    schema = _forecaster_schema({CONF_FORECAST_HORIZON_HOURS: 120})
+    marker = _find_marker(schema, CONF_FORECAST_HORIZON_HOURS)
+    assert marker.default is not vol.UNDEFINED
+    assert marker.default() == 120
+    assert marker.description is None
+
+
+def test_forecaster_schema_numeric_field_falls_back_to_its_own_module_default():
+    schema = _forecaster_schema({})  # nothing stored yet -- a fresh install
+    marker = _find_marker(schema, CONF_FORECAST_HORIZON_HOURS)
+    # Whatever DEFAULT_FORECAST_HORIZON_HOURS resolves to -- just confirm
+    # it's a real, non-None number, not that a stale/absent value crashes.
+    assert isinstance(marker.default(), (int, float))
+
+
+def test_forecaster_schema_battery_field_is_switch_domain_not_sensor():
+    # Curtailment is deliberately domain="switch" -- a genuinely different
+    # entity type than every other field on this form.
+    from custom_components.nimbus_load.const import CONF_CURTAILMENT_SENSOR
+
+    schema = _forecaster_schema({})
+    marker = _find_marker(schema, CONF_CURTAILMENT_SENSOR)
+    selector_instance = schema.schema[marker]
+    assert selector_instance.config["domain"] == "switch"
+    battery_marker = _find_marker(schema, CONF_BATTERY_SENSOR)
+    battery_selector = schema.schema[battery_marker]
+    assert battery_selector.config["domain"] == "sensor"
+
+
+def test_forecaster_schema_temperature_forecast_field_accepts_weather_domain():
+    # #123 (Mark Purcell, real repro, 2026-08-24): modern HA weather
+    # entities no longer expose a "forecast" state attribute at all --
+    # domain="sensor" alone locked out the natural, simplest choice
+    # (point straight at weather.home). Must now accept BOTH weather.*
+    # (fetched internally via weather.get_forecasts) and sensor.* (an
+    # already-working template sensor, fully backward compatible).
+    schema = _forecaster_schema({})
+    marker = _find_marker(schema, CONF_TEMPERATURE_FORECAST_SENSOR)
+    selector_instance = schema.schema[marker]
+    domain = selector_instance.config["domain"]
+    assert set(domain) == {"sensor", "weather"}
+
+
+# -- solver wizard schemas: required vs optional-with-suggested-value -------
+
+
+def test_solver_sources_schema_second_source_is_optional_with_suggested_value():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.openmeteo"}
+    )
+    marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)
+    assert type(marker).__name__ == "Optional"
+    assert marker.default is vol.UNDEFINED
+    assert marker.description == {"suggested_value": "sensor.openmeteo"}
+
+
+def test_solver_sources_schema_primary_source_is_required():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"}
+    )
+    marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR)
+    assert type(marker).__name__ == "Required"
+    assert marker.default() == "sensor.solcast"
+
+
+def test_solver_battery_schema_has_one_required_soc_field():
+    schema = _solver_battery_schema({})
+    # 2026-08-24, nimbus #125: gained a second, genuinely OPTIONAL field
+    # (solver_max_discharge_live_entity) -- the SoC sensor stays the only
+    # Required one.
+    assert len(schema.schema) == 2
+    marker = _find_marker(schema, CONF_SOLVER_BATTERY_SOC_SENSOR)
+    assert type(marker).__name__ == "Required"
+
+
+def test_solver_battery_schema_max_discharge_live_entity_is_optional_number_domain():
+    # #125 (Mark Purcell, real repro): a bare hardcoded entity_id used to
+    # silently override a portable install's configured
+    # solver_max_discharge_kw whenever an unrelated entity happened to
+    # exist at that exact name. Now a genuine, optional, per-household
+    # field -- Optional (not Required, unlike the SoC sensor above) so
+    # it's a complete no-op when left unset, matching every other
+    # optional entity-pointer field's own convention (see
+    # _forecaster_schema's own 2026-08-22/2026-08-24 comments for why
+    # this must be description={"suggested_value": ...}, not default=).
+    schema = _solver_battery_schema({})
+    marker = _find_marker(schema, CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY)
+    assert type(marker).__name__ == "Optional"
+    selector_instance = schema.schema[marker]
+    assert selector_instance.config["domain"] == "number"
+
+
+def test_solver_grid_schema_has_two_required_price_fields():
+    # 2026-08-25: gained 4 genuinely OPTIONAL second/third price-source
+    # fields (nimbus: "u also are missing my blended price forecasts...
+    # in case we can feed it more than one... e.g. aemo... and amber") --
+    # the two PRIMARY fields stay the only Required ones.
+    # 2026-08-28 (issue #256): briefly gained 2 more OPTIONAL native
+    # price-triggered-solving fields (solve_on_price_change +
+    # debounce_s), then 2026-08-29 (issue #232 follow-up) moved BOTH
+    # out to their own live entities -- switch.nimbus_solve_on_price_
+    # change + number.nimbus_solve_on_price_change_debounce_s -- so
+    # this step was back to the 4 optional second/third-source fields.
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): gained 2 more
+    # OPTIONAL fields, the live DNSP envelope entities -- 8 total.
+    # nimbus issue #1213 (Mark Purcell): gained 1 more OPTIONAL field, the
+    # additive price-event test sensor -- 9 total. The feature's other two
+    # parts deliberately cost this form nothing: the arm is a device entity
+    # (switch.nimbus_solver_price_event_enabled) and the event's magnitude
+    # and windows live in the household's own sensor, not in Nimbus config.
+    # Household, 20 Oct 2026: gained the AEMO price source's 4 OPTIONAL
+    # fields, moved from the Sources step (sources 1-4 on one step) -- 13.
+    schema = _solver_grid_schema({})
+    assert len(schema.schema) == 13
+    for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
+        assert type(_find_marker(schema, key)).__name__ == "Required"
+
+
+def test_solver_grid_schema_second_third_price_sources_are_optional_with_suggested_value():
+    schema = _solver_grid_schema(
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.aemo_forecast",
+            CONF_SOLVER_EXPORT_PRICE_SENSOR_2: "sensor.amber_export_forecast",
+        }
+    )
+    for key, expected in (
+        (CONF_SOLVER_IMPORT_PRICE_SENSOR_2, "sensor.aemo_forecast"),
+        (CONF_SOLVER_IMPORT_PRICE_SENSOR_3, None),
+        (CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_export_forecast"),
+        (CONF_SOLVER_EXPORT_PRICE_SENSOR_3, None),
+    ):
+        marker = _find_marker(schema, key)
+        assert type(marker).__name__ == "Optional"
+        assert marker.default is vol.UNDEFINED
+        assert marker.description == {"suggested_value": expected}
+
+
+def test_solver_grid_schema_envelope_limit_entities_are_optional_with_suggested_value():
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): the two live DNSP
+    # envelope-limit entity fields, same clearable-optional convention
+    # as every other entity field in this step.
+    schema = _solver_grid_schema(
+        {
+            CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: (
+                "sensor.open_dynamic_export_import_limit"
+            ),
+        }
+    )
+    for key, expected in (
+        (
+            CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+            "sensor.open_dynamic_export_import_limit",
+        ),
+        (CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY, None),
+    ):
+        marker = _find_marker(schema, key)
+        assert type(marker).__name__ == "Optional"
+        assert marker.default is vol.UNDEFINED
+        assert marker.description == {"suggested_value": expected}
+
+
+# -- "Group A" (2026-08-24): _solver_sources_schema's two load-forecast
+# fields get their own candidate lists, when given one --------------------
+
+
+def test_solver_sources_schema_with_no_candidates_is_fully_unrestricted():
+    # The exact original behaviour, byte-identical -- both new params
+    # default to None, and _entity()/_entity_multi() only add
+    # include_entities to the selector config when given a genuinely
+    # non-empty list. No caller anywhere (real or test) should ever see
+    # this field artificially narrowed unless discovery actually ran.
+    schema = _solver_sources_schema({})
+    for key in (CONF_SOLVER_LOAD_FORECAST_SENSOR, CONF_SOLVER_LOAD_FORECAST_ENTITIES):
+        marker = _find_marker(schema, key)
+        selector_instance = schema.schema[marker]
+        assert "include_entities" not in selector_instance.config
+
+
+def test_solver_sources_schema_single_candidates_restrict_only_that_field():
+    schema = _solver_sources_schema(
+        {},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
+    )
+    single_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[single_marker].config["include_entities"] == [
+        "sensor.whole_house_signal"
+    ]
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a",
+        "sensor.circuit_b",
+    ]
+    # Every OTHER field on this same schema step is untouched -- Group A
+    # only ever narrows the two load-forecast fields, never the solar
+    # sources or the whole-house cross-check sensor.
+    solar_marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR)
+    assert "include_entities" not in schema.schema[solar_marker].config
+
+
+def test_solver_sources_schema_empty_candidate_lists_are_treated_as_no_restriction():
+    # A real, live discovery failure (or a genuinely fresh install with
+    # zero load/signal subentries configured yet) returns [] -- must
+    # degrade to "show everything", never to "show nothing at all".
+    schema = _solver_sources_schema(
+        {}, single_load_forecast_candidates=[], summable_load_forecast_candidates=[]
+    )
+    for key in (CONF_SOLVER_LOAD_FORECAST_SENSOR, CONF_SOLVER_LOAD_FORECAST_ENTITIES):
+        marker = _find_marker(schema, key)
+        assert "include_entities" not in schema.schema[marker].config
+
+
+# -- the household-load field fills itself (1.0.0 one-click install, #1930) --
+
+
+def _load_default(defaults, candidates):
+    schema = _solver_sources_schema(
+        defaults, single_load_forecast_candidates=candidates
+    )
+    return _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR).default()
+
+
+def test_the_only_whole_house_forecast_is_filled_in():
+    # Nimbus created it, so the household should not have to find its id.
+    assert (
+        _load_default({}, ["sensor.nimbus_house_power_forecast"])
+        == "sensor.nimbus_house_power_forecast"
+    )
+
+
+def test_a_saved_choice_always_wins():
+    assert (
+        _load_default(
+            {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.nimbus_mine_forecast"},
+            ["sensor.nimbus_house_power_forecast"],
+        )
+        == "sensor.nimbus_mine_forecast"
+    )
+
+
+def test_two_candidates_are_not_guessed():
+    assert (
+        _load_default({}, ["sensor.nimbus_a_forecast", "sensor.nimbus_b_forecast"])
+        is None
+    )
+
+
+def test_no_candidate_leaves_it_empty():
+    assert _load_default({}, []) is None
+    assert _load_default({}, None) is None
+
+
+# -- async_step_forecaster: the real merge-not-replace, clear-stays-cleared logic --
+
+
+def test_forecaster_step_no_input_shows_the_form():
+    flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old"})
+    import asyncio
+
+    result = asyncio.run(flow.async_step_forecaster(None))
+    assert result["type"] == "form"
+    assert result["step_id"] == "forecaster"
+
+
+def test_forecaster_step_genuinely_cleared_field_stays_cleared():
+    # The real 2026-08-22 bug: a plain {**old, **user_input} spread treats
+    # an OMITTED key (the frontend's real submission shape for "user
+    # cleared this field") as "untouched", so the old value survives
+    # forever. The fix takes user_input.get(key) explicitly for every
+    # schema-defined key -- omitted resolves to None correctly.
+    import asyncio
+
+    flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old_stale_value"})
+    # user_input omits CONF_TEMPERATURE_SENSOR entirely -- exactly what a
+    # real cleared-field submission looks like.
+    result = asyncio.run(flow.async_step_forecaster({}))
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_TEMPERATURE_SENSOR] is None
+
+
+def test_forecaster_step_untouched_dashboard_value_is_preserved():
+    # A number.nimbus_solver_* dashboard value (or any key outside this
+    # schema's own field list) must survive this form's submission
+    # completely untouched -- the ORIGINAL risk the 2026-08-17 merge fix
+    # protected against, still required to hold after the 2026-08-22 fix.
+    import asyncio
+
+    flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
+    result = asyncio.run(
+        flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"})
+    )
+    assert result["data"]["solver_battery_capacity_kwh"] == 122.2
+
+
+def test_forecaster_step_real_submitted_value_is_used():
+    import asyncio
+
+    flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old"})
+    result = asyncio.run(
+        flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"})
+    )
+    assert result["data"][CONF_TEMPERATURE_SENSOR] == "sensor.new"
+
+
+# -- the 3-step solver wizard: accumulate-then-chain, only the last step saves --
+
+
+def test_solver_battery_step_with_no_input_shows_its_own_form():
+    import asyncio
+
+    flow = _make_flow(options={})
+    result = asyncio.run(flow.async_step_solver_battery(None))
+    assert result["type"] == "form"
+    assert result["step_id"] == "solver_battery"
+
+
+def test_solver_battery_step_submission_chains_straight_to_grid_form():
+    import asyncio
+
+    flow = _make_flow(options={})
+    result = asyncio.run(
+        flow.async_step_solver_battery({CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"})
+    )
+    assert result["type"] == "form"
+    assert result["step_id"] == "solver_grid"
+    # nimbus issue #341 follow-up: this step's own Optional field
+    # (never submitted here) is explicitly nulled, not silently absent --
+    # see _absorb_step's own docstring for why that distinction matters.
+    assert flow._solver_data == {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: None,
+    }
+
+
+def test_solver_grid_step_submission_chains_straight_to_sources_form():
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow._solver_data = {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"
+    }  # from the previous step
+    result = asyncio.run(
+        flow.async_step_solver_grid(
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+                CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+            }
+        )
+    )
+    assert result["step_id"] == "solver_sources"
+    # Accumulated ACROSS steps, not replaced -- this step's own Optional
+    # fields (never submitted here) are explicitly nulled, not silently
+    # absent (nimbus issue #341 follow-up).
+    assert flow._solver_data == {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+        CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_2: None,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_3: None,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_2: None,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_3: None,
+        CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: None,
+        CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY: None,
+        # nimbus issue #1213: explicitly nulled like every other Optional
+        # field on this step, not silently absent (#341 follow-up).
+        CONF_SOLVER_PRICE_EVENT_SENSOR: None,
+        # Household, 20 Oct 2026: source 2 (AEMO) now lives on this step.
+        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: None,
+        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: None,
+        CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: None,
+        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: None,
+    }
+
+
+def _full_solver_data() -> dict:
+    return {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+        CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+    }
+
+
+def test_init_defers_solver_data_seeding_past_config_entry_property_guard():
+    """2026-09-04, live production crash on NUC1: __init__ used to seed
+    self._solver_data eagerly by reading self.config_entry.options right
+    there -- but HA core's own OptionsFlow makes config_entry a property
+    that raises ValueError("The config entry is not available during
+    initialisation") until the flow manager attaches the entry, which
+    only happens AFTER __init__ returns. This test's own MagicMock
+    doesn't reproduce that guard (a plain attribute, not a raising
+    property), which is exactly why this bug shipped without a local
+    test catching it -- so this test instead asserts the real fix's own
+    contract: __init__ must never touch self.config_entry at all, and
+    self._solver_data starts as the None sentinel, not a real dict."""
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+            "solver_battery_capacity_kwh": 122.2,  # not a wizard key
+            CONF_TEMPERATURE_SENSOR: "sensor.outdoor",  # not a wizard key
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+
+    assert flow._solver_data is None
+
+    flow._ensure_solver_data_seeded()
+    assert flow._solver_data == {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+    }
+
+
+def test_ensure_solver_data_seeded_is_idempotent_and_seeds_empty_dict_when_no_options():
+    flow = NimbusHubOptionsFlow(MagicMock(options={}))
+    flow._ensure_solver_data_seeded()
+    assert flow._solver_data == {}
+
+    # A second call must never re-seed over real accumulated wizard data
+    # from a step already submitted this run.
+    flow._solver_data["some_key"] = "real value from this run"
+    flow._ensure_solver_data_seeded()
+    assert flow._solver_data == {"some_key": "real value from this run"}
+
+
+def test_solver_wizard_step_never_reached_this_run_keeps_its_stored_value():
+    """The real bug: a caller (UI session or programmatic) that only
+    drives solver_battery -> solver_sources, genuinely never reaching
+    solver_grid this run, must NOT wipe solver_grid's own already-stored
+    fields. Constructed via the real __init__ so the fix under test is
+    actually exercised end to end."""
+    import asyncio
+
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.old_soc",
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+            CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+    flow.hass = MagicMock()
+
+    # Only step 1 is actually submitted this run -- step 2 (solver_grid)
+    # is never reached at all.
+    asyncio.run(
+        flow.async_step_solver_battery(
+            {CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.new_soc"}
+        )
+    )
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"}
+        )
+    )
+
+    assert result["type"] == "create_entry"
+    # The step that WAS submitted this run reflects the new value.
+    assert result["data"][CONF_SOLVER_BATTERY_SOC_SENSOR] == "sensor.new_soc"
+    # The step that was NEVER reached this run keeps its real stored
+    # values -- before the #341 fix, both of these silently resolved to
+    # None.
+    assert result["data"][CONF_SOLVER_IMPORT_PRICE_SENSOR] == "sensor.imp"
+    assert result["data"][CONF_SOLVER_EXPORT_PRICE_SENSOR] == "sensor.exp"
+
+
+def test_solver_wizard_clearing_an_optional_field_on_a_submitted_step_still_works():
+    """nimbus issue #341 follow-up (Mark Purcell): v0.94.62's own fix for
+    "step never reached this run" regressed the opposite case -- an
+    Optional field genuinely cleared on a step that WAS submitted no
+    longer cleared, because self._solver_data now starts pre-seeded from
+    stored options, and a plain `.update(user_input)` leaves any key
+    absent from user_input (the real "cleared" signal a genuine HA
+    frontend submission uses) sitting at its old seeded value. Mark's own
+    exact repro: submit solver_sources with solver_solar_forecast_sensor_2
+    omitted while it's stored as sensor.solar_2 -- must resolve to None,
+    while a step genuinely never reached this run (solver_battery here)
+    still keeps its own real stored value. Constructed via the real
+    __init__ so the fix is exercised end to end, not via _make_flow's
+    __new__()-bypass (which is what let the original regression slip past
+    every pre-existing test)."""
+    import asyncio
+
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.solar_2",
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+    flow.hass = MagicMock()
+
+    # solver_battery is never reached this run at all -- only solver_
+    # sources is submitted, clearing solar_2 by omitting it.
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+            }
+        )
+    )
+
+    assert result["type"] == "create_entry"
+    # Genuinely cleared on the step that WAS submitted.
+    assert result["data"][CONF_SOLVER_SOLAR_FORECAST_SENSOR_2] is None
+    # A step never reached this run keeps its real stored value.
+    assert result["data"][CONF_SOLVER_BATTERY_SOC_SENSOR] == "sensor.soc"
+
+
+def test_solver_sources_step_saves_and_preserves_untouched_keys():
+    import asyncio
+
+    flow = _make_flow(
+        options={
+            "solver_battery_capacity_kwh": 122.2,
+            CONF_TEMPERATURE_SENSOR: "sensor.outdoor",
+        }
+    )
+    flow._solver_data = _full_solver_data()
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+            }
+        )
+    )
+    assert result["type"] == "create_entry"
+    # Real, untouched dashboard/other-form values survive.
+    assert result["data"]["solver_battery_capacity_kwh"] == 122.2
+    assert result["data"][CONF_TEMPERATURE_SENSOR] == "sensor.outdoor"
+    # Fields the 3-step wizard actually collected are all present.
+    assert result["data"][CONF_SOLVER_BATTERY_SOC_SENSOR] == "sensor.soc"
+    assert result["data"][CONF_SOLVER_SOLAR_FORECAST_SENSOR] == "sensor.solcast"
+    # A genuinely-optional wizard field never touched this run resolves to
+    # None, not silently missing or silently stale.
+    assert result["data"][CONF_SOLVER_SOLAR_FORECAST_SENSOR_2] is None
+
+
+def test_solver_sources_step_saves_the_battery_power_positive_is_charge_flag():
+    # Regression for issue #307: the schema registers the flag in the
+    # solver_sources form, but earlier versions omitted it from
+    # _SOLVER_WIZARD_SCHEMA_KEYS, so the save loop silently dropped it and
+    # the fix released in v0.94.35 was unreachable from the UI. This test
+    # locks the flag into the wizard's own save contract: submitted =
+    # persisted.
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow._solver_data = {
+        **_full_solver_data(),
+        CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.battery_power",
+        CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
+    }
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+                CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.battery_power",
+                CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
+            }
+        )
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE] is True
+
+
+def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow._solver_data = _full_solver_data()
+    asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "s",
+            }
+        )
+    )
+    flow.hass.services.async_call.assert_called_once_with(
+        "persistent_notification",
+        "dismiss",
+        {"notification_id": "nimbus_setup_incomplete"},
+    )
+
+
+def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow._solver_data = _full_solver_data()
+    flow.hass.services.async_call = MagicMock(
+        side_effect=RuntimeError("hass not ready")
+    )
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "s",
+            }
+        )
+    )
+    assert result["type"] == "create_entry"  # the real save still succeeded
+
+
+# -- async_step_switchboard: same merge-not-replace, clear-stays-cleared
+# discipline as async_step_forecaster, applied to the new topology-
+# diagram fields (2026-08-23) --
+
+
+def test_switchboard_step_no_input_shows_the_form():
+    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
+    import asyncio
+
+    result = asyncio.run(flow.async_step_switchboard(None))
+    assert result["type"] == "form"
+    assert result["step_id"] == "switchboard"
+
+
+def test_switchboard_step_genuinely_cleared_field_stays_cleared():
+    import asyncio
+
+    flow = _make_flow(
+        options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old_stale_value"}
+    )
+    result = asyncio.run(flow.async_step_switchboard({}))
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] is None
+
+
+def test_switchboard_step_untouched_dashboard_value_is_preserved():
+    import asyncio
+
+    flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
+    result = asyncio.run(
+        flow.async_step_switchboard(
+            {CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"}
+        )
+    )
+    assert result["data"]["solver_battery_capacity_kwh"] == 122.2
+
+
+def test_switchboard_step_real_submitted_value_is_used():
+    import asyncio
+
+    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
+    result = asyncio.run(
+        flow.async_step_switchboard(
+            {CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"}
+        )
+    )
+    assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.new"
+
+
+def test_switchboard_schema_every_field_is_optional():
+    # Every field must be Optional -- a fresh install with none of this
+    # filled in must still get a real diagram (see const.py's own
+    # comment above the CONF_SWITCHBOARD_* fields). 8, not 10 (2026-08-
+    # 23): grid_meter/battery_power are gone from this form entirely,
+    # auto-detected via Power Signal role instead -- see hub_options.py's
+    # own comment on _SWITCHBOARD_SCHEMA_KEYS.
+    schema = _switchboard_schema({})
+    assert len(schema.schema) == 8
+    for key in schema.schema:
+        assert type(key).__name__ == "Optional"
+
+
+# -- _energy_dashboard_switchboard_suggestions (2026-08-23) --
+
+
+def _energy_state(entity_id: str, device_class: str, state_class: str):
+    st = MagicMock()
+    st.attributes = {"device_class": device_class, "state_class": state_class}
+    return entity_id, st
+
+
+def _hass_with_states(states: dict):
+    hass = MagicMock()
+    hass.states.get = lambda eid: states.get(eid)
+    return hass
+
+
+def test_suggests_grid_import_and_export_when_type_and_class_match():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.real_export", "energy", "total_increasing"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [{"stat_energy_from": "sensor.real_import"}],
+                    "flow_to": [{"stat_energy_to": "sensor.real_export"}],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR] == "sensor.real_import"
+    assert result[CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR] == "sensor.real_export"
+    # No Energy Dashboard concept of whole-house load -- must never guess.
+    assert CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR not in result
+
+
+# nimbus issue #554: entity_energy_price on a grid source's own flow_from/
+# flow_to entries -- a live price ENTITY the household configured against
+# that flow (HA's schema also allows a fixed number instead, which has
+# nothing to suggest, see test below). Safe to disambiguate import vs
+# export the same way the energy-sensor suggestions above already are:
+# the Energy Dashboard's own flow_from/flow_to structure does it, not a
+# guess by elimination among every monetary sensor -- a genuinely
+# different, safer case than _forecaster_settings_suggestions()'s own
+# deliberate price-sensor exclusion elsewhere in this file.
+def test_suggests_import_and_export_price_sensors_from_grid_flows():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.real_export", "energy", "total_increasing"),
+            _energy_state("sensor.import_price", "monetary", "measurement"),
+            _energy_state("sensor.export_price", "monetary", "measurement"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.import_price",
+                        }
+                    ],
+                    "flow_to": [
+                        {
+                            "stat_energy_to": "sensor.real_export",
+                            "entity_energy_price": "sensor.export_price",
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.import_price"
+    assert result[CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR] == "sensor.export_price"
+
+
+def test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash():
+    # HA's own schema allows entity_energy_price OR a fixed number
+    # (number_energy_price) -- a fixed number is a real, valid household
+    # config with no entity to suggest, not a malformed one.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict([_energy_state("sensor.real_import", "energy", "total_increasing")])
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "number_energy_price": 0.28,
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR] == "sensor.real_import"
+    assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
+
+
+def test_price_sensor_missing_device_class_is_still_suggested():
+    # Real, honest limitation documented in the function itself: several
+    # real spot-price integrations (this project's own reference
+    # household's Amber sensors included) don't reliably tag device_
+    # class="monetary" -- rejecting them here would silently suggest
+    # nothing on exactly the installs this feature is for.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = {
+        "sensor.real_import": MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        ),
+        "sensor.amber_price": MagicMock(attributes={}),
+    }
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.amber_price",
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.amber_price"
+
+
+def test_price_sensor_with_a_genuinely_wrong_device_class_is_not_suggested():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.actually_power", "power", "measurement"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.actually_power",
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
+
+
+def test_suggests_solar_and_battery_when_type_and_class_match():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_solar", "energy", "total_increasing"),
+            _energy_state("sensor.real_discharge", "energy", "total"),
+            _energy_state("sensor.real_charge", "energy", "total"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.real_solar"},
+                {
+                    "type": "battery",
+                    "stat_energy_from": "sensor.real_discharge",
+                    "stat_energy_to": "sensor.real_charge",
+                },
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR] == "sensor.real_solar"
+    assert (
+        result[CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR]
+        == "sensor.real_discharge"
+    )
+    assert result[CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR] == "sensor.real_charge"
+
+
+def test_wrong_device_class_is_never_suggested():
+    # Real, documented precedent this guards against: a plausible-looking
+    # sensor that is genuinely the wrong KIND (e.g. a power sensor, or a
+    # HAEO plan/forecast sensor) must never be proposed at all.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [_energy_state("sensor.actually_a_power_sensor", "power", "measurement")]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.actually_a_power_sensor"}
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR not in result
+
+
+def test_wrong_state_class_is_never_suggested():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict([_energy_state("sensor.instantaneous_only", "energy", "measurement")])
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.instantaneous_only"}
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR not in result
+
+
+def test_no_energy_dashboard_configured_degrades_to_empty_not_a_crash():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    hass = _hass_with_states({})
+    manager = MagicMock(data={})  # nothing configured at all
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result == {}
+
+
+def test_manager_api_failure_degrades_to_empty_never_raises():
+    # The real, honest reason for the broad except in the real function:
+    # this is genuinely-internal HA API, not a stable public contract --
+    # any failure here (component not loaded, shape changed) must never
+    # break the wizard.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    hass = _hass_with_states({})
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(side_effect=RuntimeError("energy component not loaded")),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result == {}
+
+
+def test_switchboard_step_prefers_saved_value_over_energy_dashboard_suggestion():
+    # Safeguard 2 from the real function's own docstring: a real saved
+    # value must never be silently overwritten by a fresh suggestion,
+    # every single time this form is opened.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    flow = _make_flow(
+        options={
+            CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: "sensor.household_own_real_choice"
+        }
+    )
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}
+            ]
+        }
+    )
+    flow.hass.states.get = lambda eid: (
+        MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        )
+        if eid == "sensor.energy_dashboard_guess"
+        else None
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(flow.async_step_switchboard(None))
+    marker = _find_marker(
+        result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR
+    )
+    assert marker.description == {"suggested_value": "sensor.household_own_real_choice"}
+
+
+def test_switchboard_step_fills_a_genuine_gap_with_a_suggestion():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    flow = _make_flow(options={})  # nothing saved yet at all
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}
+            ]
+        }
+    )
+    flow.hass.states.get = lambda eid: (
+        MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        )
+        if eid == "sensor.energy_dashboard_guess"
+        else None
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(flow.async_step_switchboard(None))
+    marker = _find_marker(
+        result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR
+    )
+    assert marker.description == {"suggested_value": "sensor.energy_dashboard_guess"}
+    # Still fully optional, still overridable, still never a locked-in default.
+    assert marker.default is vol.UNDEFINED
+
+
+# -- _discover_nimbus_load_forecast_candidates (2026-08-24, "Group A") ----
+
+
+def _nimbus_state(entity_id: str, subentry_type: str, signal_role: str | None = None):
+    st = MagicMock()
+    st.entity_id = entity_id
+    attrs = {ATTR_SUBENTRY_TYPE: subentry_type}
+    if signal_role is not None:
+        attrs[ATTR_SIGNAL_ROLE] = signal_role
+    st.attributes = attrs
+    return st
+
+
+def _hass_with_all_states(states: list):
+    hass = MagicMock()
+    hass.states.async_all = lambda domain: states
+    return hass
+
+
+def test_discover_no_nimbus_entities_at_all_returns_two_empty_lists():
+    hass = _hass_with_all_states([])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_discover_a_non_nimbus_sensor_is_ignored():
+    # A real sensor entity with no ATTR_SUBENTRY_TYPE at all (the vast
+    # majority of any live system's own entities) -- and, critically,
+    # sensor.nimbus_household_load_total_forecast itself (a real
+    # _NimbusSolverPushSensor, confirmed via direct source read to never
+    # carry ATTR_SUBENTRY_TYPE) must never appear in either list -- that
+    # is exactly the real, confirmed #118 circular-reference footgun
+    # this function exists to stop an installer from ever being offered.
+    plain = MagicMock()
+    plain.entity_id = "sensor.some_unrelated_thing"
+    plain.attributes = {}
+    aggregate = MagicMock()
+    aggregate.entity_id = "sensor.nimbus_household_load_total_forecast"
+    aggregate.attributes = {}
+    hass = _hass_with_all_states([plain, aggregate])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_discover_load_subentry_forecasts_go_in_both_lists():
+    circuit = _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD)
+    hass = _hass_with_all_states([circuit])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == ["sensor.nimbus_pool_pump_load_forecast"]
+    assert summable == ["sensor.nimbus_pool_pump_load_forecast"]
+
+
+def test_discover_other_role_power_signal_goes_in_single_only():
+    # A household's own "Whole House Load"/"CB Total Combined Power"-
+    # style Power Signal -- explicit role "other" (never battery/solar/
+    # grid), exactly the real, correct single-sensor answer.
+    whole_house = _nimbus_state(
+        "sensor.nimbus_whole_house_load_signal_forecast",
+        SUBENTRY_TYPE_SIGNAL,
+        signal_role=SIGNAL_ROLE_OTHER,
+    )
+    hass = _hass_with_all_states([whole_house])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == ["sensor.nimbus_whole_house_load_signal_forecast"]
+    assert summable == []  # a power signal is never summable-per-circuit
+
+
+def test_discover_battery_solar_grid_signals_are_excluded_from_both_lists():
+    for role in (SIGNAL_ROLE_BATTERY, SIGNAL_ROLE_SOLAR, SIGNAL_ROLE_GRID):
+        signal = _nimbus_state(
+            f"sensor.nimbus_{role}_signal_forecast", SUBENTRY_TYPE_SIGNAL, role
+        )
+        hass = _hass_with_all_states([signal])
+        single, summable = _discover_nimbus_load_forecast_candidates(hass)
+        assert single == [], f"role={role} should never be a load-forecast candidate"
+        assert summable == []
+
+
+def test_discover_a_realistic_mixed_install():
+    states = [
+        _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD),
+        _nimbus_state("sensor.nimbus_hws_l1_load_forecast", SUBENTRY_TYPE_LOAD),
+        _nimbus_state(
+            "sensor.nimbus_whole_house_signal_forecast",
+            SUBENTRY_TYPE_SIGNAL,
+            SIGNAL_ROLE_OTHER,
+        ),
+        _nimbus_state(
+            "sensor.nimbus_battery_signal_forecast",
+            SUBENTRY_TYPE_SIGNAL,
+            SIGNAL_ROLE_BATTERY,
+        ),
+        _nimbus_state("sensor.nimbus_solver_battery_forecast", None),  # no tag at all
+    ]
+    states[-1].attributes = {}  # real Solver-output shape: no ATTR_SUBENTRY_TYPE
+    hass = _hass_with_all_states(states)
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert set(single) == {
+        "sensor.nimbus_pool_pump_load_forecast",
+        "sensor.nimbus_hws_l1_load_forecast",
+        "sensor.nimbus_whole_house_signal_forecast",
+    }
+    assert set(summable) == {
+        "sensor.nimbus_pool_pump_load_forecast",
+        "sensor.nimbus_hws_l1_load_forecast",
+    }
+
+
+def test_discover_degrades_to_empty_lists_never_raises():
+    # Same graceful-degradation convention as every other real-live-data
+    # helper in this file -- a discovery failure must only ever mean "no
+    # restriction", never break the wizard step.
+    hass = MagicMock()
+    hass.states.async_all = MagicMock(side_effect=RuntimeError("hass not ready"))
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_solver_sources_step_wires_real_discovery_into_the_rendered_form():
+    # End-to-end: the step function itself must call discovery and pass
+    # its result into the schema, not just the schema function in
+    # isolation (already covered above).
+    import asyncio
+
+    flow = _make_flow(options={})
+    circuit = _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD)
+    flow.hass.states.async_all = lambda domain: [circuit]
+    result = asyncio.run(flow.async_step_solver_sources(None))
+    assert result["type"] == "form"
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert result["data_schema"].schema[marker].config["include_entities"] == [
+        "sensor.nimbus_pool_pump_load_forecast"
+    ]
+
+
+# -- _type_safe_entity_suggestions (2026-08-24, "Group B") ----------------
+
+
+def _typed_state(entity_id: str, device_class: str):
+    st = MagicMock()
+    st.entity_id = entity_id
+    st.attributes = {"device_class": device_class}
+    return st
+
+
+def test_type_safe_suggestions_no_states_returns_empty():
+    hass = _hass_with_all_states([])
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_exactly_one_of_each_class_is_suggested():
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.outdoor_temp", "temperature"),
+            _typed_state("sensor.outdoor_humidity", "humidity"),
+            _typed_state("sensor.inverter_battery_soc", "battery"),
+        ]
+    )
+    result = _type_safe_entity_suggestions(hass)
+    assert result == {
+        CONF_TEMPERATURE_SENSOR: "sensor.outdoor_temp",
+        CONF_HUMIDITY_SENSOR: "sensor.outdoor_humidity",
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.inverter_battery_soc",
+    }
+
+
+def test_type_safe_suggestions_multiple_matches_are_never_guessed():
+    # Real, common case -- several climate sensors (or, for battery,
+    # several unrelated low-battery diagnostic sensors). Guessing one
+    # arbitrarily would be actively misleading -- must stay silent,
+    # identical to today's no-suggestion behaviour.
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.bedroom_temp", "temperature"),
+            _typed_state("sensor.outdoor_temp", "temperature"),
+        ]
+    )
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_power_and_price_fields_are_never_suggested():
+    # Deliberately excluded from this function entirely (see its own
+    # docstring) -- even a single power/monetary sensor is genuinely
+    # ambiguous about WHICH of battery/grid/solar (or import/export) it
+    # is, unlike temperature/humidity/SoC which have exactly one real
+    # field each.
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.the_only_power_sensor", "power"),
+            _typed_state("sensor.the_only_monetary_sensor", "monetary"),
+        ]
+    )
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_degrades_to_empty_never_raises():
+    hass = MagicMock()
+    hass.states.async_all = MagicMock(side_effect=RuntimeError("hass not ready"))
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_forecaster_step_fills_temperature_and_humidity_from_suggestions():
+    import asyncio
+
+    flow = _make_flow(options={})  # nothing saved yet
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.outdoor_temp", "temperature"),
+        _typed_state("sensor.outdoor_humidity", "humidity"),
+    ]
+    result = asyncio.run(flow.async_step_forecaster(None))
+    temp_marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
+    assert temp_marker.description == {"suggested_value": "sensor.outdoor_temp"}
+    humidity_marker = _find_marker(result["data_schema"], CONF_HUMIDITY_SENSOR)
+    assert humidity_marker.description == {"suggested_value": "sensor.outdoor_humidity"}
+
+
+def test_forecaster_step_never_overwrites_an_already_saved_temperature_sensor():
+    import asyncio
+
+    flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.household_own_choice"})
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.a_different_temp_sensor", "temperature")
+    ]
+    result = asyncio.run(flow.async_step_forecaster(None))
+    marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
+    assert marker.description == {"suggested_value": "sensor.household_own_choice"}
+
+
+def test_solver_battery_step_fills_soc_sensor_from_suggestion():
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.inverter_battery_soc", "battery")
+    ]
+    result = asyncio.run(flow.async_step_solver_battery(None))
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_BATTERY_SOC_SENSOR)
+    assert marker.default() == "sensor.inverter_battery_soc"
+
+
+def test_solver_battery_step_never_overwrites_an_already_saved_soc_sensor():
+    import asyncio
+
+    flow = _make_flow(
+        options={CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.household_own_choice"}
+    )
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.a_different_battery_sensor", "battery")
+    ]
+    result = asyncio.run(flow.async_step_solver_battery(None))
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_BATTERY_SOC_SENSOR)
+    assert marker.default() == "sensor.household_own_choice"
+
+
+def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    flow = _make_flow(options={})
+    # nimbus #1686: "Review pricing suggestions" is offered only when there
+    # is something to review.
+    with patch.object(type(flow), "_pricing_suggestions", AsyncMock(return_value=[])):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result["type"] == "menu"
+    assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
+    with patch.object(
+        type(flow),
+        "_pricing_suggestions",
+        AsyncMock(return_value=[{"field": "x", "proposed": "sensor.y"}]),
+    ):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result["menu_options"] == [
+        "forecaster",
+        "solver_battery",
+        "switchboard",
+        "pricing_suggestions",
+    ]
+
+
+# -- nimbus issue #340: include_entities IS enforced at validation, so a
+# saved value outside the discovered candidate list must be folded back
+# in or the whole Solver wizard becomes unsubmittable -------------------------
+
+
+def test_solver_sources_schema_keeps_saved_single_value_selectable():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.my_own_template_forecast"},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a"],
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[marker].config["include_entities"] == [
+        "sensor.whole_house_signal",
+        "sensor.my_own_template_forecast",
+    ]
+    # The summable list is untouched by the single field's saved value.
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a"
+    ]
+
+
+def test_solver_sources_schema_keeps_saved_multi_values_selectable():
+    schema = _solver_sources_schema(
+        {
+            CONF_SOLVER_LOAD_FORECAST_ENTITIES: [
+                "sensor.circuit_a",
+                "sensor.circuit_gone",
+            ]
+        },
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
+    )
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a",
+        "sensor.circuit_b",
+        "sensor.circuit_gone",
+    ]
+
+
+def test_solver_sources_schema_saved_value_already_in_list_is_not_duplicated():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.whole_house_signal"},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[marker].config["include_entities"] == [
+        "sensor.whole_house_signal"
+    ]
+
+
+def test_solver_sources_schema_saved_value_does_not_create_a_restriction():
+    # No candidates == no restriction; a saved value must not turn that
+    # into a one-entry allow-list.
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.anything"},
+        single_load_forecast_candidates=None,
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert "include_entities" not in schema.schema[marker].config
+
+
+def test_price_sources_one_to_four_are_on_the_grid_step_and_visible():
+    """Household, 20 Oct 2026: "second source should have been aemo rrp...
+    and it needs to be visible in the wizard... so amber would be three and
+    pd7day should be four". The Grid Prices step holds source 1 (provider),
+    source 2 (AEMO: forecast, price now, TNI, DLF code), then sources 3 and
+    4, in that order, none of them inside the collapsed section; the Sources
+    step no longer has the AEMO fields."""
+    from custom_components.nimbus_load.flows.hub_options import (
+        _GRID_VISIBLE_PRICE_FIELDS,
+        _collapse_optionals_into_advanced,
+        _solver_sources_schema,
+    )
+
+    order = [
+        CONF_SOLVER_IMPORT_PRICE_SENSOR,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+        CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
+        CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    ]
+    keys = [str(getattr(m, "schema", m)) for m in _solver_grid_schema({}).schema]
+    assert keys[: len(order)] == order
+    shown = _collapse_optionals_into_advanced(
+        _solver_grid_schema({}), keep_visible=tuple(sorted(_GRID_VISIBLE_PRICE_FIELDS))
+    )
+    top = [str(getattr(m, "schema", m)) for m in shown.schema]
+    assert all(k in top for k in order)
+    sources = [str(getattr(m, "schema", m)) for m in _solver_sources_schema({}).schema]
+    assert not set(order[2:6]) & set(sources)

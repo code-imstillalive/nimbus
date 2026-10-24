@@ -11,8 +11,8 @@ step (max(0.0, nan) == 0.0), with no error at all.
 This test exercises the REAL train_model() directly with a synthetic
 event list containing one NaN reading -- deliberately NOT going through
 coordinator.py's own fetch-layer guard (also fixed, see
-tests/test_coordinator_lts_hybrid_training.py and
-tests/test_coordinator_helpers.py for those), to prove ml/model.py's own
+tests/v2/forecasting/test_lts_hybrid_training.py and
+tests/v2/forecasting/test_coordinator_helpers.py for those), to prove ml/model.py's own
 defensive isfinite check holds even for a caller that bypasses the
 coordinator entirely (e.g. a future different data source, or a test).
 Same "ml/model.py has zero homeassistant.* imports, directly importable"

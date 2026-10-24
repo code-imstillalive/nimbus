@@ -11,7 +11,7 @@ and this repo's own maintainer explicitly agreed to follow exactly --
     fails."
 
 Drives the REAL main() (not a reimplementation) with a full ha_get mock
--- the same minimal fixture shape test_main_load_forecast_startup_race.py
+-- the same minimal fixture shape test_load_forecast_startup_race.py
 already established, extended just enough to reach a genuine, real
 "optimal" LP solve rather than stopping at an earlier branch -- and
 asserts on the exact `sensor.nimbus_solver_battery_forecast` state and

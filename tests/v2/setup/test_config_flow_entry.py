@@ -1,0 +1,119 @@
+"""The hub's config flow: a failing notification never blocks creating the hub,
+and the subentry types and options flow are registered (#1837).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from _ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+from custom_components.nimbus_load.config_flow import NimbusConfigFlow
+from custom_components.nimbus_load.const import (
+    SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+    SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_POWER_SOURCE,
+    SUBENTRY_TYPE_PV_STRING,
+    SUBENTRY_TYPE_SIGNAL,
+)
+from custom_components.nimbus_load.flows.battery_participant_subentry import (
+    NimbusBatteryParticipantSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.battery_tower_subentry import (
+    NimbusBatteryTowerSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.controllable_load_subentry import (
+    NimbusControllableLoadSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.hub_options import (
+    NimbusHubOptionsFlow,
+)
+from custom_components.nimbus_load.flows.load_subentry import (
+    NimbusLoadSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.power_source_subentry import (
+    NimbusPowerSourceSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.pv_string_subentry import (
+    NimbusPvStringSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.signal_subentry import (
+    NimbusSignalSubentryFlowHandler,
+)
+
+
+def _make_flow() -> NimbusConfigFlow:
+    flow = NimbusConfigFlow.__new__(NimbusConfigFlow)
+    flow.hass = MagicMock()
+    flow.async_set_unique_id = MagicMock(side_effect=_async_noop)
+    flow._abort_if_unique_id_configured = MagicMock()
+    return flow
+
+
+async def _async_noop(*args, **kwargs):
+    return None
+
+
+def test_hub_creation_succeeds_and_calls_the_real_setup_notification():
+    flow = _make_flow()
+    result = asyncio.run(flow.async_step_user(None))
+    assert result["type"] == "create_entry"
+    assert result["title"] == "Nimbus"
+    assert result["data"] == {}
+    flow.hass.services.async_call.assert_called_once()
+    call_args = flow.hass.services.async_call.call_args
+    assert call_args[0][0] == "persistent_notification"
+    assert call_args[0][1] == "create"
+    assert call_args[0][2]["notification_id"] == "nimbus_setup_incomplete"
+
+
+def test_hub_creation_still_succeeds_even_if_the_notification_call_raises():
+    # The real, deliberate guarantee this exists to protect (config_flow.py's
+    # own comment: "hub creation must succeed regardless of whether this
+    # notification does"). A persistent_notification failure is a real,
+    # plausible scenario (hass not fully started yet, a services registry
+    # hiccup) -- it must never prevent the actual hub entry from being
+    # created.
+    flow = _make_flow()
+    flow.hass.services.async_call = MagicMock(
+        side_effect=RuntimeError("services not ready")
+    )
+    result = asyncio.run(flow.async_step_user(None))
+    assert result["type"] == "create_entry"
+    assert result["title"] == "Nimbus"
+
+
+def test_hub_creation_checks_unique_id_to_prevent_a_second_hub():
+    flow = _make_flow()
+    asyncio.run(flow.async_step_user(None))
+    flow.async_set_unique_id.assert_called_once()
+    flow._abort_if_unique_id_configured.assert_called_once()
+
+
+def test_supported_subentry_types_registers_every_type():
+    result = NimbusConfigFlow.async_get_supported_subentry_types(MagicMock())
+    assert result == {
+        SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler,
+        SUBENTRY_TYPE_SIGNAL: NimbusSignalSubentryFlowHandler,
+        SUBENTRY_TYPE_POWER_SOURCE: NimbusPowerSourceSubentryFlowHandler,
+        SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
+        SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
+        SUBENTRY_TYPE_CONTROLLABLE_LOAD: NimbusControllableLoadSubentryFlowHandler,
+        SUBENTRY_TYPE_BATTERY_PARTICIPANT: NimbusBatteryParticipantSubentryFlowHandler,
+    }
+
+
+def test_options_flow_wraps_the_real_config_entry():
+    fake_entry = MagicMock()
+    result = NimbusConfigFlow.async_get_options_flow(fake_entry)
+    assert isinstance(result, NimbusHubOptionsFlow)
+    assert result.config_entry is fake_entry
