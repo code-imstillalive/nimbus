@@ -568,3 +568,31 @@ def test_a_price_historys_unit_that_cannot_be_read_scales_by_one(monkeypatch):
 
     monkeypatch.setattr(sw, "ha_get", down)
     assert sw.price_unit_scale_of_history("sensor.price") == 1.0
+
+
+def test_amber_express_rows_are_ordered_by_time_never_by_price(sensor):
+    """Rows arriving dearest first still read in time order."""
+    rows = sorted(SIMPLE, key=lambda r: -float(r["value"] or 0.0))
+    ordered, _ = sensor(
+        [t("2026-10-06T13:20:00+10:00")], forecast=SIMPLE, detailedForecast=DETAIL
+    )
+    shuffled, _ = sensor(
+        [t("2026-10-06T13:20:00+10:00")], forecast=rows, detailedForecast=DETAIL
+    )
+    assert shuffled == ordered == [0.0613]
+
+
+def test_without_detail_each_amber_express_price_runs_to_the_next_in_time():
+    import price_intervals as pi
+
+    t0 = t("2026-10-06T13:00:00+10:00")
+    rows = [
+        {"time": (t0 + timedelta(minutes=10)).isoformat(), "value": 0.10},
+        {"time": t0.isoformat(), "value": 0.30},
+        {"time": (t0 + timedelta(minutes=5)).isoformat(), "value": 0.20},
+    ]
+    got = [(i.start, i.end, i.value) for i in pi.amber_express_intervals(rows, [])]
+    assert got[:2] == [
+        (t0, t0 + timedelta(minutes=5), 0.30),
+        (t0 + timedelta(minutes=5), t0 + timedelta(minutes=10), 0.20),
+    ]

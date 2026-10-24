@@ -231,3 +231,41 @@ def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate(rows):
     rates = tf.learn_thermal_rates(_series(rows), on_threshold_kw=0.5)
     assert rates.heating_sample_count == 0
     assert rates.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH
+
+
+def test_two_readings_are_enough_to_teach_the_idle_decay():
+    rates = tf.learn_thermal_rates(
+        _series([(0, 50.0, 0.0), (60, 49.0, 0.0)]), on_threshold_kw=0.5
+    )
+    assert rates.idle_sample_count == 1
+    assert rates.idle_decay_c_per_hour == pytest.approx(1.0)
+
+
+def test_ambient_readings_without_a_learned_loss_use_the_idle_decay():
+    plan = _plan([0.0, 0.0])
+    out = tf.project_temperature_forecast(
+        plan,
+        start_temperature=50.0,
+        heating_rate_c_per_kwh=2.0,
+        idle_decay_c_per_hour=1.0,
+        on_threshold_kw=0.5,
+        ambient_forecast=[
+            {"time": T0.isoformat(), "value": 15.0},
+            {"time": (T0 + timedelta(hours=2)).isoformat(), "value": 15.0},
+        ],
+        loss_coeff_per_h=None,
+    )
+    assert [e["value"] for e in out] == [49.5, 49.0]
+
+
+def test_a_learned_loss_without_ambient_readings_uses_the_idle_decay():
+    out = tf.project_temperature_forecast(
+        _plan([0.0, 0.0]),
+        start_temperature=50.0,
+        heating_rate_c_per_kwh=2.0,
+        idle_decay_c_per_hour=1.0,
+        on_threshold_kw=0.5,
+        loss_coeff_per_h=0.02,
+        ambient_forecast=None,
+    )
+    assert [e["value"] for e in out] == [49.5, 49.0]
