@@ -14,7 +14,7 @@ This is verified two ways:
    batched call, exactly match what calling gbrt_lower/gbrt_upper.predict()
    one row at a time (the OLD calling convention) on the same captured
    rows would have produced -- relying on GBRT.predict() being genuinely
-   row-independent (see tests/test_gbrt_split_vectorization_equivalence.py
+   row-independent (see tests/test_gates_suite.py
    for _build_tree()'s own equivalence guarantee; this test instead pins
    predict()'s batch-vs-looped invariant, the assumption this specific
    model.py refactor depends on).

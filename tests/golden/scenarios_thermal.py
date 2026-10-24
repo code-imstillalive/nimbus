@@ -85,7 +85,7 @@ edge described above.
 relaxed load -- so the golden record can see it, because the harness records
 WARNING and above. The first version claimed the opposite ("not logged"), which
 was never checked, and its target never relaxed anyway, so the claim was never
-tested against a run that relaxed. `test_1358_thermal_scenario_is_determinate.py`
+tested against a run that relaxed. `test_gates_suite.py`
 now asserts the warning IS in this scenario's record and is NOT in the other two.
 
 What remains genuinely absent is the *published* signal:
@@ -191,7 +191,7 @@ def energy_the_constraint_demands(target_c: float) -> float:
     """kWh the hard temperature constraint demands over the whole window.
 
     The module docstring derives this; it is code so those numbers are
-    checkable, and `tests/test_1358_thermal_scenario_is_determinate.py` checks
+    checkable, and `tests/test_gates_suite.py` checks
     them rather than trusting the comment.
     """
     window_h = THERMAL_DEADLINE_HOUR - THERMAL_EARLIEST_HOUR

@@ -578,3 +578,13 @@ def test_the_source_is_named_by_how_it_was_priced():
     assert "retail_from_rrp" in out and "aemo_markup" not in out
     p.aemo_source = "aemo_markup"
     assert "aemo_markup" in sw._consolidation_sources({}, GRID, "import", [0.2] * 6, p)
+
+
+@pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
+def test_comparison_sources_are_recorded_never_planned_on(freezer):
+    """`solver_price_comparison_sensors` is for comparison only: the plan with
+    it set is the plan without it."""
+    listed = _main({"solver_price_comparison_sensors": [SECONDARY, "sensor.other"]})
+    plain = _main({})
+    assert _scheduling(listed) == _scheduling(plain)
+    assert listed["total_cost"] == plain["total_cost"]

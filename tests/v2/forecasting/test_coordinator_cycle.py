@@ -543,3 +543,28 @@ def test_a_long_failing_retrain_warns_once_that_the_model_is_stale(
         == 1
     )
     assert coord._retrain_failing_since is not None
+
+
+def test_a_loads_running_hold_reaches_the_predict_call(tmp_path, recorder, monkeypatch):
+    """#1703: the subentry's threshold and hold length are what predict() runs with."""
+    hass = FakeHass(tmp_path)
+    coord = _coordinator(
+        hass, **{const.CONF_RUNNING_THRESHOLD_KW: 1.0, const.CONF_RUN_HOLD_HOURS: 2.0}
+    )
+    asyncio.run(coord._async_retrain())
+    seen = []
+    real = cm.predict
+
+    def spy(*args, **kwargs):
+        seen.append((args, kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(cm, "predict", spy)
+    asyncio.run(coord._async_update_data())
+    assert seen
+    for args, kwargs in seen:
+        threshold = kwargs.get(
+            "running_threshold_kw", args[15] if len(args) > 15 else None
+        )
+        hold = kwargs.get("run_hold_hours", args[16] if len(args) > 16 else None)
+        assert (threshold, hold) == (1.0, 2.0)

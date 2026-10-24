@@ -368,3 +368,39 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_household_mode_moves_the_band_the_solver_receives():
+    """#1314: the mode's band preset is applied before the thermal branch
+    reads its target and floor, so `away` reaches the LP one setback lower."""
+    original = solver_writer.NATIVE.hass
+    data = {
+        "controllable_load_name": "Hot Water Heat Pump",
+        "controllable_load_kind": "thermal",
+        "thermal_temperature_entity": "water_heater.hws",
+        "thermal_max_power_kw": 3.0,
+        "thermal_target_temperature_c": 60.0,
+        "thermal_comfort_floor_c": 50.0,
+        "thermal_earliest_hour": 6.0,
+        "thermal_deadline_hour": 16.0,
+    }
+
+    def build(mode):
+        sub = _fake_subentry("s1", "controllable_load", data)
+        sub.title = "Hot Water Heat Pump"
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0),
+            "select.nimbus_household_mode": SimpleNamespace(state=mode, attributes={}),
+        }
+        solver_writer.NATIVE.hass = _fake_native_hass([sub], states=states)
+        now = datetime(2026, 9, 13, 0, 0, tzinfo=_TZ)
+        grid = _grid(now, 96)
+        (load,) = solver_writer.build_controllable_loads(now, grid, len(grid))[2]
+        return load
+
+    try:
+        home, away = build("home"), build("away")
+    finally:
+        solver_writer.NATIVE.hass = original
+    assert away.comfort_floor_c == home.comfort_floor_c - 5.0
+    assert away.target_temperature_c == home.target_temperature_c - 5.0

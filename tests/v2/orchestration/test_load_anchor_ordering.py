@@ -127,3 +127,31 @@ class TestTheDataclassCarriesBoth(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_source_blend_sits_between_the_snapshot_and_the_live_anchor():
+    """#937: the cross-check snapshot is the summed forecast, before any
+    blend; the blend moves every period and the band with it; the live
+    reading still wins period 0, after the blend."""
+    from solver import forecast_source_selection as fss
+
+    persistence = [9.0, 9.0, 9.0]
+    decision = fss.ForecastSourceDecision(
+        source=fss.SOURCE_PERSISTENCE,
+        persistence_weight=1.0,
+        policy="persistence",
+        reason="x",
+        days_scored=14,
+        days_persistence_won=14,
+        mean_value_add_dollars=-1.0,
+    )
+
+    def resolve(_cfg, _grid, _hours, _now, load):
+        return list(persistence), decision, list(persistence)
+
+    with patch.object(load_inputs, "_resolve_load_forecast_source", resolve):
+        got = _build()
+    assert got.summed_18_now_kw == _FORECAST_FIRST  # snapshot: before the blend
+    assert got.load_kw[1:] == [9.0, 9.0]  # the blend reached the plan
+    assert got.load_lower_kw[1:] == [9.0, 9.0] and got.load_upper_kw[1:] == [9.0, 9.0]
+    assert got.load_kw[0] == _LIVE_NOW  # and the live anchor came after it

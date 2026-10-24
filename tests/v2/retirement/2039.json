@@ -1,0 +1,163 @@
+{
+ "pr": 2039,
+ "issue": 1837,
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before f3d99151 --retired @<the 80 retired or renamed test paths of this step>",
+  "before": "f3d991513c045f711a0c9947a2ead23c12bc6695",
+  "retired_files": 80,
+  "retired_lines_reached": 10712,
+  "kept_lines_reached": 39098,
+  "lost_line_count": 0,
+  "lost_lines": []
+ },
+ "mutation": {
+  "note": "not run: the retired files read source text and executed no code under test. Each behavioural replacement was instead planted against in the shipped code (24 plants, each failing its new test), and each merged group-D gate was planted against in the real tree"
+ },
+ "group_d_plants": [
+  {
+   "gate": "#1185 closing keywords read commit messages",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1329 no bare import of a stub-installing sibling",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1330 main-driving tests isolate state",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1452 hass conftest reuses isolated state",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1681 no unguarded bare sibling import",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1688 no raw once-listener unload",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "callers mode: no module reaches into sw._LOGGER",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "golden scenarios are not vacuous",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1358 thermal scenario prices are distinct",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "GBRT vectorized split matches its reference",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "README entity references exist",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "source comments name real test files",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "the cron copy reads local hours",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "relative imports resolve",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "sensor discovery is not mirrored",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "every solver number is read",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "diagnostic lines log below WARNING",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "flattened entity names do not collide",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "the config surface stays in budget",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "the vendored telemetry schema matches",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1067 no section where the save path is flat",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1445 a rename is not a deletion",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1187 a fully qualified section import is seen",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1120 cron stamps rows",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#125 cron labels the same",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#923 cron gated battery",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1994 no external entity_id",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#582 one same-day helper",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#919 benchmark docs",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "stdlib time not shadowed",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1496 schema number tracks fields",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1213 both string files state the window rule",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1179 the solver never branches on the weight it reports",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1179 the writer branches on the HiGHS diagnostics only to log them",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#1179 sensor.py names how many solve_diagnostics keys there are",
+   "failed_when_planted": true
+  },
+  {
+   "gate": "#467 calendar trips import nothing from the solver",
+   "failed_when_planted": true
+  }
+ ],
+ "decision": "Mark Purcell, 24 Oct 2026: A and C keep; D keep, merged, each failing once on a planted violation; B with the device-contract area; E retire per area with a named v2 test per cited issue, recorded in the PR body and this ledger"
+}

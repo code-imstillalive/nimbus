@@ -73,7 +73,7 @@ def solver_state_in_tmp_path():
     raises `PermissionError` from `acquire_lock()`.
 
     Reuses `_isolated_state.isolated_state_paths()` -- the same helper
-    `test_1330_main_driving_tests_isolate_state_paths.py` guards -- rather
+    `test_gates_suite.py` guards -- rather
     than a second, hand-copied name list. This fixture used to carry its
     own tuple, and one entry read `LOAD_ERROR_NOTIFIED_PATH` where the
     real constant is `LOAD_FORECAST_ERROR_NOTIFIED_PATH`; a `hasattr`

@@ -2698,12 +2698,9 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # publish, and not a reason to truncate.
         if str(existing.get("state")) in ("unavailable", "unknown"):
             prior_read = PRIOR_READ_UNAVAILABLE
-        # Deliberately spelled out rather than reusing `existing_attrs`
-        # above: test_solver_writer_family_a_freshness_repush.py matches
-        # this exact expression as source text across every Family A
-        # publisher, to prove none of them lost the idempotency check
-        # that keeps a once-a-day score from re-solving 1440 times.
-        # Tidying this into the local costs that guard its match.
+        # The idempotency check that keeps a once-a-day score from
+        # re-solving 1440 times: the day already published is re-pushed,
+        # not recomputed (tests/v2/reports/test_daily_reports.py, #289/#292).
         #
         # nimbus #1082: the date matching is necessary but no longer
         # sufficient. A score taken before the day's settlement landed is
@@ -2718,13 +2715,6 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             # through here re-scores it with the settlement that has since
             # arrived -- see _keep_published_quality_score() for the
             # measured 5-EPR-point case, and for why this cannot loop.
-            #
-            # Deliberately nested rather than folded into the condition
-            # above: test_solver_writer_family_a_freshness_repush.py
-            # locates this fast path by the exact source text
-            # `if<check>:`, so an `and` on that line silently defeats a
-            # guard that exists to stop a once-a-day score re-solving
-            # 1440 times. Correctness of the guard beats tidiness here.
             if not sw._keep_published_quality_score(existing_attrs, now):
                 solver_shared._LOGGER.info(
                     "Nimbus quality: %s was scored before its settlement "
