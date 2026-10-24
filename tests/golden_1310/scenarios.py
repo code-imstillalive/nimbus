@@ -64,9 +64,8 @@ from solver import elements
 BRISBANE = ZoneInfo("Australia/Brisbane")
 
 # ---------------------------------------------------------------------------
-# Shared fixture plumbing (same shapes tests/test_solver_writer_battery_
-# participants.py and tests/test_solver_writer_battery_participant_history.py
-# already use).
+# Shared fixture plumbing (the shapes the battery-participant suites used,
+# since retired; tests/v2/reports/test_participant_history.py, #1837).
 # ---------------------------------------------------------------------------
 
 
@@ -104,9 +103,9 @@ def _flat_history(value: float, start: datetime, end: datetime, step_minutes: in
 def _hourly_history(
     values_by_hour: dict[int, float], day_start: datetime, default: float = 0.0
 ):
-    """One real sample per hour, every hour -- matches
-    test_solver_writer_battery_participant_history.py's own
-    test_driving_discharge_while_away_is_zeroed pattern, and keeps every
+    """One real sample per hour, every hour -- the pattern of
+    tests/v2/reports/test_participant_history.py's
+    test_driving_while_away_never_reaches_the_home_grid, and keeps every
     period trustworthy under _stale_power_period_indices() (#1161) since
     each grid period gets a sample of its own, deliberately out of scope
     for this fixture."""

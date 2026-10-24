@@ -1200,3 +1200,76 @@ def test_the_real_side_is_the_capacity_weighted_fleet(fleet, ach, gap, reliable)
     assert out["soc_discrepancy_reliable"] is reliable
     if len(fleet) == 3:
         assert out["soc_discrepancy_mean_pct"] == 0.0
+
+
+# --- a negative regret is a broken comparison, not a score (#956) -----------------------------
+
+
+def _feasibility(soc_pcts, regret, min_pct=2.0, max_pct=100.0, capacity=100.0):
+    hourly = {
+        f"2026-09-15T{h:02d}:00:00+10:00": {"soc_pct": v}
+        for h, v in enumerate(soc_pcts)
+    }
+    return sw._achieved_feasibility_stats(
+        hourly, regret, min_pct=min_pct, max_pct=max_pct, capacity_kwh=capacity
+    )
+
+
+DRIFTED = [16.0, 12.0, 5.0, 4.0, 10.0, 40.0, 80.0, 60.0, 30.0, 0.5]  # ends below 2 %
+
+
+def test_beating_the_oracle_below_its_own_floor_is_named_and_measured_in_kwh():
+    s = _feasibility(DRIFTED, -0.73)
+    assert (s["regret_reliable"], s["achieved_within_lp_soc_bounds"]) == (False, False)
+    assert s["epr_reason"] == "oracle_beaten_achieved_outside_lp_soc_bounds"
+    assert s["achieved_soc_min_pct"] == pytest.approx(0.5)
+    assert s["achieved_below_floor_kwh"] == pytest.approx(1.5)
+    assert s["achieved_above_ceiling_kwh"] == 0.0
+    # A 0-100 % check would have passed the same day: the floor is the LP's.
+    assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
+
+
+@pytest.mark.parametrize(
+    ("soc", "regret", "reliable", "inside", "reason"),
+    [
+        ([20.0, 50.0, 80.0, 30.0], 1.2345, True, True, None),
+        ([20.0, 50.0], 0.0, True, True, None),  # matching the oracle is the best day
+        ([0.5, 50.0], 0.5, True, False, None),  # outside alone is not this flag's call
+        ([20.0, 50.0, 80.0], -0.25, False, True, "oracle_beaten"),
+    ],
+    ids=["healthy", "exactly_zero", "outside_but_positive", "beaten_inside"],
+)
+def test_only_a_negative_regret_is_unreliable_and_it_says_which_kind(
+    soc, regret, reliable, inside, reason
+):
+    s = _feasibility(soc, regret)
+    assert (
+        s["regret_reliable"],
+        s["achieved_within_lp_soc_bounds"],
+        s["epr_reason"],
+    ) == (
+        reliable,
+        inside,
+        reason,
+    )
+
+
+def test_without_a_trajectory_the_regret_verdict_still_stands():
+    s = sw._achieved_feasibility_stats(
+        {}, -0.5, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
+    )
+    assert (s["regret_reliable"], s["epr_reason"]) == (False, "oracle_beaten")
+    assert (
+        s["achieved_within_lp_soc_bounds"] is None
+        and s["achieved_below_floor_kwh"] is None
+    )
+    assert (
+        _feasibility([10.0, 20.0], -0.5, capacity=0.0)["achieved_soc_min_pct"] is None
+    )
+    rows = {"a": {"soc_pct": 10.0}, "b": {"battery_kw": 1.0}}
+    assert (
+        sw._achieved_feasibility_stats(
+            rows, 1.0, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
+        )["achieved_soc_min_pct"]
+        == 10.0
+    )

@@ -334,8 +334,8 @@ class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
     #1354 fixed exactly this for `coverage_compare.py` -- "Coverage-compare
     gate reports PASS when it measured 0 lines (false negative)". The same
     defect survived here and was found by running this tool on real commits
-    for the first time: `--base 406f013 --head 58832e2 --tests
-    tests/test_solver_writer_thermal_load_resolution.py` printed
+    for the first time: `--base 406f013 --head 58832e2 --tests` with that
+    day's thermal-load resolution test file (since moved into tests/v2) printed
 
         noop_patches: base ran 0 test(s) with 0 live patch site(s) checked
         OK: no patch site that was read on base went unread on head.

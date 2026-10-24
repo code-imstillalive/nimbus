@@ -8,6 +8,7 @@ a history that only ever grows. Synthetic histories only.
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 import urllib.error
@@ -1205,3 +1206,173 @@ def test_an_unreachable_home_assistant_is_no_record(monkeypatch, exc):
     monkeypatch.setattr(sw, "resolve_real_entity_id", lambda e: e)
     monkeypatch.setattr(sw, "ha_get", boom)
     assert sw.read_day_ahead_value_add_history() == {}
+
+
+# --- the row being written says which release scored it (#1120) ------------------------------
+
+
+@pytest.fixture
+def version():
+    real = sw._nimbus_version
+    real.cache_clear()
+    yield
+    real.cache_clear()
+
+
+def test_only_the_row_written_now_is_stamped_and_older_rows_keep_theirs(
+    version, monkeypatch
+):
+    monkeypatch.setattr(sw, "_nimbus_version", lambda: "0.94.392")
+    prior = {
+        "history": {
+            "2026-09-15": _row(106.4),
+            "2026-09-16": {**_row(90.0), "v": "0.94.375"},
+        }
+    }
+    out = sw._carry_forward_quality_history(prior, "2026-09-17", _row(94.8))
+    assert {k: r.get("v") for k, r in out.items()} == {
+        "2026-09-15": None,  # scored by something that did not say: never back-dated
+        "2026-09-16": "0.94.375",
+        "2026-09-17": "0.94.392",
+    }
+    assert sw._QUALITY_HISTORY_VERSION_FIELD == "v"
+    assert {k: out["2026-09-17"][k] for k in sw._QUALITY_HISTORY_FIELDS} == {
+        k: _row(94.8)[k] for k in sw._QUALITY_HISTORY_FIELDS
+    }
+
+
+def test_no_version_costs_the_row_nothing(version, monkeypatch):
+    monkeypatch.setattr(sw, "_nimbus_version", lambda: None)
+    out = sw._carry_forward_quality_history({}, "2026-09-18", _row(90.0))
+    assert "v" not in out["2026-09-18"] and out["2026-09-18"]["epr"] == 90.0
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [OSError("boom"), "{not json", '{"domain": "nimbus_load"}', '{"version": 94}'],
+    ids=["unreadable", "malformed", "no_version", "not_a_string"],
+)
+def test_a_manifest_that_cannot_say_reads_as_no_version(version, monkeypatch, manifest):
+    import builtins
+    import io
+
+    def fake_open(*_a, **_k):
+        if isinstance(manifest, Exception):
+            raise manifest
+        return io.StringIO(manifest)
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+    assert sw._nimbus_version() is None
+
+
+def test_the_version_is_this_packages_own_manifest(version):
+    import json
+    import os
+
+    path = os.path.join(os.path.dirname(os.path.abspath(sw.__file__)), "manifest.json")
+    with open(path, encoding="utf-8") as handle:
+        assert sw._nimbus_version() == json.load(handle)["version"]
+
+
+# --- a row scored before its settlement says it is waiting (#1200) ----------------------------
+
+
+def _scored(status):
+    entry = _row(90.0)
+    if status is not None:
+        entry["real_p2p_settlement_status"] = status
+    return entry
+
+
+@pytest.mark.parametrize(
+    ("status", "provisional"),
+    [
+        *[(s, True) for s in sorted(sw._PROVISIONAL_SETTLEMENT_STATUSES)],
+        ("applied", False),
+        ("no_sensor_configured", False),
+        ("window_is_not_one_local_calendar_day", False),
+        (None, None),  # no status is not a guess either way
+    ],
+)
+def test_which_days_are_provisional_and_the_row_flag_follows(status, provisional):
+    assert sw._settlement_is_provisional(_scored(status)) is provisional
+    row = sw._carry_forward_quality_history({}, "2026-09-24", _scored(status))[
+        "2026-09-24"
+    ]
+    assert (row.get(sw._QUALITY_HISTORY_PROVISIONAL_FIELD) == 1) is bool(provisional)
+    assert sw._settlement_is_provisional({}) is None
+
+
+def test_the_flag_clears_on_a_settled_rescore_and_is_never_back_dated():
+    field = sw._QUALITY_HISTORY_PROVISIONAL_FIELD
+    waiting = sw._carry_forward_quality_history(
+        {"history": {"2026-09-01": {"epr": 0.5}}},
+        "2026-09-23",
+        _scored("no_settlement_entry_for_this_date"),
+    )
+    assert waiting["2026-09-23"][field] == 1 and field not in waiting["2026-09-01"]
+    settled = sw._carry_forward_quality_history(
+        {"history": waiting}, "2026-09-23", _scored("applied")
+    )
+    assert field not in settled["2026-09-23"]
+
+
+SETTLED = {"solver_p2p_settlement_history_sensor": "sensor.settlement"}
+
+
+@pytest.mark.parametrize(
+    ("history", "arrived"),
+    [
+        ({"2026-09-23": {"export_cost": 13.46}}, True),
+        ({"2026-09-23": {"export_cost": 0.0}}, True),  # presence, not a non-zero figure
+        ({"2026-09-22": {"export_cost": 1.0}}, False),
+    ],
+)
+def test_a_settlement_has_arrived_when_its_date_is_there(monkeypatch, history, arrived):
+    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"history": history}})
+    assert sw._settlement_entry_exists(SETTLED, "2026-09-23") is arrived
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        urllib.error.URLError("down"),
+        KeyError("history"),
+        TypeError("nope"),
+        json.JSONDecodeError("bad", "{}", 0),
+    ],
+)
+def test_an_unreadable_settlement_has_not_arrived(monkeypatch, exc):
+    def boom(_e):
+        raise exc
+
+    monkeypatch.setattr(sw, "ha_get", boom)
+    assert sw._settlement_entry_exists(SETTLED, "2026-09-23") is False
+    monkeypatch.setattr(sw, "ha_get", lambda _e: pytest.fail("read without a sensor"))
+    assert sw._settlement_entry_exists({}, "2026-09-23") is False
+
+
+@pytest.mark.parametrize(
+    ("only", "scored"),
+    [
+        ({"2026-09-21"}, ["2026-09-21"]),
+        (None, ["2026-09-24", "2026-09-23", "2026-09-22"]),
+    ],
+    ids=["named_day_only", "every_day"],
+)
+def test_a_named_rescore_solves_only_the_day_named(monkeypatch, only, scored):
+    seen = []
+
+    def window(_cfg, start, _end, allow_partial):
+        seen.append(start.date().isoformat())
+        return _scored("applied")
+
+    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {}, "state": "90"})
+    monkeypatch.setattr(sw, "_compute_report_for_window", window)
+    monkeypatch.setattr(sw, "ha_post_state", lambda *_a, **_k: None)
+    now = datetime(2026, 9, 25, 10, 0, tzinfo=TZ)
+    if only is None:
+        sw.rescore_quality_history({}, now, 3)
+    else:
+        sw.rescore_quality_history({}, now, 10, only_dates=only)
+    assert seen == scored

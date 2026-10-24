@@ -959,3 +959,80 @@ def test_the_delivery_moves_no_scored_figure(delivery):
         "scored_participants",
     )
     assert [without[f] for f in fields] == [with_load[f] for f in fields]
+
+
+# --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
+
+
+@pytest.mark.parametrize(
+    ("regret", "delta", "share"),
+    [
+        (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
+        (-0.7855, 0.0, 0.0),
+        (3.6485, None, 0.0),
+        (0.0, 2.6259, 0.0),  # a share of nothing is not a finding
+        (1e-12, 2.6259, 0.0),
+        (-2.0, 1.0, 0.5),  # magnitude: a negative regret does not flip it
+        (2.0, -1.0, 0.5),
+        (1.0, 5.0, 1.0),  # a share, never past the whole
+        (30.0, 15.0, 0.5),
+    ],
+)
+def test_the_pricing_share_of_the_regret(regret, delta, share):
+    assert sw._regret_path_delta_share(regret, delta) == pytest.approx(share, abs=1e-3)
+
+
+def test_the_share_is_published_on_the_report_and_not_in_each_row(history):
+    scored = window()
+    assert scored["regret_path_delta_share"] == pytest.approx(
+        sw._regret_path_delta_share(
+            scored["regret_dollars"], scored["j_star_path_delta"]
+        )
+    )
+    assert "regret_path_delta_share" not in sw._QUALITY_HISTORY_FIELDS
+
+
+# --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
+
+
+@pytest.fixture
+def no_soc(history, monkeypatch):
+    monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
+    history["sensor.combined_soc"] = lambda s, e: []
+    return history
+
+
+def test_an_empty_soc_read_refuses_the_day_rather_than_assume_half_charge(no_soc):
+    assert window() is None
+
+
+@pytest.mark.parametrize("unset", [None, ""], ids=["absent", "empty"])
+def test_an_install_without_a_soc_sensor_still_scores_from_the_assumption(
+    no_soc, unset
+):
+    c = cfg()
+    if unset is None:
+        del c["solver_battery_soc_sensor"]
+    else:
+        c["solver_battery_soc_sensor"] = unset
+    scored = window(c)
+    assert scored is not None
+    first = scored["j_ach_hourly"][min(scored["j_ach_hourly"])]
+    assert first["soc_pct"] == pytest.approx(sw._ASSUMED_INITIAL_SOC_PCT, abs=0.1)
+    assert sw._ASSUMED_INITIAL_SOC_PCT == 50.0
+
+
+def test_a_real_soc_read_is_the_one_used(history):
+    history["sensor.combined_soc"] = flat(16.6)
+    hourly = window()["j_ach_hourly"]
+    assert hourly[min(hourly)]["soc_pct"] == pytest.approx(16.6, abs=0.1)
+
+
+def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog):
+    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
+        for _ in range(sw._COVERAGE_SKIP_WARN_AFTER):
+            window()
+    lines = [r for r in caplog.records if "SoC sensor" in r.getMessage()]
+    assert (lines[0].levelno, lines[-1].levelno) == (logging.INFO, logging.WARNING)
+    assert "sensor.combined_soc" in lines[0].getMessage()
+    assert DAY.date().isoformat() in lines[0].getMessage()

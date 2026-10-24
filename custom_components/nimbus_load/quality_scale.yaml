@@ -20,7 +20,7 @@ rules:
   config-flow-test-coverage:
     status: done
     comment: >-
-      tests/test_config_flow.py covers hub creation, the unique-id guard, and
+      tests/v2/setup/test_config_flow_entry.py covers hub creation, the unique-id guard, and
       subentry-type registration. tests/test_flows_{load,signal,power_source,
       pv_string,battery_tower}_subentry.py each cover creation AND reconfigure
       paths (prefill from existing data, no-input-shows-form, alias delegation).
