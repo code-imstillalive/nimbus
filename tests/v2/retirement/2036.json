@@ -1,0 +1,409 @@
+{
+ "pr": 2036,
+ "issue": 1837,
+ "mutation": {
+  "rerun": "python scripts/mutation_compare.py --module <module> --set old=@<old_set> --set new=@<new_set> --mutants <mutants> --seed <seed>; the old set runs at old_set_commit, where its files still exist",
+  "old_set_commit": "1389587b",
+  "areas": [
+   {
+    "module": "custom_components/nimbus_load/solver/quality_report.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1109_shared_charger_cap_reaches_the_oracle.py",
+     "tests/test_1120_rescore_history_persists.py",
+     "tests/test_1228_soc_discrepancy_compares_like_for_like.py",
+     "tests/test_1248_history_never_shrinks.py",
+     "tests/test_1357_oracle_controllable_loads.py",
+     "tests/test_1357_step2_oracle_bundle_builder.py",
+     "tests/test_1463_hold_last_quality_score.py",
+     "tests/test_1465_meter_reconciliation.py",
+     "tests/test_1477_held_value_is_not_a_coverage_gap.py",
+     "tests/test_1480_curtailment_explains_path_delta.py",
+     "tests/test_1496_quality_report_schema_rescore.py",
+     "tests/test_1825_stale_price_scoring.py",
+     "tests/test_768_delivery_is_published_without_moving_the_score.py",
+     "tests/test_937_value_add_retention_and_wiring.py",
+     "tests/test_battery_power_sign_convention.py",
+     "tests/test_compute_report_for_window.py",
+     "tests/test_coverage_gate_names_the_short_sensor.py",
+     "tests/test_daily_quality_report.py",
+     "tests/test_efficiency_backtest_report.py",
+     "tests/test_epr_denominator_reason.py",
+     "tests/test_jstar_path_delta.py",
+     "tests/test_nimbus_only_soc_counterfactual.py",
+     "tests/test_provisional_score_is_rescored.py",
+     "tests/test_quality_report_achieved_energy_and_reliability.py",
+     "tests/test_quality_report_oracle_contains_achieved.py",
+     "tests/test_quality_report_p2p_fixed_export.py",
+     "tests/test_quality_report_skip_logging.py",
+     "tests/test_quality_report_soc_clamp.py",
+     "tests/test_regret_evaluate_realized_cost_multi.py",
+     "tests/test_solver_writer_quality_report_state_class.py"
+    ],
+    "new_set": [
+     "tests/v2/reports/test_quality_score.py",
+     "tests/v2/reports/test_quality_window.py",
+     "tests/v2/reports/test_daily_reports.py",
+     "tests/v2/reports/test_controllable_load_history.py",
+     "tests/v2/forecasting/test_load_forecast_source.py",
+     "tests/test_1825_the_scorer_reprices_before_pricing.py",
+     "tests/test_1465_the_meter_check_is_wired.py",
+     "tests/test_1089_publish_warns_on_the_denominator.py",
+     "tests/test_1109_the_history_path_sets_the_shared_charger.py",
+     "tests/test_1357_the_oracle_bundle_is_wired.py",
+     "tests/test_1496_the_schema_number_tracks_the_fields.py",
+     "tests/test_937_the_load_source_blend_is_placed_right.py"
+    ],
+    "old_killed": 13,
+    "new_killed": 13,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "binop",
+      "where": "line 1320: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "binop",
+      "where": "line 485: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 3,
+      "kind": "binop",
+      "where": "line 1320: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "boolop",
+      "where": "line 1320: Or -> And",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "boolop",
+      "where": "line 1183: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "binop",
+      "where": "line 830: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 1469: 0 -> 1",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 1320: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "constant",
+      "where": "line 888: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "constant",
+      "where": "line 501: 1 -> 2",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 588: 0.0 -> 1.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "binop",
+      "where": "line 1320: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "binop",
+      "where": "line 889: Sub -> Add",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 14,
+      "kind": "constant",
+      "where": "line 1324: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 15,
+      "kind": "binop",
+      "where": "line 706: Add -> Sub",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "binop",
+      "where": "line 888: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "binop",
+      "where": "line 888: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 18,
+      "kind": "binop",
+      "where": "line 1421: Sub -> Add",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 19,
+      "kind": "binop",
+      "where": "line 575: Add -> Sub",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 20,
+      "kind": "constant",
+      "where": "line 708: 0.0 -> 1.0",
+      "old": "killed",
+      "new": "killed"
+     }
+    ]
+   },
+   {
+    "module": "custom_components/nimbus_load/solver_reports/quality.py",
+    "seed": 1837,
+    "mutants": 20,
+    "old_set": [
+     "tests/test_1109_shared_charger_cap_reaches_the_oracle.py",
+     "tests/test_1120_rescore_history_persists.py",
+     "tests/test_1228_soc_discrepancy_compares_like_for_like.py",
+     "tests/test_1248_history_never_shrinks.py",
+     "tests/test_1357_oracle_controllable_loads.py",
+     "tests/test_1357_step2_oracle_bundle_builder.py",
+     "tests/test_1463_hold_last_quality_score.py",
+     "tests/test_1465_meter_reconciliation.py",
+     "tests/test_1477_held_value_is_not_a_coverage_gap.py",
+     "tests/test_1480_curtailment_explains_path_delta.py",
+     "tests/test_1496_quality_report_schema_rescore.py",
+     "tests/test_1825_stale_price_scoring.py",
+     "tests/test_768_delivery_is_published_without_moving_the_score.py",
+     "tests/test_937_value_add_retention_and_wiring.py",
+     "tests/test_battery_power_sign_convention.py",
+     "tests/test_compute_report_for_window.py",
+     "tests/test_coverage_gate_names_the_short_sensor.py",
+     "tests/test_daily_quality_report.py",
+     "tests/test_efficiency_backtest_report.py",
+     "tests/test_epr_denominator_reason.py",
+     "tests/test_jstar_path_delta.py",
+     "tests/test_nimbus_only_soc_counterfactual.py",
+     "tests/test_provisional_score_is_rescored.py",
+     "tests/test_quality_report_achieved_energy_and_reliability.py",
+     "tests/test_quality_report_oracle_contains_achieved.py",
+     "tests/test_quality_report_p2p_fixed_export.py",
+     "tests/test_quality_report_skip_logging.py",
+     "tests/test_quality_report_soc_clamp.py",
+     "tests/test_regret_evaluate_realized_cost_multi.py",
+     "tests/test_solver_writer_quality_report_state_class.py"
+    ],
+    "new_set": [
+     "tests/v2/reports/test_quality_score.py",
+     "tests/v2/reports/test_quality_window.py",
+     "tests/v2/reports/test_daily_reports.py",
+     "tests/v2/reports/test_controllable_load_history.py",
+     "tests/v2/forecasting/test_load_forecast_source.py",
+     "tests/test_1825_the_scorer_reprices_before_pricing.py",
+     "tests/test_1465_the_meter_check_is_wired.py",
+     "tests/test_1089_publish_warns_on_the_denominator.py",
+     "tests/test_1109_the_history_path_sets_the_shared_charger.py",
+     "tests/test_1357_the_oracle_bundle_is_wired.py",
+     "tests/test_1496_the_schema_number_tracks_the_fields.py",
+     "tests/test_937_the_load_source_blend_is_placed_right.py"
+    ],
+    "old_killed": 6,
+    "new_killed": 6,
+    "rows": [
+     {
+      "mutant": 1,
+      "kind": "constant",
+      "where": "line 1993: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 2,
+      "kind": "compare",
+      "where": "line 219: Gt -> GtE",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 3,
+      "kind": "boolop",
+      "where": "line 2587: And -> Or",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 4,
+      "kind": "constant",
+      "where": "line 1972: 100.0 -> 200.0",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 5,
+      "kind": "constant",
+      "where": "line 1498: 4 -> 8",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 6,
+      "kind": "constant",
+      "where": "line 557: 1 -> 2",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 7,
+      "kind": "constant",
+      "where": "line 657: 0.2 -> 0.4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 8,
+      "kind": "constant",
+      "where": "line 490: 100.0 -> 200.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 9,
+      "kind": "binop",
+      "where": "line 826: Div -> Mult",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 10,
+      "kind": "binop",
+      "where": "line 613: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 11,
+      "kind": "constant",
+      "where": "line 2010: 2 -> 4",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 12,
+      "kind": "constant",
+      "where": "line 706: 100.0 -> 200.0",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 13,
+      "kind": "constant",
+      "where": "line 1562: 3 -> 6",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 14,
+      "kind": "binop",
+      "where": "line 1734: Mult -> Div",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 15,
+      "kind": "constant",
+      "where": "line 1425: 100 -> 200",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 16,
+      "kind": "binop",
+      "where": "line 1685: Mult -> Div",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 17,
+      "kind": "compare",
+      "where": "line 759: LtE -> Lt",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 18,
+      "kind": "compare",
+      "where": "line 2713: Eq -> NotEq",
+      "old": "killed",
+      "new": "killed"
+     },
+     {
+      "mutant": 19,
+      "kind": "boolop",
+      "where": "line 2039: Or -> And",
+      "old": "survived",
+      "new": "survived"
+     },
+     {
+      "mutant": 20,
+      "kind": "compare",
+      "where": "line 285: LtE -> Lt",
+      "old": "survived",
+      "new": "survived"
+     }
+    ]
+   }
+  ]
+ },
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before 1389587b --retired @<the Deletes: lines of this PR's body>",
+  "before": "1389587b",
+  "retired_files": 30,
+  "retired_lines_reached": 12068,
+  "kept_lines_reached": 39009,
+  "lost_line_count": 0,
+  "lost_lines": {}
+ }
+}
