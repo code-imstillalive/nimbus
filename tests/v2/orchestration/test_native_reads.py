@@ -264,3 +264,16 @@ def test_a_state_read_inside_home_assistant_carries_when_it_changed(hass):
     hass.states.get = lambda eid: state if eid == "sensor.p2p" else None
     got = sw.ha_get("sensor.p2p")
     assert got["last_updated"] == T0.isoformat() and got["attributes"] == {"a": 1}
+
+
+def test_every_native_publish_leaves_a_trace_in_the_log(publish, caplog):
+    """#85: the publish trace reaches the integration's own logger, where the
+    household's log can show it, not only stdout."""
+    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
+        shared.ha_post_state("sensor.nimbus_unregistered", "ok", {})
+    assert any(
+        r.levelno == logging.DEBUG
+        and "sensor.nimbus_unregistered" in r.getMessage()
+        and "via_handler=False" in r.getMessage()
+        for r in caplog.records
+    )
