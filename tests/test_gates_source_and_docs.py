@@ -3,9 +3,13 @@ names exists, every entity a README names exists, the cron copy uses local
 hours, relative imports resolve, sensor discovery is not mirrored, every
 number field is read, diagnostic log levels hold, flattened entity names do
 not collide, the config surface stays in budget, the vendored telemetry
-schema matches, and no flow adds a `section` its save path cannot flatten
-(#1837 group D: kept, merged, each shown to fail once on a planted
-violation)."""
+schema matches, no flow adds a `section` its save path cannot flatten, the
+price event's strings state their window rule, the solver's diagnostics steer
+nothing, the cron copies keep the native writer's fixes, no external entity_id
+is written into the code, the same-day window has one helper, the benchmark
+doc names the real importers, the package never shadows stdlib `time`, and
+the quality report's schema number tracks its fields (#1837 group D: kept,
+merged, each shown to fail once on a planted violation)."""
 
 from __future__ import annotations
 
@@ -13,14 +17,24 @@ import ast
 import collections
 import glob
 import hashlib
+import inspect
 import json
 import os
 import pathlib
 import re
+import sys
 import unittest
+from datetime import UTC, datetime, time
 from pathlib import Path
 
+import _solver_path  # noqa: F401
 from _writer_source import writer_source, writer_source_paths, writer_trees
+
+from tests._ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+import solver_writer
 
 # --- test_readme_entity_references_exist ------------------------------------------------------
 # Regression test for nimbus issue #364 (Mark Purcell, codebase review):
@@ -1620,3 +1634,411 @@ def test_1179_sensor_py_names_how_many_solve_diagnostics_keys_there_are():
         encoding="utf-8"
     )
     assert f"emits **{words[len(keys)]}**" in doc, len(keys)
+
+
+# --- test_1120_the_cron_copy_stamps_its_rows --------------------------------------------------
+# nimbus #1120: the standalone (cron) quality writer stamps the row it writes
+# with the release that scored it, as the native writer does. A check that
+# reads source text, because the cron copy cannot be imported here; kept apart
+# until the decision on source-reading tests (#1837). The native stamp is in
+# tests/v2/reports/test_daily_reports.py.
+
+_CRON = (
+    Path(__file__).resolve().parents[1]
+    / "docs"
+    / "real-world-integration"
+    / "files"
+    / "nimbus_solver_quality_writer.py"
+)
+
+
+def test_the_cron_copy_stamps_the_row_before_it_is_frozen():
+    src = _CRON.read_text(encoding="utf-8")
+    assert "def _nimbus_version()" in src
+    assert '_QUALITY_HISTORY_VERSION_FIELD = "v"' in src
+    stamp = src.index("day_entry[_QUALITY_HISTORY_VERSION_FIELD] = _version")
+    assert stamp < src.index("quality_history[day_key] = day_entry")
+
+
+# --- test_125_the_cron_copy_labels_the_same ---------------------------------------------------
+# nimbus #125/#133: the standalone writer carries the same binding-constraint
+# branch as the native one. A check that reads the cron copy's source, kept
+# apart until the decision on source-reading tests (#1837); the label itself is
+# in tests/v2/orchestration/test_binding_constraint_label.py.
+
+
+class TestBothWriterCopiesStayInSync(unittest.TestCase):
+    def test_the_standalone_writer_has_the_same_new_branch(self):
+        import pathlib
+
+        standalone = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "docs"
+            / "real-world-integration"
+            / "files"
+            / "nimbus_solver_forecast_writer.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("by P2P export commitment", standalone)
+        self.assertIn("fixed_export_kw_now", standalone)
+
+
+# --- test_923_the_cron_copy_compares_the_gated_battery ----------------------------------------
+# nimbus #923: the standalone writer compares the gated battery, not the fleet
+# aggregate, in its fixed-export charge backstop. A check that reads the cron
+# copy's source, kept apart until the decision on source-reading tests (#1837);
+# the clamp itself is in
+# tests/v2/orchestration/test_fixed_export_charge_clamp.py.
+
+NAN = float("nan")
+
+
+class TestBothWriterCopiesStayInSync_923_the_cron_copy_compar(unittest.TestCase):
+    def test_the_standalone_writer_also_compares_the_gated_battery(self):
+        import pathlib
+
+        standalone = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "docs"
+            / "real-world-integration"
+            / "files"
+            / "nimbus_solver_forecast_writer.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("def resolve_fixed_export_charge_clamp(", standalone)
+        self.assertIn("plan.batteries[0].charge_kw", standalone)
+        self.assertNotIn(
+            "_violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)",
+            standalone,
+        )
+
+
+# --- test_1994_no_external_entity_id_in_code --------------------------------------------------
+# nimbus #1994: no external entity_id is written into the integration's code;
+# every external source is found through the registry (`known_sources`) or
+# configured. A gate that reads the package source, kept apart until the
+# decision on source-reading tests (#1837); the registry lookup is in
+# tests/v2/setup/test_known_sources.py.
+
+PKG = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
+
+
+_ENTITY_ID = re.compile(
+    r"^(?:sensor|binary_sensor|switch|number|select|input_number|input_boolean|"
+    r"input_select|weather|water_heater|climate|button|time|device_tracker|"
+    r"person|sun|zone)\.[a-z0-9_]+$"
+)
+
+
+def _docstring_ids(tree: ast.AST) -> set[int]:
+    out = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (
+            isinstance(
+                node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            )
+            and body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+        ):
+            out.add(id(body[0].value))
+    return out
+
+
+def test_no_external_entity_id_is_written_into_the_integration():
+    """A string constant that is a whole entity_id, outside a docstring, must
+    be one of Nimbus's own. Anything else is found through the registry
+    (`known_sources`) or configured."""
+    found = []
+    for path in sorted(PKG.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docs = _docstring_ids(tree)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docs
+                and _ENTITY_ID.match(node.value)
+                and ".nimbus" not in node.value
+            ):
+                found.append(f"{path.relative_to(PKG)}:{node.lineno} {node.value}")
+    assert found == []
+
+
+# --- test_582_one_same_day_window_helper ------------------------------------------------------
+# nimbus #582: the same-day-window fix lives in one helper, not four copies
+# (extracted under #485). Checks that read the source tree, kept apart until
+# the decision on source-reading tests (#1837); the helper's behaviour is in
+# tests/v2/orchestration/test_controllable_load_build.py.
+
+
+class TestTheCopiesAreGone(unittest.TestCase):
+    """The point of the extraction. Source-checked because the defect
+    class is duplication itself, which no behavioural test can see."""
+
+    def test_the_helper_has_exactly_four_callers(self):
+        """Counted over the AST's real references, not the source text.
+
+        This was a `writer_source().count(...) == 5` check until nimbus #1357,
+        and a plain text count cannot tell a CALL from a mention in a comment or
+        a docstring. That cuts both ways and the second way is the dangerous
+        one: a module that explains in prose why it does NOT use this helper
+        pushed the count to 6 and failed the gate, and equally, someone adding a
+        real fifth call site while deleting one prose mention in the same change
+        would have kept the count at 5 and passed it. Counting name LOADS --
+        whether bare (`ast.Name`) or reached through the `sw.` seam
+        (`ast.Attribute`) -- distinguishes the two, while a definition is
+        neither.
+        """
+        import ast
+
+        from _writer_source import writer_trees
+
+        defined = 0
+        called = 0
+        for _path, tree in writer_trees():
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and node.name == "_earliest_period_for_same_day_window"
+                ):
+                    defined += 1
+                elif (
+                    isinstance(node, ast.Name)
+                    and node.id == "_earliest_period_for_same_day_window"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    called += 1
+                elif (
+                    isinstance(node, ast.Attribute)
+                    and node.attr == "_earliest_period_for_same_day_window"
+                    and isinstance(node.ctx, ast.Load)
+                ):
+                    # nimbus #1305 (spec 006, Phase 6): the two call sites inside
+                    # apply_commanded_state_guard moved to solver_dispatch/guard.py
+                    # and now reach this helper through the deferred seam, as
+                    # `sw._earliest_period_for_same_day_window(...)` -- an
+                    # ast.Attribute, not an ast.Name. Counting only Names would
+                    # have silently dropped them and reported 2 of 4, i.e. this
+                    # guard would have started under-counting rather than failing.
+                    # `sw` itself is an ast.Name with a different id, so there is
+                    # no double count.
+                    called += 1
+        self.assertEqual(defined, 1, "expected exactly one definition")
+        self.assertEqual(
+            called,
+            4,
+            "expected exactly four call sites (two in build_controllable_loads, "
+            "two in apply_commanded_state_guard) -- a fifth copy of this logic "
+            "reappearing inline is the exact drift #485 asked about, and it has "
+            "already cost this project one real inconsistency",
+        )
+
+    def test_no_inline_copy_of_the_predicate_remains_in_those_functions(self):
+        """`earliest_today` should now appear only inside the helper and
+        inside `_build_daily_adequacy_windows()`, which is a superset
+        rather than a copy."""
+        import ast
+
+        source = solver_writer.__file__.replace(".pyc", ".py")
+        with open(source, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        offenders = []
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef):
+                continue
+            if fn.name in (
+                "_earliest_period_for_same_day_window",
+                "_build_daily_adequacy_windows",
+            ):
+                continue
+            for node in ast.walk(fn):
+                if (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Store)
+                    and node.id == "earliest_today"
+                ):
+                    offenders.append(f"{fn.name}:{node.lineno}")
+        self.assertEqual(
+            offenders,
+            [],
+            "an inline copy of #582's same-day computation has reappeared "
+            f"outside the helper: {offenders}. Call "
+            "_earliest_period_for_same_day_window() instead -- four copies "
+            "is how this started.",
+        )
+
+
+class TestTheFifthSiteIsNotACopy(unittest.TestCase):
+    """`_build_daily_adequacy_windows()` shares the predicate but is a
+    superset, and is deliberately excluded. Pinned so nobody folds it in
+    later on the strength of a grep, and so that if it ever IS reduced to
+    the same shape, this test says why that would now be safe.
+    """
+
+    def test_it_handles_cases_the_helper_does_not(self):
+
+        text = writer_source()
+        start = text.index("def _build_daily_adequacy_windows(")
+        end = text.index("def ", start + 10)
+        body = text[start:end]
+        for marker in ("today_done", "now > deadline_today", "day_target_kwh"):
+            with self.subTest(marker=marker):
+                self.assertIn(
+                    marker,
+                    body,
+                    "_build_daily_adequacy_windows() no longer handles the "
+                    "cases that made it a superset rather than a copy of "
+                    "the #582 guard. If it has genuinely been reduced to "
+                    "the same shape, it can now call "
+                    "_earliest_period_for_same_day_window() -- and should.",
+                )
+
+
+# --- test_919_the_benchmark_docs_name_the_real_importers --------------------------------------
+# nimbus #919: docs/reference-benchmark.md names exactly the modules that
+# import forecast_regret, and tells a reader the field number is one step
+# ahead. Checks that read the package source and the docs, kept apart until the
+# decision on source-reading tests (#1837); the nowcast skill itself is in
+# tests/v2/solver/test_nowcast_skill.py.
+
+N = 24  # one day, hourly periods
+
+
+START = datetime(2026, 9, 14, 0, 0, tzinfo=UTC)
+
+
+class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
+    """`docs/reference-benchmark.md` makes a factual claim about who
+    calls `compute_forecast_regret()`, and that claim went stale silently
+    the moment this module started calling it.
+
+    It had said the HACS integration "never calls it -- nothing outside
+    `custom_components/nimbus_load/solver/` even imports
+    `forecast_regret`". Nothing asserted that, so nothing caught it. This
+    is the same stale-documented-claim class as the four guards added on
+    2026-09-15 (entity names in a docs table, test-file names in source
+    comments, units, and physics in a docstring) -- a claim a reader will
+    trust needs something that fails when it stops being true.
+    """
+
+    def setUp(self):
+        self.repo = Path(__file__).resolve().parent.parent
+
+    def test_the_documented_importer_set_is_the_real_one(self):
+        """Measures real IMPORT statements, not textual mentions. The
+        first version of this test matched any file containing the string
+        and so flagged `solver_writer.py`, which only names the module in
+        a docstring -- a count measuring the wrong thing, the same error
+        four probes made on 2026-09-15. The doc's claim is about who
+        CALLS it, so imports are the right proxy; prose is not.
+        """
+        importers = {
+            path.name
+            for path in (self.repo / "custom_components" / "nimbus_load").rglob("*.py")
+            if re.search(
+                r"^\s*(?:from\s+\.?\S*forecast_regret\s+import|import\s+\S*forecast_regret)",
+                path.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+        }
+        self.assertEqual(
+            importers,
+            # solver_writer.py joined on 2026-09-26 (#937 stage 3): it calls
+            # compute_forecast_regret() directly for the DAY-AHEAD
+            # decomposition, alongside nowcast_skill.py's one-step-ahead
+            # measurement. The doc's caller table now records the horizon of
+            # each, because that is what decides whether a field number is
+            # comparable to this benchmark's.
+            {"nowcast_skill.py", "reference_benchmark.py", "solver_writer.py"},
+            "the set of modules referencing forecast_regret changed. "
+            "docs/reference-benchmark.md documents exactly who calls it, at "
+            "which horizon, and why a field number may or may not be "
+            "comparable to the benchmark's -- update that section, then "
+            "update this test",
+        )
+
+    def test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon(self):
+        """The specific thing a reader could get wrong: comparing
+        `load_nowcast_skill_value_add_dollars` against the benchmark's
+        own `nimbus_value_add_dollars` as though they measured the same
+        thing. One is one-step-ahead, the other day-ahead."""
+        doc = (self.repo / "docs" / "reference-benchmark.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("nowcast_skill", doc)
+        self.assertIn("one-step-ahead", doc)
+
+
+# --- test_the_package_never_shadows_stdlib_time -----------------------------------------------
+# Loading the `time` platform sets the package's attribute `time` to time.py,
+# which replaced a stdlib `import time` in __init__.py, and setup then failed
+# on `time.monotonic()` (11 Oct 2026). A check that reads source text; the time
+# entities themselves are in tests/v2/entities/test_switches_and_times.py
+# (#1837).
+
+_PKG = Path(__file__).resolve().parents[1] / "custom_components" / "nimbus_load"
+
+
+def _helpers():
+    src = (_PKG / "time.py").read_text(encoding="utf-8")
+    start = src.index("def hours_to_time")
+    end = src.index("async def async_setup_entry")
+    ns: dict = {"time": time}
+    exec(src[start:end], ns)  # noqa: S102 -- the pure helpers only, without HA imports
+    return ns
+
+
+def test_the_package_never_uses_the_name_time_for_the_stdlib() -> None:
+    """Loading the `time` platform sets the package's attribute `time` to
+    time.py, replacing a stdlib `import time` in __init__.py: setup then
+    failed on `time.monotonic()` (devhub, 11 Oct 2026)."""
+    src = (_PKG / "__init__.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "\nimport time\n" not in "\n" + code + "\n"
+    assert "time.monotonic(" not in code
+    assert "time.time(" not in code
+
+
+# --- test_1496_the_schema_number_tracks_the_fields --------------------------------------------
+# nimbus #1496: the published quality report's literal field set is pinned to
+# QUALITY_REPORT_SCHEMA, so adding a field without bumping it fails here
+# instead of freezing older days at their old shape. A check that reads source,
+# kept apart until the decision on source-reading tests (#1837); the rescore it
+# drives is in tests/v2/reports/test_daily_reports.py.
+
+quality = sys.modules[solver_writer.publish_daily_quality_report.__module__]
+
+
+_EXPECTED_HASHES = {
+    2: "0bddf26959893096070fcb8208c89ca885835b611bbaa6c7bee2e9817747149b",
+    3: "11f0ea93fda61d94b545172f6035e39af40a9edf38e1cf3dd26e33fe4488a64d",
+    4: "9ea656c1af6164288b86f941218fb1309d1fd0bf457f015c1b0c529ea64c522c",
+}
+
+
+def _published_literal_keys() -> list[str]:
+    src = inspect.getsource(quality._compute_report_for_window)
+    fn = ast.parse(src.lstrip()).body[0]
+    keys = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            for k in node.value.keys:
+                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                    keys.add(k.value)
+    return sorted(keys)
+
+
+def test_the_published_dict_carries_the_stamp():
+    keys = _published_literal_keys()
+    assert "report_schema" in keys and "j_star_path_delta_explained" in keys
+
+
+def test_the_field_set_matches_the_schema_number():
+    digest = hashlib.sha256("\n".join(_published_literal_keys()).encode()).hexdigest()
+    assert digest == _EXPECTED_HASHES.get(quality.QUALITY_REPORT_SCHEMA), (
+        "The published quality-report field set changed. Bump "
+        "QUALITY_REPORT_SCHEMA in solver_reports/quality.py and add "
+        f"{{{quality.QUALITY_REPORT_SCHEMA + 1}: '{digest}'}} here."
+    )
