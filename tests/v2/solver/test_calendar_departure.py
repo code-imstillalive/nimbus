@@ -75,8 +75,8 @@ def _ev(must_have: tuple[int, float] | None) -> BatteryConfig:
         charge_efficiency=0.95,
         discharge_efficiency=0.95,
         # Not zero: `BatteryConfig` rejects charge_cost + discharge_cost below
-        # 0.01 as the exact wash-trade degeneracy this project diagnosed for
-        # HAEO (DegenerateConfigError). The first draft of this fixture used
+        # 0.01 as a wash-trade degeneracy (DegenerateConfigError). The first
+        # draft of this fixture used
         # 0.0/0.0 and the guard caught it, which is the guard working.
         charge_cost=0.01,
         discharge_cost=0.0,
