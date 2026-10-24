@@ -2118,7 +2118,7 @@ def _carry_forward_quality_history(
     # is DEFINED in, so relocating the function relocates the variable it
     # writes -- the cache would live here while every reader
     # (solver_writer.set_native_hass(), tests/golden/harness.py,
-    # test_1248_history_never_shrinks.py) still looks at solver_writer's.
+    # tests/v2/reports/test_daily_reports.py) still looks at solver_writer's.
     #
     # A facade alias cannot repair it: an alias captures the current OBJECT
     # and this name is REBOUND, so the alias would keep pointing at the
@@ -2152,8 +2152,8 @@ def _carry_forward_quality_history(
             # nothing -- this function would produce that single row anyway --
             # and warning about it would fire on every cycle of a normal
             # single-day install. Measured against
-            # test_quality_report_achieved_energy_and_reliability.py's
-            # TestPublishLogsOncePerScoredDay, which publishes the same day
+            # the once-per-scored-day warning test (now in
+            # tests/v2/reports/test_daily_reports.py), which publishes the same day
             # twice through an unreachable read and asserts the second is
             # silent: an unconditional warning here broke it, correctly.
             rescued = sorted(k for k in prior if k != day_key)

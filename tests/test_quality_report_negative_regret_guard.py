@@ -229,7 +229,7 @@ class TestEprDenominatorIsTheThirdSignal(unittest.TestCase):
     the signs cancelled. `regret_dollars` was **+2.0564** that day, so
     both pre-existing signals read clean.
 
-    See `tests/test_epr_denominator_reason.py` for the arithmetic and
+    See `tests/v2/reports/test_quality_score.py` for the arithmetic and
     `solver/epr.py`'s `denominator_reason()` for why the condition is
     always a computation fault rather than a property of the day.
     """

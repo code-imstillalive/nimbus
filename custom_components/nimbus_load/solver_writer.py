@@ -7647,7 +7647,7 @@ def _quality_history_cache_active() -> bool:
     path nothing it ever had. It also removes a real cross-contamination
     channel by construction: a caller that has not injected a `hass` gets no
     cache, so state cannot leak between unrelated publishes. CI found that the
-    hard way -- `test_quality_report_achieved_energy_and_reliability.py` mocks
+    hard way -- the achieved-energy suite (since retired, #1837) mocked
     an unreachable read, which is correctly classified as degraded, and in a
     single pytest process it was inheriting days another test had published.
     A conftest fixture resetting the global would have hidden that; this
