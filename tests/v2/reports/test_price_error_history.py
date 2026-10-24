@@ -1,12 +1,13 @@
-"""nimbus #1797 (PR D of the two-stage stochastic programme): signed
-price-forecast error history by source, lead bucket and spike regime.
+"""Each price source's signed forecast error, by lead bucket and spike
+regime, kept so a later stochastic plan can read it (#1797) (#1837).
 
-Covers the pure module (`solver_inputs/price_error_history.py`): recording,
-bucketing, the stride, bounded memory, threshold re-filing, persistence, the
-quantiles, the Beta(1, 1) spike p_hit and leave-one-day-out coverage. Then the
-wiring: `solver_writer.apply_price_consolidation()` feeds it from the same
-series and settled prices the #1786 tracker scores, persists it, publishes it
-inside `price_consolidation`, and the real `main()` plans exactly as without it.
+Pairs are recorded from the same series and settled prices the #1786
+tracker scores: one normal pair per half hour (rotating), every spike and
+surprise kept, three weeks bounded, re-filed when the threshold changes, and
+persisted. The summary gives quantiles of difference and ratio, a Beta(1, 1)
+spike hit rate and leave-one-day-out band coverage, compact enough for an
+attribute. The plan never reads it yet: `main()` plans exactly as without
+it. Synthetic values only.
 """
 
 from __future__ import annotations
@@ -19,7 +20,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import _solver_path  # noqa: F401
 import pytest
 import solver_shared
 import solver_writer
@@ -154,7 +154,7 @@ def test_off_stride_normal_pair_is_dropped_but_rare_events_are_always_kept():
     assert len(classes[peh.CLS_SURPRISE]) == 1
 
 
-def test_sides_settle_independently():
+def test_each_side_settles_on_its_own_and_no_settled_price_grades_nothing():
     h = peh.PriceErrorHistory()
     t = _key_on_stride(True)
     h.record("import", "primary", t - timedelta(minutes=2), t, 0.3)
@@ -164,9 +164,6 @@ def test_sides_settle_independently():
         h.observe_settled(side, t + timedelta(minutes=5, seconds=5), None)
     assert h.samples["import"]["primary"]["0-5 min"]["normal"][0][3] == 0.31
     assert h.samples["export"]["primary"]["0-5 min"]["normal"][0][3] == 0.04
-
-
-def test_no_settled_price_grades_nothing():
     h = peh.PriceErrorHistory()
     t = _key_on_stride(True)
     h.record("import", "primary", t - timedelta(minutes=2), t, 0.3)
