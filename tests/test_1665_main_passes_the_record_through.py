@@ -1,12 +1,7 @@
-"""nimbus #1665 (Mark Purcell's IV&V, part of #1663): a broken load forecast's
-zero-fallback must reach the flex telemetry record as `no_measurement`, not as
-an ordinary-looking `house_load_kw: 0.0`.
-
-`solver_inputs/load.py` keeps `load_kw` at 0.0 on a non-transient load
-forecast error, by design (#370/#416), and returns the error beside it. A live
-whole-house reading, when configured and readable, replaces period 0 and makes
-it a real measurement again. No history is read (#1634).
-"""
+"""nimbus #1665: main() passes the flex telemetry record through the
+load-fallback helper. A check that reads source text, kept apart until the
+decision on source-reading tests (#1837); the helper is in
+tests/v2/orchestration/test_load_fallback_record.py."""
 
 from __future__ import annotations
 
@@ -24,19 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import solver_writer
 
 ERROR = "load forecast sensor sensor.x has no forecast attribute"
-
-
-def test_a_healthy_forecast_publishes_period_0():
-    assert solver_writer._measured_house_load_kw([1.4, 2.0], None, None) == 1.4
-
-
-def test_the_zero_fallback_is_no_measurement():
-    assert solver_writer._measured_house_load_kw([0.0, 0.0], ERROR, None) is None
-
-
-def test_a_live_whole_house_reading_is_a_measurement_even_under_fallback():
-    # load.py writes the live reading into load_kw[0] itself.
-    assert solver_writer._measured_house_load_kw([2.3, 0.0], ERROR, 2.3) == 2.3
 
 
 def test_main_passes_the_record_through_the_helper():

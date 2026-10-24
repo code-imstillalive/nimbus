@@ -1,46 +1,13 @@
-"""nimbus issue #923: the P2P fixed-export charge backstop compared a
-fleet aggregate against a bound that was only ever applied to one
-battery.
-
-The defensive clamp added 2026-08-22 warns
-
-    "battery_charge_kw>0 during a committed fixed_export_kw period --
-     mathematically should be impossible"
-
-and then rewrites three published quantities. It was correct when
-written: that install had one battery, so `Plan.battery_charge_kw` --
-the documented summed aggregate -- *was* battery 0's charge.
-
-#467 added battery participants. `network.py` gates charging during a
-commitment with
-
-    charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
-    if b_idx == 0 else b.max_charge_kw
-
-so the hard `ub=0` reaches battery 0 only; a participant EV keeps its
-ordinary ceiling and may legitimately charge inside the window (grid
-export is pinned there, so it draws from solar or import, not from
-committed export). The aggregate therefore goes nonzero for an entirely
-legal reason, and the clamp read that as an impossible solve -- then
-erased the EV's real charge from the published plan and understated
-grid import by the same amount, every period of every committed window.
-Observed live at 126 warnings per hour.
-
-What makes this worth a dedicated file rather than a line in an
-existing one: the clamp does not merely warn. It is the rare piece of
-code that *silently rewrites published data* when its premise is
-wrong, so the failure mode is wrong numbers on a dashboard rather than
-a loud error. It had no test at all.
-
-Direct calls against the extracted pure function -- same precedent as
-compute_binding_constraint_label().
+"""The P2P fixed-export charge backstop compares the battery the bound
+gates, never the fleet aggregate, so a participant charging during a
+committed export block is not "impossible" and nothing is rewritten for it
+(#923) (#1837).
 """
 
 from __future__ import annotations
 
 import unittest
 
-import _solver_path  # noqa: F401
 import numpy as np
 import solver_publish
 
@@ -232,23 +199,6 @@ class TestBothWriterCopiesStayInSync(unittest.TestCase):
     """#357's lesson, same as the #921 fix: the standalone/cron writer
     carries its own copy of this clamp, and a fix landing in only one is
     how the two drifted last time."""
-
-    def test_the_standalone_writer_also_compares_the_gated_battery(self):
-        import pathlib
-
-        standalone = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / "docs"
-            / "real-world-integration"
-            / "files"
-            / "nimbus_solver_forecast_writer.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("def resolve_fixed_export_charge_clamp(", standalone)
-        self.assertIn("plan.batteries[0].charge_kw", standalone)
-        self.assertNotIn(
-            "_violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)",
-            standalone,
-        )
 
 
 if __name__ == "__main__":

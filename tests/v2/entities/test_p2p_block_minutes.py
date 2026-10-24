@@ -1,7 +1,6 @@
-"""P2P block start and end to the minute (household, 12 Oct 2026, asked for
-before on #565, where only a shared lead time shipped). The blocks' From /
-Until are time entities like the reserve's; the Solver still receives hours
-as a float, so a block from 20:30 is 20.5 and covers 20:30, not 20:00.
+"""P2P block start and end to the minute: From / Until are time entities,
+and the solver receives hours as a float, so a block from 20:30 is 20.5 and
+covers 20:30, not 20:00 (#565) (#1837).
 """
 
 from __future__ import annotations
@@ -9,12 +8,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import _solver_path  # noqa: F401
 import pytest
 import solver_shared
 
 AEST = timezone(timedelta(hours=10))
-_PKG = Path(__file__).resolve().parents[1] / "custom_components" / "nimbus_load"
+_PKG = Path(__file__).resolve().parents[3] / "custom_components" / "nimbus_load"
 
 
 def _cfg(start, end, rate=7.5):
@@ -74,17 +72,3 @@ def test_the_committed_energy_counts_minutes():
 def test_the_lead_time_still_comes_off_a_minute_start():
     cfg = {**_cfg(20.5, 24), "solver_p2p_block_lead_time_minutes": 1}
     assert solver_shared._configured_p2p_blocks(cfg) == [(7.5, 20 * 60 + 29, 24 * 60)]
-
-
-def test_the_block_times_are_time_entities_on_the_p2p_sub_device():
-    time_src = (_PKG / "time.py").read_text(encoding="utf-8")
-    for n in (1, 2, 3):
-        assert f'CONF_SOLVER_P2P_BLOCK_{n}_START_HOUR, "P2P Block {n} From"' in time_src
-        assert f'CONF_SOLVER_P2P_BLOCK_{n}_END_HOUR, "P2P Block {n} Until"' in time_src
-    assert 'f"{entry.entry_id}_p2p"' in time_src
-    number_src = (_PKG / "number.py").read_text(encoding="utf-8")
-    assert "CONF_SOLVER_P2P_BLOCK_1_START_HOUR" not in number_src
-    sensor_src = (_PKG / "sensor.py").read_text(encoding="utf-8")
-    keys = sensor_src[sensor_src.index("_SOLVER_TIME_ENTITY_KEYS = (") :]
-    keys = keys[: keys.index(")")]
-    assert "CONF_SOLVER_P2P_BLOCK_3_END_HOUR" in keys

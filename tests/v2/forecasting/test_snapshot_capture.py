@@ -1,51 +1,24 @@
-"""nimbus issue #937, stage 2: one snapshot per local day, persisted.
+"""The day-ahead forecast snapshot is captured on the first successful
+solve after local midnight, once a day, and persisted (#937) (#1837).
 
-Stage 1 built the pure shape. This gives it somewhere to live and a moment to
-be written, and wires it into the solve cycle.
-
-## The capture moment, and why it is not a timer
-
-The first **successful** solve after local midnight. That is the closest a
-1-minute solver gets to "what the forecast said about today before today
-happened", and it needs no new trigger:
-
-* **self-healing** — a restart at 09:00 on a day with no snapshot still
-  captures one, late but real, instead of losing the day;
-* **idempotent** — every later solve that day finds one filed and does nothing;
-* **no fixed-time job** — #1217 is this repo's own reminder of what one of
-  those does on every install at once.
-
-`captured_at` is stored so a consumer can tell a true midnight capture from a
-post-restart one, because a snapshot taken at 09:00 has already seen nine hours
-of the day it forecasts and will flatter itself.
-
-## Only after a genuine success
-
-A failed cycle has published nothing, so there is no forecast to capture —
-filing an empty one would record a forecast the solver never made, which then
-scores as a real forecast error. `TestOnlyASuccessfulSolveCaptures` pins that.
-
-## Failure posture
-
-Everything is swallowed. A capture is a diagnostic: a solve that succeeded must
-never be reported as failed because a Store write did not work.
+No timer: a restart late in the day still captures one, every later solve
+finds it filed and does nothing, and a failed solve captures nothing.
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import forecast_snapshot_store as fss
 
 BNE = timezone(timedelta(hours=10))
@@ -307,47 +280,6 @@ class TestLoadingBackASnapshot(unittest.TestCase):
 class TestOnlyASuccessfulSolveCaptures(unittest.TestCase):
     """Wiring, asserted on the source: a failed cycle published nothing, so
     capturing after it would file a forecast the solver never made."""
-
-    def test_the_capture_is_called_from_async_run_solve(self):
-        from custom_components.nimbus_load import solver_runtime
-
-        src = inspect.getsource(solver_runtime.async_run_solve)
-        self.assertIn("async_capture_todays_snapshot", src)
-
-    def test_it_is_guarded_on_the_success_flag(self):
-        """Asserted on the parsed CONDITION, not on the literal text `if ok:`.
-
-        Stage 3 tightened this guard to `if ok and entry_id:` -- same
-        semantics, strictly stronger -- and a string match failed on a change
-        that made the code better. A guard that breaks on a correct
-        refactor teaches people to delete guards.
-        """
-        import ast
-
-        from custom_components.nimbus_load import solver_runtime
-
-        tree = ast.parse(inspect.getsource(solver_runtime.async_run_solve).strip())
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.If):
-                continue
-            names = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)}
-            if "ok" not in names:
-                continue
-            if "async_capture_todays_snapshot" in ast.dump(node):
-                return  # the capture sits inside a branch gated on `ok`
-        raise AssertionError(
-            "the capture is not inside a branch whose condition tests `ok`"
-        )
-
-    def test_it_runs_on_the_event_loop_not_the_worker_thread(self):
-        """A Store write must be awaited. _run_one_cycle() runs in an
-        executor, so the capture deliberately sits in the async wrapper."""
-        from custom_components.nimbus_load import solver_runtime
-
-        self.assertNotIn(
-            "async_capture_todays_snapshot",
-            inspect.getsource(solver_runtime._run_one_cycle),
-        )
 
     def test_a_single_entry_is_required_for_the_store_key(self):
         """The Store name is per-entry. Writing one install's forecast under

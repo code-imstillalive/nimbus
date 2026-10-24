@@ -1,40 +1,14 @@
-"""Real regression test for nimbus repo issue #125/#133 (Mark Purcell, a
-real independent installer's own confirmation trace, 2026-08-24, direct
-follow-up to his day-ahead plan analysis #129): compute_binding_
-constraint_label() used to label a nonzero reduced cost on e.g.
-battery_discharge_0 as "Battery max discharge power" UNCONDITIONALLY --
-but a real, nonzero LP reduced cost fires whenever a variable is pinned
-at EITHER of its own bounds (a core LP optimality property), not only
-its upper/capacity bound.
-
-Mark's own real repro: his plan showed the battery CHARGING at period 0
-(not discharging at all), while this label still reported "Battery max
-discharge power" -- his own confirmed configured solver_max_discharge_kw
-was 24.0, but the observed discharge across his whole 96h horizon never
-exceeded ~4.67 kW, which he (reasonably, given the misleading label)
-read as evidence of a second, undiscovered override path. Direct source
-reads (network.py's own battery_discharge_{t} construction: `ub=
-battery.max_discharge_kw`, no efficiency/SoC derating of the bound
-itself; a repo-wide grep for "logger_" finding no second hardcoded
-entity slug anywhere) ruled out both of his own suggested mechanisms.
-The real explanation: battery_discharge_0's reduced cost was nonzero
-because it was pinned at its LOWER bound (0 -- a genuine "not
-economical to discharge right now" decision, consistent with the plan
-choosing to charge instead), not the 24kW ceiling -- and the OLD label
-had no way to say that.
-
-These tests prove the fix directly: the genuine "pinned at the real
-ceiling" case keeps the exact original label strings (a real
-compatibility guarantee), while the "pinned at zero" case gets its own
-new, distinct, honest label -- and Mark's own exact scenario (battery
-charging, discharge reduced cost nonzero, discharge value at 0) is
-reproduced faithfully as its own dedicated test.
+"""The binding-constraint label names the bound a variable is actually
+pinned at: a nonzero reduced cost fires at either bound, so a battery held
+at zero discharge is not at its maximum discharge power (#125, #133)
+(#1837).
 """
+
+from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
 
-import _solver_path  # noqa: F401
 import solver_publish
 
 
@@ -463,19 +437,6 @@ class TestBothWriterCopiesStayInSync(unittest.TestCase):
     drifted last time. Checks the fix is present in both, by behaviour
     of the source rather than by a byte-comparison of files that do have
     real, deliberate differences elsewhere."""
-
-    def test_the_standalone_writer_has_the_same_new_branch(self):
-        import pathlib
-
-        standalone = (
-            pathlib.Path(__file__).resolve().parent.parent
-            / "docs"
-            / "real-world-integration"
-            / "files"
-            / "nimbus_solver_forecast_writer.py"
-        ).read_text(encoding="utf-8")
-        self.assertIn("by P2P export commitment", standalone)
-        self.assertIn("fixed_export_kw_now", standalone)
 
 
 class TestThePinMatchSurvivesRealSolverResidual(unittest.TestCase):

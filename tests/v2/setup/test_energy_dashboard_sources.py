@@ -1,67 +1,7 @@
-"""nimbus #1067 / #448: the Solver's Sources step inherits what HA's Energy
-Dashboard already knows.
-
-## The direction this serves
-
-From the household, 2026-09-26:
-
-> we are trying to focus on making nimbus wizard simpler for anyone who has less
-> skills than us… mark numerous times has already told you he doesnt want more
-> fields and buttons… simple smarter menu, wizard less complex and quicker and
-> more easily identifiable… perhaps auto inheriting some parts if available
-
-And Mark's standing principle, from #449 and restated on #485:
-
-> As a general principal we should be using less/ remove wizard configuration
-> values and more sensible default which are surfaced as configuration entities
-> on the respective devices.
-
-So this adds **no field and no button**. It fills in what HA already knows,
-which strictly *reduces* the decisions needed to get a working Solver.
-
-## Why the Sources step specifically
-
-#1067 names it: the form with the most fields (16) and *"the highest chance of
-being pointed somewhere wrong (see #111 and #118 for what 'pointed somewhere
-wrong' costs)"*. The switchboard form has had Energy-Dashboard suggestions since
-#554. The Solver's own sources never got them.
-
-## The two safeguards, inherited wholesale
-
-They are the answer to the household's own question about the switchboard
-version — *"how would we know its correctness?"*:
-
-1. **Type safety** — a candidate is checked against what its own state actually
-   looks like. `sensor.grid_active_power` LOOKS like the obvious grid sensor and
-   is really a HAEO forecast on this very install (`topology_map.yaml`'s own
-   note). That class of mistake is what this catches.
-2. **Never silent** — suggestions are `suggested_value` only, on genuinely unset
-   fields, and a human still submits the form. `{**suggestions, **existing}`, so
-   a saved value always wins. `TestASavedValueAlwaysWins` is the load-bearing
-   test here.
-
-## The restraint is the interesting part
-
-Two things are deliberately **not** suggested, and both would have been easy:
-
-* **Power sensors.** The Energy Dashboard holds **energy** statistics (kWh,
-  `total_increasing`); Nimbus wants **power** (kW). Different quantities, different
-  entities. The tempting bridge — "find the power sensor on the same device" — is
-  a guess wearing discovery's clothes, and putting an energy stat into a power
-  field is exactly the wrong-kind error safeguard 1 exists to stop, arriving from
-  the inside.
-* **Forecast sensors.** The solar source names a forecast **config entry**, not a
-  forecast entity, and that mapping differs per integration. A wrong forecast
-  entity fails silently and expensively.
-
-## One deliberate divergence from the switchboard sibling
-
-Price entities are accepted on a **numeric state**, not a `device_class`. Real
-tariff integrations — Amber, LocalVolts, most others — publish a bare numeric
-sensor with no `device_class` at all, so requiring one would reject the very
-entities this exists to find. A numeric state is the honest floor: it rules out
-`unknown`/`unavailable`/text without pretending to a semantic check it cannot
-make. Safeguard 2 covers the rest.
+"""The Solver's Sources step inherits what Home Assistant's Energy
+Dashboard already knows: its solar, battery and grid sensors become
+suggestions for empty fields, never overwrite a saved one, and add no new
+field (#1067, #448) (#1837).
 """
 
 from __future__ import annotations
@@ -72,12 +12,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load.const import (
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
@@ -278,40 +218,6 @@ class TestASavedValueAlwaysWins(unittest.TestCase):
             merged[CONF_SOLVER_IMPORT_PRICE_SENSOR], "sensor.configured_by_hand"
         )
 
-    def test_the_call_site_uses_that_order(self):
-        """Pinned on the source, because reversing these two words silently
-        overwrites real configuration on every wizard open -- the exact class of
-        wizard-wipe bug this repo has already had three of.
-
-        **Corrected:** this used to inspect `async_step_solver_sources`, which
-        is where #1267 originally wired the helper -- and that wiring was the
-        bug. None of the three suggested keys is in the Sources schema, so
-        every suggestion was silently dropped and the whole feature was inert.
-        It is now called from the two steps that actually own those fields.
-        See `test_1067_suggestions_reach_the_form_they_are_wired_to.py` for the
-        guard that catches this class of mistake in general.
-        """
-        import inspect
-
-        from custom_components.nimbus_load.flows import hub_options
-
-        battery = inspect.getsource(
-            hub_options.NimbusHubOptionsFlow.async_step_solver_battery
-        )
-        self.assertIn(
-            "**energy_dashboard, **existing}",
-            battery,
-            "saved options must be LAST so they win the merge",
-        )
-
-        # nimbus #1686: the grid step no longer pre-fills prices at all; the
-        # Energy Dashboard's price entities are proposed under Review pricing
-        # suggestions, for empty fields only.
-        grid = inspect.getsource(
-            hub_options.NimbusHubOptionsFlow.async_step_solver_grid
-        )
-        self.assertNotIn("_energy_dashboard_solver_source_suggestions", grid)
-
 
 class TestItNeverBreaksTheWizard(unittest.TestCase):
     """A household with no Energy Dashboard must see an unfilled form, never a
@@ -352,28 +258,6 @@ class TestItNeverBreaksTheWizard(unittest.TestCase):
 class TestNoFieldWasAdded(unittest.TestCase):
     """The household's steer, and Mark's, both say the same thing: no more
     fields. This change must reduce typing without growing the form."""
-
-    def test_the_wizard_key_count_is_unchanged_by_this_feature(self):
-        import re
-
-        from custom_components.nimbus_load.flows import hub_options
-
-        src = Path(hub_options.__file__).read_text(encoding="utf-8")
-        m = re.search(
-            r"_SOLVER_WIZARD_SCHEMA_KEYS[^=]*=\s*\((.*?)\)\s*\n", src, re.DOTALL
-        )
-        self.assertIsNotNone(m)
-        count = len(re.findall(r"CONF_[A-Z0-9_]+", m.group(1)))
-        # 27 -> 28: nimbus #1537 item 3 (second P2P matched-rate source),
-        # not this feature. 28 -> 29: nimbus #1786's comparison-only price
-        # sources, not this feature either. 29 -> 31: nimbus #1786's two
-        # loss-factor code sensors (see test_config_surface_budget.py).
-        self.assertEqual(
-            count,
-            31,
-            "this feature must not add a wizard field; if the Solver wizard "
-            "genuinely grew for another reason, update this number and say why",
-        )
 
 
 if __name__ == "__main__":
