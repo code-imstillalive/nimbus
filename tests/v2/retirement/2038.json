@@ -1,0 +1,17 @@
+{
+ "pr": 2038,
+ "issue": 1837,
+ "lines": {
+  "rerun": "python scripts/retired_lines.py --before 3b28540f --retired @<the Deletes: lines of this PR's body>",
+  "before": "3b28540faf4f6e4ff7f542c64288df51e97afa79",
+  "retired_files": 37,
+  "retired_lines_reached": 14597,
+  "kept_lines_reached": 39013,
+  "lost_line_count": 0,
+  "lost_lines": {}
+ },
+ "mutation": {
+  "note": "not run: each of the 37 files moved with its tests unchanged (docstrings and paths aside), so it catches the same planted bugs; the source-text checks cut out first never executed code under test"
+ },
+ "moved": "37 files into tests/v2; their source-text checks went to 11 kept files"
+}
