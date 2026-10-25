@@ -61,6 +61,23 @@ def main(argv: list[str]) -> int:
 
     workdir = Path(os.environ["GOLDEN_WORKDIR"])
 
+    # Mark Purcell, #2043: HiGHS's time limits are wall-clock, so a solve that
+    # reaches one (the 5 s phase-2 budget, a pin refresh, a joint call's
+    # limit) gives a result that depends on how fast this machine ran it.
+    # The record must not, so every time limit is off here, as the thread
+    # counts are pinned (harness.NUMERIC_ENV). Scenarios run in CI's time,
+    # not a household's.
+    import math
+
+    import highspy
+
+    set_option = highspy.Highs.setOptionValue
+
+    def _no_time_limit(self, name, value):
+        return set_option(self, name, math.inf if name == "time_limit" else value)
+
+    highspy.Highs.setOptionValue = _no_time_limit
+
     cycle_records = []
     native = None
     with patch.object(urllib.request, "urlopen", fake.urlopen):

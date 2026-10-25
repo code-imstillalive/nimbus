@@ -266,6 +266,11 @@ def stage1_decision_names(
             f"battery_discharge_{b.name}_{{t}}",
             f"battery_dir_{b.name}_{{t}}",
         ]
+    # #2031: a shared charger's one direction for all its members.
+    for group in dict.fromkeys(
+        b.shared_charger_group for b in batteries if b.shared_charger_group
+    ):
+        templates.append(f"charger_dir_{group}_{{t}}")
     for name in load_names:
         templates += [
             f"shed_{name}_{{t}}",
