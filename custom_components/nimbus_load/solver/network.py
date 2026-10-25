@@ -1932,12 +1932,18 @@ def _offer_curve_ranging_walk(
             return interval
         lower, upper = interval
         ends = []
-        for bound, limit in (
-            (lower, _OFFER_CURVE_DOMAIN_MIN),
-            (upper, _OFFER_CURVE_DOMAIN_MAX),
+        for bound, limit, below in (
+            (lower, _OFFER_CURVE_DOMAIN_MIN, True),
+            (upper, _OFFER_CURVE_DOMAIN_MAX, False),
         ):
-            probe = max(bound, limit) if limit < price else min(bound, limit)
-            if abs(probe - price) <= 1e-12:
+            # Each end is probed only inside the domain, and only on its own
+            # side of `price`. At a price on or past a domain limit (#2054: a
+            # retail import of exactly -1.00, the floor) there is nothing to
+            # probe on that side: an unbounded end is kept as it is, never
+            # handed to plateau_end, whose -inf - -inf made a NaN price that
+            # HiGHS then never returned from.
+            probe = max(bound, limit) if below else min(bound, limit)
+            if (probe >= price - 1e-12) if below else (probe <= price + 1e-12):
                 ends.append(bound)
                 continue
             end, _past = plateau_end(price, probe, values[-1])
