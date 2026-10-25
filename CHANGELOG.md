@@ -22,7 +22,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   republished, as in 0.94.487 and 0.94.488.
   - **The first solve**, at 21:43, was `optimal`, in 19.5 s.
   - No Nimbus `ERROR` or traceback in the log after the restart. The WARNINGs are the stochastic skip (#2042, unchanged), the existing temperature-forecast one, the HWS deadline tightening (#712), a residual-drift note, and three "previous cycle still in progress" skips while the first solves ran.
-  - **The forms (#2052), through the real flows:** a reconfigure flow opened on an existing power signal and on a controllable load carried `{"action": "Edit"}`, and a new power signal's flow `{"action": "Add"}`; each flow was aborted, so nothing was saved (42 subentries before and after). The household checked the titles on screen before the merge.
+  - **The forms (#2052), through the real flows:** a reconfigure flow opened on an existing power signal and on a controllable load carried `{"action": "Edit"}`, and a new power signal's flow `{"action": "Add"}`; each flow was aborted, so nothing was saved (42 subentries before and after).
 - Consumer check: no setting changes; form titles and one field's unit only. No plan, entity or setting changes on any install.
 
 ## [0.94.488] - 2026-10-25
