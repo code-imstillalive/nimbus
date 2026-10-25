@@ -285,6 +285,19 @@ def _key(path: str) -> str:
     return path.replace("\\", "/").split(f"{SOURCE}/")[-1]
 
 
+def pin_only_lines(executed: list[int], contexts_by_line: dict[int, set[str]]) -> int:
+    """How many of a module's executed statement lines only issue pins
+    reach. Only the report's own executed lines count, so the result is
+    never more than its covered lines: a line an arc names, or one measured
+    under another copy's path only, is not a statement here."""
+    return sum(
+        1
+        for line in executed
+        if contexts_by_line.get(line)
+        and {test_kind(c) for c in contexts_by_line[line]} == {"pin"}
+    )
+
+
 def measure(workers: int) -> tuple[dict, int, list[str]]:
     import coverage
 
@@ -326,24 +339,26 @@ def measure(workers: int) -> tuple[dict, int, list[str]]:
 
         data = cov.get_data()
         contexts = sorted(c for c in data.measured_contexts() if c)
-        per_module = {}
+        # Every context that reached each line, per module. One module can be
+        # measured under more than one path (the real-HA suite runs a copy),
+        # so contexts are merged by module, never overwritten by path.
+        by_module: dict[str, dict[int, set[str]]] = {}
         for path in data.measured_files():
-            by_line = data.contexts_by_lineno(path)
-            pin_only = 0
-            for ctxs in by_line.values():
-                kinds = {test_kind(c) for c in ctxs if c}
-                if kinds == {"pin"}:
-                    pin_only += 1
-            per_module[_key(path)] = pin_only
+            lines = by_module.setdefault(_key(path), {})
+            for line, ctxs in data.contexts_by_lineno(path).items():
+                lines.setdefault(line, set()).update(c for c in ctxs if c)
         result = {}
         for path, f in files.items():
             s = f["summary"]
+            pin_only = pin_only_lines(
+                f["executed_lines"], by_module.get(_key(path), {})
+            )
             result[_key(path)] = {
                 "statements": s["num_statements"],
                 "covered_lines": s["covered_lines"],
                 "branches": s.get("num_branches", 0),
                 "covered_branches": s.get("covered_branches", 0),
-                "pin_only_lines": per_module.get(_key(path), 0),
+                "pin_only_lines": pin_only,
             }
     return result, len(golden), contexts
 
