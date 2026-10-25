@@ -31,3 +31,20 @@ def test_issue_pins_are_told_apart_from_designed_tests():
     assert cbr.test_kind("tests/v2/solver/test_2045_x.py::t|run") == "pin"
     assert cbr.test_kind("tests/v2/solver/test_plan_features.py::t|run") == "designed"
     assert cbr.test_kind("golden:quiet_day") == "golden"
+
+
+def test_pin_only_counts_executed_statements_only():
+    """#1837: the first report read 302% pin-only on number.py. Lines only an
+    arc or another copy's path names are not statements of the module, so
+    the share is of covered lines and never above 100%."""
+    pin = "tests/test_1703_run_hold.py::test_x|run"
+    designed = "tests/v2/solver/test_plan.py::test_y|run"
+    contexts = {
+        1: {pin},
+        2: {pin, designed},
+        3: {designed},
+        -4: {pin},  # an arc's exit, not a line
+        99: {pin},  # reached under another path only, not executed here
+    }
+    assert cbr.pin_only_lines([1, 2, 3], contexts) == 1
+    assert cbr.pin_only_lines([], contexts) == 0
