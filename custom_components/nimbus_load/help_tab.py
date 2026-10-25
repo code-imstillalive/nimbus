@@ -215,6 +215,18 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.487",
+        "25 Oct 2026",
+        (
+            (
+                "**Stochastic plan:** a cycle whose main plan alone took half "
+                "the check's time skips the check, which reads \"too slow to "
+                'check" instead of failing.'
+            ),
+            ("**Solver tab:** the Plan comes first, then Money, then Performance."),
+        ),
+    ),
+    (
         "0.94.486",
         "24 Oct 2026",
         (
