@@ -32,6 +32,7 @@ from ..const import (
     CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
+from . import form_action_placeholders
 
 _TITLE_FALLBACK = "Battery Tower"
 
@@ -204,6 +205,7 @@ class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
         if not current_data.get(CONF_BATTERY_TOWER_SOC_SENSOR):
             soc_suggestion = await _energy_dashboard_soc_suggestion(self.hass)
         return self.async_show_form(
+            description_placeholders=form_action_placeholders(self),
             step_id="user",
             data_schema=_schema(current_data, entry, soc_suggestion),
         )

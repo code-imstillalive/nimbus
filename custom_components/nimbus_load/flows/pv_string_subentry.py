@@ -27,6 +27,7 @@ from ..const import (
     CONF_PV_STRING_POWER_SOURCE,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
+from . import form_action_placeholders
 
 
 def _power_source_options(entry: Any) -> list[dict[str, str]]:
@@ -116,7 +117,9 @@ class NimbusPvStringSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_create_entry(title=title, data=user_input)
 
         return self.async_show_form(
-            step_id="user", data_schema=_schema(current_data, entry)
+            description_placeholders=form_action_placeholders(self),
+            step_id="user",
+            data_schema=_schema(current_data, entry),
         )
 
     def _derive_title(self, entity_id: str, label: str | None) -> str:

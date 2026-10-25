@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.config_entries import SOURCE_RECONFIGURE
+
 from ..const import CONF_LOAD_SENSOR, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 
 # Both Load and Power Signal subentries feed their own CONF_LOAD_SENSOR
@@ -47,3 +49,11 @@ def find_subentry_sharing_source_sensor(
         if subentry.data.get(CONF_LOAD_SENSOR) == source_sensor:
             return subentry
     return None
+
+
+def form_action_placeholders(flow: Any) -> dict[str, str]:
+    """`{action}` for a subentry form's title: "Edit" when the form was
+    opened from an existing entry's cog (reconfigure), "Add" for a new one.
+    Every subentry flow shows the same `user` step for both, so without
+    this an edit was titled "Add a load" (household, 25 Oct 2026)."""
+    return {"action": "Edit" if flow.source == SOURCE_RECONFIGURE else "Add"}

@@ -35,7 +35,7 @@ from ..const import (
     CONF_SCHEDULE_START_HOUR,
 )
 from ..power_input_check import energy_unit_field_errors
-from . import find_subentry_sharing_source_sensor
+from . import find_subentry_sharing_source_sensor, form_action_placeholders
 
 # REVERTED from a real HH:MM TimeSelector back to a plain 24-hour decimal
 # number box. Confirmed live 2026-08-15: HA's TimeSelector renders in
@@ -54,7 +54,10 @@ _HOUR_SELECTOR = selector.NumberSelector(
         max=23.75,
         step=0.25,
         mode=selector.NumberSelectorMode.BOX,
-        unit_of_measurement="24hr decimal, e.g. 12.5 = 12:30pm, 0 = midnight",
+        # Just "h": a long unit suffix printed over the field's own label
+        # (household screenshot, 25 Oct 2026). The format and examples are
+        # in the field description.
+        unit_of_measurement="h",
     )
 )
 
@@ -207,6 +210,7 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
             )
             if conflict is not None:
                 return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
                     step_id="user",
                     data_schema=_schema(user_input),
                     errors={"load_sensor": "duplicate_source_sensor"},
@@ -218,6 +222,7 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
             )
             if energy_errors:
                 return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
                     step_id="user",
                     data_schema=_schema(user_input),
                     errors=energy_errors,
@@ -229,7 +234,11 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+        return self.async_show_form(
+            description_placeholders=form_action_placeholders(self),
+            step_id="user",
+            data_schema=_schema(current_data),
+        )
 
     def _derive_title(self, load_sensor: str) -> str:
         """Use the source sensor's own friendly name as the device title
