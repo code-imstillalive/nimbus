@@ -115,7 +115,7 @@ def _hub(**subentries):
 def test_every_service_registers_once_and_unloads_completely():
     hass = _hass()
     registered = {s for _d, s in hass.services.handlers}
-    assert len(registered) == 12
+    assert len(registered) == 13
     svc.async_register_services(hass)  # a second hub entry adds nothing
     assert {s for _d, s in hass.services.handlers} == registered
     svc.async_unregister_services(hass)

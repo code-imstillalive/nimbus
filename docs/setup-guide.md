@@ -865,7 +865,8 @@ The Regret view compares actual performance with modelled alternatives.
 ![Nimbus Forecaster view](images/setup/forecaster-chart.png)
 
 The Forecaster view shows two charts: Power Signals, and Load Forecasts.
-Nimbus adds it for you as a **Forecaster** tab on your Nimbus dashboard.
+It is the **Forecaster** tab of the standard dashboard, which Nimbus returns when you run
+**Get the Nimbus dashboard** (see [Dashboards](dashboards.md); Nimbus never writes a dashboard itself).
 It needs **ApexCharts Card**, installed from HACS under Frontend.
 Each series is found automatically from your Loads and Power Signals.
 A Load you add later appears without any change.

@@ -1711,7 +1711,7 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 @functools.cache
 def _strings() -> dict[str, Any]:
     """The wizard's own strings.json, read once. A file read, so it must not
-    run first on the event loop: async_ensure_nimbus_dashboard() loads it in
+    run first on the event loop: async_dashboard_config() loads it in
     the executor before the Help tab is built (devhub, v0.94.462 validation:
     HA logged "Detected blocking call to read_text" from here)."""
     path = Path(__file__).with_name("strings.json")
