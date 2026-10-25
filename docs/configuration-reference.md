@@ -354,7 +354,9 @@ dashboard rows say so:
   checked in the background against the main one. A cycle whose main plan
   alone took 15 s or more skips that check, because the check solves three
   copies of it; `sensor.nimbus_solver_stochastic` then reads "Main plan: too
-  slow to check".
+  slow to check". While it is on, a cycle whose main plan alone took half the
+  Stochastic Drive Time Limit or more (5 s at the default 10 s) skips the
+  stochastic solve the same way, and the main plan drives that cycle.
 - **Blend drives plan (experimental)**, on the Solver tab
   (`switch.nimbus_solver_price_consolidation_live`): every price source,
   combined, prices the plan instead of your provider alone.
