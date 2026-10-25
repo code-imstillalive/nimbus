@@ -231,7 +231,7 @@ def _resolve_reaffirm_after_seconds(data: dict) -> float | None:
         minutes = float(raw)
     except (TypeError, ValueError):
         return None
-    if minutes <= 0:  # PLANTED for #875 test, reverted next commit
+    if minutes < 0:
         return None
     return minutes * 60.0
 
