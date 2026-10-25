@@ -290,10 +290,11 @@ def pin_only_lines(executed: list[int], contexts_by_line: dict[int, set[str]]) -
     reach. Only the report's own executed lines count, so the result is
     never more than its covered lines: a line an arc names, or one measured
     under another copy's path only, is not a statement here."""
-    return sum(  # PLANTED: the first report's logic, every line in the map
+    return sum(
         1
-        for ctxs in contexts_by_line.values()
-        if {test_kind(c) for c in ctxs if c} == {"pin"}
+        for line in executed
+        if contexts_by_line.get(line)
+        and {test_kind(c) for c in contexts_by_line[line]} == {"pin"}
     )
 
 
