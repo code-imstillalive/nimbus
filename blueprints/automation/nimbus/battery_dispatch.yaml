@@ -49,6 +49,20 @@ blueprint:
               filter:
                 - integration: nimbus_load
                   domain: sensor
+        solar_charge_sensor:
+          name: Nimbus solar-charge signal (optional)
+          description: >-
+            sensor.nimbus_solver_current_dispatch_solar_charge. True when the
+            plan charges the battery from solar alone and sells nothing; used
+            to choose Self-Consume instead of a forced Charge, so a morning
+            duller than forecast charges from the sun there is rather than
+            from the grid. Leave empty to always force the plan's charge.
+          default: ""
+          selector:
+            entity:
+              filter:
+                - integration: nimbus_load
+                  domain: sensor
     safety:
       name: Arming and safety
       icon: mdi:shield-check
@@ -262,6 +276,7 @@ triggers:
 variables:
   plan_entity: !input plan_sensor
   hold_entity: !input hold_sensor
+  solar_charge_entity: !input solar_charge_sensor
   arm_entity: !input arm_switch
   mode_entity: !input mode_helper
   stale_min: !input stale_after_minutes
@@ -288,10 +303,14 @@ variables:
     {{ absorb_on and state_attr(plan_entity, 'absorb_surplus') == true }}
   hold_signal: >-
     {{ hold_entity != '' and states(hold_entity) in ['True', 'true', 'on'] }}
+  solar_charge: >-
+    {{ solar_charge_entity != ''
+       and states(solar_charge_entity) in ['True', 'true', 'on'] }}
   want: >-
     {%- if not plan_ok -%}FALLBACK
     {%- elif absorb -%}SC
     {%- elif plan_kw > dead_kw | float(0.05) -%}DIS
+    {%- elif plan_kw < -(dead_kw | float(0.05)) and solar_charge -%}SC
     {%- elif plan_kw < -(dead_kw | float(0.05)) -%}CHG
     {%- elif hold_signal and hold_has_actions | length > 0 -%}HOLD
     {%- else -%}SC{%- endif -%}

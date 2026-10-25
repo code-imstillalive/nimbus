@@ -272,6 +272,8 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Household, 20 Oct 2026: the export floor's check inside the
         # hysteresis above, in-process only for the same reason.
         "_sells_below_floor_instead",
+        # nimbus #2066: the hysteresis's grid-charge check, same reason.
+        "_charges_from_grid_instead",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",
@@ -291,6 +293,8 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #1654: the plan's "hold" flag; the cron copy publishes no
         # per-period dispatch hints.
         "_dispatch_hold",
+        # nimbus #2066: the plan's "charge from solar only" flag, same reason.
+        "_dispatch_solar_charge",
         # Household, 20 Oct 2026: the "soak up spare solar" dispatch hint,
         # same reason.
         "absorb_surplus",

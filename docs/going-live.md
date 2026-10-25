@@ -42,6 +42,7 @@ skip the observation days.
 | … attribute `absorb_surplus` (`absorb_surplus_reason`) | True when there is spare solar the plan did not count on, and exporting it pays less than your *Don't sell below* price: put the inverter in self-consumption so the spare goes into the battery. See [Configuration reference](configuration-reference.md). |
 | … attribute `price_spike_active` | A price spike is on. Never delay acting on it. |
 | `sensor.nimbus_solver_current_dispatch_hold` | True when the plan keeps the battery idle **while the grid supplies the house** (self-consumption would drain the battery instead). |
+| `sensor.nimbus_solver_current_dispatch_solar_charge` | True when the plan charges the battery **from solar alone** and sells nothing: self-consumption does what the plan wants, and on a duller morning than forecast it charges from the sun there is instead of the grid. |
 | `sensor.nimbus_solver_current_dispatch_direction` | The plan's direction now, in words: handy for dashboards. |
 | `switch.nimbus_solver_dispatch_dry_run` | Records what would have been dispatched, as history, without commanding anything. |
 
@@ -111,6 +112,9 @@ Settings → Devices & services → Helpers → Create helper:
    - **Nimbus plan sensor:** `sensor.nimbus_solver_battery_forecast`;
    - **Nimbus hold signal:** `sensor.nimbus_solver_current_dispatch_hold`
      (only if you wrote a Hold action);
+   - **Nimbus solar-charge signal:** `sensor.nimbus_solver_current_dispatch_solar_charge`
+     (recommended: a charge the plan takes from solar then uses
+     Self-Consume, never the grid);
    - **Arm switch:** `input_boolean.nimbus_dispatch_armed`;
    - **Maximum battery power:** your inverter's real limit or below;
    - your actions from step 2;
