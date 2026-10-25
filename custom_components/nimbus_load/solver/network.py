@@ -434,6 +434,29 @@ DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SP
 # price would otherwise get a penalty that doesn't actually dominate.
 DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER: float = 10.0
 
+
+def soft_soc_penalty(
+    import_price: Any, export_price: Any, other_rates: Any = ()
+) -> float:
+    """The derived soft min/max-SoC penalty, $/kWh (#328).
+
+    DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER times the largest price MAGNITUDE
+    in play, floored at 0.01. Magnitude, not signed maximum (#2045): with
+    every price negative (import -1, export -2) the signed maximum is -1,
+    the 0.01 floor won, and a 0.10 $/kWh penalty lost to being paid 1 $/kWh
+    to import -- both batteries filled to capacity past max_soc_kwh. A
+    negative price pays as much per kWh as a positive one costs, so it has
+    to be dominated the same way.
+    """
+    rates = [
+        float(np.max(np.abs(np.asarray(a, dtype=np.float64))))
+        for a in (import_price, export_price)
+        if len(a)
+    ]
+    rates += [abs(float(r)) for r in other_rates]
+    return DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(*rates, 0.01)
+
+
 # How close two periods' own real start times need to be to count as
 # "the same real moment" for cross-solve alignment (proximal
 # regularization, rate limiting). 1 second comfortably absorbs any
@@ -2353,8 +2376,8 @@ def _build_plan_once(
             # by tests/v2's bounds property, #1837).
             candidate_rates.append(float(b.salvage_value))
         soft_soc_other_rates = candidate_rates[2:]
-        soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-            *candidate_rates, 0.01
+        soft_soc_penalty_per_kwh = soft_soc_penalty(
+            grid.import_price, grid.export_price, soft_soc_other_rates
         )
 
     p = LPProblem()
@@ -5069,12 +5092,7 @@ def _build_plan_once(
                         export_price_risk_aversion,
                         direction="down",
                     )
-                penalty = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-                    float(np.max(raw_imp)) if len(raw_imp) else 0.0,
-                    float(np.max(raw_exp)) if len(raw_exp) else 0.0,
-                    *soft_soc_other_rates,
-                    0.01,
-                )
+                penalty = soft_soc_penalty(raw_imp, raw_exp, soft_soc_other_rates)
                 for b in batteries:
                     for var in (*underfill_vars[b.name], *overfill_vars[b.name]):
                         costs[var] = penalty

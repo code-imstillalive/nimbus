@@ -91,7 +91,7 @@ from numpy.typing import NDArray
 from . import p2p_export
 from .elements import BatteryConfig, GridConfig, PeriodGrid
 from .lp import LPProblem
-from .network import DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
+from .network import soft_soc_penalty
 
 
 @dataclass(frozen=True)
@@ -242,11 +242,8 @@ def build_stochastic_plan(
         # own rate here (this module's v1 doesn't have breakpoints -- see
         # module docstring), since it's the other real $/kWh-at-the-margin
         # signal this LP has for "how much is a marginal kWh of SoC worth."
-        soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-            float(np.max(grid.import_price)) if len(grid.import_price) else 0.0,
-            float(np.max(grid.export_price)) if len(grid.export_price) else 0.0,
-            battery.salvage_value,
-            0.01,
+        soft_soc_penalty_per_kwh = soft_soc_penalty(
+            grid.import_price, grid.export_price, [battery.salvage_value]
         )
 
     p = LPProblem()
