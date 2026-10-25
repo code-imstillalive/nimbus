@@ -5207,6 +5207,15 @@ def _build_plan_once(
                     return q.value_of(exact, var)
             return q.value_of(exact, var)
 
+        # #2054: the plan's own direction rounds may already hold binaries in
+        # `p`, and the base solve fixes them at the retail price's answer. A
+        # one-way point at another price is then optimal only within that
+        # fixed direction pattern (found on a paid-to-import shared charger:
+        # 3 kW now at -0.54 where a fresh solve waits to be paid -1.00), so
+        # it is checked by the exact MIP, which frees them, within the same
+        # budget as every other exact solve.
+        plan_held_binaries = any(p._binary)
+
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
             def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
                 x = step.x
@@ -5214,7 +5223,15 @@ def _build_plan_once(
                     return step.value, True
                 first = _two_way(x, frozenset())
                 if first is None:
-                    return step.value, True
+                    if not plan_held_binaries or exact_left[0] <= 0:
+                        return step.value, True
+                    exact_left[0] -= 1
+                    exact = _exact_mip(costs(price), var, x)
+                    if exact is None or abs(exact - step.value) <= (
+                        _OFFER_CURVE_VALUE_TOL
+                    ):
+                        return step.value, True
+                    return exact, False
                 return one_way(price, step, x, first), False
 
             def one_way(
