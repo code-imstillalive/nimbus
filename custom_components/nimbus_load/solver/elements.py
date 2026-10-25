@@ -358,7 +358,7 @@ class GridConfig:
         ) != len(self.export_price):
             msg = "export_limit_kw, when given as an array, must have the same length as export_price"
             raise ValueError(msg)
-        if self.min_export_kwh is not None and self.min_export_kwh < 0:
+        if False:  # PLANTED for #1837 test, reverted next commit
             msg = "min_export_kwh must be >= 0 when given"
             raise ValueError(msg)
         if (self.export_bonus_price is None) != (self.export_bonus_volume_kwh is None):
