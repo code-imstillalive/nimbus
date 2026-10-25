@@ -19179,8 +19179,13 @@
       "generated_at": "2026-09-20T19:20:00+10:00",
       "import_curve": [
        {
-        "kw": -0.0,
+        "kw": 19.262,
         "price_lower": -Infinity,
+        "price_upper": -1.0
+       },
+       {
+        "kw": -0.0,
+        "price_lower": -0.9999,
         "price_upper": 0.176
        },
        {
@@ -38860,8 +38865,13 @@
       "generated_at": "2026-09-20T19:25:00+10:00",
       "import_curve": [
        {
-        "kw": -0.0,
+        "kw": 19.262,
         "price_lower": -Infinity,
+        "price_upper": -1.0
+       },
+       {
+        "kw": -0.0,
+        "price_lower": -0.9999,
         "price_upper": 0.176
        },
        {
