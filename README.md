@@ -635,6 +635,11 @@ Edit inline on the dashboard without touching the wizard:
   over the horizon, and the solve cadence. Read from this install's own
   Solver, not from a sensor, so it is this install's solve even where another
   install's mirrored plan sensor overwrites the entity. Read-only.
+- `nimbus_load.get_dashboard`. Returns this install's standard Nimbus
+  dashboard (Forecaster, Solver, Topology, Control Panel, Regret, Help), with
+  every entity filled in, to paste into a dashboard's raw configuration
+  editor. Nimbus never creates or changes a dashboard itself (HACS review);
+  see [docs/dashboards.md](docs/dashboards.md). Writes nothing.
 - `nimbus_load.device_contract_preview`. The dry run of the device model
   (#1574) on this install: the devices it would build from today's settings,
   any conflict between them, anything it could not map, and every setting
