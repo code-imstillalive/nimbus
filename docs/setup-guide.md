@@ -1090,7 +1090,7 @@ EV-specific fields worth knowing:
 | Departure hour + Required SoC by departure | Set both to define the planning target. Check availability, achievable charging time and actual SoC before departure. |
 | Live charge-limit entity | Uses the vehicle's charge limit instead of the configured Max SoC for that solve |
 | Trip calendar | Include distance in the event title, such as "Trip to Brisbane 120 km". Events without distance are ignored. |
-| Shared charger group + max kW | Constrains combined planned charging power for a shared charger |
+| Shared charger group + max kW | Constrains combined planned charging power for a shared charger. Its batteries all charge or all discharge in a period: one is never charged from another through the charger |
 
 ## 15. The daily quality score
 
