@@ -908,25 +908,10 @@ async def _async_setup_entry_impl(
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
-    # After the platforms, not before (11 Oct 2026): the Solver tab resolves
-    # each row to an entity in the registry, and an entity new in this
-    # release (the reserve's two time settings in 0.94.448) is registered
-    # only by its platform's setup. Built earlier, those rows were dropped
-    # from the tab on the first start after an update.
-    #
-    # nimbus #1529/#1543: a new install gets a Nimbus dashboard with the
-    # standard tabs (Forecaster, Solver, Topology, Control Panel, Regret), once.
-    # An existing install's dashboards are never given a new tab -- see
-    # forecaster_dashboard.py. Non-fatal.
-    try:
-        from .forecaster_dashboard import async_ensure_nimbus_dashboard
-
-        await async_ensure_nimbus_dashboard(hass)
-    except Exception:
-        _LOGGER.exception(
-            "Nimbus: could not create the Nimbus dashboard; build it by "
-            "hand from docs/dashboards.md"
-        )
+    # No dashboard is created or written at setup (HACS review,
+    # hacs/default#12099; household 26 Oct 2026). The standard tabs are
+    # returned on request by nimbus_load.get_dashboard -- see
+    # forecaster_dashboard.py.
 
     # Native Solver runtime (2026-08-22) -- see solver_runtime.py's own
     # module docstring for the full "why this exists" story. Scheduled

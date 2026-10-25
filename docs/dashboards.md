@@ -17,11 +17,23 @@ sections below (one per card) are the field reference; the full
 copy-paste dashboard right here is the fastest path to actually seeing
 all four cards on screen.
 
-## The Nimbus dashboard on a new install (issue #1543)
+## The standard Nimbus dashboard: one action, then paste
 
-**A new install needs none of the YAML below.** The first time Nimbus starts
-on an install with no Nimbus card on any dashboard, it creates a **Nimbus**
-dashboard in the sidebar with five tabs, in this order:
+Nimbus does **not** create, update or rewrite any dashboard. Your dashboards
+are yours: Nimbus only ever **returns** the standard one when you ask for it
+(HACS store review, hacs/default#12099).
+
+To get it:
+
+1. **Settings → Dashboards → + Add Dashboard → New dashboard from scratch.**
+   Name it as you like (for example **Nimbus**), then open it.
+2. **Developer Tools → Actions**, choose **Get the Nimbus dashboard**
+   (`nimbus_load.get_dashboard`) and select **Perform action**. The response is
+   this install's dashboard, with every entity already filled in.
+3. Copy the response. On your new dashboard select **Edit → ⋮ → Raw
+   configuration editor**, replace its contents with the response, and save.
+
+It holds six tabs, in this order:
 
 | Tab | Card | What it shows |
 |---|---|---|
@@ -30,14 +42,14 @@ dashboard in the sidebar with five tabs, in this order:
 | **Topology** | `custom:nimbus-topology-card` | the site diagram, discovered from your Nimbus config |
 | **Control Panel** | `custom:nimbus-dispatch-card-v4` | the plan and live dispatch; battery and solar follow the Solver settings |
 | **Regret** | `custom:nimbus-regret-card` | each day's dispatch against the best possible plan |
+| **Help** | standard Home Assistant cards | setting Nimbus up and what every figure means (issue #1823) |
 
 Every tab has a title and no icon, and is a 4-column **sections** view, so you
-can add your own sections and cards. The dashboard is created **once**: delete
-it and it stays deleted. On an existing Nimbus dashboard, a **missing**
-standard tab is added: beside a tab of yours with the same title (so you can
-compare them), otherwise at the end. A tab you built or changed is never
-touched, and Nimbus only ever writes to its own dashboard. The full rules are
-at the top of `custom_components/nimbus_load/forecaster_dashboard.py`.
+can add your own sections and cards. After an update that changes a tab, run
+the action again and paste the tab you want; nothing changes until you do.
+
+A dashboard an earlier Nimbus release created or filled is left exactly as it
+is.
 
 <a id="full-three-view-nimbus-dashboard-copy-paste"></a>
 

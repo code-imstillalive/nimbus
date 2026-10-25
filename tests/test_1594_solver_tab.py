@@ -544,9 +544,9 @@ def test_the_design_is_the_same_on_every_install() -> None:
     assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
 
 
-def test_a_new_install_gets_solver_second() -> None:
-    views, done = dash._sync_views([], {}, [], created=True, resolve=_resolve)
-    assert [v["title"] for v in views] == [
+def test_the_dashboard_has_solver_second() -> None:
+    config = dash.dashboard_config(_resolve)
+    assert [v["title"] for v in config["views"]] == [
         "Forecaster",
         "Solver",
         "Topology",
@@ -555,104 +555,15 @@ def test_a_new_install_gets_solver_second() -> None:
         # nimbus #1823: Help, last.
         "Help",
     ]
-    assert "added:solver" in done
+    solver = next(v for v in config["views"] if v["title"] == "Solver")
+    assert '"@' not in json.dumps(solver)
 
 
-def test_an_existing_dashboard_gets_it_beside_the_households_own_solver_tab() -> None:
-    """Household, 8 Oct 2026: "install itself at the end or next to it"."""
-    theirs = {"title": "Solver", "path": "solver", "type": "sections", "sections": []}
-    before = [
-        {
-            "title": "Forecaster",
-            "path": "forecaster",
-            "cards": [{"type": "custom:nimbus-forecast-card"}],
-        },
-        theirs,
-        {"title": "SUNSYNK", "path": "sunsynk", "cards": []},
-    ]
-    views, done = dash._sync_views([dict(v) for v in before], {}, [], resolve=_resolve)
-    titles = [v["title"] for v in views]
-    assert titles[:4] == ["Forecaster", "Solver", "Solver", "SUNSYNK"]
-    assert views[1] == theirs  # untouched
-    assert views[2]["path"] == "solver-2"
-    assert "added:solver" in done
-
-
-def test_a_tab_that_only_mentions_the_plan_status_is_not_a_solver_tab() -> None:
-    """11 Oct 2026: a tester's own Entities tab listed
-    sensor.nimbus_solver_lp_status, and 0.94.448 took that for a Solver tab
-    and added none. Only the tab Nimbus wrote counts."""
-    entities_tab = {
-        "title": "Entities",
-        "path": "entities",
-        "cards": [{"type": "entities", "entities": ["sensor.nimbus_solver_lp_status"]}],
-    }
-    views, done = dash._sync_views([dict(entities_tab)], {}, [], resolve=_resolve)
-    assert "added:solver" in done
-    assert views[0] == entities_tab  # untouched
-    assert any(v.get("title") == "Solver" for v in views)
-
-
-def test_an_install_wrongly_marked_by_that_guess_gets_the_tab_once() -> None:
-    """The record 0.94.448 left on such an install -- the design, no path --
-    adds the tab on the next restart, and only once."""
-    entities_tab = {
-        "title": "Entities",
-        "path": "entities",
-        "cards": [{"type": "entities", "entities": ["sensor.nimbus_solver_lp_status"]}],
-    }
-    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
-    mem = {"solver": {"design": dash.design_of(spec), "path": None, "written": None}}
-    views, done = dash._sync_views([dict(entities_tab)], mem, [], resolve=_resolve)
-    assert [d for d in done if "solver" in d], done
-    assert sum(1 for v in views if v.get("title") == "Solver") == 1
-    assert mem["solver"]["path"] is not None
-    again, done2 = dash._sync_views(
-        json.loads(json.dumps(views)), mem, [], resolve=_resolve
-    )
-    assert [d for d in done2 if "solver" in d] == []
-    assert again == views
-
-
-def test_a_deleted_solver_tab_stays_deleted() -> None:
-    """The household's rule is unchanged: a tab Nimbus wrote and the household
-    deleted is not put back for the same design."""
-    mem: dict = {}
-    views, _ = dash._sync_views([], mem, [], created=True, resolve=_resolve)
-    without = [v for v in views if v.get("title") != "Solver"]
-    again, done = dash._sync_views(
-        json.loads(json.dumps(without)), mem, [], resolve=_resolve
-    )
-    assert [d for d in done if "solver" in d] == []
-    assert not any(v.get("title") == "Solver" for v in again)
-
-
-def test_without_a_matching_tab_it_goes_at_the_end() -> None:
-    views, _ = dash._sync_views(
-        [{"title": "Home", "path": "home", "cards": []}], {}, [], resolve=_resolve
-    )
-    assert [v["title"] for v in views][1] == "Solver" or views[-1]["title"] in (
-        "Solver",
-        "Regret",
-        "Help",
-    )
-    assert any(v["title"] == "Solver" for v in views)
-
-
-def test_a_restart_changes_nothing() -> None:
-    mem: dict = {}
-    views, _ = dash._sync_views([], mem, [], created=True, resolve=_resolve)
-    again, done = dash._sync_views(
-        json.loads(json.dumps(views)), mem, [], resolve=_resolve
-    )
-    assert done == []
-    assert again == views
-
-
-def test_without_a_resolver_the_tab_is_never_written() -> None:
-    views, done = dash._sync_views([], {}, [], created=True)
-    assert "Solver" not in [v["title"] for v in views]
-    assert all("solver" not in d for d in done)
+def test_without_a_resolver_the_solver_tab_is_left_out() -> None:
+    """Unresolved, the tab would be placeholders: it is never returned."""
+    titles = [v["title"] for v in dash.dashboard_config()["views"]]
+    assert "Solver" not in titles
+    assert "Help" not in titles
 
 
 @pytest.mark.parametrize("view", [solver_tab.template()])

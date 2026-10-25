@@ -62,6 +62,9 @@ export_decision_inputs:
             - head
             - horizon
 
+get_dashboard:
+  fields: {}
+
 device_contract_preview:
   fields: {}
 

@@ -606,6 +606,10 @@
           "description": "legacy, shadow or active."
         }
       }
+    },
+    "get_dashboard": {
+      "name": "Get the Nimbus dashboard",
+      "description": "Returns this install's Nimbus dashboard (Forecaster, Solver, Topology, Control Panel, Regret and Help tabs) as a dashboard configuration, with the Solver and Help tabs filled in with this install's entities. Copy it into a dashboard's raw configuration editor. Nimbus never creates or changes a dashboard itself. Writes nothing."
     }
   },
   "issues": {

@@ -114,6 +114,9 @@ SERVICE_EXPORT_DECISION_INPUTS = "export_decision_inputs"
 SERVICE_GET_STOCHASTIC_SUMMARY = "get_stochastic_summary"
 # nimbus #1574 (DC-004 step 5a): the device document's dry run and mode.
 SERVICE_DEVICE_CONTRACT_PREVIEW = "device_contract_preview"
+# HACS review (hacs/default#12099): the standard dashboard tabs, returned on
+# request for the household to paste; Nimbus writes no dashboard itself.
+SERVICE_GET_DASHBOARD = "get_dashboard"
 SERVICE_DEVICE_CONTRACT_SET_MODE = "device_contract_set_mode"
 SERVICE_DEVICE_CONTRACT_DISCOVER = "device_contract_discover"
 SERVICE_DEVICE_CONTRACT_CONFIRM = "device_contract_confirm"
@@ -948,6 +951,20 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=SupportsResponse.ONLY,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_GET_DASHBOARD):
+
+        async def _handle_get_dashboard(call: ServiceCall):
+            from .forecaster_dashboard import async_dashboard_config
+
+            return await async_dashboard_config(hass)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_GET_DASHBOARD,
+            _handle_get_dashboard,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     if not hass.services.has_service(DOMAIN, SERVICE_DEVICE_CONTRACT_PREVIEW):
 
         async def _handle_device_contract_preview(call: ServiceCall):
@@ -1077,6 +1094,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_RESCORE_HISTORY,
         SERVICE_EXPORT_DECISION_INPUTS,
         SERVICE_GET_STOCHASTIC_SUMMARY,
+        SERVICE_GET_DASHBOARD,
         SERVICE_DEVICE_CONTRACT_PREVIEW,
         SERVICE_DEVICE_CONTRACT_SET_MODE,
         SERVICE_DEVICE_CONTRACT_DISCOVER,

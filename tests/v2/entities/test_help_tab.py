@@ -107,10 +107,9 @@ def test_help_is_the_last_standard_tab_and_resolves_to_this_install() -> None:
     )
 
 
-def test_a_new_install_gets_help_last() -> None:
-    views, done = dash._sync_views([], {}, [], created=True, resolve=lambda v: v)
+def test_the_dashboard_has_help_last() -> None:
+    views = dash.dashboard_config(lambda v: v)["views"]
     assert views[-1]["title"] == "Help"
-    assert "added:help" in done
 
 
 # --- the wizard's own screens and words -----------------------------------------------------
