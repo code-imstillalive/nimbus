@@ -266,7 +266,7 @@ def build_price_arrays(
             now,
             localvolts_v2=(cfg.get("known_sources") or {}).get("localvolts_v2"),
         )
-        if False:  # PLANTED for #1837 test, reverted next commit
+        if price_source_freshness and price_source_freshness["stale"]:
             live_spot = None
             spot_sensor = cfg.get("solver_regional_spot_current_price_sensor")
             if spot_sensor:
