@@ -17,6 +17,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - All of that is removed. An integration should not write your configuration on its own.
 - **New action: Get the Nimbus dashboard** (`nimbus_load.get_dashboard`). It returns this install's standard dashboard (Forecaster, Solver, Topology, Control Panel, Regret, Help) with every entity filled in, to paste into a dashboard's raw configuration editor. It writes nothing. See docs/dashboards.md.
 - **Your existing dashboards are left exactly as they are,** including one an earlier release created. After an update that changes a tab, run the action and paste the tab if you want it.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at d6e9f735**
+  (`main`), installed via HACS (`installed_version` d6e9f73) and restarted at 09:27 AEST. 122 of
+  the 126 Nimbus entities carrying a version read 0.94.490 at 09:29; the other
+  four are the daily report sensors, restored at startup and not yet
+  republished, as in 0.94.487 to 0.94.489.
+  - **The first solve**, generated 09:29:00, was `optimal`, in 22.0 s.
+  - No Nimbus `ERROR` or traceback in the log after the restart; the only WARNINGs are the stochastic skip (#2042, unchanged) and the existing temperature-forecast one.
+  - **No dashboard written:** devhub's dashboards read the same before the install and after the restart (Map and Nimbus, nothing new), and the Nimbus dashboard's config hash is unchanged (`1e68b2726ced85de`).
+  - **`nimbus_load.get_dashboard`** returned six tabs (Forecaster, Solver, Topology, Control Panel, Regret, Help) with no unresolved placeholder; all 137 Nimbus entities it references exist on devhub.
+- Consumer check: no setting changes and no plan changes. Nimbus no longer adds or updates tabs on any dashboard; an install's existing dashboards stay as they are. The standard dashboard is now pasted from **Get the Nimbus dashboard**.
 
 ## [0.94.489] - 2026-10-25
 
