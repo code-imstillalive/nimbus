@@ -54,6 +54,7 @@ from ..const import (
     CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
     DEFAULT_PARTICIPANT_KWH_PER_100KM,
 )
+from . import form_action_placeholders
 
 _KW_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
@@ -369,6 +370,7 @@ class NimbusBatteryParticipantSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_create_entry(title=title, data=user_input)
 
         return self.async_show_form(
+            description_placeholders=form_action_placeholders(self),
             step_id="user",
             data_schema=_schema(current_data, self.hass.config.currency),
         )

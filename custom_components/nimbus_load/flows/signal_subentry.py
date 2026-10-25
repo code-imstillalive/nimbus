@@ -50,7 +50,7 @@ from ..const import (
     SIGNAL_ROLE_TEMPERATURE,
 )
 from ..power_input_check import energy_unit_field_errors
-from . import find_subentry_sharing_source_sensor
+from . import find_subentry_sharing_source_sensor, form_action_placeholders
 
 
 # nimbus issue #360 (Mark Purcell, codebase review): extracted from
@@ -143,6 +143,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
             )
             if conflict is not None:
                 return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
                     step_id="user",
                     data_schema=_schema(user_input),
                     errors={"load_sensor": "duplicate_source_sensor"},
@@ -154,6 +155,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
             )
             if energy_errors:
                 return self.async_show_form(
+                    description_placeholders=form_action_placeholders(self),
                     step_id="user",
                     data_schema=_schema(user_input),
                     errors=energy_errors,
@@ -168,7 +170,11 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         # EntitySelector, unlike NumberSelector, has no null-default crash
         # (confirmed live via load_subentry.py's own identical, already-
         # proven pattern) -- safe to always pass default=, even None.
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+        return self.async_show_form(
+            description_placeholders=form_action_placeholders(self),
+            step_id="user",
+            data_schema=_schema(current_data),
+        )
 
     def _derive_title(self, sensor_entity_id: str) -> str:
         """Same convention as load_subentry.py's own _derive_title -- use

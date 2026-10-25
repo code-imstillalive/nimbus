@@ -29,6 +29,7 @@ from ..const import (
     CONF_POWER_SOURCE_DC_SENSOR,
     CONF_POWER_SOURCE_NAME,
 )
+from . import form_action_placeholders
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -97,4 +98,8 @@ class NimbusPowerSourceSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+        return self.async_show_form(
+            description_placeholders=form_action_placeholders(self),
+            step_id="user",
+            data_schema=_schema(current_data),
+        )
