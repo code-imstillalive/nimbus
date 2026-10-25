@@ -8,12 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.490] - 2026-10-26
+
+**Nimbus no longer writes any dashboard; it gives you the standard one on request.**
+
+- **No dashboard writes** (HACS store review, hacs/default#12099).
+  - Nimbus used to keep its tabs on "the Nimbus dashboard" at every start: it picked a dashboard by a "nimbus" title or url path, rewrote its tabs, and with none it created a sidebar dashboard through Home Assistant's private dashboard storage.
+  - All of that is removed. An integration should not write your configuration on its own.
+- **New action: Get the Nimbus dashboard** (`nimbus_load.get_dashboard`). It returns this install's standard dashboard (Forecaster, Solver, Topology, Control Panel, Regret, Help) with every entity filled in, to paste into a dashboard's raw configuration editor. It writes nothing. See docs/dashboards.md.
+- **Your existing dashboards are left exactly as they are,** including one an earlier release created. After an update that changes a tab, run the action and paste the tab if you want it.
+
 ## [0.94.489] - 2026-10-25
 
 **Subentry forms say Edit when they edit.**
 
 - **Form titles** (#2052, household report). Opening an existing subentry from its cog showed the add form's title ("Add a power signal"). Every subentry type's form now reads "Edit a ..." when editing and "Add a ..." when adding.
 - **The schedule-hour fields' unit is "h".** The long example that served as the unit was printed over the field's own label; the field's description still explains the 24-hour decimal format.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at ad22324f**
+  (`release/0.94.489`), installed via HACS and restarted at 21:42 AEST. 122 of
+  the 126 Nimbus entities carrying a version read 0.94.489 at 21:45; the other
+  four are the daily report sensors (quality report, efficiency backtest,
+  counterfactual SoC, flex report), restored at startup and not yet
+  republished, as in 0.94.487 and 0.94.488.
+  - **The first solve**, at 21:43, was `optimal`, in 19.5 s.
+  - No Nimbus `ERROR` or traceback in the log after the restart. The WARNINGs are the stochastic skip (#2042, unchanged), the existing temperature-forecast one, the HWS deadline tightening (#712), a residual-drift note, and three "previous cycle still in progress" skips while the first solves ran.
+  - **The forms (#2052), through the real flows:** a reconfigure flow opened on an existing power signal and on a controllable load carried `{"action": "Edit"}`, and a new power signal's flow `{"action": "Add"}`; each flow was aborted, so nothing was saved (42 subentries before and after).
+- Consumer check: no setting changes; form titles and one field's unit only. No plan, entity or setting changes on any install.
 
 ## [0.94.488] - 2026-10-25
 
