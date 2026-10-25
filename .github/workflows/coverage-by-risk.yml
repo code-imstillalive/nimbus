@@ -1,0 +1,41 @@
+# Coverage by risk (#1837, question 1). Manual only: it runs the stub suite,
+# the real-HA suite and every golden scenario under per-test coverage
+# contexts, which is far heavier than a PR's run, and it can't fail because
+# of a change, so it is not a PR check. Run it from the Actions tab; the
+# report is the artifact. Commit it to docs/architecture/ with the PR that
+# reviews it.
+name: Coverage by risk
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    name: Coverage by risk
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Same as ci.yml's Unit Tests: the Python Home Assistant runs.
+          python-version: "3.14"
+      - name: Install dev dependencies
+        run: pip install -e '.[dev]'
+      - name: Measure
+        run: >
+          python scripts/coverage_by_risk.py --workers 4
+          --json docs/architecture/coverage-by-risk.json
+          --md docs/architecture/coverage-by-risk.md
+      - name: Upload the report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        with:
+          name: coverage-by-risk
+          path: |
+            docs/architecture/coverage-by-risk.md
+            docs/architecture/coverage-by-risk.json

@@ -45,7 +45,18 @@ Nothing removed one before; at 192 files the default is still to keep them. A pi
 3. **The pin's issue number survives**, in the broader test's docstring, so `git grep '#NNN'` still finds where the defect is guarded.
 4. **No golden, guard or IV&V finding is retired this way.** Those are not issue pins.
 
-Measuring 1 needs a coverage-context run of the whole suite, which is much heavier than CI. That is the next step on #1837, not part of this change.
+Measuring 1 needs a coverage-context run of the whole suite, which is much heavier than CI. `scripts/coverage_by_risk.py` (below) runs exactly that.
+
+## Coverage by risk
+
+#1837's first question: which parts of Nimbus are tested because they carry risk, against tested because a bug once landed there. `scripts/coverage_by_risk.py` answers it as a measurement:
+
+- every module is in one of four risk tiers (`RISK_TIERS`): 1, dispatch and money; 2, forecasts and inputs; 3, setup and configuration; 4, reports and presentation. `tests/test_gates_coverage_risk_tiers.py` fails when a module has none;
+- it runs the stub suite, the real-HA suite and every golden scenario under per-test coverage contexts, and refuses to report if a stage did not run;
+- per module, tier and area it reports line and branch coverage, and the share of covered lines that only issue pins reach;
+- it flags each module below its tier's bar (`FLAGS`, proposals for review, not CI gates).
+
+Run it from the Actions tab (**Coverage by risk**, manual, about an hour) and commit the artifact to `docs/architecture/coverage-by-risk.md` and `.json`. Locally it needs the same Home Assistant as CI for the real-HA stage.
 
 ## Parallel runs
 
