@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.489] - 2026-10-25
+
+**Subentry forms say Edit when they edit.**
+
+- **Form titles** (#2052, household report). Opening an existing subentry from its cog showed the add form's title ("Add a power signal"). Every subentry type's form now reads "Edit a ..." when editing and "Add a ..." when adding.
+- **The schedule-hour fields' unit is "h".** The long example that served as the unit was printed over the field's own label; the field's description still explains the 24-hour decimal format.
+
 ## [0.94.488] - 2026-10-25
 
 **Batteries on one shared charger no longer charge one from another.**
@@ -18,6 +25,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - Batteries that do not share a charger are unchanged.
 - **The offer curve follows the same rule**, with its exact work capped so a large install's curve stays bounded (opt-in, off by default).
 - **A crash in the offer curve is fixed.** It could register a direction binary twice on a plan whose own direction round already held it.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 99d71cea**
+  (`release/0.94.488`), installed via HACS and restarted at 12:33 AEST. 122 of
+  the 126 Nimbus entities carrying a version read 0.94.488 at 12:35; the other
+  four were restored at startup and not yet republished, as in 0.94.487.
+  - **The first solve**, generated 12:34:00, was `optimal`, in 24.0 s, with `direction_exclusivity: not_needed`.
+  - No Nimbus `ERROR` or traceback in the log after the restart. The only WARNINGs are the stochastic skip (#2042, unchanged) and the existing temperature-forecast one.
+  - **Not observable on devhub:** the shared-charger rule (#2043). Devhub's test EV has no shared-charger group, so no plan there has one to constrain.
+    - It is carried by the golden `rich_site_native_with_ev` scenario: two cars on one 7 kW garage charger, `not_needed` before and `enforced` now, with no two-way pair left.
+    - It is also carried by #2043's tests, each shown to fail on a planted bug.
+  - **Not observable on devhub:** the offer curve, which is off there.
+- Consumer check: no setting changes.
+  - An install with two or more batteries in one shared-charger group with a max kW gets plans where those batteries all charge or all discharge in each period. Where the plan had them flowing against each other, it now takes one more solve.
+  - Every other install plans exactly as before.
 
 ## [0.94.487] - 2026-10-25
 

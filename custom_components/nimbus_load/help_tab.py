@@ -215,6 +215,16 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.489",
+        "25 Oct 2026",
+        (
+            (
+                "**Forms:** a subentry opened from its cog is titled Edit, "
+                "not Add, and the schedule-hour fields' unit is just h."
+            ),
+        ),
+    ),
+    (
         "0.94.488",
         "25 Oct 2026",
         (

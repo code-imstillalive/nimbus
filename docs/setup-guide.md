@@ -264,7 +264,7 @@ Do not select a forecast or an optimiser output as its source.
 ### Create the whole-house load signal
 
 1. On the Nimbus device page: **+ Add → Power Signal**.
-2. Dialog: **"Add a power signal"**.
+2. Dialog: **"Add a power signal"**. (Opened later from its cog, the same form reads **"Edit a power signal"**.)
 3. **🔴 Sensor to forecast** → your **whole-house power sensor**.
 4. **Role** → leave as **Other**. (Battery, Solar and Grid mark a signal for the dashboard
    cards and keep it out of the Solver's household-load list.
