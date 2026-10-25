@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.488] - 2026-10-25
+
+**Batteries on one shared charger no longer charge one from another.**
+
+- **One charger, one direction** (#2031, #2043).
+  - Two batteries or EVs on the same shared charger, with a shared max kW set, now all charge or all discharge in a period.
+  - The plan could discharge one into the other through the charger when that paid, which a single charger cannot do.
+  - Batteries that do not share a charger are unchanged.
+- **The offer curve follows the same rule**, with its exact work capped so a large install's curve stays bounded (opt-in, off by default).
+- **A crash in the offer curve is fixed.** It could register a direction binary twice on a plan whose own direction round already held it.
+
 ## [0.94.487] - 2026-10-25
 
 **The stochastic check stops failing on a household whose main plan is already slow, and the Solver tab puts the plan first.**
@@ -22,6 +33,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The stochastic summary's `joint_calls`** now give each call's HiGHS time alone (`joint_solve_seconds`), and the gap of an answer kept at the time limit.
 - **Solver tab:** after the summary buttons, the order is Plan, Money, Performance (household request, #2034).
 - The test suite's rebuild (#1837) finished its five steps (#2035 to #2039). Shipped code changed only in comments.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 32336bd8**
+  (`release/0.94.487`), installed via HACS and restarted at 10:36 AEST. 122 of
+  the 126 Nimbus entities carrying a version read 0.94.487 at 10:38. The other
+  four (`sensor.nimbus_solver_quality_report`, `sensor.nimbus_efficiency_backtest`,
+  `sensor.nimbus_counterfactual_soc`, `sensor.nimbus_flex_report`) still showed
+  0.94.486: they were restored at startup and had not been republished yet.
+  - **The first solve**, generated 10:37:00, was `optimal`, in 50.9 s (the first after a restart).
+  - **The stochastic check (#2042) behaved as intended.** `sensor.nimbus_solver_stochastic` read "Main plan: too slow to check", with `status: skipped`, `fallback_reason: deterministic_too_slow` and the main plan's seconds. Before the install it read "Main plan: stochastic error" on every run since 09:36 on 24 Oct.
+  - **One WARNING** was logged for the skip, once, naming 38.3 s of the 30 s budget. Its prefix still prints `status=None, raw_status=None, 0.00 s` from the shared message, which is cosmetic.
+  - No Nimbus `ERROR` or traceback in the log after the restart; the other WARNINGs are the ones this install already logged.
+  - **The Solver tab (#2034)**, read from devhub's dashboard: after the summary buttons come the Plan banner, then Money, then Performance, then the settings and Stochastic blocks.
+  - **Not observable on devhub:** a joint solve keeping a time-limited answer. Devhub's main plan is over the threshold, so no joint solve ran.
+- Consumer check: no setting changes.
+  - An install whose main plan takes 15 s or more no longer attempts the stochastic shadow check; one under that runs it as before. The reference household's main plan solved in 2.1 s on 0.94.486 this morning, so its check is unchanged.
+  - The Solver tab's three blocks change order.
 
 ## [0.94.486] - 2026-10-24
 
