@@ -1210,6 +1210,15 @@ class LPResult:
         row_names = self._row_names
         steps: list[SweepRangingStep] = []
         current: dict[str, float] = {}
+        for cost_map in cost_maps:
+            bad = sorted(k for k, v in cost_map.items() if not math.isfinite(v))
+            if bad:
+                # nimbus issue #2054: HiGHS's dual simplex never returns on
+                # a NaN cost, whatever its time and iteration limits.
+                msg = (
+                    f"sweep_costs_with_ranging({var!r}): non-finite cost for {bad[:5]}"
+                )
+                raise ValueError(msg)
         try:
             for cost_map in cost_maps:
                 for name, cost in cost_map.items():

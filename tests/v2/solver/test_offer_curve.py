@@ -711,6 +711,58 @@ def test_no_interval_claims_more_than_the_price_coupled_solve_holds():
             assert _PricedFake.truth(inside) == kw, (price, kw, interval)
 
 
+class _UnboundedFake:
+    """An LP whose ranging is unbounded both ways, as HiGHS reports it
+    (`-inf`, `inf`), recording every price the walk asks it to solve at."""
+
+    def __init__(self):
+        self.prices: list[float] = []
+
+    def sweep_costs_with_ranging(self, var, cost_maps, *, with_solution=False):
+        from solver.lp import SweepRangingStep
+
+        (costs,) = cost_maps
+        self.prices.append(costs[var])
+        return [
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(-np.inf), cost_up=_record(np.inf)
+            )
+        ]
+
+
+@pytest.mark.parametrize("retail", [-1.00, 23.20, -2.0, 30.0])
+def test_a_retail_price_on_or_past_a_domain_limit_is_never_probed_at_nan(retail):
+    """#2054: a retail import of exactly -1.00, the domain's floor, with an
+    unbounded ranging end, made the retail point's probe -inf, then
+    plateau_end's -inf - -inf a NaN price. HiGHS never returns from a NaN
+    cost: the walk hung the solve. Every price asked for must be finite."""
+    import math
+
+    from solver.network import _offer_curve_ranging_walk
+
+    fake = _UnboundedFake()
+    _offer_curve_ranging_walk(
+        fake,
+        "imp",
+        retail=retail,
+        hours0=1.0,
+        negated=False,
+        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
+    )
+    assert fake.prices
+    assert all(math.isfinite(p) for p in fake.prices), fake.prices
+
+
+def test_a_non_finite_cost_is_refused_before_highs_sees_it():
+    """#2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
+    time and iteration limits, so the sweep refuses one outright."""
+    p = lp.LPProblem()
+    x = p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
+    result = p.solve(keep_basis=True)
+    with pytest.raises(ValueError, match="non-finite cost"):
+        result.sweep_costs_with_ranging(x, [{x: float("nan")}])
+
+
 class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
     """nimbus issue #678: the walk's own termination rules, isolated from
     a real solve via `_FakeRangingResult` -- directly answers #678's own
