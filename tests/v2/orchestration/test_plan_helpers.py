@@ -149,7 +149,9 @@ def test_hysteresis_keeps_the_previous_direction_only_within_the_margin(
         )
 
 
-def test_hysteresis_survives_a_failing_re_solve(charging, discharging, pin_logger_on):
+def test_hysteresis_survives_a_failing_re_solve(
+    charging, discharging, pin_logger_on, monkeypatch
+):
     # test_hysteresis_survives_a_failing_re_solve
     def boom(kw):
         raise RuntimeError("re-solve failed")
@@ -422,6 +424,15 @@ def test_hysteresis_survives_a_failing_re_solve(charging, discharging, pin_logge
             _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
         ) == ("Nothing currently binding", None)
 
+    # test_a_previous_plan_that_cannot_be_aligned_has_no_anchor
+    with monkeypatch.context() as mp:
+
+        def misaligned(periods, previous):
+            raise ValueError("no period starts")
+
+        mp.setattr(solver_plan.network, "_align_previous_periods", misaligned)
+        assert solver_plan._anchor_target_kw(charging, charging) == (None, None)
+
 
 # --- period0_crossing_delta (#1417, #1577) ---------------------------------
 
@@ -501,11 +512,3 @@ def _bound_plan(export_kw, reduced_cost=0.5):
         battery_charge_kw=zeros,
         battery_discharge_kw=zeros,
     )
-
-
-def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):
-    def misaligned(periods, previous):
-        raise ValueError("no period starts")
-
-    monkeypatch.setattr(solver_plan.network, "_align_previous_periods", misaligned)
-    assert solver_plan._anchor_target_kw(charging, charging) == (None, None)

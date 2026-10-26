@@ -582,7 +582,7 @@ def test_no_readable_events_is_no_trips(cal, response):
 
 
 def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
-    tmp_path, monkeypatch, caplog
+    tmp_path, monkeypatch, caplog, event, array_branch, ha
 ):
     # test_a_stored_plan_that_did_not_solve_is_no_previous_plan
     tmp_0 = tmp_path / "test_a_stored_plan_that_did_not_solve_is_no_previous_plan"
@@ -767,69 +767,6 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
         token_file.write_text("changed", encoding="utf-8")
         assert sw._load_token() == "from-env"  # read once, then kept
 
-
-# --- two matched-rate sources, one answer per period (#1537) ---------------------------------
-
-M5 = timedelta(minutes=5)
-
-
-def _source(snapshot, *intervals, horizon=None, status="ok"):
-    return {
-        "status": status,
-        "snapshot": snapshot,
-        "horizon": horizon,
-        "intervals": [
-            (T0 + M5 * i, T0 + M5 * (i + 1), state, rate)
-            for i, state, rate in intervals
-        ],
-    }
-
-
-def _resolve(*sources, blocks=None, n=4):
-    return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
-
-
-BLOCKS = {
-    "solver_p2p_block_1_rate_kw": 11.5,
-    "solver_p2p_block_1_start_hour": 17,
-    "solver_p2p_block_1_end_hour": 24,
-}
-
-
-# --- a price event the household arms to test the plan (#1213) ------------------------------
-
-EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
-ARMED = {
-    "solver_price_event_enabled": True,
-    "solver_price_event_sensor": "sensor.event",
-}
-
-
-def _steps(*pairs):
-    return [
-        {"time": (EVENT_DAY + timedelta(hours=h)).isoformat(), "value": v}
-        for h, v in pairs
-    ]
-
-
-@pytest.fixture
-def event(monkeypatch):
-    def run(state, n=8, cfg=ARMED, minutes=30):
-        monkeypatch.setattr(sw, "ha_get", lambda _e: state)
-        return sw.resolve_price_event_delta(
-            cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
-        )
-
-    return run
-
-
-def _forecast(points):
-    return {"state": "0.0", "attributes": {"forecast": points}}
-
-
-def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
-    event, caplog, monkeypatch, array_branch, ha
-):
     # test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros
     for cfg, n, points in [
         (
@@ -945,6 +882,65 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
     assert (
         sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
     )
+
+
+# --- two matched-rate sources, one answer per period (#1537) ---------------------------------
+
+M5 = timedelta(minutes=5)
+
+
+def _source(snapshot, *intervals, horizon=None, status="ok"):
+    return {
+        "status": status,
+        "snapshot": snapshot,
+        "horizon": horizon,
+        "intervals": [
+            (T0 + M5 * i, T0 + M5 * (i + 1), state, rate)
+            for i, state, rate in intervals
+        ],
+    }
+
+
+def _resolve(*sources, blocks=None, n=4):
+    return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
+
+
+BLOCKS = {
+    "solver_p2p_block_1_rate_kw": 11.5,
+    "solver_p2p_block_1_start_hour": 17,
+    "solver_p2p_block_1_end_hour": 24,
+}
+
+
+# --- a price event the household arms to test the plan (#1213) ------------------------------
+
+EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
+ARMED = {
+    "solver_price_event_enabled": True,
+    "solver_price_event_sensor": "sensor.event",
+}
+
+
+def _steps(*pairs):
+    return [
+        {"time": (EVENT_DAY + timedelta(hours=h)).isoformat(), "value": v}
+        for h, v in pairs
+    ]
+
+
+@pytest.fixture
+def event(monkeypatch):
+    def run(state, n=8, cfg=ARMED, minutes=30):
+        monkeypatch.setattr(sw, "ha_get", lambda _e: state)
+        return sw.resolve_price_event_delta(
+            cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
+        )
+
+    return run
+
+
+def _forecast(points):
+    return {"state": "0.0", "attributes": {"forecast": points}}
 
 
 # --- P2P follows the household's own blocks (#1537) ------------------------------------------

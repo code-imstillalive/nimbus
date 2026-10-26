@@ -135,7 +135,7 @@ def _coordinator(hass, **data):
 
 
 def test_a_retrain_then_refresh_publishes_the_learned_forecast(
-    tmp_path, recorder, site, monkeypatch
+    tmp_path, recorder, site, monkeypatch, caplog
 ):
     # test_a_retrain_then_refresh_publishes_the_learned_forecast
     tmp_0 = tmp_path / "test_a_retrain_then_refresh_publishes_the_learned_forecast"
@@ -340,6 +340,61 @@ def test_a_retrain_then_refresh_publishes_the_learned_forecast(
                 assert again._trained is None and again._residuals == []
                 assert len(created) == 1  # retrain now, not at tonight's hour
 
+    # test_each_refresh_scores_the_last_prediction_and_flags_drift_once
+    caplog.clear()
+    tmp_8 = (
+        tmp_path / "test_each_refresh_scores_the_last_prediction_and_flags_drift_once"
+    )
+    tmp_8.mkdir()
+    with monkeypatch.context() as mp:
+        hass = _site_hass(tmp_8)
+        coord = _coordinator(hass)
+        asyncio.run(coord._async_retrain())
+        coord._residuals = [0.1] * 20
+        clock = {"now": NOW}
+        mp.setattr(cm.dt_util, "utcnow", lambda: clock["now"])
+        # The house runs well over its forecast from here on.
+        mp.setattr(sys.modules[__name__], "_house_kw", lambda t: 7.5)
+        with caplog.at_level("WARNING", logger=cm._LOGGER.name):
+            for _ in range(12):
+                clock["now"] += timedelta(minutes=15)
+                asyncio.run(coord._async_update_data())
+        # The retrain's own refresh left a prediction, so every refresh scores one.
+        assert len(coord._residuals) == 20 + 12
+        assert coord._residual_drift_status.watching is True
+        assert (
+            sum("residual drift detected" in r.getMessage() for r in caplog.records)
+            == 1
+        )
+        assert coord._residual_path.exists()
+
+    # test_a_loads_running_hold_reaches_the_predict_call: #1703: the subentry's threshold and hold length are what predict() runs with.
+    tmp_9 = tmp_path / "test_a_loads_running_hold_reaches_the_predict_call"
+    tmp_9.mkdir()
+    with monkeypatch.context() as mp:
+        hass = FakeHass(tmp_9)
+        coord = _coordinator(
+            hass,
+            **{const.CONF_RUNNING_THRESHOLD_KW: 1.0, const.CONF_RUN_HOLD_HOURS: 2.0},
+        )
+        asyncio.run(coord._async_retrain())
+        seen = []
+        real = cm.predict
+
+        def spy(*args, **kwargs):
+            seen.append((args, kwargs))
+            return real(*args, **kwargs)
+
+        mp.setattr(cm, "predict", spy)
+        asyncio.run(coord._async_update_data())
+        assert seen
+        for args, kwargs in seen:
+            threshold = kwargs.get(
+                "running_threshold_kw", args[15] if len(args) > 15 else None
+            )
+            hold = kwargs.get("run_hold_hours", args[16] if len(args) > 16 else None)
+            assert (threshold, hold) == (1.0, 2.0)
+
 
 # --- a whole site's inputs ------------------------------------------------------
 
@@ -457,62 +512,3 @@ def _site_coordinator(hass, **options):
 
 
 # --- what is kept across restarts ------------------------------------------------
-
-
-def test_each_refresh_scores_the_last_prediction_and_flags_drift_once(
-    tmp_path, site, monkeypatch, caplog, recorder
-):
-    # test_each_refresh_scores_the_last_prediction_and_flags_drift_once
-    caplog.clear()
-    tmp_0 = (
-        tmp_path / "test_each_refresh_scores_the_last_prediction_and_flags_drift_once"
-    )
-    tmp_0.mkdir()
-    with monkeypatch.context() as mp:
-        hass = _site_hass(tmp_0)
-        coord = _coordinator(hass)
-        asyncio.run(coord._async_retrain())
-        coord._residuals = [0.1] * 20
-        clock = {"now": NOW}
-        mp.setattr(cm.dt_util, "utcnow", lambda: clock["now"])
-        # The house runs well over its forecast from here on.
-        mp.setattr(sys.modules[__name__], "_house_kw", lambda t: 7.5)
-        with caplog.at_level("WARNING", logger=cm._LOGGER.name):
-            for _ in range(12):
-                clock["now"] += timedelta(minutes=15)
-                asyncio.run(coord._async_update_data())
-        # The retrain's own refresh left a prediction, so every refresh scores one.
-        assert len(coord._residuals) == 20 + 12
-        assert coord._residual_drift_status.watching is True
-        assert (
-            sum("residual drift detected" in r.getMessage() for r in caplog.records)
-            == 1
-        )
-        assert coord._residual_path.exists()
-
-    # test_a_loads_running_hold_reaches_the_predict_call: #1703: the subentry's threshold and hold length are what predict() runs with.
-    tmp_1 = tmp_path / "test_a_loads_running_hold_reaches_the_predict_call"
-    tmp_1.mkdir()
-    with monkeypatch.context() as mp:
-        hass = FakeHass(tmp_1)
-        coord = _coordinator(
-            hass,
-            **{const.CONF_RUNNING_THRESHOLD_KW: 1.0, const.CONF_RUN_HOLD_HOURS: 2.0},
-        )
-        asyncio.run(coord._async_retrain())
-        seen = []
-        real = cm.predict
-
-        def spy(*args, **kwargs):
-            seen.append((args, kwargs))
-            return real(*args, **kwargs)
-
-        mp.setattr(cm, "predict", spy)
-        asyncio.run(coord._async_update_data())
-        assert seen
-        for args, kwargs in seen:
-            threshold = kwargs.get(
-                "running_threshold_kw", args[15] if len(args) > 15 else None
-            )
-            hold = kwargs.get("run_hold_hours", args[16] if len(args) > 16 else None)
-            assert (threshold, hold) == (1.0, 2.0)
