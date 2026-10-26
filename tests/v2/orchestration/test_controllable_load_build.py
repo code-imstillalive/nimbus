@@ -164,7 +164,8 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
             == expect
         )
 
-    # test_an_overnight_or_open_ended_window_is_one_window
+
+def test_an_overnight_or_open_ended_window_is_one_window(site):
     site.load(
         "ev",
         deferrable_max_power_kw=7.0,
@@ -179,6 +180,8 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
     assert ev.windows is None and ev.earliest_period < ev.deadline_period
     assert open_ended.windows is None and open_ended.deadline_period == len(grid) - 1
 
+
+def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site, caplog):
     # test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads
     for static, entity_state, expect in [
         (0.10, None, 0.10),

@@ -259,7 +259,6 @@ def test_suggestions_fill_only_empty_fields_from_the_dashboard_then_the_provider
 
 
 def test_a_second_provider_becomes_the_second_price_source(world):
-    # test_a_second_provider_becomes_the_second_price_source
     world.add(pi.AMBER_CORE_DOMAIN, "sensor.amber_buy", "01J-forecasts-general")
     world.add(pi.AMBER_CORE_DOMAIN, "sensor.amber_sell", "01J-forecasts-feed_in")
     world.add(pi.PD7DAY_DOMAIN, "sensor.pd7_buy", "qld1_tariff")
@@ -282,7 +281,8 @@ def test_a_second_provider_becomes_the_second_price_source(world):
     )  # already in use
     assert pa.with_detected_profile(world.hass(), {})[IMPORT] == "sensor.amber_buy"
 
-    # test_with_a_price_array_set_a_regional_forecast_is_proposed_too
+
+def test_with_a_price_array_set_a_regional_forecast_is_proposed_too(world):
     world.add(
         pi.AEMO_NEM_DOMAIN, "sensor.aemo_qld", f"x_qld1_{pi.AEMO_NEM_FORECAST_KEY}"
     )
@@ -291,6 +291,11 @@ def test_a_second_provider_becomes_the_second_price_source(world):
         (SPOT, "sensor.aemo_qld", "AEMO NEM Data")
     ]
 
+
+# --- what a household is told --------------------------------------------------------------
+
+
+def test_fees_on_top_of_a_price_that_already_includes_them_are_flagged(world):
     # test_fees_on_top_of_a_price_that_already_includes_them_are_flagged
     lv = _localvolts(world)
     fee = pa._FEE_RATE_KEYS[0]
@@ -352,9 +357,6 @@ def test_a_second_provider_becomes_the_second_price_source(world):
     assert f"1 of Nimbus's {len(pa.LV_V2_PROFILE)}" in partly[pa.NOTIFY_DETECTED_ID]
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
-
-
-# --- what a household is told --------------------------------------------------------------
 
 
 def _notices(world, options):

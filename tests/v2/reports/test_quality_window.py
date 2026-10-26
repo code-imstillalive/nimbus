@@ -573,10 +573,7 @@ def delivery(history, monkeypatch):
     return run
 
 
-def test_a_configured_load_is_published_with_what_it_really_delivered(
-    delivery, no_soc, caplog, history, monkeypatch
-):
-    # test_a_configured_load_is_published_with_what_it_really_delivered
+def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
     hws = SimpleNamespace(
         subentry_id="s_hws", subentry_type="controllable_load", data=HWS
     )
@@ -594,6 +591,11 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(
     )
     assert entry["scorable"] and entry["delivered_kwh"] == pytest.approx(1.95, abs=1e-4)
 
+
+# --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
+
+
+def test_the_pricing_share_of_the_regret(no_soc, caplog, history, monkeypatch):
     # test_the_pricing_share_of_the_regret
     for regret, delta, share in [
         (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
@@ -657,9 +659,6 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(
             scored["epr_reliable"] is False
             and scored["epr_reason"] == "price_source_stale"
         )
-
-
-# --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
 
 
 # --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------

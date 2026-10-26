@@ -101,23 +101,38 @@ def test_a_live_charge_limit_and_a_shared_charger_carry_through(site):
     assert (b.shared_charger_group, b.shared_charger_max_kw) == ("dc", 25.0)
 
 
-def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
-    site, caplog, car
-):
-    # test_a_participant_that_cannot_be_built_is_skipped_with_a_warning
-    caplog.clear()
-    for change, reason in [
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
         ({"battery_participant_capacity_kwh": None}, "missing capacity_kwh"),
         ({"battery_participant_soc_sensor": None}, "missing capacity_kwh"),
         ({"battery_participant_name": "home"}, "reserved"),
-    ]:
-        caplog.clear()
-        site.add("ev", {**EV, **change})
-        site.state("sensor.ev_soc", "55.0")
-        with caplog.at_level(logging.WARNING):
-            assert eb.build_extra_batteries() == []
-        assert reason in caplog.text
+    ],
+    ids=["no_capacity", "no_soc_sensor", "named_home"],
+)
+def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
+    site, caplog, change, reason
+):
+    site.add("ev", {**EV, **change})
+    site.state("sensor.ev_soc", "55.0")
+    with caplog.at_level(logging.WARNING):
+        assert eb.build_extra_batteries() == []
+    assert reason in caplog.text
 
+
+def _departure(site, *, hour=8, pct=90.0, periods=None):
+    data = dict(EV)
+    if hour is not None:
+        data["battery_participant_departure_hour"] = hour
+    if pct is not None:
+        data["battery_participant_must_have_soc_by_departure_percent"] = pct
+    site.add("ev", data)
+    site.state("sensor.ev_soc", "55.0")
+    (b,) = eb.build_extra_batteries(periods)
+    return b.must_have_soc_by_period_index, b.must_have_soc_kwh
+
+
+def test_a_departure_binds_to_the_first_one_in_the_horizon(site, caplog, car):
     # test_a_departure_binds_to_the_first_one_in_the_horizon
     local = sw.LOCAL_TZ
     assert _departure(site, periods=_periods(6, 6, tz=local)) == (
@@ -191,18 +206,6 @@ def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
         with caplog.at_level(logging.WARNING):
             assert car(soc) == []
         assert soc is None or "leaving it out" in caplog.text
-
-
-def _departure(site, *, hour=8, pct=90.0, periods=None):
-    data = dict(EV)
-    if hour is not None:
-        data["battery_participant_departure_hour"] = hour
-    if pct is not None:
-        data["battery_participant_must_have_soc_by_departure_percent"] = pct
-    site.add("ev", data)
-    site.state("sensor.ev_soc", "55.0")
-    (b,) = eb.build_extra_batteries(periods)
-    return b.must_have_soc_by_period_index, b.must_have_soc_kwh
 
 
 # --- what says a participant is here (22 Oct 2026) ---------------------------------------------

@@ -178,8 +178,13 @@ def test_ratchet_mode_fails_when_the_over_limit_count_rises(toy_repo: Path) -> N
     assert "count_rise" in proc.stdout
 
 
-def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(toy_repo):
-    # test_ratchet_mode_passes_when_an_over_limit_function_only_moves: The tech-debt plan's own method: an already-over-60-line function
+def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(
+    toy_repo: Path,
+) -> None:
+    """The tech-debt plan's own method: an already-over-60-line function
+    relocates to a new file, unchanged in size. This must not read as
+    "a new function over 60 lines" -- that would make the gate fight the
+    refactor it exists to permit."""
     old = toy_repo / "pkg" / "old_home.py"
     old.parent.mkdir(parents=True)
     old.write_text(_fn("relocated", 69))
@@ -194,7 +199,8 @@ def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(toy_repo):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PASS" in proc.stdout
 
-    # test_ratchet_mode_passes_comparing_a_ref_to_itself
+
+def test_ratchet_mode_passes_comparing_a_ref_to_itself(toy_repo: Path) -> None:
     mod = toy_repo / "pkg" / "mod.py"
     mod.parent.mkdir(parents=True)
     mod.write_text(_fn("worker", 69))
@@ -204,7 +210,15 @@ def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(toy_repo):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PASS" in proc.stdout
 
-    # test_real_solver_writer_matches_the_tech_debt_plans_own_count
+
+# ---------------------------------------------------------------------------
+# One real check against the actual repo (not synthetic), per the tech-debt
+# plan's acceptance bar: prove the tool does not false-positive on the real
+# codebase, and document the real number.
+# ---------------------------------------------------------------------------
+
+
+def test_real_solver_writer_matches_the_tech_debt_plans_own_count():
     # test_real_solver_writer_matches_the_tech_debt_plans_own_count: docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
     proc = _run(["--baseline-count", "36", str(target)])
@@ -217,10 +231,3 @@ def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(toy_repo):
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert "> baseline 36" in proc.stdout, proc.stdout
-
-
-# ---------------------------------------------------------------------------
-# One real check against the actual repo (not synthetic), per the tech-debt
-# plan's acceptance bar: prove the tool does not false-positive on the real
-# codebase, and document the real number.
-# ---------------------------------------------------------------------------

@@ -243,18 +243,52 @@ def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypat
             == 1
         )
 
-    # test_without_amber_or_with_a_failed_read_nothing_is_collected
-    with monkeypatch.context() as mp:
-        mp.setattr(sw, "ha_get", lambda _e: {"state": "0.2", "attributes": {}})
-        assert sw.collect_amber_spot(["sensor.lv_buy"], SPOT_NOW) == {}
-        assert not spot_store.exists()
 
-        def down(_e):
-            raise OSError("down")
+# --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
 
-        mp.setattr(sw, "ha_get", down)
-        assert sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
+SPOT_END = datetime(2026, 10, 14, 10, 50, tzinfo=UTC)
+SPOT_NOW = SPOT_END - timedelta(minutes=2)
+SPOT_KEY = int((SPOT_END - timedelta(minutes=5)).timestamp()) // 300
 
+
+def _spot_row(spot, end=SPOT_END):
+    return {
+        "per_kwh": 0.357,
+        "spot_per_kwh": spot,
+        "duration": 5,
+        "start_time": (end - timedelta(minutes=5, seconds=-1)).isoformat(),
+        "end_time": end.isoformat(),
+        "estimate": False,
+    }
+
+
+def _amber(*rows):
+    return {"state": "0.357", "attributes": {"detailedForecast": list(rows)}}
+
+
+@pytest.fixture
+def spot_store(tmp_path, monkeypatch):
+    path = tmp_path / "amber_spot.json"
+    monkeypatch.setattr(sw, "AMBER_SPOT_PATH", str(path))
+    monkeypatch.setattr(sw, "_AMBER_SPOT_CACHE", None)
+    return path
+
+
+def test_without_amber_or_with_a_failed_read_nothing_is_collected(
+    spot_store, monkeypatch
+):
+    monkeypatch.setattr(sw, "ha_get", lambda _e: {"state": "0.2", "attributes": {}})
+    assert sw.collect_amber_spot(["sensor.lv_buy"], SPOT_NOW) == {}
+    assert not spot_store.exists()
+
+    def down(_e):
+        raise OSError("down")
+
+    monkeypatch.setattr(sw, "ha_get", down)
+    assert sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW) == {}
+
+
+def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
     # test_a_spot_older_than_five_days_is_dropped
     with monkeypatch.context() as mp:
         old = int((SPOT_END - timedelta(days=6)).timestamp()) // 300
@@ -325,43 +359,6 @@ def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypat
                     sw.resample_generic_price_forecast("sensor.price", grid) == expected
                 )
 
-
-# --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
-
-SPOT_END = datetime(2026, 10, 14, 10, 50, tzinfo=UTC)
-SPOT_NOW = SPOT_END - timedelta(minutes=2)
-SPOT_KEY = int((SPOT_END - timedelta(minutes=5)).timestamp()) // 300
-
-
-def _spot_row(spot, end=SPOT_END):
-    return {
-        "per_kwh": 0.357,
-        "spot_per_kwh": spot,
-        "duration": 5,
-        "start_time": (end - timedelta(minutes=5, seconds=-1)).isoformat(),
-        "end_time": end.isoformat(),
-        "estimate": False,
-    }
-
-
-def _amber(*rows):
-    return {"state": "0.357", "attributes": {"detailedForecast": list(rows)}}
-
-
-@pytest.fixture
-def spot_store(tmp_path, monkeypatch):
-    path = tmp_path / "amber_spot.json"
-    monkeypatch.setattr(sw, "AMBER_SPOT_PATH", str(path))
-    monkeypatch.setattr(sw, "_AMBER_SPOT_CACHE", None)
-    return path
-
-
-MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local
-RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
-BUCKET = 19 * 12 + 1
-
-
-def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one(monkeypatch):
     # test_amber_rows_that_cannot_be_read_are_skipped_one_by_one
     import price_intervals as pi
 
@@ -384,3 +381,8 @@ def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one(monkeypatch):
 
         mp.setattr(sw, "ha_get", down)
         assert sw.price_unit_scale_of_history("sensor.price") == 1.0
+
+
+MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local
+RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
+BUCKET = 19 * 12 + 1

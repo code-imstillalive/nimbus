@@ -134,7 +134,7 @@ AWAY = range(8, 11)
 # --- a power sensor that stopped recording (#1161) --------------------------------------------
 
 
-def test_an_hour_with_no_reading_credits_nothing_and_is_named(site, rest, monkeypatch):
+def test_an_hour_with_no_reading_credits_nothing_and_is_named(site):
     # test_an_hour_with_no_reading_credits_nothing_and_is_named
     site.add()
     site.power = [(DAY + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
@@ -157,16 +157,70 @@ def test_an_hour_with_no_reading_credits_nothing_and_is_named(site, rest, monkey
         if not grid:
             assert out == frozenset()
 
-    # test_what_each_row_reads_as
-    for rows, expected in [
+
+# --- each row in its own unit (#843 option A) -------------------------------------------------
+
+
+class _Resp:
+    def __init__(self, payload):
+        self._payload = json.dumps(payload).encode()
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+
+@pytest.fixture
+def rest(monkeypatch):
+    seen = {}
+
+    def run(rows, fn=sw.fetch_entity_power_history_kw, fail=False):
+        def urlopen(req, *_a, **_k):
+            if fail:
+                raise sw.urllib.error.URLError("down")
+            seen["url"] = req.full_url
+            return _Resp([rows])
+
+        monkeypatch.setattr(sw.NATIVE, "hass", None)
+        monkeypatch.setattr(sw, "_load_token", lambda: "tok")
+        monkeypatch.setattr(sw.urllib.request, "urlopen", urlopen)
+        return [v for _t, v in fn("sensor.x", DAY, END)]
+
+    run.seen = seen
+    return run
+
+
+def _row(hour, state, unit="kW"):
+    row = {
+        "state": str(state),
+        "last_changed": (DAY + timedelta(hours=hour)).isoformat(),
+    }
+    if unit is not None:
+        row["attributes"] = {"unit_of_measurement": unit}
+    return row
+
+
+@pytest.mark.parametrize(
+    ("rows", "expected"),
+    [
         ([_row(9, 7.5, None)], [7.5]),  # no unit: kW, as always
         ([_row(9, 7.5, "kWh"), _row(9.5, 7.5, "A"), _row(10, 2.0)], [2.0]),  # #1643
         ([_row(9, "unavailable", "W"), _row(10, "heating"), _row(11, 5.0)], [5.0]),
         ([_row(11, 3.0), _row(9, 1.0), _row(10, 2.0)], [1.0, 2.0, 3.0]),
         ([], []),
-    ]:
-        assert rest(rows) == expected
+    ],
+    ids=["no_unit", "not_power", "not_a_number", "unsorted", "empty"],
+)
+def test_what_each_row_reads_as(rest, rows, expected):
+    assert rest(rows) == expected
 
+
+def test_a_failed_read_is_no_history(rest, site, monkeypatch):
     # test_a_failed_read_is_no_history
     assert rest([], fail=True) == []
 
@@ -250,53 +304,6 @@ def test_an_hour_with_no_reading_credits_nothing_and_is_named(site, rest, monkey
     assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
     assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
     assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
-
-
-# --- each row in its own unit (#843 option A) -------------------------------------------------
-
-
-class _Resp:
-    def __init__(self, payload):
-        self._payload = json.dumps(payload).encode()
-
-    def read(self):
-        return self._payload
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_a):
-        return False
-
-
-@pytest.fixture
-def rest(monkeypatch):
-    seen = {}
-
-    def run(rows, fn=sw.fetch_entity_power_history_kw, fail=False):
-        def urlopen(req, *_a, **_k):
-            if fail:
-                raise sw.urllib.error.URLError("down")
-            seen["url"] = req.full_url
-            return _Resp([rows])
-
-        monkeypatch.setattr(sw.NATIVE, "hass", None)
-        monkeypatch.setattr(sw, "_load_token", lambda: "tok")
-        monkeypatch.setattr(sw.urllib.request, "urlopen", urlopen)
-        return [v for _t, v in fn("sensor.x", DAY, END)]
-
-    run.seen = seen
-    return run
-
-
-def _row(hour, state, unit="kW"):
-    row = {
-        "state": str(state),
-        "last_changed": (DAY + timedelta(hours=hour)).isoformat(),
-    }
-    if unit is not None:
-        row["attributes"] = {"unit_of_measurement": unit}
-    return row
 
 
 # --- a reading no participant could make (#843 option B) --------------------------------------
