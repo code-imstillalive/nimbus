@@ -48,3 +48,26 @@ def test_pin_only_counts_executed_statements_only():
     }
     assert cbr.pin_only_lines([1, 2, 3], contexts) == 1
     assert cbr.pin_only_lines([], contexts) == 0
+
+
+def test_gaps_list_only_the_flagged_modules_missed_lines():
+    r = {
+        "modules": [
+            {"module": "solver_dispatch/guard.py", "flags": ["lines < 90%"]},
+            {"module": "time.py", "flags": []},
+        ]
+    }
+    measured = {
+        "solver_dispatch/guard.py": {
+            "missing_lines": [12, 13],
+            "missing_branches": [[11, 12], [40, -38]],
+        },
+        "time.py": {"missing_lines": [5], "missing_branches": []},
+    }
+    assert cbr.gaps(r, measured) == {
+        "solver_dispatch/guard.py": {
+            "flags": ["lines < 90%"],
+            "missing_lines": [12, 13],
+            "missing_branches": [[11, 12], [40, -38]],
+        }
+    }

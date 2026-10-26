@@ -359,8 +359,27 @@ def measure(workers: int) -> tuple[dict, int, list[str]]:
                 "branches": s.get("num_branches", 0),
                 "covered_branches": s.get("covered_branches", 0),
                 "pin_only_lines": pin_only,
+                "missing_lines": f.get("missing_lines", []),
+                "missing_branches": f.get("missing_branches", []),
             }
     return result, len(golden), contexts
+
+
+def gaps(r: dict, measured: dict) -> dict:
+    """The lines and branches no test reaches, for each flagged module: what
+    a PR closing that module's gap has to cover. A branch is [from, to];
+    a negative `to` is an exit from the function."""
+    out = {}
+    for row in r["modules"]:
+        if not row["flags"]:
+            continue
+        m = measured.get(row["module"], {})
+        out[row["module"]] = {
+            "flags": row["flags"],
+            "missing_lines": m.get("missing_lines", []),
+            "missing_branches": m.get("missing_branches", []),
+        }
+    return out
 
 
 def _pct(a: float, b: float) -> float | None:
@@ -401,7 +420,8 @@ def build(measured: dict) -> dict:
                 "module": m,
                 "area": area,
                 "tier": tier,
-                **d,
+                # The missed lines go to --gaps, not into the report.
+                **{k: v for k, v in d.items() if not k.startswith("missing_")},
                 "line_pct": line,
                 "branch_pct": branch,
                 "pin_only_pct": pin,
@@ -526,6 +546,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--json")
     ap.add_argument("--md")
+    ap.add_argument("--gaps", help="write each flagged module's missed lines")
     a = ap.parse_args()
     unmapped = [m for m in modules() if tier_of(m) is None]
     if unmapped:
@@ -556,6 +577,11 @@ def main() -> int:
         )
     if a.md:
         Path(a.md).write_text(markdown(r, meta), encoding="utf-8")
+    if a.gaps:
+        Path(a.gaps).write_text(
+            json.dumps({"meta": meta, "modules": gaps(r, measured)}, indent=1) + "\n",
+            encoding="utf-8",
+        )
     return 0
 
 
