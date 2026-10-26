@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from tests.device_contract.oracles_accounting import (
     ALL_PHASES,
     STATUSES,
@@ -58,32 +56,87 @@ def _series(case: dict) -> dict[str, list[float]]:
     return series
 
 
-@pytest.mark.parametrize("name", sorted(TS["cases"]))
-def test_f05_window_negative_residuals_and_refusal(name: str) -> None:
-    case = TS["cases"][name]
-    got = decomposition_verdict(_series(case), TS["inside"])
-    assert got.negative == case["negative"]
-    assert got.refused is case["refused"]
+def test_f05_window_negative_residuals_and_refusal():
+    # test_f05_window_negative_residuals_and_refusal
+    for name in sorted(TS["cases"]):
+        case = TS["cases"][name]
+        got = decomposition_verdict(_series(case), TS["inside"])
+        assert got.negative == case["negative"]
+        assert got.refused is case["refused"]
 
+    # test_f05_residuals_sum_to_the_house_in_every_interval: Inclusive demand is unaffected by the decomposition, refused or not,
+    for name in sorted(TS["cases"]):
+        series = _series(TS["cases"][name])
+        res = residual_series(series, TS["inside"])
+        for t in range(TS["n_intervals"]):
+            total = sum(r[t] for r in res.values())
+            assert abs(total - series["house"][t]) <= TOL
 
-@pytest.mark.parametrize("name", sorted(TS["cases"]))
-def test_f05_residuals_sum_to_the_house_in_every_interval(name: str) -> None:
-    """Inclusive demand is unaffected by the decomposition, refused or not,
-    because residuals are never clamped."""
-    series = _series(TS["cases"][name])
-    res = residual_series(series, TS["inside"])
-    for t in range(TS["n_intervals"]):
-        total = sum(r[t] for r in res.values())
-        assert abs(total - series["house"][t]) <= TOL
+    # test_f05_a_negative_residual_is_reported_as_it_is
+    for name in [n for n, c in TS["cases"].items() if "residual_check" in c]:
+        check = TS["cases"][name]["residual_check"]
+        res = residual_series(_series(TS["cases"][name]), TS["inside"])
+        assert abs(res[check["node"]][check["t"]] - check["kw"]) <= 1e-9
 
+    # test_f05_inclusion_boundaries
+    for name in sorted(BOUNDARIES):
+        case = BOUNDARIES[name]
+        got = inclusion_problems(
+            _party("child", case["child"]),
+            _party("parent", case["parent"]),
+            case["quantity"],
+        )
+        assert got == case["problems"]
 
-@pytest.mark.parametrize(
-    "name", [n for n, c in TS["cases"].items() if "residual_check" in c]
-)
-def test_f05_a_negative_residual_is_reported_as_it_is(name: str) -> None:
-    check = TS["cases"][name]["residual_check"]
-    res = residual_series(_series(TS["cases"][name]), TS["inside"])
-    assert abs(res[check["node"]][check["t"]] - check["kw"]) <= 1e-9
+    # test_f07_reconciliation_verdict
+    for name in sorted(RECON):
+        case = RECON[name]
+        imp, exp = case["reconstructed"]
+        got = reconcile(
+            imp,
+            exp,
+            _meter(case["meter"]),
+            case["stale_fraction"],
+            case.get("unsupported_reason"),
+        )
+        assert got.status == case["status"]
+        if "tolerance_kwh" in case:
+            assert got.tolerance_kwh is not None
+            assert abs(got.tolerance_kwh - case["tolerance_kwh"]) <= TOL
+        if "meter_sign" in case:
+            assert got.meter_sign == case["meter_sign"]
+
+    # test_f07_every_status_has_a_case
+    assert {c["status"] for c in RECON.values()} == set(STATUSES)
+
+    # test_f07_mobility
+    for name in sorted(MOBILITY):
+        case = MOBILITY[name]
+        got = vehicle_site_kwh(
+            [
+                VehicleInterval(i["hours"], i["kw"], i["connected"], i.get("at_home"))
+                for i in case["intervals"]
+            ]
+        )
+        if isinstance(case["site_kwh"], str):
+            assert got == case["site_kwh"]
+        else:
+            assert isinstance(got, float)
+            assert abs(got - case["site_kwh"]) <= TOL
+
+    # test_f08_reproduces_disagrees_from_the_counters
+    got = _f08(OBS["meter_counters_kwh"], "positive_is_import")
+    assert got.status == VERDICT["status"]
+    assert got.tolerance_kwh is not None
+    assert abs(got.tolerance_kwh - VERDICT["tolerance_kwh"]) <= KWH_TOL
+    assert (
+        abs((got.import_residual_kwh or 0.0) - VERDICT["import_residual_kwh"])
+        <= KWH_TOL
+    )
+    assert (
+        abs((got.export_residual_kwh or 0.0) - VERDICT["export_residual_kwh"])
+        <= KWH_TOL
+    )
 
 
 # F05: inclusion boundaries ------------------------------------------------
@@ -102,17 +155,6 @@ def _party(name: str, raw: dict) -> Party:
     )
 
 
-@pytest.mark.parametrize("name", sorted(BOUNDARIES))
-def test_f05_inclusion_boundaries(name: str) -> None:
-    case = BOUNDARIES[name]
-    got = inclusion_problems(
-        _party("child", case["child"]),
-        _party("parent", case["parent"]),
-        case["quantity"],
-    )
-    assert got == case["problems"]
-
-
 # F07: the reconciliation verdict -------------------------------------------
 
 RECON = F07["variants"]["reconciliation"]["cases"]
@@ -124,48 +166,9 @@ def _meter(raw: dict | None) -> Meter | None:
     return Meter(raw["positive_kwh"], raw["negative_kwh"], raw["declared_sign"])
 
 
-@pytest.mark.parametrize("name", sorted(RECON))
-def test_f07_reconciliation_verdict(name: str) -> None:
-    case = RECON[name]
-    imp, exp = case["reconstructed"]
-    got = reconcile(
-        imp,
-        exp,
-        _meter(case["meter"]),
-        case["stale_fraction"],
-        case.get("unsupported_reason"),
-    )
-    assert got.status == case["status"]
-    if "tolerance_kwh" in case:
-        assert got.tolerance_kwh is not None
-        assert abs(got.tolerance_kwh - case["tolerance_kwh"]) <= TOL
-    if "meter_sign" in case:
-        assert got.meter_sign == case["meter_sign"]
-
-
-def test_f07_every_status_has_a_case() -> None:
-    assert {c["status"] for c in RECON.values()} == set(STATUSES)
-
-
 # F07: mobility -------------------------------------------------------------
 
 MOBILITY = F07["variants"]["mobility"]["cases"]
-
-
-@pytest.mark.parametrize("name", sorted(MOBILITY))
-def test_f07_mobility(name: str) -> None:
-    case = MOBILITY[name]
-    got = vehicle_site_kwh(
-        [
-            VehicleInterval(i["hours"], i["kw"], i["connected"], i.get("at_home"))
-            for i in case["intervals"]
-        ]
-    )
-    if isinstance(case["site_kwh"], str):
-        assert got == case["site_kwh"]
-    else:
-        assert isinstance(got, float)
-        assert abs(got - case["site_kwh"]) <= TOL
 
 
 # F08: #1465's 5 October aggregates ------------------------------------------
@@ -184,22 +187,8 @@ def _f08(meter_kwh: dict, sign: str | None) -> Verdict:
     )
 
 
-def test_f08_reproduces_disagrees_from_the_counters() -> None:
-    got = _f08(OBS["meter_counters_kwh"], "positive_is_import")
-    assert got.status == VERDICT["status"]
-    assert got.tolerance_kwh is not None
-    assert abs(got.tolerance_kwh - VERDICT["tolerance_kwh"]) <= KWH_TOL
-    assert (
-        abs((got.import_residual_kwh or 0.0) - VERDICT["import_residual_kwh"])
-        <= KWH_TOL
-    )
-    assert (
-        abs((got.export_residual_kwh or 0.0) - VERDICT["export_residual_kwh"])
-        <= KWH_TOL
-    )
-
-
-def test_f08_disagrees_whichever_meter_reading_and_sign() -> None:
+def test_f08_disagrees_whichever_meter_reading_and_sign():
+    # test_f08_disagrees_whichever_meter_reading_and_sign
     assert (
         _f08(OBS["meter_counters_kwh"], None).status == VERDICT["legacy_no_sign_status"]
     )
@@ -208,7 +197,6 @@ def test_f08_disagrees_whichever_meter_reading_and_sign() -> None:
         == VERDICT["power_integration_status"]
     )
 
-
-def test_f08_claims_no_correction() -> None:
+    # test_f08_claims_no_correction
     assert F08["expected"]["corrected_epr"] == "unresolved"
     assert F08["expected"]["root_cause"] == "unresolved"

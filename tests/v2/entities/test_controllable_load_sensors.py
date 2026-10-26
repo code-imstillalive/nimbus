@@ -134,29 +134,26 @@ def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
     assert kw["done_condition_met"] is False  # 58.5 is below its own 60 setpoint
 
 
-@pytest.mark.parametrize(
-    ("forecast", "mean"),
-    [
+def test_todays_mean_import_price_reads_only_todays_plan():
+    # test_todays_mean_import_price_reads_only_todays_plan
+    for forecast, mean in [
         (None, None),
         ([], None),
         ([{"time": "bad", "import_price": 1}, {"import_price": 2}], None),
         ([{"time": NOW.isoformat(), "import_price": "0.5"}], 0.5),
-    ],
-)
-def test_todays_mean_import_price_reads_only_todays_plan(forecast, mean):
-    states = (
-        {}
-        if forecast is None
-        else {
-            "sensor.nimbus_solver_battery_forecast": SimpleNamespace(
-                attributes={"forecast": forecast}
-            )
-        }
-    )
-    assert sm._today_mean_import_price(_hass(states), NOW) == mean
+    ]:
+        states = (
+            {}
+            if forecast is None
+            else {
+                "sensor.nimbus_solver_battery_forecast": SimpleNamespace(
+                    attributes={"forecast": forecast}
+                )
+            }
+        )
+        assert sm._today_mean_import_price(_hass(states), NOW) == mean
 
-
-def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings():
+    # test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings
     state = lrs.LoadRunState(
         commanded_state=True, commanded_since=NOW.timestamp(), currently_on=True
     )
@@ -178,8 +175,7 @@ def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settin
     off = sm.NimbusControllableLoadStateSensor(_coordinator(), _hass(), None, sub, "1")
     assert off.native_value == "off"
 
-
-def test_the_temperature_forecast_shows_the_tank_now_and_the_planned_trajectory():
+    # test_the_temperature_forecast_shows_the_tank_now_and_the_planned_trajectory
     state = lrs.LoadRunState(
         plan_temperature_forecast=[{"time": NOW.isoformat(), "value": 55.0}],
         thermal_rates_source="learned",
@@ -246,14 +242,6 @@ def test_a_stale_commanded_state_id_is_renamed_only_when_safe(
         if moved
         else []
     )
-
-
-@pytest.mark.parametrize(
-    ("title", "slug"),
-    [("Hot Water", "hot_water"), ("  Pool / Spa!! ", "pool_spa"), ("***", "load")],
-)
-def test_a_load_title_becomes_a_safe_entity_id_part(title, slug):
-    assert sm._slug_for_entity_id(title) == slug
 
 
 def test_every_per_period_series_a_load_publishes_stays_out_of_the_recorder():

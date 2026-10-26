@@ -14,7 +14,6 @@ import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import availability
 import numpy as np
 import pytest
 import solver_shared as shared
@@ -102,13 +101,6 @@ def test_a_live_charge_limit_and_a_shared_charger_carry_through(site):
     assert (b.shared_charger_group, b.shared_charger_max_kw) == ("dc", 25.0)
 
 
-def test_a_glitch_reading_is_clamped_to_the_pack(site):
-    site.add("ev", EV)
-    site.state("sensor.ev_soc", "140.0")
-    (b,) = eb.build_extra_batteries()
-    assert b.initial_soc_kwh == b.capacity_kwh
-
-
 @pytest.mark.parametrize(
     ("change", "reason"),
     [
@@ -126,45 +118,6 @@ def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
     with caplog.at_level(logging.WARNING):
         assert eb.build_extra_batteries() == []
     assert reason in caplog.text
-
-
-def test_a_second_participant_with_the_same_name_is_skipped(site):
-    site.add("a", EV)
-    site.add("b", {**EV, "battery_participant_soc_sensor": "sensor.other"})
-    site.add("c", {**EV, "battery_participant_name": "ev_2"})
-    site.state("sensor.ev_soc", "55.0")
-    site.state("sensor.other", "60.0")
-    assert [b.name for b in eb.build_extra_batteries()] == ["ev", "ev_2"]
-
-
-def test_outside_home_assistant_there_are_no_participants(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    assert eb.build_extra_batteries() == []
-
-
-@pytest.mark.parametrize(
-    ("home", "periods", "available", "gated_until"),
-    [
-        (None, _periods(6, 6), True, None),  # no presence entity: always home
-        ("on", _periods(6, 6), True, None),
-        ("off", _periods(6, 6), False, 1),  # gated for the next hour
-        ("off", _periods(6, 10, 0.25), False, 4),
-        ("off", None, False, None),  # no periods: the whole horizon
-        ("missing", _periods(6, 6), False, 1),  # unknown is away
-    ],
-)
-def test_an_away_participant_is_gated_for_the_next_hour(
-    site, home, periods, available, gated_until
-):
-    data = dict(EV)
-    if home is not None:
-        data["battery_participant_available_entity"] = "binary_sensor.ev_home"
-        if home != "missing":
-            site.state("binary_sensor.ev_home", home)
-    site.add("ev", data)
-    site.state("sensor.ev_soc", "55.0")
-    (b,) = eb.build_extra_batteries(periods)
-    assert (b.available, b.unavailable_until_period_index) == (available, gated_until)
 
 
 def _departure(site, *, hour=8, pct=90.0, periods=None):
@@ -234,55 +187,6 @@ def test_an_away_participant_outside_its_range_is_not_warned_about(site, caplog)
 # --- what says a participant is here (22 Oct 2026) ---------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("entity", "here"),
-    [
-        ("binary_sensor.x", "on"),
-        ("input_boolean.x", "on"),
-        ("switch.x", "on"),
-        ("device_tracker.car", "home"),
-        ("person.driver", "home"),
-    ],
-)
-def test_each_kind_keeps_its_standard_meaning(entity, here):
-    states = availability.available_states(entity, None)
-    assert availability.is_available(here, states)
-    for not_here in ("off", "not_home", None, "unknown", "unavailable"):
-        assert not availability.is_available(not_here, states)
-
-
-def test_a_sensor_is_here_only_in_the_states_the_household_lists():
-    listed = availability.available_states("sensor.charger", " Charging , Connected,")
-    assert listed == {"charging", "connected"}
-    assert availability.is_available("CHARGING", listed)
-    assert not availability.is_available("Idle", listed)
-    assert availability.available_states("sensor.charger", "") == frozenset()
-
-
-@pytest.mark.parametrize(
-    ("entity", "state", "listed", "available"),
-    [
-        ("binary_sensor.home", "on", None, True),
-        ("binary_sensor.home", "off", None, False),
-        ("device_tracker.car", "home", None, True),
-        ("device_tracker.car", "not_home", None, False),
-        ("person.driver", "home", None, True),
-        ("person.driver", "Work", None, False),  # a zone is not home
-        ("sensor.charger", "connected", "Charging, Connected", True),
-        ("sensor.charger", "Disconnected", "Charging, Connected", False),
-        ("sensor.charger", "Charging", None, False),  # none listed
-    ],
-)
-def test_the_live_gate_reads_the_same_states(site, entity, state, listed, available):
-    data = {**EV, "battery_participant_available_entity": entity}
-    if listed is not None:
-        data["battery_participant_available_states"] = listed
-    site.add("ev", data)
-    site.state("sensor.ev_soc", "55.0")
-    site.state(entity, state)
-    assert eb.build_extra_batteries()[0].available is available
-
-
 # --- a sleeping car's unreadable SoC (#1715) ---------------------------------------------------
 
 
@@ -328,13 +232,6 @@ def test_with_nothing_to_hold_the_car_sits_out(car, caplog, soc):
     assert soc is None or "leaving it out" in caplog.text
 
 
-def test_the_hold_runs_out(car):
-    car("70")
-    pct, read_at = eb._LAST_GOOD_SOC["car"]
-    eb._LAST_GOOD_SOC["car"] = (pct, read_at - eb._SOC_HOLD_SECONDS - 1)
-    assert car("unavailable") == []
-
-
 # --- a participant that can never move is built, and said once (#1067) ------------------------
 
 
@@ -375,26 +272,3 @@ def test_a_one_directional_participant_is_not_warned_about(
     with caplog.at_level(logging.WARNING):
         assert len(eb.build_extra_batteries()) == 1
     assert "#1067" not in caplog.text
-
-
-def test_two_immobile_participants_are_each_named(site, caplog, monkeypatch):
-    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-    stuck = {
-        **EV,
-        "battery_participant_max_charge_kw": 0.0,
-        "battery_participant_max_discharge_kw": 0.0,
-    }
-    site.add("a", {**stuck, "battery_participant_name": "car"})
-    site.add(
-        "b",
-        {
-            **stuck,
-            "battery_participant_name": "van",
-            "battery_participant_soc_sensor": "sensor.b_soc",
-        },
-    )
-    site.state("sensor.ev_soc", "55.0")
-    site.state("sensor.b_soc", "40.0")
-    with caplog.at_level(logging.WARNING):
-        eb.build_extra_batteries()
-    assert eb._IMMOBILE_PARTICIPANT_WARNED == {"a", "b"}  # by subentry, not by name

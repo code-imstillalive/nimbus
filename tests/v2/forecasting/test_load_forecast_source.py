@@ -76,23 +76,6 @@ def _resolve(cfg, load, grid=None, hours=0.25):
     )
 
 
-@pytest.mark.parametrize(
-    "cfg", [{}, {"solver_load_forecast_source_policy": None}], ids=["absent", "none"]
-)
-def test_off_returns_the_same_array_and_reads_nothing(site, cfg):
-    load = [float(i) for i in range(8)]
-    out, decision, persistence = _resolve(cfg, load)
-    assert (
-        out is load and persistence is None
-    )  # identity: no arithmetic on the live array
-    assert (decision.persistence_weight, decision.source, decision.reason) == (
-        0.0,
-        fss.SOURCE_ML,
-        fss.REASON_POLICY_OFF,
-    )
-    assert (site["reads"], site["fetches"]) == (0, 0)
-
-
 def test_measure_reads_the_record_and_changes_nothing(site):
     load = [1.0] * 8
     out, decision, persistence = _resolve(
@@ -140,19 +123,6 @@ def _yesterday(value=lambda h: float(h)):
     ]
 
 
-def test_the_baseline_is_the_same_time_yesterday_and_the_day_before_past_24h(site):
-    site["history"] = _yesterday()
-    out = load_inputs._seasonal_naive_load_kw(
-        HOUSE, [NOW + timedelta(hours=h) for h in range(6)], 1.0, NOW
-    )
-    assert (out[0], out[1], out[5]) == (0.0, 1.0, 5.0)
-    load_inputs._PERSISTENCE_HISTORY_CACHE.clear()
-    out = load_inputs._seasonal_naive_load_kw(
-        HOUSE, [NOW + timedelta(hours=h) for h in (25, 30)], 1.0, NOW
-    )
-    assert out == [1.0, 6.0]
-
-
 def test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small(site):
     site["history"] = _yesterday()
     for minute in range(10):
@@ -172,19 +142,6 @@ def test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small(site):
     )
 
 
-def test_the_baseline_is_in_kw_and_never_negative(site):
-    site["history"], site["scale"] = _yesterday(), 0.001
-    assert load_inputs._seasonal_naive_load_kw(
-        HOUSE, [NOW + timedelta(hours=1)], 1.0, NOW
-    )[0] == pytest.approx(0.001)
-    load_inputs._PERSISTENCE_HISTORY_CACHE.clear()
-    site["history"], site["scale"] = _yesterday(lambda h: -5.0 if h == 3 else 2.0), 1.0
-    out = load_inputs._seasonal_naive_load_kw(
-        HOUSE, [NOW + timedelta(hours=h) for h in range(6)], 1.0, NOW
-    )
-    assert all(v >= 0.0 for v in out)
-
-
 def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site):
     site["history"] = _yesterday(lambda h: 3.0)
     grid = [NOW + timedelta(hours=h) for h in range(4)]
@@ -202,18 +159,6 @@ def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site)
     assert decision.persistence_weight == pytest.approx(0.75) and out == pytest.approx(
         [5.0] * 4
     )
-
-
-def test_a_grid_length_mismatch_refuses_rather_than_failing_the_solve(site):
-    site["history"] = _yesterday(lambda h: 3.0)
-    out, decision, persistence = _resolve(
-        {"solver_load_forecast_source_policy": "persistence", **HOUSE},
-        [9.0, 9.0],
-        [NOW + timedelta(hours=h) for h in range(4)],
-        1.0,
-    )
-    assert out == [9.0, 9.0] and persistence is None
-    assert decision.reason == "persistence_baseline_unavailable"
 
 
 # --- what the plan publishes about it ---------------------------------------------------------

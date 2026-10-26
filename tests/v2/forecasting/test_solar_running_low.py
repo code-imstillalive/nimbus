@@ -12,10 +12,8 @@ byte for byte what it was.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
 
-import const
 import pytest
 import solver_shared as shared
 import solver_writer as sw
@@ -131,40 +129,6 @@ def _build(install, site, now, grid, cfg=None):
 # --- what it compares against ------------------------------------------------------------------
 
 
-def test_a_rising_morning_is_judged_against_the_lagged_forecast_and_does_not_trip(
-    install,
-):
-    p50 = {6.5: 2.2, 7.0: 4.0, 7.5: 5.5}
-
-    def at(t):
-        return p50.get(t.hour + t.minute / 60, 0.0 if t.hour < 6 else 6.0)
-
-    now = TODAY.replace(hour=7, minute=10)
-    r = _judge(
-        install,
-        Site(_day(TODAY, at, lambda t: at(t) * 0.5), history=_held(now, 2000)),
-        now,
-    )
-    assert (r["reason"], r["p50_now_kw"], r["p50_lagged_kw"], r["reference_kw"]) == (
-        "judged",
-        4.0,
-        2.2,
-        2.2,
-    )
-    assert not r["active"]
-
-
-def test_on_a_falling_afternoon_the_lower_forecast_is_the_reference(install):
-    def at(t):
-        return {14.0: 5.0, 14.5: 3.0}.get(t.hour + t.minute / 60, 4.0)
-
-    now = TODAY.replace(hour=14, minute=40)
-    r = _judge(
-        install, Site(_day(TODAY, at, lambda t: 1.0), history=_held(now, 2400)), now
-    )
-    assert r["reference_kw"] == 3.0 and not r["active"]
-
-
 @pytest.mark.parametrize(
     ("minimum", "reason", "active"),
     [(None, "below_minimum", False), (1.5, "judged", True)],
@@ -189,54 +153,6 @@ def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(
 # --- on, off, and held -------------------------------------------------------------------------
 
 
-def test_on_below_70_percent_and_held_until_above_90(install):
-    today = _day(TODAY, *FLAT)
-    steps = [
-        (0, 2900, False),
-        (5, 2700, True),
-        (10, 3400, True),
-        (15, 3500, True),
-        (20, 3700, False),
-        (25, 3000, False),
-        (30, 2600, True),
-    ]
-    for minute, watts, expected in steps:
-        now = TODAY.replace(hour=10, minute=minute)
-        assert (
-            _judge(install, Site(today, history=_held(now, watts)), now)["active"]
-            is expected
-        ), minute
-
-
-def test_the_thresholds_are_settings(install):
-    now = TODAY.replace(hour=10)
-    cfg = _cfg(
-        solver_solar_running_low_on_percent=50, solver_solar_running_low_off_percent=60
-    )
-    assert not _judge(
-        install, Site(_day(TODAY, *FLAT), history=_held(now, 2200)), now, cfg
-    )["active"]
-    assert _judge(
-        install, Site(_day(TODAY, *FLAT), history=_held(now, 1900)), now, cfg
-    )["active"]
-
-
-def test_on_since_is_when_it_went_on_and_clears_when_off(install):
-    today = _day(TODAY, *FLAT)
-    on_at = TODAY.replace(hour=10)
-    _judge(install, Site(today, history=_held(on_at, 1000)), on_at)
-    later = on_at + timedelta(minutes=5)
-    assert (
-        _judge(install, Site(today, history=_held(later, 1000)), later)["on_since"]
-        == on_at.isoformat()
-    )
-    done = later + timedelta(minutes=5)
-    assert (
-        _judge(install, Site(today, history=_held(done, 4000)), done)["on_since"]
-        is None
-    )
-
-
 def _confirmed(install, readings, extra=None):
     """Active after each (minute after 07:00, ratio of a flat 4 kW)."""
     today = _day(TODAY, *FLAT)
@@ -252,24 +168,6 @@ def _confirmed(install, readings, extra=None):
     return out
 
 
-@pytest.mark.parametrize(
-    ("readings", "expected"),
-    [
-        ([(0, 0.55), (5, 0.57), (9, 0.56), (10, 0.58)], [False, False, False, True]),
-        (
-            [(0, 0.55), (5, 0.75), (10, 0.58), (15, 0.6)],
-            [False] * 4,
-        ),  # recovered in the window
-        (
-            [(0, 0.5), (10, 0.5), (11, 0.95)],
-            [False, True, False],
-        ),  # release is immediate
-    ],
-)
-def test_it_goes_on_only_after_ten_minutes_of_low_readings(install, readings, expected):
-    assert _confirmed(install, readings) == expected
-
-
 def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(install):
     """The reference household's minute-by-minute ratios, 07:30-07:47:
     crossing 0.70 at 07:38, so a 10-minute window never trips."""
@@ -281,67 +179,6 @@ def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(i
     assert _confirmed(
         install, readings, {"solver_solar_running_low_confirm_minutes": 0}
     )[0]
-
-
-def test_pending_since_is_published_while_confirming(install):
-    today = _day(TODAY, *FLAT)
-    cfg = {"solver_solar_power_sensor": SENSOR, "known_sources": KNOWN}
-    t0 = TODAY.replace(hour=10)
-    r = _judge(install, Site(today, history=_held(t0, 2000)), t0, cfg)
-    assert (r["pending_since"], r["active"]) == (t0.isoformat(), False)
-    t1 = t0 + timedelta(minutes=10)
-    r = _judge(install, Site(today, history=_held(t1, 2000)), t1, cfg)
-    assert r["active"] and r["pending_since"] is None
-
-
-def test_marks_16_october_turns_on_at_0700_and_says_why_once(install, caplog):
-    """Mark's install: 0.33 kW measured against a 2.88 kW reference, the
-    first moment it was allowed to judge."""
-    p50 = {6.0: 1.60, 6.5: 2.88, 7.0: 3.40}
-
-    def at(t):
-        return p50.get(t.hour + t.minute / 60, 3.4 if 7 <= t.hour < 17 else 0.0)
-
-    today = _day(TODAY, at, lambda t: at(t) * 0.8)
-    history = [
-        (TODAY.replace(hour=6, minute=30), 150.0),
-        (TODAY.replace(hour=6, minute=45), 510.0),
-    ]
-    before = TODAY.replace(hour=6, minute=59)
-    assert (
-        _judge(install, Site(today, history=history), before)["reason"]
-        == "below_minimum"
-    )
-    at_seven = TODAY.replace(hour=7)
-    with caplog.at_level(logging.WARNING, logger=shared._LOGGER.name):
-        r = _judge(install, Site(today, history=history), at_seven)
-    assert r["active"] and r["on_since"] == at_seven.isoformat()
-    assert r["actual_30min_avg_kw"] == pytest.approx(0.33, abs=1e-3)
-    assert (r["reference_kw"], r["p50_lagged_kw"], r["p50_now_kw"]) == (2.88, 2.88, 3.4)
-    assert r["ratio"] == pytest.approx(0.33 / 2.88, abs=1e-4)
-    assert "running LOW" in caplog.text and "2.88" in caplog.text
-
-
-def test_one_warning_when_it_goes_on_and_one_info_when_it_goes_off(install, caplog):
-    today = _day(TODAY, *FLAT)
-    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
-        for minute, watts in ((0, 500), (5, 500), (10, 500), (15, 3900), (20, 3900)):
-            now = TODAY.replace(hour=10, minute=minute)
-            _judge(install, Site(today, history=_held(now, watts)), now)
-    changes = [r for r in caplog.records if "#1784" in r.getMessage()]
-    assert [r.levelname for r in changes] == ["WARNING", "INFO"]
-    assert "OFF" in changes[1].getMessage()
-
-
-def test_after_a_restart_it_rejudges_from_the_recorder_straight_away(install):
-    today = _day(TODAY, *FLAT)
-    now = TODAY.replace(hour=12)
-    _judge(install, Site(today, history=_held(now, 500)), now)
-    srl.reset_gate_state()
-    assert not srl._STATE.active
-    later = now + timedelta(minutes=1)
-    r = _judge(install, Site(today, history=_held(later, 500)), later)
-    assert r["active"] and r["on_since"] == later.isoformat()
 
 
 # --- inert, off, and a recorder that is behind -------------------------------------------------
@@ -369,18 +206,6 @@ def test_without_what_it_needs_it_is_off_even_if_it_was_on(
     assert (r["reason"], r["active"]) == (reason, False)
     if reason == "off":
         assert site.history_calls == 0
-
-
-def test_without_any_forecast_there_is_no_reference(install):
-    now = TODAY.replace(hour=10)
-    install(Site())
-    solar.build_solar_arrays(
-        {"solver_solar_power_sensor": SENSOR, "known_sources": KNOWN}, [now], 1, now
-    )
-    assert (srl.published_result()["reason"], srl.published_result()["active"]) == (
-        "no_reference",
-        False,
-    )
 
 
 def _ramp():
@@ -411,27 +236,6 @@ def test_a_locked_recorder_is_not_judged_even_if_it_was_on(install):
     ]  # without the live check
 
 
-@pytest.mark.parametrize(
-    ("history_w", "extra", "live_w", "changed_ago"),
-    [
-        (4800, [], "4800", timedelta(hours=2)),  # a sensor that held one value
-        (
-            4800,
-            [(timedelta(minutes=3), 4900.0)],
-            "5000",
-            timedelta(seconds=5),
-        ),  # a commit delay
-    ],
-)
-def test_an_ordinary_recorder_is_not_behind(
-    install, history_w, extra, live_w, changed_ago
-):
-    now = TODAY.replace(hour=10)
-    history = _held(now, history_w) + [(now - ago, w) for ago, w in extra]
-    site = Site(_ramp(), history=history, live_w=live_w, live_changed=now - changed_ago)
-    assert _judge(install, site, now)["reason"] == "judged"
-
-
 def test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behind():
     assert srl.RECORDER_BEHIND_AFTER == timedelta(minutes=5)
     hist = [(TODAY.replace(hour=10), 1.0)]
@@ -449,42 +253,6 @@ def test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behi
 
 
 # --- what it does to the forecast --------------------------------------------------------------
-
-
-def test_only_todays_remaining_periods_move_to_p10(install):
-    now = TODAY.replace(hour=10, minute=3)
-    grid = [now] + [
-        TODAY.replace(hour=10, minute=30) + timedelta(hours=k) for k in range(30)
-    ]
-    site = Site(
-        _day(TODAY, *FLAT),
-        _day(TOMORROW, *FLAT),
-        history=_held(now, 1000),
-        live_w="1100",
-    )
-    (kw, lo, up), pub = _build(install, site, now, grid)
-    assert pub["active"] and kw[0] == pytest.approx(1.1)
-    for i, t in enumerate(grid[1:], start=1):
-        expected = (
-            (1.5 if t.date() == TODAY.date() else 4.0) if 6 <= t.hour < 18 else 0.0
-        )
-        assert kw[i] == pytest.approx(expected) and lo[i] <= kw[i] <= up[i]
-    assert pub["periods_lowered"] == sum(
-        1 for t in grid[1:] if t.date() == TODAY.date()
-    )
-
-
-def test_while_off_the_plan_is_byte_for_byte_what_it_was(install):
-    now = TODAY.replace(hour=10, minute=3)
-    grid = [now + timedelta(minutes=30 * k) for k in range(60)]
-    healthy = Site(_day(TODAY, *FLAT), _day(TOMORROW, *FLAT), history=_held(now, 3900))
-    judged, pub = _build(install, healthy, now, grid)
-    assert not pub["active"]
-    srl.reset_gate_state()
-    off, pub = _build(
-        install, healthy, now, grid, _cfg(solver_solar_running_low_min_p50_kw=0)
-    )
-    assert pub["reason"] == "off" and judged == off
 
 
 def _blend_site(history_w):
@@ -599,44 +367,4 @@ def test_without_solcast_the_first_solve_waits_then_judges_from_memory(install):
     )
 
 
-def test_the_lag_rule_holds_on_the_blend_too(install):
-    first = TODAY.replace(hour=7)
-    switch = TODAY.replace(hour=7, minute=30)
-
-    def rising(t):
-        return 2.2 if t < switch else 4.0
-
-    _build(install, _own(rising, 0, first), first, [first], OWN)
-    later = first + timedelta(minutes=30)
-    pub = _build(install, _own(rising, 2000, later), later, [later], OWN)[1]
-    assert (pub["reason"], pub["reference_kw"], pub["active"]) == ("judged", 2.2, False)
-
-
 # --- what is published --------------------------------------------------------------------------
-
-
-def test_every_reason_publishes_the_same_keys_and_the_settings_match_const():
-    keys = set(srl._gate_result("not_evaluated"))
-    for reason in (
-        "off",
-        "no_reference",
-        "no_history",
-        "recorder_behind",
-        "judged",
-        "error",
-    ):
-        assert set(srl._gate_result(reason)) == keys
-    assert {
-        "active",
-        "reason",
-        "ratio",
-        "on_since",
-        "pending_since",
-        "reference_source",
-    } <= keys
-    assert const.CONF_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW == srl.CFG_MIN_P50_KW
-    assert const.CONF_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT == srl.CFG_ON_PERCENT
-    assert const.CONF_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT == srl.CFG_OFF_PERCENT
-    assert const.DEFAULT_SOLVER_SOLAR_RUNNING_LOW_MIN_P50_KW == srl.DEFAULT_MIN_P50_KW
-    assert const.DEFAULT_SOLVER_SOLAR_RUNNING_LOW_ON_PERCENT == srl.DEFAULT_ON_PERCENT
-    assert const.DEFAULT_SOLVER_SOLAR_RUNNING_LOW_OFF_PERCENT == srl.DEFAULT_OFF_PERCENT

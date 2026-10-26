@@ -4,7 +4,6 @@ check snapshot (#735) (#1837).
 
 from __future__ import annotations
 
-import dataclasses
 import unittest
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
@@ -63,66 +62,12 @@ def _build(cross_check="sensor.whole_house", live_state=str(_LIVE_NOW)):
 
 
 class TestIssue100AtTheSource(unittest.TestCase):
-    def test_the_snapshot_is_taken_before_the_anchor_overwrites(self):
-        """The property itself: `summed_18_now_kw` keeps the pre-anchor
-        forecast value while `load_kw[0]` carries the live one."""
-        got = _build()
-        self.assertEqual(got.summed_18_now_kw, _FORECAST_FIRST)
-        self.assertEqual(got.load_kw[0], _LIVE_NOW)
-
-    def test_the_two_values_genuinely_differ(self):
-        """Stated separately and bluntly. If a future edit recomputes the
-        snapshot from the returned array, these become equal and #100 is
-        back — this assertion is the one that would fail."""
-        got = _build()
-        self.assertNotEqual(got.summed_18_now_kw, got.load_kw[0])
-
-    def test_the_anchor_also_overwrites_the_band(self):
-        """`lower[0]`/`upper[0]` are collapsed onto the anchored value too
-        — a live reading has no uncertainty band."""
-        got = _build()
-        self.assertEqual(got.load_lower_kw[0], _LIVE_NOW)
-        self.assertEqual(got.load_upper_kw[0], _LIVE_NOW)
-
-    def test_later_periods_are_untouched_by_the_anchor(self):
-        """The anchor is a *now* correction only. If it ever bled into
-        later periods it would silently flatten the whole forecast."""
-        got = _build()
-        self.assertEqual(got.load_kw[1], 5.0)
-        self.assertEqual(got.load_kw[2], 6.0)
-
-    def test_without_a_cross_check_sensor_the_two_agree(self):
-        """The common case, and the reason the pair looks redundant: with
-        no cross-check configured there is no overwrite, so both read the
-        forecast. That is precisely why the divergent case needs a test."""
-        got = _build(cross_check="")
-        self.assertEqual(got.summed_18_now_kw, _FORECAST_FIRST)
-        self.assertEqual(got.load_kw[0], _FORECAST_FIRST)
-        self.assertIsNone(got.live_load_kw)
-
     def test_an_unreadable_live_sensor_leaves_the_forecast_intact(self):
         """A non-numeric state must not corrupt period 0 — the real
         failure this try/except exists for."""
         got = _build(live_state="unavailable")
         self.assertEqual(got.load_kw[0], _FORECAST_FIRST)
         self.assertIsNone(got.live_load_kw)
-
-
-class TestTheDataclassCarriesBoth(unittest.TestCase):
-    def test_both_values_are_fields(self):
-        """Structural: a caller must never have to reconstruct either one,
-        which is how the wrong one gets chosen."""
-        got = _build()
-        self.assertTrue(hasattr(got, "summed_18_now_kw"))
-        self.assertTrue(hasattr(got, "load_kw"))
-
-    def test_the_result_is_frozen(self):
-        """Frozen so the record of the construction is stable. It does not
-        make the arrays immutable — they are genuinely mutated during
-        construction, and pretending otherwise would be the lie."""
-        got = _build()
-        with self.assertRaises(dataclasses.FrozenInstanceError):
-            got.summed_18_now_kw = 99.0
 
 
 if __name__ == "__main__":

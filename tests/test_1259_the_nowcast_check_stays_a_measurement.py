@@ -23,6 +23,7 @@ SOLAR = (
 
 
 def test_the_solar_input_path_has_no_nowcast_blend():
+    # test_the_solar_input_path_has_no_nowcast_blend
     assert "solar_kw[0] = max(0.0, live_solar_kw)" in SOLAR
     for banned in ("solar_kw[1] =", "solar_kw[2] =", "nowcast_weight", "decay_w"):
         assert banned not in SOLAR, (
@@ -30,8 +31,7 @@ def test_the_solar_input_path_has_no_nowcast_blend():
             "not built. Reopen #1259 with a new measurement first."
         )
 
-
-def test_the_check_is_published_only_when_it_ran():
+    # test_the_check_is_published_only_when_it_ran
     text = writer_source()
     assert '"solar_nowcast_check": (solar_delivery or {})' in text
     assert '"solar_nowcast_check": nowcast,' not in text

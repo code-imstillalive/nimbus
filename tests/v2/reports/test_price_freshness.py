@@ -30,6 +30,7 @@ def _ago(minutes):
 
 
 def test_the_oldest_source_stamp_decides_and_an_hour_is_stale():
+    # test_the_oldest_source_stamp_decides_and_an_hour_is_stale
     read = _reader(
         {
             "sensor.buy": {"source_updated": _ago(10)},
@@ -49,25 +50,21 @@ def test_the_oldest_source_stamp_decides_and_an_hour_is_stale():
     )
     assert fresh["stale"] is False  # exactly an hour is not yet stale
 
-
-@pytest.mark.parametrize(
-    "attrs",
-    [
+    # test_a_source_without_a_usable_stamp_says_nothing
+    for attrs in [
         {},
         {"source_updated": "not a time"},
         {"source_updated": "2026-10-16T00:01:55"},
         {"source_updated": 5},
-    ],
-    ids=["none", "garbage", "naive", "not_text"],
-)
-def test_a_source_without_a_usable_stamp_says_nothing(attrs):
-    assert (
-        pf.check(_reader({"sensor.buy": attrs}), ["sensor.buy", "sensor.broken"], NOW)
-        is None
-    )
+    ]:
+        assert (
+            pf.check(
+                _reader({"sensor.buy": attrs}), ["sensor.buy", "sensor.broken"], NOW
+            )
+            is None
+        )
 
-
-def test_localvolts_siblings_are_read_when_a_configured_source_is_localvolts():
+    # test_localvolts_siblings_are_read_when_a_configured_source_is_localvolts
     lv = {
         "entities": ["sensor.lv_buy"],
         "stamp_siblings": ["sensor.lv_rate", 5, "sensor.lv_buy"],
@@ -101,6 +98,7 @@ def _local(t):
 
 
 def test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_price():
+    # test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_price
     grid = [NOW + timedelta(minutes=m) for m in (0, 5, 30)]
     aemo = [(NOW - timedelta(minutes=5), 0.10), (NOW + timedelta(minutes=30), 0.50)]
     bucket = _local(grid[1]).hour * 12 + _local(grid[1]).minute // 5
@@ -111,8 +109,7 @@ def test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_p
     far = [(NOW + timedelta(hours=2), 0.1)]
     assert pf.aemo_series(grid, far, {}, _local) is None  # nothing near enough to hold
 
-
-def test_past_staleness_is_marked_per_period_and_written_as_windows():
+    # test_past_staleness_is_marked_per_period_and_written_as_windows
     grid = [NOW + timedelta(minutes=30 * i) for i in range(5)]
     rows = [
         [

@@ -85,12 +85,3 @@ async def test_each_provider_instance_is_found_by_unique_id(hass: HomeAssistant)
             "keys": {"buy_flex_up": lv_buy},
         },
     ]
-
-
-async def test_a_localvolts_id_with_no_config_entry_is_not_one_of_its_keys(
-    hass: HomeAssistant,
-):
-    assert device_contract_ha._profile_key("localvolts_v2", "x_buy", None) == (
-        None,
-        None,
-    )

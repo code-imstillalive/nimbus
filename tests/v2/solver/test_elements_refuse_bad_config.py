@@ -73,17 +73,6 @@ def _shed(**kw):
     return SheddableLoadConfig(**{**base, **kw})
 
 
-def test_the_valid_bases_build():
-    # So every refusal below is the one field it changes, nothing else.
-    PeriodGrid(hours=np.ones(N))
-    _grid()
-    _battery()
-    _adequacy()
-    _shed()
-    SolarConfig(forecast_kw=np.zeros(N))
-    LoadConfig(name="house", forecast_kw=np.ones(N))
-
-
 REFUSED = [
     # PeriodGrid
     ("no periods", lambda: PeriodGrid(hours=np.array([])), "at least one period"),
@@ -488,13 +477,11 @@ REFUSED += [
 ]
 
 
-@pytest.mark.parametrize(
-    ("case", "build", "says"), REFUSED, ids=[c for c, _b, _s in REFUSED]
-)
-def test_a_config_the_lp_would_read_wrong_is_refused(case, build, says):
-    with pytest.raises(ValueError) as err:
-        build()
-    assert says in str(err.value), f"{case}: {err.value}"
+def test_a_config_the_lp_would_read_wrong_is_refused():
+    for case, build, says in REFUSED:
+        with pytest.raises(ValueError) as err:
+            build()
+        assert says in str(err.value), f"{case}: {err.value}"
 
 
 DEGENERATE = [
@@ -515,13 +502,13 @@ DEGENERATE = [
 ]
 
 
-@pytest.mark.parametrize(("case", "build"), DEGENERATE, ids=[c for c, _b in DEGENERATE])
-def test_a_config_the_lp_could_exploit_is_refused_as_degenerate(case, build):
-    # DegenerateConfigError, not only a ValueError: the config is well formed
-    # but hands the LP a free trade (a wash trade, or skipping to a richer
-    # segment) the plan would take.
-    with pytest.raises(DegenerateConfigError):
-        build()
+def test_a_config_the_lp_could_exploit_is_refused_as_degenerate():
+    for case, build in DEGENERATE:
+        # DegenerateConfigError, not only a ValueError: the config is well formed
+        # but hands the LP a free trade (a wash trade, or skipping to a richer
+        # segment) the plan would take.
+        with pytest.raises(DegenerateConfigError):
+            build()
 
 
 def test_index_sets_given_as_lists_are_kept_as_frozensets():

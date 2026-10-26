@@ -46,62 +46,45 @@ def _rows(raw: list) -> list[Row]:
 # F04: prices on their published intervals ------------------------------
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
+def test_f04_price_over_a_window():
+    # test_f04_price_over_a_window
+    for name in [
         "thirty_min_window_over_5_min",
         "gap",
         "nothing_published",
         "thirty_min_series",
         "hole",
-    ],
-)
-def test_f04_price_over_a_window(name: str) -> None:
-    case, expected = F04["cases"][name], F04["expected"][name]
-    price, coverage = price_over(_intervals(case["intervals"]), *map(T, case["window"]))
-    assert abs(coverage - expected["coverage"]) <= TOL
-    if expected["price"] is None:
-        assert price is None
-    else:
-        assert price is not None and abs(price - expected["price"]) <= TOL
+    ]:
+        case, expected = F04["cases"][name], F04["expected"][name]
+        price, coverage = price_over(
+            _intervals(case["intervals"]), *map(T, case["window"])
+        )
+        assert abs(coverage - expected["coverage"]) <= TOL
+        if expected["price"] is None:
+            assert price is None
+        else:
+            assert price is not None and abs(price - expected["price"]) <= TOL
 
-
-def test_f04_a_utc_interval_is_the_same_instant_and_its_negative_price_is_kept() -> (
-    None
-):
+    # test_f04_a_utc_interval_is_the_same_instant_and_its_negative_price_is_kept
     raw = F04["cases"]["thirty_min_window_over_5_min"]["intervals"]
     utc = _intervals(raw)[2]
     assert utc.start == T("2026-10-05T17:10:00+10:00")
     price, _ = price_over([utc], utc.start, utc.end)
     assert price == -0.06
 
-
-def _blocks(raw: list) -> list[PriceInterval]:
-    """F04 `multi_day`: `[first start, minutes, count, price]` blocks."""
-    out = []
-    for first, minutes, count, price in raw:
-        start = T(first)
-        for k in range(count):
-            a = start + timedelta(minutes=minutes * k)
-            out.append(PriceInterval(a, a + timedelta(minutes=minutes), price))
-    return out
-
-
-def test_f04_a_multi_day_series_with_a_24_hour_hole() -> None:
+    # test_f04_a_multi_day_series_with_a_24_hour_hole
     case, expected = F04["cases"]["multi_day"], F04["expected"]["multi_day"]
     price, coverage = price_over(_blocks(case["blocks"]), *map(T, case["window"]))
     assert price is not None and abs(price - expected["price"]) <= TOL
     assert abs(coverage - expected["coverage"]) <= TOL
 
-
-def test_f04_the_overlap_case_is_refused() -> None:
+    # test_f04_the_overlap_case_is_refused
     case = F04["cases"]["overlap"]
     assert F04["expected"]["overlap"] == "refused"
     with pytest.raises(ValueError, match="overlapping"):
         price_over(_intervals(case["intervals"]), *map(T, case["window"]))
 
-
-def test_f04_a_feed_in_only_provider_gives_no_import_price() -> None:
+    # test_f04_a_feed_in_only_provider_gives_no_import_price
     case, expected = F04["cases"]["feed_in_only"], F04["expected"]["feed_in_only"]
     window = tuple(map(T, case["window"]))
     assert price_over([], *window)[0] is expected["import"]
@@ -110,8 +93,7 @@ def test_f04_a_feed_in_only_provider_gives_no_import_price() -> None:
         == (expected["export"])
     )
 
-
-def test_f04_overlapping_published_intervals_are_refused() -> None:
+    # test_f04_overlapping_published_intervals_are_refused
     a = PriceInterval(
         T("2026-10-05T17:00:00+10:00"), T("2026-10-05T17:30:00+10:00"), 0.1
     )
@@ -121,13 +103,11 @@ def test_f04_overlapping_published_intervals_are_refused() -> None:
     with pytest.raises(ValueError, match="overlapping"):
         price_over([a, b], a.start, b.end)
 
-
-def test_f04_naive_timestamps_are_refused() -> None:
+    # test_f04_naive_timestamps_are_refused
     with pytest.raises(ValueError, match="naive"):
         price_over([], datetime(2026, 10, 5, 17), datetime(2026, 10, 5, 18))  # noqa: DTZ001
 
-
-def test_f04_fees_are_added_once_and_a_missing_direction_stays_missing() -> None:
+    # test_f04_fees_are_added_once_and_a_missing_direction_stays_missing
     case, expected = F04["cases"]["fees"], F04["expected"]["fees"]
     assert (
         abs(
@@ -142,36 +122,44 @@ def test_f04_fees_are_added_once_and_a_missing_direction_stays_missing() -> None
     assert price_with_fees(None, case["fees"], False) is expected["missing_direction"]
 
 
+def _blocks(raw: list) -> list[PriceInterval]:
+    """F04 `multi_day`: `[first start, minutes, count, price]` blocks."""
+    out = []
+    for first, minutes, count, price in raw:
+        start = T(first)
+        for k in range(count):
+            a = start + timedelta(minutes=minutes * k)
+            out.append(PriceInterval(a, a + timedelta(minutes=minutes), price))
+    return out
+
+
 # F09: units, samples, counters -----------------------------------------
 
 
-@pytest.mark.parametrize(("value", "unit", "kw"), F09["cases"]["units"])
-def test_f09_power_units(value: float, unit: str, kw: float) -> None:
-    got = power_kw(value, unit)
-    assert got is not None and abs(got - kw) <= TOL
+def test_f09_power_units():
+    # test_f09_power_units
+    for value, unit, kw in F09["cases"]["units"]:
+        got = power_kw(value, unit)
+        assert got is not None and abs(got - kw) <= TOL
 
+    # test_f09_energy_and_miscased_units_are_refused
+    for unit in F09["cases"]["refused_units"]:
+        with pytest.raises(UnitError):
+            power_kw(1.0, unit)
 
-@pytest.mark.parametrize("unit", F09["cases"]["refused_units"])
-def test_f09_energy_and_miscased_units_are_refused(unit: str) -> None:
-    with pytest.raises(UnitError):
-        power_kw(1.0, unit)
+    # test_f09_missing_is_distinct_from_zero
+    for state, value in F09["cases"]["states"]:
+        got = reading(state)
+        assert got is None if value is None else got == float(value)
 
-
-@pytest.mark.parametrize(("state", "value"), F09["cases"]["states"])
-def test_f09_missing_is_distinct_from_zero(state: str, value: str | None) -> None:
-    got = reading(state)
-    assert got is None if value is None else got == float(value)
-
-
-def test_f09_a_held_counter_is_measured_unchanged() -> None:
+    # test_f09_a_held_counter_is_measured_unchanged
     case = F09["cases"]["held_counter"]
     assert (
         counter_delta(_rows(case["rows"]), *map(T, case["window"]))
         == F09["expected"]["held_counter_kwh"]
     )
 
-
-def test_f09_a_reading_at_the_interval_end_is_counted_once() -> None:
+    # test_f09_a_reading_at_the_interval_end_is_counted_once
     rows = _rows(F09["cases"]["edge_reading"]["rows"])
     first = counter_delta(
         rows, T("2026-10-05T09:00:00+10:00"), T("2026-10-05T10:00:00+10:00")
@@ -183,19 +171,16 @@ def test_f09_a_reading_at_the_interval_end_is_counted_once() -> None:
     assert first is not None and abs(first - expected["09-10"]) <= TOL
     assert second is not None and abs(second - expected["10-11"]) <= TOL
 
-
-def test_f09_a_reset_is_new_energy_not_a_negative_delta() -> None:
+    # test_f09_a_reset_is_new_energy_not_a_negative_delta
     case = F09["cases"]["reset"]
     got = counter_delta(_rows(case["rows"]), *map(T, case["window"]))
     assert got is not None and abs(got - F09["expected"]["reset_kwh"]) <= TOL
 
-
-def test_f09_a_gap_inside_the_window_leaves_it_unresolved() -> None:
+    # test_f09_a_gap_inside_the_window_leaves_it_unresolved
     case = F09["cases"]["gap_in_window"]
     assert counter_delta(_rows(case["rows"]), *map(T, case["window"])) is None
 
-
-def test_f09_no_rating_is_inferred_from_a_historical_peak() -> None:
+    # test_f09_no_rating_is_inferred_from_a_historical_peak
     case = F09["cases"]["rating"]
     assert (
         declared_rating_kw(case["declared"], case["history_kw"])
@@ -207,17 +192,17 @@ def test_f09_no_rating_is_inferred_from_a_historical_peak() -> None:
 # F03: provider responses in their published shapes ----------------------
 
 
-@pytest.mark.parametrize("name", ["amber_get_forecasts", "openadr_get_forecast"])
-def test_f03_a_providers_published_intervals_price_the_window(name: str) -> None:
-    case, expected = F03["cases"][name], F03["expected"][name]
-    price, coverage = price_over(
-        _intervals(expected["intervals"]), *map(T, case["window"])
-    )
-    assert price is not None and abs(price - expected["price"]) <= TOL
-    assert abs(coverage - expected["coverage"]) <= TOL
+def test_f03_a_providers_published_intervals_price_the_window():
+    # test_f03_a_providers_published_intervals_price_the_window
+    for name in ["amber_get_forecasts", "openadr_get_forecast"]:
+        case, expected = F03["cases"][name], F03["expected"][name]
+        price, coverage = price_over(
+            _intervals(expected["intervals"]), *map(T, case["window"])
+        )
+        assert price is not None and abs(price - expected["price"]) <= TOL
+        assert abs(coverage - expected["coverage"]) <= TOL
 
-
-def test_f03_amber_intervals_start_on_the_boundary_not_a_second_past() -> None:
+    # test_f03_amber_intervals_start_on_the_boundary_not_a_second_past
     rows = F03["cases"]["amber_get_forecasts"]["response"]["forecasts"]
     for row, (start, end, price) in zip(
         rows, F03["expected"]["amber_get_forecasts"]["intervals"], strict=True
@@ -227,8 +212,7 @@ def test_f03_amber_intervals_start_on_the_boundary_not_a_second_past() -> None:
         assert T(end) - T(start) == timedelta(minutes=row["duration"])
         assert row["per_kwh"] == price  # the price, not advanced_price_*
 
-
-def test_f03_openadrs_last_row_is_not_extended() -> None:
+    # test_f03_openadrs_last_row_is_not_extended
     case = F03["cases"]["openadr_get_forecast"]
     expected = F03["expected"]["openadr_get_forecast"]
     _, coverage = price_over(
@@ -236,10 +220,7 @@ def test_f03_openadrs_last_row_is_not_extended() -> None:
     )
     assert abs(coverage - expected["past_the_last_row_coverage"]) <= TOL
 
-
-def test_f03_localvolts_directions_share_their_intervals_and_a_block_is_priced() -> (
-    None
-):
+    # test_f03_localvolts_directions_share_their_intervals_and_a_block_is_priced
     expected = F03["expected"]["localvolts_v2"]
     buy = [(a, b) for a, b, _ in expected["buy_flexup"]]
     sell = [(a, b) for a, b, _ in expected["sell_flexup"]]

@@ -50,8 +50,7 @@ class TestGoldenSnapshotFormat(unittest.TestCase):
         self.paths = sorted(SNAPSHOTS.glob("*.json"))
 
     def test_the_sweep_is_not_vacuous(self):
-        """Guards the guard: a glob that matched nothing would make every
-        assertion below pass over an empty list."""
+        # test_the_sweep_is_not_vacuous: Guards the guard: a glob that matched nothing would make every
         self.assertGreaterEqual(
             len(self.paths),
             14,
@@ -60,13 +59,7 @@ class TestGoldenSnapshotFormat(unittest.TestCase):
             f"to follow them rather than quietly passing.",
         )
 
-    def test_every_snapshot_is_in_canonical_form(self):
-        """Re-dumping a committed snapshot reproduces its bytes exactly.
-
-        This is the property that makes `GOLDEN_UPDATE=1` safe to run: a
-        regeneration that records the same values writes the same bytes, so
-        `git status` stays clean and a real change stands alone in the diff.
-        """
+        # test_every_snapshot_is_in_canonical_form: Re-dumping a committed snapshot reproduces its bytes exactly.
         for path in self.paths:
             with self.subTest(snapshot=path.name):
                 raw = path.read_bytes()
@@ -84,12 +77,7 @@ class TestGoldenSnapshotFormat(unittest.TestCase):
                     f"recording of what the solver did.",
                 )
 
-    def test_no_snapshot_uses_crlf(self):
-        """Stated separately from canonical form because it has its own cause
-        and its own fix: git's eol conversion, disabled by the
-        `tests/golden/snapshots/** -text` rule in .gitattributes. Without that
-        rule this breaks only on a Windows clone, which is the failure shape
-        .gitattributes' own comment was written about."""
+        # test_no_snapshot_uses_crlf: Stated separately from canonical form because it has its own cause
         for path in self.paths:
             with self.subTest(snapshot=path.name):
                 self.assertNotIn(
@@ -100,10 +88,7 @@ class TestGoldenSnapshotFormat(unittest.TestCase):
                     f"re-checkout the file.",
                 )
 
-    def test_no_compressed_snapshot_remains(self):
-        """A `.json.gz` here would be read by nothing -- both readers look for
-        `.json` since #1359 -- so it would be a silently dead snapshot for a
-        scenario that then has no coverage at all."""
+        # test_no_compressed_snapshot_remains: A `.json.gz` here would be read by nothing -- both readers look for
         stale = sorted(p.name for p in SNAPSHOTS.glob("*.json.gz"))
         self.assertEqual(
             stale,

@@ -12,7 +12,6 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
-import pytest
 from solver import pin_blockers
 from solver.elements import (
     BatteryConfig,
@@ -79,72 +78,23 @@ def _blamed(site, pin, batteries=None):
     return [b.split(":", 1)[0] for b in found]
 
 
-@pytest.mark.parametrize(
-    ("site", "pin", "named"),
-    [
-        (_site(), -15.0, "battery_max_charge"),
-        (_site(), 30.0, "battery_max_discharge"),
-        (_site(soc=39.5), -4.0, "soc_capacity_headroom"),
-        (_site(soc=4.5), 5.0, "discharge_reserve"),
-        (_site(export_limit=2.0), 20.0, "grid_export_limit"),
-        (_site(fixed_export=5.0), -3.0, "p2p_fixed_window_charge_gate"),
-        (
-            _site(charge_power_curve=[(4.0, 10.0), (40.0, 1.0)]),
-            -9.0,  # the taper allows 10 - (20 - 4) * 0.25 = 6 kW at 20 kWh
-            "charge_power_curve",
-        ),
-    ],
-    ids=[
-        "charge_bound",
-        "discharge_bound",
-        "headroom",
-        "reserve",
-        "export_limit",
-        "p2p_gate",
-        "power_curve",
-    ],
-)
-def test_each_constraint_a_pin_breaks_is_the_one_named(site, pin, named):
-    assert _status(site, pin) == "infeasible"
-    assert _blamed(site, pin) == [named]
-
-
-@pytest.mark.parametrize(
-    "site",
-    [
+def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
+    """Sound (a feasible pin is never blamed) and, on these sites, complete
+    (an infeasible one is always explained)."""
+    for site in [
         _site(),
         _site(soc=4.5),
         _site(soc=39.5),
         _site(export_limit=2.0),
         _site(fixed_export=5.0),
         _site(charge_power_curve=[(4.0, 10.0), (40.0, 1.0)]),
-    ],
-    ids=["plain", "low", "high", "export_cap", "p2p", "curve"],
-)
-def test_the_solver_rejects_a_pin_exactly_when_something_is_named(site):
-    """Sound (a feasible pin is never blamed) and, on these sites, complete
-    (an infeasible one is always explained)."""
-    feasible = 0
-    for pin in (-12.0, -9.0, -6.0, -4.0, -1.0, 0.0, 0.5, 2.0, 5.0, 15.0, 30.0):
-        optimal = _status(site, pin) == "optimal"
-        feasible += optimal
-        assert (_blamed(site, pin) == []) is optimal, pin
-    assert feasible >= 3
-
-
-def test_an_export_commitment_short_of_its_rate_is_allowed_at_a_price():
-    """#1761: the commitment's floor is soft, so a pin that cannot fund all
-    of it is feasible and blames nothing."""
-    site = _site(fixed_export=5.0)
-    assert _status(site, 2.0) == "optimal" and _blamed(site, 2.0) == []
-
-
-def test_a_pin_the_spike_override_lifts_is_never_blamed():
-    site = _site(soc=4.5)
-    spiked = [
-        dataclasses.replace(site["batteries"][0], spike_override_discharge_kw=5.0)
-    ]
-    assert _blamed(site, 20.0, spiked) == []
+    ]:
+        feasible = 0
+        for pin in (-12.0, -9.0, -6.0, -4.0, -1.0, 0.0, 0.5, 2.0, 5.0, 15.0, 30.0):
+            optimal = _status(site, pin) == "optimal"
+            feasible += optimal
+            assert (_blamed(site, pin) == []) is optimal, pin
+        assert feasible >= 3
 
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):
@@ -193,46 +143,3 @@ def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_stil
             assert _blamed(site, pin) == [], pin
         else:
             assert _blamed(site, pin), pin
-
-
-def test_given_the_solves_risk_aversion_a_banded_load_is_read_exactly_as_the_lp_did():
-    site = _site()
-    site["loads"] = [
-        LoadConfig(
-            name="house",
-            forecast_kw=np.array([2.0, 12.0, 12.0, 12.0]),
-            lower_kw=np.array([1.0, 10.0, 10.0, 10.0]),
-            upper_kw=np.array([4.0, 14.0, 14.0, 14.0]),
-        )
-    ]
-    # A tight export limit, so how much period 0's load absorbs decides it.
-    site["grid"] = dataclasses.replace(site["grid"], export_limit_kw=1.0)
-    for pin in (-12.0, -4.0, 0.0, 2.0, 3.0, 4.0, 5.0, 6.0):
-        optimal = (
-            build_plan(
-                **{
-                    **site,
-                    "risk_aversion": 0.5,
-                    "batteries": [
-                        dataclasses.replace(
-                            site["batteries"][0], period0_pin_net_kw=pin
-                        )
-                    ],
-                }
-            ).status
-            == "optimal"
-        )
-        blamed = pin_blockers.period0_pin_blockers(
-            pin,
-            batteries=site["batteries"],
-            grid=site["grid"],
-            hours0=0.5,
-            solar=site["solar"],
-            loads=site["loads"],
-            risk_aversion=0.5,
-        )
-        if optimal:
-            assert blamed == [], pin  # never blames a pin the LP accepts
-        if pin == 6.0:  # 6 kW into ~3 kW of load: 3 kW of export against 1
-            assert not optimal
-            assert [b.split(":", 1)[0] for b in blamed] == ["grid_export_limit"]

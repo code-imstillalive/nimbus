@@ -1383,13 +1383,11 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
         self.docs_defs = _top_level_def_names(_DOCS_PATH)
 
     def test_both_files_have_a_meaningful_number_of_functions(self):
-        """Sanity check the AST walk itself found real content, not an
-        empty/misparsed file -- a silent 0 on either side would make
-        every other assertion in this test vacuously pass."""
+        # test_both_files_have_a_meaningful_number_of_functions: Sanity check the AST walk itself found real content, not an
         self.assertGreater(len(self.integration_defs), 40)
         self.assertGreater(len(self.docs_defs), 40)
 
-    def test_integration_only_functions_are_all_accounted_for(self):
+        # test_integration_only_functions_are_all_accounted_for
         integration_only = self.integration_defs - self.docs_defs
         unaccounted = (
             integration_only
@@ -1415,7 +1413,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             f"INTENTIONAL_EXTRACTED_FROM_MAIN).",
         )
 
-    def test_docs_only_functions_are_all_accounted_for(self):
+        # test_docs_only_functions_are_all_accounted_for
         docs_only = self.docs_defs - self.integration_defs
         unaccounted = docs_only - INTENTIONAL_CRON_ONLY - KNOWN_OPEN_DRIFT_DOCS_ONLY
         self.assertEqual(
@@ -1430,12 +1428,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             f"ported/reconciled with the integration copy).",
         )
 
-    def test_known_open_drift_lists_dont_silently_go_stale(self):
-        """If a KNOWN_OPEN_DRIFT entry gets ported (appears in BOTH files
-        now) or renamed/removed (appears in NEITHER), the list itself
-        must be updated in the same PR -- a stale entry here would let a
-        *different*, unrelated function silently reuse its "slot" without
-        anyone noticing. Fails loudly rather than silently underenforcing."""
+        # test_known_open_drift_lists_dont_silently_go_stale: If a KNOWN_OPEN_DRIFT entry gets ported (appears in BOTH files
         for name in KNOWN_OPEN_DRIFT_INTEGRATION_ONLY:
             with self.subTest(name=name):
                 self.assertIn(
@@ -1471,12 +1464,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
                     f"it from this list.",
                 )
 
-    def test_the_integration_union_actually_includes_extracted_modules(self):
-        """Guard on the mechanism itself, not the data: if
-        _integration_paths() ever silently stops picking up an extracted
-        module (a renamed directory, a changed glob), every test above
-        would keep passing while quietly enforcing less. Anchored on a
-        real function that lives OUTSIDE solver_writer.py."""
+        # test_the_integration_union_actually_includes_extracted_modules: Guard on the mechanism itself, not the data: if
         writer_only = _top_level_def_names(_INTEGRATION_PATH)
         self.assertNotIn(
             "build_solar_arrays",
@@ -1494,23 +1482,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
         )
         self.assertGreater(len(_integration_paths()), 1)
 
-    def test_a_new_top_level_extraction_cannot_go_unregistered(self):
-        """The durable half of nimbus issue #952 (Mark Purcell).
-
-        Registering `solver_publish.py` fixes the one module that had
-        gone unnoticed. It does nothing to stop the NEXT one: #735's own
-        list says stages 2-4 are still to land, and any of them may put a
-        module directly under `nimbus_load/` rather than inside
-        `solver_inputs/`. That module would be invisible here for exactly
-        the same reason, and every test in this file would keep passing
-        while enforcing less.
-
-        So: every top-level `solver_*.py` must be either part of the
-        solve surface this guard reads, or named below as deliberately
-        outside it. Adding a module and neither registering nor
-        acknowledging it fails here rather than silently narrowing
-        #357's guarantee.
-        """
+        # test_a_new_top_level_extraction_cannot_go_unregistered: The durable half of nimbus issue #952 (Mark Purcell).
         # Deliberately outside the solve surface. `solver_runtime.py` is
         # HA scheduling machinery -- the tick loop, the overlap guard
         # (#757/#945) -- with no standalone counterpart at all: the cron
@@ -1543,10 +1515,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             f"set with a one-line reason.",
         )
 
-    def test_extracted_list_does_not_go_stale(self):
-        """Same discipline the KNOWN_OPEN_DRIFT lists already get: an
-        entry that no longer exists anywhere in the integration is a
-        stale slot a different function could silently reuse."""
+        # test_extracted_list_does_not_go_stale: Same discipline the KNOWN_OPEN_DRIFT lists already get: an
         for name in INTENTIONAL_EXTRACTED_FROM_MAIN:
             with self.subTest(name=name):
                 self.assertIn(
@@ -1557,10 +1526,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
                     f"from the list (renamed, deleted, or inlined again).",
                 )
 
-    def test_the_four_lists_do_not_overlap(self):
-        """Each difference should be explained by exactly one reason. An
-        entry in two lists means one of them is wrong, and whichever is
-        consulted first would silently mask the other."""
+        # test_the_four_lists_do_not_overlap: Each difference should be explained by exactly one reason. An
         named = {
             "INTENTIONAL_NATIVE_ONLY": INTENTIONAL_NATIVE_ONLY,
             "KNOWN_OPEN_DRIFT_INTEGRATION_ONLY": KNOWN_OPEN_DRIFT_INTEGRATION_ONLY,

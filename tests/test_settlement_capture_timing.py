@@ -82,62 +82,33 @@ def _at(minute: int, second: int) -> datetime:
 
 class TestSettlementCaptureTiming(unittest.TestCase):
     def test_exactly_on_a_boundary_waits_the_full_target(self):
-        """A run landing at exactly :X0:00 (e.g. cron fired at :00
-        with near-zero startup overhead) should wait the full target
-        (30s) to reach the real p90 settlement-arrival window.
-        """
+        # test_exactly_on_a_boundary_waits_the_full_target: A run landing at exactly :X0:00 (e.g. cron fired at :00
         self.assertAlmostEqual(seconds_to_settlement_capture(_at(0, 0)), 30.0)
         self.assertAlmostEqual(seconds_to_settlement_capture(_at(5, 0)), 30.0)
         self.assertAlmostEqual(seconds_to_settlement_capture(_at(35, 0)), 30.0)
 
-    def test_a_few_seconds_past_a_boundary_waits_the_remainder(self):
-        """Real Python startup overhead means a cron-triggered run
-        rarely lands at EXACTLY :00 -- a few seconds late should still
-        wait the remaining time to the target, not skip the wait
-        entirely.
-        """
+        # test_a_few_seconds_past_a_boundary_waits_the_remainder: Real Python startup overhead means a cron-triggered run
         self.assertAlmostEqual(seconds_to_settlement_capture(_at(0, 3)), 27.0)
         self.assertAlmostEqual(seconds_to_settlement_capture(_at(10, 12)), 18.0)
 
-    def test_already_at_the_target_second_needs_no_wait(self):
+        # test_already_at_the_target_second_needs_no_wait
         self.assertEqual(seconds_to_settlement_capture(_at(0, 30)), 0.0)
 
-    def test_past_the_target_but_still_in_window_needs_no_wait(self):
-        """A run landing at, say, :35 past a boundary is already past
-        the target second -- it should fetch immediately (0.0), never a
-        NEGATIVE wait.
-        """
+        # test_past_the_target_but_still_in_window_needs_no_wait: A run landing at, say, :35 past a boundary is already past
         self.assertEqual(seconds_to_settlement_capture(_at(0, 35)), 0.0)
         self.assertEqual(seconds_to_settlement_capture(_at(0, 39)), 0.0)
 
-    def test_far_from_any_boundary_never_waits(self):
-        """The overwhelming common case -- 4 of every 5 minute-ticks --
-        must be a complete no-op. This is the regression guard proving
-        the every-minute cadence itself is untouched by this change.
-        """
+        # test_far_from_any_boundary_never_waits: The overwhelming common case -- 4 of every 5 minute-ticks --
         self.assertEqual(seconds_to_settlement_capture(_at(1, 0)), 0.0)
         self.assertEqual(seconds_to_settlement_capture(_at(2, 30)), 0.0)
         self.assertEqual(seconds_to_settlement_capture(_at(3, 15)), 0.0)
         self.assertEqual(seconds_to_settlement_capture(_at(4, 45)), 0.0)
 
-    def test_just_outside_the_capture_window_is_a_no_op(self):
-        """The boundary between "close enough to wait for" and "closer
-        to the NEXT boundary, don't bother" -- exactly at
-        _SETTLEMENT_CAPTURE_WINDOW_SECONDS the run is already outside
-        the window (>=, not >), matching the function's own real
-        comparison. A second comfortably inside the window (and still
-        before the target) must still give a real, positive wait --
-        WINDOW - 1 alone isn't a valid probe for that, since TARGET < WINDOW
-        means anything between TARGET and WINDOW is legitimately 0.0 too.
-        """
+        # test_just_outside_the_capture_window_is_a_no_op: The boundary between "close enough to wait for" and "closer
         self.assertEqual(seconds_to_settlement_capture(_at(0, WINDOW)), 0.0)
         self.assertGreater(seconds_to_settlement_capture(_at(0, WINDOW - 15)), 0.0)
 
-    def test_every_5_minute_boundary_behaves_identically(self):
-        """The wait logic must be identical at every real NEM boundary
-        (:00, :05, :10, ..., :55), not just :00 -- minute % 5 == 0 is
-        the only thing that should matter, not the absolute minute.
-        """
+        # test_every_5_minute_boundary_behaves_identically: The wait logic must be identical at every real NEM boundary
         for boundary_minute in range(0, 60, 5):
             with self.subTest(minute=boundary_minute):
                 self.assertAlmostEqual(
@@ -145,7 +116,7 @@ class TestSettlementCaptureTiming(unittest.TestCase):
                     float(TARGET - 5),
                 )
 
-    def test_return_value_is_never_negative(self):
+        # test_return_value_is_never_negative
         for m in range(60):
             for s in (0, 1, 15, 29, 30, 31, 39, 40, 45, 59):
                 self.assertGreaterEqual(seconds_to_settlement_capture(_at(m, s)), 0.0)

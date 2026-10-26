@@ -142,6 +142,7 @@ class TestBatteryFleetCharacterization(unittest.TestCase):
         )
 
     def test_build_extra_batteries_matches_the_pre_extraction_reference(self):
+        # test_build_extra_batteries_matches_the_pre_extraction_reference
         diff = _first_difference(
             self.reference["build_extra_batteries"], self.got["build_extra_batteries"]
         )
@@ -154,7 +155,7 @@ class TestBatteryFleetCharacterization(unittest.TestCase):
             "disappear.",
         )
 
-    def test_resolve_history_matches_the_pre_extraction_reference(self):
+        # test_resolve_history_matches_the_pre_extraction_reference
         diff = _first_difference(
             self.reference["resolve_history"], self.got["resolve_history"]
         )
@@ -165,14 +166,7 @@ class TestBatteryFleetCharacterization(unittest.TestCase):
             "note on test_build_extra_batteries_matches... above.",
         )
 
-    # -- Spot checks below are documentation, not the authority: the two
-    # tests above (complete-output equality against the pre-extraction
-    # reference) are what #1310 actually asks for. These exist only so a
-    # reader doesn't have to parse the JSON fixture to see what it
-    # demonstrates -- they duplicate a subset of what the reference
-    # comparison already pins.
-
-    def test_two_ordered_participants_with_complete_fields(self):
+        # test_two_ordered_participants_with_complete_fields
         built = self.got["build_extra_batteries"]
         self.assertEqual([b["name"] for b in built], ["ev_m3p", "ev_my"])
         for b in built:
@@ -190,14 +184,7 @@ class TestBatteryFleetCharacterization(unittest.TestCase):
             ):
                 self.assertIn(field, b)
 
-    def test_departure_deadline_reaches_both_functions(self):
-        """ev_m3p's departure_hour/must_have_soc_by_departure_percent pair
-        (#1111) resolves to a real period index on BOTH the live path
-        (build_extra_batteries -- configured 48.0 kWh target at period 7,
-        unchanged) and the history path
-        (_resolve_battery_participant_history -- widened DOWN to 21.0
-        kWh, the day's real initial SoC, since the day's own reconstructed
-        trajectory never approached the configured target by period 0)."""
+        # test_departure_deadline_reaches_both_functions: ev_m3p's departure_hour/must_have_soc_by_departure_percent pair
         built = {b["name"]: b for b in self.got["build_extra_batteries"]}
         self.assertEqual(built["ev_m3p"]["must_have_soc_by_period_index"], 7)
         self.assertEqual(built["ev_m3p"]["must_have_soc_kwh"], 48.0)
@@ -208,32 +195,26 @@ class TestBatteryFleetCharacterization(unittest.TestCase):
         self.assertEqual(history["ev_m3p"]["must_have_soc_by_period_index"], 0)
         self.assertEqual(history["ev_m3p"]["must_have_soc_kwh"], 21.0)
 
-    def test_availability_gating_zeros_a_real_nonzero_reading(self):
-        """ev_my's real away window (hours 9-11) must zero its own real
-        3 kW discharge reading at hour 10 -- not just mask an
-        already-zero period, which would be a vacuous check (nimbus
-        #467/#768)."""
+        # test_availability_gating_zeros_a_real_nonzero_reading: ev_my's real away window (hours 9-11) must zero its own real
         history = {r["battery"]["name"]: r for r in self.got["resolve_history"]}
         row = history["ev_my"]
         self.assertEqual(row["battery"]["unavailable_period_indices"], [9, 10, 11])
         self.assertEqual(row["actual_discharge_kw"][10], 0.0)
         self.assertEqual(row["actual_charge_kw"][10], 0.0)
 
-    def test_shared_charger_widening_includes_discharge_not_just_charge(self):
-        """nimbus #1109 widens the configured 15 kW garage cap to what
-        the group actually drew; nimbus #1140 fixed the widening to sum
-        charge+discharge (matching the LP constraint it widens against)
-        rather than charge alone. At hour 18, ev_m3p charges 8 kW and
-        ev_my discharges 12 kW through the SAME shared charger -- a
-        combined draw of 20 kW. If #1140 ever regressed (charge-only
-        widening), this would read 8.0, not 20.0 -- confirmed by
-        deliberately reverting that fix locally while writing this test
-        (see this module's own docstring)."""
+        # test_shared_charger_widening_includes_discharge_not_just_charge: nimbus #1109 widens the configured 15 kW garage cap to what
         history = {
             r["battery"]["name"]: r["battery"] for r in self.got["resolve_history"]
         }
         self.assertEqual(history["ev_m3p"]["shared_charger_max_kw"], 20.0)
         self.assertEqual(history["ev_my"]["shared_charger_max_kw"], 20.0)
+
+    # -- Spot checks below are documentation, not the authority: the two
+    # tests above (complete-output equality against the pre-extraction
+    # reference) are what #1310 actually asks for. These exist only so a
+    # reader doesn't have to parse the JSON fixture to see what it
+    # demonstrates -- they duplicate a subset of what the reference
+    # comparison already pins.
 
 
 if __name__ == "__main__":

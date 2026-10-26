@@ -72,6 +72,7 @@ def _synthetic_sites() -> list[str]:
 
 class TestItFindsTheRealBlindSpot(unittest.TestCase):
     def test_the_module_name_set_is_derived_from_the_tree_not_hardcoded(self):
+        # test_the_module_name_set_is_derived_from_the_tree_not_hardcoded
         names = _integration_module_names(REPO_ROOT)
         self.assertGreater(len(names), 40, f"suspiciously few modules: {len(names)}")
         # Modules from three different extraction phases, so a future phase that
@@ -80,14 +81,7 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
             self.assertIn(expected, names)
         self.assertNotIn("__init__", names)
 
-    def test_it_reports_the_name_this_issue_was_filed_about(self):
-        """Non-vacuity, against the real tree. `_NATIVE_HASS` was the reason
-        #1434 existed -- 192 assignments the gate could not see -- until #1437
-        replaced it with `solver_shared.NATIVE`, whose `hass` attribute lives on
-        a stable object rather than being a rebound module name. So the old
-        name must now be ZERO sites (the count #1437 said to verify the sweep
-        by), while the scan still finds a rebound module name such as
-        `solver_writer._LAST_KNOWN_QUALITY_HISTORY`."""
+        # test_it_reports_the_name_this_issue_was_filed_about: Non-vacuity, against the real tree. `_NATIVE_HASS` was the reason
         sites = _static_direct_assignment_sites(REPO_ROOT)
         flat = [h for hits in sites.values() for h in hits]
         self.assertEqual(
@@ -105,10 +99,7 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
         )
         self.assertNotIn("coordinator.data", synthetic)
 
-    def test_it_does_not_report_a_local_variable_that_shares_a_module_name(self):
-        """The case that forced the import-binding check. `coordinator.py` is a
-        real module, so a loose scan reported `coordinator.data = {...}` in three
-        files that never import it -- 6 false positives."""
+        # test_it_does_not_report_a_local_variable_that_shares_a_module_name: The case that forced the import-binding check. `coordinator.py` is a
         sites = _static_direct_assignment_sites(REPO_ROOT)
         flat = [h for hits in sites.values() for h in hits]
         self.assertEqual(
@@ -118,29 +109,21 @@ class TestItFindsTheRealBlindSpot(unittest.TestCase):
             "module-attribute assignment",
         )
 
-    def test_it_sees_an_asname_module_import(self):
-        """`from ... import forecast_snapshot_store as fss` then
-        `fss._store_for = ...` is a real direct assignment on a real module, and
-        the loose version of this scan missed it entirely."""
+        # test_it_sees_an_asname_module_import: `from ... import forecast_snapshot_store as fss` then
         self.assertIn(
             "fss._store_for",
             _synthetic_sites(),
             "an aliased module import's assignment is not being reported",
         )
 
-    def test_hass_integration_is_excluded_matching_the_tools_own_selection(self):
-        """That directory needs the real HA harness this tool does not drive --
-        the same exclusion `_list_candidate_test_files()` documents."""
+        # test_hass_integration_is_excluded_matching_the_tools_own_selection: That directory needs the real HA harness this tool does not drive --
         sites = _static_direct_assignment_sites(REPO_ROOT)
         self.assertEqual(
             [rel for rel in sites if "hass_integration" in rel],
             [],
         )
 
-    def test_it_fails_open_on_a_tree_with_no_package(
-        self,
-    ):
-        """Reporting must never be the thing that breaks the gate."""
+        # test_it_fails_open_on_a_tree_with_no_package: Reporting must never be the thing that breaks the gate.
         self.assertEqual(
             _static_direct_assignment_sites(pathlib.Path("/nonexistent")), {}
         )

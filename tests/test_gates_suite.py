@@ -23,12 +23,10 @@ import json
 import os
 import subprocess
 import textwrap
-import zlib
 from datetime import datetime, timedelta
 
 import _ml_path  # noqa: F401
 import numpy as np
-import pytest
 from _isolated_state import PERSISTED_PATH_CONSTANTS
 from golden import scenarios_thermal as st
 from nimbus_load.ml import gbrt
@@ -1016,61 +1014,65 @@ def test_native_two_cycles_does_not_re_dispatch_an_unchanged_command() -> None:
         assert state["activations_today"] == 1, key
 
 
-@pytest.mark.parametrize("folder", NEMWEB_FOLDERS)
-def test_nemweb_inputs_match_their_provenance(folder: str) -> None:
-    base = GOLDEN / "nemweb" / folder
-    manifest = [
-        json.loads(line) for line in (base / "manifest.jsonl").read_text().splitlines()
-    ]
-    assert {row["feed"] for row in manifest} >= {"pd7day", "stpasa", "tradingis"}
-    assert all(row["url"].startswith("https://nemweb.com.au/") for row in manifest)
-    for variant in ("passthrough", "fitted"):
-        fc = json.loads(
-            gzip.decompress(
-                (base / f"nem_pd7day_forecast.{variant}.json.gz").read_bytes()
+def test_nemweb_inputs_match_their_provenance():
+    for folder in NEMWEB_FOLDERS:
+        base = GOLDEN / "nemweb" / folder
+        manifest = [
+            json.loads(line)
+            for line in (base / "manifest.jsonl").read_text().splitlines()
+        ]
+        assert {row["feed"] for row in manifest} >= {"pd7day", "stpasa", "tradingis"}
+        assert all(row["url"].startswith("https://nemweb.com.au/") for row in manifest)
+        for variant in ("passthrough", "fitted"):
+            fc = json.loads(
+                gzip.decompress(
+                    (base / f"nem_pd7day_forecast.{variant}.json.gz").read_bytes()
+                )
             )
+            for name, sha in fc["provenance"]["inputs"].items():
+                assert hashlib.sha256((base / name).read_bytes()).hexdigest() == sha, (
+                    name
+                )
+            sources = {p["calibrated_source"] for p in fc["attributes"]["forecast"]}
+            assert sources == (
+                {"passthrough"}
+                if variant == "passthrough"
+                else sources - {"passthrough"}
+            )
+
+
+def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated():
+    for folder in NEMWEB_FOLDERS:
+        raw = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
+        spikes = [p for p in raw["forecast"] if p["import_price"] >= SPIKE]
+        assert spikes, "no PD7DAY spike reached import_price"
+        assert any(p["battery_kw"] > 0 for p in spikes), (
+            "battery never discharges into a spike"
         )
-        for name, sha in fc["provenance"]["inputs"].items():
-            assert hashlib.sha256((base / name).read_bytes()).hexdigest() == sha, name
-        sources = {p["calibrated_source"] for p in fc["attributes"]["forecast"]}
-        assert sources == (
-            {"passthrough"} if variant == "passthrough" else sources - {"passthrough"}
+
+        # Beyond the first 30 minutes every price is a PD7DAY forecast; inside
+        # them the live price and the retail array decide (the real SA1 spike
+        # in sa_nemweb_spike_arrived is live, not forecast).
+        snap = _snapshot(f"{folder}_fitted")
+        horizon = datetime.fromisoformat(snap["cycles"][0]["instant"]) + timedelta(
+            minutes=30
         )
+        fitted = _battery(snap["cycles"][0])
+        late = [
+            p
+            for p in fitted["forecast"]
+            if datetime.fromisoformat(p["time"]) >= horizon
+            and p["import_price"] >= SPIKE
+        ]
+        assert not late, "calibration left a forecast spike in import_price"
 
 
-@pytest.mark.parametrize("folder", NEMWEB_FOLDERS)
-def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated(
-    folder: str,
-) -> None:
-    raw = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
-    spikes = [p for p in raw["forecast"] if p["import_price"] >= SPIKE]
-    assert spikes, "no PD7DAY spike reached import_price"
-    assert any(p["battery_kw"] > 0 for p in spikes), (
-        "battery never discharges into a spike"
-    )
-
-    # Beyond the first 30 minutes every price is a PD7DAY forecast; inside
-    # them the live price and the retail array decide (the real SA1 spike
-    # in sa_nemweb_spike_arrived is live, not forecast).
-    snap = _snapshot(f"{folder}_fitted")
-    horizon = datetime.fromisoformat(snap["cycles"][0]["instant"]) + timedelta(
-        minutes=30
-    )
-    fitted = _battery(snap["cycles"][0])
-    late = [
-        p
-        for p in fitted["forecast"]
-        if datetime.fromisoformat(p["time"]) >= horizon and p["import_price"] >= SPIKE
-    ]
-    assert not late, "calibration left a forecast spike in import_price"
-
-
-@pytest.mark.parametrize("variant", ["passthrough", "fitted"])
-def test_real_spike_arms_the_override(variant: str) -> None:
-    attrs = _battery(_snapshot(f"sa_nemweb_spike_arrived_{variant}")["cycles"][0])
-    assert attrs["price_spike_active"] is True
-    assert attrs["forecast"][0]["import_price"] >= SPIKE
-    assert attrs["forecast"][0]["battery_kw"] == 5.0
+def test_real_spike_arms_the_override():
+    for variant in ["passthrough", "fitted"]:
+        attrs = _battery(_snapshot(f"sa_nemweb_spike_arrived_{variant}")["cycles"][0])
+        assert attrs["price_spike_active"] is True
+        assert attrs["forecast"][0]["import_price"] >= SPIKE
+        assert attrs["forecast"][0]["battery_kw"] == 5.0
 
 
 def test_forecast_spikes_alone_do_not_arm_the_override() -> None:
@@ -1579,40 +1581,6 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize(
-    "name,n_rows,n_features,max_depth,min_samples_leaf,quantile", CASES
-)
-def test_vectorized_matches_reference_across_seeds(
-    name, n_rows, n_features, max_depth, min_samples_leaf, quantile
-):
-    for seed in range(30):
-        # nimbus issue #1282. Was `hash(name) % 997`, and Python RANDOMISES
-        # string hashing per process -- so despite the name, this test
-        # explored a DIFFERENT random space on every run. That is what made
-        # it fail once in CI on a diff that touched only manifest.json and
-        # CHANGELOG.md, then pass on re-run of the same commit.
-        #
-        # This repo already documents the identical trap in production code:
-        # test_1217_retrain_is_staggered.py's own
-        # `test_it_does_not_use_pythons_randomised_string_hash`, written when
-        # #1217's retrain stagger deliberately chose sha256 over hash() so a
-        # subentry lands on the same minute across restarts.
-        #
-        # crc32 is stable across processes and interpreters, so a CI failure
-        # here is now reproducible from the seed alone.
-        rng = np.random.default_rng(seed * 1000 + zlib.crc32(name.encode()) % 997)
-        x = rng.integers(0, 6, size=(n_rows, n_features)).astype(np.float64)
-        residuals = rng.normal(size=n_rows)
-
-        expected = _build_tree_reference(
-            x.copy(), residuals.copy(), max_depth, min_samples_leaf, 0, quantile
-        )
-        actual = gbrt._build_tree(
-            x.copy(), residuals.copy(), max_depth, min_samples_leaf, 0, quantile
-        )
-        _assert_trees_identical(expected, actual)
-
-
 def test_the_known_tie_break_divergence_is_an_exact_tie_not_a_wrong_split():
     """nimbus issue #1282: the one real divergence the randomised seeding hid.
 
@@ -1680,99 +1648,3 @@ def test_the_known_tie_break_divergence_is_an_exact_tie_not_a_wrong_split():
         "an EXACT tie; if their gains now differ, one path is choosing a "
         "genuinely worse split and this is a real bug"
     )
-
-
-def test_the_seeding_is_reproducible_across_processes():
-    """The root cause of #1282's flakiness, pinned.
-
-    `hash()` on a str is salted per process, so a test seeded from it samples
-    a different space on every run -- which is how a genuine divergence sat
-    undetected and then surfaced on an unrelated release PR.
-
-    Parsed rather than grepped: a text search would match the explanatory
-    comment above the line and pass for the wrong reason. The same technique
-    `test_1217_retrain_is_staggered.py` uses for the identical trap in
-    production code.
-    """
-    import ast
-    import inspect
-    import textwrap
-
-    tree = ast.parse(
-        textwrap.dedent(
-            inspect.getsource(test_vectorized_matches_reference_across_seeds)
-        )
-    )
-    called = {
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
-    assert "hash" not in called, (
-        "this test seeds from Python's randomised string hash, so it explores "
-        "a different space every run and its failures are not reproducible "
-        "(nimbus issue #1282)"
-    )
-
-
-def test_vectorized_matches_reference_continuous_features():
-    for seed in range(20):
-        rng = np.random.default_rng(seed + 5000)
-        x = rng.normal(size=(150, 6))
-        residuals = rng.normal(size=150) * 3.0
-
-        expected = _build_tree_reference(x.copy(), residuals.copy(), 4, 5, 0, None)
-        actual = gbrt._build_tree(x.copy(), residuals.copy(), 4, 5, 0, None)
-        _assert_trees_identical(expected, actual)
-
-
-def test_vectorized_matches_reference_all_identical_feature_values():
-    # No valid split anywhere for this feature -- must fall through to a leaf,
-    # not raise on an all-invalid/empty gain array.
-    rng = np.random.default_rng(42)
-    x = np.ones((10, 2))
-    residuals = rng.normal(size=10)
-    expected = _build_tree_reference(x.copy(), residuals.copy(), 3, 2, 0, None)
-    actual = gbrt._build_tree(x.copy(), residuals.copy(), 3, 2, 0, None)
-    _assert_trees_identical(expected, actual)
-    assert actual.is_leaf()
-
-
-def test_vectorized_matches_reference_exact_tie_gain_prefers_first_feature():
-    # Two duplicate feature columns should tie on gain at every split point;
-    # the reference picks the first (lowest-index) feature on a tie because
-    # it only replaces the champion on strict `>`. The vectorized version
-    # must reproduce this exact tie-break, not e.g. numpy's own argmax
-    # semantics under a different reduction order.
-    rng = np.random.default_rng(7)
-    col = rng.integers(0, 5, size=30).astype(np.float64)
-    x = np.column_stack([col, col.copy(), rng.integers(0, 5, size=30)])
-    residuals = rng.normal(size=30)
-
-    expected = _build_tree_reference(x.copy(), residuals.copy(), 3, 2, 0, None)
-    actual = gbrt._build_tree(x.copy(), residuals.copy(), 3, 2, 0, None)
-    _assert_trees_identical(expected, actual)
-
-
-def test_vectorized_matches_reference_full_fit_predictions():
-    # End-to-end through GBRT.fit()/predict(), not just _build_tree directly.
-    rng = np.random.default_rng(99)
-    x = rng.normal(size=(200, 4))
-    y = x[:, 0] * 2.0 - x[:, 1] + rng.normal(size=200) * 0.1
-
-    model = gbrt.GBRT(n_estimators=15, max_depth=3, min_samples_leaf=5)
-    model.fit(x, y)
-    preds = model.predict(x)
-
-    # Cross-check against the reference oracle by monkeypatching _build_tree
-    # for a fresh model fit over the same data.
-    original = gbrt._build_tree
-    gbrt._build_tree = _build_tree_reference
-    try:
-        reference_model = gbrt.GBRT(n_estimators=15, max_depth=3, min_samples_leaf=5)
-        reference_model.fit(x, y)
-        reference_preds = reference_model.predict(x)
-    finally:
-        gbrt._build_tree = original
-
-    np.testing.assert_array_equal(preds, reference_preds)

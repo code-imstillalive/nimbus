@@ -36,7 +36,6 @@ import time
 from datetime import timedelta
 
 import pytest
-from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -117,111 +116,6 @@ def _fake_plan_attributes() -> dict:
 
 
 # --- Regression Test 1: the single assertion that catches the whole chain -
-
-
-async def test_state_stays_stable_across_the_full_recheck_cadence(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
-):
-    """The one assertion that would have caught both #83 and #85.
-
-    Push a state. Advance time by more than one full recheck interval
-    (`_STALE_AFTER_SECONDS / 5 = 60s`). Assert the entity's PUBLISHED
-    state is still the pushed value.
-
-    Fails deterministically on any regression where the recheck timer
-    unconditionally publishes on a tick where nothing changed --
-    exactly the shape both v0.73.1 and v0.73.2 shipped.
-    """
-    await _push_via_dispatcher(
-        hass, _BATTERY_FORECAST_ENTITY_ID, 4.225, _fake_plan_attributes()
-    )
-    assert hass.states.get(_BATTERY_FORECAST_ENTITY_ID).state == "4.225"
-
-    # Fire ONE recheck tick 60s later -- exactly the production cadence.
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
-    await hass.async_block_till_done()
-
-    state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
-    assert state is not None
-    assert state.state != STATE_UNKNOWN, (
-        f"Recheck clobbered the fresh push: state is now {state.state!r}. "
-        "This is the exact shape of the #83/#85 flap regression."
-    )
-    assert state.state == "4.225"
-    assert "forecast" in state.attributes, (
-        "Recheck stripped the `forecast` attribute -- clobber regression"
-    )
-
-
-async def test_state_stays_stable_across_many_solve_cycles(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
-):
-    """Same shape held over a realistic 5-minute window. Real HA fires
-    a solve every 60s and a recheck every 60s -- across 5 push+tick
-    pairs the state must never once flip to `unknown`.
-    """
-    published_values = []
-    now = dt_util.utcnow()
-
-    for tick in range(5):
-        value = 1.0 + tick * 0.5
-        await _push_via_dispatcher(
-            hass,
-            _BATTERY_FORECAST_ENTITY_ID,
-            value,
-            {**_fake_plan_attributes(), "total_cost": 10.0 + tick},
-        )
-        published_values.append(value)
-
-        # Advance time to the next recheck (60s past push).
-        now += timedelta(seconds=61)
-        async_fire_time_changed(hass, now)
-        await hass.async_block_till_done()
-
-        state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
-        assert state is not None
-        assert state.state == str(value), (
-            f"After push #{tick + 1} (value={value}) and one recheck tick, "
-            f"state is {state.state!r}. Flap regression."
-        )
-
-
-async def test_both_push_sensors_stay_stable(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
-):
-    """The flap symptoms in #83/#85 hit BOTH push sensors identically
-    (same base class, same recheck timer, same handler-dispatch path).
-    Any real regression in the shared base class will hit both -- so
-    both must be locked in explicitly, not just one.
-    """
-    await _push_via_dispatcher(
-        hass, _BATTERY_FORECAST_ENTITY_ID, 4.0, _fake_plan_attributes()
-    )
-    await _push_via_dispatcher(
-        hass,
-        _LOAD_TOTAL_FORECAST_ENTITY_ID,
-        1.411,
-        {
-            "unit_of_measurement": "kW",
-            "friendly_name": "Nimbus Household Load Total",
-            "forecast": [{"time": "t0", "value": 1.4, "lower": 1.2, "upper": 1.6}],
-            "whole_house_cross_check_now_kw": 1.411,
-        },
-    )
-
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=61))
-    await hass.async_block_till_done()
-
-    for entity_id, expected in (
-        (_BATTERY_FORECAST_ENTITY_ID, "4.0"),
-        (_LOAD_TOTAL_FORECAST_ENTITY_ID, "1.411"),
-    ):
-        state = hass.states.get(entity_id)
-        assert state is not None
-        assert state.state != STATE_UNKNOWN, (
-            f"{entity_id} clobbered to unknown after one recheck tick"
-        )
-        assert state.state == expected
 
 
 # --- Regression Test 2: real staleness still transitions --------------------

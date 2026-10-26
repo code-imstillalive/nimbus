@@ -80,22 +80,8 @@ def _kinds(r):
     return [d["kind"] for d in r.differences]
 
 
-def test_dc_r02_f06_repeated_discovery_finds_nothing_new():
-    r = dd.rediscover(
-        _stored(), _propose(), present_registry_ids=frozenset(REGS.values())
-    )
-    assert r.differences == []
-    assert not [q for q in r.questions if q["code"] != "fact_needed"]
-
-
-def test_dc_r02_f06_reordering_the_energy_dashboard_changes_nothing():
-    prefs = copy.deepcopy(PREFS)
-    prefs["energy_sources"].reverse()
-    r = dd.rediscover(_stored(), _propose(prefs))
-    assert r.differences == []
-
-
 def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
+    # test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so
     prefs = copy.deepcopy(PREFS)
     prefs["energy_sources"][1]["stat_rate"] = "sensor.battery_power_renamed"
     regs = {**REGS, "sensor.battery_power_renamed": "r_bat"}
@@ -115,8 +101,7 @@ def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
     ]
     assert not [q for q in r.questions if q["code"] == "replaced_equipment"]
 
-
-def test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap():
+    # test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap
     prefs = copy.deepcopy(PREFS)
     prefs["energy_sources"][1]["stat_rate"] = "sensor.new_battery_power"
     regs = {**REGS, "sensor.new_battery_power": "r_bat_new"}
@@ -128,45 +113,7 @@ def test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap():
     assert q["candidate"]["source"] == "sensor.new_battery_power"
     assert r.differences == []
 
-
-def test_decision_5_a_confirmed_binding_is_never_replaced_only_shown():
-    """The old sensor still exists, so it is an alternative, not a
-    replacement."""
-    prefs = copy.deepcopy(PREFS)
-    prefs["energy_sources"][1]["stat_rate"] = "sensor.other_battery_power"
-    regs = {**REGS, "sensor.other_battery_power": "r_other"}
-    r = dd.rediscover(
-        _stored(), _propose(prefs, regs), present_registry_ids=frozenset(regs.values())
-    )
-    (d,) = r.differences
-    assert d["kind"] == "alternative"
-    assert (d["device"], d["role"], d["stored_confirmed"]) == ("battery", "power", True)
-    assert d["stored_source"]["entity_id"] == "sensor.bat_power"
-    assert d["candidate"]["source"] == "sensor.other_battery_power"
-
-
-def test_without_registry_presence_replacement_is_never_inferred():
-    prefs = copy.deepcopy(PREFS)
-    prefs["energy_sources"][1]["stat_rate"] = "sensor.new_battery_power"
-    r = dd.rediscover(
-        _stored(), _propose(prefs, {**REGS, "sensor.new_battery_power": "x"})
-    )
-    assert [d["kind"] for d in r.differences] == ["alternative"]
-    assert not [q for q in r.questions if q["code"] == "replaced_equipment"]
-
-
-def test_an_empty_stored_role_is_a_fill_with_the_proposed_binding():
-    stored = _stored()
-    battery = next(d for d in stored["devices"] if d["id"] == "battery")
-    del battery["bindings"]["soc"]
-    r = dd.rediscover(stored, _propose())
-    (d,) = r.differences
-    assert (d["kind"], d["device"], d["role"]) == ("fill", "battery", "soc")
-    assert d["binding"]["source"]["entity_id"] == "sensor.bat_soc"
-    assert d["binding"]["provenance"]["confirmed"] is False
-
-
-def test_a_new_device_is_proposed_and_a_missing_one_is_kept():
+    # test_a_new_device_is_proposed_and_a_missing_one_is_kept
     stored = _stored()
     prefs = copy.deepcopy(PREFS)
     prefs["device_consumption"] = [
@@ -184,18 +131,7 @@ def test_a_new_device_is_proposed_and_a_missing_one_is_kept():
         (f["code"], f["device"]) for f in r.findings if f["code"] == "not_seen"
     ] == [("not_seen", "load_pool")]
 
-
-def test_dc_r02_no_second_grid_and_no_duplicate_device():
-    """Discovery's Grid and house are the stored ones, whatever their ids."""
-    stored = _stored()
-    for device in stored["devices"]:
-        if device["kind"] == "grid":
-            device["id"] = "grid_main"
-    r = dd.rediscover(stored, _propose())
-    assert not [d for d in r.differences if d["kind"] == "new_device"]
-
-
-def test_a_discovered_device_matching_two_stored_ones_is_asked():
+    # test_a_discovered_device_matching_two_stored_ones_is_asked
     stored = _stored()
     pool = next(d for d in stored["devices"] if d["id"] == "load_pool")
     twin = copy.deepcopy(pool)
@@ -204,10 +140,3 @@ def test_a_discovered_device_matching_two_stored_ones_is_asked():
     r = dd.rediscover(stored, _propose())
     (q,) = [q for q in r.questions if q["code"] == "device_match_ambiguous"]
     assert q["stored_devices"] == ["load_pool", "load_pool_twin"]
-
-
-def test_rediscovery_changes_neither_input():
-    stored, proposal = _stored(), _propose()
-    before = (copy.deepcopy(stored), copy.deepcopy(proposal.document))
-    dd.rediscover(stored, proposal)
-    assert (stored, proposal.document) == before

@@ -121,8 +121,7 @@ class TestAFailedOnDispatchCannotConsumeAnActivation(unittest.TestCase):
         self.tries = [t for t in ast.walk(self.fn) if isinstance(t, ast.Try)]
 
     def test_the_function_still_records_activations_at_all(self):
-        """Guards the assertion below from passing because the call was
-        renamed or removed rather than because it is placed correctly."""
+        # test_the_function_still_records_activations_at_all: Guards the assertion below from passing because the call was
         self.assertTrue(
             _calls_named(self.fn, "record_activation"),
             f"{_FUNC}() no longer calls record_activation() anywhere -- if that "
@@ -130,7 +129,7 @@ class TestAFailedOnDispatchCannotConsumeAnActivation(unittest.TestCase):
             "test deleting",
         )
 
-    def test_every_record_activation_is_guarded_by_the_dispatch_it_follows(self):
+        # test_every_record_activation_is_guarded_by_the_dispatch_it_follows
         for call in _calls_named(self.fn, "record_activation"):
             enclosing = [
                 t for t in self.tries if _in_body(t, call) and _dispatch_on_calls(t)
@@ -145,9 +144,7 @@ class TestAFailedOnDispatchCannotConsumeAnActivation(unittest.TestCase):
                     "retry.",
                 )
 
-    def test_it_runs_after_the_dispatch_not_before(self):
-        """Inside the same `try` is necessary but not sufficient: placed
-        before the await, it would run even when the dispatch fails."""
+        # test_it_runs_after_the_dispatch_not_before: Inside the same `try` is necessary but not sufficient: placed
         for call in _calls_named(self.fn, "record_activation"):
             for t in self.tries:
                 if not (_in_body(t, call) and _dispatch_on_calls(t)):

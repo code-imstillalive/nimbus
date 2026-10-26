@@ -218,70 +218,14 @@ def test_ratchet_mode_passes_comparing_a_ref_to_itself(toy_repo: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
-    """docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
-    "Functions over 60 lines | 67, together 12,638 lines" for
-    `solver_writer.py` alone. That number changed for the first time under
-    nimbus issue #1301: spec 001 (#1347) first moved six over-60-line
-    functions (`resolve_effective_capacity_kwh`, `ha_post_state`,
-    `fetch_p2p_fixed_export_kw`, `fetch_entity_history_range`,
-    `fetch_entity_attribute_history_range`, `resample_history_mean`)
-    verbatim to `solver_shared.py`, dropping the count 67 -> 61. Phase
-    2b/2c then moved eight reporting functions to `solver_reports/`, five
-    of which were themselves over the limit
-    (`_compute_report_for_window`, `publish_daily_quality_report`,
-    `_soc_discrepancy_stats`, `rescore_quality_history`,
-    `_carry_forward_quality_history`), dropping it 61 -> 53. Phase 3
-    (#1302) then moved eight controllable-load functions to
-    `solver_inputs/controllable_loads.py`, six of which were over the
-    limit (`build_controllable_loads`, `_sample_load_run_state`,
-    `_build_daily_adequacy_windows`,
-    `_earliest_period_for_same_day_window`, `_evaluate_done_condition`,
-    `_resolve_controllable_load_tuning`), dropping it 53 -> 47. The
-    other two moved functions were already under 60 lines and so never
-    counted here -- which is why eight moved and the count fell by six.
-
-    Phase 5 (#1304, spec 005) then moved `publish_plan` and its thirteen
-    helpers plus three constants -- sixteen names, 2,258 lines -- to
-    `solver_publish.py`, eight of which were over the limit
-    (`publish_plan`, `compute_binding_constraint_label`,
-    `_compute_flow_economics`, `_flow_decomposition`,
-    `compute_cost_breakdown`, `compute_cost_band`,
-    `_dispatch_source_breakdown`, `resolve_fixed_export_charge_clamp`),
-    dropping it 47 -> 39. Again the delta (-8) is smaller than the move
-    (16), for the same reason.
-
-    Phase 7a (#1306, spec 007) then moved the solve-cycle overlap guard to
-    `solver/cycle_lock.py` -- `acquire_lock` (75 lines) and `release_lock`
-    (15) -- dropping it 39 -> 38. A two-function move for a delta of
-    one, because only `acquire_lock` was ever over the limit.
-
-    Phase 6 (#1305, spec 006) then moved the controllable-load dispatch guard
-    to `solver_dispatch/guard.py` -- five names, 1,450 lines -- dropping it
-    38 -> **36**. Two of the five were over the limit
-    (`apply_commanded_state_guard` at 1,300, `dispatch_commanded_state` at 92);
-    `_resolve_reaffirm_after_seconds` (42) and the two log-once sets were not.
-    That phase removed the single largest function in the file.
-
-    Reproduced here against this checkout so a future session can see at a
-    glance whether the number is still accurate, per the tool's own
-    docstring caveat that it changes as later phases move more code out.
-    If this fails, the plan's own table and the tool's
-    `DEFAULT_BASELINE_COUNT` need updating, not this test -- and note the
-    ratchet only ever tightens, so a count BELOW the baseline is progress
-    that should be banked here, not a failure to work around."""
+def test_real_solver_writer_matches_the_tech_debt_plans_own_count():
+    # test_real_solver_writer_matches_the_tech_debt_plans_own_count: docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
     proc = _run(["--baseline-count", "36", str(target)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "36 function(s) over 60 lines" in proc.stdout, proc.stdout
 
-
-def test_real_whole_package_is_a_materially_different_larger_number() -> None:
-    """Documents the discrepancy this tool's own docstring calls out: the
-    whole-package default scope is not 36. Asserts only that it is larger
-    (not an exact count, which 40 unrelated files make too brittle to pin
-    here) so this test does not need updating every time an unrelated file
-    in the package changes shape."""
+    # test_real_whole_package_is_a_materially_different_larger_number: Documents the discrepancy this tool's own docstring calls out: the
     proc = _run(
         ["--baseline-count", "36", str(REPO / "custom_components" / "nimbus_load")]
     )

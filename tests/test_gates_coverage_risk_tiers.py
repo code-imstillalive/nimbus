@@ -15,28 +15,23 @@ import coverage_by_risk as cbr
 
 
 def test_every_module_has_a_risk_tier():
+    # test_every_module_has_a_risk_tier
     unmapped = [m for m in cbr.modules() if cbr.tier_of(m) is None]
     assert not unmapped, f"add these to RISK_TIERS: {unmapped}"
 
-
-def test_an_untiered_module_is_caught():
+    # test_an_untiered_module_is_caught
     # Planted: a module no pattern matches is reported, so the guard above
     # can fail.
     assert cbr.tier_of("brand_new_module.py") is None
     assert cbr.tier_of("solver/brand_new.py") is None
 
-
-def test_issue_pins_are_told_apart_from_designed_tests():
+    # test_issue_pins_are_told_apart_from_designed_tests
     assert cbr.test_kind("tests/test_1703_run_hold.py::test_x|run") == "pin"
     assert cbr.test_kind("tests/v2/solver/test_2045_x.py::t|run") == "pin"
     assert cbr.test_kind("tests/v2/solver/test_plan_features.py::t|run") == "designed"
     assert cbr.test_kind("golden:quiet_day") == "golden"
 
-
-def test_pin_only_counts_executed_statements_only():
-    """#1837: the first report read 302% pin-only on number.py. Lines only an
-    arc or another copy's path names are not statements of the module, so
-    the share is of covered lines and never above 100%."""
+    # test_pin_only_counts_executed_statements_only: #1837: the first report read 302% pin-only on number.py. Lines only an
     pin = "tests/test_1703_run_hold.py::test_x|run"
     designed = "tests/v2/solver/test_plan.py::test_y|run"
     contexts = {
@@ -49,8 +44,7 @@ def test_pin_only_counts_executed_statements_only():
     assert cbr.pin_only_lines([1, 2, 3], contexts) == 1
     assert cbr.pin_only_lines([], contexts) == 0
 
-
-def test_gaps_list_only_the_flagged_modules_missed_lines():
+    # test_gaps_list_only_the_flagged_modules_missed_lines
     r = {
         "modules": [
             {"module": "solver_dispatch/guard.py", "flags": ["lines < 90%"]},
@@ -73,8 +67,7 @@ def test_gaps_list_only_the_flagged_modules_missed_lines():
         }
     }
 
-
-def test_pin_only_lines_are_named_by_the_pin_that_reaches_them():
+    # test_pin_only_lines_are_named_by_the_pin_that_reaches_them
     ctx = {
         3: {"tests/test_1703_run_hold.py::test_a|run"},
         4: {
@@ -87,3 +80,30 @@ def test_pin_only_lines_are_named_by_the_pin_that_reaches_them():
         "tests/test_1703_run_hold.py": [3, 4],
         "tests/test_1801_x.py": [4],
     }
+
+    # test_the_smallest_cover_keeps_every_line_and_drops_what_adds_nothing
+    by_module = {
+        "a.py": {
+            1: {"tests/v2/test_a.py::test_wide|run", "golden:base"},
+            2: {"tests/v2/test_a.py::test_wide|run"},
+            3: {
+                "tests/v2/test_a.py::test_wide|run",
+                "tests/test_1703_x.py::test_pin[case1]|run",
+            },
+            4: {"tests/test_1703_x.py::test_pin[case2]|run"},
+        },
+        "b.py": {1: {"tests/v2/test_b.py::test_narrow|setup"}},
+    }
+    r = cbr.smallest_cover(by_module)
+    assert r["kept"] == [
+        "tests/test_1703_x.py::test_pin",
+        "tests/v2/test_a.py::test_wide",
+        "tests/v2/test_b.py::test_narrow",
+    ]
+    assert r["adds_nothing"] == []
+    assert r["lines"] == 5
+    by_module["a.py"][5] = {"tests/v2/test_a.py::test_wide|run"}
+    by_module["b.py"][1].add("tests/v2/test_a.py::test_wide|run")
+    r = cbr.smallest_cover(by_module)
+    assert "tests/v2/test_b.py::test_narrow" in r["adds_nothing"]
+    assert r["tests_measured"] == 3

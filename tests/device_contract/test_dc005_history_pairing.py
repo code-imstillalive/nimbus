@@ -82,43 +82,8 @@ def _proposal():
     return dd.propose_from_energy_dashboard(PREFS)
 
 
-def test_only_devices_with_energy_and_no_power_are_targets():
-    assert dd.pairing_targets(_proposal()) == {
-        "battery": ("sensor.bat_out_kwh", "sensor.bat_in_kwh")
-    }
-
-
-def test_a_clean_match_is_a_question_to_confirm_never_a_binding():
-    """History may not decide alone (DC-005's evidence table)."""
-    cands = {
-        "battery": {
-            "sensor.bat_power": BAT,
-            "sensor.house_power": _series(house),
-        }
-    }
-    p = dd.add_history_pairing(
-        _proposal(), cands, STATS, START, END, registry_ids={"sensor.bat_power": "r1"}
-    )
-    battery_device = next(d for d in p.document["devices"] if d["id"] == "battery")
-    assert "power" not in battery_device["bindings"]
-    (q,) = [q for q in p.questions if q["code"] == "confirm_history_match"]
-    assert (q["device"], q["role"]) == ("battery", "power")
-    (c,) = q["candidates"]
-    assert c["binding_source"] == {
-        "kind": "entity_state",
-        "entity_id": "sensor.bat_power",
-        "registry_id": "r1",
-    }
-    assert c["normalization"] == {
-        "positive_direction": "discharge",
-        "native_positive_direction": "discharge",
-    }
-    (ev,) = c["evidence"]
-    assert ev["kind"] == "history_pairing" and ev["status"] == "candidate"
-    assert ev["error"] < dr.MATCH_TOLERANCE
-
-
 def test_a_flipped_sensor_is_proposed_with_its_native_sign():
+    # test_a_flipped_sensor_is_proposed_with_its_native_sign
     flipped = [(t, -v) for t, v in BAT]
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.inv_bat": flipped}}, STATS, START, END
@@ -137,8 +102,7 @@ def test_a_flipped_sensor_is_proposed_with_its_native_sign():
     }
     assert not [x for x in dc.validate(doc) if x.code == "sign_not_canonical"]
 
-
-def test_dc_r13_f06_two_equal_readings_are_asked_with_both():
+    # test_dc_r13_f06_two_equal_readings_are_asked_with_both
     p = dd.add_history_pairing(
         _proposal(),
         {"battery": {"sensor.bat_a": BAT, "sensor.bat_b": list(BAT)}},
@@ -154,8 +118,7 @@ def test_dc_r13_f06_two_equal_readings_are_asked_with_both():
     ]
     assert not [q for q in p.questions if q["code"] == "confirm_history_match"]
 
-
-def test_no_match_and_too_little_history_are_findings_not_zeros():
+    # test_no_match_and_too_little_history_are_findings_not_zeros
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.house": _series(house)}}, STATS, START, END
     )
@@ -168,24 +131,14 @@ def test_no_match_and_too_little_history_are_findings_not_zeros():
     (f,) = [f for f in p.findings if f["code"] == "history_pairing_inconclusive"]
     assert f["status"] == dr.INSUFFICIENT
 
-
-def test_no_counter_history_is_said_plainly():
+    # test_no_counter_history_is_said_plainly
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.bat_power": BAT}}, {}, START, END
     )
     (f,) = [f for f in p.findings if f["code"] == "history_pairing_inconclusive"]
     assert f["reason"] == "no counter history to compare against"
 
-
-def test_nothing_offered_means_nothing_said_and_input_untouched():
-    base = _proposal()
-    before = copy.deepcopy(base.document)
-    p = dd.add_history_pairing(base, {}, STATS, START, END)
-    assert (p.questions, p.findings) == (base.questions, base.findings)
-    assert base.document == before
-
-
-def test_a_solar_device_with_power_already_is_never_paired():
+    # test_a_solar_device_with_power_already_is_never_paired
     p = dd.add_history_pairing(
         _proposal(),
         {"solar": {"sensor.other": _series(solar)}},

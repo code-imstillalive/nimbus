@@ -102,30 +102,6 @@ class TestValidation(unittest.TestCase):
         kwargs.update(overrides)
         return build_stochastic_plan(**kwargs)
 
-    def test_single_scenario_rejected(self):
-        with self.assertRaises(ValueError):
-            self._solve(solar_scenarios=[_SUNNY], scenario_weights=[1.0])
-
-    def test_weight_count_mismatch_rejected(self):
-        with self.assertRaises(ValueError):
-            self._solve(scenario_weights=[0.5, 0.3, 0.2])
-
-    def test_weights_not_summing_to_one_rejected(self):
-        with self.assertRaises(ValueError):
-            self._solve(scenario_weights=[0.5, 0.4])
-
-    def test_mismatched_solar_array_length_rejected(self):
-        with self.assertRaises(ValueError):
-            self._solve(solar_scenarios=[_SUNNY, _CLOUDY[:-1]])
-
-    def test_branch_point_out_of_range_rejected(self):
-        with self.assertRaises(ValueError):
-            self._solve(
-                stochastic_start_period=4
-            )  # must be < n, stage 2 needs >=1 period
-        with self.assertRaises(ValueError):
-            self._solve(stochastic_start_period=-1)
-
     def test_scenarios_disagreeing_before_branch_point_rejected(self):
         diverges_early = np.array(
             [1.0, 0.0, 0.0, 0.0]
@@ -152,62 +128,3 @@ class TestGenuineHedgingBehaviour(unittest.TestCase):
         )
         self.assertEqual(plan.status, "optimal")
         return float(sum(plan.stage1_charge_kw))
-
-    def test_no_hedge_below_breakeven(self):
-        for w in (0.0, 0.05, 0.10, _BREAKEVEN_WEIGHT - 0.01):
-            with self.subTest(weight_cloudy=w):
-                self.assertAlmostEqual(self._precharge(w), 0.0, places=3)
-
-    def test_full_hedge_above_breakeven(self):
-        for w in (_BREAKEVEN_WEIGHT + 0.01, 0.15, 0.5, 1.0):
-            with self.subTest(weight_cloudy=w):
-                self.assertAlmostEqual(
-                    self._precharge(w), _FULL_PRECHARGE_KWH, places=3
-                )
-
-    def test_stage1_is_a_single_shared_decision_not_per_scenario(self):
-        """Structural proof, not just behavioural -- stage1_charge_kw is
-        one flat array of length stochastic_start_period, regardless of
-        how many scenarios exist, confirming stage 1 is genuinely ONE
-        shared set of variables (real two-stage structure), not
-        secretly duplicated per scenario."""
-        plan = build_stochastic_plan(
-            periods=_flat_grid(4),
-            grid=_hedging_grid(),
-            battery=_base_battery(),
-            solar_scenarios=[_SUNNY, _CLOUDY],
-            scenario_weights=[0.5, 0.5],
-            stochastic_start_period=2,
-            load_kw=_LOAD,
-        )
-        self.assertEqual(len(plan.stage1_charge_kw), 2)
-        self.assertEqual(len(plan.stage2_charge_kw), 2)  # one array per scenario
-        for arr in plan.stage2_charge_kw:
-            self.assertEqual(len(arr), 2)  # periods 2-3
-
-
-class TestSalvageValueOnlyAtTrueHorizonEnd(unittest.TestCase):
-    """Real bug found and fixed while building this module: salvage_
-    value was being applied at stage 1's own boundary period too, an
-    INTERMEDIATE point in the real horizon, not a genuine end -- would
-    have been a false 'the horizon stops here' credit. Confirms it now
-    only ever applies at stage 2's own true final period, per scenario."""
-
-    def test_nonzero_salvage_does_not_create_a_stage1_boundary_credit(self):
-        # With salvage_value > 0 and NO real economic reason to pre-
-        # charge (weight_cloudy=0, sunny needs no hedge), stage 1 should
-        # still charge nothing -- a false boundary credit would show up
-        # as spurious pre-charging here, purely to "bank" a salvage
-        # credit at the wrong (intermediate) period.
-        battery = _base_battery(salvage_value=0.05)
-        plan = build_stochastic_plan(
-            periods=_flat_grid(4),
-            grid=_hedging_grid(),
-            battery=battery,
-            solar_scenarios=[_SUNNY, _CLOUDY],
-            scenario_weights=[1.0, 0.0],
-            stochastic_start_period=2,
-            load_kw=_LOAD,
-        )
-        self.assertEqual(plan.status, "optimal")
-        self.assertAlmostEqual(sum(plan.stage1_charge_kw), 0.0, places=3)

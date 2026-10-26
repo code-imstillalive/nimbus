@@ -220,17 +220,16 @@ FALLBACK = ["fallback_actions", "input_text.set_value=FALLBACK"]
 
 
 def test_disarming_runs_the_fallback_whatever_the_plan_says():
+    # test_disarming_runs_the_fallback_whatever_the_plan_says
     ran, _ = run("disarmed", plan="-4.0", armed=False, helper="CHG")
     assert ran == FALLBACK
 
-
-def test_nothing_runs_while_disarmed():
+    # test_nothing_runs_while_disarmed
     for trigger in ("tick", "plan", "start"):
         ran, _ = run(trigger, plan="-4.0", armed=False)
         assert ran == [], trigger
 
-
-def test_a_plan_that_cannot_be_followed_runs_the_fallback_not_a_power_command():
+    # test_a_plan_that_cannot_be_followed_runs_the_fallback_not_a_power_command
     for kwargs in (
         {"plan": "unknown"},
         {"plan": "3.0", "status": "infeasible"},
@@ -240,8 +239,7 @@ def test_a_plan_that_cannot_be_followed_runs_the_fallback_not_a_power_command():
         assert ran == FALLBACK, kwargs
         assert ctx["power_kw"] == 0
 
-
-def test_power_is_clamped_to_the_maximum_and_always_positive():
+    # test_power_is_clamped_to_the_maximum_and_always_positive
     ran, ctx = run("plan", plan="-12.0")
     assert ctx["power_kw"] == 5.0
     assert ran == [
@@ -251,27 +249,21 @@ def test_power_is_clamped_to_the_maximum_and_always_positive():
         "input_text.set_value=CHG",
     ]
 
-
-def test_an_unchanged_mode_sends_only_the_setpoint():
+    # test_an_unchanged_mode_sends_only_the_setpoint
     ran, _ = run("tick", plan="3.0", helper="DIS")
     assert ran == ["set_power_actions", "keepalive_actions"]
 
-
-def test_the_fallback_is_resent_after_a_restart_when_the_helper_already_says_so():
-    """Mark Purcell, #1955: the helper survives a restart, the inverter's
-    state may not. Before the fix this ran nothing."""
+    # test_the_fallback_is_resent_after_a_restart_when_the_helper_already_says_so: Mark Purcell, #1955: the helper survives a restart, the inverter's
     ran, _ = run("start", plan="unknown", helper="FALLBACK")
     assert ran == FALLBACK
 
-
-def test_every_mode_command_is_resent_at_start():
+    # test_every_mode_command_is_resent_at_start
     ran, _ = run("start", plan="0.0", helper="SC")
     assert ran == ["self_consume_actions"]
     ran, _ = run("start", plan="3.0", helper="DIS")
     assert ran[0] == "discharge_actions"
 
-
-def test_the_mode_command_is_resent_every_n_minutes_on_the_tick():
+    # test_the_mode_command_is_resent_every_n_minutes_on_the_tick
     on_the_ten = NOW.replace(minute=20, second=0)
     ran, _ = run("tick", plan="unknown", helper="FALLBACK", now=on_the_ten)
     assert ran == FALLBACK
@@ -282,6 +274,7 @@ def test_the_mode_command_is_resent_every_n_minutes_on_the_tick():
 
 
 def test_resend_off_still_resends_at_start():
+    # test_resend_off_still_resends_at_start
     on_the_ten = NOW.replace(minute=20, second=0)
     ran, _ = run(
         "tick", plan="unknown", helper="FALLBACK", now=on_the_ten, resend_minutes=0
@@ -290,8 +283,7 @@ def test_resend_off_still_resends_at_start():
     ran, _ = run("start", plan="unknown", helper="FALLBACK", resend_minutes=0)
     assert ran == FALLBACK
 
-
-def test_the_dwell_holds_a_small_switch_but_never_a_large_reversal():
+    # test_the_dwell_holds_a_small_switch_but_never_a_large_reversal
     # Charging for a minute; the plan now discharges 1 kW: held in Charge.
     ran, ctx = run("plan", plan="1.0", helper="CHG", helper_age_s=60)
     assert ctx["target_mode"] == "CHG"
@@ -304,8 +296,7 @@ def test_the_dwell_holds_a_small_switch_but_never_a_large_reversal():
     ran, ctx = run("plan", plan="6.0", helper="SC", helper_age_s=60)
     assert ctx["target_mode"] == "SC"
 
-
-def test_a_price_spike_skips_the_dwell():
+    # test_a_price_spike_skips_the_dwell
     ran, ctx = run(
         "plan",
         plan="1.0",
@@ -316,16 +307,11 @@ def test_a_price_spike_skips_the_dwell():
     assert ctx["target_mode"] == "DIS"
     assert ran[0] == "discharge_actions"
 
-
-def test_absorb_surplus_uses_self_consume():
+    # test_absorb_surplus_uses_self_consume
     ran, _ = run("plan", plan="-2.0", helper="CHG", attrs={"absorb_surplus": True})
     assert ran == ["self_consume_actions", "input_text.set_value=SC"]
 
-
-SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
-
-
-def test_a_solar_only_charge_self_consumes_instead_of_forcing_it():
+    # test_a_solar_only_charge_self_consumes_instead_of_forcing_it
     # nimbus #2066, 26 Oct: a forced 0.8 kW charge with 0.2 kW of sun was
     # bought from the grid. Self-Consume charges only from the sun there is.
     ran, ctx = run(
@@ -338,8 +324,7 @@ def test_a_solar_only_charge_self_consumes_instead_of_forcing_it():
     assert ctx["want"] == "SC"
     assert ran == ["self_consume_actions", "input_text.set_value=SC"]
 
-
-def test_a_grid_charge_is_still_forced():
+    # test_a_grid_charge_is_still_forced
     ran, ctx = run(
         "plan",
         plan="-0.8",
@@ -350,13 +335,11 @@ def test_a_grid_charge_is_still_forced():
     assert ctx["want"] == "CHG"
     assert ran[0] == "charge_actions"
 
-
-def test_without_the_solar_signal_every_charge_is_forced():
+    # test_without_the_solar_signal_every_charge_is_forced
     _, ctx = run("plan", plan="-0.8", helper="SC", extra={SOLAR: "True"})
     assert ctx["want"] == "CHG"
 
-
-def test_the_solar_signal_never_turns_a_discharge_into_self_consume():
+    # test_the_solar_signal_never_turns_a_discharge_into_self_consume
     _, ctx = run(
         "plan",
         plan="2.0",
@@ -366,6 +349,9 @@ def test_the_solar_signal_never_turns_a_discharge_into_self_consume():
         extra={SOLAR: "True"},
     )
     assert ctx["want"] == "DIS"
+
+
+SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
 
 
 def test_overlapping_triggers_queue_and_an_overflow_is_logged():

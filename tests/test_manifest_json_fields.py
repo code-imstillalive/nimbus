@@ -38,12 +38,13 @@ class TestManifestJsonFields(unittest.TestCase):
             self.manifest = json.load(f)
 
     def test_frontend_is_a_declared_dependency(self):
+        # test_frontend_is_a_declared_dependency
         self.assertIn("frontend", self.manifest["dependencies"])
 
-    def test_single_config_entry_is_declared_true(self):
+        # test_single_config_entry_is_declared_true
         self.assertIs(self.manifest["single_config_entry"], True)
 
-    def test_integration_type_is_hub_not_service(self):
+        # test_integration_type_is_hub_not_service
         # "service" is HA's own documented type for a cloud/web-service
         # integration -- Nimbus is purely local. "hub" is the documented
         # type for an integration whose config entry represents a hub

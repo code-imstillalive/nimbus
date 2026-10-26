@@ -280,13 +280,11 @@ class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
         self.documented = _documented_entity_ids()
 
     def test_the_derivation_found_a_plausible_number_of_entities(self):
-        """A composition bug that produced an empty or tiny set would
-        make the real assertion below fail for the wrong reason, or a
-        runaway one would make it pass for the wrong reason."""
+        # test_the_derivation_found_a_plausible_number_of_entities: A composition bug that produced an empty or tiny set would
         self.assertGreater(len(self.real), 100)
         self.assertGreater(len(self.documented), 20)
 
-    def test_every_documented_entity_id_is_real(self):
+        # test_every_documented_entity_id_is_real
         for rel in _USER_FACING_DOCS:
             path = _REPO_ROOT / rel
             with self.subTest(doc=rel):
@@ -304,10 +302,7 @@ class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
                     "renamed and the reference should follow it.",
                 )
 
-    def test_every_documented_unit_matches_the_real_spec(self):
-        """Names alone would not have caught #283's other two defects.
-        This file's own Unit column is a claim about the entity, and it
-        is checkable against the spec that produces it."""
+        # test_every_documented_unit_matches_the_real_spec: Names alone would not have caught #283's other two defects.
         real = _real_units()
         documented = _documented_units()
         checked = 0
@@ -328,12 +323,7 @@ class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
             checked, 20, "sanity check: almost no documented units were compared"
         )
 
-    def test_every_flattened_family_is_accounted_for(self):
-        """The guard on the guard. If a new `FLATTENED_ATTRS_*` family is
-        added and the AST derivation cannot see its prefix, its children
-        silently drop out of `real` -- and this test would then start
-        reporting real entities as phantom, or worse, stop covering
-        them."""
+        # test_every_flattened_family_is_accounted_for: The guard on the guard. If a new `FLATTENED_ATTRS_*` family is
         declared = {
             name
             for name in dir(sf)
@@ -351,21 +341,12 @@ class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
             "Check how they are wired in sensor_flattened.py's setup.",
         )
 
-    def test_the_flex_report_family_publishes_under_the_flex_prefix(self):
-        """Pinned by name because it is the case that breaks the obvious
-        implementation: the tuple is `FLATTENED_ATTRS_FLEX_REPORT` and the
-        prefix is `nimbus_flex`. Anyone rewriting this derivation to use
-        the tuple's own name will fail here rather than silently emit
-        five phantom ids."""
+        # test_the_flex_report_family_publishes_under_the_flex_prefix: Pinned by name because it is the case that breaks the obvious
         self.assertEqual(
             _family_prefixes()["FLATTENED_ATTRS_FLEX_REPORT"], "nimbus_flex"
         )
 
-    def test_the_removed_uplift_sensor_stays_removed_from_the_doc(self):
-        """The specific row this test was written for. `uplift_available`
-        is still a real ATTRIBUTE on the quality report -- only the
-        flattened entity went away -- so a future edit restoring the row
-        is an easy mistake to make."""
+        # test_the_removed_uplift_sensor_stays_removed_from_the_doc: The specific row this test was written for. `uplift_available`
         self.assertNotIn("sensor.nimbus_quality_uplift_available", self.documented)
         self.assertIn("sensor.nimbus_quality_regret_dollars", self.real)
 

@@ -415,11 +415,7 @@ def test_compact_grid_pos_green_neg_red(compact_rules):
 
 
 def test_row_html_emits_source_time_and_column_classes():
-    """Static grep on the JS source: every forecast row includes the wide
-    and compact source spans, the wide and compact now-tag spans, and
-    the column-classifier classes the compact CSS targets. Without
-    this, the CSS rules above would have nothing to target and the
-    test would pass on empty markup."""
+    # test_row_html_emits_source_time_and_column_classes: Static grep on the JS source: every forecast row includes the wide
     src = CARD_JS.read_text()
     for expected in (
         'class="src-wide"',
@@ -449,10 +445,7 @@ def test_row_html_emits_source_time_and_column_classes():
             f"above targets it and would be silently no-op otherwise"
         )
 
-
-def test_row_html_emits_grid_sign_class():
-    """Static grep: the sign-conditional grid class (grid-pos / grid-neg)
-    is emitted so the trader-convention compact colour rule can attach."""
+    # test_row_html_emits_grid_sign_class: Static grep: the sign-conditional grid class (grid-pos / grid-neg)
     src = CARD_JS.read_text()
     assert "grid-pos" in src and "grid-neg" in src, (
         "row rendering must emit grid-pos / grid-neg sign classes"

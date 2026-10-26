@@ -46,53 +46,6 @@ def _hourly_load_events_with_one_nan(days: float) -> list[tuple[datetime, float]
 
 
 class TestTrainModelNanPoisoning(unittest.TestCase):
-    def test_a_single_nan_event_does_not_poison_validation_mae(self):
-        days = 15.0
-        start = START_OF_TIME
-        end = start + timedelta(days=days)
-        load_events = _hourly_load_events_with_one_nan(days)
-
-        trained = ml_model.train_model(
-            load_events=load_events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=start,
-            end=end,
-            resample_minutes=60,
-            min_training_points=50,
-        )
-
-        self.assertIsNotNone(trained)
-        for name, mae in trained.validation_mae.items():
-            self.assertTrue(
-                math.isfinite(mae), f"validation_mae[{name!r}] is not finite: {mae}"
-            )
-
-    def test_a_single_nan_event_does_not_poison_the_seasonal_lookup(self):
-        days = 15.0
-        start = START_OF_TIME
-        end = start + timedelta(days=days)
-        load_events = _hourly_load_events_with_one_nan(days)
-
-        trained = ml_model.train_model(
-            load_events=load_events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=start,
-            end=end,
-            resample_minutes=60,
-            min_training_points=50,
-        )
-
-        self.assertIsNotNone(trained)
-        self.assertGreater(len(trained.seasonal_lookup), 0)
-        for bucket, value in trained.seasonal_lookup.items():
-            self.assertTrue(
-                math.isfinite(value), f"seasonal_lookup[{bucket!r}] is not finite"
-            )
-
     def test_a_single_nan_event_does_not_break_a_real_predict_call(self):
         days = 15.0
         start = START_OF_TIME

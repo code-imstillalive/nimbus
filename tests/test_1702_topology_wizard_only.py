@@ -58,15 +58,15 @@ CARD_CONFIG = {
 }
 
 
-def test_render_no_longer_merges_the_card_under_the_wizard() -> None:
+def test_render_no_longer_merges_the_card_under_the_wizard():
+    # test_render_no_longer_merges_the_card_under_the_wizard
     render = SRC[SRC.index("  _render() {") :]
     render = render[: render.index("roleSignals")]
     assert "...this._config.switchboard" not in render
     assert "topologyWizardHolds(topoAttrs)" in render
     assert "switchboard: topologyWizardSwitchboard(topoAttrs)" in render
 
-
-def test_the_editor_is_read_only_and_points_at_the_wizard() -> None:
+    # test_the_editor_is_read_only_and_points_at_the_wizard
     assert "static getConfigElement()" in SRC
     assert 'nimbusRegisterCard("nimbus-topology-card-editor"' in SRC
     editor = SRC[SRC.index("class NimbusTopologyCardEditor") :]

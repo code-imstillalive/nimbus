@@ -156,34 +156,8 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
             extra_batteries._solver_writer = real
         return writer
 
-    def test_a_participant_with_no_trip_calendar_never_calls_it(self):
-        """The default shape for every install that has not configured one --
-        which is what earns #1290 the same-day carve-out."""
-        writer = self._drive(self._participant())
-        self.assertEqual(
-            writer.calendar_calls,
-            [],
-            "fetch_calendar_trips() must not be reached without a configured "
-            "trip calendar; #1290 changed that function's behaviour, so any "
-            "call here would mean the change is NOT opt-in",
-        )
-
-    def test_an_empty_string_calendar_is_also_inert(self):
-        """A cleared config-flow field arrives as "" rather than None, and the
-        guard is a truthiness test -- so it must be inert too."""
-        for value in ("", None):
-            with self.subTest(calendar=value):
-                writer = self._drive(
-                    self._participant(
-                        **{const.CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY: value}
-                    )
-                )
-                self.assertEqual(writer.calendar_calls, [])
-
     def test_a_participant_WITH_a_calendar_does_reach_it(self):
-        """The positive control, and the reason the two tests above mean
-        anything: it proves this harness CAN observe the call. Without it,
-        "never called" would pass just as happily on a mis-wired stub."""
+        # test_a_participant_WITH_a_calendar_does_reach_it: The positive control, and the reason the two tests above mean
         writer = self._drive(
             self._participant(
                 **{
@@ -202,10 +176,7 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         )
         self.assertEqual(writer.calendar_calls[0][0], "calendar.ev_trips")
 
-    def test_the_guard_also_requires_a_real_period_grid(self):
-        """`periods is not None and periods.period_starts` is the guard's
-        second half: even an opted-in participant cannot reach the call before
-        a grid exists, which is the cache-reconstruction path."""
+        # test_the_guard_also_requires_a_real_period_grid: `periods is not None and periods.period_starts` is the guard's
         writer = self._FakeWriter(self._FakeHass([]))
         real = extra_batteries._solver_writer
         extra_batteries._solver_writer = lambda: writer

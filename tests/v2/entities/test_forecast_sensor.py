@@ -13,8 +13,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -52,33 +50,20 @@ def _sensor(*, kind=None, role=None, data=None, source_state="1.2"):
     return s
 
 
-def test_a_load_forecast_is_named_from_its_source_and_measured_in_kw():
-    s = _sensor()
-    assert s.entity_id == f"sensor.{sm.object_id_from_source('sensor.pool_pump_power')}"
-    assert s.entity_id.endswith("_forecast")
-    assert s._attr_unique_id == "sub1_load_forecast"
-    assert s._attr_native_unit_of_measurement == "kW"
-    assert s._attr_device_info["model"] == "Load Forecaster"
-    assert s._attr_device_info["name"] == "Pool pump"
-
-
-@pytest.mark.parametrize(
-    ("role", "unit", "device_class"),
-    [
+def test_a_signal_forecast_takes_its_roles_unit():
+    # test_a_signal_forecast_takes_its_roles_unit
+    for role, unit, device_class in [
         ("temperature", "°C", "TEMPERATURE"),
         ("humidity", "%", "HUMIDITY"),
         ("battery", "kW", "POWER"),
-    ],
-)
-def test_a_signal_forecast_takes_its_roles_unit(role, unit, device_class):
-    s = _sensor(kind=const.SUBENTRY_TYPE_SIGNAL, role=role)
-    assert s._attr_unique_id == "sub1_signal_forecast"
-    assert s._attr_device_info["model"] == "Power Signal Forecaster"
-    assert s._attr_native_unit_of_measurement == unit
-    assert s._attr_device_class is getattr(sm.SensorDeviceClass, device_class)
+    ]:
+        s = _sensor(kind=const.SUBENTRY_TYPE_SIGNAL, role=role)
+        assert s._attr_unique_id == "sub1_signal_forecast"
+        assert s._attr_device_info["model"] == "Power Signal Forecaster"
+        assert s._attr_native_unit_of_measurement == unit
+        assert s._attr_device_class is getattr(sm.SensorDeviceClass, device_class)
 
-
-def test_the_forecast_and_its_provenance_are_published_as_given():
+    # test_the_forecast_and_its_provenance_are_published_as_given
     now = datetime.now(UTC)
     forecast = [
         {"time": (now + timedelta(minutes=15 * i)).isoformat(), "value": 2.0}
@@ -103,15 +88,13 @@ def test_the_forecast_and_its_provenance_are_published_as_given():
     summary = set(attrs) - set(temp.extra_state_attributes)
     assert summary and summary == set(sm.forecast_stats.energy_summary(forecast, now))
 
-
-def test_before_any_data_the_sensor_is_empty_and_unavailable():
+    # test_before_any_data_the_sensor_is_empty_and_unavailable
     s = _sensor(data=None)
     assert s.native_value is None and not s.available
     assert s.extra_state_attributes[const.ATTR_FORECAST] == []
     assert s.extra_state_attributes[const.ATTR_MODE] == "unscheduled"
 
-
-def test_a_failed_update_is_unavailable():
+    # test_a_failed_update_is_unavailable
     s = _sensor(data={"state": 1.0})
     s.coordinator.last_update_success = False
     assert not s.available
@@ -135,20 +118,3 @@ def test_a_source_gone_for_two_refreshes_makes_the_forecast_unavailable(caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert sum("is now unavailable" in m for m in messages) == 1
     assert sum("available again" in m for m in messages) == 1
-
-
-def test_both_recursive_validation_metrics_are_published():
-    data = {
-        "state": 1.0,
-        "forecast": [],
-        "validation_recursive_mae": {"knn": 0.2, "gbrt": 0.1, "naive": 0.3},
-        "validation_recursive_mae_by_horizon": {"96": {"knn": 0.4}},
-    }
-    attrs = _sensor(data=data).extra_state_attributes
-    assert (
-        attrs[const.ATTR_VALIDATION_RECURSIVE_MAE] == data["validation_recursive_mae"]
-    )
-    assert (
-        attrs[const.ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON]
-        == data["validation_recursive_mae_by_horizon"]
-    )

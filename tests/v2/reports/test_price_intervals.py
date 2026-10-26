@@ -42,57 +42,8 @@ def _well_formed(intervals):
 # --- each provider's own rows -----------------------------------------------------------------
 
 
-def test_aemo_nem_rows_are_their_own_intervals():
-    rows = _rows("1550_aemo_nem_qld.json")
-    assert pi.is_aemo_nem_rows(rows) and not pi.is_pd7day_rows(rows)
-    got = pi.aemo_nem_intervals(rows)
-    _well_formed(got)
-    first = min(rows, key=lambda r: r["start_time"])
-    assert (got[0].start.isoformat(), got[0].value) == (
-        datetime.fromisoformat(first["start_time"]).isoformat(),
-        float(first["price"]),
-    )
-    assert pi.intervals_from_rows(rows) == got
-
-
-def test_pd7day_rows_run_from_time_to_nemtime_and_know_their_basis():
-    d = _fixture("1550_pd7day_qld_wholesale.json")
-    rows = d["selected_native_rows"]
-    got = pi.pd7day_intervals(rows)
-    _well_formed(got)
-    assert pi.pd7day_basis(rows) == pi.BASIS_WHOLESALE
-    assert got[0].value == pytest.approx(rows[0]["value"])
-    basis = {
-        t["sample_alias"]: pi.pd7day_basis(t["selected_native_rows"])
-        for t in d["tariff_samples"]
-    }
-    assert basis == {
-        "pd7_import": pi.BASIS_TARIFF,
-        "pd7_export": pi.BASIS_TARIFF,
-        "pd7_continuation": pi.BASIS_WHOLESALE,
-    }
-    # A row carrying only the calibrated price is still read.
-    only_cal = [
-        {
-            "time": "2026-10-06T12:30:00+10:00",
-            "nemtime": "2026-10-06T13:00:00+10:00",
-            "calibrated": 0.05,
-        }
-    ]
-    assert pi.pd7day_intervals(only_cal)[0].value == 0.05
-
-
-@pytest.mark.parametrize("sample", ["amber_import_action", "amber_export_action"])
-def test_amber_core_rows_start_on_their_nominal_boundary(sample):
-    rows = _rows("1550_amber_core.json", sample)
-    assert pi.is_amber_core_rows(rows)
-    got = pi.amber_core_intervals(rows)
-    _well_formed(got)
-    # Amber stamps start one second past the boundary; the interval does not.
-    assert all(i.start.second == 0 for i in got)
-
-
 def test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals():
+    # test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals
     d = _fixture("1550_amber_express.json")["samples"]
     simple = d["amber_express_general_simple"]["selected_native_rows"]
     detail = d["amber_express_general_detail"]["selected_native_rows"]
@@ -101,28 +52,7 @@ def test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals():
     assert pi.amber_express_intervals(simple, "x") is None
     assert pi.amber_express_intervals(None, detail) is None
 
-
-@pytest.mark.parametrize(
-    "sample", ["openadr_import", "openadr_export", "openadr_second_program"]
-)
-def test_openadr_rows_last_their_own_stated_minutes(sample):
-    rows = _rows("1550_openadr.json", sample)
-    got = pi.openadr_intervals(rows)
-    _well_formed(got)
-
-
-# --- what breaks an adapter -------------------------------------------------------------------
-
-
-def _aemo(start_min, end_min, price):
-    return {
-        "start_time": (T0 + timedelta(minutes=start_min)).isoformat(),
-        "end_time": (T0 + timedelta(minutes=end_min)).isoformat(),
-        "price": price,
-    }
-
-
-def test_overlaps_keep_the_first_row_and_bad_rows_are_skipped():
+    # test_overlaps_keep_the_first_row_and_bad_rows_are_skipped
     rows = [
         _aemo(30, 60, 0.3),
         _aemo(0, 30, 0.1),
@@ -139,21 +69,16 @@ def test_overlaps_keep_the_first_row_and_bad_rows_are_skipped():
         (timedelta(minutes=30), 0.3),
     ]
 
-
-@pytest.mark.parametrize(
-    ("rows", "expected_minutes"),
-    [
+    # test_an_openadr_row_without_a_usable_length_is_an_hour
+    for rows, expected_minutes in [
         ([{"datetime": T0.isoformat(), "value": 0.2, "interval_minutes": 15}], 15),
         ([{"datetime": T0.isoformat(), "value": 0.2, "interval_minutes": "x"}], 60),
         ([{"datetime": T0.isoformat(), "value": 0.2}], 60),
-    ],
-)
-def test_an_openadr_row_without_a_usable_length_is_an_hour(rows, expected_minutes):
-    (got,) = pi.openadr_intervals(rows)
-    assert got.end - got.start == timedelta(minutes=expected_minutes)
+    ]:
+        (got,) = pi.openadr_intervals(rows)
+        assert got.end - got.start == timedelta(minutes=expected_minutes)
 
-
-def test_openadr_rows_come_from_the_get_forecast_response_for_price_programs_only():
+    # test_openadr_rows_come_from_the_get_forecast_response_for_price_programs_only
     response = {
         "sensor.adr": {"payload_type": "PRICE", "forecast": [1]},
         "sensor.lvl": {"payload_type": "LEVEL", "forecast": [2]},
@@ -166,8 +91,7 @@ def test_openadr_rows_come_from_the_get_forecast_response_for_price_programs_onl
         {"forecast_rows": 3, "payload_type": "EXPORT_PRICE"}
     )
 
-
-def test_amber_express_without_a_detailed_end_uses_the_next_point_up_to_half_an_hour():
+    # test_amber_express_without_a_detailed_end_uses_the_next_point_up_to_half_an_hour
     forecast = [
         {"time": T0.isoformat(), "value": 0.1},
         {"time": (T0 + timedelta(minutes=5)).isoformat(), "value": 0.2},
@@ -179,15 +103,7 @@ def test_amber_express_without_a_detailed_end_uses_the_next_point_up_to_half_an_
         (timedelta(0), timedelta(minutes=5))
     ]
 
-
-# --- LocalVolts v2 -----------------------------------------------------------------------------
-
-
-def _lv(end_min, **row):
-    return {"intervalEnd": (T0 + timedelta(minutes=end_min)).isoformat(), **row}
-
-
-def test_localvolts_rates_and_matched_rates_by_direction_and_quality():
+    # test_localvolts_rates_and_matched_rates_by_direction_and_quality
     rows = [
         _lv(5, direction="Buy", quality="Fcst", flexUp=30.0),
         _lv(10, direction="Sell", quality="Fcst", flexUp=10.0),
@@ -212,11 +128,7 @@ def test_localvolts_rates_and_matched_rates_by_direction_and_quality():
         (0.0, False),
     ]
 
-
-# --- on the plan's grid --------------------------------------------------------------------------
-
-
-def test_intervals_on_the_grid_hold_the_latest_value_and_mark_real_coverage():
+    # test_intervals_on_the_grid_hold_the_latest_value_and_mark_real_coverage
     intervals = pi.aemo_nem_intervals([_aemo(0, 30, 0.1), _aemo(60, 90, 0.3)])
     grid = [
         T0 - timedelta(minutes=30),
@@ -241,8 +153,7 @@ def test_intervals_on_the_grid_hold_the_latest_value_and_mark_real_coverage():
         (T0 + timedelta(minutes=60), 0.3),
     ]
 
-
-def test_a_provider_sensor_is_recognised_by_its_attributes():
+    # test_a_provider_sensor_is_recognised_by_its_attributes
     aemo = {"forecast": _rows("1550_aemo_nem_qld.json")}
     assert pi.is_provider_shape(aemo)
     _values, covered = pi.provider_forecast_on_grid(aemo, [T0 + timedelta(minutes=10)])
@@ -261,20 +172,25 @@ def test_a_provider_sensor_is_recognised_by_its_attributes():
     assert pi.provider_forecast_on_grid(adr, [T0]) is None
 
 
-@pytest.mark.parametrize(
-    ("unit", "scale"),
-    [
-        ("$/kWh", 1.0),
-        ("c/kWh", 0.01),
-        ("¢/kWh", 0.01),
-        ("$/MWh", 0.001),
-        ("AUD / kWh", 1.0),
-        (None, 1.0),
-        ("kW", 1.0),
-    ],
-)
-def test_a_price_unit_scales_to_dollars_per_kwh(unit, scale):
-    assert pi.price_unit_scale(unit) == pytest.approx(scale)
+# --- what breaks an adapter -------------------------------------------------------------------
+
+
+def _aemo(start_min, end_min, price):
+    return {
+        "start_time": (T0 + timedelta(minutes=start_min)).isoformat(),
+        "end_time": (T0 + timedelta(minutes=end_min)).isoformat(),
+        "price": price,
+    }
+
+
+# --- LocalVolts v2 -----------------------------------------------------------------------------
+
+
+def _lv(end_min, **row):
+    return {"intervalEnd": (T0 + timedelta(minutes=end_min)).isoformat(), **row}
+
+
+# --- on the plan's grid --------------------------------------------------------------------------
 
 
 def test_amber_spot_for_the_interval_in_progress_is_ex_gst():

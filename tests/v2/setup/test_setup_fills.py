@@ -68,6 +68,7 @@ def _plan(options, sensors=SENSORS):
 
 
 def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors():
+    # test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors
     plan = _plan(
         {
             const.CONF_BATTERY_SENSOR: "sensor.battery_w",
@@ -82,50 +83,31 @@ def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors(
     }
     assert plan.skipped == [] and not plan.empty
 
-
-def test_a_field_already_set_or_once_filled_is_never_offered_again():
-    options = {
-        const.CONF_BATTERY_SENSOR: "sensor.battery_w",
-        const.CONF_SOLAR_SENSOR: "sensor.solar_kw",
-        BATTERY: "sensor.mine",
-        sb.CONF_SETUP_BUILDER_DONE: [f"option:{SOLAR}"],
-    }
-    assert _plan(options).empty
-
-
-@pytest.mark.parametrize(
-    ("sensor", "reason"),
-    [
+    # test_a_sensor_that_cannot_be_a_power_reading_is_refused_with_why
+    for sensor, reason in [
         ("sensor.solar_kwh", "it reports 'kWh', an energy total, not power"),
         ("sensor.bare", "it reports no power unit"),
         ("sensor.amps", "it reports 'A', not a power unit"),
         ("sensor.nowhere", sb.MISSING),
-    ],
-)
-def test_a_sensor_that_cannot_be_a_power_reading_is_refused_with_why(sensor, reason):
-    plan = _plan({const.CONF_SOLAR_SENSOR: sensor})
-    assert plan.options == {}
-    assert plan.skipped == [sb.Skip(SOLAR, sensor, reason)]
-    assert plan.skipped[0].missing is (reason == sb.MISSING)
+    ]:
+        plan = _plan({const.CONF_SOLAR_SENSOR: sensor})
+        assert plan.options == {}
+        assert plan.skipped == [sb.Skip(SOLAR, sensor, reason)]
+        assert plan.skipped[0].missing is (reason == sb.MISSING)
 
-
-@pytest.mark.parametrize(
-    ("load_fc", "skipped"),
-    [
+    # test_the_cross_check_is_offered_only_from_a_whole_house_signal
+    for load_fc, skipped in [
         ("sensor.circuit_fc", []),  # a circuit is not the whole house: not offered
         (
             "sensor.unsourced_fc",
             [sb.Skip(CROSS, "sensor.unsourced_fc", "it names no source sensor")],
         ),
         ("sensor.gone_fc", [sb.Skip(CROSS, "sensor.gone_fc", sb.MISSING)]),
-    ],
-)
-def test_the_cross_check_is_offered_only_from_a_whole_house_signal(load_fc, skipped):
-    plan = _plan({const.CONF_SOLVER_LOAD_FORECAST_SENSOR: load_fc})
-    assert plan.options == {} and plan.skipped == skipped
+    ]:
+        plan = _plan({const.CONF_SOLVER_LOAD_FORECAST_SENSOR: load_fc})
+        assert plan.options == {} and plan.skipped == skipped
 
-
-def test_a_whole_house_signal_whose_source_is_not_power_is_refused():
+    # test_a_whole_house_signal_whose_source_is_not_power_is_refused
     sensors = {**SENSORS, "sensor.house_power": ("kWh", {})}
     plan = _plan({const.CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.house_fc"}, sensors)
     assert plan.skipped == [

@@ -60,6 +60,7 @@ def _make_bare_coordinator(loop: asyncio.AbstractEventLoop) -> NimbusCoordinator
 
 
 def test_second_coordinator_for_same_subentry_cancels_first_retrain_task():
+    # test_second_coordinator_for_same_subentry_cancels_first_retrain_task
     async def _run() -> None:
         loop = asyncio.get_running_loop()
         coordinator_module._retrain_tasks.pop(_SUBENTRY_ID, None)
@@ -100,8 +101,7 @@ def test_second_coordinator_for_same_subentry_cancels_first_retrain_task():
 
     asyncio.run(_run())
 
-
-def test_async_unload_cancels_the_tracked_retrain_task():
+    # test_async_unload_cancels_the_tracked_retrain_task
     async def _run() -> None:
         loop = asyncio.get_running_loop()
         coordinator_module._retrain_tasks.pop(_SUBENTRY_ID, None)

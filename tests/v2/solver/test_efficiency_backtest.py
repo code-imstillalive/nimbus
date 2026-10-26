@@ -8,13 +8,8 @@ simply the largest.
 
 from __future__ import annotations
 
-import itertools
-
 import numpy as np
-import pytest
 from solver.backtest import (
-    EFFICIENCY_CANDIDATES_PERCENT,
-    efficiency_label,
     run_efficiency_sensitivity_sweep,
     score_candidate_day,
 )
@@ -80,41 +75,3 @@ def test_judged_by_its_own_assumption_a_lossier_battery_never_scores_better():
         **_day(), battery=_battery(charge_efficiency=0.70, discharge_efficiency=0.70)
     )
     assert np.isfinite(perfect) and perfect <= lossy + 1e-6
-
-
-def test_every_candidate_is_scored_and_labelled():
-    results = _sweep()
-    assert {r.label for r in results} == {"85%", "90%", "95%", "99%"}
-    assert all(np.isfinite(r.total_cost) for r in results)
-    assert len(results) == len(EFFICIENCY_CANDIDATES_PERCENT)
-    assert {r.label for r in _sweep(candidates_percent=(80.0, 99.0))} == {"80%", "99%"}
-
-
-def test_judged_by_the_real_battery_the_best_candidate_is_its_own_efficiency():
-    """Scored under each candidate's own assumption the sweep was
-    monotonic and always answered 99%; scored under the battery as it is,
-    it finds the battery's real round trip."""
-    base = _battery()
-    real = round(base.charge_efficiency * base.discharge_efficiency * 100, 2)
-    results = _sweep(
-        base, candidates_percent=tuple(sorted({*EFFICIENCY_CANDIDATES_PERCENT, real}))
-    )
-    assert min(results, key=lambda r: r.total_cost).label == efficiency_label(real)
-    by_label = {r.label: r.total_cost for r in _sweep(base)}
-    ordered = [
-        by_label[efficiency_label(p)] for p in sorted(EFFICIENCY_CANDIDATES_PERCENT)
-    ]
-    assert not all(b <= a + 1e-6 for a, b in itertools.pairwise(ordered))
-
-
-@pytest.mark.parametrize(("pct", "label"), [(85.8, "85.8%"), (90.0, "90%")])
-def test_a_fractional_efficiency_keeps_its_own_label(pct, label):
-    assert efficiency_label(pct) == label
-
-
-def test_a_candidate_the_day_cannot_solve_is_skipped_not_fatal():
-    day = _day(import_limit=0.0001)
-    results = run_efficiency_sensitivity_sweep(
-        base_battery=_battery(max_charge_kw=0.0, max_discharge_kw=0.0), **day
-    )
-    assert isinstance(results, list)

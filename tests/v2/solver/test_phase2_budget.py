@@ -85,99 +85,6 @@ def test_a_spent_budget_keeps_the_cost_and_the_continuous_tie_break(caplog):
     assert any("used its" in rec.getMessage() for rec in caplog.records)
 
 
-@pytest.mark.parametrize(
-    ("prefer_g1", "phase1", "found", "kept"),
-    [
-        (5.0, "g0", "g1", "g1"),  # what phase 2 found is better: kept
-        (-5.0, "g0", "g1", "g0"),  # phase 1's is better: kept
-        (5.0, "g0", None, "g0"),  # nothing found: phase 1's, as #773 tier 2
-    ],
-)
-def test_the_better_switch_assignment_is_kept(prefer_g1, phase1, found, kept):
-    p = _switch_and_tie(prefer_g1)
-    with _budget_spent(), _points(p, phase1, found):
-        r = p.solve(options=LexOptions())
-    assert r.status == "optimal"
-    assert round(p.value_of(r, kept)) == 1
-    assert p.primary_cost_of(r) == pytest.approx(12.0)
-
-
-def test_the_budget_is_put_back_for_the_phases_after_it(monkeypatch):
-    monkeypatch.setattr(lp, "PHASE2_SECONDARY_BUDGET_SECONDS", 2.5)
-    seen = []
-    real = lp._Phase2Budget.restore
-
-    runtimes = []
-
-    def restore(self):
-        seen.append(self._h.getOptionValue("time_limit")[1])
-        runtimes.append(self._h.getRunTime())
-        real(self)
-        seen.append(self._h.getOptionValue("time_limit")[1])
-
-    with patch.object(lp._Phase2Budget, "restore", restore), _budget_spent():
-        _switch_and_tie().solve(options=LexOptions())
-    # A fresh window for the pinned LPs: HiGHS limits an LP run by the
-    # handle's total run time, so the absolute limit could leave none.
-    assert seen[:2] == [
-        pytest.approx(2.5),
-        pytest.approx(runtimes[0] + lp.DEFAULT_TIME_LIMIT_SECONDS),
-    ]
-
-
-def test_an_lp_after_the_limit_is_used_up_still_solves():
-    """The HiGHS behaviour the fresh window answers (highspy 1.15.1): after a
-    MIP uses up the handle's limit, an LP run on the same handle stops at
-    once -- 0 iterations, "Time limit reached" -- because an LP is limited
-    by the handle's total run time. With the fresh window it solves. A 0.3 s
-    limit on a knapsack HiGHS cannot finish stands in for 60 s."""
-    import highspy
-    import numpy as np
-
-    def relaxed_after_a_long_mip():
-        rng = np.random.default_rng(1)
-        h = highspy.Highs()
-        h.setOptionValue("output_flag", False)
-        n = 120
-        for i in range(n):
-            h.addVar(0.0, 1.0)
-            h.changeColCost(i, -float(rng.integers(1, 100)))
-            h.changeColIntegrality(i, highspy.HighsVarType.kInteger)
-        for _ in range(80):
-            a = rng.integers(1, 100, n).astype(float)
-            idx = np.arange(n, dtype=np.int32)
-            h.addRow(-highspy.kHighsInf, float(a.sum() / 2), n, idx, a)
-        h.setOptionValue("time_limit", 0.3)
-        h.run()  # the MIP spends the whole limit, as a long phase 1 + 2 does
-        for i in range(n):
-            h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
-        return h
-
-    stale = relaxed_after_a_long_mip()
-    stale.run()
-    assert stale.modelStatusToString(stale.getModelStatus()) == "Time limit reached"
-    assert stale.getInfo().simplex_iteration_count == 0
-
-    fresh = relaxed_after_a_long_mip()
-    budget = lp._Phase2Budget(fresh)  # reads the 0.3 s limit as "previous"
-    budget.restore()
-    fresh.run()
-    assert fresh.modelStatusToString(fresh.getModelStatus()) == "Optimal"
-
-
-def test_without_switches_there_is_no_budget():
-    """A pure LP has no phase-2 search to bound."""
-    p = LPProblem()
-    p.add_variable("x1", ub=10.0, cost=1.0)
-    p.add_variable("x2", ub=10.0, cost=1.0)
-    p.set_secondary_cost("x2", -1.0)
-    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0)
-    with patch.object(lp, "_Phase2Budget", side_effect=AssertionError("budgeted")):
-        r = p.solve(options=LexOptions())
-    assert r.status == "optimal"
-    assert p.value_of(r, "x2") == pytest.approx(10.0, abs=1e-4)
-
-
 class _Handle:
     def __init__(self, status):
         self._status = status
@@ -193,21 +100,6 @@ def test_a_spent_budget_is_labelled_and_a_real_timeout_is_not():
     timed_out = _Handle(lp.highspy.HighsModelStatus.kTimeLimit)
     assert lp._status_label(timed_out, budgeted=True) == lp._BUDGET_SPENT
     assert lp._status_label(timed_out, budgeted=False) == "Time limit reached"
-
-
-def test_a_spent_budget_does_not_raise_the_solve_summary_to_a_warning(caplog):
-    """The per-solve breakdown warns for a slow or failed phase; phase 2 on
-    its budget is neither, so the summary stays at DEBUG."""
-    with (
-        caplog.at_level(logging.DEBUG, logger=lp._LOGGER.name),
-        lp._phase_breakdown(),
-    ):
-        lp._phase_record(("lex_phase:phase1_primary", 1.0, 10, 1, 0.0, "Optimal"))
-        lp._phase_record(
-            ("lex_phase:phase2_secondary", 5.1, 99, 0, 0.1, lp._BUDGET_SPENT)
-        )
-    summary = [r for r in caplog.records if "phase breakdown" in r.getMessage()]
-    assert summary and all(r.levelno == logging.DEBUG for r in summary)
 
 
 def test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set():

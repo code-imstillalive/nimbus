@@ -9,7 +9,6 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 import yaml
 from jinja2 import Environment, StrictUndefined
 
@@ -57,9 +56,9 @@ def _render(rows, health=None):
     )
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
+def test_missing_or_invalid_period_never_claims_current():
+    # test_missing_or_invalid_period_never_claims_current
+    for rows in [
         None,
         [],
         {},
@@ -74,28 +73,21 @@ def _render(rows, health=None):
         [{"time": "2026-10-04T12:00:00+00:00", "hours": float("inf")}],
         [{"time": float("nan"), "hours": 1}],
         [{"time": float("inf"), "hours": 1}],
-    ],
-)
-def test_missing_or_invalid_period_never_claims_current(rows):
-    output = _render(rows)
-    assert "Period check: missing or invalid period" in output
-    assert "covers now" not in output
+    ]:
+        output = _render(rows)
+        assert "Period check: missing or invalid period" in output
+        assert "covers now" not in output
 
-
-@pytest.mark.parametrize(
-    ("start", "hours", "expected"),
-    [
+    # test_period_boundaries_and_timezone
+    for start, hours, expected in [
         ("2026-10-04T11:00:00+00:00", 1, "expired period"),
         ("2026-10-04T12:05:00+00:00", 1, "future period"),
         ("2026-10-04T12:00:00+00:00", 0.0833, "covers now"),
         ("2026-10-04T21:55:00+10:00", 0.25, "covers now"),
-    ],
-)
-def test_period_boundaries_and_timezone(start, hours, expected):
-    assert f"Period check: {expected}" in _render([{"time": start, "hours": hours}])
+    ]:
+        assert f"Period check: {expected}" in _render([{"time": start, "hours": hours}])
 
-
-def test_health_diagnostics_do_not_hide_empty_or_missing_values():
+    # test_health_diagnostics_do_not_hide_empty_or_missing_values
     empty = _render([], {"recent_errors": [], "never_trained": []})
     missing = _render([])
     warning = _render([], {"recent_warnings": ["example warning"]})
@@ -104,8 +96,7 @@ def test_health_diagnostics_do_not_hide_empty_or_missing_values():
     assert "Recent errors: None" in missing
     assert "example warning" in warning
 
-
-def test_flat_price_templates_render_dollars_not_cents():
+    # test_flat_price_templates_render_dollars_not_cents
     text = GUIDE.read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| State |"))
     templates = re.findall(r"`([^`]+)`", row)
@@ -113,8 +104,7 @@ def test_flat_price_templates_render_dollars_not_cents():
     values = [float(Environment().from_string(t).render()) for t in templates]
     assert values == [0.30, 0.05]
 
-
-def test_first_card_has_only_sensors_and_no_control_helpers():
+    # test_first_card_has_only_sensors_and_no_control_helpers
     blocks = _blocks("yaml")
     assert len(blocks) == 1
     card = yaml.safe_load(blocks[0])

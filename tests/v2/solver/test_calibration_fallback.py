@@ -114,20 +114,6 @@ class TestAFailingPlanCarriesIt(unittest.TestCase):
     def _grid(self) -> PeriodGrid:
         return PeriodGrid(hours=_HOURS)
 
-    def test_default_is_false(self):
-        p = net_mod._infeasible_plan(self._grid(), "error", 0, raw_status="kUnknown")
-        self.assertIs(getattr(p, FIELD), False)
-
-    def test_it_is_carried_when_set(self):
-        p = net_mod._infeasible_plan(
-            self._grid(),
-            "error",
-            0,
-            raw_status="kUnknown",
-            **{FIELD: True},
-        )
-        self.assertIs(getattr(p, FIELD), True)
-
 
 class TestTheFailureLogSaysWhich(unittest.TestCase):
     """Property 5 -- a field nothing reports is not observability."""

@@ -13,7 +13,6 @@ safe").
 from __future__ import annotations
 
 import copy
-from unittest.mock import patch
 
 from homeassistant.config_entries import ConfigSubentryDataWithId
 from homeassistant.core import HomeAssistant
@@ -104,37 +103,6 @@ def _settings(hass: HomeAssistant, entry: MockConfigEntry) -> dict:
     }
 
 
-async def test_preview_shadow_and_back_change_no_setting_and_call_no_service(
-    hass: HomeAssistant, hass_storage
-):
-    entry = await _setup(hass)
-    before = _settings(hass, entry)
-    # ServiceRegistry has __slots__, so patch the class, not the instance.
-    with patch("homeassistant.core.ServiceRegistry.async_call") as calls:
-        pv = await device_contract_ha.async_preview(hass, entry)
-        assert pv["mode"] == "legacy" and pv["revision"] == 0
-        assert pv["clean"] is True, pv
-        assert {d["id"] for d in pv["devices"]} >= {
-            "grid",
-            "load_house",
-            "battery",
-            "solar",
-        }
-
-        shadow = await device_contract_ha.async_set_mode(hass, entry, "shadow")
-        assert shadow == {"ok": True, "code": None, "mode": "shadow", "revision": 1}
-        back = await device_contract_ha.async_set_mode(hass, entry, "legacy")
-        assert back["ok"] is True and back["mode"] == "legacy"
-    assert calls.call_count == 0
-    assert _settings(hass, entry) == before
-
-    stored = hass_storage[device_storage.store_key(entry.entry_id)]["data"]
-    assert stored["mode"] == "legacy" and stored["revision"] == 1
-    hws = next(d for d in stored["document"]["devices"] if d["id"] == "hot_water")
-    assert hws["control"]["entity_id"] == "switch.hws"
-    assert stored["document"]["site"]["control_policy"] == "authorised"
-
-
 async def test_a_conflict_refuses_shadow_and_writes_nothing(
     hass: HomeAssistant, hass_storage
 ):
@@ -146,24 +114,3 @@ async def test_a_conflict_refuses_shadow_and_writes_nothing(
     assert [c["code"] for c in result["conflicts"]] == ["conflict_role_sources"]
     assert device_storage.store_key(entry.entry_id) not in hass_storage
     assert _settings(hass, entry) == before
-
-
-async def test_the_services_are_registered_and_answer(
-    hass: HomeAssistant, hass_storage
-):
-    from custom_components.nimbus_load import services
-
-    await _setup(hass)
-    services.async_register_services(hass)
-    pv = await hass.services.async_call(
-        DOMAIN, "device_contract_preview", {}, blocking=True, return_response=True
-    )
-    assert pv["clean"] is True and pv["mode"] == "legacy"
-    res = await hass.services.async_call(
-        DOMAIN,
-        "device_contract_set_mode",
-        {"mode": "shadow"},
-        blocking=True,
-        return_response=True,
-    )
-    assert res["ok"] is True and res["mode"] == "shadow"

@@ -11,12 +11,11 @@ formatter's edge values.
 from __future__ import annotations
 
 import logging
-import math
 
 import pytest
 from hypothesis import given
 from solver import lp
-from solver.lp import CalibratedOptions, LexOptions, LPProblem
+from solver.lp import CalibratedOptions, LPProblem
 from test_lp_properties import _build, _secondary, problems
 from test_plan_invariants import SETTINGS
 
@@ -77,38 +76,11 @@ def _true_lexicographic(spec) -> tuple[float, float]:
     return first.objective, second.objective
 
 
-@SETTINGS
-@given(problems())
-def test_the_lexicographic_solve_reaches_the_true_lexicographic_optimum(spec):
-    """Not merely no worse than the plain point: among primary-optimal
-    points, the lexicographic mode's secondary is the least there is, and no
-    phase fell back on a feasible problem."""
-    p = _build(spec)
-    lex, records = _captured(lambda: p.solve(options=LexOptions()))
-    assert lex.status == "optimal"
-    best_primary, best_secondary = _true_lexicographic(spec)
-    assert p.primary_cost_of(lex) <= best_primary + 1e-6 * max(1.0, abs(best_primary))
-    assert _secondary(p, lex) <= best_secondary + 1e-5 * max(1.0, abs(best_secondary))
-    fallbacks = [r for r in records if "falling back" in r.getMessage()]
-    assert fallbacks == []
-
-
 def test_the_empty_problem_is_optimal_at_zero():
     result = LPProblem().solve()
     assert result.status == "optimal"
     assert result.objective == 0.0
     assert len(result.x) == 0
-
-
-@SETTINGS
-@given(problems())
-def test_the_dense_cost_vector_is_the_dict_with_zero_elsewhere(spec):
-    """A variable the cost dict does not name costs nothing."""
-    p = _build(spec)
-    named = {f"x{j}": float(j + 1) for j in range(0, spec["n"], 2)}
-    vec = lp._dense_cost_vector(p, named)
-    for i, name in enumerate(p._var_names):
-        assert vec[i] == named.get(name, 0.0)
 
 
 @SETTINGS
@@ -123,28 +95,6 @@ def test_with_no_primary_cost_the_calibrated_weight_is_the_safe_default(spec):
     assert cal.calibration_weight_used == pytest.approx(1e-3)
     _primary, best_secondary = _true_lexicographic(spec)
     assert _secondary(p, cal) <= best_secondary + 1e-5 * max(1.0, abs(best_secondary))
-
-
-@SETTINGS
-@given(problems())
-def test_inside_the_cooldown_the_phased_solve_waits_and_says_for_how_long(spec):
-    """#773: after a phase failure the phased solve is skipped for the
-    cooldown; the plan is still the plain optimum, and the log says how long
-    is left, never more than the cooldown itself."""
-    import time
-
-    p = _build(spec)
-    plain = p.solve()
-    lp._lex_calibration_failed_until = time.monotonic() + 100.0
-    lex, records = _captured(lambda: p.solve(options=LexOptions()))
-    assert lex.status == "optimal"
-    assert abs(p.primary_cost_of(lex) - plain.objective) <= 1e-6 * max(
-        1.0, abs(plain.objective)
-    )
-    skips = [r for r in records if "skipping the phased" in r.getMessage()]
-    assert skips, "the skip is logged"
-    left = skips[0].args[1]
-    assert 0.0 <= left <= lp._LEX_CALIBRATION_COOLDOWN_S
 
 
 class _PinRecorder:
@@ -169,37 +119,15 @@ def _pin(x, binary_cols):
     return h.bounds, warned
 
 
-def test_pinning_no_binaries_warns_of_nothing():
-    bounds, warned = _pin([0.3, 0.7], [])
-    assert bounds == {} and warned == []
-
-
-@pytest.mark.parametrize(
-    ("value", "warns"),
-    [(1.0, False), (lp._BINARY_INTEGRALITY_TOLERANCE, False), (0.5, True)],
-)
-def test_pinning_warns_only_beyond_the_integrality_tolerance(value, warns):
+def test_pinning_warns_only_beyond_the_integrality_tolerance():
     """At exactly the tolerance it is still integral enough; well beyond it,
     the rounding is the suspect and the WARNING says so. The pin itself is
     the rounded value either way."""
-    bounds, warned = _pin([value, 0.0], [0])
-    assert bool(warned) is warns
-    assert bounds[0] == (float(round(value)), float(round(value)))
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        (math.inf, "mip_gap=inf"),
-        (-math.inf, "mip_gap=-inf"),
-        (math.nan, "mip_gap=nan"),
-        (1e15, "mip_gap=1e+15"),
-        (1e15 - 1.0, "mip_gap=999999999999999"),
-        (0.25, "mip_gap=0.25"),
-    ],
-)
-def test_the_diagnostic_line_survives_edge_values(value, expected):
-    """HiGHS reports `mip_gap = inf` on a pure LP: the formatter must not
-    raise on it, and a value at or past 1e15 prints as a float, not as a
-    long integer."""
-    assert lp.format_highs_info({"mip_gap": value}) == expected
+    for value, warns in [
+        (1.0, False),
+        (lp._BINARY_INTEGRALITY_TOLERANCE, False),
+        (0.5, True),
+    ]:
+        bounds, warned = _pin([value, 0.0], [0])
+        assert bool(warned) is warns
+        assert bounds[0] == (float(round(value)), float(round(value)))

@@ -99,39 +99,36 @@ class TestItIsGatedOnTheDisplayedDay:
     """
 
     def test_the_gate_exists(self):
+        # test_the_gate_exists
         assert "attrs.latest_date !== dateKey" in _caveat_fn(), (
             "the caveat is no longer gated on the displayed date, so it can "
             "attribute the latest day's verdict to a different day"
         )
 
-    def test_the_gate_diverts_rather_than_falling_through(self):
-        """It must not fall through into the headline path. Either
-        answer -- nothing, or the row's own verdict -- is correct;
-        continuing into `attrs.epr_reliable` is not."""
+        # test_the_gate_diverts_rather_than_falling_through: It must not fall through into the headline path. Either
         fn = _caveat_fn()
         gate = fn[fn.index("attrs.latest_date !== dateKey") :][:70]
         assert "return null" in gate or "return this._rowCaveatFor(" in gate
 
-    def test_the_headline_path_is_only_reached_for_the_latest_day(self):
-        """The property the literal above is standing in for: every read
-        of a headline reliability attribute sits after the gate."""
+        # test_the_headline_path_is_only_reached_for_the_latest_day: The property the literal above is standing in for: every read
         fn = _caveat_fn()
         i_gate = fn.index("attrs.latest_date !== dateKey")
         for attr in ("attrs.epr_reliable", "attrs.epr_reason"):
             assert fn.index(attr) > i_gate, f"{attr} is read before the day gate"
 
-    def test_missing_attributes_are_survivable(self):
+        # test_missing_attributes_are_survivable
         assert "!attrs" in _caveat_fn()
 
 
 class TestItReadsTheReliabilityVerdict:
     def test_it_reads_epr_reliable(self):
+        # test_it_reads_epr_reliable
         assert "attrs.epr_reliable === false" in _caveat_fn(), (
             "the card is back to rendering an EPR without checking whether "
             "the report stands behind it"
         )
 
-    def test_every_published_reason_shape_is_handled(self):
+        # test_every_published_reason_shape_is_handled
         fn = _caveat_fn()
         for reason in (
             "achieved_soc_unreliable",
@@ -144,10 +141,7 @@ class TestItReadsTheReliabilityVerdict:
                 "no sentence for it, so a household sees a bare code"
             )
 
-    def test_an_unrecognised_reason_still_says_something(self):
-        """A reason the card has no sentence for must still surface, not
-        vanish -- the absence-is-the-only-signal failure this repo keeps
-        recording."""
+        # test_an_unrecognised_reason_still_says_something: A reason the card has no sentence for must still surface, not
         fn = _caveat_fn()
         assert 'reason || "the report did not say why"' in fn
 
@@ -158,9 +152,10 @@ class TestThePathDeltaShareReachesTheSurface:
     mistake that is mostly not there."""
 
     def test_it_reads_the_share(self):
+        # test_it_reads_the_share
         assert "attrs.regret_path_delta_share" in _caveat_fn()
 
-    def test_it_only_speaks_when_the_share_dominates(self):
+        # test_it_only_speaks_when_the_share_dominates
         fn = _caveat_fn()
         assert "share >= 0.5" in fn, (
             "either the threshold is gone -- so the note fires on every day "
@@ -168,7 +163,7 @@ class TestThePathDeltaShareReachesTheSurface:
             "without this test being reconsidered"
         )
 
-    def test_a_non_numeric_share_is_ignored(self):
+        # test_a_non_numeric_share_is_ignored
         assert "Number.isFinite(share)" in _caveat_fn()
 
 
@@ -177,6 +172,7 @@ class TestItIsActuallyRendered:
     releases kept taking."""
 
     def test_the_render_path_builds_and_emits_it(self):
+        # test_the_render_path_builds_and_emits_it
         src = _source()
         assert "this._caveatFor(" in src, "the helper is never called"
         body = src[src.index("bodyEl.innerHTML = `\n      ${caveat") :][:200]
@@ -184,23 +180,20 @@ class TestItIsActuallyRendered:
             "the caveat is computed but not emitted into the card body"
         )
 
-    def test_it_is_emitted_above_the_stats(self):
-        """A caveat under the number it qualifies is a footnote. Above it,
-        it is a caveat."""
+        # test_it_is_emitted_above_the_stats: A caveat under the number it qualifies is a footnote. Above it,
         body = _source()
         i_caveat = body.index('class="caveat"')
         i_stats = body.index('<div class="stats">')
         assert i_caveat < i_stats
 
-    def test_it_renders_nothing_when_there_is_no_caveat(self):
-        """A healthy day must not gain an empty box."""
+        # test_it_renders_nothing_when_there_is_no_caveat: A healthy day must not gain an empty box.
         src = _source()
         assert re.search(r"\$\{caveat \? `<div class=\"caveat\">.*?` : \"\"\}", src), (
             "the caveat element is emitted unconditionally, so a clean day "
             "shows an empty amber box"
         )
 
-    def test_the_style_exists(self):
+        # test_the_style_exists
         assert ".caveat {" in _source()
 
 

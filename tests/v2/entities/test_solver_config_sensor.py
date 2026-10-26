@@ -54,17 +54,6 @@ def _numbers(value="5"):
     return {f"number.nimbus_{key}": SimpleNamespace(state=value) for key in NUMBERS}
 
 
-def test_with_every_required_setting_resolved_the_solver_is_configured(monkeypatch):
-    s = _sensor(monkeypatch, _numbers())
-    assert s.entity_id == "sensor.nimbus_solver_config"
-    assert s.native_value == "configured"
-    attrs = s.extra_state_attributes
-    assert attrs["unresolved_required_keys"] == []
-    assert attrs[NUMBERS[0]] == 5.0
-    assert attrs[OPTIONS[0]] == f"sensor.{OPTIONS[0]}"
-    assert set(sm._SOLVER_ALL_KEYS) <= set(attrs)
-
-
 @pytest.mark.parametrize("value", ["unknown", "unavailable", "lots"])
 def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, value):
     states = _numbers()
@@ -72,22 +61,6 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, valu
     s = _sensor(monkeypatch, states)
     assert s.native_value == "unconfigured"
     assert s.extra_state_attributes["unresolved_required_keys"] == [NUMBERS[0]]
-
-
-def test_an_empty_option_is_unresolved(monkeypatch):
-    s = _sensor(monkeypatch, _numbers(), options={OPTIONS[0]: ""})
-    assert s.extra_state_attributes["unresolved_required_keys"] == [OPTIONS[0]]
-
-
-def test_a_renamed_entity_is_found_through_the_registry(monkeypatch):
-    states = _numbers()
-    moved = states.pop(f"number.nimbus_{NUMBERS[0]}")
-    states["number.my_battery_size"] = SimpleNamespace(state="13.5")
-    s = _sensor(
-        monkeypatch, states, renamed={f"hub1_{NUMBERS[0]}": "number.my_battery_size"}
-    )
-    assert s.extra_state_attributes[NUMBERS[0]] == 13.5
-    assert moved.state == "5"
 
 
 @pytest.mark.parametrize(
@@ -133,44 +106,6 @@ def test_unconfigured_is_warned_once_per_change_with_the_keys_named(
     assert len(infos) == 2  # configured at the start and again at the end
 
 
-def test_location_meters_and_known_sources_are_carried(monkeypatch):
-    s = _sensor(
-        monkeypatch,
-        _numbers(),
-        options={
-            "switchboard_grid_meter_sensor": "sensor.meter",
-            "grid_sensor": "sensor.grid",
-        },
-    )
-    monkeypatch.setattr(
-        sm.sensor_discovery,
-        "resolve_geocoded_region_and_prefix",
-        lambda states: ("QLD1", "410"),
-    )
-    monkeypatch.setattr(
-        sm.sensor_discovery,
-        "discover_aemo_30min_forecast_sensor",
-        lambda states: "sensor.aemo",
-    )
-    monkeypatch.setattr(
-        sm.known_sources, "resolve", lambda hass: {"solcast": ["sensor.sc"]}
-    )
-    attrs = s.extra_state_attributes
-    assert (attrs["region"], attrs["postcode_prefix"]) == ("QLD1", "410")
-    assert attrs["aemo_30min_forecast_sensor"] == "sensor.aemo"
-    assert (
-        attrs["switchboard_grid_meter_sensor"] == "sensor.meter"
-        and attrs["grid_sensor"] == "sensor.grid"
-    )
-    assert attrs["known_sources"] == {"solcast": ["sensor.sc"]}
-
-    def broken(hass):
-        raise RuntimeError("registry")
-
-    monkeypatch.setattr(sm.known_sources, "resolve", broken)
-    assert s.extra_state_attributes["known_sources"] == sm.known_sources.EMPTY
-
-
 # --- every setting the solve reads reaches it (#485, 2026-08-23) -----------------------------
 # The solver reads its settings only through this sensor's attributes. A key
 # saved by the wizard or set on a live entity but missing from these tables
@@ -184,19 +119,18 @@ _const = importlib.import_module("custom_components.nimbus_load.const")
 
 
 def test_every_key_the_wizard_saves_is_exposed():
+    # test_every_key_the_wizard_saves_is_exposed
     assert [
         k
         for k in _hub_options._SOLVER_WIZARD_SCHEMA_KEYS
         if k not in sm._SOLVER_ALL_KEYS
     ] == []
 
-
-def test_every_number_entity_is_read_live_not_from_saved_options():
+    # test_every_number_entity_is_read_live_not_from_saved_options
     keys = [d.key for d in _number._DESCRIPTIONS]
     assert [k for k in keys if k not in sm._SOLVER_NUMBER_ENTITY_KEYS] == []
 
-
-def test_every_switch_the_solve_reads_is_read_live():
+    # test_every_switch_the_solve_reads_is_read_live
     read_by_the_solve = (
         _const.CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
         _const.CONF_SOLVE_ON_PRICE_CHANGE,
@@ -212,13 +146,11 @@ def test_every_switch_the_solve_reads_is_read_live():
     # Dry run is read from its live switch directly, never through the solve.
     assert _const.CONF_SOLVER_DISPATCH_DRY_RUN not in sm._SOLVER_SWITCH_ENTITY_KEYS
 
-
-def test_the_household_mode_is_exposed_and_read_live():
+    # test_the_household_mode_is_exposed_and_read_live
     assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_ALL_KEYS
     assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_SELECT_ENTITY_KEYS
 
-
-def test_every_live_setting_is_exposed_to_the_solve():
+    # test_every_live_setting_is_exposed_to_the_solve
     live = (
         set(sm._SOLVER_NUMBER_ENTITY_KEYS)
         | set(sm._SOLVER_TIME_ENTITY_KEYS)

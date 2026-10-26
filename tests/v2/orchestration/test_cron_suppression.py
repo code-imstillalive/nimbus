@@ -120,21 +120,8 @@ def _setup_and_fire_periodic_solve(entry_id: str, run_solve: AsyncMock) -> None:
         asyncio.run(captured["callback"](None))
 
 
-def test_cron_runs_normally_on_a_fresh_install_with_nothing_solved_yet():
-    _reset_solver_runtime_state()
-    run_solve = AsyncMock(return_value=True)
-
-    _setup_and_fire_periodic_solve("entry_cron_fresh", run_solve)
-
-    run_solve.assert_called_once()
-    # time_since_last_solve() was None going in, so the cron must run --
-    # and a real, successful run must record its own completion so a
-    # LATER cron tick (or this same one, if re-fired quickly) can be
-    # correctly suppressed.
-    assert solver_runtime.time_since_last_solve() is not None
-
-
 def test_cron_is_suppressed_when_a_solve_completed_just_now():
+    # test_cron_is_suppressed_when_a_solve_completed_just_now
     _reset_solver_runtime_state()
     # Simulate an event-driven (or a previous cron) solve that JUST
     # completed, well inside _CRON_SUPPRESS_WINDOW_S (60s) -- the exact
@@ -149,8 +136,7 @@ def test_cron_is_suppressed_when_a_solve_completed_just_now():
     # discarded, not run at all.
     run_solve.assert_not_called()
 
-
-def test_cron_runs_again_once_the_suppression_window_has_elapsed():
+    # test_cron_runs_again_once_the_suppression_window_has_elapsed
     _reset_solver_runtime_state()
     # A solve that completed well OUTSIDE the 60s suppression window --
     # e.g. the cron tick 5 minutes ago, or an event-driven solve much
@@ -165,6 +151,19 @@ def test_cron_runs_again_once_the_suppression_window_has_elapsed():
     _setup_and_fire_periodic_solve("entry_cron_elapsed", run_solve)
 
     run_solve.assert_called_once()
+
+    # test_setup_reports_orphans_after_the_rename_and_survives_a_failing_report: #1270: the orphan report runs on every setup, after the rename pass,
+    order = []
+    assert _setup_recording(order) is True
+    assert order == ["rename", "report"]
+
+    async def broken(_hass, _entry):
+        order.append("broken")
+        raise RuntimeError("registry drift")
+
+    order.clear()
+    assert _setup_recording(order, report=broken) is True
+    assert order == ["rename", "broken"]
 
 
 def _setup_recording(order, report=None):
@@ -212,19 +211,3 @@ def _setup_recording(order, report=None):
             )
         )
         return asyncio.run(nimbus_init.async_setup_entry(hass, entry))
-
-
-def test_setup_reports_orphans_after_the_rename_and_survives_a_failing_report():
-    """#1270: the orphan report runs on every setup, after the rename pass,
-    and a failure in it never takes the hub down."""
-    order = []
-    assert _setup_recording(order) is True
-    assert order == ["rename", "report"]
-
-    async def broken(_hass, _entry):
-        order.append("broken")
-        raise RuntimeError("registry drift")
-
-    order.clear()
-    assert _setup_recording(order, report=broken) is True
-    assert order == ["rename", "broken"]

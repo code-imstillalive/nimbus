@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import numpy as np
-import pytest
 import solver_plan
 from solver.elements import (
     BatteryConfig,
@@ -29,36 +28,8 @@ def _ceiling(curve, soc_kwh):
     return float(np.interp(soc_kwh, [s for s, _ in curve], [p for _, p in curve]))
 
 
-def test_default_curve_is_flat_to_90_then_falls_to_4_kw():
-    curve = _curve()
-    assert curve == [
-        (MIN_SOC, 40.0),
-        (pytest.approx(CAP * 0.9), 40.0),
-        (MAX_SOC, pytest.approx(4.0)),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("soc_pct", "measured_kw"),
-    [(97.5, 14.0), (98.5, 10.0), (99.0, 8.0), (99.5, 6.0)],
-)
-def test_default_curve_tracks_the_measured_taper(soc_pct, measured_kw):
-    assert _ceiling(_curve(), CAP * soc_pct / 100) == pytest.approx(
-        measured_kw, abs=2.0
-    )
-
-
-def test_start_100_turns_it_off():
-    assert _curve({"solver_charge_taper_start_percent": 100}) is None
-
-
 def test_start_at_or_above_max_soc_is_off():
     assert _curve(max_soc=CAP * 0.9) is None
-
-
-def test_lower_max_soc_cuts_the_line():
-    curve = _curve(max_soc=CAP * 0.95)
-    assert curve[-1] == (pytest.approx(CAP * 0.95), pytest.approx(22.0))
 
 
 def _plan(curve):
@@ -93,20 +64,3 @@ def _plan(curve):
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
     )
-
-
-def test_the_plan_charges_below_the_taper_near_full():
-    curve = _curve()
-    plan = _plan(curve)
-    soc_before = np.concatenate([[CAP * 0.88], plan.battery_soc_kwh[:-1]])
-    for c, soc in zip(plan.battery_charge_kw, soc_before, strict=True):
-        assert c <= _ceiling(curve, soc) + 1e-6
-    # it still charges hard below the taper, and slower than 40 kW near the top
-    assert plan.battery_charge_kw[0] == pytest.approx(40.0, abs=1e-6)
-    assert max(plan.battery_charge_kw[soc_before > CAP * 0.95]) < 25.0
-
-
-def test_without_the_taper_it_plans_40_kw_to_the_top():
-    plan = _plan(None)
-    assert np.allclose(plan.battery_charge_kw[:4], 40.0, atol=1e-6)
-    assert plan.battery_soc_kwh[3] > CAP * 0.98

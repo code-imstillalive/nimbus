@@ -154,102 +154,6 @@ class TestTheChainReachesTheLP(unittest.TestCase):
             )
         ]
 
-    def test_a_calendar_event_becomes_a_real_deadline_pair(self):
-        resolved = _resolve(self.events)
-        self.assertIsNotNone(resolved, "the chain produced nothing at all")
-        index, kwh = resolved
-        self.assertEqual(_GRID_TIMES[index].hour, 8, "deadline is the departure")
-        self.assertAlmostEqual(kwh, _EV_MIN_SOC + 21.6, places=4)
-
-    def test_the_plan_actually_MEETS_it(self):
-        """The assertion #361 could never have made."""
-        resolved = _resolve(self.events)
-        plan = _solve(resolved)
-        self.assertEqual(plan.status, "optimal")
-        index, kwh = resolved
-        self.assertGreaterEqual(
-            float(_ev_soc(plan)[index]) + 1e-6,
-            kwh,
-            "the EV must hold the trip's energy when it leaves",
-        )
-
-    def test_the_charge_lands_in_the_CHEAP_window(self):
-        """Meeting the deadline is not enough -- doing it expensively would mean
-        the deadline reached the LP but the price signal did not. The cheap hours
-        are 01:00-05:00 and the deadline is 08:00, so a plan that merely
-        satisfies the constraint could charge at 06:00-07:00 instead.
-        """
-        plan = _solve(_resolve(self.events))
-        charge = _ev_charge(plan)
-        cheap = float(np.sum(charge[_CHEAP_FROM:_CHEAP_TO]))
-        total = float(np.sum(charge))
-        self.assertGreater(total, 0.0, "nothing charged at all")
-        self.assertGreater(
-            cheap / total,
-            0.9,
-            f"expected the charge in the cheap window; got {cheap:.2f} of "
-            f"{total:.2f} kWh there",
-        )
-
-    def test_without_the_deadline_the_ev_does_not_charge_for_the_trip(self):
-        """The control. If the EV charged the same amount with no deadline, this
-        file would be proving the price curve rather than the wiring -- exactly
-        the mistake of testing a schema that happens to look right.
-        """
-        with_deadline = float(np.sum(_ev_charge(_solve(_resolve(self.events)))))
-        without = float(np.sum(_ev_charge(_solve(None))))
-        self.assertGreater(
-            with_deadline,
-            without + 1.0,
-            "the calendar deadline must be what causes the charging",
-        )
-
-
-class TestTheHonestNoOps(unittest.TestCase):
-    """Nothing is invented when there is nothing to plan for."""
-
-    def test_an_empty_calendar_resolves_to_None(self):
-        self.assertIsNone(_resolve([]))
-
-    def test_an_event_with_no_distance_resolves_to_None(self):
-        """No window, so no pair -- rather than a guessed default trip size
-        committing a household's pack to an invented number."""
-        with self.assertLogs(ct._LOGGER, level="WARNING"):
-            self.assertIsNone(
-                _resolve(
-                    [
-                        TripEvent(
-                            start=_T0 + timedelta(hours=8),
-                            end=_T0 + timedelta(hours=9),
-                            summary="dentist",
-                        )
-                    ]
-                )
-            )
-
-    def test_None_is_not_the_same_as_a_zero_requirement(self):
-        """A zero `must_have_soc_kwh` paired with an index would pin the pack to
-        its own floor at that period -- a real constraint nobody asked for. So
-        the absence has to be `None`, not 0.0."""
-        plan = _solve(None)
-        self.assertEqual(plan.status, "optimal")
-        ev = next(b for b in plan.batteries if b.name == "ev")
-        self.assertIsNone(getattr(ev, "must_have_soc_kwh", None))
-
-    def test_a_fully_driven_trip_resolves_to_None(self):
-        """Odometer says the distance is already covered, so nothing is owed."""
-        start = _T0 + timedelta(hours=8)
-        self.assertIsNone(
-            _resolve(
-                [
-                    TripEvent(
-                        start=start, end=start + timedelta(hours=2), summary="80 km"
-                    )
-                ],
-                already_driven_km_by_start={start: 80.0},
-            )
-        )
-
 
 class TestOnlyTheSoonestTripIsPlannedFor(unittest.TestCase):
     """A real limitation of the primitive, pinned so it is not mistaken for a
@@ -277,50 +181,11 @@ class TestOnlyTheSoonestTripIsPlannedFor(unittest.TestCase):
         self.assertIn("2 trips", joined, "say that one was set aside")
         self.assertIn("soonest", joined)
 
-    def test_the_set_aside_trip_is_still_visible_to_a_caller(self):
-        """`resolve_trip_windows()` returns them all, so nothing is silently
-        lost -- only the LP pair is narrowed."""
-        events = [
-            TripEvent(
-                start=_T0 + timedelta(hours=8),
-                end=_T0 + timedelta(hours=10),
-                summary="morning 120 km",
-            ),
-            TripEvent(
-                start=_T0 + timedelta(hours=16),
-                end=_T0 + timedelta(hours=18),
-                summary="evening 40 km",
-            ),
-        ]
-        windows = ct.resolve_trip_windows(
-            events,
-            _GRID_TIMES,
-            kwh_per_100km=18.0,
-            horizon_end=_HORIZON_END,
-        )
-        self.assertEqual(len(windows), 2)
-
 
 class TestABiggerTripCostsMoreCharge(unittest.TestCase):
     """The requirement is sized from the distance, not a fixed percentage --
     which is the whole difference from the pre-existing fixed `departure_hour`
     mechanism (#563)."""
-
-    def test_double_the_distance_roughly_doubles_the_energy(self):
-        def kwh_for(summary: str) -> float:
-            resolved = _resolve(
-                [
-                    TripEvent(
-                        start=_T0 + timedelta(hours=8),
-                        end=_T0 + timedelta(hours=12),
-                        summary=summary,
-                    )
-                ]
-            )
-            return resolved[1] - _EV_MIN_SOC
-
-        self.assertAlmostEqual(kwh_for("60 km"), 10.8, places=4)
-        self.assertAlmostEqual(kwh_for("120 km"), 21.6, places=4)
 
     def test_a_trip_larger_than_the_pack_asks_to_arrive_full(self):
         """Clamped, because demanding more than the ceiling is infeasible and

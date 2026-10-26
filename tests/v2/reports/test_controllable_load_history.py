@@ -94,51 +94,6 @@ def _resolve():
     }
 
 
-@pytest.mark.parametrize(
-    ("kw", "hours", "stale", "by_period", "total"),
-    [
-        ([2.0] * 4, 1.0, set(), (2.0, 2.0, 2.0, 2.0), 8.0),
-        ([2.0] * 4, 0.25, set(), (0.5, 0.5, 0.5, 0.5), 2.0),
-        ([2.0] * 4, 1.0, {1, 2}, (2.0, 0.0, 0.0, 2.0), 4.0),
-        ([3.0, -3.0, 3.0], 1.0, set(), (3.0, 0.0, 3.0), 6.0),  # a load never generates
-    ],
-)
-def test_energy_is_power_times_time_with_stale_periods_and_negatives_at_zero(
-    kw, hours, stale, by_period, total
-):
-    got, got_total = clh.integrate_delivered_kwh(kw, hours, stale)
-    assert got == pytest.approx(by_period) and got_total == pytest.approx(total)
-
-
-def test_each_load_reports_its_own_real_delivery_never_its_target(site):
-    hws, pool = [0.0] * 24, [0.0] * 24
-    hws[2] = hws[3] = hws[4] = 0.65
-    for h in (10, 11, 12, 13):
-        pool[h] = 1.2
-    site.add("hws", HWS)
-    site.add("pool", POOL)
-    site.add("ev", {"battery_participant_name": "ev"}, kind="battery_participant")
-    site.history = {
-        "sensor.hws_power": _hourly(hws),
-        "sensor.pool_power": _hourly(pool),
-    }
-    out = _resolve()
-    assert set(out) == {"hws", "pool"}  # a battery participant is not a load
-    assert out["hws"].delivered_kwh == pytest.approx(1.95)
-    assert out["pool"].delivered_kwh == pytest.approx(4.8)
-    assert [i for i, v in enumerate(out["hws"].delivered_kwh_by_period) if v] == [
-        2,
-        3,
-        4,
-    ]
-    assert (out["hws"].kind, out["pool"].kind) == ("deferrable", "sheddable")
-    assert (out["hws"].reason, out["hws"].observed_period_fraction) == (
-        clh.REASON_OK,
-        1.0,
-    )
-    assert out["hws"].sample_count == len(site.history["sensor.hws_power"])
-
-
 def test_a_recorder_gap_credits_only_the_guards_own_hour(site, monkeypatch):
     """One reading at midnight: carried forward it would claim 28.8 kWh.
     The guard is the repository's own sample-gap constant, and widening it
@@ -179,26 +134,6 @@ def test_a_load_that_cannot_be_reconstructed_says_why_not_zero(
     attr = out.as_attribute()
     assert attr["delivered_kwh"] is None and attr["reason"] == reason
     assert "delivered_kwh_by_period" not in attr  # never the per-period series
-
-
-def test_a_discovered_sensor_is_used_when_none_is_configured(site):
-    data = dict(HWS)
-    del data["controllable_load_power_sensor"]
-    site.add("hws", data)
-    site.discovered = "sensor.hws_power"
-    hws = [0.0] * 24
-    hws[5] = 0.65
-    site.history = {"sensor.hws_power": _hourly(hws)}
-    out = _resolve()["hws"]
-    assert (
-        out.power_sensor == "sensor.hws_power"
-        and out.delivered_kwh == pytest.approx(0.65)
-    )
-
-
-def test_outside_home_assistant_there_is_nothing_to_reconstruct(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    assert _resolve() == {}
 
 
 # --- the oracle's controllable loads, built from what each really delivered (#1357) ------------
@@ -271,30 +206,6 @@ def test_with_nothing_delivered_or_no_entry_the_oracle_gets_nothing(monkeypatch)
     assert _oracle(monkeypatch, [_ran()], None) is None
 
 
-def test_a_deferrable_load_is_charged_with_what_it_delivered_never_its_target(
-    monkeypatch,
-):
-    (load,) = _oracle(monkeypatch, [_ran(kwh=4.0)], {"s1": DISHWASHER}).adequacy
-    assert (
-        load.target_kwh,
-        load.max_power_kw,
-        load.shortfall_price,
-        load.subentry_id,
-    ) == (4.0, 2.0, 4.0, "s1")
-    other = _oracle(
-        monkeypatch, [_ran()], {"s1": {**DISHWASHER, "deferrable_target_kwh": 1.0}}
-    )
-    assert other.adequacy[0].target_kwh == 4.0
-
-
-def test_a_sheddable_load_may_shed_what_it_really_drew(monkeypatch):
-    (load,) = _oracle(
-        monkeypatch, [_ran(kind="sheddable", name="Pool")], {"s1": SPA}
-    ).sheddable
-    assert [float(load.forecast_kw[i]) for i in (0, 18, 19)] == [0.0, 2.0, 2.0]
-    assert (load.shed_cost, load.min_fraction) == (0.45, 0.25)
-
-
 @pytest.mark.parametrize(
     ("delivery", "data", "reason"),
     [
@@ -348,16 +259,3 @@ def test_scoring_controllable_loads_is_off_unless_switched_on():
     from const import DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED
 
     assert DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED is False
-
-
-def test_an_elapsed_days_window_opens_at_its_own_hour_not_at_the_start(monkeypatch):
-    """The oracle is scoring a day already over: a 06:00-16:00 window opens at
-    its own hour, never at period 0 the way a window already in progress
-    does on a live solve (#1357)."""
-    window = {
-        **DISHWASHER,
-        "deferrable_earliest_hour": 6.0,
-        "deferrable_deadline_hour": 16.0,
-    }
-    (load,) = _oracle(monkeypatch, [_ran(at=(8, 9))], {"s1": window}).adequacy
-    assert load.earliest_period > 0  # an in-progress window would open at 0

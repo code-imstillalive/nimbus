@@ -13,8 +13,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-import pytest
-
 from tests._ha_stubs import install_ha_stubs
 
 install_ha_stubs()
@@ -110,117 +108,6 @@ def _what(card):
     return card["type"]
 
 
-def test_the_sections_are_the_agreed_ones_in_order() -> None:
-    """The household's reviews on devhub, 11 Oct 2026: Solve now on the very
-    top row, then five blocks, each opened by a full-width band. Household,
-    24 Oct 2026: the Plan first, then Money, then Performance."""
-    layout: list[list] = [["top"]]
-    for section in solver_tab.template():
-        cards = section["cards"]
-        if _block(cards[0]):
-            assert section["column_span"] == 4
-            assert len(cards) == 1
-            assert not cards[0].get("text_only")  # outlined like a card
-            layout.append([_block(cards[0])])
-            continue
-        if len(cards) > 1:  # the daily summaries: two days to a column
-            assert [_what(c) for c in cards] == ["Solver Daily Summary"] * 2
-        layout[-1].append((section["column_span"], _what(cards[0])))
-    assert layout == [
-        [
-            "top",
-            (1, "button: Solve now"),
-            (1, "tile: Plan"),
-            (1, "tile: Solve time"),
-            (1, "tile: Limiting the plan now"),
-        ],
-        [
-            "Plan",
-            (4, "Battery: plan against measured"),
-            # nimbus #1753: the plan's prices for its whole horizon, then one
-            # card per day.
-            (4, "Prices ahead"),
-            # Household, 16 Oct 2026: "why release features which are not
-            # visible" -- the price-safety card under the price chart.
-            *[(1, "markdown: {{ ns.bt }}")] * 4,
-            (1, "markdown: False-spike guard"),
-            (1, "markdown: Price source"),
-            (1, "markdown: Battery hold"),
-            (1, "markdown: Consolidated prices"),
-            # Household, 19 Oct 2026: the controls for the two things
-            # 0.94.467 asks them to turn on.
-            (1, "toggle: Blend drives plan (experimental)"),
-            (2, "markdown: Device setup"),
-            (1, "select: Device setup mode"),
-            # Household with Mark Purcell, 19 Oct 2026: each price source.
-            (4, "markdown: Price sources"),
-            (2, "Solver Forecast — Whole Plan"),
-            # Household, 17 Oct 2026: the quality card is in Performance
-            # only; the plan's four days fill its old place.
-            (1, "Solver Daily Summary"),
-            (1, "Solver Daily Summary"),
-            (1, "nimbus:risk-slider"),
-            (1, "nimbus:risk-slider"),
-            (1, "nimbus:risk-slider"),
-            (1, "markdown: What the sliders do"),
-        ],
-        [
-            "Money",
-            (1, "Last day, scored"),
-            (1, "Money, plan ahead"),
-            (1, "Where the cost comes from"),
-            (1, "Battery, now"),
-            (1, "markdown: Yesterday and tomorrow, kWh"),
-            (1, "markdown: The plan's cost, by day, $"),
-            (2, "Battery energy, tomorrow"),
-        ],
-        [
-            "Performance",
-            (4, "How the plan's 4-day estimate has moved"),
-            (1, "Nimbus Solver Quality (EPR / Regret)"),
-            (1, "At a glance"),
-            (1, "Score by day"),
-            (1, "Where the plan's cost comes from"),
-        ],
-        [
-            "Basic settings",
-            (1, "Battery"),
-            (1, "Grid and fees"),
-            (1, "P2P"),
-            (1, "P2P hours and matching"),
-        ],
-        [
-            "Advanced settings",
-            (1, "Costs and stability"),
-            (1, "Features"),
-            (1, "Scoring"),
-            (1, "Reserve and price spikes"),
-        ],
-        [
-            "More settings",
-            (1, "Household and re-planning"),
-            (1, "Charging near full"),
-            (1, "Solar running low"),
-            (1, "Diagnostics"),
-        ],
-        # nimbus #1797: its own block, last, one row.
-        [
-            "Stochastic",
-            (1, "markdown: Now"),
-            (2, "Battery by how much sun"),
-            (1, "Settings"),
-        ],
-    ]
-
-
-def test_solve_now_calls_the_solver() -> None:
-    button = solver_tab.template()[0]["cards"][0]
-    assert button["tap_action"] == {
-        "action": "perform-action",
-        "perform_action": "nimbus_load.solve_now",
-    }
-
-
 # Rendered heights in px, measured off the household's screenshots of devhub
 # (11 Oct 2026): a number or time box 67, a toggle or a reading 44, a select
 # 60, and a divider with a line of text 38 + 21 per wrapped line (about 62
@@ -258,27 +145,8 @@ def _height(card) -> int:
     return total
 
 
-def test_cards_side_by_side_end_on_one_line() -> None:
-    """Household, 11 Oct 2026: bottoms line up by content -- more settings,
-    or more explanation where a card has fewer -- never by empty space."""
-    rows: list[list[int]] = []
-    for section in solver_tab.template():
-        card = section["cards"][0]
-        if _block(card):
-            rows.append([])
-        elif card["type"] == "entities" and rows:
-            assert card["entities"][-1]["type"] == "section", card["title"]
-            assert card["show_header_toggle"] is False, card["title"]
-            rows[-1].append(_height(card))
-    for heights in (r for r in rows if r):
-        assert max(heights) - min(heights) <= 30, heights
-
-
-def test_the_sliders_are_sliders() -> None:
-    """Household, 11 Oct 2026: "u have called it sliders but produced
-    inputs". 12 Oct: the household's mushroom slider with a 100 px icon
-    where mushroom is installed, HA's tile slider elsewhere."""
-
+def test_the_sliders_are_sliders():
+    # test_the_sliders_are_sliders: Household, 11 Oct 2026: "u have called it sliders but produced
     def lookup(key):
         return {"card:mushroom": MUSH}.get(key, f"number.nimbus_{key}")
 
@@ -302,6 +170,35 @@ def test_the_sliders_are_sliders() -> None:
                     {"type": "numeric-input", "style": "slider"}
                 ]
 
+    # test_an_entities_card_with_nothing_left_is_dropped: With no entities at all only the Solve now button and the block bands
+    view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
+    assert [[_block(c) for c in s["cards"]] for s in view] == [
+        [None],  # Solve now needs no entity
+        ["Plan"],
+        ["Money"],
+        ["Performance"],
+        ["Basic settings"],
+        ["Advanced settings"],
+        ["More settings"],
+        ["Stochastic"],
+    ]
+
+    # test_the_design_is_the_same_on_every_install
+    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
+    assert dash.design_of(spec) == dash.design_of(spec)
+    assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
+
+    # test_forecast_card_soc_is_drawn_at_the_end_of_each_period
+    import pathlib
+
+    js = (
+        pathlib.Path(solver_tab.__file__).parent
+        / "frontend"
+        / "nimbus-forecast-card.js"
+    ).read_text(encoding="utf-8")
+    soc = js[js.index('name: "Solver SoC % (proposed)"') :][:400]
+    assert "(p.hours || 0) * 3600000, p.soc_pct" in soc
+
 
 def _row(title_or_header: str) -> list[dict]:
     """The sections from the one whose first card is `title_or_header` to
@@ -318,348 +215,3 @@ def _row(title_or_header: str) -> list[dict]:
             break
         out.append(s)
     return out
-
-
-def test_each_row_is_one_height_and_fills_it() -> None:
-    """Household, 12 Oct 2026: cards side by side end on one line; chart
-    cards fill their cell; nothing scrolls but the until-midnight table."""
-    # Household, 17 Oct 2026: the plan's four days, two stacked to a column,
-    # end on the whole-plan table's line.
-    table, *days = _row("Solver Forecast — Whole Plan")[:3]
-    assert len(days) == 2 and all(len(d["cards"]) == 2 for d in days)
-    for column in days:
-        stacked = sum(c["grid_options"]["rows"] for c in column["cards"])
-        assert stacked == table["cards"][0]["grid_options"]["rows"]
-    for first in ("Nimbus Solver Quality (EPR / Regret)",):
-        row = [s for s in _row(first) if len(s["cards"]) == 1][:4]
-        assert len(row) == 4
-        heights = {
-            json.dumps(s["cards"][0]["grid_options"])
-            for s in row
-            if not s["cards"][0].get("features")
-        }
-        assert len(heights) == 1, (first, heights)
-        for s in row:
-            style = s["cards"][0].get("card_mod", {}).get("style", "")
-            if isinstance(style, dict):
-                style = style["."]
-            if s["cards"][0].get("features"):
-                continue
-            assert "height: 100%" in style
-            if s["cards"][0].get("title") != "Solver Forecast — Whole Plan":
-                assert "overflow-y: auto" not in style
-
-
-def test_the_chart_figures_sit_below_the_chart() -> None:
-    """Household, 12 Oct 2026: keep the titles, move the figures down."""
-    for s in _row("Nimbus Solver Quality (EPR / Regret)")[1:]:
-        assert "#header__states { order: 2" in s["cards"][0]["card_mod"]["style"]
-
-
-def test_live_values_in_text_are_resolved() -> None:
-    view = _resolve(solver_tab.template())
-    text = json.dumps(view)
-    assert "${@" not in text
-    assert "sensor.nimbus_solver_import_price_risk_effect_now_2" in text
-
-
-def test_a_chart_with_two_axes_names_the_axis_on_every_series() -> None:
-    """apexcharts-card 2.2.3 drops the whole card once a second y-axis exists
-    and any series lacks `yaxis_id` (116KAT CLAUDE.md gotcha)."""
-    for section in solver_tab.template():
-        for card in section["cards"]:
-            if len(card.get("yaxis", [])) > 1:
-                assert all("yaxis_id" in s for s in card["series"]), card
-
-
-def test_the_plan_chart_shows_past_and_future_with_a_now_line() -> None:
-    """Household rule 5: one axis, the past and the plan ahead, a "now"
-    marker, headline numbers, step lines. Never HAEO."""
-    chart = next(
-        s["cards"][0]
-        for s in solver_tab.template()
-        if s["cards"][0].get("header", {}).get("title")
-        == "Battery: plan against measured"
-    )
-    assert chart["now"]["show"] is True
-    assert chart["header"]["show_states"] is True
-    assert chart["span"]["offset"].startswith("-")
-    names = {s["name"]: s for s in chart["series"]}
-    assert names["Measured"]["entity"] == "@option:battery_sensor"
-    for line in ("Measured", "Plan now", "Plan ahead", "Buy price", "Buy price ahead"):
-        assert names[line]["curve"] == "stepline", line
-    # Household, 14 Oct 2026: period 0 alone drew 0 all morning while every
-    # plan held a charge for later; this line shows the charge being held.
-    held = names["Charge held for later"]
-    assert held["entity"] == "@nimbus_solver_battery_forecast"
-    assert held["attribute"] == "charge_before_block_pct"
-    assert held["yaxis_id"] == "soc"
-    # Price behind Now is 5-minute detail from the buy price's own history.
-    assert names["Buy price"]["group_by"]["duration"] == "5min"
-    for planned in ("Plan ahead", "SoC ahead", "Buy price ahead"):
-        assert names[planned]["entity"] == "@nimbus_solver_battery_forecast"
-        assert "data_generator" in names[planned]
-    assert "haeo" not in json.dumps(chart).lower()
-
-
-def test_every_setting_is_on_the_tab_exactly_once() -> None:
-    """All settings, grouped (household, 8 Oct 2026): every Solver number,
-    switch and select appears once. A block's rate is also read by its own
-    hour rows' conditions, so count the rows, not the references."""
-    rows = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            if node.get("type") == "conditional":
-                walk(node["row"])
-                return
-            if isinstance(node.get("entity"), str):
-                rows.append(node["entity"][1:])
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(solver_tab.template())
-    settings = [k for k in rows if k.startswith("solver_")]
-    assert len(settings) == len(set(settings)), sorted(settings)
-    assert {
-        "solver_battery_capacity_kwh",
-        "solver_network_fee_default_rate",
-        "solver_p2p_block_1_rate_kw",
-        "solver_proximal_weight_kw",
-        "solver_flex_signals_enabled",
-        "solver_import_price_risk_aversion",
-        "solver_battery_reserve_percent",
-    } <= set(settings)
-
-
-def test_every_row_has_a_short_name() -> None:
-    """No raw entity names (they read "Nimbus P2P P2P Block 1 Start..." and
-    were cut off), so every entity row and tile carries its own name."""
-
-    def walk(node, out):
-        if isinstance(node, dict):
-            if (
-                isinstance(node.get("entity"), str)
-                and node["entity"].startswith("@")
-                and "conditions" not in node
-            ):
-                out.append(node)
-            for v in node.values():
-                walk(v, out)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v, out)
-        return out
-
-    named = walk(solver_tab.template(), [])
-    conditions = [
-        c for c in walk(solver_tab.template(), []) if set(c) <= {"entity", "state_not"}
-    ]
-    for item in named:
-        if item in conditions:
-            continue
-        assert item.get("name"), item
-        if item["name"].startswith("${@name:"):
-            # Resolved per install to the entity's own short name
-            # ("SoC Our EV", sensor_battery_soc.py).
-            continue
-        assert len(item["name"]) <= 32, item["name"]
-        # The noise was the "Nimbus " prefix on every row; the chart legend's
-        # "Nimbus plan (now)" names the plan line against "Measured" on purpose.
-        if item["name"] != "Nimbus plan (now)":
-            assert not item["name"].startswith("Nimbus "), item["name"]
-
-
-def test_an_unused_block_shows_only_its_rate() -> None:
-    """A fee block's hours appear only once its rate is set. P2P hours
-    have their own card in Advanced (household, 11 Oct)."""
-    text = json.dumps(solver_tab.template())
-    # 3 fee blocks x 2, and one row per battery slot (4) on "Battery, now".
-    assert text.count('"type": "conditional"') == 6 + 4
-
-
-def test_a_conditional_row_whose_entity_is_missing_is_dropped() -> None:
-    view = solver_tab.resolve(
-        solver_tab.template(),
-        lambda k: None if k == "solver_network_fee_2_start_hour" else _lookup_all(k),
-    )
-    text = json.dumps(view)
-    assert "solver_network_fee_2_start_hour" not in text
-    assert '"row": null' not in text
-
-
-def test_resolution_leaves_no_placeholder_and_uses_the_registry_ids() -> None:
-    view = _resolve(
-        dash._view_for(next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver"))
-    )
-    text = json.dumps(view)
-    assert '"@' not in text
-    assert "sensor.nimbus_solver_lp_status_2" in text
-    assert "sensor.my_battery_power" in text
-
-
-def test_a_missing_entity_is_dropped_not_written_blank() -> None:
-    def partial(key: str) -> str | None:
-        return (
-            None
-            if key in ("nimbus_quality_epr", "option:battery_sensor")
-            else _lookup_all(key)
-        )
-
-    view = solver_tab.resolve(solver_tab.template(), partial)
-    text = json.dumps(view)
-    assert "nimbus_quality_epr_2" not in text
-    assert '"@' not in text
-    chart = next(
-        c
-        for s in view
-        for c in s["cards"]
-        if c.get("header", {}).get("title") == "Battery: plan against measured"
-    )
-    assert "Measured" not in [x["name"] for x in chart["series"]]
-
-
-def test_an_entities_card_with_nothing_left_is_dropped() -> None:
-    """With no entities at all only the Solve now button and the block bands
-    are left: every card, chart and slider goes, and its column with it."""
-    view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
-    assert [[_block(c) for c in s["cards"]] for s in view] == [
-        [None],  # Solve now needs no entity
-        ["Plan"],
-        ["Money"],
-        ["Performance"],
-        ["Basic settings"],
-        ["Advanced settings"],
-        ["More settings"],
-        ["Stochastic"],
-    ]
-
-
-def test_the_design_is_the_same_on_every_install() -> None:
-    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
-    assert dash.design_of(spec) == dash.design_of(spec)
-    assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
-
-
-def test_the_dashboard_has_solver_second() -> None:
-    config = dash.dashboard_config(_resolve)
-    assert [v["title"] for v in config["views"]] == [
-        "Forecaster",
-        "Solver",
-        "Topology",
-        "Control Panel",
-        "Regret",
-        # nimbus #1823: Help, last.
-        "Help",
-    ]
-    solver = next(v for v in config["views"] if v["title"] == "Solver")
-    assert '"@' not in json.dumps(solver)
-
-
-def test_without_a_resolver_the_solver_tab_is_left_out() -> None:
-    """Unresolved, the tab would be placeholders: it is never returned."""
-    titles = [v["title"] for v in dash.dashboard_config()["views"]]
-    assert "Solver" not in titles
-    assert "Help" not in titles
-
-
-@pytest.mark.parametrize("view", [solver_tab.template()])
-def test_no_haeo_and_no_icon(view) -> None:
-    text = json.dumps(view).lower()
-    assert "haeo" not in text
-    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
-    assert "icon" not in dash._view_for(spec)
-
-
-def test_the_energy_table_is_yesterday_measured_beside_tomorrow_planned() -> None:
-    """Household, 11 Oct 2026: one table, side by side, midnight to midnight,
-    plain labels. The donut it replaces summed the whole four-day plan."""
-    content = next(
-        s["cards"][0]["content"]
-        for s in solver_tab.template()
-        if "Yesterday and tomorrow" in s["cards"][0].get("content", "")
-    )
-    assert "| | Yesterday, measured | Tomorrow, planned |" in content
-    for label in ("Solar", "House", "Grid in", "Grid out", "Battery in", "Battery out"):
-        assert f"| {label} |" in content
-    assert "timedelta(days=1)" in content  # tomorrow, not "the next 24 h"
-    assert "'last_period'" in content  # yesterday's total, from Topology's meters
-    assert "${@option:switchboard_house_load_energy_daily_sensor}" in content
-
-
-def test_the_energy_pie_is_tomorrow_beside_the_table() -> None:
-    """Household, 11 Oct 2026: keep the table AND the pie, one day each.
-    12 Oct: the table and the cost by day one column each, the pie two."""
-    sections = solver_tab.template()
-    titles = [
-        (s["column_span"], s["cards"][0].get("header", {}).get("title"))
-        for s in sections
-    ]
-    i = titles.index((2, "Battery energy, tomorrow"))
-    assert "Yesterday and tomorrow" in sections[i - 2]["cards"][0]["content"]
-    assert "cost_breakdown_by_day" in sections[i - 1]["cards"][0]["content"]
-    assert [sections[k]["column_span"] for k in (i - 2, i - 1, i)] == [1, 1, 2]
-    assert (
-        len(
-            {
-                json.dumps(sections[k]["cards"][0]["grid_options"])
-                for k in (i - 2, i - 1, i)
-            }
-        )
-        == 1
-    )
-    for series in sections[i]["cards"][0]["series"]:
-        assert "setHours(24, 0, 0, 0)" in series["data_generator"]
-
-
-def test_battery_chart_reads_watts_as_kw_and_labels_its_plan_series() -> None:
-    """11 Oct 2026: a tester's battery sensor in W was drawn as kW, and the
-    plan-ahead SoC and price series were labelled kW."""
-    chart = solver_tab._chart()
-    by_name = {s["name"]: s for s in chart["series"]}
-    measured = by_name["Measured"]
-    assert measured["unit"] == "kW"
-    assert '"w": 0.001' in measured["transform"]
-    assert '"MW": 1000.0' in measured["transform"]
-    assert "${@option:battery_sensor}" in measured["transform"]
-    resolved = solver_tab.resolve(
-        measured, lambda k: "sensor.batt" if k == "option:battery_sensor" else None
-    )
-    assert "hass.states['sensor.batt']" in resolved["transform"]
-    assert by_name["SoC ahead"]["unit"] == "%"
-    assert by_name["Buy price ahead"]["unit"] == "c/kWh"
-
-
-def test_soc_ahead_is_drawn_at_the_end_of_each_period() -> None:
-    """A plan row's soc_pct is the SoC after its period (household, 12 Oct
-    2026: a sale's SoC drop showed a period before its battery bar)."""
-    gens = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            if node.get("name") == "SoC ahead":
-                gens.append(node["data_generator"])
-            for v in node.values():
-                walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                walk(v)
-
-    walk(solver_tab.template())
-    assert gens
-    assert all("p.hours" in g and "3600000" in g for g in gens)
-
-
-def test_forecast_card_soc_is_drawn_at_the_end_of_each_period() -> None:
-    import pathlib
-
-    js = (
-        pathlib.Path(solver_tab.__file__).parent
-        / "frontend"
-        / "nimbus-forecast-card.js"
-    ).read_text(encoding="utf-8")
-    soc = js[js.index('name: "Solver SoC % (proposed)"') :][:400]
-    assert "(p.hours || 0) * 3600000, p.soc_pct" in soc

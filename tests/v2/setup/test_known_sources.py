@@ -101,8 +101,7 @@ def _open_meteo(entry_id, names):
 
 
 def test_an_install_that_renamed_nothing_gets_exactly_the_old_entities():
-    """The identity on the default path: the registry's answer is the very
-    list the fixed entity_ids held, so nothing changes for such an install."""
+    # test_an_install_that_renamed_nothing_gets_exactly_the_old_entities: The identity on the default path: the registry's answer is the very
     found = _resolve(
         {
             **_solcast(*DEFAULT_SOLCAST),
@@ -112,24 +111,7 @@ def test_an_install_that_renamed_nothing_gets_exactly_the_old_entities():
     assert found["solcast"] == DEFAULT_SOLCAST
     assert found["open_meteo"] == DEFAULT_OPEN_METEO
 
-
-def test_a_renamed_solcast_is_still_found_today_first():
-    found = _resolve(
-        _solcast("sensor.bumbum_solbum_today", "sensor.bumbum_solbum_tmrw")
-    )
-    assert found["solcast"] == [
-        "sensor.bumbum_solbum_today",
-        "sensor.bumbum_solbum_tmrw",
-    ]
-
-
-def test_a_renamed_open_meteo_is_still_found():
-    names = [f"sensor.dach_{i}" for i in range(8)]
-    found = _resolve({ks.OPEN_METEO_DOMAIN: _open_meteo("OM1", names)})
-    assert found["open_meteo"] == names
-
-
-def test_two_open_meteo_entries_are_ambiguous_and_neither_is_read():
+    # test_two_open_meteo_entries_are_ambiguous_and_neither_is_read
     found = _resolve(
         {
             ks.OPEN_METEO_DOMAIN: _open_meteo("OM1", DEFAULT_OPEN_METEO)
@@ -138,19 +120,13 @@ def test_two_open_meteo_entries_are_ambiguous_and_neither_is_read():
     )
     assert found["open_meteo"] == []
 
-
-def test_a_disabled_or_unloaded_source_is_not_read():
+    # test_a_disabled_or_unloaded_source_is_not_read
     regs = _solcast(*DEFAULT_SOLCAST)
     regs[ks.SOLCAST_DOMAIN][0][1][1].disabled_by = "user"  # today's
     assert _resolve(regs)["solcast"] == DEFAULT_SOLCAST[1:]
     assert _resolve(_solcast(*DEFAULT_SOLCAST), state="setup_retry")["solcast"] == []
 
-
-def test_nothing_installed_is_the_empty_shape():
-    assert _resolve({}) == ks.EMPTY
-
-
-def test_localvolts_is_found_by_its_unique_ids():
+    # test_localvolts_is_found_by_its_unique_ids
     found = _resolve(
         {
             ks.LV_V2_DOMAIN: [

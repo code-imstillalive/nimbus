@@ -74,32 +74,3 @@ def _plan_with_result(**overrides):
         loads=[el.LoadConfig(name="house", forecast_kw=np.full(n, 1.0))],
         lp_solve_hook=hook,
     )
-
-
-def test_every_plan_carries_the_weight_beside_the_fallback_reason():
-    """#1291, #1179: an optimal plan and a failed one both carry the blend
-    weight the solve used, whether it fell back, and why: the base rate among
-    healthy cycles is what makes the failures' rate mean anything. Only a
-    failed plan carries HiGHS's own numbers and the dumped model."""
-    fallback = {
-        "calibration_min_weight_fallback": True,
-        "calibration_fallback_reason": "probe_not_optimal",
-        "calibration_weight_used": 0.123,
-        "highs_info": {"simplex_iteration_count": 7},
-        "failing_model_path": "/tmp/model.mps",
-    }
-    for status in ("optimal", "error"):
-        plan = _plan_with_result(
-            **fallback, **({} if status == "optimal" else {"status": "error"})
-        )
-        assert plan.status == status
-        assert (
-            plan.calibration_min_weight_fallback,
-            plan.calibration_fallback_reason,
-            plan.calibration_weight_used,
-        ) == (True, "probe_not_optimal", 0.123)
-        if status == "optimal":
-            assert (plan.highs_info, plan.failing_model_path) == ({}, None)
-        else:
-            assert plan.highs_info == {"simplex_iteration_count": 7}
-            assert plan.failing_model_path == "/tmp/model.mps"

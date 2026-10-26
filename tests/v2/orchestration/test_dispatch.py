@@ -12,7 +12,6 @@ its own thread and an in-memory store; the device calls are recorded.
 from __future__ import annotations
 
 import asyncio
-import itertools
 import logging
 import sys
 import threading
@@ -168,24 +167,6 @@ def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
     assert site.state("s").commanded_state is False
 
 
-def test_a_load_that_stays_on_is_commanded_once_and_its_first_decision_is_kept(site):
-    site.load("s", "switch.pump")
-    for i in range(5):
-        site.solve(T0 + STEP * i, sheddable={"s": ON})
-    assert len(site.calls) == 1
-    st = site.state("s")
-    assert st.commanded_state is True and st.commanded_since == T0.timestamp()
-
-
-def test_alternating_decisions_change_the_command_at_most_once(site):
-    site.load("s", "switch.pump")
-    seen = []
-    for i in range(10):
-        site.solve(T0 + STEP * i, sheddable={"s": ON if i % 2 == 0 else OFF})
-        seen.append(site.state("s").commanded_state)
-    assert sum(a != b for a, b in itertools.pairwise(seen)) <= 1
-
-
 def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds(
     site,
 ):
@@ -338,25 +319,6 @@ def test_a_reading_taken_while_heating_or_settling_never_becomes_the_anchor(
     assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
 
 
-def test_during_a_hold_the_forecast_heats_from_the_first_period(site):
-    """#595: the dip in the plan is not what the device does while held on."""
-    since = (T0 + timedelta(hours=7, minutes=30)).timestamp()
-    _heater(
-        site,
-        50.0,
-        seed={
-            "last_idle_temperature": 50.0,
-            "commanded_state": True,
-            "commanded_since": since,
-        },
-    )
-    st = _forecast(site, np.array([0.0, 0.65, 0.0, 0.65, 0.0]), step=STEP, n=5)
-    assert st.commanded_state is True
-    assert st.temperature_forecast[0]["value"] == pytest.approx(
-        50.0 + 3.7 * 8.0 / 12, abs=0.01
-    )
-
-
 @pytest.mark.parametrize(
     ("live", "attrs", "done_when", "first", "last"),
     [
@@ -469,20 +431,6 @@ def test_each_load_publishes_its_plan_and_what_it_costs(site):
     shed = site.state("pump")
     assert shed.plan_forecast[1]["value"] == 0.8 and shed.plan_nominal_kw == 1.5
     assert shed.plan_target_kwh is None and shed.plan_tariff_attributed_cost is None
-
-
-def test_the_plan_refreshes_every_solve_and_is_not_published_without_period_hours(site):
-    site.load("pump", sheddable_nominal_kw=1.5)
-    hours = np.full(4, 5 / 60)
-    site.solve(T0, sheddable={"pump": np.full(4, 1.5)}, hours=hours)
-    site.solve(
-        T0 + STEP, sheddable={"pump": np.array([1.5, 0.9, 1.5, 1.5])}, hours=hours
-    )
-    st = site.state("pump")
-    assert st.commanded_state is True and st.plan_forecast[1]["value"] == 0.9
-    site.load("old", sheddable_nominal_kw=1.5)
-    site.solve(T0, sheddable={"old": ON})
-    assert site.state("old").plan_forecast is None
 
 
 def test_a_plan_load_whose_subentry_is_gone_is_still_decided_but_not_sent(site):

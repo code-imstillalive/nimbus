@@ -33,6 +33,7 @@ jobs:
           --json docs/architecture/coverage-by-risk.json
           --md docs/architecture/coverage-by-risk.md
           --gaps coverage-gaps.json
+          --cover coverage-cover.json
       - name: Upload the report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
@@ -41,3 +42,4 @@ jobs:
             docs/architecture/coverage-by-risk.md
             docs/architecture/coverage-by-risk.json
             coverage-gaps.json
+            coverage-cover.json

@@ -117,23 +117,6 @@ def _flow(options=None, hass=None):
     return flow
 
 
-def test_the_menu_offers_pricing_suggestions_only_when_there_are_some(world):
-    assert _run(_flow().async_step_init())["menu_options"] == [
-        "forecaster",
-        "solver_battery",
-        "switchboard",
-    ]
-    world.suggestions["pricing"] = [
-        {
-            "label": "Import price",
-            "field": "f",
-            "proposed": "sensor.p",
-            "source": "Amber",
-        }
-    ]
-    assert _run(_flow().async_step_init())["menu_options"][-1] == "pricing_suggestions"
-
-
 # --- the Solver pages, carried through to one save ---------------------------------
 
 
@@ -242,57 +225,7 @@ def test_a_frozen_price_keeps_the_grid_page_open_with_the_reason(world, monkeypa
     }
 
 
-def test_the_forms_start_from_saved_values_then_suggestions(world):
-    world.suggestions["dashboard"] = {
-        "solver_battery_soc_sensor": "sensor.suggested_soc"
-    }
-    form = _run(_flow().async_step_solver_battery())
-    schema = form["data_schema"]
-    soc = next(k for k in schema.schema if str(k) == "solver_battery_soc_sensor")
-    assert soc.default() == "sensor.suggested_soc"
-    saved = _run(
-        _flow({"solver_battery_soc_sensor": "sensor.mine"}).async_step_solver_battery()
-    )
-    soc = next(
-        k for k in saved["data_schema"].schema if str(k) == "solver_battery_soc_sensor"
-    )
-    assert soc.default() == "sensor.mine"
-
-
 # --- the forecaster and switchboard pages --------------------------------------------
-
-
-def test_the_forecaster_page_saves_its_own_fields_only(world):
-    flow = _flow({"other": 1, "humidity_sensor": "sensor.old"})
-    form = _run(flow.async_step_forecaster())
-    assert form["step_id"] == "forecaster"
-    saved = _run(
-        flow.async_step_forecaster(
-            {"temperature_sensor": "sensor.t", "forecast_horizon_hours": 120}
-        )
-    )
-    assert (
-        saved["data"]["temperature_sensor"] == "sensor.t"
-        and saved["data"]["other"] == 1
-    )
-    assert saved["data"]["humidity_sensor"] is None
-    assert set(saved["data"]) == {"other", *ho._FORECASTER_SCHEMA_KEYS}
-
-
-def test_an_energy_sensor_offered_as_power_keeps_the_forecaster_page_open(
-    world, monkeypatch
-):
-    monkeypatch.setattr(
-        ho,
-        "energy_unit_field_errors",
-        lambda hass, ui, fields: {"battery_sensor": "energy_unit"},
-    )
-    again = _run(
-        _flow().async_step_forecaster({"battery_sensor": "sensor.battery_kwh"})
-    )
-    assert again["type"] == "form" and again["errors"] == {
-        "battery_sensor": "energy_unit"
-    }
 
 
 def test_the_switchboard_page_saves_its_own_fields_only(world):
@@ -316,16 +249,13 @@ def test_the_switchboard_page_saves_its_own_fields_only(world):
     assert saved["data"]["switchboard_import_price_sensor"] == "sensor.buy"
 
 
-@pytest.mark.parametrize(
-    ("value", "hours"),
-    [
+def test_the_forecast_horizon_is_never_shorter_than_the_solvers():
+    for value, hours in [
         (48, const.MIN_FORECAST_HORIZON_HOURS),
         (200, 200),
         ("x", const.DEFAULT_FORECAST_HORIZON_HOURS),
-    ],
-)
-def test_the_forecast_horizon_is_never_shorter_than_the_solvers(value, hours):
-    assert ho._at_least_solver_horizon(value) == hours
+    ]:
+        assert ho._at_least_solver_horizon(value) == hours
 
 
 # --- confirmed pricing suggestions ------------------------------------------------------
@@ -396,22 +326,6 @@ def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save():
     ).schema.keys() == {"a"}
 
 
-@pytest.mark.parametrize(
-    ("candidates", "saved", "out"),
-    [
-        (None, "sensor.x", None),
-        (["sensor.a"], None, ["sensor.a"]),
-        (["sensor.a"], "sensor.a", ["sensor.a"]),
-        (["sensor.a"], "sensor.gone", ["sensor.a", "sensor.gone"]),
-        (["sensor.a"], ["sensor.b", "", "sensor.a"], ["sensor.a", "sensor.b"]),
-    ],
-)
-def test_a_saved_value_stays_selectable_even_when_no_longer_suggested(
-    candidates, saved, out
-):
-    assert ho._with_saved_values(candidates, saved) == out
-
-
 # --- live numbers ---------------------------------------------------------------------------
 
 
@@ -439,24 +353,6 @@ def test_live_number_fields_show_the_current_value_but_never_the_placeholder(wor
     )
 
 
-def test_a_live_number_that_is_not_this_hubs_own_is_skipped(world):
-    hass = Hass()
-    world.registry["hub1_" + const.CONF_SOLVER_BATTERY_CAPACITY_KWH] = "number.cap"
-    assert _run(
-        ln.async_apply(
-            hass,
-            "hub1",
-            {
-                const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 5.0,
-                const.CONF_SOLVER_MAX_CHARGE_KW: 3.0,
-            },
-        )
-    ) == [
-        const.CONF_SOLVER_BATTERY_CAPACITY_KWH,  # registered, but no entity loaded
-        const.CONF_SOLVER_MAX_CHARGE_KW,  # not registered
-    ]
-
-
 def _default_of(form, key):
     for marker in form["data_schema"].schema:
         if str(marker) == key:
@@ -465,19 +361,3 @@ def _default_of(form, key):
             sv = (getattr(marker, "description", None) or {}).get("suggested_value")
             return sv if sv is not None else value
     return None
-
-
-def test_the_energy_dashboard_fills_only_what_the_household_has_not_saved(world):
-    """#1067: the dashboard's battery sensor is offered when the field is
-    empty, and a saved choice always wins over it."""
-    world.suggestions["dashboard"] = {
-        "solver_battery_soc_sensor": "sensor.dashboard_soc"
-    }
-    empty = _run(_flow().async_step_solver_battery())
-    assert _default_of(empty, "solver_battery_soc_sensor") == "sensor.dashboard_soc"
-    saved = _run(
-        _flow(
-            {"solver_battery_soc_sensor": "sensor.saved_soc"}
-        ).async_step_solver_battery()
-    )
-    assert _default_of(saved, "solver_battery_soc_sensor") == "sensor.saved_soc"

@@ -76,6 +76,7 @@ class TestTheEprAxisDoesNotClipRealDays(unittest.TestCase):
         self.epr_axis = next(axis for axis in self.card["yaxis"] if axis["id"] == "epr")
 
     def test_there_is_no_hard_ceiling(self):
+        # test_there_is_no_hard_ceiling
         self.assertNotIn(
             "max",
             self.epr_axis,
@@ -86,7 +87,7 @@ class TestTheEprAxisDoesNotClipRealDays(unittest.TestCase):
             "reads as a perfect day rather than as the anomaly it is",
         )
 
-    def test_there_is_no_hard_floor(self):
+        # test_there_is_no_hard_floor
         self.assertNotIn(
             "min",
             self.epr_axis,
@@ -97,21 +98,14 @@ class TestTheEprAxisDoesNotClipRealDays(unittest.TestCase):
             "scorer can produce",
         )
 
-    def test_the_regret_axis_is_also_unclamped(self):
-        """Regret goes negative by the same mechanism -- it is
-        `j_ach - j_star_evaluator`, and beating the oracle makes it
-        negative (-$0.79 on 2026-09-16)."""
+        # test_the_regret_axis_is_also_unclamped: Regret goes negative by the same mechanism -- it is
         regret_axis = next(
             axis for axis in self.card["yaxis"] if axis["id"] == "regret"
         )
         self.assertNotIn("min", regret_axis)
         self.assertNotIn("max", regret_axis)
 
-    def test_the_regret_axis_keeps_cent_resolution(self):
-        """Regret lives in the +-$5 range -- $1.67 and -$0.79 are both
-        real readings. Whole-dollar axis labels round almost every day to
-        0 or -1, so the axis stops distinguishing a good day from a bad
-        one while still looking like a working chart."""
+        # test_the_regret_axis_keeps_cent_resolution: Regret lives in the +-$5 range -- $1.67 and -$0.79 are both
         regret_axis = next(
             axis for axis in self.card["yaxis"] if axis["id"] == "regret"
         )
@@ -126,22 +120,19 @@ class TestItReadsTheScorersOwnTable(unittest.TestCase):
         self.card = _load_module().QUALITY_TREND_CHART_CARD
 
     def test_both_series_read_the_report_entity(self):
+        # test_both_series_read_the_report_entity
         for series in self.card["series"]:
             with self.subTest(series=series["name"]):
                 self.assertEqual(
                     series["entity"], "sensor.nimbus_solver_quality_report"
                 )
 
-    def test_both_series_use_the_history_attribute(self):
+        # test_both_series_use_the_history_attribute
         for series in self.card["series"]:
             with self.subTest(series=series["name"]):
                 self.assertIn("entity.attributes.history", series["data_generator"])
 
-    def test_neither_series_uses_recorder_statistics(self):
-        """`statistics:` on a series makes apexcharts read long-term
-        statistics instead of the data generator -- the exact drift the
-        household's own hand-edited card had taken, which put every point
-        one day late and blended the upgrade day."""
+        # test_neither_series_uses_recorder_statistics: `statistics:` on a series makes apexcharts read long-term
         for series in self.card["series"]:
             with self.subTest(series=series["name"]):
                 self.assertNotIn(
@@ -154,10 +145,7 @@ class TestItReadsTheScorersOwnTable(unittest.TestCase):
                     "scored date and has neither problem.",
                 )
 
-    def test_the_dates_are_sorted_before_plotting(self):
-        """A dict's insertion order is whatever the writer happened to
-        use; an unsorted series draws the line backwards across the
-        chart."""
+        # test_the_dates_are_sorted_before_plotting: A dict's insertion order is whatever the writer happened to
         for series in self.card["series"]:
             with self.subTest(series=series["name"]):
                 self.assertIn(".sort(", series["data_generator"])
@@ -171,6 +159,7 @@ class TestTheFractionToPercentScalingSurvives(unittest.TestCase):
         self.card = _load_module().QUALITY_TREND_CHART_CARD
 
     def test_epr_is_multiplied_by_one_hundred(self):
+        # test_epr_is_multiplied_by_one_hundred
         epr_series = next(s for s in self.card["series"] if s["name"] == "EPR")
         self.assertIn(
             "* 100",
@@ -180,10 +169,7 @@ class TestTheFractionToPercentScalingSurvives(unittest.TestCase):
             "roughly zero on a percentage axis",
         )
 
-    def test_regret_is_not_scaled_by_one_hundred(self):
-        """Regret is already dollars. The `/ 100` there is a 2dp round,
-        paired with its own `* 100` -- a different operation that must not
-        be mistaken for the EPR scaling and 'made consistent'."""
+        # test_regret_is_not_scaled_by_one_hundred: Regret is already dollars. The `/ 100` there is a 2dp round,
         regret = next(s for s in self.card["series"] if s["name"] == "Regret $")
         self.assertIn("/ 100", regret["data_generator"])
 

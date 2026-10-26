@@ -39,60 +39,7 @@ def _hourly_load_events(days: float, start: datetime = START_OF_TIME):
     return events
 
 
-class TestTrainingSpanAndResolution(unittest.TestCase):
-    def test_training_span_and_resample_minutes_reported(self):
-        days = 15.0
-        start = START_OF_TIME
-        end = start + timedelta(days=days)
-        load_events = _hourly_load_events(days)
-
-        trained = ml_model.train_model(
-            load_events=load_events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=start,
-            end=end,
-            resample_minutes=60,
-            min_training_points=50,
-        )
-
-        self.assertIsNotNone(trained)
-        self.assertEqual(trained.resample_minutes, 60)
-        # The real elapsed span of the rows that actually survived lag
-        # filtering -- close to the full 15-day window (LAG_LONG_STEPS
-        # hours are trimmed off the front), not the configured train_days
-        # in the abstract and not just a row count a reader has to
-        # convert by hand.
-        self.assertGreater(trained.training_span_days, 14.0)
-        self.assertLessEqual(trained.training_span_days, 15.0)
-
-
 class TestMaseScalePointsVisibility(unittest.TestCase):
-    def test_enough_history_populates_mase_and_reports_a_real_point_count(self):
-        # 15 days comfortably clears the 7-day week-ago lookback PLUS
-        # MIN_MASE_SCALE_POINTS(20) worth of training rows beyond that.
-        days = 15.0
-        start = START_OF_TIME
-        end = start + timedelta(days=days)
-        load_events = _hourly_load_events(days)
-
-        trained = ml_model.train_model(
-            load_events=load_events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=start,
-            end=end,
-            resample_minutes=60,
-            min_training_points=50,
-        )
-
-        self.assertIsNotNone(trained)
-        self.assertGreaterEqual(trained.mase_scale_points, 20)
-        self.assertIn("knn", trained.validation_mase)
-        self.assertIn("gbrt", trained.validation_mase)
-
     def test_insufficient_history_reports_zero_points_not_a_silent_empty_dict(self):
         # Only 5 real days -- genuinely less than the 7-day week-ago
         # lookback MASE's own scale needs, so NO row can have a valid

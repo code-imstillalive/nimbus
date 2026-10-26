@@ -151,6 +151,7 @@ def test_the_saving_always_splits_into_solar_battery_and_their_interaction(
 
 
 def test_without_a_battery_or_without_solar_that_part_saves_nothing():
+    # test_without_a_battery_or_without_solar_that_part_saves_nothing
     (pv_only,) = _economics(
         [_flows(pv_to_load=3.0, pv_to_grid=2.0, grid_to_load=1.0)], [0.3], [0.05]
     )
@@ -163,8 +164,7 @@ def test_without_a_battery_or_without_solar_that_part_saves_nothing():
     )
     assert all(r["savings_pv"] == 0.0 for r in no_solar)
 
-
-def test_stored_energy_costs_its_weighted_average_and_keeps_it_while_idle():
+    # test_stored_energy_costs_its_weighted_average_and_keeps_it_while_idle
     blended = _economics(
         [_flows(pv_to_battery=4.0), _flows(grid_to_battery=4.0)],
         [0.3, 0.5],
@@ -184,8 +184,7 @@ def test_stored_energy_costs_its_weighted_average_and_keeps_it_while_idle():
     assert idle[1]["flow_battery_cost_basis"] == pytest.approx(0.4)
     assert idle[2]["flow_battery_cost_basis"] == pytest.approx(0.4)
 
-
-def test_cheap_charge_sold_dear_shows_the_margin_not_the_raw_export_price():
+    # test_cheap_charge_sold_dear_shows_the_margin_not_the_raw_export_price
     arbitrage = _economics(
         [_flows(grid_to_battery=4.0), _flows(battery_to_grid=4.0)],
         [0.1, 0.1],

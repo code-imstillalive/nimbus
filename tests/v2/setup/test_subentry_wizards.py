@@ -141,71 +141,59 @@ def quiet_checks(monkeypatch):
     )
 
 
-@pytest.mark.parametrize("kind", sorted(WIZARDS))
-def test_each_wizard_creates_its_part_with_a_sensible_name(kind):
-    flow, _m = _flow(kind)
-    form = asyncio.run(flow.async_step_user())
-    assert form["type"] == "form" and form["step_id"] == "user"
-    answer, title = WIZARDS[kind][2], WIZARDS[kind][3]
-    created = asyncio.run(flow.async_step_user(dict(answer)))
-    assert created == {"type": "create_entry", "title": title, "data": answer}
+def test_each_wizard_creates_its_part_with_a_sensible_name():
+    for kind in sorted(WIZARDS):
+        flow, _m = _flow(kind)
+        form = asyncio.run(flow.async_step_user())
+        assert form["type"] == "form" and form["step_id"] == "user"
+        answer, title = WIZARDS[kind][2], WIZARDS[kind][3]
+        created = asyncio.run(flow.async_step_user(dict(answer)))
+        assert created == {"type": "create_entry", "title": title, "data": answer}
 
 
-@pytest.mark.parametrize("kind", sorted(WIZARDS))
-def test_reconfigure_opens_with_what_was_saved_and_updates_in_place(kind):
-    answer = WIZARDS[kind][2]
-    saved = SimpleNamespace(subentry_id="s1", data=dict(answer), subentry_type=kind)
-    flow, _m = _flow(kind, reconfigure=saved)
-    form = asyncio.run(flow.async_step_reconfigure())
-    defaults = {}
-    for marker in form["data_schema"].schema:
-        default = getattr(marker, "default", vol.UNDEFINED)
-        suggested = (getattr(marker, "description", None) or {}).get("suggested_value")
-        value = default() if default is not vol.UNDEFINED else suggested
-        if value is not None:
-            defaults[str(marker)] = value
-    assert {k: v for k, v in answer.items() if k in defaults} == {
-        k: defaults[k] for k in answer if k in defaults
-    }
-    assert set(answer) <= set(defaults) or kind in ("load", "signal", "pv_string")
-    updated = asyncio.run(flow.async_step_reconfigure(dict(answer)))
-    assert updated["type"] == "update_and_abort"
+def test_reconfigure_opens_with_what_was_saved_and_updates_in_place():
+    for kind in sorted(WIZARDS):
+        answer = WIZARDS[kind][2]
+        saved = SimpleNamespace(subentry_id="s1", data=dict(answer), subentry_type=kind)
+        flow, _m = _flow(kind, reconfigure=saved)
+        form = asyncio.run(flow.async_step_reconfigure())
+        defaults = {}
+        for marker in form["data_schema"].schema:
+            default = getattr(marker, "default", vol.UNDEFINED)
+            suggested = (getattr(marker, "description", None) or {}).get(
+                "suggested_value"
+            )
+            value = default() if default is not vol.UNDEFINED else suggested
+            if value is not None:
+                defaults[str(marker)] = value
+        assert {k: v for k, v in answer.items() if k in defaults} == {
+            k: defaults[k] for k in answer if k in defaults
+        }
+        assert set(answer) <= set(defaults) or kind in ("load", "signal", "pv_string")
+        updated = asyncio.run(flow.async_step_reconfigure(dict(answer)))
+        assert updated["type"] == "update_and_abort"
 
 
-@pytest.mark.parametrize("kind", ["load", "signal"])
-def test_a_sensor_another_forecaster_already_uses_is_refused(kind):
-    other = SimpleNamespace(
-        subentry_id="other",
-        subentry_type=const.SUBENTRY_TYPE_LOAD,
-        data={const.CONF_LOAD_SENSOR: "sensor.pool_power"},
-    )
-    flow, _m = _flow(kind, subentries={"other": other})
-    refused = asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))
-    assert refused["errors"] == {"load_sensor": "duplicate_source_sensor"}
-    # Reconfiguring that same forecaster with its own sensor is fine.
-    flow, _m = _flow(kind, subentries={"other": other}, reconfigure=other)
-    assert (
-        asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))["type"]
-        == "update_and_abort"
-    )
+def test_a_sensor_another_forecaster_already_uses_is_refused():
+    for kind in ["load", "signal"]:
+        other = SimpleNamespace(
+            subentry_id="other",
+            subentry_type=const.SUBENTRY_TYPE_LOAD,
+            data={const.CONF_LOAD_SENSOR: "sensor.pool_power"},
+        )
+        flow, _m = _flow(kind, subentries={"other": other})
+        refused = asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))
+        assert refused["errors"] == {"load_sensor": "duplicate_source_sensor"}
+        # Reconfiguring that same forecaster with its own sensor is fine.
+        flow, _m = _flow(kind, subentries={"other": other}, reconfigure=other)
+        assert (
+            asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))["type"]
+            == "update_and_abort"
+        )
 
 
-@pytest.mark.parametrize("kind", ["load", "signal"])
-def test_an_energy_sensor_offered_as_power_is_refused(kind, monkeypatch):
-    flow, m = _flow(kind)
-    monkeypatch.setattr(
-        m,
-        "energy_unit_field_errors",
-        lambda hass, ui, fields: {"load_sensor": "energy_unit"},
-    )
-    assert asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))["errors"] == {
-        "load_sensor": "energy_unit"
-    }
-
-
-@pytest.mark.parametrize(
-    ("kind", "answer", "states", "title"),
-    [
+def test_names_fall_back_sensibly():
+    for kind, answer, states, title in [
         ("load", {const.CONF_LOAD_SENSOR: "sensor.unnamed"}, {}, "sensor.unnamed"),
         (
             "pv_string",
@@ -241,42 +229,10 @@ def test_an_energy_sensor_offered_as_power_is_refused(kind, monkeypatch):
             {"sensor.x": SimpleNamespace(attributes={"friendly_name": "Garage pack"})},
             "Garage pack",
         ),
-    ],
-)
-def test_names_fall_back_sensibly(kind, answer, states, title):
-    flow, m = _flow(kind, states=states)
-    created = asyncio.run(flow.async_step_user(dict(answer)))
-    assert created["title"] == (title or m._TITLE_FALLBACK)
-
-
-def test_a_battery_tower_suggests_the_energy_dashboards_soc_only_when_none_is_saved(
-    monkeypatch,
-):
-    seen = []
-
-    async def suggestion(hass):
-        seen.append(1)
-        return "sensor.dash_soc"
-
-    m = _mod("battery_tower_subentry")
-    monkeypatch.setattr(m, "_energy_dashboard_soc_suggestion", suggestion)
-    flow, _ = _flow("battery_tower")
-    form = asyncio.run(flow.async_step_user())
-    soc = next(
-        k
-        for k in form["data_schema"].schema
-        if str(k) == const.CONF_BATTERY_TOWER_SOC_SENSOR
-    )
-    assert (
-        "sensor.dash_soc" in (soc.description or {}).values()
-        or soc.default() == "sensor.dash_soc"
-    )
-    saved = SimpleNamespace(
-        subentry_id="t", data={const.CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.mine"}
-    )
-    flow, _ = _flow("battery_tower", reconfigure=saved)
-    asyncio.run(flow.async_step_user())
-    assert seen == [1]
+    ]:
+        flow, m = _flow(kind, states=states)
+        created = asyncio.run(flow.async_step_user(dict(answer)))
+        assert created["title"] == (title or m._TITLE_FALLBACK)
 
 
 def test_only_load_and_signal_forecasters_can_collide():

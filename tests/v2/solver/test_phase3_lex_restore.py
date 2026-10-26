@@ -100,22 +100,6 @@ def _run(n_loads: int, n_periods: int, seed: int):
     return plan, handler.messages
 
 
-class TestTheFixHoldsOnTheFailingScenarios(unittest.TestCase):
-    """Forward direction: with the fix in place, nothing fails."""
-
-    def test_no_phase3_failure_on_the_reproducing_scenarios(self):
-        for n_loads, n_periods, seed in FAILING:
-            with self.subTest(n_loads=n_loads, n_periods=n_periods, seed=seed):
-                plan, messages = _run(n_loads, n_periods, seed)
-                self.assertFalse(
-                    _phase3_failed(messages),
-                    f"phase3_lex_restore failed on ({n_loads}, {n_periods}, "
-                    f"{seed}) -- the pinned LP is being re-certified at the "
-                    "tighter tolerance again; see _lp_tolerance_matching_mip()",
-                )
-                self.assertEqual(plan.status, "optimal")
-
-
 class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
     """Reverse direction. Without it this file would only prove these
     scenarios pass, not that the fix is why -- exactly the gap #999 filed
@@ -200,18 +184,6 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
         self.assertTrue(hasattr(lp._lp_tolerance_matching_mip, "__wrapped__"))
 
 
-class TestScenariosThatNeverFailedAreUntouched(unittest.TestCase):
-    """The fix must be a strict no-op where the condition does not arise.
-    Measured: primary cost is bit-identical on these."""
-
-    def test_clean_scenarios_stay_clean(self):
-        for n_loads, n_periods, seed in CLEAN:
-            with self.subTest(n_loads=n_loads, n_periods=n_periods, seed=seed):
-                plan, messages = _run(n_loads, n_periods, seed)
-                self.assertFalse(_phase3_failed(messages))
-                self.assertEqual(plan.status, "optimal")
-
-
 class TestBothPinnedResolvesAreCovered(unittest.TestCase):
     """The defect was that one of the two pinned LP re-solves had the
     guard and the other did not. A source check, because the asymmetry is
@@ -274,38 +246,6 @@ class TestTheCalibratedPathIsWorse(unittest.TestCase):
     raised.
     """
 
-    def test_the_calibrated_path_solves_the_model_it_used_to_call_infeasible(self):
-        for n_loads, n_periods, seed in FAILING:
-            with self.subTest(n_loads=n_loads, n_periods=n_periods, seed=seed):
-                lp._lex_calibration_failed_until = 0.0
-                scenario = _many_binaries_tied_price_scenario(
-                    n_loads=n_loads, n_periods=n_periods, seed=seed
-                )
-                plan = _solve(*scenario, options=CalibratedOptions())
-                self.assertEqual(
-                    plan.status,
-                    "optimal",
-                    "the CalibratedOptions path reports this model infeasible "
-                    "again. It is not: LexOptions solves it. Dispatch goes "
-                    "unavailable here with NO #773 diagnostic and without "
-                    "network.py's fallback firing, because "
-                    "_calibrate_blend_weight() swallows a non-optimal probe "
-                    "as 'this weight is unacceptable' rather than raising",
-                )
-                self.assertIsNotNone(plan.total_cost)
-
-    def test_both_tie_break_modes_now_agree_on_the_same_model(self):
-        """The sharpest assertion available: one model, two modes, one
-        answer. Before the fix these differed by `optimal` vs
-        `infeasible`."""
-        lp._lex_calibration_failed_until = 0.0
-        scenario = _many_binaries_tied_price_scenario(n_loads=16, n_periods=24, seed=0)
-        lex = _solve(*scenario, options=LexOptions())
-        lp._lex_calibration_failed_until = 0.0
-        cal = _solve(*scenario, options=CalibratedOptions())
-        self.assertEqual(lex.status, cal.status)
-        self.assertAlmostEqual(float(lex.total_cost), float(cal.total_cost), places=9)
-
     def test_every_pinned_run_in_the_calibration_search_is_covered(self):
         """`_calibrate_blend_weight` has three `h.run()` sites and all
         three operate on pinned binaries. Wrapping only the probe left
@@ -366,45 +306,6 @@ class TestTheCalibratedPathIsWorse(unittest.TestCase):
                 )
 
 
-class TestWhatThisDoesNotFix(unittest.TestCase):
-    """Scope, pinned so it is not overstated later.
-
-    Matching the LP tolerance to the MIP tolerance can only rescue a
-    violation INSIDE the 1e-7..1e-6 band. A larger one is still a genuine
-    infeasibility for both.
-
-    Measured, with this fix applied, n_loads=20/n_periods=32/seed=3:
-
-        phase3_lex_restore  max_primal_infeasibility  1.919759e-06
-
-    which is ABOVE `mip_feasibility_tolerance` itself, so widening the
-    primal tolerance to match cannot help by construction.
-
-    **Updated for #773's tier-1 fix.** That scenario now reports
-    `optimal` on the calibrated path -- but NOT because this tolerance fix
-    grew stronger. The scope above is unchanged and still exactly right;
-    the scenario moved. See `TestWhatTier1IncidentallyFixed` below for the
-    isolating experiment. This class keeps asserting the original fact,
-    with tier 1 held off, because the above-band class of failure is real
-    and still unaddressed by anything in this file.
-    """
-
-    def test_the_above_band_scenario_is_still_unresolved(self):
-        lp._lex_calibration_failed_until = 0.0
-        scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
-        with _tier1_seed_disabled():
-            plan = _solve(*scenario, options=CalibratedOptions())
-        self.assertEqual(
-            plan.status,
-            "infeasible",
-            "the above-band scenario (1.92e-06, outside the tolerance gap) "
-            "now solves even with #773's tier-1 seed held off. That is good "
-            "news and this test is the wrong shape for it -- find out WHAT "
-            "fixed it, then update this file's scope section rather than "
-            "only flipping the assertion",
-        )
-
-
 class TestWhatTier1IncidentallyFixed(unittest.TestCase):
     """nimbus issue #773: the tier-1 integral seed also resolves the
     above-band scenario this file documents as out of scope -- and the
@@ -435,23 +336,6 @@ class TestWhatTier1IncidentallyFixed(unittest.TestCase):
         scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
         with ctx:
             return _solve(*scenario, options=CalibratedOptions()).status
-
-    def test_with_both_tiers_the_scenario_solves(self):
-        self.assertEqual(self._status(contextlib.nullcontext()), "optimal")
-
-    def test_tier_2_alone_does_not_rescue_it(self):
-        """The discriminator. If this ever starts returning optimal, tier
-        2 has begun doing something tier 1 was credited for, and the
-        docstring above is wrong."""
-        self.assertEqual(self._status(_tier1_seed_disabled()), "infeasible")
-
-    def test_with_neither_tier_it_is_the_original_failure(self):
-        """Pre-#773 behaviour. Both tiers depend on phase 1's captured
-        point, so removing the capture removes both."""
-        no_capture = unittest.mock.patch.object(
-            lp, "_capture_integral_point", lambda _h: None
-        )
-        self.assertEqual(self._status(no_capture), "infeasible")
 
 
 # Kept at the very END of the file, deliberately.

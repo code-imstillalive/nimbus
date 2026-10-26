@@ -56,10 +56,7 @@ def _version_key(v: str) -> tuple[int, ...]:
 
 class TestChangelogStructure(unittest.TestCase):
     def test_exactly_one_unreleased_heading(self):
-        """The actual guard. More than one makes "rename the Unreleased
-        section" ambiguous, and an unanchored replace can pick the wrong
-        one -- silently relabelling already-shipped work as this
-        release."""
+        # test_exactly_one_unreleased_heading: The actual guard. More than one makes "rename the Unreleased
         heads = _headings()
         self.assertEqual(
             heads.count("Unreleased"),
@@ -70,11 +67,7 @@ class TestChangelogStructure(unittest.TestCase):
             "the stray block into the version that actually shipped it.",
         )
 
-    def test_unreleased_is_the_first_heading(self):
-        """Belt and braces: even a correct single-match rename is only
-        safe if Unreleased is at the top, where new entries accumulate.
-        A stray one further down would satisfy the count check on its own
-        if the real one were ever removed."""
+        # test_unreleased_is_the_first_heading: Belt and braces: even a correct single-match rename is only
         heads = _headings()
         self.assertEqual(
             heads[0],
@@ -84,18 +77,12 @@ class TestChangelogStructure(unittest.TestCase):
             "that rewrites the first heading would clobber a shipped version.",
         )
 
-    def test_no_duplicate_version_headings(self):
-        """Two sections for one version means one of them is lying about
-        what shipped -- exactly the shape the 2026-09-14 double-release
-        could have produced if both PRs had bumped the manifest."""
+        # test_no_duplicate_version_headings: Two sections for one version means one of them is lying about
         versions = [h for h in _headings() if _SEMVER_RE.match(h)]
         dupes = sorted(v for v, c in collections.Counter(versions).items() if c > 1)
         self.assertEqual(dupes, [], f"duplicate version headings: {dupes}")
 
-    def test_version_headings_are_strictly_descending(self):
-        """Newest first, no repeats, nothing out of order -- which also
-        catches a release heading accidentally written into the middle of
-        the file (the concrete failure mode this file guards)."""
+        # test_version_headings_are_strictly_descending: Newest first, no repeats, nothing out of order -- which also
         versions = [h for h in _headings() if _SEMVER_RE.match(h)]
         self.assertGreater(len(versions), 100, "sanity: the walk found real content")
         out_of_order = [
@@ -109,10 +96,7 @@ class TestChangelogStructure(unittest.TestCase):
             f"version headings are not strictly descending: {out_of_order[:5]}",
         )
 
-    def test_the_shipped_manifest_version_has_a_changelog_section(self):
-        """Catches both halves of the release-step mistake this repo has
-        actually made: a manifest bumped with no entry written, and a
-        merge that never got a release cut at all."""
+        # test_the_shipped_manifest_version_has_a_changelog_section: Catches both halves of the release-step mistake this repo has
         version = json.loads(_MANIFEST.read_text(encoding="utf-8"))["version"]
         self.assertIn(
             f"## [{version}]",

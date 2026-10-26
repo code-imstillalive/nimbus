@@ -20,11 +20,11 @@ STATUSES = {
 }
 
 
-def test_baseline_is_pinned() -> None:
+def test_baseline_is_pinned():
+    # test_baseline_is_pinned
     assert re.fullmatch(r"[0-9a-f]{40}", REG["baseline"])
 
-
-def test_every_p0_requirement_is_present_once_with_fixtures_and_owners() -> None:
+    # test_every_p0_requirement_is_present_once_with_fixtures_and_owners
     ids = [r["id"] for r in REG["requirements"]]
     assert len(ids) == len(set(ids))
     assert {r["id"] for r in REG["requirements"] if r["priority"] == "P0"} == ROADMAP_P0
@@ -33,16 +33,14 @@ def test_every_p0_requirement_is_present_once_with_fixtures_and_owners() -> None
         assert r["owning_specs"], r["id"]
         assert all(re.fullmatch(r"DC-00[0-8]", s) for s in r["owning_specs"]), r
 
-
-def test_every_fixture_is_defined_and_every_reference_resolves() -> None:
+    # test_every_fixture_is_defined_and_every_reference_resolves
     assert set(REG["fixtures"]) == FIXTURES
     for r in REG["requirements"]:
         assert set(r["fixtures"]) <= FIXTURES, r["id"]
     covered = {f for r in REG["requirements"] for f in r["fixtures"]}
     assert covered == FIXTURES, FIXTURES - covered
 
-
-def test_every_status_is_explicit_and_nothing_claims_a_production_pass() -> None:
+    # test_every_status_is_explicit_and_nothing_claims_a_production_pass
     for fid, f in REG["fixtures"].items():
         assert set(f["status"]) == set(STATUSES), fid
         for key, value in f["status"].items():
@@ -50,8 +48,7 @@ def test_every_status_is_explicit_and_nothing_claims_a_production_pass() -> None
         # DC-000 implements no production behaviour.
         assert f["status"]["production_obligation"] != "passing", fid
 
-
-def test_a_started_oracle_has_a_manifest_that_agrees() -> None:
+    # test_a_started_oracle_has_a_manifest_that_agrees
     for fid, f in REG["fixtures"].items():
         if f["status"]["reference_oracle"] == "not_started":
             continue
@@ -64,16 +61,14 @@ def test_a_started_oracle_has_a_manifest_that_agrees() -> None:
             == f["status"]["reference_oracle"]
         ), fid
 
-
-def test_known_defects_point_at_real_fixtures_and_claim_no_fix() -> None:
+    # test_known_defects_point_at_real_fixtures_and_claim_no_fix
     for d in KD["defects"]:
         assert d["fixture"] in FIXTURES, d["id"]
         assert set(d["requirements"]) <= ROADMAP_P0, d["id"]
         assert d["corrected_epr"] == "unresolved"
         assert d["root_cause"].startswith("unresolved")
 
-
-def test_a_manifest_names_every_requirement_the_registry_gives_it() -> None:
+    # test_a_manifest_names_every_requirement_the_registry_gives_it
     for path in sorted((HERE / "fixtures").glob("F*/fixture.json")):
         manifest = json.loads(path.read_text(encoding="utf-8"))
         fid = manifest["identity"]["fixture"]

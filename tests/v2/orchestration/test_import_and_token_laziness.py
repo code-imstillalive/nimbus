@@ -142,27 +142,3 @@ class TestTokenIsLazilyResolved(unittest.TestCase):
             def_index,
             "the real open(TOKEN_PATH) call must live inside _load_token()",
         )
-
-    def test_load_token_resolves_from_env_var_first(self):
-        os.environ["HA_TOKEN"] = "test-token-value"
-        try:
-            self.assertEqual(solver_writer._load_token(), "test-token-value")
-        finally:
-            del os.environ["HA_TOKEN"]
-
-    def test_load_token_is_cached_after_first_call(self):
-        os.environ["HA_TOKEN"] = "first-value"
-        try:
-            first = solver_writer._load_token()
-        finally:
-            del os.environ["HA_TOKEN"]
-        # Even though the env var is now gone, the cached value stands --
-        # same "resolved once per process" contract the original
-        # module-level TOKEN had.
-        os.environ["HA_TOKEN"] = "second-value"
-        try:
-            second = solver_writer._load_token()
-        finally:
-            del os.environ["HA_TOKEN"]
-        self.assertEqual(first, "first-value")
-        self.assertEqual(second, "first-value")

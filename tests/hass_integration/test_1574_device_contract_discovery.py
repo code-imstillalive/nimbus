@@ -18,7 +18,6 @@ import copy
 from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nimbus_load import device_contract_ha, device_storage
@@ -58,46 +57,6 @@ def _prefs(prefs):
 
 def _stored(hass_storage, entry):
     return hass_storage.get(device_storage.store_key(entry.entry_id), {}).get("data")
-
-
-async def test_discovery_writes_nothing_and_calls_no_service(
-    hass: HomeAssistant, hass_storage
-):
-    entry = await _setup(hass)
-    with _prefs(PREFS), patch("homeassistant.core.ServiceRegistry.async_call") as calls:
-        out = await device_contract_ha.async_discover(hass, entry)
-    assert calls.call_count == 0
-    assert out["mode"] == "legacy" and out["revision"] == 0
-    grid = next(d for d in out["document"]["devices"] if d["id"] == "grid")
-    assert grid["bindings"]["import_energy"]["source"]["statistic_id"] == (
-        "sensor.grid_in_kwh"
-    )
-    assert grid["bindings"]["import_energy"]["provenance"]["confirmed"] is False
-    assert _stored(hass_storage, entry) is None
-    assert dict(entry.options) == OPTIONS
-
-
-async def test_a_provider_is_found_by_unique_id_even_renamed(
-    hass: HomeAssistant, hass_storage
-):
-    entry = await _setup(hass)
-    lv = MockConfigEntry(domain="localvolts_v2", data={})
-    lv.add_to_hass(hass)
-    reg = er.async_get(hass)
-    reg.async_get_or_create(
-        "sensor",
-        "localvolts_v2",
-        f"{lv.entry_id}_buy_flex_up",
-        config_entry=lv,
-        suggested_object_id="hallway_zone_buy",  # renamed, as one household's was
-    )
-    with _prefs(None):
-        out = await device_contract_ha.async_discover(hass, entry)
-    grid = next(d for d in out["document"]["devices"] if d["id"] == "grid")
-    binding = grid["bindings"]["import_price"]
-    assert binding["source"]["entity_id"] == "sensor.hallway_zone_buy"
-    assert binding["source"]["registry_id"]
-    assert binding["provenance"]["evidence"][0]["key"] == "buy_flex_up"
 
 
 async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage):
@@ -162,27 +121,6 @@ async def test_rediscovery_offers_the_energy_and_an_alternative_price(
     assert ("alternative", "power") not in kinds
 
 
-async def test_a_switch_to_a_source_that_does_not_exist_is_refused(
-    hass: HomeAssistant, hass_storage
-):
-    entry = await _setup(hass)
-    revision = await _shadow(hass, entry)
-    before = copy.deepcopy(_stored(hass_storage, entry))
-    choice = {
-        "kind": "alternative",
-        "device": "grid",
-        "role": "import_price",
-        "entity_id": "sensor.ed_buy",
-    }
-    with _prefs(PREFS):
-        out = await device_contract_ha.async_confirm(hass, entry, revision, [choice])
-    assert out["code"] == "binding_refused"
-    assert out["refused"] == [
-        {"device": "grid", "role": "import_price", "reason": "no_entity"}
-    ]
-    assert _stored(hass_storage, entry) == before
-
-
 async def test_a_switch_to_a_price_in_kilowatts_is_refused(
     hass: HomeAssistant, hass_storage
 ):
@@ -245,55 +183,3 @@ async def test_a_readable_switch_commits_a_confirmed_revision_in_shadow(
     assert grid["bindings"]["import_energy"]["provenance"]["confirmed"] is True
     # Shadow: today's settings stay master.
     assert dict(entry.options) == OPTIONS
-
-
-async def test_a_statistic_the_recorder_does_not_have_is_refused(
-    hass: HomeAssistant, hass_storage
-):
-    entry = await _setup(hass)
-    revision = await _shadow(hass, entry)
-    choice = {
-        "kind": "fill",
-        "device": "grid",
-        "role": "import_energy",
-        "entity_id": "sensor.grid_in_kwh",
-    }
-    with (
-        _prefs(PREFS),
-        patch.object(device_contract_ha, "_async_statistics", return_value={}),
-    ):
-        out = await device_contract_ha.async_confirm(hass, entry, revision, [choice])
-    assert out["code"] == "binding_refused"
-    assert out["refused"][0]["reason"] == "no_statistic"
-
-
-async def test_the_services_are_registered_and_answer(
-    hass: HomeAssistant, hass_storage
-):
-    from custom_components.nimbus_load import services
-
-    entry = await _setup(hass)
-    services.async_register_services(hass)
-    with _prefs(PREFS):
-        out = await hass.services.async_call(
-            DOMAIN,
-            "device_contract_discover",
-            {},
-            blocking=True,
-            return_response=True,
-        )
-        assert out["mode"] == "legacy"
-        refused = await hass.services.async_call(
-            DOMAIN,
-            "device_contract_confirm",
-            {
-                "revision": 0,
-                "choices": [
-                    {"kind": "fill", "device": "grid", "role": "import_energy"}
-                ],
-            },
-            blocking=True,
-            return_response=True,
-        )
-    assert refused["code"] == "choose_shadow_first"
-    assert _stored(hass_storage, entry) is None

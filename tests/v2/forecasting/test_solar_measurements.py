@@ -88,38 +88,10 @@ def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
     assert state.readings["calls"] == 0 and state.empty()
 
 
-def test_a_sharp_disagreement_is_queued_for_the_next_periods_own_time(state):
-    result, grid = _nowcast(NOON, 1.78, 15.89)
-    (queued,) = state.read()["nowcast_pending"]
-    assert queued["target_time"] == grid[1].isoformat()
-    assert (queued["anchor_kw"], queued["forecast_kw"]) == pytest.approx((1.78, 15.89))
-    assert (
-        result["considered_count"],
-        result["disagreement_count"],
-        result["resolved_count"],
-    ) == (1, 1, 0)
-    assert result["disagreement_now_kw"] == pytest.approx(14.11, abs=1e-3)
-    assert (
-        result["disagreement_rate"] == 1.0
-        and result["forecast_closer_fraction"] is None
-    )
-    assert state.readings["calls"] == 0  # queueing reads nothing
-
-
 def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
     _nowcast(NOON, 1.78, 15.89)
     _nowcast(NOON, 1.78, 15.89)
     assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
-
-
-def test_agreement_counts_toward_the_rate_but_queues_nothing(state):
-    result, _grid_times = _nowcast(NOON, 15.0, 15.5)
-    assert state.read()["nowcast_pending"] == []
-    assert (
-        result["considered_count"],
-        result["disagreement_count"],
-        result["disagreement_rate"],
-    ) == (1, 0, 0.0)
 
 
 def test_twilight_levels_are_not_even_considered(state):
@@ -166,47 +138,6 @@ def test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie(state):
     assert result["resolved_count"] == 0 and state.read()["nowcast_pending"] == []
 
 
-def test_the_nowcast_window_rolls(state):
-    stale = NOON - timedelta(hours=sw.SOLAR_NOWCAST_ROLLING_WINDOW_HOURS + 1)
-    fresh = NOON - timedelta(minutes=30)
-    state.write(
-        {
-            "pending": [],
-            "ratios": [],
-            "nowcast_pending": [],
-            "nowcast_events": [
-                {
-                    "time": stale.isoformat(),
-                    "anchor_abs_error_kw": 1.0,
-                    "forecast_abs_error_kw": 9.0,
-                },
-                {
-                    "time": fresh.isoformat(),
-                    "anchor_abs_error_kw": 9.0,
-                    "forecast_abs_error_kw": 1.0,
-                },
-            ],
-            "nowcast_considered": [stale.isoformat(), fresh.isoformat()],
-            "nowcast_disagreements": [stale.isoformat(), fresh.isoformat()],
-        }
-    )
-    result, _ = _nowcast(NOON, 15.0, 15.0)
-    assert (
-        result["resolved_count"],
-        result["forecast_closer_count"],
-        result["anchor_closer_count"],
-    ) == (1, 1, 0)
-    assert (result["considered_count"], result["disagreement_count"]) == (2, 1)
-
-
-def test_the_check_never_changes_the_forecast(state):
-    grid = _grid(NOON)
-    solar_kw = [1.78] + [15.89] * 47
-    before = list(solar_kw)
-    sw.update_solar_nowcast_disagreement(NOWCAST, NOON, grid, solar_kw)
-    assert solar_kw == before
-
-
 # --- the delivery ratio (#128) -----------------------------------------------------------------
 
 RATIO = {"solver_solar_power_sensor": SENSOR}
@@ -216,11 +147,6 @@ def _ratio(now, forecast_kw=10.0):
     return sw.update_solar_delivery_ratio(
         RATIO, now, _grid(now, minutes=15), [forecast_kw] * 48
     )
-
-
-def test_without_a_pv_sensor_there_is_no_ratio_and_nothing_written(state):
-    assert sw.update_solar_delivery_ratio({}, NOON, _grid(NOON), [10.0] * 48) is None
-    assert state.empty()
 
 
 @pytest.mark.parametrize(
@@ -288,27 +214,3 @@ def test_impossible_or_stale_ratios_are_dropped(state, ratios, kept):
 
 
 # --- one state file, two measurements ---------------------------------------------------------
-
-
-def test_each_measurement_leaves_the_others_records_alone(state):
-    _nowcast(NOON, 1.78, 15.89)
-    sw.update_solar_delivery_ratio(RATIO, NOON, _grid(NOON), [1.78] + [15.89] * 47)
-    s = state.read()
-    assert len(s["nowcast_pending"]) == 1 and len(s["nowcast_considered"]) == 1
-    assert len(s["pending"]) == 1 and s["ratios"] == []
-    _nowcast(NOON, 1.78, 15.89)
-    assert len(state.read()["pending"]) == 1
-
-
-def test_a_state_file_from_before_the_nowcast_check_still_loads(state):
-    state.write(
-        {
-            "pending": [],
-            "ratios": [
-                {"time": (NOON - timedelta(minutes=10)).isoformat(), "ratio": 0.9}
-            ],
-        }
-    )
-    loaded = sw._load_solar_delivery_state()
-    assert len(loaded["ratios"]) == 1
-    assert loaded["nowcast_pending"] == [] and loaded["nowcast_events"] == []

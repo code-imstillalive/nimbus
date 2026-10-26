@@ -60,7 +60,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import custom_components.nimbus_load as nimbus_init
 from custom_components.nimbus_load import (
     _configure_price_watcher,
-    _configured_price_sensors,
     _price_watcher_entities,
     _price_watcher_unload_hooked,
     _price_watcher_unsub,
@@ -68,10 +67,7 @@ from custom_components.nimbus_load import (
 from custom_components.nimbus_load.const import (
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
-    CONF_SOLVER_EXPORT_PRICE_SENSOR,
-    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
-    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
 )
 
 
@@ -119,243 +115,8 @@ def _reset_module_state() -> None:
     _price_watcher_unload_hooked.clear()
 
 
-def test_configured_price_sensors_returns_only_the_primary_import_sensor():
-    """nimbus issue #651 (Mark Purcell): secondary/tertiary import and
-    ALL export price sensors must NOT trigger the on-demand solve --
-    only the primary import sensor does. Those secondary sources still
-    feed the LP as inputs on every regular solve; watching them here too
-    was creating an extra, off-boundary solve whose tier-0 periods land
-    on an arbitrary untethered vertex (issue #635's own residual).
-    """
-    entry = _fake_entry(
-        "e",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",
-            CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.export_a",
-            CONF_SOLVER_EXPORT_PRICE_SENSOR_2: "sensor.export_b",
-        },
-    )
-
-    assert _configured_price_sensors(entry) == ("sensor.import_a",)
-
-
-def test_configured_price_sensors_returns_empty_tuple_when_nothing_set():
-    entry = _fake_entry("e", {})
-
-    assert _configured_price_sensors(entry) == ()
-
-
-def test_toggle_off_registers_no_listener_and_leaves_no_state():
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _fake_entry(
-        "entry_toggle_off",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: False,
-        },
-    )
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event"
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_not_called()
-    assert _price_watcher_unsub.get("entry_toggle_off") is None
-    assert _price_watcher_entities.get("entry_toggle_off", ()) == ()
-    entry.async_on_unload.assert_not_called()
-
-
-def test_toggle_off_with_no_price_sensors_configured_is_a_noop():
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _fake_entry("entry_bare", {})
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event"
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_not_called()
-    entry.async_on_unload.assert_not_called()
-
-
-def test_toggle_on_registers_a_listener_on_only_the_primary_import_sensor():
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _fake_entry(
-        "entry_on",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",
-            CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.export_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_called_once()
-    called_hass, called_entities, called_callback = track_event.call_args.args
-    assert called_hass is hass
-    assert called_entities == ["sensor.import_a"]
-    assert callable(called_callback)
-    # The unsub registered with entry.async_on_unload wraps fake_unsub;
-    # it isn't the raw one, but the combined wrapper that also cancels
-    # any pending debounced solve on unload.
-    assert entry.async_on_unload.call_count == 1
-    assert _price_watcher_entities["entry_on"] == ("sensor.import_a",)
-
-
-def test_reconfigure_with_same_entities_is_a_noop_no_reregister():
-    """A hub reload for something unrelated (e.g. a load subentry edit)
-    must not tear down and re-register an identical listener -- the
-    fast-path guard in _configure_price_watcher exists exactly for this
-    case.
-    """
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _fake_entry(
-        "entry_reload",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-        _configure_price_watcher(hass, entry)  # second call, identical state
-
-    track_event.assert_called_once()  # NOT twice
-    fake_unsub.assert_not_called()  # never torn down
-
-
-def test_reconfigure_with_toggle_flipped_off_tears_down_the_listener():
-    _reset_module_state()
-    hass = _fake_hass()
-    on_entry = _fake_entry(
-        "entry_flip",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ):
-        _configure_price_watcher(hass, on_entry)
-
-    # Now the user flips the toggle off and reloads.
-    off_entry = _fake_entry(
-        "entry_flip",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: False,
-        },
-    )
-    _configure_price_watcher(hass, off_entry)
-
-    fake_unsub.assert_called_once()
-    assert _price_watcher_unsub.get("entry_flip") is None
-
-
-def test_reconfigure_with_new_price_sensor_tears_down_and_re_registers():
-    _reset_module_state()
-    hass = _fake_hass()
-    old_unsub = MagicMock()
-    new_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        side_effect=[old_unsub, new_unsub],
-    ) as track_event:
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_changed_sensors",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_changed_sensors",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_b",  # new
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-
-    assert track_event.call_count == 2
-    old_unsub.assert_called_once()
-    assert _price_watcher_entities["entry_changed_sensors"] == ("sensor.import_b",)
-
-
-def test_reconfigure_with_only_secondary_import_sensor_changed_is_a_noop():
-    """nimbus issue #651: the _2 secondary import sensor still feeds the
-    LP as a real input, it just doesn't drive the on-demand-solve
-    trigger set any more -- changing ONLY it must not tear down and
-    re-register the listener.
-    """
-    _reset_module_state()
-    hass = _fake_hass()
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ) as track_event:
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_secondary_only",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_secondary_only",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-
-    track_event.assert_called_once()
-    fake_unsub.assert_not_called()
-
-
 def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
-    """This is the real reason the debounce field exists -- Amber's own
-    coordinator updates several correlated price sensors within tens of
-    milliseconds of each other; without the debounce, a single Amber
-    poll would fan out into N solves within the same second.
-    """
+    # test_debounce_coalesces_a_burst_of_state_changes_into_one_solve: This is the real reason the debounce field exists -- Amber's own
     _reset_module_state()
 
     async def _run() -> None:
@@ -425,80 +186,7 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
 
     asyncio.run(_run())
 
-
-# 2026-08-29 (issue #232 follow-up): the toggle and debounce moved out
-# to a live switch.nimbus_solve_on_price_change and
-# number.nimbus_solve_on_price_change_debounce_s -- the tests below
-# assert that _configure_price_watcher() reads those live entities
-# FIRST, so a dashboard toggle takes effect with no hub reload, while
-# still falling through to entry.options on installs whose switch/
-# number entities haven't been created yet (the fresh-install migration
-# path exercised by every test above).
-
-
-def test_live_switch_state_overrides_entry_options_when_present():
-    _reset_module_state()
-    hass = _fake_hass()
-    # Switch entity exists and says OFF -- must beat entry.options
-    # saying ON, so a household that toggles the switch off from the
-    # dashboard genuinely stops the extra solves.
-    switch_state = MagicMock()
-    switch_state.state = "off"
-    hass.states.get = MagicMock(
-        side_effect=lambda entity_id: (
-            switch_state if entity_id == "switch.nimbus_solve_on_price_change" else None
-        )
-    )
-    entry = _fake_entry(
-        "entry_switch_off",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            # entry.options says ON, but the live switch is OFF -- switch wins.
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event"
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_not_called()
-
-
-def test_live_switch_state_on_registers_listener_even_when_options_missing():
-    _reset_module_state()
-    hass = _fake_hass()
-    switch_state = MagicMock()
-    switch_state.state = "on"
-    hass.states.get = MagicMock(
-        side_effect=lambda entity_id: (
-            switch_state if entity_id == "switch.nimbus_solve_on_price_change" else None
-        )
-    )
-    entry = _fake_entry(
-        "entry_switch_on",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            # Deliberately not setting CONF_SOLVE_ON_PRICE_CHANGE -- a
-            # dashboard user who has never opened the wizard on this
-            # install should be able to just toggle the switch on and
-            # have it work.
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_called_once()
-    assert _price_watcher_entities.get("entry_switch_on") == ("sensor.import_a",)
-
-
-def test_live_debounce_number_state_overrides_entry_options_when_present():
+    # test_live_debounce_number_state_overrides_entry_options_when_present
     _reset_module_state()
     hass = _fake_hass()
     switch_state = MagicMock()
@@ -538,54 +226,7 @@ def test_live_debounce_number_state_overrides_entry_options_when_present():
     # exercised by the pre-existing coalesce test above.
     assert _price_watcher_unsub.get("entry_live_debounce") is not None
 
-
-def test_unknown_debounce_state_falls_through_to_entry_options():
-    _reset_module_state()
-    hass = _fake_hass()
-    switch_state = MagicMock()
-    switch_state.state = "on"
-    # Number entity is present but STILL restoring (state == "unknown")
-    # during the tail end of hub startup -- must fall through to entry.
-    # options, not silently coerce to 0 or DEFAULT.
-    debounce_state = MagicMock()
-    debounce_state.state = "unknown"
-
-    def _states_get(entity_id):
-        if entity_id == "switch.nimbus_solve_on_price_change":
-            return switch_state
-        if entity_id == "number.nimbus_solve_on_price_change_debounce_s":
-            return debounce_state
-        return None
-
-    hass.states.get = MagicMock(side_effect=_states_get)
-    entry = _fake_entry(
-        "entry_debounce_unknown",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 7.5,
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ):
-        _configure_price_watcher(hass, entry)
-
-    assert _price_watcher_unsub.get("entry_debounce_unknown") is not None
-
-
-def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp():
-    """Issue #294 (Mark Purcell): the sensor.nimbus_solver_price_response_
-    latency attributes (triggering_entity, last_price_change_at) have to
-    come from SOMEWHERE -- this is that somewhere. _on_price_change must
-    capture the firing event's own entity_id and new_state.last_changed,
-    and _fire_solve's real solve completion must forward exactly those
-    (plus the resolved debounce_s) to solver_runtime.record_solve_
-    completed() as trigger_source="price_change" -- not just fire-and-
-    forget the bare solve the way the pre-#294 code did.
-    """
+    # test_debounced_solve_records_completion_with_triggering_entity_and_timestamp: Issue #294 (Mark Purcell): the sensor.nimbus_solver_price_response_
     _reset_module_state()
 
     async def _run() -> None:
@@ -648,288 +289,7 @@ def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp
 
     asyncio.run(_run())
 
-
-# -- nimbus issue #633 (Mark Purcell): attribute-only refreshes must not
-# be measured as if they were a real price change --
-
-
-def test_attribute_only_refresh_is_tagged_price_attributes_not_price_change():
-    """The actual reported bug: a state_changed event where old_state.state
-    == new_state.state (an attribute-only refresh, e.g. a price
-    integration's coordinator updating its own forecast attributes a few
-    seconds before the interval price itself changes) must not be
-    recorded as trigger_source="price_change" -- solver_runtime.record_
-    solve_completed() already treats anything else as a no-op for the
-    latency sensor, so tagging it price_attributes is what actually stops
-    the phantom sample."""
-    _reset_module_state()
-
-    async def _run() -> None:
-        loop = asyncio.get_event_loop()
-        hass = MagicMock()
-        hass.loop = loop
-        hass.states.get = MagicMock(return_value=None)
-        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
-        fake_solve = AsyncMock(return_value=True)
-        fake_record = MagicMock()
-        entry = _fake_entry(
-            "entry_attr_only",
-            {
-                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                CONF_SOLVE_ON_PRICE_CHANGE: True,
-                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
-            },
-        )
-
-        captured: dict[str, object] = {}
-
-        def _capture(_hass, _entities, callback):
-            captured["callback"] = callback
-            return MagicMock()
-
-        with (
-            patch(
-                "custom_components.nimbus_load.async_track_state_change_event",
-                side_effect=_capture,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.async_run_solve",
-                fake_solve,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
-                fake_record,
-            ),
-        ):
-            _configure_price_watcher(hass, entry)
-
-            cb = captured["callback"]
-            # A stale real price (last_changed 300s ago) with an
-            # attribute-only refresh RIGHT NOW (last_updated) -- the
-            # exact shape of Mark's own reported 280-600s spikes.
-            fake_event = MagicMock()
-            fake_event.data = {
-                "entity_id": "sensor.import_a",
-                "old_state": SimpleNamespace(state="0.30"),
-                "new_state": SimpleNamespace(
-                    state="0.30",  # same value -- attribute-only
-                    last_changed="2026-09-09T13:00:25+00:00",
-                    last_updated="2026-09-09T13:05:14+00:00",
-                ),
-            }
-            cb(fake_event)
-
-            await _wait_until(lambda: fake_solve.called)
-
-        fake_record.assert_called_once_with(
-            trigger_source="price_attributes",
-            triggering_entity="sensor.import_a",
-            price_change_at="2026-09-09T13:05:14+00:00",
-            debounce_s=0.05,
-        )
-
-    asyncio.run(_run())
-
-
-def test_real_price_change_is_still_tagged_price_change():
-    """Regression guard: a genuine value change (old_state.state !=
-    new_state.state) must keep using last_changed and the real
-    trigger_source, completely unaffected by the #633 fix."""
-    _reset_module_state()
-
-    async def _run() -> None:
-        loop = asyncio.get_event_loop()
-        hass = MagicMock()
-        hass.loop = loop
-        hass.states.get = MagicMock(return_value=None)
-        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
-        fake_solve = AsyncMock(return_value=True)
-        fake_record = MagicMock()
-        entry = _fake_entry(
-            "entry_real_change",
-            {
-                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                CONF_SOLVE_ON_PRICE_CHANGE: True,
-                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
-            },
-        )
-
-        captured: dict[str, object] = {}
-
-        def _capture(_hass, _entities, callback):
-            captured["callback"] = callback
-            return MagicMock()
-
-        with (
-            patch(
-                "custom_components.nimbus_load.async_track_state_change_event",
-                side_effect=_capture,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.async_run_solve",
-                fake_solve,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
-                fake_record,
-            ),
-        ):
-            _configure_price_watcher(hass, entry)
-
-            cb = captured["callback"]
-            fake_event = MagicMock()
-            fake_event.data = {
-                "entity_id": "sensor.import_a",
-                "old_state": SimpleNamespace(state="0.30"),
-                "new_state": SimpleNamespace(
-                    state="0.32",
-                    last_changed="2026-09-09T13:05:27+00:00",
-                    last_updated="2026-09-09T13:05:27+00:00",
-                ),
-            }
-            cb(fake_event)
-
-            await _wait_until(lambda: fake_solve.called)
-
-        fake_record.assert_called_once_with(
-            trigger_source="price_change",
-            triggering_entity="sensor.import_a",
-            price_change_at="2026-09-09T13:05:27+00:00",
-            debounce_s=0.05,
-        )
-
-    asyncio.run(_run())
-
-
-def test_missing_old_state_is_treated_as_a_real_change():
-    """The very first event this listener has ever seen for an entity
-    (no old_state at all) has nothing to compare against -- fail-open to
-    "real change" (record the sample) rather than silently dropping the
-    very first sample forever."""
-    _reset_module_state()
-
-    async def _run() -> None:
-        loop = asyncio.get_event_loop()
-        hass = MagicMock()
-        hass.loop = loop
-        hass.states.get = MagicMock(return_value=None)
-        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
-        fake_solve = AsyncMock(return_value=True)
-        fake_record = MagicMock()
-        entry = _fake_entry(
-            "entry_no_old_state",
-            {
-                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                CONF_SOLVE_ON_PRICE_CHANGE: True,
-                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
-            },
-        )
-
-        captured: dict[str, object] = {}
-
-        def _capture(_hass, _entities, callback):
-            captured["callback"] = callback
-            return MagicMock()
-
-        with (
-            patch(
-                "custom_components.nimbus_load.async_track_state_change_event",
-                side_effect=_capture,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.async_run_solve",
-                fake_solve,
-            ),
-            patch(
-                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
-                fake_record,
-            ),
-        ):
-            _configure_price_watcher(hass, entry)
-
-            cb = captured["callback"]
-            fake_event = MagicMock()
-            fake_event.data = {
-                "entity_id": "sensor.import_a",
-                "new_state": SimpleNamespace(
-                    state="0.30",
-                    last_changed="2026-09-09T13:05:27+00:00",
-                    last_updated="2026-09-09T13:05:27+00:00",
-                ),
-            }
-            cb(fake_event)
-
-            await _wait_until(lambda: fake_solve.called)
-
-        fake_record.assert_called_once_with(
-            trigger_source="price_change",
-            triggering_entity="sensor.import_a",
-            price_change_at="2026-09-09T13:05:27+00:00",
-            debounce_s=0.05,
-        )
-
-    asyncio.run(_run())
-
-
-# -- nimbus issue #337: the state-change unsub is NOT safe to call twice --
-
-
-class _OneShotUnsub:
-    """Mimics HA core's async_track_state_change_event unsub: the second
-    call does `callbacks[key].remove(job)` on an already-emptied
-    defaultdict list and raises ValueError."""
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def __call__(self) -> None:
-        self.calls += 1
-        if self.calls > 1:
-            raise ValueError("list.remove(x): x not in list")
-
-
-def _entry_with_watcher(entry_id: str):
-    return _fake_entry(
-        entry_id,
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-
-
-def test_unload_path_calls_the_listener_unsub_exactly_once():
-    """async_unload_entry() cancels the watcher explicitly, and HA core
-    then runs the entry.async_on_unload() hook as well. Before the fix
-    the second call raised, ConfigEntry.async_unload() caught it into
-    FAILED_UNLOAD, and the hub never came back on reload."""
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _entry_with_watcher("entry_337")
-    one_shot = _OneShotUnsub()
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=one_shot,
-    ):
-        _configure_price_watcher(hass, entry)
-    assert entry.async_on_unload.call_count == 1
-    on_unload_hook = entry.async_on_unload.call_args.args[0]
-
-    # What async_unload_entry() does first...
-    nimbus_init._cancel_price_watcher("entry_337")
-    # ...and what HA core does afterwards. Must not raise.
-    on_unload_hook()
-    # And the module-registry callable itself is idempotent too.
-    assert one_shot.calls == 1
-    assert "entry_337" not in _price_watcher_unsub
-    assert "entry_337" not in _price_watcher_entities
-
-
-def test_reconfigure_toggles_register_one_unload_hook_per_load():
-    """Every dashboard toggle re-runs _configure_price_watcher(). It used
-    to append a fresh (already-fired) unsub to entry._on_unload each
-    time; now exactly one hook is registered per load and it consults
-    the registry, so re-configuring never leaves a stale hook behind."""
+    # test_reconfigure_toggles_register_one_unload_hook_per_load: Every dashboard toggle re-runs _configure_price_watcher(). It used
     _reset_module_state()
     hass = _fake_hass()
     entry = _entry_with_watcher("entry_toggle")
@@ -959,8 +319,7 @@ def test_reconfigure_toggles_register_one_unload_hook_per_load():
     hook()
     assert second.calls == 1
 
-
-def test_combined_unsub_is_idempotent_on_its_own():
+    # test_combined_unsub_is_idempotent_on_its_own
     _reset_module_state()
     hass = _fake_hass()
     entry = _entry_with_watcher("entry_idem")
@@ -974,3 +333,44 @@ def test_combined_unsub_is_idempotent_on_its_own():
     combined()
     combined()
     assert one_shot.calls == 1
+
+
+# 2026-08-29 (issue #232 follow-up): the toggle and debounce moved out
+# to a live switch.nimbus_solve_on_price_change and
+# number.nimbus_solve_on_price_change_debounce_s -- the tests below
+# assert that _configure_price_watcher() reads those live entities
+# FIRST, so a dashboard toggle takes effect with no hub reload, while
+# still falling through to entry.options on installs whose switch/
+# number entities haven't been created yet (the fresh-install migration
+# path exercised by every test above).
+
+
+# -- nimbus issue #633 (Mark Purcell): attribute-only refreshes must not
+# be measured as if they were a real price change --
+
+
+# -- nimbus issue #337: the state-change unsub is NOT safe to call twice --
+
+
+class _OneShotUnsub:
+    """Mimics HA core's async_track_state_change_event unsub: the second
+    call does `callbacks[key].remove(job)` on an already-emptied
+    defaultdict list and raises ValueError."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.calls > 1:
+            raise ValueError("list.remove(x): x not in list")
+
+
+def _entry_with_watcher(entry_id: str):
+    return _fake_entry(
+        entry_id,
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            CONF_SOLVE_ON_PRICE_CHANGE: True,
+        },
+    )

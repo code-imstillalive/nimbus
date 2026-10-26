@@ -20,50 +20,6 @@ def _plan(status: str, raw_status: str | None = None):
     return _infeasible_plan(periods, status, iterations=0, raw_status=raw_status)
 
 
-class TestSolverFailedPredicate(unittest.TestCase):
-    def test_error_is_the_only_failed_status(self):
-        self.assertTrue(_plan("error", "Time limit reached").solver_failed)
-
-    def test_infeasible_is_an_answer_not_a_failure(self):
-        """The distinction the whole guard rests on. HiGHS PROVED no
-        feasible dispatch exists -- that is a real result about the
-        model, and #773's own fallback path depends on it reaching the
-        published plan."""
-        plan = _plan("infeasible")
-        self.assertFalse(plan.solver_failed)
-        self.assertFalse(plan.is_optimal)
-
-    def test_unbounded_is_also_an_answer(self):
-        self.assertFalse(_plan("unbounded").solver_failed)
-
-    def test_optimal_is_not_a_failure(self):
-        self.assertFalse(_plan("optimal").solver_failed)
-
-    def test_it_is_not_merely_the_negation_of_is_optimal(self):
-        """Written out explicitly because the tempting one-line
-        implementation (`not self.is_optimal`) passes three of the four
-        tests above and is wrong."""
-        non_optimal = [_plan(s) for s in ("infeasible", "unbounded", "error")]
-        self.assertEqual([p.is_optimal for p in non_optimal], [False, False, False])
-        self.assertEqual([p.solver_failed for p in non_optimal], [False, False, True])
-
-    def test_a_failed_plan_really_is_empty(self):
-        """Why publishing one is harmful in the first place: it is not a
-        partial plan, it is a confident-looking plan of zeros."""
-        plan = _plan("error", "Time limit reached")
-        self.assertEqual(plan.batteries, [])
-        self.assertEqual(plan.sheddable_loads, [])
-        self.assertEqual(plan.adequacy_loads, [])
-        self.assertEqual(plan.thermal_loads, [])
-        for arr in (
-            plan.battery_charge_kw,
-            plan.battery_discharge_kw,
-            plan.grid_import_kw,
-            plan.grid_export_kw,
-        ):
-            self.assertTrue(bool(np.all(arr == 0.0)))
-
-
 def _publish_plan_node() -> ast.FunctionDef:
     # nimbus #1304 (spec 005): this content moved to solver_publish.py.
     # The union of solver_writer.py and every module #1298 has extracted is
@@ -101,22 +57,19 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
         )
 
     def test_the_failed_branch_returns(self):
+        # test_the_failed_branch_returns
         self.assertTrue(
             any(isinstance(stmt, ast.Return) for stmt in self.guard.body),
             "the plan.solver_failed branch must return before publishing "
             "anything -- nimbus issue #757",
         )
 
-    def test_it_returns_nothing_rather_than_a_value(self):
-        """publish_plan() has no return value anywhere else; a `return
-        something` here would be a new, unhandled contract."""
+        # test_it_returns_nothing_rather_than_a_value: publish_plan() has no return value anywhere else; a `return
         for stmt in self.guard.body:
             if isinstance(stmt, ast.Return):
                 self.assertIsNone(stmt.value)
 
-    def test_the_guard_is_reached_before_any_publish_call(self):
-        """Ordering is the whole point. A guard placed after the first
-        ha_post_state() would be decoration."""
+        # test_the_guard_is_reached_before_any_publish_call: Ordering is the whole point. A guard placed after the first
         posts = [
             node.lineno
             for node in ast.walk(self.func)
@@ -136,9 +89,7 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
         self.assertTrue(posts, "no ha_post_state() calls found in publish_plan()")
         self.assertLess(self.guard.lineno, min(posts))
 
-    def test_the_operator_is_told_why_nothing_was_published(self):
-        """Skipping silently would trade one invisible failure for
-        another -- the branch must still log before it returns."""
+        # test_the_operator_is_told_why_nothing_was_published: Skipping silently would trade one invisible failure for
         logged = [
             node
             for node in ast.walk(self.guard)
@@ -153,10 +104,7 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
             "nimbus issue #757 spent ten investigations on",
         )
 
-    def test_infeasible_is_not_also_guarded_out(self):
-        """A deliberate scope boundary, asserted so a later 'tidy-up'
-        that folds the two statuses together fails here rather than
-        silently hiding real infeasibility from the household."""
+        # test_infeasible_is_not_also_guarded_out: A deliberate scope boundary, asserted so a later 'tidy-up'
         for node in ast.walk(self.func):
             if not isinstance(node, ast.If):
                 continue

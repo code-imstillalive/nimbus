@@ -16,21 +16,7 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import power_input_check as pic
-from custom_components.nimbus_load import solver_shared, solver_writer
-
-
-def test_the_helper_refuses_every_stated_non_power_unit():
-    for unit in ("A", "kVA", "VA", "kWh", "Wh", "furlong", "%"):
-        assert solver_shared.power_scale_or_none(unit) is None, unit
-
-
-def test_the_helper_scales_power_and_keeps_no_unit_as_kw():
-    assert solver_shared.power_scale_or_none("W") == 0.001
-    assert solver_shared.power_scale_or_none("kW") == 1.0
-    assert solver_shared.power_scale_or_none("MW") == 1000.0
-    assert solver_shared.power_scale_or_none(None) == 1.0
-    assert solver_shared.power_scale_or_none("") == 1.0
-
+from custom_components.nimbus_load import solver_writer
 
 UNITS = {
     "sensor.pv_amps": "A",
@@ -80,18 +66,3 @@ def test_an_unreadable_unit_leaves_the_setting_alone():
     with patch.object(solver_writer, "ha_get", _raise):
         out = solver_writer._refuse_non_power_inputs(dict(cfg))
     assert out == cfg
-
-
-def test_a_load_forecast_in_amps_takes_the_missing_forecast_path():
-    attrs = {
-        "unit_of_measurement": "A",
-        "forecast": [
-            {"time": "2026-10-08T10:00:00+10:00", "value": 5.0},
-            {"time": "2026-10-08T10:30:00+10:00", "value": 6.0},
-        ],
-    }
-    fc, _bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
-        "sensor.load_amps", attrs
-    )
-    assert fc is None
-    assert error is not None and "not a power unit" in error

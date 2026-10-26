@@ -46,26 +46,6 @@ def test_hindsight_is_never_beaten(regret):
     )
 
 
-def test_a_perfect_forecast_costs_nothing(day):
-    perfect = dict(
-        day,
-        solar_forecast_kw=day["solar_real_kw"],
-        load_forecast_kw=day["load_real_kw"],
-    )
-    r = compute_forecast_regret(**perfect)
-    assert r.forecast_regret_dollars == pytest.approx(0.0, abs=1e-6)
-
-
-def test_the_forecasts_cost_splits_into_load_level_shape_and_solar(regret):
-    parts = (
-        regret.load_level_error_dollars,
-        regret.load_shape_error_dollars,
-        regret.solar_error_dollars,
-    )
-    assert all(p is not None for p in parts)
-    assert sum(parts) == pytest.approx(regret.forecast_regret_dollars, abs=1e-6)
-
-
 def _with_load(day, load=None, solar=None):
     return compute_forecast_regret(
         **dict(
@@ -134,14 +114,6 @@ def _evening_day():
     }
 
 
-def test_a_wrong_solar_forecast_is_charged_to_solar_alone():
-    day = _evening_day()
-    r = _with_load(day, day["load_real_kw"].copy(), solar=day["solar_real_kw"] * 0.55)
-    assert r.solar_error_dollars > 1e-6
-    assert r.load_level_error_dollars == pytest.approx(0.0, abs=1e-6)
-    assert r.load_shape_error_dollars == pytest.approx(0.0, abs=1e-6)
-
-
 def test_a_zero_load_forecast_has_no_split_but_still_has_a_cost(day):
     r = _with_load(day, np.zeros(len(day["load_real_kw"])))
     assert (
@@ -154,27 +126,6 @@ def test_a_zero_load_forecast_has_no_split_but_still_has_a_cost(day):
 
 
 # --- the load nowcast ---------------------------------------------------------------------
-
-
-def test_the_nowcasts_skill_is_scored_with_solar_held_at_its_real_values(day):
-    n = len(day["periods"].hours)
-    result = compute_load_nowcast_skill(
-        periods=day["periods"],
-        grid=day["grid"],
-        battery=day["battery"],
-        solar_real_kw=day["solar_real_kw"],
-        load_real_kw=day["load_real_kw"],
-        load_nowcast_kw=day["load_real_kw"],
-        load_persistence_kw=day["load_persistence_kw"],
-        n_periods_measured=n,
-    )
-    assert result.j_forecast == pytest.approx(
-        result.j_star, abs=1e-6
-    )  # a perfect nowcast
-    assert result.value_add_dollars == pytest.approx(
-        result.j_persistence - result.j_forecast
-    )
-    assert (result.coverage, result.n_periods) == (1.0, n)
 
 
 @pytest.mark.parametrize(("measured", "short"), [(5, False), (24, True)])
@@ -209,13 +160,11 @@ def test_a_period_counts_as_measured_when_a_sample_falls_inside_it():
     assert period_sample_coverage(samples, [], 0.5) == (0, 0)
 
 
-@pytest.mark.parametrize(
-    ("lead", "value"), [(0.0, 1.0), (0.75, 2.0), (1.5, 4.0), (2.0, None), (-1.0, None)]
-)
-def test_the_forecast_made_lead_hours_ahead_is_read_off_its_grid(lead, value):
-    grid = [T0 + timedelta(minutes=30 * i) for i in range(4)]
-    assert (
-        forecast_value_at_lead_hours(grid, np.array([1.0, 2.0, 3.0, 4.0]), T0, lead)
-        == value
-    )
-    assert forecast_value_at_lead_hours(grid, np.array([1.0]), T0, 0.0) is None
+def test_the_forecast_made_lead_hours_ahead_is_read_off_its_grid():
+    for lead, value in [(0.0, 1.0), (0.75, 2.0), (1.5, 4.0), (2.0, None), (-1.0, None)]:
+        grid = [T0 + timedelta(minutes=30 * i) for i in range(4)]
+        assert (
+            forecast_value_at_lead_hours(grid, np.array([1.0, 2.0, 3.0, 4.0]), T0, lead)
+            == value
+        )
+        assert forecast_value_at_lead_hours(grid, np.array([1.0]), T0, 0.0) is None

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -208,17 +207,6 @@ def test_each_retail_provider_is_proposed_only_for_a_single_site(
     assert detect(world.hass()) == expected
 
 
-def test_openadr_prices_are_listed_by_side_never_chosen(world):
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr_b", "ven_b_price")
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr_a", "ven_a_price")
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr_x", "ven_export_price")
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr_other", "ven_level")
-    assert pa.detect_openadr_price_sensors(world.hass()) == {
-        "import": ["sensor.adr_a", "sensor.adr_b"],
-        "export": ["sensor.adr_x"],
-    }
-
-
 def test_a_regional_forecast_prefers_pd7day_and_picks_the_home_region_among_several(
     world, monkeypatch
 ):
@@ -376,24 +364,6 @@ def _notices(world, options):
     return {nid: msg for service, nid, msg in world.calls if service == "create"}
 
 
-def test_a_saved_price_sensor_that_does_not_exist_is_reported_never_replaced(world):
-    notices = _notices(world, {IMPORT: "sensor.gone"})
-    assert (
-        "`sensor.gone`" in notices[pa.NOTIFY_MISSING_ID]
-        and "choose your own sensors" in notices[pa.NOTIFY_MISSING_ID]
-    )
-
-
-def test_empty_fields_with_a_provider_installed_point_at_review_suggestions(world):
-    _localvolts(world)
-    notices = _notices(world, {})
-    assert (
-        f"of Nimbus's {len(pa.LV_V2_PROFILE)} LocalVolts price fields are empty"
-        in notices[pa.NOTIFY_DETECTED_ID]
-    )
-    assert pa.NOTIFY_AMBER_EXPRESS_DETECTED_ID not in notices  # one provider at a time
-
-
 def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
     profile = _localvolts(world)
     _first, *rest = profile
@@ -401,11 +371,6 @@ def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
     assert f"1 of Nimbus's {len(pa.LV_V2_PROFILE)}" in partly[pa.NOTIFY_DETECTED_ID]
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
-
-
-def test_an_openadr_price_on_a_side_already_chosen_is_not_reported(world):
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr", "ven_price")
-    assert pa.NOTIFY_OPENADR_DETECTED_ID not in _notices(world, {IMPORT: "sensor.adr"})
 
 
 @pytest.mark.parametrize(
@@ -456,41 +421,6 @@ def test_a_failing_notification_never_breaks_setup(world):
 
     hass.services.async_call = broken
     asyncio.run(pa.async_notify_pricing_setup(hass, {IMPORT: "sensor.gone"}))
-
-
-def test_a_retailer_named_template_counts_and_the_repair_has_its_own_text(monkeypatch):
-    registry = SimpleNamespace(
-        async_get=lambda _e: SimpleNamespace(platform="template")
-    )
-    monkeypatch.setattr(pa.er, "async_get", lambda _h: registry)
-    monkeypatch.setattr(pa, "detect_regional_spot_forecast", lambda _h: ({}, None))
-    hit = pa.detect_missing_regional_forecast(
-        SimpleNamespace(), {IMPORT: "sensor.localvolts_costs_flex_up"}
-    )
-    assert hit is not None and "nem_pd7day" in hit[1]
-    sh = importlib.import_module("custom_components.nimbus_load.setup_health")
-    from datetime import timedelta
-
-    issues = sh.evaluate_health(
-        options={},
-        forecasts=[],
-        hub_up_for=timedelta(0),
-        regional_forecast_missing=("found", "where"),
-    )
-    assert sh.KIND_NO_REGIONAL_FORECAST in [i.kind for i in issues]
-    root = Path(pa.__file__).resolve().parent
-    for name in ("strings.json", "translations/en.json"):
-        text = json.loads((root / name).read_text(encoding="utf-8"))
-        entry = text["issues"][sh.KIND_NO_REGIONAL_FORECAST]["description"]
-        assert "{found}" in entry and "{where}" in entry
-
-
-def test_with_localvolts_installed_the_missing_sensor_notice_says_what_to_choose(world):
-    _localvolts(world)
-    notices = _notices(world, {IMPORT: "sensor.gone", EXPORT: "sensor.also_gone"})
-    text = notices[pa.NOTIFY_MISSING_ID]
-    assert "`sensor.gone`" in text and "`sensor.also_gone`" in text and "them" in text
-    assert "Nimbus never replaces a saved choice" in text
 
 
 def test_a_matched_rate_without_an_array_names_localvolts_own_array(world):

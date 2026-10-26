@@ -69,6 +69,7 @@ def _run_lint_imports(cwd: str) -> subprocess.CompletedProcess[str]:
 
 class TestLayerContractMechanism(unittest.TestCase):
     def test_a_clean_two_layer_fixture_passes(self):
+        # test_a_clean_two_layer_fixture_passes
         proc = _run_lint_imports(_LAYER_OK)
         self.assertEqual(
             proc.returncode,
@@ -77,12 +78,7 @@ class TestLayerContractMechanism(unittest.TestCase):
         )
         self.assertIn("KEPT", proc.stdout)
 
-    def test_an_unrecorded_violation_fails(self):
-        """The low layer illegally importing the high layer, with no
-        `ignore_imports` exception for it, is exactly the shape
-        docs/architecture/tech-debt-plan.md section 1 documents for the
-        real `solver_inputs -> solver_writer` late imports -- reproduced
-        here at the smallest possible scale, with no fix recorded."""
+        # test_an_unrecorded_violation_fails: The low layer illegally importing the high layer, with no
         proc = _run_lint_imports(_LAYER_VIOLATION)
         self.assertNotEqual(
             proc.returncode,
@@ -96,12 +92,7 @@ class TestLayerContractMechanism(unittest.TestCase):
             proc.stdout,
         )
 
-    def test_the_same_violation_recorded_as_an_exception_passes(self):
-        """The exact mechanism pyproject.toml's real `nimbus-layers`
-        contract uses for the tech-debt plan's seven documented late
-        imports: a real structural violation, recorded under
-        `ignore_imports`, keeps the contract passing without the
-        underlying import being fixed."""
+        # test_the_same_violation_recorded_as_an_exception_passes: The exact mechanism pyproject.toml's real `nimbus-layers`
         proc = _run_lint_imports(_LAYER_IGNORED)
         self.assertEqual(
             proc.returncode,
@@ -111,17 +102,7 @@ class TestLayerContractMechanism(unittest.TestCase):
         )
         self.assertIn("KEPT (1 ignored import)", proc.stdout)
 
-    def test_a_new_violation_still_fails_even_with_an_existing_exception(self):
-        """The real, load-bearing property: recording one violation as an
-        exception does not blanket-whitelist every future violation. A
-        SECOND, unrecorded illegal import introduced alongside the
-        recorded one must still fail the contract -- proven on a copy of
-        layer_ignored/ with a fresh violation added, confirmed to fail,
-        then confirmed clean again once the added violation is removed
-        (docs/architecture/tech-debt-plan.md's own migration step 3: "one
-        PR each, each proven on a deliberately bad commit... confirm the
-        contract fails on it, then confirm it's clean again once
-        removed")."""
+        # test_a_new_violation_still_fails_even_with_an_existing_exception: The real, load-bearing property: recording one violation as an
         with tempfile.TemporaryDirectory(prefix="layer_ignored_plus_one-") as tmp:
             fixture_copy = os.path.join(tmp, "layer_ignored")
             shutil.copytree(_LAYER_IGNORED, fixture_copy)

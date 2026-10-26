@@ -23,6 +23,7 @@ DOC = (
 
 
 def test_every_number_setting_has_a_row():
+    # test_every_number_setting_has_a_row
     text = DOC.read_text(encoding="utf-8")
     missing = [
         d.key for d in number._DESCRIPTIONS if f"`number.nimbus_{d.key}`" not in text
@@ -32,10 +33,7 @@ def test_every_number_setting_has_a_row():
         "docs/configuration-reference.md"
     )
 
-
-def test_no_row_names_a_setting_that_no_longer_exists():
-    """The other direction: a removed setting (Bank solar first, 0.94.465)
-    must not stay documented."""
+    # test_no_row_names_a_setting_that_no_longer_exists: The other direction: a removed setting (Bank solar first, 0.94.465)
     text = DOC.read_text(encoding="utf-8")
     known = {f"number.nimbus_{d.key}" for d in number._DESCRIPTIONS}
     table = text[text.index("## Live Solver tuning knobs") : text.index("**Notes:**")]

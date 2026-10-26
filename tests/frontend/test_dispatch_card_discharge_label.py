@@ -61,6 +61,7 @@ def _discharge_block() -> str:
 
 
 def test_export_branch_still_uses_the_plain_discharge_label():
+    # test_export_branch_still_uses_the_plain_discharge_label
     block = _discharge_block()
     export_branch = re.search(
         r"if \(gridExportKw > 0\.05\) \{(.*?)\} else if \(gridImportKw > 0\.05\)",
@@ -71,8 +72,7 @@ def test_export_branch_still_uses_the_plain_discharge_label():
     assert "dir = 'PLANNED DISCHARGE';" in export_branch.group(1)
     assert "SELF-CONSUME" not in export_branch.group(1)
 
-
-def test_import_alongside_discharge_branch_still_uses_the_plain_discharge_label():
+    # test_import_alongside_discharge_branch_still_uses_the_plain_discharge_label
     block = _discharge_block()
     import_branch = re.search(
         r"else if \(gridImportKw > 0\.05\) \{(.*?)\} else \{",
@@ -83,8 +83,7 @@ def test_import_alongside_discharge_branch_still_uses_the_plain_discharge_label(
     assert "dir = 'PLANNED DISCHARGE';" in import_branch.group(1)
     assert "SELF-CONSUME" not in import_branch.group(1)
 
-
-def test_zero_grid_interaction_branch_uses_the_new_self_consume_label():
+    # test_zero_grid_interaction_branch_uses_the_new_self_consume_label
     block = _discharge_block()
     # The final `else` of the three-way if/else-if/else -- everything
     # after the gridImportKw branch closes.
@@ -98,8 +97,7 @@ def test_zero_grid_interaction_branch_uses_the_new_self_consume_label():
     # to see.
     assert "dir = 'PLANNED SELF-CONSUME';" not in else_branch
 
-
-def test_all_three_discharge_branches_keep_their_own_reasoning_text():
+    # test_all_three_discharge_branches_keep_their_own_reasoning_text
     # Regression guard for a different real mistake this kind of edit
     # could introduce: accidentally sharing/overwriting one branch's
     # `reasoning` string with another's. Each branch's own explanation

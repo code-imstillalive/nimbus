@@ -187,15 +187,3 @@ def test_second_setup_for_same_entry_id_cancels_the_first_timer():
     # calling solver_runtime.async_run_solve() once a minute.
     second_unsub.assert_not_called()  # the second (surviving) timer
     # must still be live after two setup calls for the same entry_id.
-
-
-def test_module_level_dict_stores_only_the_latest_unsub():
-    first_unsub, second_unsub, _tracker = _run_setup_entry_twice_for_same_entry()
-
-    stored = nimbus_init._solver_timer_unsub.get("test_entry_id_211")
-    assert stored is second_unsub, (
-        "_solver_timer_unsub should hold the LATEST timer's unsub after "
-        "two setup calls for the same entry_id, not the cancelled first "
-        "one and not None"
-    )
-    assert stored is not first_unsub

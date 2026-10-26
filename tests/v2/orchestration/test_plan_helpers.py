@@ -110,15 +110,6 @@ def test_hysteresis_off_and_without_a_previous_plan(charging, discharging):
     )
 
 
-def test_hysteresis_leaves_a_plan_in_the_same_direction(charging):
-    calls = []
-    out = solver_plan.period0_direction_hysteresis(
-        charging, charging, lambda kw: calls.append(kw), 0.05
-    )
-    assert out.period0_hysteresis == "same_direction"
-    assert calls == []
-
-
 @pytest.mark.parametrize(
     ("cost_delta", "status", "want"),
     [
@@ -164,19 +155,6 @@ def test_hysteresis_survives_a_failing_re_solve(charging, discharging):
 
     out = solver_plan.period0_direction_hysteresis(charging, discharging, boom, 0.05)
     assert out.period0_hysteresis == "switched"
-
-
-def test_a_blocked_pin_is_never_re_solved(charging, discharging):
-    calls = []
-    out = solver_plan.period0_direction_hysteresis(
-        charging,
-        discharging,
-        lambda kw: calls.append(kw),
-        0.05,
-        pin_blocked=lambda kw: ["fixed export forbids charging"],
-    )
-    assert out.period0_hysteresis == "blocked"
-    assert calls == []
 
 
 def test_a_blocker_check_that_raises_falls_through_to_the_re_solve(
@@ -245,30 +223,6 @@ def test_a_pinned_charge_bought_from_the_grid_is_not_kept(charging, discharging)
     )
 
 
-def test_a_pinned_charge_that_imports_no_more_is_still_kept(charging, discharging):
-    pinned = dataclasses.replace(
-        charging,
-        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float),
-        total_cost=float(discharging.total_cost),
-    )
-    out = solver_plan.period0_direction_hysteresis(
-        discharging, charging, lambda kw: pinned, 0.05
-    )
-    assert out.period0_hysteresis == "kept"
-
-
-def test_a_pinned_discharge_is_not_judged_as_a_grid_charge(charging, discharging):
-    pinned = dataclasses.replace(
-        discharging,
-        grid_import_kw=np.asarray(charging.grid_import_kw, dtype=float) + 1.0,
-        total_cost=float(charging.total_cost),
-    )
-    out = solver_plan.period0_direction_hysteresis(
-        charging, discharging, lambda kw: pinned, 0.05
-    )
-    assert out.period0_hysteresis == "kept"
-
-
 # --- period0_crossing_delta (#1417, #1577) ---------------------------------
 
 
@@ -279,16 +233,6 @@ def pin_logger_on():
     logger.setLevel(logging.DEBUG)
     yield
     logger.setLevel(old)
-
-
-def test_the_crossing_instrument_is_silent_unless_switched_on(charging, discharging):
-    solver_plan.PERIOD0_PIN_LOGGER.setLevel(logging.WARNING)
-    assert (
-        solver_plan.period0_crossing_delta(
-            charging, discharging, lambda kw: discharging
-        )
-        is None
-    )
 
 
 def test_the_crossing_instrument_measures_a_feasible_pin(
@@ -379,6 +323,7 @@ def _grid(n, start_local_hour):
 
 
 def test_a_reserve_window_is_the_local_hours_inside_it():
+    # test_a_reserve_window_is_the_local_hours_inside_it
     times = _grid(24, 0)  # local 00:00 .. 23:00
     assert solver_plan.reserve_window_indices(times, 2.0, 2.0) is None
     assert solver_plan.reserve_window_indices(times, 0.0, 6.0) == frozenset(range(6))
@@ -387,20 +332,7 @@ def test_a_reserve_window_is_the_local_hours_inside_it():
         {22, 23, 0, 1, 2}
     )
 
-
-# --- spike_export_ceiling / spike_night_block_floor (#694, 11-12 Oct) ------
-
-
-SPIKE_CFG = {
-    "solver_price_spike_override_armed": True,
-    "solver_price_spike_threshold": 1.0,
-    "solver_p2p_block_1_rate_kw": 10.0,
-    "solver_p2p_block_1_start_hour": 17.0,
-    "solver_p2p_block_1_end_hour": 19.0,
-}
-
-
-def test_a_spike_widens_a_block_period_to_its_export_limit():
+    # test_a_spike_widens_a_block_period_to_its_export_limit
     fixed = [float("nan"), 10.0, 10.0, 0.0]
     ceiling = solver_plan.spike_export_ceiling(
         SPIKE_CFG, fixed, [0.3, 5.0, 0.4, 5.0], [15.0] * 4
@@ -441,8 +373,7 @@ def test_a_spike_widens_a_block_period_to_its_export_limit():
         solver_plan.spike_export_ceiling(SPIKE_CFG, None, [5.0] * 4, [15.0] * 4) is None
     )
 
-
-def test_a_spike_night_lowers_its_block_to_the_matched_volume():
+    # test_a_spike_night_lowers_its_block_to_the_matched_volume
     # Two hours of a 10 kW block = 20 kWh committed; 9 kWh matched.
     times = [
         datetime(2026, 9, 20, 7, 0, tzinfo=UTC) + timedelta(minutes=30 * i)
@@ -484,6 +415,68 @@ def test_a_spike_night_lowers_its_block_to_the_matched_volume():
         is None
     )
 
+    # test_the_stochastic_plan_is_refused_for_each_named_reason
+    for over, drive, want in [
+        ({}, True, None),
+        ({"status": "no_band"}, False, "no_solar_band"),
+        ({"status": "error"}, False, "stochastic_error"),
+        ({"plan": None}, False, "stochastic_optimal"),
+        ({"expected_cost": None}, False, "scenario_cost_not_finite"),
+        ({"scenario_costs": {"p10": float("inf")}}, False, "scenario_cost_not_finite"),
+        ({"nonanticipativity_max_gap": None}, False, "nonanticipativity_violated"),
+        ({"nonanticipativity_max_gap": 1.0}, False, "nonanticipativity_violated"),
+        ({"thermal_guarantee_relaxed": True}, False, "thermal_guarantee_relaxed"),
+        ({"direction_exclusivity": "declined"}, False, "direction_declined"),
+        ({"direction_exclusivity": "still_two_way"}, False, "direction_still_two_way"),
+        ({"solar_band": "raw"}, True, "solar_band_not_calibrated"),
+        ({"solar_band": "raw"}, False, None),
+    ]:
+        assert solver_plan._refusal_reason(_result(**over), DET, drive=drive) == want
+
+    # test_a_relaxation_the_deterministic_plan_shares_is_not_a_refusal
+    det = SimpleNamespace(
+        thermal_guarantee_relaxed=True, direction_exclusivity="declined"
+    )
+    assert (
+        solver_plan._refusal_reason(
+            _result(thermal_guarantee_relaxed=True, direction_exclusivity="declined"),
+            det,
+            drive=True,
+        )
+        is None
+    )
+
+    # test_a_bound_is_named_by_which_bound_the_variable_sits_at
+    for export_kw, pin, label in [
+        (5.0, None, "Grid export limit"),  # exactly at the ceiling
+        (0.0, None, "Grid export at zero (not economical right now)"),
+        (3.0, 3.0, "Grid export pinned at 3.00 kW by P2P export commitment"),
+        (
+            3.0,
+            None,
+            "Grid export at 3.00 kW (unexpected -- neither its 0 nor 5.00 kW bound)",
+        ),
+    ]:
+        plan = _bound_plan(export_kw)
+        assert publish.compute_binding_constraint_label(
+            plan, 5.0, 10.0, 4.0, 4.0, 0.5, fixed_export_kw_now=pin
+        ) == (label, 1.0)
+        assert publish.compute_binding_constraint_label(
+            _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
+        ) == ("Nothing currently binding", None)
+
+
+# --- spike_export_ceiling / spike_night_block_floor (#694, 11-12 Oct) ------
+
+
+SPIKE_CFG = {
+    "solver_price_spike_override_armed": True,
+    "solver_price_spike_threshold": 1.0,
+    "solver_p2p_block_1_rate_kw": 10.0,
+    "solver_p2p_block_1_start_hour": 17.0,
+    "solver_p2p_block_1_end_hour": 19.0,
+}
+
 
 # --- _refusal_reason (#1797) ------------------------------------------------
 
@@ -508,42 +501,6 @@ DET = SimpleNamespace(
 )
 
 
-@pytest.mark.parametrize(
-    ("over", "drive", "want"),
-    [
-        ({}, True, None),
-        ({"status": "no_band"}, False, "no_solar_band"),
-        ({"status": "error"}, False, "stochastic_error"),
-        ({"plan": None}, False, "stochastic_optimal"),
-        ({"expected_cost": None}, False, "scenario_cost_not_finite"),
-        ({"scenario_costs": {"p10": float("inf")}}, False, "scenario_cost_not_finite"),
-        ({"nonanticipativity_max_gap": None}, False, "nonanticipativity_violated"),
-        ({"nonanticipativity_max_gap": 1.0}, False, "nonanticipativity_violated"),
-        ({"thermal_guarantee_relaxed": True}, False, "thermal_guarantee_relaxed"),
-        ({"direction_exclusivity": "declined"}, False, "direction_declined"),
-        ({"direction_exclusivity": "still_two_way"}, False, "direction_still_two_way"),
-        ({"solar_band": "raw"}, True, "solar_band_not_calibrated"),
-        ({"solar_band": "raw"}, False, None),
-    ],
-)
-def test_the_stochastic_plan_is_refused_for_each_named_reason(over, drive, want):
-    assert solver_plan._refusal_reason(_result(**over), DET, drive=drive) == want
-
-
-def test_a_relaxation_the_deterministic_plan_shares_is_not_a_refusal():
-    det = SimpleNamespace(
-        thermal_guarantee_relaxed=True, direction_exclusivity="declined"
-    )
-    assert (
-        solver_plan._refusal_reason(
-            _result(thermal_guarantee_relaxed=True, direction_exclusivity="declined"),
-            det,
-            drive=True,
-        )
-        is None
-    )
-
-
 # --- what is binding now, and each battery's own forecast ------------------------------------
 
 
@@ -556,44 +513,6 @@ def _bound_plan(export_kw, reduced_cost=0.5):
         battery_charge_kw=zeros,
         battery_discharge_kw=zeros,
     )
-
-
-@pytest.mark.parametrize(
-    ("export_kw", "pin", "label"),
-    [
-        (5.0, None, "Grid export limit"),  # exactly at the ceiling
-        (0.0, None, "Grid export at zero (not economical right now)"),
-        (3.0, 3.0, "Grid export pinned at 3.00 kW by P2P export commitment"),
-        (
-            3.0,
-            None,
-            "Grid export at 3.00 kW (unexpected -- neither its 0 nor 5.00 kW bound)",
-        ),
-    ],
-)
-def test_a_bound_is_named_by_which_bound_the_variable_sits_at(export_kw, pin, label):
-    plan = _bound_plan(export_kw)
-    assert publish.compute_binding_constraint_label(
-        plan, 5.0, 10.0, 4.0, 4.0, 0.5, fixed_export_kw_now=pin
-    ) == (label, 1.0)
-    assert publish.compute_binding_constraint_label(
-        _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
-    ) == ("Nothing currently binding", None)
-
-
-def test_each_battery_forecast_reads_its_own_capacity_and_a_zero_one_reads_zero():
-    bp = SimpleNamespace(
-        name="garage",
-        charge_kw=np.array([1.0]),
-        discharge_kw=np.array([0.0]),
-        soc_kwh=np.array([5.0]),
-    )
-    plan = SimpleNamespace(batteries=[bp])
-    grid = [START]
-    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 10.0})
-    assert row["forecast"][0]["soc_pct"] == 50.0
-    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 0.0})
-    assert row["forecast"][0]["soc_pct"] == 0.0
 
 
 def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):

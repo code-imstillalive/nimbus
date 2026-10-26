@@ -36,6 +36,7 @@ class TestEveryWorkflowActionIsPinnedToACommitSha(unittest.TestCase):
         return files
 
     def test_every_uses_reference_is_a_full_commit_sha(self):
+        # test_every_uses_reference_is_a_full_commit_sha
         for path in self._workflow_files():
             text = path.read_text(encoding="utf-8")
             matches = _USES_PATTERN.findall(text)
@@ -54,7 +55,7 @@ class TestEveryWorkflowActionIsPinnedToACommitSha(unittest.TestCase):
                         "GITHUB_TOKEN with no diff to review",
                     )
 
-    def test_every_pinned_action_has_a_version_comment(self):
+        # test_every_pinned_action_has_a_version_comment
         # A bare SHA with no trailing comment is technically pinned but
         # tells a future maintainer (or Dependabot/Renovate) nothing
         # about what it corresponds to or how to bump it deliberately.

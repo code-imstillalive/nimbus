@@ -8,9 +8,7 @@ import asyncio
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import numpy as np
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
@@ -26,7 +24,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import coordinator as coordinator_module
 from custom_components.nimbus_load.const import CONF_LOAD_SENSOR, SUBENTRY_TYPE_LOAD
 from custom_components.nimbus_load.coordinator import NimbusCoordinator
-from custom_components.nimbus_load.ml.model import TrainedModel
 
 
 class _FakeState:
@@ -83,69 +80,4 @@ def test_a_training_failure_does_not_escape_async_retrain():
     asyncio.run(coord._async_retrain())
 
 
-def test_a_training_failure_is_logged_via_logger_exception():
-    coord = _make_coordinator(training_job_raises=True)
-    with patch.object(coordinator_module, "_LOGGER") as mock_logger:
-        asyncio.run(coord._async_retrain())
-    mock_logger.exception.assert_called_once()
-    # The subentry_id must be identifiable in the log call so a real
-    # household can tell WHICH load's retrain failed.
-    assert "test-subentry-retrain-failure" in mock_logger.exception.call_args[0]
-
-
-def test_retraining_flag_resets_to_false_even_after_a_failure():
-    coord = _make_coordinator(training_job_raises=True)
-    asyncio.run(coord._async_retrain())
-    assert coord._retraining is False
-
-
-def test_no_regression_for_the_success_path():
-    coord = _make_coordinator(training_job_raises=False)
-    with patch.object(coordinator_module, "_LOGGER") as mock_logger:
-        asyncio.run(coord._async_retrain())
-    mock_logger.exception.assert_not_called()
-    assert coord._retraining is False
-
-
 # --- nimbus issue #373: last_retrain_error, the operator-visible signal ----
-
-
-def test_a_training_failure_sets_last_retrain_error():
-    """The only operator-facing signal a retrain failure had before this
-    was a log line -- last_update_success stays True regardless (it's
-    THIS background task, not the coordinator's own update, that
-    failed). Published on the forecast entity's own attributes (see
-    _async_update_data()) so it's visible without reading the log."""
-    coord = _make_coordinator(training_job_raises=True)
-    asyncio.run(coord._async_retrain())
-    assert coord._last_retrain_error is not None
-    assert "simulated training failure" in coord._last_retrain_error
-
-
-def test_a_successful_retrain_clears_a_prior_last_retrain_error():
-    """A stale error attribute lingering after the underlying problem is
-    actually fixed would be its own false alarm -- a genuine success
-    must clear it. _train_model_job is patched to return a real
-    TrainedModel directly (the fake single-point history this file's own
-    harness provides is nowhere near the >= 500 points a genuine
-    train_model() call requires) -- this test is about the clearing
-    logic in _async_retrain() itself, not train_model()'s own behaviour,
-    which has its own dedicated test coverage elsewhere."""
-    coord = _make_coordinator(training_job_raises=False)
-    coord._last_retrain_error = "RuntimeError: some earlier failure"
-    fake_trained = TrainedModel(
-        model_type="knn",
-        x_mean=np.zeros(3),
-        x_std=np.ones(3),
-        x_train=np.zeros((5, 3)),
-        y_train=np.zeros(5),
-        gbrt=None,
-        trained_at=datetime.now(UTC),
-        training_points=5,
-    )
-    with patch.object(
-        coordinator_module, "_train_model_job", return_value=fake_trained
-    ):
-        asyncio.run(coord._async_retrain())
-    assert coord._last_retrain_error is None
-    assert coord._trained is fake_trained

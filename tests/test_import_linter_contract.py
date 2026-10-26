@@ -126,11 +126,7 @@ def _run_lint_imports() -> subprocess.CompletedProcess[str]:
 
 class TestImportLinterLayerContract(unittest.TestCase):
     def test_lint_imports_passes(self):
-        """The real gate: `lint-imports` against this repo's own
-        pyproject.toml config must exit 0. A non-zero exit means either a
-        genuinely NEW layering violation was introduced (fix the import,
-        don't add another exception), or the contract itself is
-        misconfigured (e.g. a missing non-optional layer)."""
+        # test_lint_imports_passes: The real gate: `lint-imports` against this repo's own
         proc = _run_lint_imports()
         self.assertEqual(
             proc.returncode,
@@ -144,15 +140,7 @@ class TestImportLinterLayerContract(unittest.TestCase):
             f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}",
         )
 
-    def test_exactly_the_documented_violations_are_recorded_as_exceptions(self):
-        """import-linter reports how many `ignore_imports` entries it
-        actually matched in its own summary line, e.g.
-        "... KEPT (7 ignored imports)". Pinning that count (rather than
-        just "the contract passed") is what catches a new violation being
-        silently swept into `ignore_imports` instead of fixed -- the
-        contract would still exit 0 in that case, since a matched
-        ignore_imports entry always keeps the contract, but the count
-        printed here would rise."""
+        # test_exactly_the_documented_violations_are_recorded_as_exceptions: import-linter reports how many `ignore_imports` entries it
         proc = _run_lint_imports()
         self.assertIn(
             f"({_EXPECTED_IGNORED_IMPORT_COUNT} ignored imports)",
@@ -169,12 +157,7 @@ class TestImportLinterLayerContract(unittest.TestCase):
             f"catch. Full stdout:\n{proc.stdout}",
         )
 
-    def test_no_missing_or_undeclared_layer_warnings(self):
-        """A required (non-parenthesised) layer that stops existing, or a
-        contract-config typo, shows up as import-linter refusing to even
-        build the graph rather than a normal BROKEN contract -- distinct
-        failure text, worth asserting on directly so it isn't confused
-        with a real layering violation."""
+        # test_no_missing_or_undeclared_layer_warnings: A required (non-parenthesised) layer that stops existing, or a
         proc = _run_lint_imports()
         self.assertNotIn("Missing layer", proc.stdout)
         self.assertNotIn("shared descendants", proc.stdout.lower())

@@ -76,6 +76,7 @@ def _png_header(path: Path) -> tuple[int, int, int, int]:
 
 class TestBrandAssetsWouldPassBrandsReview(unittest.TestCase):
     def test_both_required_icons_exist(self):
+        # test_both_required_icons_exist
         for name in _REQUIRED:
             with self.subTest(name=name):
                 self.assertTrue(
@@ -84,18 +85,13 @@ class TestBrandAssetsWouldPassBrandsReview(unittest.TestCase):
                     "brands submission uploads (nimbus #987)",
                 )
 
-    def test_dimensions_are_exactly_what_brands_specifies(self):
-        """'Icon size must be: 256x256 pixels for normal version.
-        512x512 pixels for the hDPI version.'"""
+        # test_dimensions_are_exactly_what_brands_specifies: 'Icon size must be: 256x256 pixels for normal version.
         for name, size in _REQUIRED.items():
             with self.subTest(name=name):
                 width, height, _, _ = _png_header(_BRAND / name)
                 self.assertEqual((width, height), (size, size))
 
-    def test_they_are_png_with_an_alpha_channel(self):
-        """'The filetype of all images must be PNG.' and 'Images with
-        transparency are preferred.' Colour type 6 is RGBA, 4 is
-        grey+alpha -- anything else has no transparency to trim to."""
+        # test_they_are_png_with_an_alpha_channel: 'The filetype of all images must be PNG.' and 'Images with
         for name in _REQUIRED:
             with self.subTest(name=name):
                 _, _, depth, colour_type = _png_header(_BRAND / name)
@@ -107,13 +103,7 @@ class TestBrandAssetsWouldPassBrandsReview(unittest.TestCase):
                     "transparent background brands prefers",
                 )
 
-    def test_they_are_trimmed_of_empty_space(self):
-        """The requirement #987 missed, and the reason this file exists.
-
-        Skips rather than passes when Pillow is absent: a trim check
-        that quietly succeeds without measuring anything would be worse
-        than no check, which is this repo's own #757 lesson.
-        """
+        # test_they_are_trimmed_of_empty_space: The requirement #987 missed, and the reason this file exists.
         try:
             from PIL import Image
         except ImportError:  # pragma: no cover - Pillow is optional here
@@ -138,10 +128,7 @@ class TestBrandAssetsWouldPassBrandsReview(unittest.TestCase):
                     f"integrations list. Measured padding l,t,r,b={padding}",
                 )
 
-    def test_the_two_sizes_are_the_same_artwork(self):
-        """A 2x asset that is not the same image at twice the size would
-        render as a different icon on hDPI displays, which is worse than
-        having no 2x at all."""
+        # test_the_two_sizes_are_the_same_artwork: A 2x asset that is not the same image at twice the size would
         try:
             from PIL import Image
         except ImportError:  # pragma: no cover

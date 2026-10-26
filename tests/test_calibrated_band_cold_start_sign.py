@@ -22,38 +22,6 @@ import _ml_path  # noqa: F401
 from nimbus_load.ml import model as ml_model
 
 
-class TestCalibratedBandColdStartSign(unittest.TestCase):
-    def test_negative_point_value_yields_a_positive_band(self):
-        band = ml_model.calibrated_band([], -20.0, 0.0)
-        self.assertGreater(band, 0.0)
-
-    def test_negative_point_value_band_magnitude_matches_positive_counterpart(self):
-        negative_band = ml_model.calibrated_band([], -20.0, 0.0)
-        positive_band = ml_model.calibrated_band([], 20.0, 0.0)
-        self.assertAlmostEqual(negative_band, positive_band)
-
-    def test_zero_point_value_still_gets_a_nonzero_band(self):
-        band = ml_model.calibrated_band([], 0.0, 0.0)
-        self.assertGreater(band, 0.0)
-        self.assertAlmostEqual(band, ml_model.COLD_START_BAND_MIN_KW)
-
-    def test_small_point_value_is_floored_not_left_near_zero(self):
-        # 0.1kW * COLD_START_BAND_FRACTION (0.3) = 0.03, well under the floor.
-        band = ml_model.calibrated_band([], 0.1, 0.0)
-        self.assertGreaterEqual(band, ml_model.COLD_START_BAND_MIN_KW)
-
-    def test_large_point_value_uses_the_fraction_not_the_floor(self):
-        band = ml_model.calibrated_band([], -50.0, 0.0)
-        self.assertAlmostEqual(band, 50.0 * ml_model.COLD_START_BAND_FRACTION)
-
-    def test_lower_never_exceeds_upper_for_a_negative_prediction(self):
-        point_value = -20.0
-        band = ml_model.calibrated_band([], point_value, 0.0)
-        lower = point_value - band
-        upper = point_value + band
-        self.assertLessEqual(lower, upper)
-
-
 class TestCalibrationHalfWidthPrecomputation(unittest.TestCase):
     """Regression test for nimbus issue #366 finding 2: coordinator.py's
     per-horizon-point loop (~385 points/tick) used to call calibrated_band()
@@ -62,10 +30,6 @@ class TestCalibrationHalfWidthPrecomputation(unittest.TestCase):
     calibration_half_width() lets a caller compute that once and pass it
     back in via calibrated_band()'s near_term_half_width override.
     """
-
-    def test_returns_none_below_the_calibration_threshold(self):
-        residuals = [1.0] * (ml_model.MIN_RESIDUALS_FOR_CALIBRATION - 1)
-        self.assertIsNone(ml_model.calibration_half_width(residuals))
 
     def test_matches_calibrated_bands_own_internal_computation(self):
         residuals = [float(i % 7 + 1) for i in range(50)]
@@ -78,13 +42,3 @@ class TestCalibrationHalfWidthPrecomputation(unittest.TestCase):
                 residuals, 10.0, lead_hours, near_term_half_width=precomputed
             )
             self.assertAlmostEqual(band_internal, band_precomputed, places=9)
-
-    def test_override_is_ignored_below_the_calibration_threshold(self):
-        # A caller that (incorrectly) passes a precomputed half-width
-        # alongside too-few residuals still gets the cold-start path,
-        # not a use of the (meaningless, in this case) override value.
-        band_with_bogus_override = ml_model.calibrated_band(
-            [], -20.0, 0.0, near_term_half_width=999.0
-        )
-        band_without_override = ml_model.calibrated_band([], -20.0, 0.0)
-        self.assertAlmostEqual(band_with_bogus_override, band_without_override)

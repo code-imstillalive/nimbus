@@ -20,21 +20,19 @@ SITE = [
 ]
 
 
-def test_the_unmutated_site_balances() -> None:
+def test_the_unmutated_site_balances():
+    # test_the_unmutated_site_balances
     assert abs(site_grid_kw(SITE)) <= TOL
 
-
-def test_accounting_mutation_adding_the_ac_ev_twice_fails() -> None:
+    # test_accounting_mutation_adding_the_ac_ev_twice_fails
     mutated = [*SITE, Flow("ev_ac_again", "battery", -10.0)]
     assert abs(site_grid_kw(mutated)) > TOL
 
-
-def test_unit_mutation_watts_read_as_kilowatts_is_detected() -> None:
+    # test_unit_mutation_watts_read_as_kilowatts_is_detected
     mutated = [f if f.name != "house" else Flow("house", "load", 14000.0) for f in SITE]
     assert abs(site_grid_kw(mutated)) > TOL
 
-
-def test_identity_mutations_are_rejected() -> None:
+    # test_identity_mutations_are_rejected
     assert validate_inclusion(SITE) == []
     dup = [*SITE, Flow("pv", "solar", 1.0)]
     assert any("duplicate" in p for p in validate_inclusion(dup))
@@ -48,24 +46,18 @@ def test_identity_mutations_are_rejected() -> None:
     self_ref = [Flow("a", "load", 1.0, included_in="a")]
     assert any("cycle" in p for p in validate_inclusion(self_ref))
 
-
-def test_production_mutation_obligations_remain_visibly_pending() -> None:
+    # test_production_mutation_obligations_remain_visibly_pending
     reg = json.loads((HERE / "acceptance_registry.json").read_text(encoding="utf-8"))
     for fid in ("F06", "F09", "F10", "F12"):  # discovery, safety, revision
         assert reg["fixtures"][fid]["status"]["production_obligation"] == "pending", fid
 
-
-# F04, F05, F09, F11 negative controls -----------------------------------
-
-
-def test_unit_mutation_case_folding_mw_is_detected() -> None:
+    # test_unit_mutation_case_folding_mw_is_detected
     from tests.device_contract.oracles_signals import power_kw
 
     # A case-folding reader would make 2.5e9 mW and 2.5e9 MW the same thing.
     assert power_kw(2.5e9, "mW") != power_kw(2.5e9, "MW")
 
-
-def test_coverage_mutation_dropping_an_interval_is_reported() -> None:
+    # test_coverage_mutation_dropping_an_interval_is_reported
     from datetime import datetime
 
     from tests.device_contract.oracles_signals import PriceInterval, price_over
@@ -85,8 +77,7 @@ def test_coverage_mutation_dropping_an_interval_is_reported() -> None:
     # not notice the missing half hour.
     assert price_over(full[:1], *window) == (0.2, 0.5)
 
-
-def test_inclusion_mutation_adding_a_child_on_top_fails() -> None:
+    # test_inclusion_mutation_adding_a_child_on_top_fails
     from tests.device_contract.oracles_structure import Node, inclusive_demand_kw
 
     nodes = [Node("house", 14.0), Node("pool", 2.0, inside="house")]
@@ -94,7 +85,11 @@ def test_inclusion_mutation_adding_a_child_on_top_fails() -> None:
     assert abs(inclusive_demand_kw(flattened) - inclusive_demand_kw(nodes)) > TOL
 
 
-def test_dependency_mutation_closing_a_cycle_is_rejected() -> None:
+# F04, F05, F09, F11 negative controls -----------------------------------
+
+
+def test_dependency_mutation_closing_a_cycle_is_rejected():
+    # test_dependency_mutation_closing_a_cycle_is_rejected
     from tests.device_contract.oracles_structure import dependency_problems
 
     graph = {"a": {"b"}, "b": set()}
@@ -102,11 +97,7 @@ def test_dependency_mutation_closing_a_cycle_is_rejected() -> None:
     graph["b"] = {"a"}
     assert any("cycle" in p for p in dependency_problems(graph))
 
-
-# F02 shared-limit negative controls ---------------------------------------
-
-
-def test_limit_mutation_copying_the_rating_onto_each_member_is_detected() -> None:
+    # test_limit_mutation_copying_the_rating_onto_each_member_is_detected
     from tests.device_contract.oracles_limits import (
         Member,
         SharedLimit,
@@ -120,8 +111,7 @@ def test_limit_mutation_copying_the_rating_onto_each_member_is_detected() -> Non
     assert within_copied_limits(members, 5.0)
     assert not within(shared, members)
 
-
-def test_limit_mutation_netting_a_charger_hides_an_overload() -> None:
+    # test_limit_mutation_netting_a_charger_hides_an_overload
     from tests.device_contract.oracles_limits import Member, combined_kw
 
     members = [Member("ev_a", "battery", 15.0), Member("ev_b", "battery", -15.0)]
@@ -129,8 +119,7 @@ def test_limit_mutation_netting_a_charger_hides_an_overload() -> None:
     assert netted <= 25.0  # a netting reader would see an idle charger
     assert combined_kw("charger_power", members) > 25.0
 
-
-def test_limit_mutation_stating_a_limit_twice_is_rejected() -> None:
+    # test_limit_mutation_stating_a_limit_twice_is_rejected
     from tests.device_contract.oracles_limits import SharedLimit, limit_problems
 
     kinds = {"pv": "solar", "bat": "battery"}
@@ -139,20 +128,14 @@ def test_limit_mutation_stating_a_limit_twice_is_rejected() -> None:
     twice = [*once, SharedLimit("inv", "inverter_ac_power", ("pv", "bat"), 8.0)]
     assert any("twice" in p for p in limit_problems(twice, kinds))
 
-
-# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
-# overlap ----------------------------------------------------------------------
-
-
-def test_reconciliation_mutation_a_double_count_turns_agrees_into_disagrees() -> None:
+    # test_reconciliation_mutation_a_double_count_turns_agrees_into_disagrees
     from tests.device_contract.oracles_accounting import Meter, reconcile
 
     meter = Meter(50.0, 40.0, "positive_is_import")
     assert reconcile(51.0, 39.0, meter, 0.0).status == "agrees"
     assert reconcile(51.0 + 10.0, 39.0, meter, 0.0).status == "disagrees"
 
-
-def test_reconciliation_mutation_equal_errors_cannot_hide_in_a_net() -> None:
+    # test_reconciliation_mutation_equal_errors_cannot_hide_in_a_net
     from tests.device_contract.oracles_accounting import Meter, reconcile
 
     meter = Meter(50.0, 40.0, "positive_is_import")
@@ -161,8 +144,7 @@ def test_reconciliation_mutation_equal_errors_cannot_hide_in_a_net() -> None:
     assert (62.0 - 52.0) == (50.0 - 40.0)
     assert got.status == "disagrees"
 
-
-def test_reconciliation_mutation_a_declared_sign_is_not_rescued() -> None:
+    # test_reconciliation_mutation_a_declared_sign_is_not_rescued
     from tests.device_contract.oracles_accounting import Meter, reconcile
 
     backwards = Meter(3.0, 12.0, "positive_is_import")
@@ -170,8 +152,7 @@ def test_reconciliation_mutation_a_declared_sign_is_not_rescued() -> None:
     assert reconcile(12.0, 3.0, legacy, 0.0).status == "agrees"
     assert reconcile(12.0, 3.0, backwards, 0.0).status == "disagrees"
 
-
-def test_residual_mutation_clamping_breaks_the_inclusive_total() -> None:
+    # test_residual_mutation_clamping_breaks_the_inclusive_total
     from tests.device_contract.oracles_accounting import (
         decomposition_verdict,
         residual_series,
@@ -186,7 +167,15 @@ def test_residual_mutation_clamping_breaks_the_inclusive_total() -> None:
     assert decomposition_verdict(series, inside).negative == {"circuit": [1]}
 
 
-def test_boundary_mutation_moving_a_child_to_dc_is_rejected() -> None:
+# F02 shared-limit negative controls ---------------------------------------
+
+
+# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
+# overlap ----------------------------------------------------------------------
+
+
+def test_boundary_mutation_moving_a_child_to_dc_is_rejected():
+    # test_boundary_mutation_moving_a_child_to_dc_is_rejected
     from tests.device_contract.oracles_accounting import Party, inclusion_problems
 
     house = Party("house", "load", "ac")
@@ -201,8 +190,7 @@ def test_boundary_mutation_moving_a_child_to_dc_is_rejected() -> None:
         "inclusion_sign_ambiguous"
     ]
 
-
-def test_mobility_mutation_reading_at_home_as_connected_is_detected() -> None:
+    # test_mobility_mutation_reading_at_home_as_connected_is_detected
     from tests.device_contract.oracles_accounting import (
         VehicleInterval,
         vehicle_site_kwh,
@@ -213,8 +201,7 @@ def test_mobility_mutation_reading_at_home_as_connected_is_detected() -> None:
     assert vehicle_site_kwh(honest) == "mobility_unresolved"
     assert vehicle_site_kwh(as_if_connected) == 7.0
 
-
-def test_overlap_mutation_shuffling_the_child_removes_the_evidence() -> None:
+    # test_overlap_mutation_shuffling_the_child_removes_the_evidence
     import math
 
     from tests.device_contract.oracles_accounting import possible_undeclared_inclusion

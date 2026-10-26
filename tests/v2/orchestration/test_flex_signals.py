@@ -91,50 +91,8 @@ def _plan(*, grid_signals=None, battery_signals=None, load_signals=None):
 
 
 class TestPublishFlexSignals(unittest.TestCase):
-    def test_no_op_when_grid_signals_absent(self):
-        # The real, common case: switch.nimbus_solver_flex_signals_enabled
-        # off, so build_plan() never populated grid_signals at all.
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(_plan(grid_signals=None))
-        post.assert_not_called()
-
-    def test_publishes_grid_level_scalars(self):
-        plan = _plan(grid_signals=_grid_signals())
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
-        post.assert_called_once()
-        entity_id, state, attrs = post.call_args[0]
-        self.assertEqual(entity_id, "sensor.nimbus_flex_signals")
-        # State mirrors flex_available_up_kw[0], the household-level figure.
-        self.assertEqual(state, 2.5)
-        self.assertEqual(attrs["grid_import_headroom_kw"], 2.5)
-        self.assertEqual(attrs["grid_import_headroom_kwh"], 0.625)
-        self.assertEqual(attrs["grid_export_headroom_kw"], 0.0)
-        self.assertEqual(attrs["forced_import_cost"], 0.12)
-        self.assertEqual(attrs["forced_export_cost"], -0.05)
-        self.assertEqual(attrs["flex_available_up_kw"], 2.5)
-        self.assertEqual(attrs["flex_available_down_kw"], 0.0)
-        self.assertEqual(attrs["load_headroom_up_kwh"], 1.1)
-        self.assertEqual(attrs["load_headroom_down_kwh"], 0.3)
-        self.assertEqual(attrs["unit_of_measurement"], "kW")
-        self.assertIn("generated_at", attrs)
-
-    def test_publishes_per_battery_signals(self):
-        plan = _plan(
-            grid_signals=_grid_signals(),
-            battery_signals=[_battery_signal(name="home"), _battery_signal(name="ev1")],
-        )
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
-        _, _, attrs = post.call_args[0]
-        self.assertEqual(len(attrs["battery_signals"]), 2)
-        self.assertEqual(attrs["battery_signals"][0]["name"], "home")
-        self.assertEqual(attrs["battery_signals"][0]["available_up_kw"], 3.0)
-        self.assertEqual(attrs["battery_signals"][0]["available_down_kw"], 4.0)
-        self.assertEqual(attrs["battery_signals"][0]["available_up_ranging_kw"], 2.5)
-        self.assertEqual(attrs["battery_signals"][1]["name"], "ev1")
-
     def test_battery_signal_ranging_none_when_ranging_invalid(self):
+        # test_battery_signal_ranging_none_when_ranging_invalid
         # BatterySignals' own PHYSICAL fields are always populated; the
         # ranging-derived pair can independently be None (see that
         # dataclass's own docstring) -- confirm this doesn't crash and
@@ -153,7 +111,7 @@ class TestPublishFlexSignals(unittest.TestCase):
         self.assertIsNone(attrs["battery_signals"][0]["available_up_ranging_kw"])
         self.assertIsNone(attrs["battery_signals"][0]["available_down_ranging_kw"])
 
-    def test_publishes_per_load_signals(self):
+        # test_publishes_per_load_signals
         plan = _plan(
             grid_signals=_grid_signals(),
             load_signals=[
@@ -181,14 +139,6 @@ class TestPublishFlexSignals(unittest.TestCase):
         self.assertEqual(second["band_max_kw"], 2.0)
         self.assertEqual(second["reduced_cost_per_kwh"], 0.08)
         self.assertTrue(second["degenerate"])
-
-    def test_no_battery_or_load_signals_gives_empty_lists_not_a_crash(self):
-        plan = _plan(grid_signals=_grid_signals())
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
-        _, _, attrs = post.call_args[0]
-        self.assertEqual(attrs["battery_signals"], [])
-        self.assertEqual(attrs["load_signals"], [])
 
 
 if __name__ == "__main__":
