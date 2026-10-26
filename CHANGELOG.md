@@ -8,6 +8,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.491] - 2026-10-26
+
+**At dawn, a charge the sun can cover no longer buys from the grid.**
+
+- **A held charge is dropped when it imports** (#2066, reference household 26 Oct). The period-0 hysteresis (#1654) keeps the previous plan's first period when switching would save only cents. It no longer keeps a charge that imports more from the grid than the fresh plan would: that plan is published instead, recorded as `period0_hysteresis: grid_charge`.
+- **New: Solar-only charge** (`sensor.nimbus_solver_current_dispatch_solar_charge`, and `dispatch_solar_charge` per period). True when the plan charges the battery from solar alone and sells nothing.
+- **The dispatch blueprint** has a new optional input, "Nimbus solar-charge signal". When it is set and reads True, a planned charge is sent as Self-Consume, which charges from the sun there really is instead of forcing the plan's kW and importing the shortfall. A charge from the grid, or while exporting, is still forced. Left empty, nothing changes. See docs/going-live.md.
+- **Drive mode skips the stochastic check when the main plan was slow** (#2047, part 1). If the main solve alone used half of `stochastic_drive_budget_seconds`, the cycle publishes the main plan as "Main plan: too slow to check", as shadow mode already does. Drive mode is off by default.
+- Tests only: a load's re-send wait (#2063) and the price build's fallbacks (#2065), for #1837.
+
 ## [0.94.490] - 2026-10-26
 
 **Nimbus no longer writes any dashboard; it gives you the standard one on request.**

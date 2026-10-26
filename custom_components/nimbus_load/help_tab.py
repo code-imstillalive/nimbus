@@ -215,6 +215,17 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.491",
+        "26 Oct 2026",
+        (
+            (
+                "**Dawn:** a charge the sun can cover no longer buys from the "
+                "grid. Set the dispatch blueprint's new Nimbus solar-charge "
+                "signal to have a solar-only charge run as Self-Consume."
+            ),
+        ),
+    ),
+    (
         "0.94.490",
         "26 Oct 2026",
         (
