@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
+from solver import lp as _solver_lp
 from solver.counterfactuals import (
     no_control_dispatch,
     tune_two_threshold,
@@ -78,6 +79,8 @@ def _stochastic(scenarios, weights, start=2, **kw):
 
 
 def test_a_badly_formed_problem_is_refused_before_solving():
+    # test_a_badly_formed_problem_is_refused_before_solving
+    _solver_lp._lex_calibration_failed_until = 0.0
     for scenarios, weights, start, says in [
         ([np.zeros(N)], [1.0], 2, "at least 2 scenarios"),
         ([np.zeros(N), np.zeros(N)], [1.0], 2, "expected 2"),
@@ -88,11 +91,8 @@ def test_a_badly_formed_problem_is_refused_before_solving():
         with pytest.raises(ValueError, match=says):
             _stochastic(scenarios, weights, start)
 
-
-# --- the inverter modes a plan implies ---------------------------------------------------------
-
-
-def test_each_period_maps_to_the_inverters_own_mode_and_transitions_are_listed():
+    # test_each_period_maps_to_the_inverters_own_mode_and_transitions_are_listed
+    _solver_lp._lex_calibration_failed_until = 0.0
     det = build_plan(
         periods=PeriodGrid(np.full(N, 1.0), start=START),
         grid=_grid(PRICES),
@@ -126,8 +126,9 @@ def test_each_period_maps_to_the_inverters_own_mode_and_transitions_are_listed()
     )
     assert summarize_mode_transitions(readings[:1]) == []
 
+    # test_a_plan_that_did_not_solve_has_no_modes
+    _solver_lp._lex_calibration_failed_until = 0.0
 
-def test_a_plan_that_did_not_solve_has_no_modes():
     class Failed:
         is_optimal = False
         status = "infeasible"
@@ -135,28 +136,9 @@ def test_a_plan_that_did_not_solve_has_no_modes():
     with pytest.raises(ValueError, match="non-optimal"):
         shadow_modes_for_plan(Failed())
 
+    # test_tuning_finds_the_cheapest_thresholds_on_its_grid
+    _solver_lp._lex_calibration_failed_until = 0.0
 
-# --- what Nimbus is scored against ---------------------------------------------------------------
-
-
-def _policy(low, high, **kw):
-    args = {
-        "price_kwh": PRICES,
-        "hours": np.full(N, 1.0),
-        "initial_soc_kwh": 5.0,
-        "min_soc_kwh": 1.0,
-        "max_soc_kwh": 9.5,
-        "max_charge_kw": 4.0,
-        "max_discharge_kw": 4.0,
-        "charge_efficiency": 0.9,
-        "discharge_efficiency": 0.9,
-    }
-    return two_threshold_dispatch(
-        **{**args, **kw}, threshold_low=low, threshold_high=high
-    )
-
-
-def test_tuning_finds_the_cheapest_thresholds_on_its_grid():
     def cost(d):
         return float(np.sum((d.charge_kw - d.discharge_kw) * PRICES))
 
@@ -189,3 +171,26 @@ def test_tuning_finds_the_cheapest_thresholds_on_its_grid():
             evaluate_fn=cost,
             n_grid=1,
         )
+
+
+# --- the inverter modes a plan implies ---------------------------------------------------------
+
+
+# --- what Nimbus is scored against ---------------------------------------------------------------
+
+
+def _policy(low, high, **kw):
+    args = {
+        "price_kwh": PRICES,
+        "hours": np.full(N, 1.0),
+        "initial_soc_kwh": 5.0,
+        "min_soc_kwh": 1.0,
+        "max_soc_kwh": 9.5,
+        "max_charge_kw": 4.0,
+        "max_discharge_kw": 4.0,
+        "charge_efficiency": 0.9,
+        "discharge_efficiency": 0.9,
+    }
+    return two_threshold_dispatch(
+        **{**args, **kw}, threshold_low=low, threshold_high=high
+    )

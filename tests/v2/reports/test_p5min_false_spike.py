@@ -77,6 +77,7 @@ def _t(hhmmss: str) -> datetime:
 
 
 def test_threshold_is_5000_or_within_10_percent_of_the_cap():
+    # test_threshold_is_5000_or_within_10_percent_of_the_cap
     # test_threshold_is_5000_or_within_10_percent_of_the_cap: Rule 2(a) threshold: >= $5,000/MWh, or 90% of the $23,200 cap when the
     assert p5min_guard.threshold_kwh(5000.0) == 5.0
     assert p5min_guard.threshold_kwh(22000.0) == 20.88
@@ -158,38 +159,7 @@ def test_threshold_is_5000_or_within_10_percent_of_the_cap():
     out = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, _ha({P5: _flag(g)}))
     assert out[0] is imp and out[1] is exp
 
-
-# ---- rule (b): dispatch disagrees -------------------------------------------
-
-
-# ---- the whole event, replayed ---------------------------------------------
-
-
-def _replay():
-    """Runs and dispatch in publication order: dispatch for T (~T-4:56),
-    then P5MIN run T (~T-4:20)."""
-    g = p5min_guard.FalseSpikeGuard()
-    timeline = []
-    for run_path, disp_path in zip(RUNS, DISPATCH, strict=True):
-        end, price = _dispatch(disp_path)
-        g.on_dispatch(end, price, end - timedelta(minutes=4, seconds=56))
-        run, published = _run(run_path.stem[13:25])
-        g.on_run(run, published)
-        timeline.append((run["run_datetime"][11:16], g.active, g.reason))
-    return g, timeline
-
-
-# ---- release -----------------------------------------------------------------
-
-
-def _calm(run: dict) -> dict:
-    """The run with every forecast price at a normal 9c/kWh: the shape of
-    16 Oct 2026, when P5MIN violated CA_BRIS_59E3F2B6_1 by 560-980 MW at
-    normal prices while the 30-minute pre-dispatch carried the spike."""
-    return {**run, "forecast": [{**r, "value": 0.09} for r in run["forecast"]]}
-
-
-def test_the_9_oct_spike_is_not_suppressed():
+    # test_the_9_oct_spike_is_not_suppressed
     # test_the_9_oct_spike_is_not_suppressed: 9 Oct's real spike peaked at ~$500/MWh in P5MIN, below the threshold,
     s = _sensor()
     fired = []
@@ -275,6 +245,36 @@ def test_the_9_oct_spike_is_not_suppressed():
     )
     assert desc.default == 5000.0 and desc.unit == "AUD/MWh"
     assert desc.min_value <= 5000.0 <= desc.max_value == 23200
+
+
+# ---- rule (b): dispatch disagrees -------------------------------------------
+
+
+# ---- the whole event, replayed ---------------------------------------------
+
+
+def _replay():
+    """Runs and dispatch in publication order: dispatch for T (~T-4:56),
+    then P5MIN run T (~T-4:20)."""
+    g = p5min_guard.FalseSpikeGuard()
+    timeline = []
+    for run_path, disp_path in zip(RUNS, DISPATCH, strict=True):
+        end, price = _dispatch(disp_path)
+        g.on_dispatch(end, price, end - timedelta(minutes=4, seconds=56))
+        run, published = _run(run_path.stem[13:25])
+        g.on_run(run, published)
+        timeline.append((run["run_datetime"][11:16], g.active, g.reason))
+    return g, timeline
+
+
+# ---- release -----------------------------------------------------------------
+
+
+def _calm(run: dict) -> dict:
+    """The run with every forecast price at a normal 9c/kWh: the shape of
+    16 Oct 2026, when P5MIN violated CA_BRIS_59E3F2B6_1 by 560-980 MW at
+    normal prices while the 30-minute pre-dispatch carried the spike."""
+    return {**run, "forecast": [{**r, "value": 0.09} for r in run["forecast"]]}
 
 
 # ---- the solver side: Nimbus's scheduling prices ----------------------------

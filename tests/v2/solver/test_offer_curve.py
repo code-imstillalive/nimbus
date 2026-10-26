@@ -18,6 +18,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
+from solver import lp as _solver_lp
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -286,9 +287,8 @@ def _banded_plan(n, solar, start, aversion, imp0=None, exp0=None, curve=True):
 
 
 def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
-    """#1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
-    period 0 wherever an inverse exists; at an aversion of 1, inside the
-    band, every raw price adjusts to the bound, and the plan's own is kept."""
+    # test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted: #1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
+    _solver_lp._lex_calibration_failed_until = 0.0
     for direction, raw, bound in [("up", 0.30, 0.60), ("down", 0.10, 0.02)]:
         for aversion in [0.0, 0.25, 0.9, 1.0]:
             from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
@@ -309,6 +309,38 @@ def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
                     assert back == raw
                 else:
                     assert back == pytest.approx(r, abs=1e-12)
+
+    # test_no_interval_claims_more_than_the_price_coupled_solve_holds: #1990: a walked plateau whose ranging reaches the domain's end, and
+    _solver_lp._lex_calibration_failed_until = 0.0
+    from solver.network import (
+        _OFFER_CURVE_DOMAIN_MAX,
+        _offer_curve_ranging_walk,
+    )
+
+    curve, ranging = _offer_curve_ranging_walk(
+        _PricedFake(),
+        "imp",
+        retail=0.30,
+        hours0=1.0,
+        negated=False,
+        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
+    )
+    kws = [kw for _p, kw in curve]
+    assert kws[0] == 7.0 and 6.0 in kws
+    for (price, kw), interval in zip(curve, ranging, strict=True):
+        lower = max(interval[0], _OFFER_CURVE_DOMAIN_MIN)
+        upper = min(interval[1], _OFFER_CURVE_DOMAIN_MAX)
+        for end in (lower, upper):
+            inside = price + 0.999 * (end - price)
+            assert _PricedFake.truth(inside) == kw, (price, kw, interval)
+
+    # test_a_non_finite_cost_is_refused_before_highs_sees_it: #2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
+    _solver_lp._lex_calibration_failed_until = 0.0
+    p = lp.LPProblem()
+    x = p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
+    result = p.solve(keep_basis=True)
+    with pytest.raises(ValueError, match="non-finite cost"):
+        result.sweep_costs_with_ranging(x, [{x: float("nan")}])
 
 
 class _FakeRangingResult:
@@ -357,33 +389,6 @@ class _PricedFake:
         return 7.0 if price < 0.05 else 6.0
 
 
-def test_no_interval_claims_more_than_the_price_coupled_solve_holds():
-    """#1990: a walked plateau whose ranging reaches the domain's end, and
-    the retail point's two ends, are each checked against the solve at
-    that price, not taken from the ranging."""
-    from solver.network import (
-        _OFFER_CURVE_DOMAIN_MAX,
-        _offer_curve_ranging_walk,
-    )
-
-    curve, ranging = _offer_curve_ranging_walk(
-        _PricedFake(),
-        "imp",
-        retail=0.30,
-        hours0=1.0,
-        negated=False,
-        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
-    )
-    kws = [kw for _p, kw in curve]
-    assert kws[0] == 7.0 and 6.0 in kws
-    for (price, kw), interval in zip(curve, ranging, strict=True):
-        lower = max(interval[0], _OFFER_CURVE_DOMAIN_MIN)
-        upper = min(interval[1], _OFFER_CURVE_DOMAIN_MAX)
-        for end in (lower, upper):
-            inside = price + 0.999 * (end - price)
-            assert _PricedFake.truth(inside) == kw, (price, kw, interval)
-
-
 class _UnboundedFake:
     """An LP whose ranging is unbounded both ways, as HiGHS reports it
     (`-inf`, `inf`), recording every price the walk asks it to solve at."""
@@ -401,16 +406,6 @@ class _UnboundedFake:
                 value=1.0, cost_dn=_record(-np.inf), cost_up=_record(np.inf)
             )
         ]
-
-
-def test_a_non_finite_cost_is_refused_before_highs_sees_it():
-    """#2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
-    time and iteration limits, so the sweep refuses one outright."""
-    p = lp.LPProblem()
-    x = p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
-    result = p.solve(keep_basis=True)
-    with pytest.raises(ValueError, match="non-finite cost"):
-        result.sweep_costs_with_ranging(x, [{x: float("nan")}])
 
 
 class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unittest
 
+from solver import lp as _solver_lp
 from solver.elements import BatteryConfig, DegenerateConfigError
 
 
@@ -30,6 +31,8 @@ def _base_battery(**overrides) -> dict:
 
 class TestZeroCapacityRejected(unittest.TestCase):
     def test_capacity_kwh_zero_is_rejected(self):
+        # test_capacity_kwh_zero_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             BatteryConfig(
                 **_base_battery(
@@ -41,7 +44,8 @@ class TestZeroCapacityRejected(unittest.TestCase):
             )
         self.assertIn("capacity_kwh", str(ctx.exception))
 
-    def test_capacity_kwh_negative_is_rejected(self):
+        # test_capacity_kwh_negative_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError):
             BatteryConfig(
                 **_base_battery(
@@ -52,7 +56,8 @@ class TestZeroCapacityRejected(unittest.TestCase):
                 )
             )
 
-    def test_capacity_kwh_small_positive_is_accepted(self):
+        # test_capacity_kwh_small_positive_is_accepted
+        _solver_lp._lex_calibration_failed_until = 0.0
         cfg = BatteryConfig(
             **_base_battery(
                 capacity_kwh=0.5, min_soc_kwh=0.0, max_soc_kwh=0.5, initial_soc_kwh=0.25
@@ -63,28 +68,34 @@ class TestZeroCapacityRejected(unittest.TestCase):
 
 class TestNegativeMaxChargeDischargeRejected(unittest.TestCase):
     def test_negative_max_charge_kw_is_rejected(self):
+        # test_negative_max_charge_kw_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             BatteryConfig(**_base_battery(max_charge_kw=-5.0))
         self.assertIn("max_charge_kw", str(ctx.exception))
         self.assertIn("-5", str(ctx.exception))
 
-    def test_negative_max_discharge_kw_is_rejected(self):
+        # test_negative_max_discharge_kw_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             BatteryConfig(**_base_battery(max_discharge_kw=-5.0))
         self.assertIn("max_discharge_kw", str(ctx.exception))
 
-    def test_zero_max_charge_kw_is_still_accepted(self):
+        # test_zero_max_charge_kw_is_still_accepted
+        _solver_lp._lex_calibration_failed_until = 0.0
         # A real, legitimate "this direction is physically disabled"
         # config -- must NOT be rejected (see module docstring; an
         # earlier, too-strict draft of this fix broke this exact case).
         cfg = BatteryConfig(**_base_battery(max_charge_kw=0.0))
         self.assertEqual(cfg.max_charge_kw, 0.0)
 
-    def test_zero_max_discharge_kw_is_still_accepted(self):
+        # test_zero_max_discharge_kw_is_still_accepted
+        _solver_lp._lex_calibration_failed_until = 0.0
         cfg = BatteryConfig(**_base_battery(max_discharge_kw=0.0))
         self.assertEqual(cfg.max_discharge_kw, 0.0)
 
-    def test_zero_both_directions_is_still_accepted(self):
+        # test_zero_both_directions_is_still_accepted
+        _solver_lp._lex_calibration_failed_until = 0.0
         cfg = BatteryConfig(**_base_battery(max_charge_kw=0.0, max_discharge_kw=0.0))
         self.assertEqual(cfg.max_charge_kw, 0.0)
         self.assertEqual(cfg.max_discharge_kw, 0.0)
@@ -92,13 +103,16 @@ class TestNegativeMaxChargeDischargeRejected(unittest.TestCase):
 
 class TestEfficiencyMessageWording(unittest.TestCase):
     def test_exactly_100_percent_charge_efficiency_still_rejected(self):
+        # test_exactly_100_percent_charge_efficiency_still_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(DegenerateConfigError) as ctx:
             BatteryConfig(**_base_battery(charge_efficiency=1.0))
         msg = str(ctx.exception)
         self.assertIn("(0, 1)", msg)
         self.assertNotIn("(0, 1]", msg)
 
-    def test_exactly_100_percent_discharge_efficiency_still_rejected(self):
+        # test_exactly_100_percent_discharge_efficiency_still_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(DegenerateConfigError) as ctx:
             BatteryConfig(**_base_battery(discharge_efficiency=1.0))
         msg = str(ctx.exception)

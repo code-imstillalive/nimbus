@@ -49,6 +49,7 @@ class TestRequalifiedLinesMatch(unittest.TestCase):
 
     def test_the_four_forms_phase_3_actually_produced(self):
         # test_the_four_forms_phase_3_actually_produced
+        # test_the_four_forms_phase_3_actually_produced
         for base, head in [
             ("    if _NATIVE_HASS is None:", "        if sw._NATIVE_HASS is None:"),
             (
@@ -143,7 +144,7 @@ class TestRequalifiedLinesMatch(unittest.TestCase):
             with self.subTest(line=line.strip()):
                 self.assertEqual(_match_key(line), line.strip())
 
-    def test_the_two_normalisations_compose(self):
+        # test_the_two_normalisations_compose
         # test_the_two_normalisations_compose: A requalified line that ALSO gained a comment -- the shape a real
         self.assertEqual(
             _match_key("    _LOGGER.warning("),

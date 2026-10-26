@@ -95,26 +95,28 @@ def _resolve():
 
 
 def test_a_recorder_gap_credits_only_the_guards_own_hour(site, monkeypatch):
-    """One reading at midnight: carried forward it would claim 28.8 kWh.
-    The guard is the repository's own sample-gap constant, and widening it
-    at its source moves the answer."""
-    assert load_run_state.MAX_SAMPLE_GAP_HOURS == 1.0
-    site.add("pool", POOL)
-    site.history = {"sensor.pool_power": [(DAY_START, 1.2)]}
-    out = _resolve()["pool"]
-    assert out.delivered_kwh == pytest.approx(2.4) and out.stale_period_count == 22
-    assert out.observed_period_fraction == pytest.approx(round(2 / 24, 4))
-    real = sw._stale_power_period_indices
-    monkeypatch.setattr(
-        sw,
-        "_stale_power_period_indices",
-        lambda points, grid, hours, **kw: real(points, grid, hours, max_gap_hours=4.0),
-    )
-    wider = _resolve()["pool"]
-    assert wider.delivered_kwh == pytest.approx(6.0) and wider.stale_period_count == 19
+    # test_a_recorder_gap_credits_only_the_guards_own_hour: One reading at midnight: carried forward it would claim 28.8 kWh.
+    with monkeypatch.context() as mp:
+        assert load_run_state.MAX_SAMPLE_GAP_HOURS == 1.0
+        site.add("pool", POOL)
+        site.history = {"sensor.pool_power": [(DAY_START, 1.2)]}
+        out = _resolve()["pool"]
+        assert out.delivered_kwh == pytest.approx(2.4) and out.stale_period_count == 22
+        assert out.observed_period_fraction == pytest.approx(round(2 / 24, 4))
+        real = sw._stale_power_period_indices
+        mp.setattr(
+            sw,
+            "_stale_power_period_indices",
+            lambda points, grid, hours, **kw: real(
+                points, grid, hours, max_gap_hours=4.0
+            ),
+        )
+        wider = _resolve()["pool"]
+        assert (
+            wider.delivered_kwh == pytest.approx(6.0) and wider.stale_period_count == 19
+        )
 
-
-def test_a_load_that_cannot_be_reconstructed_says_why_not_zero(site):
+    # test_a_load_that_cannot_be_reconstructed_says_why_not_zero
     for configured, rows, reason in [
         (False, None, clh.REASON_NO_POWER_SENSOR),
         (True, [], clh.REASON_NO_HISTORY),
@@ -133,6 +135,64 @@ def test_a_load_that_cannot_be_reconstructed_says_why_not_zero(site):
         attr = out.as_attribute()
         assert attr["delivered_kwh"] is None and attr["reason"] == reason
         assert "delivered_kwh_by_period" not in attr  # never the per-period series
+
+    # test_with_nothing_delivered_or_no_entry_the_oracle_gets_nothing
+    with monkeypatch.context() as mp:
+        assert _oracle(mp, [], {"s1": DISHWASHER}) is None
+        assert _oracle(mp, [_ran()], None) is None
+
+    # test_every_load_left_out_is_named_with_why
+    with monkeypatch.context() as mp:
+        for delivery, data, reason in [
+            (
+                _ran(kind="thermal", name="Tank"),
+                {"controllable_load_kind": "thermal"},
+                clh.ORACLE_SKIP_THERMAL,
+            ),
+            (
+                _ran(scorable=False, reason="no power sensor configured"),
+                DISHWASHER,
+                "no power sensor configured",
+            ),
+            (_ran(kwh=0.0, each=0.0), DISHWASHER, clh.ORACLE_SKIP_NO_ENERGY),
+            (_ran(kind="something_new"), DISHWASHER, clh.ORACLE_SKIP_UNKNOWN_KIND),
+            (
+                _ran(),
+                {
+                    **DISHWASHER,
+                    "deferrable_earliest_hour": 22.0,
+                    "deferrable_deadline_hour": 2.0,
+                },
+                clh.ORACLE_SKIP_NO_WINDOW,
+            ),
+        ]:
+            with mp.context() as mp:
+                bundle = _oracle(mp, [delivery], {"s1": data})
+                assert (bundle.adequacy, bundle.sheddable) == ((), ())
+                assert bundle.skipped == ((delivery.name, reason),)
+                assert (
+                    bundle.delivered_kwh_by_period is None
+                )  # nothing taken that is not given back
+
+    # test_only_the_loads_given_to_the_oracle_are_taken_out_of_its_base_load
+    with monkeypatch.context() as mp:
+        tank = _ran(sid="s2", name="Tank", kind="thermal", at=(3,), each=5.0)
+        bundle = _oracle(mp, [_ran(), tank], {"s1": DISHWASHER, "s2": {}})
+        taken = np.asarray(bundle.delivered_kwh_by_period, float)
+        assert float(taken.sum()) == pytest.approx(4.0) and float(taken[3]) == 0.0
+        pool = _ran(
+            sid="s2", name="Pool", kind="sheddable", kwh=3.0, at=(12, 13), each=1.5
+        )
+        both = _oracle(mp, [_ran(), pool], {"s1": DISHWASHER, "s2": SPA})
+        assert float(
+            np.asarray(both.delivered_kwh_by_period, float).sum()
+        ) == pytest.approx(7.0)
+        assert (both.adequacy[0].name, both.sheddable[0].name) == ("Dishwasher", "Pool")
+
+    # test_scoring_controllable_loads_is_off_unless_switched_on
+    from const import DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED
+
+    assert DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED is False
 
 
 # --- the oracle's controllable loads, built from what each really delivered (#1357) ------------
@@ -198,60 +258,3 @@ def _oracle(monkeypatch, deliveries, subs):
         n_periods=24,
         window_start=ORACLE_START,
     )
-
-
-def test_with_nothing_delivered_or_no_entry_the_oracle_gets_nothing(monkeypatch):
-    assert _oracle(monkeypatch, [], {"s1": DISHWASHER}) is None
-    assert _oracle(monkeypatch, [_ran()], None) is None
-
-
-def test_every_load_left_out_is_named_with_why(monkeypatch):
-    for delivery, data, reason in [
-        (
-            _ran(kind="thermal", name="Tank"),
-            {"controllable_load_kind": "thermal"},
-            clh.ORACLE_SKIP_THERMAL,
-        ),
-        (
-            _ran(scorable=False, reason="no power sensor configured"),
-            DISHWASHER,
-            "no power sensor configured",
-        ),
-        (_ran(kwh=0.0, each=0.0), DISHWASHER, clh.ORACLE_SKIP_NO_ENERGY),
-        (_ran(kind="something_new"), DISHWASHER, clh.ORACLE_SKIP_UNKNOWN_KIND),
-        (
-            _ran(),
-            {
-                **DISHWASHER,
-                "deferrable_earliest_hour": 22.0,
-                "deferrable_deadline_hour": 2.0,
-            },
-            clh.ORACLE_SKIP_NO_WINDOW,
-        ),
-    ]:
-        with monkeypatch.context() as mp:
-            bundle = _oracle(mp, [delivery], {"s1": data})
-            assert (bundle.adequacy, bundle.sheddable) == ((), ())
-            assert bundle.skipped == ((delivery.name, reason),)
-            assert (
-                bundle.delivered_kwh_by_period is None
-            )  # nothing taken that is not given back
-
-
-def test_only_the_loads_given_to_the_oracle_are_taken_out_of_its_base_load(monkeypatch):
-    tank = _ran(sid="s2", name="Tank", kind="thermal", at=(3,), each=5.0)
-    bundle = _oracle(monkeypatch, [_ran(), tank], {"s1": DISHWASHER, "s2": {}})
-    taken = np.asarray(bundle.delivered_kwh_by_period, float)
-    assert float(taken.sum()) == pytest.approx(4.0) and float(taken[3]) == 0.0
-    pool = _ran(sid="s2", name="Pool", kind="sheddable", kwh=3.0, at=(12, 13), each=1.5)
-    both = _oracle(monkeypatch, [_ran(), pool], {"s1": DISHWASHER, "s2": SPA})
-    assert float(
-        np.asarray(both.delivered_kwh_by_period, float).sum()
-    ) == pytest.approx(7.0)
-    assert (both.adequacy[0].name, both.sheddable[0].name) == ("Dishwasher", "Pool")
-
-
-def test_scoring_controllable_loads_is_off_unless_switched_on():
-    from const import DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED
-
-    assert DEFAULT_SOLVER_SCORE_CONTROLLABLE_LOADS_ENABLED is False

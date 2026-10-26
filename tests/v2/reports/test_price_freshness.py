@@ -29,7 +29,8 @@ def _ago(minutes):
     return (NOW - timedelta(minutes=minutes)).isoformat()
 
 
-def test_the_oldest_source_stamp_decides_and_an_hour_is_stale():
+def test_the_oldest_source_stamp_decides_and_an_hour_is_stale(monkeypatch, caplog):
+    # test_the_oldest_source_stamp_decides_and_an_hour_is_stale
     # test_the_oldest_source_stamp_decides_and_an_hour_is_stale
     read = _reader(
         {
@@ -80,24 +81,18 @@ def test_the_oldest_source_stamp_decides_and_an_hour_is_stale():
     assert pf.lv_v2_siblings(["sensor.amber"], lv) == []
     assert pf.lv_v2_siblings(["sensor.lv_buy"], None) == []
 
+    # test_a_failing_probe_never_breaks_the_solve
+    caplog.clear()
+    with monkeypatch.context() as mp:
 
-def test_a_failing_probe_never_breaks_the_solve(monkeypatch, caplog):
-    def boom(*a):
-        raise RuntimeError("x")
+        def boom(*a):
+            raise RuntimeError("x")
 
-    monkeypatch.setattr(pf, "source_updated", boom)
-    assert pf.check(_reader({}), ["sensor.buy"], NOW) is None
-    assert "price freshness check failed" in caplog.text
+        mp.setattr(pf, "source_updated", boom)
+        assert pf.check(_reader({}), ["sensor.buy"], NOW) is None
+        assert "price freshness check failed" in caplog.text
 
-
-# --- the fallback series and the stale history ------------------------------------------------------
-
-
-def _local(t):
-    return t + timedelta(hours=10)
-
-
-def test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_price():
+    # test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_price
     # test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_price
     grid = [NOW + timedelta(minutes=m) for m in (0, 5, 30)]
     aemo = [(NOW - timedelta(minutes=5), 0.10), (NOW + timedelta(minutes=30), 0.50)]
@@ -128,3 +123,10 @@ def test_the_fallback_is_wholesale_plus_the_learned_markup_and_now_is_the_live_p
         grid, [False, False, False, False, True], timedelta(minutes=30), _local
     ) == ["14:30-15:00"]
     assert pf.parse_stamp(_ago(1)) == NOW - timedelta(minutes=1)
+
+
+# --- the fallback series and the stale history ------------------------------------------------------
+
+
+def _local(t):
+    return t + timedelta(hours=10)

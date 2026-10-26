@@ -114,6 +114,8 @@ HWS = {"deferrable_max_power_kw": 3.7, "deferrable_target_kwh": 5.0}
 
 
 def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, caplog):
+    # test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped
+    caplog.clear()
     site.load(
         "pump",
         "sheddable",
@@ -147,8 +149,7 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
     ] == [(2, 12, 5.0)]
     assert "no_nominal" in caplog.text and "no_target" in caplog.text
 
-
-def test_an_hour_resolves_to_its_period_on_the_grid():
+    # test_an_hour_resolves_to_its_period_on_the_grid
     for hour, is_deadline, expect in [
         (2.0, False, 4),  # still ahead today
         (0.0, False, 47),  # already passed: tomorrow's, clamped to the horizon
@@ -163,8 +164,7 @@ def test_an_hour_resolves_to_its_period_on_the_grid():
             == expect
         )
 
-
-def test_an_overnight_or_open_ended_window_is_one_window(site):
+    # test_an_overnight_or_open_ended_window_is_one_window
     site.load(
         "ev",
         deferrable_max_power_kw=7.0,
@@ -179,8 +179,7 @@ def test_an_overnight_or_open_ended_window_is_one_window(site):
     assert ev.windows is None and ev.earliest_period < ev.deadline_period
     assert open_ended.windows is None and open_ended.deadline_period == len(grid) - 1
 
-
-def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site):
+    # test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads
     for static, entity_state, expect in [
         (0.10, None, 0.10),
         (0.10, "0.25", 0.25),
@@ -197,8 +196,7 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site):
         _, (load,), _ = site.build(n=8)
         assert load.value_per_kwh == expect
 
-
-def test_a_load_that_reports_done_is_released_and_an_unreadable_one_is_scheduled(site):
+    # test_a_load_that_reports_done_is_released_and_an_unreadable_one_is_scheduled
     for entity, value, done_when, attrs, released in [
         ("binary_sensor.hot", "on", None, {}, True),
         ("binary_sensor.hot", "off", None, {}, False),
@@ -233,8 +231,8 @@ def test_a_load_that_reports_done_is_released_and_an_unreadable_one_is_scheduled
         _, adequacy, _ = site.build(n=8)
         assert (adequacy == []) is released
 
-
-def test_a_condition_that_cannot_be_read_is_warned_about_once(site, caplog):
+    # test_a_condition_that_cannot_be_read_is_warned_about_once
+    caplog.clear()
     for entity, value, attrs in [
         ("sensor.tank", "55", {}),
         ("water_heater.hws", "eco", {"current_temperature": 55}),
@@ -247,15 +245,7 @@ def test_a_condition_that_cannot_be_read_is_warned_about_once(site, caplog):
             site.build(n=8)
         assert caplog.text.count("could not be evaluated") == 1
 
-
-def _windows(now, delivered=0.0, done=False, grid=None):
-    grid = grid or sw.build_tiered_grid(now)[0]
-    return grid, cl._build_daily_adequacy_windows(
-        grid, now, 6.0, 16.0, 2.0, today_delivered_kwh=delivered, today_done=done
-    )
-
-
-def test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed():
+    # test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed
     now = datetime(2026, 9, 9, 13, 5, tzinfo=TZ)
     _grid, partly = _windows(now, delivered=1.48)
     assert partly[0].target_kwh == pytest.approx(0.52)
@@ -268,11 +258,8 @@ def test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed(
     grid, windows = _windows(late)
     assert grid[windows[0].earliest_period].date() == late.date() + timedelta(days=1)
 
-
-def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(site, caplog):
-    """#712/#713: the heat pump started itself, outside the plan, three
-    nights running. Pulling the deadline in is what makes the plan heat
-    before the floor; widening the start did nothing."""
+    # test_a_tank_falling_to_its_floor_pulls_the_deadline_in: #712/#713: the heat pump started itself, outside the plan, three
+    caplog.clear()
     for temperature, floor, window in [
         (50.0, 45.0, (12, 20)),  # crosses at 10:00: deadline pulled in
         (50.0, -5.0, (12, 32)),  # never crosses in the window
@@ -298,12 +285,21 @@ def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(site, caplog):
         assert ("physical floor" in caplog.text) is (window[1] < 32)
 
 
+def _windows(now, delivered=0.0, done=False, grid=None):
+    grid = grid or sw.build_tiered_grid(now)[0]
+    return grid, cl._build_daily_adequacy_windows(
+        grid, now, 6.0, 16.0, 2.0, today_delivered_kwh=delivered, today_done=done
+    )
+
+
 # --- what a load's power sensor says it delivered ------------------------------------------
 
 
 def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once(
-    site, caplog
+    site, caplog, monkeypatch
 ):
+    # test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once
+    caplog.clear()
     site.state("sensor.p", "550", unit_of_measurement="W")
     with caplog.at_level(logging.INFO):
         for minutes in (0, 30):
@@ -314,16 +310,14 @@ def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_o
     assert st.currently_on and st.delivered_today_kwh == pytest.approx(0.275, abs=1e-3)
     assert caplog.text.count("reports Watts") == 1
 
-
-def test_a_reading_that_is_not_there_writes_nothing(site):
+    # test_a_reading_that_is_not_there_writes_nothing
     for value in ["unavailable", None]:
         if value:
             site.state("sensor.p", value)
         cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
         assert site.run_state() == load_run_state.LoadRunState()
 
-
-def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(site):
+    # test_todays_delivery_cuts_the_target_and_yesterdays_does_not
     for delivered, day, target in [
         (1.48, "2026-09-07", 0.52),
         (2.165, "2026-09-07", None),
@@ -345,37 +339,29 @@ def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(site):
         else:
             assert adequacy[0].target_kwh == pytest.approx(target)
 
+    # test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found
+    with monkeypatch.context() as mp:
+        mp.setattr(shared.NATIVE, "hass", None)
+        assert cl._evaluate_done_condition("binary_sensor.hot", None) is None
+        assert sw._discover_power_sensor_for_device("switch.pump") is None
+        mp.setattr(shared.NATIVE, "hass", SimpleNamespace())
+        assert sw._discover_power_sensor_for_device("") is None
+        # A cron run has no entity registry to read. The import itself is made to
+        # fail: a None in sys.modules is returned as-is by `from ... import ...`
+        # once another test has imported the real registry.
+        real_import = builtins.__import__
 
-def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
-    monkeypatch,
-):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    assert cl._evaluate_done_condition("binary_sensor.hot", None) is None
-    assert sw._discover_power_sensor_for_device("switch.pump") is None
-    monkeypatch.setattr(shared.NATIVE, "hass", SimpleNamespace())
-    assert sw._discover_power_sensor_for_device("") is None
-    # A cron run has no entity registry to read. The import itself is made to
-    # fail: a None in sys.modules is returned as-is by `from ... import ...`
-    # once another test has imported the real registry.
-    real_import = builtins.__import__
+        def no_registry(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "homeassistant.helpers" and "entity_registry" in (
+                fromlist or ()
+            ):
+                raise ImportError("no entity registry outside Home Assistant")
+            return real_import(name, globals, locals, fromlist, level)
 
-    def no_registry(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "homeassistant.helpers" and "entity_registry" in (fromlist or ()):
-            raise ImportError("no entity registry outside Home Assistant")
-        return real_import(name, globals, locals, fromlist, level)
+        mp.setattr(builtins, "__import__", no_registry)
+        assert sw._discover_power_sensor_for_device("switch.pump") is None
 
-    monkeypatch.setattr(builtins, "__import__", no_registry)
-    assert sw._discover_power_sensor_for_device("switch.pump") is None
-
-
-# --- a same-day window already open starts now (#582) ------------------------------------------
-
-
-def _at(hour, minute=0):
-    return datetime(2026, 9, 18, hour, minute, tzinfo=UTC)
-
-
-def test_which_period_a_window_opens_in():
+    # test_which_period_a_window_opens_in
     for now, earliest_hour, deadline_hour, earliest, deadline, expect in [
         (_at(6, 1), 6.0, 16.0, 96, 40, 0),  # open since 06:00: starts now, not tomorrow
         (_at(6), 6.0, 16.0, 96, 40, 0),  # both edges inclusive
@@ -400,3 +386,10 @@ def test_which_period_a_window_opens_in():
             )
             == expect
         )
+
+
+# --- a same-day window already open starts now (#582) ------------------------------------------
+
+
+def _at(hour, minute=0):
+    return datetime(2026, 9, 18, hour, minute, tzinfo=UTC)

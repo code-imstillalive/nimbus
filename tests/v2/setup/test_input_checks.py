@@ -63,7 +63,10 @@ def _sub(sid, kind, title, **data):
     return SimpleNamespace(subentry_id=sid, subentry_type=kind, title=title, data=data)
 
 
-def test_a_non_power_unit_is_found_in_every_power_field_but_not_on_a_temperature_signal():
+def test_a_non_power_unit_is_found_in_every_power_field_but_not_on_a_temperature_signal(
+    caplog, monkeypatch
+):
+    # test_a_non_power_unit_is_found_in_every_power_field_but_not_on_a_temperature_signal
     units = {
         "sensor.amps": "A",
         "sensor.kva": "kVA",
@@ -126,17 +129,18 @@ def test_a_non_power_unit_is_found_in_every_power_field_but_not_on_a_temperature
         ("Battery 'Car'", "sensor.kwh", "kWh"),
     ]
 
-
-def test_each_warning_is_logged_once_per_entity(caplog, monkeypatch):
-    monkeypatch.setattr(pic, "_WARNED", set())
-    monkeypatch.setattr(pic, "_WARNED_NON_POWER", set())
-    monkeypatch.setattr(pic, "_WARNED_REFUSED", set())
-    with caplog.at_level(logging.WARNING, logger=pic._LOGGER.name):
-        for _ in range(2):
-            pic.warn_ignored_once("sensor.a", "kWh", "battery")
-            pic.warn_non_power_once("sensor.b", "A")
-            pic.warn_refused_input_once("sensor.c", "kVA")
-    assert len(caplog.records) == 3
+    # test_each_warning_is_logged_once_per_entity
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        mp.setattr(pic, "_WARNED", set())
+        mp.setattr(pic, "_WARNED_NON_POWER", set())
+        mp.setattr(pic, "_WARNED_REFUSED", set())
+        with caplog.at_level(logging.WARNING, logger=pic._LOGGER.name):
+            for _ in range(2):
+                pic.warn_ignored_once("sensor.a", "kWh", "battery")
+                pic.warn_non_power_once("sensor.b", "A")
+                pic.warn_refused_input_once("sensor.c", "kVA")
+        assert len(caplog.records) == 3
 
 
 # --- frozen price signals ---------------------------------------------------------------------
@@ -184,16 +188,14 @@ def test_a_price_signal_that_never_changes_is_named_with_how_it_was_recognised(
     assert prc.frozen_rate_field(hass, None) is None
 
 
-def test_a_broken_registry_never_breaks_the_price_check(monkeypatch):
-    er = sys.modules["homeassistant.helpers.entity_registry"]
-    monkeypatch.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
-    assert prc.frozen_rate_field(_hass({"sensor.x": "$/kWh"}), "sensor.x") is None
+def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
+    # test_a_broken_registry_never_breaks_the_price_check
+    with monkeypatch.context() as mp:
+        er = sys.modules["homeassistant.helpers.entity_registry"]
+        mp.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
+        assert prc.frozen_rate_field(_hass({"sensor.x": "$/kWh"}), "sensor.x") is None
 
-
-# --- the NEM region from an address -----------------------------------------------------------
-
-
-def test_the_region_and_postcode_prefix_come_from_the_geocoded_address():
+    # test_the_region_and_postcode_prefix_come_from_the_geocoded_address
     for address, region, prefix in [
         ("12 Smith St, Brisbane City QLD 4000, Australia", "QLD1", "400"),
         ("1 Main Rd, Canberra ACT 2600", "NSW1", "260"),
@@ -210,29 +212,7 @@ def test_the_region_and_postcode_prefix_come_from_the_geocoded_address():
     ]:
         assert nem.resolve_region_and_prefix(address) == (region, prefix)
 
-
-# --- the pricing source profiles ------------------------------------------------------------------
-
-
-@pytest.fixture
-def providers(monkeypatch):
-    found = {"lv": {}, "express": {}, "core": {}}
-    monkeypatch.setattr(ps.pa, "detect_localvolts_v2_profile", lambda hass: found["lv"])
-    monkeypatch.setattr(
-        ps.pa, "detect_amber_express_profile", lambda hass: found["express"]
-    )
-    monkeypatch.setattr(ps.pa, "detect_amber_core_profile", lambda hass: found["core"])
-    return found
-
-
-IMPORT, EXPORT, ARRAY = (
-    const.CONF_SOLVER_IMPORT_PRICE_SENSOR,
-    const.CONF_SOLVER_EXPORT_PRICE_SENSOR,
-    const.CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
-)
-
-
-def test_only_complete_profiles_are_offered(providers):
+    # test_only_complete_profiles_are_offered
     providers["lv"] = {f: f"sensor.lv_{i}" for i, f in enumerate(ps.pa.LV_V2_PROFILE)}
     providers["express"] = {IMPORT: "sensor.ae_buy"}  # no export: not offered
     providers["core"] = {IMPORT: "sensor.amber_buy", EXPORT: "sensor.amber_sell"}
@@ -244,8 +224,7 @@ def test_only_complete_profiles_are_offered(providers):
         ARRAY: None,
     }
 
-
-def test_switching_profile_sets_its_sensors_and_clears_what_it_does_not_use(providers):
+    # test_switching_profile_sets_its_sensors_and_clears_what_it_does_not_use
     profile = {IMPORT: "sensor.amber_buy", EXPORT: "sensor.amber_sell", ARRAY: None}
     options = ps.applied({IMPORT: "x", ARRAY: "sensor.lv_array", "other": 1}, profile)
     assert options == {
@@ -264,8 +243,7 @@ def test_switching_profile_sets_its_sensors_and_clears_what_it_does_not_use(prov
         and "Amber Electric" in status["detected_providers"]
     )
 
-
-def test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem():
+    # test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem
     # test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem
     hass = SimpleNamespace(
         states=SimpleNamespace(
@@ -333,6 +311,30 @@ def test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem():
     )
     assert sd.resolve_geocoded_region_and_prefix([phone, other]) == (None, None)
     assert sd.resolve_geocoded_region_and_prefix([asleep]) == (None, None)
+
+
+# --- the NEM region from an address -----------------------------------------------------------
+
+
+# --- the pricing source profiles ------------------------------------------------------------------
+
+
+@pytest.fixture
+def providers(monkeypatch):
+    found = {"lv": {}, "express": {}, "core": {}}
+    monkeypatch.setattr(ps.pa, "detect_localvolts_v2_profile", lambda hass: found["lv"])
+    monkeypatch.setattr(
+        ps.pa, "detect_amber_express_profile", lambda hass: found["express"]
+    )
+    monkeypatch.setattr(ps.pa, "detect_amber_core_profile", lambda hass: found["core"])
+    return found
+
+
+IMPORT, EXPORT, ARRAY = (
+    const.CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    const.CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    const.CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+)
 
 
 # --- the first install -------------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
+from solver import lp as _solver_lp
 from solver.elements import (
     DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     MIN_CHARGE_DISCHARGE_COST_SPREAD,
@@ -801,23 +802,30 @@ def _ev_of(plan):
 
 
 def test_a_departure_due_now_while_away_is_all_shortfall():
-    """#1818, from 08:00: the deadline resolved to period 0 with the car
-    away, so nothing can charge; the whole target is short and it solves."""
+    # test_a_departure_due_now_while_away_is_all_shortfall: #1818, from 08:00: the deadline resolved to period 0 with the car
+    _solver_lp._lex_calibration_failed_until = 0.0
     ev = _ev(0, 48.0, available=False, unavailable_until_period_index=2)
     plan = _departure_plan(ev, options=lp.CalibratedOptions())
     assert plan.status == "optimal"
     assert plan.departure_target_shortfall_kwh["Test EV"] == pytest.approx(45.0)
 
-
-def test_a_shared_charger_ceiling_limits_the_reach():
-    """#1818 with #467: a 12 kW car on a 7 kW shared charger reaches less
-    than its own rate suggests; a target between the two reaches is
-    unreachable, so it is priced, not left to make the plan infeasible."""
+    # test_a_shared_charger_ceiling_limits_the_reach: #1818 with #467: a 12 kW car on a 7 kW shared charger reaches less
+    _solver_lp._lex_calibration_failed_until = 0.0
     target = 0.5 * (_reach(2, 7.0) + _reach(2))
     ev = _ev(1, target, shared_charger_group="garage", shared_charger_max_kw=7.0)
     plan = _departure_plan(ev, options=lp.CalibratedOptions())
     assert plan.status == "optimal"
     assert "Test EV" in plan.departure_target_shortfall_kwh
+
+    # test_a_minimum_export_commitment_is_met_and_priced
+    _solver_lp._lex_calibration_failed_until = 0.0
+    free = _export_site()
+    assert float(np.sum(free.grid_export_kw)) * 0.5 == pytest.approx(0.0, abs=1e-6)
+    bound = _export_site(min_export_kwh=2.0)
+    assert bound.status == "optimal"
+    assert float(np.sum(bound.grid_export_kw)) * 0.5 >= 2.0 - 1e-6
+    assert bound.total_cost > free.total_cost
+    assert "min_export_commitment" in bound.duals
 
 
 # --- Mark Purcell's audit item 2: every objective term moves a decision ----------
@@ -932,13 +940,3 @@ def _export_site(min_export_kwh=None):
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
     )
-
-
-def test_a_minimum_export_commitment_is_met_and_priced():
-    free = _export_site()
-    assert float(np.sum(free.grid_export_kw)) * 0.5 == pytest.approx(0.0, abs=1e-6)
-    bound = _export_site(min_export_kwh=2.0)
-    assert bound.status == "optimal"
-    assert float(np.sum(bound.grid_export_kw)) * 0.5 >= 2.0 - 1e-6
-    assert bound.total_cost > free.total_cost
-    assert "min_export_commitment" in bound.duals

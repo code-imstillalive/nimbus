@@ -47,10 +47,96 @@ def ha(monkeypatch):
 # --- instantaneous readings on the plan grid -------------------------------
 
 
-def test_instant_readings_edge_shapes():
+def test_instant_readings_edge_shapes(ha, monkeypatch):
+    # test_instant_readings_edge_shapes
     assert sw.resample_instants([], "w", _grid(3)) == [0.0, 0.0, 0.0]
     one = [{"time": _iso(T0), "w": 7.0}]
     assert sw.resample_instants(one, "w", [T0]) == [7.0]
+
+    # test_no_usable_forecast_is_none_not_zero
+    for state in [
+        None,
+        {"state": "1", "attributes": {}},
+        {"state": "1", "attributes": {"forecast": [{"x": 1}]}},
+    ]:
+        if state is not None:
+            ha.states["sensor.p"] = state
+        assert sw._resample_generic_price_forecast_raw("sensor.p", _grid(2)) is None
+        assert (
+            sw.resample_generic_price_forecast_with_coverage("sensor.p", _grid(2))
+            is None
+        )
+
+    # test_a_generic_forecast_is_scaled_by_its_own_unit
+    for unit, scale in [("$/kWh", 1.0), ("c/kWh", 0.01), ("$/MWh", 0.001)]:
+        ha.states["sensor.p"] = _price([20.0, 40.0], unit=unit)
+        values, real = sw.resample_generic_price_forecast_with_coverage(
+            "sensor.p", _grid(2)
+        )
+        assert values == pytest.approx([20.0 * scale, 40.0 * scale])
+        assert real == [True, True]
+
+    # test_with_no_secondary_source_the_primary_passes_through_untouched
+    primary = [0.1, 0.2]
+    out, spread, labels = sw.blend_price_with_secondary_sources(
+        primary, {}, ("k2", "k3"), _grid(2)
+    )
+    assert out is primary and spread is None and labels == ["primary", "primary"]
+    # Configured but missing reads the same.
+    out, spread, labels = sw.blend_price_with_secondary_sources(
+        primary, CFG, ("k2", "k3"), _grid(2)
+    )
+    assert out is primary and spread is None
+
+    # test_the_real_primary_wins_and_secondaries_only_fill_where_it_has_nothing
+    grid = _grid(4)
+    # second: real for periods 1-2; third: real for period 2 only.
+    ha.states["sensor.second"] = _price([0.5, 0.7], start=grid[1])
+    ha.states["sensor.third"] = _price([0.9], start=grid[2])
+    out, spread, labels = sw.blend_price_with_secondary_sources(
+        [0.1, 0.2, 0.3, 0.4], CFG, ("k2", "k3"), grid, [True, False, False, False]
+    )
+    assert labels == ["primary", "secondary", "secondary", "fallback"]
+    assert out[0] == 0.1  # never averaged with a live secondary
+    assert out[1] == pytest.approx(0.5)  # the one real secondary, unchanged
+    assert out[2] == pytest.approx((0.7 + 0.9) / 2)  # the real secondaries' mean
+    assert out[3] == pytest.approx((0.4 + 0.7 + 0.9) / 3)  # nobody real: everyone
+    assert spread is not None and len(spread) == 4
+
+    # test_a_retail_forecast_is_extended_by_wholesale_plus_its_own_learned_offset
+    with monkeypatch.context() as mp:
+        grid = _grid(4)
+        aemo = [
+            (grid[0] - timedelta(minutes=5), 0.05),
+            (grid[2], 0.30),
+            (grid[3] + timedelta(hours=1), 9.0),
+        ]
+        mp.setattr(sw, "fetch_aemo_forecast", lambda eid: aemo)
+        mp.setattr(sw, "price_unit_scale_of_history", lambda eid: 0.01)
+        seen = {}
+
+        def history(eid):
+            return [(grid[0], 100.0)]
+
+        def offset(hist, regional_spot_sensor):
+            seen["hist"], seen["spot"] = hist, regional_spot_sensor
+            b = sw._local(grid[2])
+            return {b.hour * 12 + b.minute // 5: 0.10, 0: 0.02}
+
+        mp.setattr(sw, "fetch_price_history", history)
+        mp.setattr(sw, "compute_5min_offset", offset)
+        imp, exp = sw.extend_generic_price_tails(
+            _tail_cfg(),
+            grid,
+            ([1.0, 1.0, 1.0, 1.0], [True, True, False, False], True),
+            ([2.0, 2.0, 2.0, 2.0], [True, True, True, True], True),
+        )
+        # Periods 2 and 3 lie past the import forecast's last real point.
+        assert imp[:2] == [1.0, 1.0]
+        assert imp[2] == pytest.approx(0.30 + 0.10)  # its own time-of-day offset
+        assert imp[3] == pytest.approx(0.30 + 0.06)  # no bucket: the mean offset
+        assert exp == [2.0, 2.0, 2.0, 2.0]  # fully real: nothing to extend
+        assert seen["hist"] == [(grid[0], 1.0)] and seen["spot"] == "sensor.spot_now"
 
 
 # --- generic price forecasts --------------------------------------------------
@@ -69,63 +155,9 @@ def _price(values, *, start=T0, step=30, unit="$/kWh", key="value"):
     }
 
 
-def test_no_usable_forecast_is_none_not_zero(ha):
-    for state in [
-        None,
-        {"state": "1", "attributes": {}},
-        {"state": "1", "attributes": {"forecast": [{"x": 1}]}},
-    ]:
-        if state is not None:
-            ha.states["sensor.p"] = state
-        assert sw._resample_generic_price_forecast_raw("sensor.p", _grid(2)) is None
-        assert (
-            sw.resample_generic_price_forecast_with_coverage("sensor.p", _grid(2))
-            is None
-        )
-
-
-def test_a_generic_forecast_is_scaled_by_its_own_unit(ha):
-    for unit, scale in [("$/kWh", 1.0), ("c/kWh", 0.01), ("$/MWh", 0.001)]:
-        ha.states["sensor.p"] = _price([20.0, 40.0], unit=unit)
-        values, real = sw.resample_generic_price_forecast_with_coverage(
-            "sensor.p", _grid(2)
-        )
-        assert values == pytest.approx([20.0 * scale, 40.0 * scale])
-        assert real == [True, True]
-
-
 # --- secondary price sources ---------------------------------------------------
 
 CFG = {"k2": "sensor.second", "k3": "sensor.third"}
-
-
-def test_with_no_secondary_source_the_primary_passes_through_untouched(ha):
-    primary = [0.1, 0.2]
-    out, spread, labels = sw.blend_price_with_secondary_sources(
-        primary, {}, ("k2", "k3"), _grid(2)
-    )
-    assert out is primary and spread is None and labels == ["primary", "primary"]
-    # Configured but missing reads the same.
-    out, spread, labels = sw.blend_price_with_secondary_sources(
-        primary, CFG, ("k2", "k3"), _grid(2)
-    )
-    assert out is primary and spread is None
-
-
-def test_the_real_primary_wins_and_secondaries_only_fill_where_it_has_nothing(ha):
-    grid = _grid(4)
-    # second: real for periods 1-2; third: real for period 2 only.
-    ha.states["sensor.second"] = _price([0.5, 0.7], start=grid[1])
-    ha.states["sensor.third"] = _price([0.9], start=grid[2])
-    out, spread, labels = sw.blend_price_with_secondary_sources(
-        [0.1, 0.2, 0.3, 0.4], CFG, ("k2", "k3"), grid, [True, False, False, False]
-    )
-    assert labels == ["primary", "secondary", "secondary", "fallback"]
-    assert out[0] == 0.1  # never averaged with a live secondary
-    assert out[1] == pytest.approx(0.5)  # the one real secondary, unchanged
-    assert out[2] == pytest.approx((0.7 + 0.9) / 2)  # the real secondaries' mean
-    assert out[3] == pytest.approx((0.4 + 0.7 + 0.9) / 3)  # nobody real: everyone
-    assert spread is not None and len(spread) == 4
 
 
 # --- the wholesale tail -------------------------------------------------------
@@ -138,43 +170,6 @@ def _tail_cfg():
         "solver_import_price_sensor": "sensor.import",
         "solver_export_price_sensor": "sensor.export",
     }
-
-
-def test_a_retail_forecast_is_extended_by_wholesale_plus_its_own_learned_offset(
-    monkeypatch,
-):
-    grid = _grid(4)
-    aemo = [
-        (grid[0] - timedelta(minutes=5), 0.05),
-        (grid[2], 0.30),
-        (grid[3] + timedelta(hours=1), 9.0),
-    ]
-    monkeypatch.setattr(sw, "fetch_aemo_forecast", lambda eid: aemo)
-    monkeypatch.setattr(sw, "price_unit_scale_of_history", lambda eid: 0.01)
-    seen = {}
-
-    def history(eid):
-        return [(grid[0], 100.0)]
-
-    def offset(hist, regional_spot_sensor):
-        seen["hist"], seen["spot"] = hist, regional_spot_sensor
-        b = sw._local(grid[2])
-        return {b.hour * 12 + b.minute // 5: 0.10, 0: 0.02}
-
-    monkeypatch.setattr(sw, "fetch_price_history", history)
-    monkeypatch.setattr(sw, "compute_5min_offset", offset)
-    imp, exp = sw.extend_generic_price_tails(
-        _tail_cfg(),
-        grid,
-        ([1.0, 1.0, 1.0, 1.0], [True, True, False, False], True),
-        ([2.0, 2.0, 2.0, 2.0], [True, True, True, True], True),
-    )
-    # Periods 2 and 3 lie past the import forecast's last real point.
-    assert imp[:2] == [1.0, 1.0]
-    assert imp[2] == pytest.approx(0.30 + 0.10)  # its own time-of-day offset
-    assert imp[3] == pytest.approx(0.30 + 0.06)  # no bucket: the mean offset
-    assert exp == [2.0, 2.0, 2.0, 2.0]  # fully real: nothing to extend
-    assert seen["hist"] == [(grid[0], 1.0)] and seen["spot"] == "sensor.spot_now"
 
 
 @pytest.mark.parametrize(
@@ -209,32 +204,33 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
 # --- P2P matched-rate sources ------------------------------------------------
 
 
-def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch):
-    for unit, currency, scale in [
-        ("c/kWh", None, 0.01),
-        ("¢/kWh", None, 0.01),
-        ("$/kWh", None, 1.0),
-        ("€/kWh", None, 1.0),
-        ("AUD/kWh", None, None),
-        ("AUD/kWh", "AUD", 1.0),
-        ("aud/kWh", "AUD", 1.0),
-        ("USD/kWh", "AUD", None),
-        ("kWh", None, None),
-        (None, None, None),
-    ]:
-        with monkeypatch.context() as mp:
-            hass = (
-                None
-                if currency is None
-                else type(
-                    "H", (), {"config": type("C", (), {"currency": currency})()}
-                )()
-            )
-            mp.setattr(sw.NATIVE, "hass", hass)
-            assert sw._p2p_unit_scale(unit) == scale
+def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope, caplog):
+    # test_a_p2p_rate_unit_must_be_a_price_per_kwh
+    with monkeypatch.context() as mp:
+        for unit, currency, scale in [
+            ("c/kWh", None, 0.01),
+            ("¢/kWh", None, 0.01),
+            ("$/kWh", None, 1.0),
+            ("€/kWh", None, 1.0),
+            ("AUD/kWh", None, None),
+            ("AUD/kWh", "AUD", 1.0),
+            ("aud/kWh", "AUD", 1.0),
+            ("USD/kWh", "AUD", None),
+            ("kWh", None, None),
+            (None, None, None),
+        ]:
+            with mp.context() as mp:
+                hass = (
+                    None
+                    if currency is None
+                    else type(
+                        "H", (), {"config": type("C", (), {"currency": currency})()}
+                    )()
+                )
+                mp.setattr(sw.NATIVE, "hass", hass)
+                assert sw._p2p_unit_scale(unit) == scale
 
-
-def test_rate_rows_become_intervals():
+    # test_rate_rows_become_intervals
     # test_rate_rows_become_intervals
     t = T0
     rows = [
@@ -353,23 +349,7 @@ def test_rate_rows_become_intervals():
     out = sw._p2p_source_observations(state, "sensor.p2p", None)
     assert out["intervals"] == [(T0, end, sw.P2P_RATE, 0.3)]
 
-
-def _p2p_state(rows, **attrs):
-    return {
-        "state": "1",
-        "last_updated": _iso(T0),
-        "attributes": {"forecast": rows, **attrs},
-    }
-
-
-# --- the live grid meter ------------------------------------------------------
-
-
-def _quality(**rec):
-    return {"state": "ok", "attributes": {"meter_reconciliation": rec}}
-
-
-def test_the_meter_sign_is_trusted_only_once_reconciled_for_this_meter(ha):
+    # test_the_meter_sign_is_trusted_only_once_reconciled_for_this_meter
     for rec, sign in [
         (
             {
@@ -408,42 +388,33 @@ def test_the_meter_sign_is_trusted_only_once_reconciled_for_this_meter(ha):
         ha.states[sw.QUALITY_ENTITY_ID] = _quality(**rec)
         assert sw._grid_meter_sign("sensor.m") == sign
 
-
-def test_an_unreadable_quality_report_gives_no_meter_sign(ha):
+    # test_an_unreadable_quality_report_gives_no_meter_sign
     assert sw._grid_meter_sign("sensor.m") is None
 
+    # test_the_live_meter_reads_in_kw_with_the_reconciled_sign
+    with monkeypatch.context() as mp:
+        for cfg, state, unit, expected in [
+            ({"switchboard_grid_meter_sensor": "sensor.m"}, "-1500", "W", 1.5),
+            ({"grid_sensor": "sensor.m"}, "2", "kW", -2.0),
+            ({"grid_sensor": "sensor.m"}, "2", "A", None),
+            ({"grid_sensor": "sensor.m"}, "nan", "kW", None),
+            ({"grid_sensor": "sensor.m"}, "unavailable", "kW", None),
+            ({}, "2", "kW", None),
+        ]:
+            with mp.context() as mp:
+                mp.setattr(sw, "_grid_meter_sign", lambda m: -1.0)
+                ha.states["sensor.m"] = {
+                    "state": state,
+                    "attributes": {"unit_of_measurement": unit},
+                }
+                got = sw._live_grid_meter_kw(cfg)
+                assert (
+                    got == expected
+                    if expected is None
+                    else got == pytest.approx(expected)
+                )
 
-def test_the_live_meter_reads_in_kw_with_the_reconciled_sign(ha, monkeypatch):
-    for cfg, state, unit, expected in [
-        ({"switchboard_grid_meter_sensor": "sensor.m"}, "-1500", "W", 1.5),
-        ({"grid_sensor": "sensor.m"}, "2", "kW", -2.0),
-        ({"grid_sensor": "sensor.m"}, "2", "A", None),
-        ({"grid_sensor": "sensor.m"}, "nan", "kW", None),
-        ({"grid_sensor": "sensor.m"}, "unavailable", "kW", None),
-        ({}, "2", "kW", None),
-    ]:
-        with monkeypatch.context() as mp:
-            mp.setattr(sw, "_grid_meter_sign", lambda m: -1.0)
-            ha.states["sensor.m"] = {
-                "state": state,
-                "attributes": {"unit_of_measurement": unit},
-            }
-            got = sw._live_grid_meter_kw(cfg)
-            assert (
-                got == expected if expected is None else got == pytest.approx(expected)
-            )
-
-
-# --- envelope limits ------------------------------------------------------------
-
-
-@pytest.fixture
-def envelope(ha, monkeypatch):
-    monkeypatch.setattr(sw, "_ENVELOPE_LIMIT_WARNED", set())
-    return ha
-
-
-def test_an_envelope_forecast_is_resampled_and_scaled_to_kw(envelope):
+    # test_an_envelope_forecast_is_resampled_and_scaled_to_kw
     grid = _grid(3)
     envelope.states["sensor.env"] = {
         "state": "5000",
@@ -459,8 +430,8 @@ def test_an_envelope_forecast_is_resampled_and_scaled_to_kw(envelope):
         [5.0, 5.0, 3.0]
     )
 
-
-def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, caplog):
+    # test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery
+    caplog.clear()
     grid = _grid(2)
     with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
         assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
@@ -481,11 +452,7 @@ def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, c
     assert len([m for m in infos if "reporting again" in m]) == 1
     assert sw._ENVELOPE_LIMIT_WARNED == set()
 
-
-# --- power history ----------------------------------------------------------------
-
-
-def test_power_history_coverage():
+    # test_power_history_coverage
     for times, expected in [
         ([], None),
         ([0], None),
@@ -505,6 +472,33 @@ def test_power_history_coverage():
         # lies wholly inside the two-hour window.
         assert out["time_in_long_gaps_pct"] == pytest.approx(70 / 120 * 100, abs=0.01)
         assert 0.0 <= out["stale_periods_pct"] <= 100.0
+
+
+def _p2p_state(rows, **attrs):
+    return {
+        "state": "1",
+        "last_updated": _iso(T0),
+        "attributes": {"forecast": rows, **attrs},
+    }
+
+
+# --- the live grid meter ------------------------------------------------------
+
+
+def _quality(**rec):
+    return {"state": "ok", "attributes": {"meter_reconciliation": rec}}
+
+
+# --- envelope limits ------------------------------------------------------------
+
+
+@pytest.fixture
+def envelope(ha, monkeypatch):
+    monkeypatch.setattr(sw, "_ENVELOPE_LIMIT_WARNED", set())
+    return ha
+
+
+# --- power history ----------------------------------------------------------------
 
 
 # --- calendar trips ---------------------------------------------------------------
@@ -527,7 +521,10 @@ def cal(monkeypatch):
     return psw, fake
 
 
-def test_calendar_events_become_trips_with_a_timezone_each(cal):
+def test_calendar_events_become_trips_with_a_timezone_each(
+    cal, tmp_path, monkeypatch, caplog
+):
+    # test_calendar_events_become_trips_with_a_timezone_each
     psw, ha = cal
     ha.service_responses = {
         "calendar.get_events": {
@@ -563,8 +560,7 @@ def test_calendar_events_become_trips_with_a_timezone_each(cal):
         "end_date_time": (T0 + timedelta(days=7)).isoformat(),
     }
 
-
-def test_no_readable_events_is_no_trips(cal):
+    # test_no_readable_events_is_no_trips
     for response in [
         None,
         {"calendar.other": {}},
@@ -578,41 +574,163 @@ def test_no_readable_events_is_no_trips(cal):
             psw.fetch_calendar_trips("calendar.car", T0, T0 + timedelta(days=1)) == []
         )
 
+    # test_a_stored_plan_that_did_not_solve_is_no_previous_plan
+    tmp_2 = tmp_path / "test_a_stored_plan_that_did_not_solve_is_no_previous_plan"
+    tmp_2.mkdir()
+    with monkeypatch.context() as mp:
+        path = tmp_2 / "plan_state.json"
+        mp.setattr(sw, "PLAN_STATE_PATH", str(path))
+        assert sw.load_previous_plan() is None  # nothing stored
+        path.write_text('{"status": "infeasible"}', encoding="utf-8")
+        assert sw.load_previous_plan() is None
+        path.write_text("not json", encoding="utf-8")
+        assert sw.load_previous_plan() is None
+
+    # test_state_of_health_derates_the_pack_and_a_nonsense_value_is_ignored_once
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        for soh, capacity in [(80.0, 32.0), (100.0, 40.0), (0.0, 40.0), (130.0, 40.0)]:
+            caplog.clear()
+            with mp.context() as mp:
+                shared = importlib.import_module("solver_shared")
+                mp.setattr(shared, "_SOH_RANGE_WARNED", set())
+                cfg = {
+                    "solver_battery_capacity_kwh": 40.0,
+                    "solver_battery_soh_percent": soh,
+                }
+                with caplog.at_level(logging.WARNING):
+                    assert shared.resolve_effective_capacity_kwh(cfg) == pytest.approx(
+                        capacity
+                    )
+                    shared.resolve_effective_capacity_kwh(cfg)
+                assert caplog.text.count("State of Health") == (
+                    0 if 0 < soh <= 100 else 1
+                )
+
+    # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
+    # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
+    feed = _source(
+        T0, (0, sw.P2P_RATE, 0.2), (1, sw.P2P_RATE, 0.0), (2, sw.P2P_NO_MATCH, 0.0)
+    )
+    # Period 3 is uncovered: inside a block it takes the median of the
+    # published rates (the $0 match counts, the no-match does not).
+    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 5.0]) == [0.2, 0.0, 0.0, 0.1]
+    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 0.0])[3] == 0.0  # outside the block
+    assert _resolve(feed)[3] == 0.0  # no blocks configured
+    down = _source(T0, (3, sw.P2P_RATE, 0.4), status=sw.P2P_UNAVAILABLE)
+    assert (
+        _resolve(down, blocks=[5.0] * 4) == [0.0] * 4
+    )  # an unavailable feed gives nothing
+
+    # test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered
+    horizon = (T0, T0 + 2 * M5)
+    feed = _source(T0, (0, sw.P2P_RATE, 0.3), horizon=horizon)
+    assert sw._p2p_observation_at(feed, T0 + M5) == (sw.P2P_NO_MATCH, 0.0)
+    assert sw._p2p_observation_at(feed, T0 + 3 * M5) == (sw.P2P_UNCOVERED, 0.0)
+    assert _resolve(feed, blocks=[5.0] * 4) == [0.3, 0.0, 0.3, 0.3]
+
+    # test_no_source_one_unreadable_source_or_the_same_one_twice
+    with monkeypatch.context() as mp:
+        grid = _grid(3, minutes=5)
+        assert sw.resample_real_p2p_rate(grid, None) == [0.0] * 3
+        mp.setattr(sw, "ha_get", lambda eid: {"state": "1", "attributes": "broken"})
+        assert sw._read_p2p_state("sensor.p2p") is None
+        assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == [0.0] * 3
+        asked = []
+        mp.setattr(sw, "ha_get", lambda eid: asked.append(eid) or {"attributes": {}})
+        sw.resample_real_p2p_rate(grid, "sensor.p2p", fallback_sensor_id="sensor.p2p")
+        assert asked == ["sensor.p2p"]  # configured twice, read once
+
+    # test_one_raw_triple_feed_keeps_the_original_step_lookup: The single raw-triple path is the pre-#1537 algorithm, unchanged:
+    with monkeypatch.context() as mp:
+        rows = [
+            {"time": _iso(T0), "volume": 2.0, "proportionP2P": 0.5, "matchedCost": 0.2},
+            {"time": _iso(T0 + M5), "volume": "lots"},  # skipped, not fatal
+            {
+                "time": _iso(T0 + M5),
+                "volume": 1.0,
+                "proportionP2P": 1.0,
+                "matchedCost": 0.4,
+            },
+        ]
+        mp.setattr(
+            sw, "ha_get", lambda eid: {"state": "1", "attributes": {"forecast": rows}}
+        )
+        grid = _grid(4, minutes=5)
+        assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
+            [0.4, 0.0, 0.0, 0.0]
+        )
+        blocks = [5.0, 5.0, 5.0, 5.0]
+        assert sw.resample_real_p2p_rate(grid, "sensor.p2p", blocks) == pytest.approx(
+            [0.4, 0.3, 0.3, 0.3]
+        )
+
+    # test_a_second_rate_source_changes_neither_the_commitment_nor_the_volume: A rate observation creates no commitment. Without a settlement
+    with monkeypatch.context() as mp:
+        from solver_inputs import prices
+
+        grid = _grid(3, minutes=5)
+        n = len(grid)
+        states = {
+            "sensor.a": {"state": "1", "attributes": {"forecast": []}},
+            "sensor.b": _p2p_state(
+                [{"time": _iso(t), "value": 0.5} for t in grid],
+                unit_of_measurement="$/kWh",
+            ),
+        }
+        for name, value in {
+            "ha_get": lambda e: states.get(e, {"attributes": {"forecast": []}}),
+            "fetch_aemo_forecast": lambda _e: None,
+            "fetch_price_history": lambda *a, **k: [],
+            "compute_5min_offset": lambda *a, **k: {},
+            "compute_price_percentile_band": lambda *a, **k: {},
+            "resample_price_with_extrapolation": lambda *a, **k: (
+                [0.1] * n,
+                [True] * n,
+            ),
+            "check_aemo_p5min_disagreement": lambda *a, **k: None,
+            "p2p_match_fraction": lambda **k: 0.65,
+            "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
+        }.items():
+            mp.setattr(sw, name, value)
+
+        def build(cfg):
+            return prices.build_price_arrays(
+                {
+                    "solver_import_price_sensor": "sensor.i",
+                    "solver_export_price_sensor": "sensor.e",
+                    "solver_p2p_matched_rate_forecast_sensor": "sensor.a",
+                    **cfg,
+                },
+                grid,
+                n,
+                grid[0],
+                True,
+                "sensor.array",
+            )
+
+        with_fallback = {
+            **BLOCKS,
+            "solver_p2p_matched_rate_forecast_sensor_2": "sensor.b",
+        }
+        a, b = build(BLOCKS), build(with_fallback)
+        assert a.p2p_recent_volume_kwh == b.p2p_recent_volume_kwh
+        assert a.p2p_recent_volume_kwh == pytest.approx(
+            sw.p2p_blocks_daily_energy_kwh(BLOCKS)
+        )
+        assert a.p2p_recent_volume_kwh != 60.0
+        in_block = _grid(3, minutes=5, start=T0 + timedelta(hours=1))  # 17:00 Brisbane
+        committed = sw.fetch_p2p_fixed_export_kw(BLOCKS, in_block)
+        assert committed == pytest.approx([11.5] * 3)
+        np.testing.assert_array_equal(
+            committed, sw.fetch_p2p_fixed_export_kw(with_fallback, in_block)
+        )
+
 
 # --- a scalar reading that is not a number ------------------------------------
 
 
 # --- the stored previous plan, and the derated capacity --------------------------------------
-
-
-def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(tmp_path, monkeypatch):
-    path = tmp_path / "plan_state.json"
-    monkeypatch.setattr(sw, "PLAN_STATE_PATH", str(path))
-    assert sw.load_previous_plan() is None  # nothing stored
-    path.write_text('{"status": "infeasible"}', encoding="utf-8")
-    assert sw.load_previous_plan() is None
-    path.write_text("not json", encoding="utf-8")
-    assert sw.load_previous_plan() is None
-
-
-def test_state_of_health_derates_the_pack_and_a_nonsense_value_is_ignored_once(
-    caplog, monkeypatch
-):
-    for soh, capacity in [(80.0, 32.0), (100.0, 40.0), (0.0, 40.0), (130.0, 40.0)]:
-        caplog.clear()
-        with monkeypatch.context() as mp:
-            shared = importlib.import_module("solver_shared")
-            mp.setattr(shared, "_SOH_RANGE_WARNED", set())
-            cfg = {
-                "solver_battery_capacity_kwh": 40.0,
-                "solver_battery_soh_percent": soh,
-            }
-            with caplog.at_level(logging.WARNING):
-                assert shared.resolve_effective_capacity_kwh(cfg) == pytest.approx(
-                    capacity
-                )
-                shared.resolve_effective_capacity_kwh(cfg)
-            assert caplog.text.count("State of Health") == (0 if 0 < soh <= 100 else 1)
 
 
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
@@ -636,73 +754,6 @@ def _resolve(*sources, blocks=None, n=4):
     return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
 
 
-def test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing():
-    # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
-    feed = _source(
-        T0, (0, sw.P2P_RATE, 0.2), (1, sw.P2P_RATE, 0.0), (2, sw.P2P_NO_MATCH, 0.0)
-    )
-    # Period 3 is uncovered: inside a block it takes the median of the
-    # published rates (the $0 match counts, the no-match does not).
-    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 5.0]) == [0.2, 0.0, 0.0, 0.1]
-    assert _resolve(feed, blocks=[5.0, 5.0, 5.0, 0.0])[3] == 0.0  # outside the block
-    assert _resolve(feed)[3] == 0.0  # no blocks configured
-    down = _source(T0, (3, sw.P2P_RATE, 0.4), status=sw.P2P_UNAVAILABLE)
-    assert (
-        _resolve(down, blocks=[5.0] * 4) == [0.0] * 4
-    )  # an unavailable feed gives nothing
-
-    # test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered
-    horizon = (T0, T0 + 2 * M5)
-    feed = _source(T0, (0, sw.P2P_RATE, 0.3), horizon=horizon)
-    assert sw._p2p_observation_at(feed, T0 + M5) == (sw.P2P_NO_MATCH, 0.0)
-    assert sw._p2p_observation_at(feed, T0 + 3 * M5) == (sw.P2P_UNCOVERED, 0.0)
-    assert _resolve(feed, blocks=[5.0] * 4) == [0.3, 0.0, 0.3, 0.3]
-
-
-def test_no_source_one_unreadable_source_or_the_same_one_twice(monkeypatch):
-    grid = _grid(3, minutes=5)
-    assert sw.resample_real_p2p_rate(grid, None) == [0.0] * 3
-    monkeypatch.setattr(
-        sw, "ha_get", lambda eid: {"state": "1", "attributes": "broken"}
-    )
-    assert sw._read_p2p_state("sensor.p2p") is None
-    assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == [0.0] * 3
-    asked = []
-    monkeypatch.setattr(
-        sw, "ha_get", lambda eid: asked.append(eid) or {"attributes": {}}
-    )
-    sw.resample_real_p2p_rate(grid, "sensor.p2p", fallback_sensor_id="sensor.p2p")
-    assert asked == ["sensor.p2p"]  # configured twice, read once
-
-
-def test_one_raw_triple_feed_keeps_the_original_step_lookup(monkeypatch):
-    """The single raw-triple path is the pre-#1537 algorithm, unchanged:
-    each row's rate until the next, a malformed row skipped, and past the
-    feed the median rate inside a block and nothing outside one. Rows are
-    stamped at their interval's END: the row at T0+5 covers T0 to T0+5."""
-    rows = [
-        {"time": _iso(T0), "volume": 2.0, "proportionP2P": 0.5, "matchedCost": 0.2},
-        {"time": _iso(T0 + M5), "volume": "lots"},  # skipped, not fatal
-        {
-            "time": _iso(T0 + M5),
-            "volume": 1.0,
-            "proportionP2P": 1.0,
-            "matchedCost": 0.4,
-        },
-    ]
-    monkeypatch.setattr(
-        sw, "ha_get", lambda eid: {"state": "1", "attributes": {"forecast": rows}}
-    )
-    grid = _grid(4, minutes=5)
-    assert sw.resample_real_p2p_rate(grid, "sensor.p2p") == pytest.approx(
-        [0.4, 0.0, 0.0, 0.0]
-    )
-    blocks = [5.0, 5.0, 5.0, 5.0]
-    assert sw.resample_real_p2p_rate(grid, "sensor.p2p", blocks) == pytest.approx(
-        [0.4, 0.3, 0.3, 0.3]
-    )
-
-
 BLOCKS = {
     "solver_p2p_block_1_rate_kw": 11.5,
     "solver_p2p_block_1_start_hour": 17,
@@ -710,66 +761,10 @@ BLOCKS = {
 }
 
 
-def test_a_second_rate_source_changes_neither_the_commitment_nor_the_volume(
-    monkeypatch,
+def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
+    monkeypatch, tmp_path, event, caplog
 ):
-    """A rate observation creates no commitment. Without a settlement
-    sensor the traded volume is the blocks' own committed energy, not a
-    fixed default, with or without the fallback source."""
-    from solver_inputs import prices
-
-    grid = _grid(3, minutes=5)
-    n = len(grid)
-    states = {
-        "sensor.a": {"state": "1", "attributes": {"forecast": []}},
-        "sensor.b": _p2p_state(
-            [{"time": _iso(t), "value": 0.5} for t in grid], unit_of_measurement="$/kWh"
-        ),
-    }
-    for name, value in {
-        "ha_get": lambda e: states.get(e, {"attributes": {"forecast": []}}),
-        "fetch_aemo_forecast": lambda _e: None,
-        "fetch_price_history": lambda *a, **k: [],
-        "compute_5min_offset": lambda *a, **k: {},
-        "compute_price_percentile_band": lambda *a, **k: {},
-        "resample_price_with_extrapolation": lambda *a, **k: ([0.1] * n, [True] * n),
-        "check_aemo_p5min_disagreement": lambda *a, **k: None,
-        "p2p_match_fraction": lambda **k: 0.65,
-        "p2p_recent_avg_volume_kwh": lambda **k: 60.0,
-    }.items():
-        monkeypatch.setattr(sw, name, value)
-
-    def build(cfg):
-        return prices.build_price_arrays(
-            {
-                "solver_import_price_sensor": "sensor.i",
-                "solver_export_price_sensor": "sensor.e",
-                "solver_p2p_matched_rate_forecast_sensor": "sensor.a",
-                **cfg,
-            },
-            grid,
-            n,
-            grid[0],
-            True,
-            "sensor.array",
-        )
-
-    with_fallback = {**BLOCKS, "solver_p2p_matched_rate_forecast_sensor_2": "sensor.b"}
-    a, b = build(BLOCKS), build(with_fallback)
-    assert a.p2p_recent_volume_kwh == b.p2p_recent_volume_kwh
-    assert a.p2p_recent_volume_kwh == pytest.approx(
-        sw.p2p_blocks_daily_energy_kwh(BLOCKS)
-    )
-    assert a.p2p_recent_volume_kwh != 60.0
-    in_block = _grid(3, minutes=5, start=T0 + timedelta(hours=1))  # 17:00 Brisbane
-    committed = sw.fetch_p2p_fixed_export_kw(BLOCKS, in_block)
-    assert committed == pytest.approx([11.5] * 3)
-    np.testing.assert_array_equal(
-        committed, sw.fetch_p2p_fixed_export_kw(with_fallback, in_block)
-    )
-
-
-def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants():
+    # test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants
     for state, snapshot in [
         ({"attributes": {"lastUpdate": _iso(T0)}, "last_updated": _iso(T0 + M5)}, T0),
         ({"attributes": {}, "last_updated": _iso(T0 + M5)}, T0 + M5),
@@ -778,27 +773,112 @@ def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants():
     ]:
         assert sw._p2p_snapshot_time(state) == snapshot
 
+    # test_the_access_token_comes_from_the_environment_then_its_file
+    tmp_1 = tmp_path / "test_the_access_token_comes_from_the_environment_then_its_file"
+    tmp_1.mkdir()
+    with monkeypatch.context() as mp:
+        for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
+            mp.delenv(name, raising=False)
+        token_file = tmp_1 / "token"
+        mp.setattr(sw, "TOKEN_PATH", str(token_file))
 
-def test_the_access_token_comes_from_the_environment_then_its_file(
-    monkeypatch, tmp_path
-):
-    for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
-        monkeypatch.delenv(name, raising=False)
-    token_file = tmp_path / "token"
-    monkeypatch.setattr(sw, "TOKEN_PATH", str(token_file))
+        def fresh():
+            mp.setattr(sw, "_TOKEN_LOADED", False)
+            mp.setattr(sw, "_TOKEN", None)
+            return sw._load_token()
 
-    def fresh():
-        monkeypatch.setattr(sw, "_TOKEN_LOADED", False)
-        monkeypatch.setattr(sw, "_TOKEN", None)
-        return sw._load_token()
+        assert fresh() is None  # no environment, no file
+        token_file.write_text("from-file\n", encoding="utf-8")
+        assert fresh() == "from-file"
+        mp.setenv("HA_TOKEN", "from-env")
+        assert fresh() == "from-env"
+        token_file.write_text("changed", encoding="utf-8")
+        assert sw._load_token() == "from-env"  # read once, then kept
 
-    assert fresh() is None  # no environment, no file
-    token_file.write_text("from-file\n", encoding="utf-8")
-    assert fresh() == "from-file"
-    monkeypatch.setenv("HA_TOKEN", "from-env")
-    assert fresh() == "from-env"
-    token_file.write_text("changed", encoding="utf-8")
-    assert sw._load_token() == "from-env"  # read once, then kept
+    # test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros
+    for cfg, n, points in [
+        (
+            {**ARMED, "solver_price_event_enabled": False},
+            8,
+            _steps((0, 20.0), (2, 0.0)),
+        ),
+        ({"solver_price_event_enabled": True}, 8, _steps((0, 20.0))),
+        (ARMED, 0, _steps((0, 20.0))),
+        (ARMED, 8, _steps((48, 20.0), (50, 0.0))),  # misses this horizon
+    ]:
+        assert event(_forecast(points), n=n, cfg=cfg) is None
+
+    # test_an_armed_event_that_cannot_be_read_warns_and_applies_nothing
+    caplog.clear()
+    for state in [
+        None,
+        {"state": "0.0", "attributes": {}},
+        _forecast([{"time": "not-a-date", "value": "nope"}, {"nothing": 1}, "x"]),
+    ]:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert event(state, n=4) is None
+        assert "#1213" in caplog.text
+
+    # test_an_event_that_never_closes_holds_and_says_so
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        assert event(_forecast(_steps((0, 20.0))), n=6) == [20.0] * 6
+    assert "never closes" in caplog.text and "#1213" in caplog.text
+
+    # test_a_days_event_lands_on_its_own_hours_only
+    for points, window, delta in [
+        (_steps((18, 20.0), (20, 0.0)), range(36, 40), 20.0),  # a price-cap evening
+        (_steps((11, -1.0), (15, 0.0)), range(22, 30), -1.0),  # a negative midday
+    ]:
+        out = event(_forecast(points), n=48)
+        assert [i for i, d in enumerate(out) if d] == list(window)
+        assert {out[i] for i in window} == {delta}
+
+    # test_the_matched_rate_counts_inside_the_households_own_blocks
+    with monkeypatch.context() as mp:
+        for grid, window, expected in [
+            (MIDDAY, [5.0] * 3, [LV_RATE] * 3),  # a block at any hour gets its rate
+            (EVENING, [NAN] * 3, [0.0] * 3),  # outside the blocks, even at 17:00
+            (MIDDAY, [NAN, 5.0, 0.0], [0.0, LV_RATE, 0.0]),  # per period; 0 kW pins
+            (MIDDAY, None, [LV_RATE] * 3),  # no block: matched at any hour (#1559)
+            (EVENING, None, [LV_RATE] * 3),
+        ]:
+            with mp.context() as mp:
+                assert _lv_rates(mp, grid, window) == pytest.approx(expected)
+
+    # test_the_generic_branchs_p2p_volume
+    with monkeypatch.context() as mp:
+        for cfg, volume in [
+            (
+                _blocks((11.5, 17, 24)),
+                80.5,
+            ),  # the wizard's default 0 becomes the blocks'
+            ({**_blocks((11.5, 17, 24)), "solver_p2p_bonus_volume_kwh": 40}, 40.0),
+            ({}, 0.0),
+        ]:
+            with mp.context() as mp:
+                from solver_inputs import prices
+
+                n = len(EVENING)
+                mp.setattr(
+                    sw,
+                    "resample_generic_price_forecast_with_coverage",
+                    lambda *_a: ([0.1] * n, [True] * n),  # noqa: B023
+                )
+                out = prices.build_price_arrays(
+                    {
+                        "solver_import_price_sensor": "sensor.i",
+                        "solver_export_price_sensor": "sensor.e",
+                        **cfg,
+                    },
+                    EVENING,
+                    n,
+                    EVENING[0],
+                    False,
+                    None,
+                )
+                assert out.p2p_recent_volume_kwh == pytest.approx(volume)
 
 
 # --- a price event the household arms to test the plan (#1213) ------------------------------
@@ -832,48 +912,6 @@ def _forecast(points):
     return {"state": "0.0", "attributes": {"forecast": points}}
 
 
-def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(event):
-    for cfg, n, points in [
-        (
-            {**ARMED, "solver_price_event_enabled": False},
-            8,
-            _steps((0, 20.0), (2, 0.0)),
-        ),
-        ({"solver_price_event_enabled": True}, 8, _steps((0, 20.0))),
-        (ARMED, 0, _steps((0, 20.0))),
-        (ARMED, 8, _steps((48, 20.0), (50, 0.0))),  # misses this horizon
-    ]:
-        assert event(_forecast(points), n=n, cfg=cfg) is None
-
-
-def test_an_armed_event_that_cannot_be_read_warns_and_applies_nothing(event, caplog):
-    for state in [
-        None,
-        {"state": "0.0", "attributes": {}},
-        _forecast([{"time": "not-a-date", "value": "nope"}, {"nothing": 1}, "x"]),
-    ]:
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            assert event(state, n=4) is None
-        assert "#1213" in caplog.text
-
-
-def test_an_event_that_never_closes_holds_and_says_so(event, caplog):
-    with caplog.at_level(logging.WARNING):
-        assert event(_forecast(_steps((0, 20.0))), n=6) == [20.0] * 6
-    assert "never closes" in caplog.text and "#1213" in caplog.text
-
-
-def test_a_days_event_lands_on_its_own_hours_only(event):
-    for points, window, delta in [
-        (_steps((18, 20.0), (20, 0.0)), range(36, 40), 20.0),  # a price-cap evening
-        (_steps((11, -1.0), (15, 0.0)), range(22, 30), -1.0),  # a negative midday
-    ]:
-        out = event(_forecast(points), n=48)
-        assert [i for i, d in enumerate(out) if d] == list(window)
-        assert {out[i] for i in window} == {delta}
-
-
 # --- P2P follows the household's own blocks (#1537) ------------------------------------------
 
 LV_ROW = {"proportionP2P": 0.569915, "matchedCost": 0.268861, "volume": 0.9368}
@@ -899,18 +937,6 @@ def _lv_rates(monkeypatch, grid, window, rows=None, **row):
 NAN = float("nan")
 
 
-def test_the_matched_rate_counts_inside_the_households_own_blocks(monkeypatch):
-    for grid, window, expected in [
-        (MIDDAY, [5.0] * 3, [LV_RATE] * 3),  # a block at any hour gets its rate
-        (EVENING, [NAN] * 3, [0.0] * 3),  # outside the blocks, even at 17:00
-        (MIDDAY, [NAN, 5.0, 0.0], [0.0, LV_RATE, 0.0]),  # per period; 0 kW pins
-        (MIDDAY, None, [LV_RATE] * 3),  # no block: matched at any hour (#1559)
-        (EVENING, None, [LV_RATE] * 3),
-    ]:
-        with monkeypatch.context() as mp:
-            assert _lv_rates(mp, grid, window) == pytest.approx(expected)
-
-
 def _blocks(*blocks):
     cfg = {}
     for n, (rate, start, end) in enumerate(blocks, 1):
@@ -918,36 +944,6 @@ def _blocks(*blocks):
         cfg[f"solver_p2p_block_{n}_start_hour"] = start
         cfg[f"solver_p2p_block_{n}_end_hour"] = end
     return cfg
-
-
-def test_the_generic_branchs_p2p_volume(monkeypatch):
-    for cfg, volume in [
-        (_blocks((11.5, 17, 24)), 80.5),  # the wizard's default 0 becomes the blocks'
-        ({**_blocks((11.5, 17, 24)), "solver_p2p_bonus_volume_kwh": 40}, 40.0),
-        ({}, 0.0),
-    ]:
-        with monkeypatch.context() as mp:
-            from solver_inputs import prices
-
-            n = len(EVENING)
-            mp.setattr(
-                sw,
-                "resample_generic_price_forecast_with_coverage",
-                lambda *_a: ([0.1] * n, [True] * n),  # noqa: B023
-            )
-            out = prices.build_price_arrays(
-                {
-                    "solver_import_price_sensor": "sensor.i",
-                    "solver_export_price_sensor": "sensor.e",
-                    **cfg,
-                },
-                EVENING,
-                n,
-                EVENING[0],
-                False,
-                None,
-            )
-            assert out.p2p_recent_volume_kwh == pytest.approx(volume)
 
 
 @pytest.fixture
@@ -996,8 +992,9 @@ def array_branch(monkeypatch):
 
 
 def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
-    array_branch,
+    array_branch, ha, monkeypatch
 ):
+    # test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume
     blocks = _blocks((11.5, 17, 24))
     out = array_branch(blocks)
     assert array_branch.seen["window"] == [11.5] * 3
@@ -1008,11 +1005,7 @@ def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
     none = array_branch({})
     assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
 
-
-# --- one entity's recorded history, and the price history that wraps it (#363) ---------------
-
-
-def test_history_is_read_sorted_skipping_what_is_not_a_number(ha):
+    # test_history_is_read_sorted_skipping_what_is_not_a_number
     def pt(minutes, state):
         return HistoryPoint(_iso(T0 + timedelta(minutes=minutes)), state, {})
 
@@ -1032,29 +1025,34 @@ def test_history_is_read_sorted_skipping_what_is_not_a_number(ha):
         sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
     )
 
+    # test_a_failed_history_read_is_no_history
+    with monkeypatch.context() as mp:
 
-def test_a_failed_history_read_is_no_history(monkeypatch):
-    def boom(*_a, **_k):
-        raise urllib.error.HTTPError("url", 500, "server error", {}, None)
+        def boom(*_a, **_k):
+            raise urllib.error.HTTPError("url", 500, "server error", {}, None)
 
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(sw, "_load_token", lambda: "t")
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
-    assert (
-        sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1)) == []
-    )
+        mp.setattr(sw.NATIVE, "hass", None)
+        mp.setattr(sw, "_load_token", lambda: "t")
+        mp.setattr(urllib.request, "urlopen", boom)
+        assert (
+            sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1))
+            == []
+        )
+
+    # test_price_history_is_the_last_days_up_to_now
+    with monkeypatch.context() as mp:
+        for kwargs, days in [({"days": 3}, 3), ({}, 5)]:
+            with mp.context() as mp:
+                calls = []
+                mp.setattr(
+                    sw,
+                    "fetch_entity_history_range",
+                    lambda *a: calls.append(a) or [],  # noqa: B023
+                )
+                sw.fetch_price_history("sensor.price", **kwargs)
+                ((entity, start, end),) = calls
+                assert entity == "sensor.price" and end - start == timedelta(days=days)
+                assert datetime.now(UTC) - end < timedelta(seconds=10)
 
 
-def test_price_history_is_the_last_days_up_to_now(monkeypatch):
-    for kwargs, days in [({"days": 3}, 3), ({}, 5)]:
-        with monkeypatch.context() as mp:
-            calls = []
-            mp.setattr(
-                sw,
-                "fetch_entity_history_range",
-                lambda *a: calls.append(a) or [],  # noqa: B023
-            )
-            sw.fetch_price_history("sensor.price", **kwargs)
-            ((entity, start, end),) = calls
-            assert entity == "sensor.price" and end - start == timedelta(days=days)
-            assert datetime.now(UTC) - end < timedelta(seconds=10)
+# --- one entity's recorded history, and the price history that wraps it (#363) ---------------

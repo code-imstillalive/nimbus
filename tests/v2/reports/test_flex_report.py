@@ -76,6 +76,7 @@ def report(c=None, start=DAY, end=END):
 
 
 def test_a_day_that_cannot_be_reported_is_none(day):
+    # test_a_day_that_cannot_be_reported_is_none
     for c, end in [
         (cfg(solver_solar_power_sensor=None), END),
         (None, DAY + timedelta(hours=6)),
@@ -83,14 +84,12 @@ def test_a_day_that_cannot_be_reported_is_none(day):
     ]:
         assert report(c, end=end) is None
 
-
-def test_no_base_history_is_no_report(day):
+    # test_no_base_history_is_no_report
     for entity in ("sensor.real_solar", "sensor.real_load", "sensor.real_battery"):
         day[entity] = None
     assert report() is None
 
-
-def test_an_offer_never_made_is_unknown_and_one_made_is_integrated(day):
+    # test_an_offer_never_made_is_unknown_and_one_made_is_integrated
     off = report()
     assert (off["offered_up_kwh"], off["offered_down_kwh"]) == (None, None)
     day[sw.FLEX_SIGNALS_ENTITY_ID], day["down"] = 1.5, 2.5

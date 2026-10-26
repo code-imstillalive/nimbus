@@ -57,6 +57,8 @@ def _arrays(cfg, **kw):
 
 
 def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog):
+    # test_a_source_that_cannot_be_read_is_dropped_and_said_once
+    caplog.clear()
     for broken in [{"something_else": 1}, urllib.error.URLError("down")]:
         caplog.clear()
         site["sensor.bad"] = broken
@@ -70,8 +72,7 @@ def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog):
             _arrays(cfg)
         assert caplog.text.count("sensor.bad") == 1
 
-
-def test_a_live_solar_reading_anchors_the_first_period_only(site):
+    # test_a_live_solar_reading_anchors_the_first_period_only
     for reading, unit, first in [
         ("3800", "W", 3.8),
         ("3.8", "kW", 3.8),
@@ -91,6 +92,39 @@ def test_a_live_solar_reading_anchors_the_first_period_only(site):
         )
         assert (kw[0], lo[0], up[0]) == pytest.approx((first, first, first))
         assert kw[1:] == [2.0] * (N - 1)
+
+    # test_a_known_integration_is_read_once_never_also_as_a_configured_source: #546: configuring Solcast's today entity as a source as well as
+    site["sensor.solcast_today"] = _solcast([6.0] * N, [5.0] * N, [7.0] * N)
+    site["sensor.solcast_tomorrow"] = {"detailedForecast": []}
+    cfg = {
+        **KNOWN,
+        "solver_auto_include_known_solar": True,
+        "solver_solar_forecast_sensor": "sensor.solcast_today",
+    }
+    band = []
+    kw, _lo, _up = _arrays(cfg, solcast_band_out=band)
+    assert kw == [6.0] * N
+    assert band == [([6.0] * N, [5.0] * N, [7.0] * N)]  # as fetched, for the quantiles
+    off = {**cfg, "solver_auto_include_known_solar": False}
+    assert _arrays(off)[0] == [6.0] * N  # read as a plain source instead
+
+    # test_a_source_that_comes_back_is_announced_and_warned_about_afresh_if_lost_again
+    caplog.clear()
+    cfg = {"solver_solar_forecast_sensor": "sensor.a"}
+    with caplog.at_level(logging.INFO):
+        site["sensor.a"] = {"nothing": 1}
+        _arrays(cfg)
+        site["sensor.a"] = _forecast([2.0] * N)
+        _arrays(cfg)
+        _arrays(cfg)  # once back, nothing more to say
+        site["sensor.a"] = {"nothing": 1}
+        _arrays(cfg)
+    said = [r.levelname for r in caplog.records if "sensor.a" in r.getMessage()]
+    assert said == ["WARNING", "INFO", "WARNING"]
+
+    # test_the_solar_module_reaches_the_writers_helpers_at_call_time: #735: solar.py reaches these through the solver_writer module when it
+    for name in ["ha_get", "entity_exists", "resample_forecast", "_kw_scale_factor"]:
+        assert not hasattr(solar, name)
 
 
 def _solcast(values, low, high):
@@ -113,46 +147,3 @@ KNOWN = {
         "open_meteo": ["sensor.om_today", "sensor.om_tomorrow"],
     }
 }
-
-
-def test_a_known_integration_is_read_once_never_also_as_a_configured_source(site):
-    """#546: configuring Solcast's today entity as a source as well as
-    auto-including Solcast would read it twice and drag the blend."""
-    site["sensor.solcast_today"] = _solcast([6.0] * N, [5.0] * N, [7.0] * N)
-    site["sensor.solcast_tomorrow"] = {"detailedForecast": []}
-    cfg = {
-        **KNOWN,
-        "solver_auto_include_known_solar": True,
-        "solver_solar_forecast_sensor": "sensor.solcast_today",
-    }
-    band = []
-    kw, _lo, _up = _arrays(cfg, solcast_band_out=band)
-    assert kw == [6.0] * N
-    assert band == [([6.0] * N, [5.0] * N, [7.0] * N)]  # as fetched, for the quantiles
-    off = {**cfg, "solver_auto_include_known_solar": False}
-    assert _arrays(off)[0] == [6.0] * N  # read as a plain source instead
-
-
-def test_a_source_that_comes_back_is_announced_and_warned_about_afresh_if_lost_again(
-    site, caplog
-):
-    cfg = {"solver_solar_forecast_sensor": "sensor.a"}
-    with caplog.at_level(logging.INFO):
-        site["sensor.a"] = {"nothing": 1}
-        _arrays(cfg)
-        site["sensor.a"] = _forecast([2.0] * N)
-        _arrays(cfg)
-        _arrays(cfg)  # once back, nothing more to say
-        site["sensor.a"] = {"nothing": 1}
-        _arrays(cfg)
-    said = [r.levelname for r in caplog.records if "sensor.a" in r.getMessage()]
-    assert said == ["WARNING", "INFO", "WARNING"]
-
-
-def test_the_solar_module_reaches_the_writers_helpers_at_call_time():
-    """#735: solar.py reaches these through the solver_writer module when it
-    calls them, so a patch on solver_writer (the site fixture's) reaches it.
-    A module-scope binding would silently send every such test to the real
-    HA API."""
-    for name in ["ha_get", "entity_exists", "resample_forecast", "_kw_scale_factor"]:
-        assert not hasattr(solar, name)

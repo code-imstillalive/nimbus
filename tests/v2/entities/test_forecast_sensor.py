@@ -50,7 +50,8 @@ def _sensor(*, kind=None, role=None, data=None, source_state="1.2"):
     return s
 
 
-def test_a_signal_forecast_takes_its_roles_unit():
+def test_a_signal_forecast_takes_its_roles_unit(caplog):
+    # test_a_signal_forecast_takes_its_roles_unit
     # test_a_signal_forecast_takes_its_roles_unit
     for role, unit, device_class in [
         ("temperature", "°C", "TEMPERATURE"),
@@ -99,8 +100,8 @@ def test_a_signal_forecast_takes_its_roles_unit():
     s.coordinator.last_update_success = False
     assert not s.available
 
-
-def test_a_source_gone_for_two_refreshes_makes_the_forecast_unavailable(caplog):
+    # test_a_source_gone_for_two_refreshes_makes_the_forecast_unavailable
+    caplog.clear()
     s = _sensor(data={"state": 1.0})
     with caplog.at_level(logging.INFO, logger=sm._LOGGER.name):
         s._handle_coordinator_update()

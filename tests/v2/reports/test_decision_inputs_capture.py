@@ -134,7 +134,8 @@ def _read(path: Path) -> dict:
 # ---- pure ----------------------------------------------------------------
 
 
-def test_source_entities_are_the_price_and_forecast_inputs_only():
+def test_source_entities_are_the_price_and_forecast_inputs_only(env, monkeypatch):
+    # test_source_entities_are_the_price_and_forecast_inputs_only
     # Sorted by config key, so the order is stable from capture to capture.
     assert di.source_entities(CONFIG) == [
         "sensor.test_sell",
@@ -142,11 +143,7 @@ def test_source_entities_are_the_price_and_forecast_inputs_only():
         "sensor.test_array",
     ]
 
-
-# ---- store ---------------------------------------------------------------
-
-
-def test_a_restart_inside_the_hour_appends_rather_than_replacing(env):
+    # test_a_restart_inside_the_hour_appends_rather_than_replacing
     hass, clock, root = env
     _solve(hass, clock, T0, 3.0)
     asyncio.run(store.async_flush(hass, "E"))
@@ -155,8 +152,7 @@ def test_a_restart_inside_the_hour_appends_rather_than_replacing(env):
     asyncio.run(store.async_flush(hass, "E"))
     assert len(_read(_files(root, "horizon")[0])["records"]) == 2
 
-
-def test_export_filters_by_window_and_kind(env):
+    # test_export_filters_by_window_and_kind
     hass, clock, _root = env
     for m in range(0, 40, 1):
         _solve(hass, clock, T0 + timedelta(minutes=m), 3.0)
@@ -176,8 +172,7 @@ def test_export_filters_by_window_and_kind(env):
     )
     assert part["count"] == 10
 
-
-def test_heads_go_after_48_hours_and_horizons_after_7_days(env):
+    # test_heads_go_after_48_hours_and_horizons_after_7_days
     hass, clock, root = env
     _solve(hass, clock, T0, 3.0)  # horizon
     _solve(hass, clock, T0 + timedelta(minutes=1), 3.0)  # head
@@ -194,15 +189,16 @@ def test_heads_go_after_48_hours_and_horizons_after_7_days(env):
         di.segment_key(T0 + timedelta(days=8)) + ".json.gz",
     ]
 
+    # test_capture_never_raises
+    with monkeypatch.context() as mp:
+        hass, _clock, _ = env
+        hass.set(
+            "sensor.nimbus_solver_battery_forecast", 1.0, {"forecast": "not a list"}, T0
+        )
+        assert asyncio.run(store.async_capture(hass, "E")) is None
+        mp.setattr(store, "_state", lambda *_: (_ for _ in ()).throw(OSError("disk")))
+        hass.set("sensor.nimbus_solver_battery_forecast", 1.0, _plan(T0, 1.0), T0)
+        assert asyncio.run(store.async_capture(hass, "E")) is None
 
-def test_capture_never_raises(env, monkeypatch):
-    hass, _clock, _ = env
-    hass.set(
-        "sensor.nimbus_solver_battery_forecast", 1.0, {"forecast": "not a list"}, T0
-    )
-    assert asyncio.run(store.async_capture(hass, "E")) is None
-    monkeypatch.setattr(
-        store, "_state", lambda *_: (_ for _ in ()).throw(OSError("disk"))
-    )
-    hass.set("sensor.nimbus_solver_battery_forecast", 1.0, _plan(T0, 1.0), T0)
-    assert asyncio.run(store.async_capture(hass, "E")) is None
+
+# ---- store ---------------------------------------------------------------

@@ -79,7 +79,10 @@ def _mode(*, restored=None, stored=None):
 OTHER = next(m for m in const.HOUSEHOLD_MODES if m != const.DEFAULT_HOUSEHOLD_MODE)
 
 
-def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
+def test_a_select_comes_back_from_its_store_then_its_state_then_the_default(
+    pricing, setup_mode
+):
+    # test_a_select_comes_back_from_its_store_then_its_state_then_the_default
     # test_a_select_comes_back_from_its_store_then_its_state_then_the_default
     for restored, stored, current in [
         (None, None, const.DEFAULT_HOUSEHOLD_MODE),
@@ -123,6 +126,53 @@ def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
     _run(shared.async_write("k", "x"))
     assert shared.store.data["k"]["value"] == "x"
 
+    # test_choosing_a_detected_source_applies_its_profile
+    s, _, updated = pricing
+    _run(s.async_select_option("Amber"))
+    assert updated == [{"label": "Amber"}]
+
+    # test_a_source_with_problems_or_no_longer_detected_changes_nothing
+    s, world, updated = pricing
+    world["problems"] = ["sensor.amber_general_price is unavailable"]
+    with pytest.raises(sel.HomeAssistantError, match="nothing changed. sensor.amber"):
+        _run(s.async_select_option("Amber"))
+    with pytest.raises(sel.HomeAssistantError, match="does not detect Flow"):
+        _run(s.async_select_option("Flow"))
+    assert updated == []
+    _run(s.async_select_option(sel.pricing_source.MANUAL))
+    assert s._attr_current_option == sel.pricing_source.MANUAL and updated == []
+
+    # test_choosing_a_mode_switches_it_or_says_why_not
+    s, world, _ = setup_mode
+    _run(s._async_refresh())
+    _run(s.async_select_option("legacy"))  # already there: nothing to do
+    assert s.writes == []
+    _run(s.async_select_option("shadow"))
+    assert s._attr_current_option == "shadow"
+    world["result"] = {
+        "ok": False,
+        "code": "dry_run_not_clean",
+        "effective_diff": [1],
+        "conflicts": [],
+        "problems": [1, 2],
+    }
+    with pytest.raises(
+        sel.HomeAssistantError,
+        match=r"1 setting\(s\) would change, 0 conflict\(s\), 2 problem\(s\)",
+    ):
+        _run(s.async_select_option("active"))
+    assert s._attr_current_option == "shadow"
+    world["result"] = {
+        "ok": False,
+        "code": "units_undeclared",
+        "sensors": ["sensor.a", "sensor.b"],
+    }
+    with pytest.raises(sel.HomeAssistantError, match="sensor.a, sensor.b"):
+        _run(s.async_select_option("active"))
+    world["result"] = {"ok": False, "code": "something_new"}
+    with pytest.raises(sel.HomeAssistantError, match="something_new"):
+        _run(s.async_select_option("active"))
+
 
 # --- the pricing source -------------------------------------------------------------
 
@@ -151,24 +201,6 @@ def pricing(monkeypatch):
     entry = SimpleNamespace(entry_id="hub1", options={})
     s = _entity(sel.NimbusPricingSourceSelect(hass, entry, "1"), hass)
     return s, world, updated
-
-
-def test_choosing_a_detected_source_applies_its_profile(pricing):
-    s, _, updated = pricing
-    _run(s.async_select_option("Amber"))
-    assert updated == [{"label": "Amber"}]
-
-
-def test_a_source_with_problems_or_no_longer_detected_changes_nothing(pricing):
-    s, world, updated = pricing
-    world["problems"] = ["sensor.amber_general_price is unavailable"]
-    with pytest.raises(sel.HomeAssistantError, match="nothing changed. sensor.amber"):
-        _run(s.async_select_option("Amber"))
-    with pytest.raises(sel.HomeAssistantError, match="does not detect Flow"):
-        _run(s.async_select_option("Flow"))
-    assert updated == []
-    _run(s.async_select_option(sel.pricing_source.MANUAL))
-    assert s._attr_current_option == sel.pricing_source.MANUAL and updated == []
 
 
 # --- the device setup mode ------------------------------------------------------------
@@ -213,35 +245,3 @@ def setup_mode(monkeypatch):
         SimpleNamespace(),
     )
     return s, world, dc
-
-
-def test_choosing_a_mode_switches_it_or_says_why_not(setup_mode):
-    s, world, _ = setup_mode
-    _run(s._async_refresh())
-    _run(s.async_select_option("legacy"))  # already there: nothing to do
-    assert s.writes == []
-    _run(s.async_select_option("shadow"))
-    assert s._attr_current_option == "shadow"
-    world["result"] = {
-        "ok": False,
-        "code": "dry_run_not_clean",
-        "effective_diff": [1],
-        "conflicts": [],
-        "problems": [1, 2],
-    }
-    with pytest.raises(
-        sel.HomeAssistantError,
-        match=r"1 setting\(s\) would change, 0 conflict\(s\), 2 problem\(s\)",
-    ):
-        _run(s.async_select_option("active"))
-    assert s._attr_current_option == "shadow"
-    world["result"] = {
-        "ok": False,
-        "code": "units_undeclared",
-        "sensors": ["sensor.a", "sensor.b"],
-    }
-    with pytest.raises(sel.HomeAssistantError, match="sensor.a, sensor.b"):
-        _run(s.async_select_option("active"))
-    world["result"] = {"ok": False, "code": "something_new"}
-    with pytest.raises(sel.HomeAssistantError, match="something_new"):
-        _run(s.async_select_option("active"))

@@ -77,7 +77,8 @@ def _entry(subentries=None, runtime=None):
     )
 
 
-def test_a_fresh_install_says_each_part_is_not_configured_yet(registry):
+def test_a_fresh_install_says_each_part_is_not_configured_yet(registry, run_state):
+    # test_a_fresh_install_says_each_part_is_not_configured_yet
     out = asyncio.run(dg.async_get_config_entry_diagnostics(_hass({}), _entry()))
     assert out["entry"] == {
         "title": "Nimbus",
@@ -94,8 +95,7 @@ def test_a_fresh_install_says_each_part_is_not_configured_yet(registry):
     )
     assert all(v is None for v in out["flex"]["signals"].values())
 
-
-def test_every_part_of_a_running_install_is_reported(registry, run_state):
+    # test_every_part_of_a_running_install_is_reported
     forecast = [{"time": "a", "value": 1}, {"time": "b", "value": 2}]
     coord = SimpleNamespace(
         last_update_success=True,
@@ -189,8 +189,7 @@ def test_every_part_of_a_running_install_is_reported(registry, run_state):
         "clamped_fields"
     ] == ["p"]
 
-
-def test_the_plan_this_install_posted_wins_over_the_state_machine(registry):
+    # test_the_plan_this_install_posted_wins_over_the_state_machine
     hass = _hass({dg._SOLVER_ENTITY_ID: _state("9", forecast=["mirrored"])})
     shared.NATIVE.hass = hass
     shared._LAST_POSTED[dg._SOLVER_ENTITY_ID] = (1.0, {"forecast": ["own"]})
@@ -202,8 +201,7 @@ def test_the_plan_this_install_posted_wins_over_the_state_machine(registry):
     assert solver["plan_source"] == "this_install"
     assert (solver["state"], solver["forecast"]) == (1.0, ["own"])
 
-
-def test_a_participant_that_is_away_or_has_no_entities_is_reported_as_such():
+    # test_a_participant_that_is_away_or_has_no_entities_is_reported_as_such
     away = dg._battery_participant_diagnostics(
         _hass({"binary_sensor.car_home": _state("off")}),
         {const.CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY: "binary_sensor.car_home"},

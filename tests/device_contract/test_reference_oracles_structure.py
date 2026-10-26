@@ -49,6 +49,7 @@ def _flows(case: dict) -> list[tuple[str, float | None]]:
 
 def test_f01_site_structure():
     # test_f01_site_structure
+    # test_f01_site_structure
     for name in ["minimal", "unresolved_grid", "no_load", "battery_field_on_load"]:
         case, expected = F01["cases"][name], F01["expected"][name]
         assert site_problems(_devices(case)) == expected["problems"]
@@ -94,25 +95,7 @@ def test_f01_site_structure():
         for p in tree_problems(_nodes(F05["cases"]["conflicting"]))
     )
 
-
-# F05: nested inclusion --------------------------------------------------
-
-
-def _nodes(raw: list[dict]) -> list[Node]:
-    return [Node(n["name"], n["kw"], n.get("inside")) for n in raw]
-
-
-NODES = _nodes(F05["data_semantics"]["nodes"])
-
-
-# F11: dependencies, revisions, readiness --------------------------------
-
-
-def _graph(raw: dict) -> dict[str, set[str]]:
-    return {k: set(v) for k, v in raw.items()}
-
-
-def test_f11_a_valid_graph_has_no_problems():
+    # test_f11_a_valid_graph_has_no_problems
     # test_f11_a_valid_graph_has_no_problems
     assert (
         dependency_problems(_graph(F11["cases"]["valid"])) == F11["expected"]["valid"]
@@ -140,3 +123,20 @@ def test_f11_a_valid_graph_has_no_problems():
     # test_f11_several_grid_connections_are_explicitly_unsupported
     for connections, supported in F11["cases"]["grid_connections"]:
         assert planner_supported(connections) is supported
+
+
+# F05: nested inclusion --------------------------------------------------
+
+
+def _nodes(raw: list[dict]) -> list[Node]:
+    return [Node(n["name"], n["kw"], n.get("inside")) for n in raw]
+
+
+NODES = _nodes(F05["data_semantics"]["nodes"])
+
+
+# F11: dependencies, revisions, readiness --------------------------------
+
+
+def _graph(raw: dict) -> dict[str, set[str]]:
+    return {k: set(v) for k, v in raw.items()}

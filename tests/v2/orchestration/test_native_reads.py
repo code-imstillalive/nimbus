@@ -98,15 +98,15 @@ def _s(minutes, state, **attributes):
 # --- recorder reads ---------------------------------------------------------------
 
 
-def test_history_comes_from_the_recorder_without_attributes(hass):
+def test_history_comes_from_the_recorder_without_attributes(hass, publish, caplog):
+    # test_history_comes_from_the_recorder_without_attributes
     hass.history["sensor.x"] = [_s(-10, "2"), _s(-30, "1"), _s(-20, "unknown")]
     got = sw.fetch_entity_history_range("sensor.x", START, END)
     assert got == [(T0 - timedelta(minutes=30), 1.0), (T0 - timedelta(minutes=10), 2.0)]
     assert got[0][0].tzinfo == sw.LOCAL_TZ
     assert hass.history_calls == [(START, END, "sensor.x", True)]
 
-
-def test_an_attribute_history_needs_the_attributes_and_converts_each(hass):
+    # test_an_attribute_history_needs_the_attributes_and_converts_each
     hass.history["sensor.x"] = [
         _s(-10, "1", rate="0.25"),
         _s(-20, "1", rate=None),
@@ -122,8 +122,7 @@ def test_an_attribute_history_needs_the_attributes_and_converts_each(hass):
     )
     assert none == []
 
-
-def test_power_history_from_the_recorder_is_in_kw(hass):
+    # test_power_history_from_the_recorder_is_in_kw
     hass.history["sensor.pv"] = [
         _s(-10, "3000", unit_of_measurement="W"),
         _s(-20, "2", unit_of_measurement="kW"),
@@ -133,8 +132,7 @@ def test_power_history_from_the_recorder_is_in_kw(hass):
     got = sw.fetch_entity_power_history_kw("sensor.pv", START, END)
     assert [v for _t, v in got] == [2.0, 3.0]
 
-
-def test_went_unavailable_counts_only_changes_after_the_cutoff(hass):
+    # test_went_unavailable_counts_only_changes_after_the_cutoff
     for states, went in [
         ([_s(-10, "1.0"), _s(-5, "2")], False),
         ([_s(-10, "1.0"), _s(-5, "unavailable")], True),
@@ -149,19 +147,14 @@ def test_went_unavailable_counts_only_changes_after_the_cutoff(hass):
             is went
         )
 
-
-def test_a_failing_recorder_reads_as_no_history_not_an_error(hass):
+    # test_a_failing_recorder_reads_as_no_history_not_an_error
     hass.history_error = RuntimeError("recorder busy")
     assert sw.fetch_entity_history_range("sensor.x", START, END) == []
     assert sw.fetch_entity_attribute_history_range("sensor.x", "a", START, END) == []
     assert sw.fetch_entity_power_history_kw("sensor.x", START, END) == []
     assert shared.fetch_entity_went_unavailable("sensor.x", START, END) is None
 
-
-# --- service calls with a response ------------------------------------------------
-
-
-def test_a_service_response_comes_back_from_the_loop(hass):
+    # test_a_service_response_comes_back_from_the_loop
     hass.service_result = {"calendar.x": {"events": []}}
     assert sw.ha_call_service_with_response("calendar", "get_events", {}) == {
         "calendar.x": {"events": []}
@@ -169,24 +162,8 @@ def test_a_service_response_comes_back_from_the_loop(hass):
     hass.service_result = RuntimeError("no such service")
     assert sw.ha_call_service_with_response("calendar", "get_events", {}) is None
 
-
-# --- publishing -------------------------------------------------------------------
-
-
-@pytest.fixture
-def publish(hass, monkeypatch):
-    monkeypatch.setattr(shared, "_ENTITY_UPDATE_HANDLERS", {})
-    monkeypatch.setattr(shared, "_MANAGED_SKIP_STREAK", {})
-    monkeypatch.setattr(shared, "_MANAGED_SKIP_WARNED", set())
-    return hass
-
-
-MANAGED = "sensor.nimbus_solver_battery_forecast"
-
-
-def test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycles(
-    publish, caplog
-):
+    # test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycles
+    caplog.clear()
     with caplog.at_level(logging.INFO, logger=shared._LOGGER.name):
         for _ in range(shared._MANAGED_SKIP_WARN_AFTER - 1):
             assert shared.ha_post_state(MANAGED, 1, {}) is False
@@ -205,3 +182,20 @@ def test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycl
         if r.levelno == logging.INFO
     )
     assert publish.states_set == [] and MANAGED not in shared._MANAGED_SKIP_STREAK
+
+
+# --- service calls with a response ------------------------------------------------
+
+
+# --- publishing -------------------------------------------------------------------
+
+
+@pytest.fixture
+def publish(hass, monkeypatch):
+    monkeypatch.setattr(shared, "_ENTITY_UPDATE_HANDLERS", {})
+    monkeypatch.setattr(shared, "_MANAGED_SKIP_STREAK", {})
+    monkeypatch.setattr(shared, "_MANAGED_SKIP_WARNED", set())
+    return hass
+
+
+MANAGED = "sensor.nimbus_solver_battery_forecast"

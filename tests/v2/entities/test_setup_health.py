@@ -47,7 +47,10 @@ def _health(**kw):
     return sh.evaluate_health(**kw)
 
 
-def test_every_repair_has_a_translation_with_exactly_its_placeholders():
+def test_every_repair_has_a_translation_with_exactly_its_placeholders(
+    repairs, monkeypatch
+):
+    # test_every_repair_has_a_translation_with_exactly_its_placeholders
     # test_every_repair_has_a_translation_with_exactly_its_placeholders
     every = _health(
         options={},
@@ -118,6 +121,88 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
             (issue,) = issues
             assert says in issue.placeholders["settings"]
 
+    # test_the_grace_period_runs_from_the_first_refresh
+    hass, entry, raised, _ = repairs
+    entry.runtime_data = {"s1": SimpleNamespace(data={})}
+    entry.subentries = {
+        "s1": SimpleNamespace(title="Pool", subentry_type=const.SUBENTRY_TYPE_LOAD)
+    }
+    entry.options[const.CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR] = "sensor.house"
+    assert asyncio.run(sh.async_refresh_health(hass, entry, now=T0)) == []
+    later = asyncio.run(sh.async_refresh_health(hass, entry, now=T0 + sh.TRAIN_GRACE))
+    assert [i.key for i in later] == [f"{sh.KIND_NOT_TRAINED}_s1"]
+    assert (
+        raised[f"hub1_{sh.KIND_NOT_TRAINED}_s1"]["translation_placeholders"]["name"]
+        == "Pool"
+    )
+
+    # test_a_failing_check_never_breaks_the_refresh
+    with monkeypatch.context() as mp:
+        hass, entry, _, _ = repairs
+
+        def boom(*a):
+            raise RuntimeError("registry down")
+
+        mp.setattr(sh, "evaluate_health", boom)
+        assert asyncio.run(sh.async_refresh_health(hass, entry, now=T0)) == []
+
+    # test_solve_outcomes_refresh_health_only_when_failing_starts_or_stops
+    with monkeypatch.context() as mp:
+        refreshed = []
+
+        async def refresh(hass, entry):
+            refreshed.append(entry.entry_id)
+
+        mp.setattr(sh, "async_refresh_health", refresh)
+        streak = {"value": None}
+        mp.setattr(sh, "_solver_failed_streak", lambda: streak["value"])
+        hass, entry = SimpleNamespace(data={}), SimpleNamespace(entry_id="hub1")
+        asyncio.run(sh.async_note_solve_outcome(hass, entry))
+        streak["value"] = {"count": 5}
+        asyncio.run(sh.async_note_solve_outcome(hass, entry))
+        asyncio.run(sh.async_note_solve_outcome(hass, entry))
+        streak["value"] = {"count": 0}
+        asyncio.run(sh.async_note_solve_outcome(hass, entry))
+        assert refreshed == ["hub1", "hub1"]
+
+    # test_live_settings_are_read_from_the_number_entities
+    with monkeypatch.context() as mp:
+        er = sys.modules["homeassistant.helpers.entity_registry"]
+        ids = {
+            f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": "number.cap",
+            f"hub1_{const.CONF_SOLVER_MAX_CHARGE_KW}": "number.charge",
+        }
+        mp.setattr(
+            er,
+            "async_get",
+            lambda hass: SimpleNamespace(
+                async_get_entity_id=lambda d, p, uid: ids.get(uid)
+            ),
+            raising=False,
+        )
+        states = {
+            "number.cap": SimpleNamespace(state="13.5"),
+            "number.charge": SimpleNamespace(state="unknown"),
+        }
+        hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
+        assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {
+            const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 13.5
+        }
+        mp.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
+        assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {}
+
+    # test_the_failed_streak_comes_from_the_solver_publisher_when_it_is_loaded
+    with monkeypatch.context() as mp:
+        pub = types.ModuleType("solver_publish")
+        pub.failed_streak = lambda: {"count": 3}
+        mp.setitem(sys.modules, "solver_publish", pub)
+        mp.delitem(sys.modules, f"{sh.__package__}.solver_publish", raising=False)
+        assert sh._solver_failed_streak() == {"count": 3}
+        pub.failed_streak = lambda: 1 / 0
+        assert sh._solver_failed_streak() is None
+        mp.delitem(sys.modules, "solver_publish")
+        assert sh._solver_failed_streak() is None
+
 
 # --- raised and cleared in Home Assistant ------------------------------------------------
 
@@ -155,88 +240,3 @@ def repairs(monkeypatch):
     )
     hass = SimpleNamespace(data={})
     return hass, entry, raised, deleted
-
-
-def test_the_grace_period_runs_from_the_first_refresh(repairs):
-    hass, entry, raised, _ = repairs
-    entry.runtime_data = {"s1": SimpleNamespace(data={})}
-    entry.subentries = {
-        "s1": SimpleNamespace(title="Pool", subentry_type=const.SUBENTRY_TYPE_LOAD)
-    }
-    entry.options[const.CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR] = "sensor.house"
-    assert asyncio.run(sh.async_refresh_health(hass, entry, now=T0)) == []
-    later = asyncio.run(sh.async_refresh_health(hass, entry, now=T0 + sh.TRAIN_GRACE))
-    assert [i.key for i in later] == [f"{sh.KIND_NOT_TRAINED}_s1"]
-    assert (
-        raised[f"hub1_{sh.KIND_NOT_TRAINED}_s1"]["translation_placeholders"]["name"]
-        == "Pool"
-    )
-
-
-def test_a_failing_check_never_breaks_the_refresh(repairs, monkeypatch):
-    hass, entry, _, _ = repairs
-
-    def boom(*a):
-        raise RuntimeError("registry down")
-
-    monkeypatch.setattr(sh, "evaluate_health", boom)
-    assert asyncio.run(sh.async_refresh_health(hass, entry, now=T0)) == []
-
-
-def test_solve_outcomes_refresh_health_only_when_failing_starts_or_stops(monkeypatch):
-    refreshed = []
-
-    async def refresh(hass, entry):
-        refreshed.append(entry.entry_id)
-
-    monkeypatch.setattr(sh, "async_refresh_health", refresh)
-    streak = {"value": None}
-    monkeypatch.setattr(sh, "_solver_failed_streak", lambda: streak["value"])
-    hass, entry = SimpleNamespace(data={}), SimpleNamespace(entry_id="hub1")
-    asyncio.run(sh.async_note_solve_outcome(hass, entry))
-    streak["value"] = {"count": 5}
-    asyncio.run(sh.async_note_solve_outcome(hass, entry))
-    asyncio.run(sh.async_note_solve_outcome(hass, entry))
-    streak["value"] = {"count": 0}
-    asyncio.run(sh.async_note_solve_outcome(hass, entry))
-    assert refreshed == ["hub1", "hub1"]
-
-
-def test_live_settings_are_read_from_the_number_entities(monkeypatch):
-    er = sys.modules["homeassistant.helpers.entity_registry"]
-    ids = {
-        f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": "number.cap",
-        f"hub1_{const.CONF_SOLVER_MAX_CHARGE_KW}": "number.charge",
-    }
-    monkeypatch.setattr(
-        er,
-        "async_get",
-        lambda hass: SimpleNamespace(
-            async_get_entity_id=lambda d, p, uid: ids.get(uid)
-        ),
-        raising=False,
-    )
-    states = {
-        "number.cap": SimpleNamespace(state="13.5"),
-        "number.charge": SimpleNamespace(state="unknown"),
-    }
-    hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
-    assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {
-        const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 13.5
-    }
-    monkeypatch.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
-    assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {}
-
-
-def test_the_failed_streak_comes_from_the_solver_publisher_when_it_is_loaded(
-    monkeypatch,
-):
-    pub = types.ModuleType("solver_publish")
-    pub.failed_streak = lambda: {"count": 3}
-    monkeypatch.setitem(sys.modules, "solver_publish", pub)
-    monkeypatch.delitem(sys.modules, f"{sh.__package__}.solver_publish", raising=False)
-    assert sh._solver_failed_streak() == {"count": 3}
-    pub.failed_streak = lambda: 1 / 0
-    assert sh._solver_failed_streak() is None
-    monkeypatch.delitem(sys.modules, "solver_publish")
-    assert sh._solver_failed_streak() is None

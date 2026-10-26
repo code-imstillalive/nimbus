@@ -12,6 +12,7 @@ import json
 from datetime import UTC, datetime
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver import network
 from solver import stochastic_dispatch as sd
 from solver.elements import (
@@ -70,7 +71,9 @@ def _summary(result):
     )
 
 
-def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit():
+def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit(monkeypatch):
+    # test_a_call_that_runs_out_of_time_is_named_with_its_own_limit
+    _solver_lp._lex_calibration_failed_until = 0.0
     result = sd.build_stochastic_plan(_inputs(), time_limit_seconds=1e-9)
     assert result.status != "optimal"
     failed = [c for c in result.joint_calls if c["status"] != "optimal"]
@@ -78,8 +81,8 @@ def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit():
     assert failed[-1]["raw_status"] == result.raw_status
     json.dumps(_summary(result)["joint_calls"], allow_nan=False)
 
-
-def test_a_call_refused_by_the_spent_budget_is_recorded_too():
+    # test_a_call_refused_by_the_spent_budget_is_recorded_too
+    _solver_lp._lex_calibration_failed_until = 0.0
     result = sd.build_stochastic_plan(_inputs(), budget_seconds=0.0)
     assert result.raw_status == "stochastic_budget_exhausted"
     assert result.joint_calls[-1] == {
@@ -94,39 +97,38 @@ def test_a_call_refused_by_the_spent_budget_is_recorded_too():
         "joint_solve_seconds": None,  # refused before any solve ran
     }
 
+    # test_a_scenario_that_cannot_be_built_is_recorded_too
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        real = network._build_plan_once
 
-def test_a_scenario_that_cannot_be_built_is_recorded_too(monkeypatch):
-    real = network._build_plan_once
+        def build(**kw):
+            if kw.get("lp_solve_hook").__class__.__name__ == "_Capture":
+                return None  # the scenario's problem is never captured
+            return real(**kw)
 
-    def build(**kw):
-        if kw.get("lp_solve_hook").__class__.__name__ == "_Capture":
-            return None  # the scenario's problem is never captured
-        return real(**kw)
+        mp.setattr(network, "_build_plan_once", build)
+        result = sd.build_stochastic_plan(_inputs())
+        assert result.status != "optimal"
+        last = result.joint_calls[-1]
+        assert last["raw_status"] == result.raw_status
+        assert last["raw_status"].endswith("_not_built")
+        assert last["time_limit_seconds"] is None and last["status"] == "error"
 
-    monkeypatch.setattr(network, "_build_plan_once", build)
-    result = sd.build_stochastic_plan(_inputs())
-    assert result.status != "optimal"
-    last = result.joint_calls[-1]
-    assert last["raw_status"] == result.raw_status
-    assert last["raw_status"].endswith("_not_built")
-    assert last["time_limit_seconds"] is None and last["status"] == "error"
+    # test_a_call_names_its_own_solve_time_and_a_kept_incumbents_gap: #2025: devhub's failing call took 63 s against a 20 s limit, which the
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        from solver import lp
 
+        real = lp.LPProblem.solve
 
-def test_a_call_names_its_own_solve_time_and_a_kept_incumbents_gap(monkeypatch):
-    """#2025: devhub's failing call took 63 s against a 20 s limit, which the
-    call's total alone cannot split into building and solving; and a kept
-    time-limited incumbent's gap is read before the pin refresh resets it."""
-    from solver import lp
+        def solve(self, **kw):
+            result = real(self, **kw)
+            self.accepted_mip_gap = 4e-4
+            return result
 
-    real = lp.LPProblem.solve
-
-    def solve(self, **kw):
-        result = real(self, **kw)
-        self.accepted_mip_gap = 4e-4
-        return result
-
-    monkeypatch.setattr(lp.LPProblem, "solve", solve)
-    result = sd.build_stochastic_plan(_inputs())
-    last = result.joint_calls[-1]
-    assert last["mip_gap"] == 4e-4
-    assert 0.0 <= last["joint_solve_seconds"] <= last["solve_seconds"]
+        mp.setattr(lp.LPProblem, "solve", solve)
+        result = sd.build_stochastic_plan(_inputs())
+        last = result.joint_calls[-1]
+        assert last["mip_gap"] == 4e-4
+        assert 0.0 <= last["joint_solve_seconds"] <= last["solve_seconds"]

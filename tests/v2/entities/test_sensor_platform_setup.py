@@ -151,7 +151,8 @@ def _setup(world, entry):
     return added
 
 
-def test_a_bare_hub_gets_its_own_sensors_once_each_and_every_push_wired(world):
+def test_a_bare_hub_gets_its_own_sensors_once_each_and_every_push_wired(world, caplog):
+    # test_a_bare_hub_gets_its_own_sensors_once_each_and_every_push_wired
     added = _setup(world, _entry())
     ids = [e.entity_id for ents, _ in added for e in ents]
     assert len(ids) == len(set(ids)), "every entity is added once"
@@ -172,10 +173,7 @@ def test_a_bare_hub_gets_its_own_sensors_once_each_and_every_push_wired(world):
     battery = by_id["sensor.nimbus_solver_battery_forecast"]
     assert battery._flattened_entities and battery._flattened_current_entities
 
-
-def test_each_forecaster_and_controllable_load_gets_its_own_sensors_under_its_subentry(
-    world,
-):
+    # test_each_forecaster_and_controllable_load_gets_its_own_sensors_under_its_subentry
     subs = [
         _sub(
             "pool",
@@ -211,14 +209,13 @@ def test_each_forecaster_and_controllable_load_gets_its_own_sensors_under_its_su
     assert world.migrated == ["hw"]
     assert len(world.tasks) == 1  # the forecast's statistics unit is checked once
 
-
-def test_a_nem_region_adds_the_pre_dispatch_sensor(world):
+    # test_a_nem_region_adds_the_pre_dispatch_sensor
     world.region["value"] = "QLD1"
     ids = [e.entity_id for ents, _ in _setup(world, _entry()) for e in ents]
     assert "sensor.nimbus_p5min_forecast" in ids
 
-
-def test_a_conflicting_registry_entry_is_reported_before_it_collides(world, caplog):
+    # test_a_conflicting_registry_entry_is_reported_before_it_collides
+    caplog.clear()
     world.registry["hub1_nimbus_solver_quality_report"] = (
         "sensor.nimbus_solver_quality_report_2"
     )

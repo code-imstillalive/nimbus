@@ -47,6 +47,7 @@ def _publish(source):
 
 
 def test_a_weather_entity_is_asked_for_its_hourly_forecast_and_both_are_mirrored(ha):
+    # test_a_weather_entity_is_asked_for_its_hourly_forecast_and_both_are_mirrored
     ha["response"] = {
         "weather.any": {
             "forecast": [
@@ -85,8 +86,7 @@ def test_a_weather_entity_is_asked_for_its_hourly_forecast_and_both_are_mirrored
         and h_attrs["source"] == "weather.any"
     )
 
-
-def test_a_sensor_source_is_read_off_its_own_attribute_without_a_service_call(ha):
+    # test_a_sensor_source_is_read_off_its_own_attribute_without_a_service_call
     ha["state"] = {
         "attributes": {
             "forecast": [{"datetime": "2026-08-25T00:00:00+00:00", "temperature": 18.0}]
@@ -96,8 +96,7 @@ def test_a_sensor_source_is_read_off_its_own_attribute_without_a_service_call(ha
     assert ha["calls"] == [] and ha["gets"] == ["sensor.own_forecast"]
     assert ha["posts"][TEMP][0] == 18.0
 
-
-def test_a_failed_read_publishes_nothing(ha):
+    # test_a_failed_read_publishes_nothing
     for source, response, state in [
         ("weather.any", None, None),
         ("sensor.gone", None, urllib.error.URLError("not found")),

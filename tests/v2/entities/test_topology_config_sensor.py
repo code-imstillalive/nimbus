@@ -68,6 +68,7 @@ CAR = _sub(
 def test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settings(
     registry,
 ):
+    # test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settings
     registry[f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}"] = "number.cap"
     s = _sensor(
         {
@@ -106,8 +107,7 @@ def test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settin
     )
     assert s.native_value == 2
 
-
-def test_a_home_battery_without_a_readable_size_has_no_capacity(registry):
+    # test_a_home_battery_without_a_readable_size_has_no_capacity
     for capacity in [None, "unknown", "lots"]:
         states = (
             {}
@@ -129,8 +129,7 @@ def test_a_home_battery_without_a_readable_size_has_no_capacity(registry):
         assert tower["capacity_kwh"] is None
         assert s.extra_state_attributes["pv_strings"] == []
 
-
-def test_participants_sharing_a_charger_are_drawn_on_it():
+    # test_participants_sharing_a_charger_are_drawn_on_it
     van = _sub(
         "van",
         const.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
@@ -141,8 +140,7 @@ def test_participants_sharing_a_charger_are_drawn_on_it():
     (tower,) = s.extra_state_attributes["battery_towers"]
     assert source[const.CONF_POWER_SOURCE_NAME] == "Garage" and tower["title"] == "van"
 
-
-def test_a_topology_set_up_in_the_wizard_is_used_as_is_plus_the_participants(registry):
+    # test_a_topology_set_up_in_the_wizard_is_used_as_is_plus_the_participants
     subs = [
         _sub(
             "inv",
@@ -170,8 +168,7 @@ def test_a_topology_set_up_in_the_wizard_is_used_as_is_plus_the_participants(reg
     assert [p["subentry_id"] for p in attrs["pv_strings"]] == ["east"]
     assert [t["title"] for t in attrs["battery_towers"]] == ["Tower 1", "Car"]
 
-
-def test_controllable_loads_are_listed_by_name_with_their_own_sensors(registry):
+    # test_controllable_loads_are_listed_by_name_with_their_own_sensors
     registry["hw_status"] = "sensor.nimbus_hot_water_status"
     subs = [
         _sub(

@@ -52,15 +52,19 @@ def _real_model(**overrides) -> TrainedModel:
 
 class TestABadPickleDegradesInsteadOfWedgingTheIntegration:
     def test_a_pickle_without_x_mean_returns_none_rather_than_raising(self, tmp_path):
-        """#366 finding 3, exactly: this used to raise a bare
-        AttributeError out of the method, because the feature-count check
-        sat outside the `try`."""
-        p = tmp_path / "model.pkl"
+        # test_a_pickle_without_x_mean_returns_none_rather_than_raising: #366 finding 3, exactly: this used to raise a bare
+        tmp_0 = (
+            tmp_path / "test_a_pickle_without_x_mean_returns_none_rather_than_raising"
+        )
+        tmp_0.mkdir()
+        p = tmp_0 / "model.pkl"
         p.write_bytes(pickle.dumps({"not": "a TrainedModel"}))
         assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
 
-    def test_a_missing_file_is_simply_none(self, tmp_path):
-        p = tmp_path / "definitely_absent.pkl"
+        # test_a_missing_file_is_simply_none
+        tmp_1 = tmp_path / "test_a_missing_file_is_simply_none"
+        tmp_1.mkdir()
+        p = tmp_1 / "definitely_absent.pkl"
         assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
 
 
@@ -86,19 +90,24 @@ class TestTheSchemaVersionAsymmetry:
 
 class TestTheResidualBufferAlsoDegrades:
     def test_unusable_content_starts_fresh(self, tmp_path):
+        # test_unusable_content_starts_fresh
+        tmp_0 = tmp_path / "test_unusable_content_starts_fresh"
+        tmp_0.mkdir()
         for content in [
             "not json at all",
             '{"not": "a list"}',
             '["strings", "not", "numbers"]',
             "[1.0, 2.0, null]",
         ]:
-            p = tmp_path / "residuals.json"
+            p = tmp_0 / "residuals.json"
             p.write_text(content, encoding="utf-8")
             assert (
                 NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p))
                 == []
             )
 
-    def test_a_missing_file_starts_fresh(self, tmp_path):
-        p = tmp_path / "absent.json"
+        # test_a_missing_file_starts_fresh
+        tmp_1 = tmp_path / "test_a_missing_file_starts_fresh"
+        tmp_1.mkdir()
+        p = tmp_1 / "absent.json"
         assert NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p)) == []

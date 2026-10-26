@@ -7,6 +7,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -84,12 +85,14 @@ class TestTheAmbientPairIsAllOrNothing(unittest.TestCase):
     household ends up believing the LP is weather-aware when it is not."""
 
     def test_a_coefficient_without_ambient_is_rejected(self):
+        # test_a_coefficient_without_ambient_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             _thermal(loss_coeff_per_h=0.05)
         self.assertIn("both be set or both be None", str(ctx.exception))
 
-    def test_a_negative_coefficient_is_rejected(self):
-        """A negative coefficient is a tank that heats itself from a cold day."""
+        # test_a_negative_coefficient_is_rejected: A negative coefficient is a tank that heats itself from a cold day.
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             _thermal(loss_coeff_per_h=-0.01, ambient_c=(20.0,))
         self.assertIn("loss_coeff_per_h must be >= 0", str(ctx.exception))

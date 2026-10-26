@@ -5,6 +5,7 @@ in and the gap is small enough (#1805) (#1837).
 from __future__ import annotations
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver.lp import LPProblem
 from solver.stochastic_dispatch import (
     JOINT_ACCEPT_MIP_GAP,
@@ -29,14 +30,13 @@ def _hard_knapsack(accept: float | None) -> LPProblem:
     return p
 
 
-def test_the_joint_solve_opts_in_at_a_tenth_of_a_percent() -> None:
+def test_the_joint_solve_opts_in_at_a_tenth_of_a_percent():
+    # test_the_joint_solve_opts_in_at_a_tenth_of_a_percent
+    _solver_lp._lex_calibration_failed_until = 0.0
     assert JOINT_ACCEPT_MIP_GAP == 1e-3
 
-
-def test_the_kept_incumbent_gets_time_to_re_solve_its_pinned_lp() -> None:
-    """The time limit counts the whole Highs object's run, already spent by
-    the MIP; without fresh time the pinned LP that recovers the duals stops
-    at once, unsolved."""
+    # test_the_kept_incumbent_gets_time_to_re_solve_its_pinned_lp: The time limit counts the whole Highs object's run, already spent by
+    _solver_lp._lex_calibration_failed_until = 0.0
     import contextlib
     from unittest.mock import patch
 

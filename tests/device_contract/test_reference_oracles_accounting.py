@@ -58,6 +58,7 @@ def _series(case: dict) -> dict[str, list[float]]:
 
 def test_f05_window_negative_residuals_and_refusal():
     # test_f05_window_negative_residuals_and_refusal
+    # test_f05_window_negative_residuals_and_refusal
     for name in sorted(TS["cases"]):
         case = TS["cases"][name]
         got = decomposition_verdict(_series(case), TS["inside"])
@@ -138,6 +139,20 @@ def test_f05_window_negative_residuals_and_refusal():
         <= KWH_TOL
     )
 
+    # test_f08_disagrees_whichever_meter_reading_and_sign
+    # test_f08_disagrees_whichever_meter_reading_and_sign
+    assert (
+        _f08(OBS["meter_counters_kwh"], None).status == VERDICT["legacy_no_sign_status"]
+    )
+    assert (
+        _f08(OBS["meter_power_integration_kwh"], "positive_is_import").status
+        == VERDICT["power_integration_status"]
+    )
+
+    # test_f08_claims_no_correction
+    assert F08["expected"]["corrected_epr"] == "unresolved"
+    assert F08["expected"]["root_cause"] == "unresolved"
+
 
 # F05: inclusion boundaries ------------------------------------------------
 
@@ -185,18 +200,3 @@ def _f08(meter_kwh: dict, sign: str | None) -> Verdict:
         Meter(meter_kwh["import"], meter_kwh["export"], sign),
         OBS["stale_fraction"],
     )
-
-
-def test_f08_disagrees_whichever_meter_reading_and_sign():
-    # test_f08_disagrees_whichever_meter_reading_and_sign
-    assert (
-        _f08(OBS["meter_counters_kwh"], None).status == VERDICT["legacy_no_sign_status"]
-    )
-    assert (
-        _f08(OBS["meter_power_integration_kwh"], "positive_is_import").status
-        == VERDICT["power_integration_status"]
-    )
-
-    # test_f08_claims_no_correction
-    assert F08["expected"]["corrected_epr"] == "unresolved"
-    assert F08["expected"]["root_cause"] == "unresolved"

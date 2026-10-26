@@ -76,41 +76,45 @@ def _build(**cfg):
 
 
 def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch):
-    for price_now in [lambda eid, fallback: float("nan"), lambda eid, fallback: 1 / 0]:
-        with monkeypatch.context() as mp:
-            mp.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
-            mp.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
-            mp.setattr(sw, "price_now", price_now)
-            out = _build(solver_regional_spot_current_price_sensor="sensor.spot")
-            assert out.spot_import_raw == AEMO_IMPORT
-            assert writer["live_spot"] == [None, None]
-            assert not any(
-                isinstance(v, float) and math.isnan(v) for v in writer["live_spot"]
-            )
+    # test_without_a_live_spot_the_fallback_still_runs
+    with monkeypatch.context() as mp:
+        for price_now in [
+            lambda eid, fallback: float("nan"),
+            lambda eid, fallback: 1 / 0,
+        ]:
+            with mp.context() as mp:
+                mp.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
+                mp.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
+                mp.setattr(sw, "price_now", price_now)
+                out = _build(solver_regional_spot_current_price_sensor="sensor.spot")
+                assert out.spot_import_raw == AEMO_IMPORT
+                assert writer["live_spot"] == [None, None]
+                assert not any(
+                    isinstance(v, float) and math.isnan(v) for v in writer["live_spot"]
+                )
 
+    # test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so
+    with monkeypatch.context() as mp:
+        mp.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
+        mp.setattr(prices.price_freshness, "aemo_series", _fallback(writer, imp=None))
+        out = _build()
+        assert out.spot_import_raw == PRIMARY[0]
+        assert out.import_real_mask == PRIMARY[1]
+        assert out.price_source_freshness["fallback"] is None
+        assert writer["warned"] == []
 
-def test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so(writer, monkeypatch):
-    monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
-    monkeypatch.setattr(
-        prices.price_freshness, "aemo_series", _fallback(writer, imp=None)
-    )
-    out = _build()
-    assert out.spot_import_raw == PRIMARY[0]
-    assert out.import_real_mask == PRIMARY[1]
-    assert out.price_source_freshness["fallback"] is None
-    assert writer["warned"] == []
+    # test_a_failing_consolidation_source_never_breaks_the_build
+    with monkeypatch.context() as mp:
 
+        def broken(*a, **k):
+            raise RuntimeError("bad AEMO data")
 
-def test_a_failing_consolidation_source_never_breaks_the_build(writer, monkeypatch):
-    def broken(*a, **k):
-        raise RuntimeError("bad AEMO data")
-
-    monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: None)
-    monkeypatch.setattr(price_consolidation, "aemo_markup_series", broken)
-    monkeypatch.setattr(prices, "_retail_from_rrp", broken)
-    out = _build()
-    assert out.spot_import_raw == PRIMARY[0]
-    assert out.aemo_import_series is None
-    assert out.aemo_export_series is None
-    assert out.aemo_source == "aemo_markup"
-    assert out.loss_factor is None
+        mp.setattr(prices.price_freshness, "check", lambda *a, **k: None)
+        mp.setattr(price_consolidation, "aemo_markup_series", broken)
+        mp.setattr(prices, "_retail_from_rrp", broken)
+        out = _build()
+        assert out.spot_import_raw == PRIMARY[0]
+        assert out.aemo_import_series is None
+        assert out.aemo_export_series is None
+        assert out.aemo_source == "aemo_markup"
+        assert out.loss_factor is None

@@ -44,6 +44,7 @@ def _well_formed(intervals):
 
 def test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals():
     # test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals
+    # test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals
     d = _fixture("1550_amber_express.json")["samples"]
     simple = d["amber_express_general_simple"]["selected_native_rows"]
     detail = d["amber_express_general_detail"]["selected_native_rows"]
@@ -171,6 +172,21 @@ def test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals():
     ) == ([0.5], [True])
     assert pi.provider_forecast_on_grid(adr, [T0]) is None
 
+    # test_amber_spot_for_the_interval_in_progress_is_ex_gst
+    detailed = [
+        {
+            "end_time": (T0 + timedelta(minutes=30)).isoformat(),
+            "duration": 30,
+            "spot_per_kwh": 0.11,
+        },
+        "junk",
+        {"end_time": "x"},
+    ]
+    start, spot = pi.amber_spot_in_progress(detailed, T0 + timedelta(minutes=10))
+    assert start == T0 and spot == pytest.approx(0.1)
+    assert pi.amber_spot_in_progress(detailed, T0 + timedelta(hours=1)) is None
+    assert pi.amber_spot_in_progress("x", T0) is None
+
 
 # --- what breaks an adapter -------------------------------------------------------------------
 
@@ -191,19 +207,3 @@ def _lv(end_min, **row):
 
 
 # --- on the plan's grid --------------------------------------------------------------------------
-
-
-def test_amber_spot_for_the_interval_in_progress_is_ex_gst():
-    detailed = [
-        {
-            "end_time": (T0 + timedelta(minutes=30)).isoformat(),
-            "duration": 30,
-            "spot_per_kwh": 0.11,
-        },
-        "junk",
-        {"end_time": "x"},
-    ]
-    start, spot = pi.amber_spot_in_progress(detailed, T0 + timedelta(minutes=10))
-    assert start == T0 and spot == pytest.approx(0.1)
-    assert pi.amber_spot_in_progress(detailed, T0 + timedelta(hours=1)) is None
-    assert pi.amber_spot_in_progress("x", T0) is None

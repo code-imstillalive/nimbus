@@ -76,7 +76,8 @@ def _resolve(cfg, load, grid=None, hours=0.25):
     )
 
 
-def test_measure_reads_the_record_and_changes_nothing(site):
+def test_measure_reads_the_record_and_changes_nothing(site, caplog):
+    # test_measure_reads_the_record_and_changes_nothing
     load = [1.0] * 8
     out, decision, persistence = _resolve(
         {"solver_load_forecast_source_policy": "measure"}, load
@@ -85,10 +86,8 @@ def test_measure_reads_the_record_and_changes_nothing(site):
     assert decision.reason == fss.REASON_PERSISTENCE_FAVOURED_MEASURE_ONLY
     assert (site["reads"], site["fetches"]) == (1, 0)
 
-
-def test_persistence_without_a_real_baseline_keeps_the_ml_forecast_and_says_why(
-    site, caplog
-):
+    # test_persistence_without_a_real_baseline_keeps_the_ml_forecast_and_says_why
+    caplog.clear()
     for cfg, history in [
         ({}, None),  # no whole-house sensor
         (HOUSE, []),  # an empty recorder read
@@ -115,14 +114,7 @@ def test_persistence_without_a_real_baseline_keeps_the_ml_forecast_and_says_why(
             )
             assert decision.mean_value_add_dollars is not None
 
-
-def _yesterday(value=lambda h: float(h)):
-    return [
-        (NOW - timedelta(hours=24) + timedelta(hours=h), value(h)) for h in range(25)
-    ]
-
-
-def test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small(site):
+    # test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small
     site["history"] = _yesterday()
     for minute in range(10):
         load_inputs._seasonal_naive_load_kw(
@@ -140,8 +132,7 @@ def test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small(site):
         <= load_inputs._PERSISTENCE_CACHE_MAX_ENTRIES
     )
 
-
-def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site):
+    # test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between
     site["history"] = _yesterday(lambda h: 3.0)
     grid = [NOW + timedelta(hours=h) for h in range(4)]
     cfg = {"solver_load_forecast_source_policy": "persistence", **HOUSE}
@@ -159,11 +150,7 @@ def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site)
         [5.0] * 4
     )
 
-
-# --- what the plan publishes about it ---------------------------------------------------------
-
-
-def test_the_decision_is_published_as_a_stable_set_of_scalars():
+    # test_the_decision_is_published_as_a_stable_set_of_scalars
     keys = set(solver_publish._LOAD_FORECAST_SOURCE_KEYS)
     blank = solver_publish._load_forecast_source_attributes(None)
     assert set(blank) == keys and all(v is None for v in blank.values())
@@ -203,3 +190,12 @@ def test_the_decision_is_published_as_a_stable_set_of_scalars():
         ]
         is None
     )
+
+
+def _yesterday(value=lambda h: float(h)):
+    return [
+        (NOW - timedelta(hours=24) + timedelta(hours=h), value(h)) for h in range(25)
+    ]
+
+
+# --- what the plan publishes about it ---------------------------------------------------------

@@ -65,6 +65,7 @@ def test_every_terminal_is_conserved_and_no_export_is_invented(
 
 
 def test_the_flows_follow_the_merit_order():
+    # test_the_flows_follow_the_merit_order
     for args, export, expect in [
         # Solar serves the load, then the battery, then the grid.
         (
@@ -100,8 +101,7 @@ def test_the_flows_follow_the_merit_order():
         for key, value in expect.items():
             assert flow[key] == pytest.approx(value, abs=1e-6), key
 
-
-def test_solar_held_back_by_forecast_risk_is_its_own_margin_not_curtailment():
+    # test_solar_held_back_by_forecast_risk_is_its_own_margin_not_curtailment
     flows = publish._flow_decomposition_counted(
         [6.0], [4.0], [2.0], [0.0], [0.0], [2.0]
     )

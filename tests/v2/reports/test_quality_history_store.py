@@ -68,6 +68,7 @@ def _report(epr=0.9, provisional=True, **extra):
 
 
 def test_a_days_score_is_archived_once_and_again_when_it_changes(disk):
+    # test_a_days_score_is_archived_once_and_again_when_it_changes
     hass = _hass(_report())
     assert asyncio.run(qh.async_capture_quality_day(hass, "hub1")) is True
     assert asyncio.run(qh.async_capture_quality_day(hass, "hub1")) is False  # unchanged
@@ -82,8 +83,7 @@ def test_a_days_score_is_archived_once_and_again_when_it_changes(disk):
     )
     assert asyncio.run(qh.async_load_quality_history(hass, "hub1")) == disk.data
 
-
-def test_nothing_scored_is_nothing_archived(disk):
+    # test_nothing_scored_is_nothing_archived
     for attrs in [
         None,
         {"epr": 0.9},
@@ -93,8 +93,7 @@ def test_nothing_scored_is_nothing_archived(disk):
         assert asyncio.run(qh.async_capture_quality_day(_hass(attrs), "hub1")) is False
         assert disk.saves == 0
 
-
-def test_the_archive_keeps_the_newest_days():
+    # test_the_archive_keeps_the_newest_days
     stored = {f"2026-01-{d:02d}": {} for d in range(1, 11)}
     assert list(qh.prune(stored, keep_days=3)) == [
         "2026-01-08",
@@ -103,14 +102,12 @@ def test_the_archive_keeps_the_newest_days():
     ]
     assert qh.prune(stored, keep_days=20) is stored
 
-
-def test_a_failing_store_never_raises(disk):
+    # test_a_failing_store_never_raises
     disk.broken = True
     assert asyncio.run(qh.async_capture_quality_day(_hass(_report()), "hub1")) is False
     assert asyncio.run(qh.async_load_quality_history(_hass(None), "hub1")) == {}
 
-
-def test_the_captured_time_is_not_part_of_what_changed():
+    # test_the_captured_time_is_not_part_of_what_changed
     _day, a = qh.build_quality_capture(_report(), captured_at="t1")
     _day, b = qh.build_quality_capture(_report(), captured_at="t2")
     assert qh.fingerprint(a) == qh.fingerprint(b)

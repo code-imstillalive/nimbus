@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
+from solver import lp as _solver_lp
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -66,7 +67,11 @@ def _inputs(now, *, prices=None, load=1.0, initial_soc=5.0):
     )
 
 
-def test_each_tick_dispatches_its_plans_first_period_and_the_next_starts_from_there():
+def test_each_tick_dispatches_its_plans_first_period_and_the_next_starts_from_there(
+    monkeypatch,
+):
+    # test_each_tick_dispatches_its_plans_first_period_and_the_next_starts_from_there
+    _solver_lp._lex_calibration_failed_until = 0.0
     result = run_rolling_refinement(
         RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=4), _inputs
     )
@@ -91,44 +96,36 @@ def test_each_tick_dispatches_its_plans_first_period_and_the_next_starts_from_th
         == 4
     )
 
+    # test_an_infeasible_tick_repeats_the_last_dispatch_and_the_loop_goes_on
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        from solver import rolling
 
-def test_an_infeasible_tick_repeats_the_last_dispatch_and_the_loop_goes_on(monkeypatch):
-    from solver import rolling
+        real, calls = rolling.build_plan, {"n": 0}
 
-    real, calls = rolling.build_plan, {"n": 0}
+        def flaky(**kw):
+            calls["n"] += 1
+            plan = real(**kw)
+            if calls["n"] == 2:
+                return dataclasses.replace(plan, status="infeasible")
+            return plan
 
-    def flaky(**kw):
-        calls["n"] += 1
-        plan = real(**kw)
-        if calls["n"] == 2:
-            return dataclasses.replace(plan, status="infeasible")
-        return plan
+        mp.setattr(rolling, "build_plan", flaky)
+        result = run_rolling_refinement(
+            RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=3),
+            _inputs,
+        )
+        assert result.n_infeasible == 1
+        first, failed, third = result.ticks
+        assert not failed.plan.is_optimal
+        assert (failed.dispatched_charge_kw, failed.dispatched_soc_kwh) == (
+            first.dispatched_charge_kw,
+            first.dispatched_soc_kwh,
+        )
+        assert third.plan.is_optimal
 
-    monkeypatch.setattr(rolling, "build_plan", flaky)
-    result = run_rolling_refinement(
-        RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=3), _inputs
-    )
-    assert result.n_infeasible == 1
-    first, failed, third = result.ticks
-    assert not failed.plan.is_optimal
-    assert (failed.dispatched_charge_kw, failed.dispatched_soc_kwh) == (
-        first.dispatched_charge_kw,
-        first.dispatched_soc_kwh,
-    )
-    assert third.plan.is_optimal
-
-
-def _unanchored(now):
-    return dataclasses.replace(_inputs(now), periods=PeriodGrid(np.full(N, 0.5)))
-
-
-def _in_the_past(now):
-    return dataclasses.replace(
-        _inputs(now), periods=PeriodGrid(np.full(N, 0.5), start=now - STEP)
-    )
-
-
-def test_an_input_window_that_cannot_be_aligned_is_refused():
+    # test_an_input_window_that_cannot_be_aligned_is_refused
+    _solver_lp._lex_calibration_failed_until = 0.0
     for make, says in [
         (_unanchored, "start must be set"),
         (_in_the_past, "before this tick"),
@@ -139,14 +136,14 @@ def test_an_input_window_that_cannot_be_aligned_is_refused():
                 make,
             )
 
-
-def test_a_rolling_run_needs_a_positive_count_and_interval():
+    # test_a_rolling_run_needs_a_positive_count_and_interval
+    _solver_lp._lex_calibration_failed_until = 0.0
     for n, interval in [(0, STEP), (1, timedelta(0))]:
         with pytest.raises(ValueError):
             RollingRefinementConfig(start=T0, resolve_interval=interval, n_resolves=n)
 
-
-def test_the_reference_day_is_fixed_and_scored():
+    # test_the_reference_day_is_fixed_and_scored
+    _solver_lp._lex_calibration_failed_until = 0.0
     scenario = build_reference_scenario()
     again = build_reference_scenario()
     # The real day is not the forecast, and the forecast is not persistence.
@@ -166,4 +163,14 @@ def test_the_reference_day_is_fixed_and_scored():
     assert result.nimbus_value_add_dollars > 0
     assert result.nimbus_value_add_dollars == pytest.approx(
         run_reference_benchmark().nimbus_value_add_dollars
+    )
+
+
+def _unanchored(now):
+    return dataclasses.replace(_inputs(now), periods=PeriodGrid(np.full(N, 0.5)))
+
+
+def _in_the_past(now):
+    return dataclasses.replace(
+        _inputs(now), periods=PeriodGrid(np.full(N, 0.5), start=now - STEP)
     )

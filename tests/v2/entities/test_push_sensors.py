@@ -115,7 +115,11 @@ def _make(name, *, last_state=None):
     return sensor, writes
 
 
-def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(clock, caplog):
+def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
+    clock, caplog, monkeypatch
+):
+    # test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes
+    caplog.clear()
     for name in sorted(PUSH):
         caplog.clear()
         sensor, writes = _make(name)
@@ -154,88 +158,85 @@ def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(clock, cap
             == 1
         )
 
+    # test_only_the_daily_reports_restore_their_last_value_after_a_restart
+    with monkeypatch.context() as mp:
+        for name in sorted(PUSH):
+            with mp.context() as mp:
+                _entity_id, _unit, restore, _device = PUSH[name]
+                ticks = []
+                mp.setattr(
+                    sm,
+                    "async_track_time_interval",
+                    lambda hass, cb, every: ticks.append(every) or (lambda: None),  # noqa: B023
+                )
+                last = SimpleNamespace(
+                    state="42.5",
+                    attributes={
+                        "unit_of_measurement": "%",
+                        "friendly_name": "x",
+                        "history": {"d": 1},
+                    },
+                )
+                sensor, _ = _make(name, last_state=last)
+                asyncio.run(sensor.async_added_to_hass())
+                if restore:
+                    assert sensor.native_value == 42.5
+                    assert sensor._attrs == {"history": {"d": 1}}
+                else:
+                    assert sensor.native_value is None
+                assert ticks == [sm.timedelta(seconds=sensor._STALE_AFTER_SECONDS / 5)]
+                assert len(sensor._on_remove_callbacks) == 1
 
-def test_only_the_daily_reports_restore_their_last_value_after_a_restart(monkeypatch):
-    for name in sorted(PUSH):
-        with monkeypatch.context() as mp:
-            _entity_id, _unit, restore, _device = PUSH[name]
-            ticks = []
-            mp.setattr(
-                sm,
-                "async_track_time_interval",
-                lambda hass, cb, every: ticks.append(every) or (lambda: None),  # noqa: B023
-            )
-            last = SimpleNamespace(
-                state="42.5",
-                attributes={
-                    "unit_of_measurement": "%",
-                    "friendly_name": "x",
-                    "history": {"d": 1},
-                },
-            )
-            sensor, _ = _make(name, last_state=last)
-            asyncio.run(sensor.async_added_to_hass())
-            if restore:
-                assert sensor.native_value == 42.5
-                assert sensor._attrs == {"history": {"d": 1}}
-            else:
-                assert sensor.native_value is None
-            assert ticks == [sm.timedelta(seconds=sensor._STALE_AFTER_SECONDS / 5)]
-            assert len(sensor._on_remove_callbacks) == 1
+    # test_a_restore_with_nothing_usable_leaves_the_sensor_empty
+    with monkeypatch.context() as mp:
+        for state in [
+            None,
+            SimpleNamespace(state="unavailable", attributes={}),
+            SimpleNamespace(state="n/a", attributes={}),
+        ]:
+            with mp.context() as mp:
+                mp.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
+                sensor, _ = _make("NimbusSolverQualityReportSensor", last_state=state)
+                asyncio.run(sensor.async_added_to_hass())
+                assert sensor.native_value is None and sensor._attrs == {}
 
+    # test_a_failing_restore_never_blocks_setup
+    with monkeypatch.context() as mp:
+        mp.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
+        sensor, _ = _make("NimbusFlexReportSensor")
 
-def test_a_restore_with_nothing_usable_leaves_the_sensor_empty(monkeypatch):
-    for state in [
-        None,
-        SimpleNamespace(state="unavailable", attributes={}),
-        SimpleNamespace(state="n/a", attributes={}),
-    ]:
-        with monkeypatch.context() as mp:
-            mp.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
-            sensor, _ = _make("NimbusSolverQualityReportSensor", last_state=state)
-            asyncio.run(sensor.async_added_to_hass())
-            assert sensor.native_value is None and sensor._attrs == {}
+        async def broken():
+            raise RuntimeError("store unreadable")
 
+        sensor.async_get_last_state = broken
+        asyncio.run(sensor.async_added_to_hass())
+        assert sensor.native_value is None
 
-def test_a_failing_restore_never_blocks_setup(monkeypatch):
-    monkeypatch.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
-    sensor, _ = _make("NimbusFlexReportSensor")
+    # test_a_parent_sensor_hands_each_push_to_its_flattened_children
+    with monkeypatch.context() as mp:
+        for name, dispatch in [
+            ("NimbusSolverQualityReportSensor", "dispatch_to_flattened_quality"),
+            ("NimbusFlexSignalsSensor", "dispatch_to_flattened_flex"),
+            ("NimbusFlexReportSensor", "dispatch_to_flattened_flex_report"),
+            ("NimbusEfficiencyBacktestSensor", "dispatch_to_flattened_backtest"),
+            ("NimbusCounterfactualSocSensor", "dispatch_to_flattened_counterfactual"),
+            ("NimbusSolverBatteryForecastSensor", "dispatch_to_flattened"),
+        ]:
+            with mp.context() as mp:
+                seen = []
+                mp.setattr(
+                    sm.sensor_flattened,
+                    dispatch,
+                    lambda children, attrs: seen.append((children, attrs)),  # noqa: B023
+                )
+                sensor, _ = _make(name)
+                sensor.update_from_solver(1.0, {"a": 1})
+                assert seen == []  # no children yet: nothing to hand on
+                sensor._flattened_entities = ["child"]
+                sensor.update_from_solver(1.0, {"a": 1})
+                assert seen == [(["child"], {"a": 1})]
 
-    async def broken():
-        raise RuntimeError("store unreadable")
-
-    sensor.async_get_last_state = broken
-    asyncio.run(sensor.async_added_to_hass())
-    assert sensor.native_value is None
-
-
-def test_a_parent_sensor_hands_each_push_to_its_flattened_children(monkeypatch):
-    for name, dispatch in [
-        ("NimbusSolverQualityReportSensor", "dispatch_to_flattened_quality"),
-        ("NimbusFlexSignalsSensor", "dispatch_to_flattened_flex"),
-        ("NimbusFlexReportSensor", "dispatch_to_flattened_flex_report"),
-        ("NimbusEfficiencyBacktestSensor", "dispatch_to_flattened_backtest"),
-        ("NimbusCounterfactualSocSensor", "dispatch_to_flattened_counterfactual"),
-        ("NimbusSolverBatteryForecastSensor", "dispatch_to_flattened"),
-    ]:
-        with monkeypatch.context() as mp:
-            seen = []
-            mp.setattr(
-                sm.sensor_flattened,
-                dispatch,
-                lambda children, attrs: seen.append((children, attrs)),  # noqa: B023
-            )
-            sensor, _ = _make(name)
-            sensor.update_from_solver(1.0, {"a": 1})
-            assert seen == []  # no children yet: nothing to hand on
-            sensor._flattened_entities = ["child"]
-            sensor.update_from_solver(1.0, {"a": 1})
-            assert seen == [(["child"], {"a": 1})]
-
-
-def test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder():
-    """The recorder drops a state's whole attribute dict past 16 KB, and a
-    field recomputed every poll writes a fresh row every poll (#362)."""
+    # test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder: The recorder drops a state's whole attribute dict past 16 KB, and a
     assert sm.NimbusSolverQualityReportSensor._unrecorded_attributes == frozenset(
         {
             "j_ref_hourly",

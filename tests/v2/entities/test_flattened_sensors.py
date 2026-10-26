@@ -121,7 +121,10 @@ def _payload(specs, value_of):
     return out
 
 
-def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(clock):
+def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
+    clock, caplog
+):
+    # test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent
     for name in sorted(TABLES):
         ents, dispatch = _build(name)
         payload = _payload(
@@ -137,30 +140,7 @@ def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(clo
             for e in ents
         )
 
-
-def _spec(**kw):
-    base = {
-        "source_key": "k",
-        "name": "K",
-        "entity_id_suffix": "k",
-        "entity_category": None,
-        "device_class": None,
-        "state_class": None,
-        "unit_of_measurement": None,
-        "suggested_display_precision": None,
-    }
-    return fl.FlattenedAttrSpec(**{**base, **kw})
-
-
-def _one(spec, hass=True):
-    e = fl._FlattenedAttributeSensor(ENTRY, "0.94.485", spec)
-    e.hass = SimpleNamespace(config=SimpleNamespace(currency="AUD")) if hass else None
-    e.writes = []
-    e.async_write_ha_state = lambda: e.writes.append(e.native_value)
-    return e
-
-
-def test_a_figure_can_carry_a_mapping_as_its_attributes():
+    # test_a_figure_can_carry_a_mapping_as_its_attributes
     # test_a_figure_can_carry_a_mapping_as_its_attributes
     e = _one(_spec(attrs_source_key="detail"))
     e.update_from_parent({"k": 1, "detail": {"a": 1}})
@@ -196,8 +176,8 @@ def test_a_figure_can_carry_a_mapping_as_its_attributes():
     lead = "Grid export at zero (not economical right now)"
     assert fl._clamp_state_length(lead + " " + "y" * 400, "sensor.a").startswith(lead)
 
-
-def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
+    # test_a_figure_goes_stale_after_five_minutes_and_recovers
+    caplog.clear()
     e = _one(_spec())
     e.update_from_parent({"k": 1})
     with caplog.at_level(logging.INFO, logger=fl._LOGGER.name):
@@ -209,30 +189,7 @@ def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
     assert e.available and len(e.writes) == 4
     assert [r.levelno for r in caplog.records] == [logging.WARNING, logging.INFO]
 
-
-# --- the current period and its detailed price forecast ----------------------------------
-
-T0 = datetime(2026, 9, 20, 16, 0).astimezone()
-
-
-def _plan(n=3):
-    return {
-        "status": "optimal",
-        "forecast": [
-            {
-                "time": (T0 + timedelta(minutes=30 * i)).isoformat(),
-                "hours": 0.5,
-                "import_price": 0.2 + i,
-                "import_price_raw": 0.25,
-                "import_price_source": "primary",
-                "battery_kw": float(i),
-            }
-            for i in range(n)
-        ],
-    }
-
-
-def test_the_current_figures_read_period_zero_of_the_plan():
+    # test_the_current_figures_read_period_zero_of_the_plan
     # test_the_current_figures_read_period_zero_of_the_plan
     ents = fl.create_flattened_entities_current(ENTRY, "1")
     for e in ents:
@@ -269,6 +226,50 @@ def test_the_current_figures_read_period_zero_of_the_plan():
         {"forecast": [{"time": "x", "hours": 1}, {"no": "time"}, "junk"]},
     ):
         assert fl._detailed_price_forecast(bad, "import_price") is None
+
+
+def _spec(**kw):
+    base = {
+        "source_key": "k",
+        "name": "K",
+        "entity_id_suffix": "k",
+        "entity_category": None,
+        "device_class": None,
+        "state_class": None,
+        "unit_of_measurement": None,
+        "suggested_display_precision": None,
+    }
+    return fl.FlattenedAttrSpec(**{**base, **kw})
+
+
+def _one(spec, hass=True):
+    e = fl._FlattenedAttributeSensor(ENTRY, "0.94.485", spec)
+    e.hass = SimpleNamespace(config=SimpleNamespace(currency="AUD")) if hass else None
+    e.writes = []
+    e.async_write_ha_state = lambda: e.writes.append(e.native_value)
+    return e
+
+
+# --- the current period and its detailed price forecast ----------------------------------
+
+T0 = datetime(2026, 9, 20, 16, 0).astimezone()
+
+
+def _plan(n=3):
+    return {
+        "status": "optimal",
+        "forecast": [
+            {
+                "time": (T0 + timedelta(minutes=30 * i)).isoformat(),
+                "hours": 0.5,
+                "import_price": 0.2 + i,
+                "import_price_raw": 0.25,
+                "import_price_source": "primary",
+                "battery_kw": float(i),
+            }
+            for i in range(n)
+        ],
+    }
 
 
 # --- the hub device -------------------------------------------------------------------------

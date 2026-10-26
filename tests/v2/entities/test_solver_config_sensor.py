@@ -52,70 +52,62 @@ def _numbers(value="5"):
     return {f"number.nimbus_{key}": SimpleNamespace(state=value) for key in NUMBERS}
 
 
-def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch):
-    for value in ["unknown", "unavailable", "lots"]:
-        with monkeypatch.context() as mp:
-            states = _numbers()
-            states[f"number.nimbus_{NUMBERS[0]}"] = SimpleNamespace(state=value)
-            s = _sensor(mp, states)
-            assert s.native_value == "unconfigured"
-            assert s.extra_state_attributes["unresolved_required_keys"] == [NUMBERS[0]]
+def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, caplog):
+    # test_a_setting_still_restoring_or_unreadable_is_unresolved
+    with monkeypatch.context() as mp:
+        for value in ["unknown", "unavailable", "lots"]:
+            with mp.context() as mp:
+                states = _numbers()
+                states[f"number.nimbus_{NUMBERS[0]}"] = SimpleNamespace(state=value)
+                s = _sensor(mp, states)
+                assert s.native_value == "unconfigured"
+                assert s.extra_state_attributes["unresolved_required_keys"] == [
+                    NUMBERS[0]
+                ]
 
+    # test_each_kind_of_setting_reads_in_the_form_the_solve_uses
+    with monkeypatch.context() as mp:
+        for domain, keys, state, value in [
+            ("time", sm._SOLVER_TIME_ENTITY_KEYS, "05:30:00", 5.5),
+            ("time", sm._SOLVER_TIME_ENTITY_KEYS, "17", 17.0),
+            ("time", sm._SOLVER_TIME_ENTITY_KEYS, "x:y", None),
+            ("time", sm._SOLVER_TIME_ENTITY_KEYS, "unknown", None),
+            ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "on", True),
+            ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "off", False),
+            ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "unavailable", None),
+            ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "away", "away"),
+            ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "unknown", None),
+        ]:
+            with mp.context() as mp:
+                key = min(set(keys) & set(sm._SOLVER_ALL_KEYS))
+                states = _numbers() | {
+                    f"{domain}.nimbus_{key}": SimpleNamespace(state=state)
+                }
+                s = _sensor(mp, states)
+                assert s.extra_state_attributes[key] == value
+                missing = _sensor(mp, _numbers())
+                assert missing.extra_state_attributes[key] is None
 
-def test_each_kind_of_setting_reads_in_the_form_the_solve_uses(monkeypatch):
-    for domain, keys, state, value in [
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "05:30:00", 5.5),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "17", 17.0),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "x:y", None),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "unknown", None),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "on", True),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "off", False),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "unavailable", None),
-        ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "away", "away"),
-        ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "unknown", None),
-    ]:
-        with monkeypatch.context() as mp:
-            key = min(set(keys) & set(sm._SOLVER_ALL_KEYS))
-            states = _numbers() | {
-                f"{domain}.nimbus_{key}": SimpleNamespace(state=state)
-            }
-            s = _sensor(mp, states)
-            assert s.extra_state_attributes[key] == value
-            missing = _sensor(mp, _numbers())
-            assert missing.extra_state_attributes[key] is None
+    # test_unconfigured_is_warned_once_per_change_with_the_keys_named
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        states = _numbers()
+        s = _sensor(mp, states)
+        with caplog.at_level(logging.INFO, logger=sm._LOGGER.name):
+            asyncio.run(s.async_update())
+            states.pop(f"number.nimbus_{NUMBERS[0]}")
+            asyncio.run(s.async_update())
+            asyncio.run(s.async_update())
+            states.update(_numbers())
+            asyncio.run(s.async_update())
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        assert len(warnings) == 1 and NUMBERS[0] in warnings[0]
+        assert len(infos) == 2  # configured at the start and again at the end
 
-
-def test_unconfigured_is_warned_once_per_change_with_the_keys_named(
-    monkeypatch, caplog
-):
-    states = _numbers()
-    s = _sensor(monkeypatch, states)
-    with caplog.at_level(logging.INFO, logger=sm._LOGGER.name):
-        asyncio.run(s.async_update())
-        states.pop(f"number.nimbus_{NUMBERS[0]}")
-        asyncio.run(s.async_update())
-        asyncio.run(s.async_update())
-        states.update(_numbers())
-        asyncio.run(s.async_update())
-    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
-    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-    assert len(warnings) == 1 and NUMBERS[0] in warnings[0]
-    assert len(infos) == 2  # configured at the start and again at the end
-
-
-# --- every setting the solve reads reaches it (#485, 2026-08-23) -----------------------------
-# The solver reads its settings only through this sensor's attributes. A key
-# saved by the wizard or set on a live entity but missing from these tables
-# is a setting that silently does nothing, and each has happened.
-
-_number = importlib.import_module("custom_components.nimbus_load.number")
-_hub_options = importlib.import_module(
-    "custom_components.nimbus_load.flows.hub_options"
-)
-_const = importlib.import_module("custom_components.nimbus_load.const")
-
-
-def test_every_key_the_wizard_saves_is_exposed():
+    # test_every_key_the_wizard_saves_is_exposed
     # test_every_key_the_wizard_saves_is_exposed
     assert [
         k
@@ -162,3 +154,15 @@ def test_every_key_the_wizard_saves_is_exposed():
         _const.CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     ):  # the two fields of the 2026-08-23 incident
         assert key in sm._SOLVER_ALL_KEYS
+
+
+# --- every setting the solve reads reaches it (#485, 2026-08-23) -----------------------------
+# The solver reads its settings only through this sensor's attributes. A key
+# saved by the wizard or set on a live entity but missing from these tables
+# is a setting that silently does nothing, and each has happened.
+
+_number = importlib.import_module("custom_components.nimbus_load.number")
+_hub_options = importlib.import_module(
+    "custom_components.nimbus_load.flows.hub_options"
+)
+_const = importlib.import_module("custom_components.nimbus_load.const")

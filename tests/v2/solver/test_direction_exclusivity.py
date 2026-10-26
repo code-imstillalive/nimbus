@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver import network
 from solver.elements import (
     BatteryConfig,
@@ -90,6 +91,8 @@ def _patched(strict_status=None, strict_result=None):
 
 class TestOutcomeOnEveryPath(unittest.TestCase):
     def test_a_declined_re_solve_is_visible_and_counted(self):
+        # test_a_declined_re_solve_is_visible_and_counted
+        _solver_lp._lex_calibration_failed_until = 0.0
         first = _build_plan_thermal_fallback(**_kwargs(*SPREAD))
         expected = len(network._opposing_flow_binaries(first))
         self.assertGreater(expected, 0)
@@ -108,7 +111,8 @@ class TestOutcomeOnEveryPath(unittest.TestCase):
         warn.assert_called_once()
         self.assertIn("time_limit", warn.call_args.args)
 
-    def test_pairs_left_after_every_re_solve_are_still_two_way(self):
+        # test_pairs_left_after_every_re_solve_are_still_two_way
+        _solver_lp._lex_calibration_failed_until = 0.0
         # every re-solve "optimal" but handing back the two-way first plan
         first = _build_plan_thermal_fallback(**_kwargs(*SPREAD))
         with (

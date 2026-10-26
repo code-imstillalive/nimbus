@@ -34,6 +34,7 @@ def _sample(state, minutes, kw, **kw_args):
 
 def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it():
     # test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
+    # test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     s = _sample(lrs.LoadRunState(), 0, 2.0)
     assert (s.delivered_today_kwh, s.currently_on, s.on_since) == (
         0.0,
@@ -177,47 +178,7 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     )  # from the power, not a delivered series
     assert last.target_today_kwh is None
 
-
-# --- the debounced command --------------------------------------------------------------------
-
-
-def _cmd(state, minutes, on, hysteresis=600):
-    return lrs.decide_commanded_state(
-        state,
-        raw_new_state=on,
-        now=T0 + timedelta(minutes=minutes),
-        min_hysteresis_seconds=hysteresis,
-    )
-
-
-# --- activation and reaffirm limits -----------------------------------------------------------------
-
-
-def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
-    return replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        commanded_since=now - seconds_ago,
-        currently_on=False,
-        off_since=now - seconds_ago,
-        **kw,
-    )
-
-
-# --- why a load is or is not running -------------------------------------------------------------------
-
-
-# --- the schedule view ---------------------------------------------------------------------------------
-
-
-def _plan(values, start=T0, minutes=30):
-    return [
-        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": v}
-        for i, v in enumerate(values)
-    ]
-
-
-def test_the_status_line_says_the_one_thing_that_matters_most():
+    # test_the_status_line_says_the_one_thing_that_matters_most
     # test_the_status_line_says_the_one_thing_that_matters_most
     for state, kind, kw, status in [
         ({"commanded_state": True}, "deferrable", {}, "running"),
@@ -296,6 +257,45 @@ def test_the_status_line_says_the_one_thing_that_matters_most():
                 "hw", lrs.LoadRunState()
             )
         )
+
+
+# --- the debounced command --------------------------------------------------------------------
+
+
+def _cmd(state, minutes, on, hysteresis=600):
+    return lrs.decide_commanded_state(
+        state,
+        raw_new_state=on,
+        now=T0 + timedelta(minutes=minutes),
+        min_hysteresis_seconds=hysteresis,
+    )
+
+
+# --- activation and reaffirm limits -----------------------------------------------------------------
+
+
+def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
+    return replace(
+        lrs.LoadRunState(),
+        commanded_state=True,
+        commanded_since=now - seconds_ago,
+        currently_on=False,
+        off_since=now - seconds_ago,
+        **kw,
+    )
+
+
+# --- why a load is or is not running -------------------------------------------------------------------
+
+
+# --- the schedule view ---------------------------------------------------------------------------------
+
+
+def _plan(values, start=T0, minutes=30):
+    return [
+        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": v}
+        for i, v in enumerate(values)
+    ]
 
 
 # --- kept across restarts -----------------------------------------------------------------------------------

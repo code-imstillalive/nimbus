@@ -51,7 +51,10 @@ def _grade(hist, side, source, interval, forecast, settled, lead_min=2.0):
 # -- buckets, stride, threshold --------------------------------------------------
 
 
-def test_lead_bucket_extends_the_trackers_four_with_beyond_24h():
+def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
+    caplog, monkeypatch, tmp_path
+):
+    # test_lead_bucket_extends_the_trackers_four_with_beyond_24h
     # test_lead_bucket_extends_the_trackers_four_with_beyond_24h
     for lead, bucket in [
         (0.0, "0-5 min"),
@@ -158,6 +161,37 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h():
         row = eh["import"]["primary"]["0-5 min"]
         assert len(row) == len(peh.COMPACT_COLUMNS)
 
+    # test_a_persistent_failure_warns_once_not_every_cycle: A failure that persists would otherwise log a WARNING every 15 s.
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        mp.setattr(peh, "_WARNED", set())
+        with (
+            isolated_state_paths(solver_writer),
+            patch.object(peh, "summarise", side_effect=RuntimeError("boom")),
+        ):
+            for i in range(3):
+                _cycle(NOW + timedelta(minutes=5 * i))
+        assert caplog.text.count("price error history failed: boom") == 1
+
+    # test_an_unwritable_state_file_is_reported_once: The cron copy's default path is under a root-owned /opt, where a first
+    caplog.clear()
+    tmp_2 = tmp_path / "test_an_unwritable_state_file_is_reported_once"
+    tmp_2.mkdir()
+    with monkeypatch.context() as mp:
+        mp.setattr(peh, "_WARNED", set())
+        sw = SimpleNamespace(PRICE_ERROR_HISTORY_PATH=str(tmp_2 / "missing" / "x.json"))
+        hist = peh.PriceErrorHistory.from_dict(None)
+        peh._save(sw, hist)
+        peh._save(sw, hist)
+        assert caplog.text.count("price error history not saved") == 1
+
+    # test_a_stale_source_settled_price_is_not_graded: apply_price_consolidation() is handed None when the source is on its
+    start = _key_on_stride(True) - timedelta(minutes=5) + timedelta(seconds=10)
+    with isolated_state_paths(solver_writer):
+        for i in range(4):
+            result = _cycle(start + timedelta(minutes=5 * i), settled_import=None)
+    assert "primary" not in result["error_history"]["import"]
+
 
 # -- recording and settling ------------------------------------------------------
 
@@ -230,40 +264,6 @@ def _cycle(now, settled_import=0.31, cfg=None):
         ["primary"] * 4,
         ["primary"] * 4,
     )
-
-
-def test_a_persistent_failure_warns_once_not_every_cycle(caplog, monkeypatch):
-    """A failure that persists would otherwise log a WARNING every 15 s."""
-    monkeypatch.setattr(peh, "_WARNED", set())
-    with (
-        isolated_state_paths(solver_writer),
-        patch.object(peh, "summarise", side_effect=RuntimeError("boom")),
-    ):
-        for i in range(3):
-            _cycle(NOW + timedelta(minutes=5 * i))
-    assert caplog.text.count("price error history failed: boom") == 1
-
-
-def test_an_unwritable_state_file_is_reported_once(caplog, monkeypatch, tmp_path):
-    """The cron copy's default path is under a root-owned /opt, where a first
-    write fails until the file is pre-created. That used to be swallowed by
-    `except OSError: pass`, so the history silently never persisted."""
-    monkeypatch.setattr(peh, "_WARNED", set())
-    sw = SimpleNamespace(PRICE_ERROR_HISTORY_PATH=str(tmp_path / "missing" / "x.json"))
-    hist = peh.PriceErrorHistory.from_dict(None)
-    peh._save(sw, hist)
-    peh._save(sw, hist)
-    assert caplog.text.count("price error history not saved") == 1
-
-
-def test_a_stale_source_settled_price_is_not_graded():
-    """apply_price_consolidation() is handed None when the source is on its
-    AEMO fallback (#1793); nothing is graded, exactly as for the tracker."""
-    start = _key_on_stride(True) - timedelta(minutes=5) + timedelta(seconds=10)
-    with isolated_state_paths(solver_writer):
-        for i in range(4):
-            result = _cycle(start + timedelta(minutes=5 * i), settled_import=None)
-    assert "primary" not in result["error_history"]["import"]
 
 
 # -- the real main() -------------------------------------------------------------

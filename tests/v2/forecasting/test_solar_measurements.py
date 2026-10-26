@@ -74,6 +74,7 @@ def _nowcast(now, anchor, forecast, cfg=NOWCAST):
 
 
 def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(state):
+    # test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing
     for cfg in [
         {**NOWCAST, "solver_nowcast_measurement_enabled": False},
         {**NOWCAST, "solver_solar_power_sensor": None},
@@ -81,16 +82,12 @@ def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
         assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
         assert state.readings["calls"] == 0 and state.empty()
 
-
-def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
+    # test_an_event_not_yet_due_stays_queued_and_reads_nothing
     _nowcast(NOON, 1.78, 15.89)
     _nowcast(NOON, 1.78, 15.89)
     assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
 
-
-def test_twilight_levels_are_not_even_considered(state):
-    """3.6 kW against 0.4 at first light clears the bar on arithmetic and
-    means nothing physically; it must not dilute the rate either."""
+    # test_twilight_levels_are_not_even_considered: 3.6 kW against 0.4 at first light clears the bar on arithmetic and
     result, _ = _nowcast(datetime(2026, 9, 27, 5, 45, tzinfo=BRISBANE), 0.4, 3.6)
     assert state.read()["nowcast_pending"] == []
     assert (
@@ -99,11 +96,7 @@ def test_twilight_levels_are_not_even_considered(state):
         result["disagreement_now_kw"],
     ) == (0, None, None)
 
-
-def test_once_reality_arrives_the_closer_of_the_two_is_recorded(state):
-    """The event that opened #1259: the forecast was closer by 8x, which is
-    why the anchor is not blended forward. The reverse must be recordable
-    too, or the instrument measures nothing."""
+    # test_once_reality_arrives_the_closer_of_the_two_is_recorded: The event that opened #1259: the forecast was closer by 8x, which is
     for actual, closer, anchor_err, forecast_err in [
         (17.875, "forecast", 16.095, 1.985),
         (2.10, "anchor", None, None),
@@ -125,8 +118,7 @@ def test_once_reality_arrives_the_closer_of_the_two_is_recorded(state):
             )
         assert state.read()["nowcast_pending"] == []
 
-
-def test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie(state):
+    # test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie
     _r, grid = _nowcast(NOON, 1.78, 15.89)
     state.readings["rows"] = []
     result, _ = _nowcast(grid[1], 15.89, 15.89)
@@ -172,6 +164,7 @@ def test_an_hour_ahead_prediction_is_graded_into_a_ratio(
 
 
 def test_a_small_forecast_is_dropped_not_graded(state):
+    # test_a_small_forecast_is_dropped_not_graded
     dawn = datetime(2026, 8, 25, 6, 0, tzinfo=BRISBANE)
     _ratio(dawn, forecast_kw=1.0)  # under the 5 kW floor
     calls = state.readings["calls"]
@@ -183,8 +176,7 @@ def test_a_small_forecast_is_dropped_not_graded(state):
     )
     assert state.readings["calls"] == calls
 
-
-def test_impossible_or_stale_ratios_are_dropped(state):
+    # test_impossible_or_stale_ratios_are_dropped
     for ratios, kept in [
         ([("now", 1121.05), ("now", 0.9)], 0.9),  # a unit mix-up's ratio is dropped
         ([("stale", 0.5), ("fresh", 0.9)], 0.9),  # the window rolls

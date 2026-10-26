@@ -22,6 +22,7 @@ SITE = [
 
 def test_the_unmutated_site_balances():
     # test_the_unmutated_site_balances
+    # test_the_unmutated_site_balances
     assert abs(site_grid_kw(SITE)) <= TOL
 
     # test_accounting_mutation_adding_the_ac_ev_twice_fails
@@ -84,11 +85,7 @@ def test_the_unmutated_site_balances():
     flattened = [Node("house", 14.0), Node("pool", 2.0)]  # inclusion lost
     assert abs(inclusive_demand_kw(flattened) - inclusive_demand_kw(nodes)) > TOL
 
-
-# F04, F05, F09, F11 negative controls -----------------------------------
-
-
-def test_dependency_mutation_closing_a_cycle_is_rejected():
+    # test_dependency_mutation_closing_a_cycle_is_rejected
     # test_dependency_mutation_closing_a_cycle_is_rejected
     from tests.device_contract.oracles_structure import dependency_problems
 
@@ -166,15 +163,7 @@ def test_dependency_mutation_closing_a_cycle_is_rejected():
     assert abs(sum(r[1] for r in clamped.values()) - 14.0) > TOL
     assert decomposition_verdict(series, inside).negative == {"circuit": [1]}
 
-
-# F02 shared-limit negative controls ---------------------------------------
-
-
-# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
-# overlap ----------------------------------------------------------------------
-
-
-def test_boundary_mutation_moving_a_child_to_dc_is_rejected():
+    # test_boundary_mutation_moving_a_child_to_dc_is_rejected
     # test_boundary_mutation_moving_a_child_to_dc_is_rejected
     from tests.device_contract.oracles_accounting import Party, inclusion_problems
 
@@ -214,3 +203,13 @@ def test_boundary_mutation_moving_a_child_to_dc_is_rejected():
     assert possible_undeclared_inclusion(child, parent, hours)
     shuffled = child[12:] + child[:12]  # same values, wrong hours
     assert not possible_undeclared_inclusion(shuffled, parent, hours)
+
+
+# F04, F05, F09, F11 negative controls -----------------------------------
+
+
+# F02 shared-limit negative controls ---------------------------------------
+
+
+# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
+# overlap ----------------------------------------------------------------------

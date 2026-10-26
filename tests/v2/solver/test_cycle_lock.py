@@ -13,6 +13,7 @@ import time
 
 import pytest
 from solver import cycle_lock
+from solver import lp as _solver_lp
 
 
 @pytest.fixture
@@ -53,7 +54,9 @@ def _pid_in(path):
         return f.read()
 
 
-def test_a_second_thread_is_refused_until_the_first_releases(lock_path):
+def test_a_second_thread_is_refused_until_the_first_releases(lock_path, monkeypatch):
+    # test_a_second_thread_is_refused_until_the_first_releases
+    _solver_lp._lex_calibration_failed_until = 0.0
     assert cycle_lock.acquire_lock(lock_path)
     assert _pid_in(lock_path) == str(os.getpid())
     assert not _on_another_thread(lock_path)
@@ -65,8 +68,8 @@ def test_a_second_thread_is_refused_until_the_first_releases(lock_path):
         assert cycle_lock.acquire_lock(lock_path)
         cycle_lock.release_lock(lock_path)
 
-
-def test_exactly_one_of_many_simultaneous_threads_wins(lock_path):
+    # test_exactly_one_of_many_simultaneous_threads_wins
+    _solver_lp._lex_calibration_failed_until = 0.0
     start = threading.Barrier(12)
     wins = []
 
@@ -81,51 +84,51 @@ def test_exactly_one_of_many_simultaneous_threads_wins(lock_path):
         t.join(10)
     assert sorted(wins) == [False] * 11 + [True]
 
+    # test_a_live_process_in_the_pid_file_blocks_and_the_thread_lock_is_let_go
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        _pid_file(lock_path, str(os.getpid() + 1))
+        mp.setattr(cycle_lock.os, "kill", lambda pid, sig: None)  # alive
+        assert not cycle_lock.acquire_lock(lock_path)
+        os.remove(lock_path)
+        # The refusal released the process-local lock: nothing is wedged.
+        assert _on_another_thread(lock_path)
 
-def test_a_live_process_in_the_pid_file_blocks_and_the_thread_lock_is_let_go(
-    lock_path, monkeypatch
-):
-    _pid_file(lock_path, str(os.getpid() + 1))
-    monkeypatch.setattr(cycle_lock.os, "kill", lambda pid, sig: None)  # alive
-    assert not cycle_lock.acquire_lock(lock_path)
-    os.remove(lock_path)
-    # The refusal released the process-local lock: nothing is wedged.
-    assert _on_another_thread(lock_path)
+    # test_a_pid_file_nobody_is_using_is_reclaimed
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        for content in ["{other}", "not a pid", ""]:
+            with mp.context() as mp:
+                _pid_file(lock_path, content.format(other=os.getpid() + 1))
+                mp.setattr(cycle_lock.os, "kill", _dead)
+                assert cycle_lock.acquire_lock(lock_path)
+                assert _pid_in(lock_path) == str(os.getpid())
+
+    # test_a_stale_file_naming_this_very_process_is_reclaimed: Left by an unclean stop: this process is alive, so asking the OS
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        asked = []
+        mp.setattr(cycle_lock.os, "kill", lambda pid, sig: asked.append(pid))
+        _pid_file(lock_path, str(os.getpid()))
+        assert cycle_lock.acquire_lock(lock_path)
+        assert asked == []
+
+    # test_releasing_what_was_never_taken_is_harmless
+    _solver_lp._lex_calibration_failed_until = 0.0
+    cycle_lock.release_lock(lock_path)
+    assert cycle_lock.acquire_lock(lock_path)
+
+    # test_the_writers_own_lock_is_the_one_at_its_lock_path
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        import solver_writer as sw
+
+        mp.setattr(sw, "LOCK_PATH", lock_path)
+        assert sw._IN_PROCESS_LOCK is cycle_lock._IN_PROCESS_LOCK
+        assert sw.acquire_lock() and _pid_in(lock_path) == str(os.getpid())
+        sw.release_lock()
+        assert not os.path.exists(lock_path)
 
 
 def _dead(pid, sig):
     raise ProcessLookupError
-
-
-def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch):
-    for content in ["{other}", "not a pid", ""]:
-        with monkeypatch.context() as mp:
-            _pid_file(lock_path, content.format(other=os.getpid() + 1))
-            mp.setattr(cycle_lock.os, "kill", _dead)
-            assert cycle_lock.acquire_lock(lock_path)
-            assert _pid_in(lock_path) == str(os.getpid())
-
-
-def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypatch):
-    """Left by an unclean stop: this process is alive, so asking the OS
-    whether that PID runs would say yes and wedge every solve after."""
-    asked = []
-    monkeypatch.setattr(cycle_lock.os, "kill", lambda pid, sig: asked.append(pid))
-    _pid_file(lock_path, str(os.getpid()))
-    assert cycle_lock.acquire_lock(lock_path)
-    assert asked == []
-
-
-def test_releasing_what_was_never_taken_is_harmless(lock_path):
-    cycle_lock.release_lock(lock_path)
-    assert cycle_lock.acquire_lock(lock_path)
-
-
-def test_the_writers_own_lock_is_the_one_at_its_lock_path(lock_path, monkeypatch):
-    import solver_writer as sw
-
-    monkeypatch.setattr(sw, "LOCK_PATH", lock_path)
-    assert sw._IN_PROCESS_LOCK is cycle_lock._IN_PROCESS_LOCK
-    assert sw.acquire_lock() and _pid_in(lock_path) == str(os.getpid())
-    sw.release_lock()
-    assert not os.path.exists(lock_path)

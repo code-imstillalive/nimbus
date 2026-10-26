@@ -51,6 +51,7 @@ def flat(h):
 
 def test_each_kind_of_energy_source_is_read_with_its_own_fields():
     # test_each_kind_of_energy_source_is_read_with_its_own_fields
+    # test_each_kind_of_energy_source_is_read_with_its_own_fields
     prefs = {
         "energy_sources": [
             {
@@ -242,25 +243,7 @@ def test_each_kind_of_energy_source_is_read_with_its_own_fields():
         0.0
     )
 
-
-# --- integrating history --------------------------------------------------------------------
-
-
-# --- matching a power sensor to an energy counter ---------------------------------------------
-
-
-# --- the site's energy balance -------------------------------------------------------------------
-
-
-def _site(n=24):
-    load = [2.0 + (i % 3) for i in range(n)]
-    sol = [3.0 if 6 <= i < 18 else 0.0 for i in range(n)]
-    bat = [0.5 if i % 2 else -0.5 for i in range(n)]
-    grid = [load[i] - sol[i] - bat[i] for i in range(n)]
-    return load, sol, bat, grid
-
-
-def test_one_change_that_closes_the_balance_is_named():
+    # test_one_change_that_closes_the_balance_is_named
     # test_one_change_that_closes_the_balance_is_named
     for change, explanation in [
         (
@@ -294,3 +277,20 @@ def test_one_change_that_closes_the_balance_is_named():
         load, sol, bat, [g + 7.0 * ((i % 5) - 2) for i, g in enumerate(grid)]
     )
     assert v.explanation in ("unexplained", dr.AMBIGUOUS) and not v.ok
+
+
+# --- integrating history --------------------------------------------------------------------
+
+
+# --- matching a power sensor to an energy counter ---------------------------------------------
+
+
+# --- the site's energy balance -------------------------------------------------------------------
+
+
+def _site(n=24):
+    load = [2.0 + (i % 3) for i in range(n)]
+    sol = [3.0 if 6 <= i < 18 else 0.0 for i in range(n)]
+    bat = [0.5 if i % 2 else -0.5 for i in range(n)]
+    grid = [load[i] - sol[i] - bat[i] for i in range(n)]
+    return load, sol, bat, grid

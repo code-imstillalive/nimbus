@@ -86,6 +86,7 @@ def views(monkeypatch):
 
 
 def test_each_schedule_sensor_publishes_its_own_figure(views):
+    # test_each_schedule_sensor_publishes_its_own_figure
     for name in sorted(SCHEDULE):
         suffix, value = SCHEDULE[name]
         s = getattr(sm, name)(
@@ -100,8 +101,7 @@ def test_each_schedule_sensor_publishes_its_own_figure(views):
         if "Cost" in name:
             assert s.native_unit_of_measurement == "AUD"
 
-
-def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
+    # test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price
     tank = SimpleNamespace(
         state="eco", attributes={"current_temperature": 58.5, "temperature": 60.0}
     )
@@ -133,8 +133,7 @@ def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
     assert kw["tank_current_temperature"] == 58.5
     assert kw["done_condition_met"] is False  # 58.5 is below its own 60 setpoint
 
-
-def test_todays_mean_import_price_reads_only_todays_plan():
+    # test_todays_mean_import_price_reads_only_todays_plan
     # test_todays_mean_import_price_reads_only_todays_plan
     for forecast, mean in [
         (None, None),

@@ -103,7 +103,10 @@ def baseline():
     return _assemble(**_inputs())
 
 
-def test_a_forecast_swapped_with_its_own_band_cannot_build():
+def test_a_forecast_swapped_with_its_own_band_cannot_build(
+    diagnostic_on, caplog, monkeypatch, cadence
+):
+    # test_a_forecast_swapped_with_its_own_band_cannot_build
     for a, b in [
         ("load_kw", "load_lower_kw"),
         ("load_kw", "load_upper_kw"),
@@ -114,6 +117,103 @@ def test_a_forecast_swapped_with_its_own_band_cannot_build():
         kwargs[a], kwargs[b] = kwargs[b], kwargs[a]
         with pytest.raises(ValueError, match="confidence band"):
             _assemble(**kwargs)
+
+    # test_a_previous_first_period_the_reserve_forbids_is_named_and_changes_nothing: Half a kWh above the floor, cheap import now: the solve charges. The
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        kwargs = _inputs(LowEnvelope)
+        free = _assemble(**kwargs)
+        net0 = float(free.plan.battery_discharge_kw[0]) - float(
+            free.plan.battery_charge_kw[0]
+        )
+        assert net0 < -0.05
+        previous = _with_period0(free.plan, 5.0)
+        records = []
+        real = solver_plan.period0_crossing_delta
+
+        def spy(*a, **kw):
+            records.append(real(*a, **kw))
+            return records[-1]
+
+        mp.setattr(solver_plan, "period0_crossing_delta", spy)
+        with caplog.at_level(logging.DEBUG, logger=diagnostic_on.name):
+            on = _assemble(**dict(kwargs, previous_plan=previous))
+        record = records[-1]
+        assert (record["pinned_status"], record["delta_objective"]) == (
+            "infeasible",
+            None,
+        )
+        assert [b.split(":", 1)[0] for b in record["pinned_blockers"]] == [
+            "discharge_reserve"
+        ]
+        assert record["pinned_participant"] == "home"
+        assert "blocked_by(home)=discharge_reserve:" in caplog.text
+        diagnostic_on.setLevel(logging.INFO)
+        off = _assemble(**dict(kwargs, previous_plan=previous))
+        assert _fingerprint(on) == _fingerprint(off)
+
+    # test_the_first_solve_of_each_wall_clock_interval_ranges_and_the_rest_defer
+    first = _at(ON)
+    assert first.plan.grid_signals is not None and not first.flex_ranging_deferred
+    later = _at(ON, NOW + timedelta(seconds=17))
+    assert later.plan.grid_signals is None and later.flex_ranging_deferred
+    assert not _at(ON, NOW + timedelta(minutes=5)).flex_ranging_deferred
+    # UTC 5-minute slots, not five minutes since the last ranging.
+    sw.reset_flex_ranging_cadence()
+    edge = NOW.replace(minute=4, second=50)
+    _at(ON, edge)
+    assert not _at(ON, edge + timedelta(seconds=20)).flex_ranging_deferred
+
+    # test_a_deferred_cycle_holds_the_last_real_signals
+    with monkeypatch.context() as mp:
+        posted = _posts(mp)
+        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
+        assert posted == []  # nothing to hold yet
+        sw.publish_flex_signals(_at(ON).plan, hold_last=False)
+        (real,) = posted
+        assert real[0] == "sensor.nimbus_flex_signals"
+        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
+        assert posted[-1] == real  # the same payload, its own generated_at kept
+        sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=False)
+        assert len(posted) == 2  # switched off: nothing posted
+
+    # test_a_deferred_cycle_holds_the_last_telemetry_record
+    with monkeypatch.context() as mp:
+        publish.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
+        record = {"interval_start_utc": "2026-09-28T02:00:00Z"}
+        kw = {
+            "batteries": [],
+            "import_price": 0.1,
+            "export_price": 0.05,
+            "import_limit_kw": 15.0,
+            "export_limit_kw": 30.0,
+            "period_hours": 0.5,
+        }
+        posted = _posts(mp)
+        mp.setattr(
+            sw,
+            "build_flex_telemetry_record",
+            lambda *a, **k: SimpleNamespace(
+                record=record, reason="", clamped_fields=()
+            ),
+        )
+        publish.publish_flex_telemetry_record({}, None, NOW, **kw)
+        first = posted[-1]
+        mp.setattr(
+            sw,
+            "build_flex_telemetry_record",
+            lambda *a, **k: SimpleNamespace(
+                record=None, reason="no ranging", clamped_fields=()
+            ),
+        )
+        publish.publish_flex_telemetry_record({}, None, NOW, hold_last=True, **kw)
+        assert posted[-1] == first
+        publish.publish_flex_telemetry_record({}, None, NOW, hold_last=False, **kw)
+        # #1634: not held -- the reason is published, never the stale record.
+        assert posted[-1][1] == "no_record"
+        assert posted[-1][2]["last_record_interval"] == record["interval_start_utc"]
 
 
 # --- the period-0 diagnostic (#1417, #1577) ---------------------------------------------------
@@ -137,40 +237,6 @@ def _with_period0(plan, net_kw):
     )
 
 
-def test_a_previous_first_period_the_reserve_forbids_is_named_and_changes_nothing(
-    diagnostic_on, caplog, monkeypatch
-):
-    """Half a kWh above the floor, cheap import now: the solve charges. The
-    previous plan said discharge 5 kW, which the reserve row forbids."""
-    kwargs = _inputs(LowEnvelope)
-    free = _assemble(**kwargs)
-    net0 = float(free.plan.battery_discharge_kw[0]) - float(
-        free.plan.battery_charge_kw[0]
-    )
-    assert net0 < -0.05
-    previous = _with_period0(free.plan, 5.0)
-    records = []
-    real = solver_plan.period0_crossing_delta
-
-    def spy(*a, **kw):
-        records.append(real(*a, **kw))
-        return records[-1]
-
-    monkeypatch.setattr(solver_plan, "period0_crossing_delta", spy)
-    with caplog.at_level(logging.DEBUG, logger=diagnostic_on.name):
-        on = _assemble(**dict(kwargs, previous_plan=previous))
-    record = records[-1]
-    assert (record["pinned_status"], record["delta_objective"]) == ("infeasible", None)
-    assert [b.split(":", 1)[0] for b in record["pinned_blockers"]] == [
-        "discharge_reserve"
-    ]
-    assert record["pinned_participant"] == "home"
-    assert "blocked_by(home)=discharge_reserve:" in caplog.text
-    diagnostic_on.setLevel(logging.INFO)
-    off = _assemble(**dict(kwargs, previous_plan=previous))
-    assert _fingerprint(on) == _fingerprint(off)
-
-
 # --- flex ranging once per 5-minute interval (#489) ------------------------------------------
 
 ON = {**CFG, "solver_flex_signals_enabled": True}
@@ -188,71 +254,7 @@ def cadence():
     sw.reset_flex_ranging_cadence()
 
 
-def test_the_first_solve_of_each_wall_clock_interval_ranges_and_the_rest_defer(
-    cadence,
-):
-    first = _at(ON)
-    assert first.plan.grid_signals is not None and not first.flex_ranging_deferred
-    later = _at(ON, NOW + timedelta(seconds=17))
-    assert later.plan.grid_signals is None and later.flex_ranging_deferred
-    assert not _at(ON, NOW + timedelta(minutes=5)).flex_ranging_deferred
-    # UTC 5-minute slots, not five minutes since the last ranging.
-    sw.reset_flex_ranging_cadence()
-    edge = NOW.replace(minute=4, second=50)
-    _at(ON, edge)
-    assert not _at(ON, edge + timedelta(seconds=20)).flex_ranging_deferred
-
-
 def _posts(monkeypatch):
     posted = []
     monkeypatch.setattr(sw, "ha_post_state", lambda *a, **kw: posted.append(a))
     return posted
-
-
-def test_a_deferred_cycle_holds_the_last_real_signals(cadence, monkeypatch):
-    posted = _posts(monkeypatch)
-    sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
-    assert posted == []  # nothing to hold yet
-    sw.publish_flex_signals(_at(ON).plan, hold_last=False)
-    (real,) = posted
-    assert real[0] == "sensor.nimbus_flex_signals"
-    sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=True)
-    assert posted[-1] == real  # the same payload, its own generated_at kept
-    sw.publish_flex_signals(SimpleNamespace(grid_signals=None), hold_last=False)
-    assert len(posted) == 2  # switched off: nothing posted
-
-
-def test_a_deferred_cycle_holds_the_last_telemetry_record(monkeypatch):
-    publish.publish_flex_telemetry_record.__globals__[
-        "_LAST_FLEX_TELEMETRY_NO_RECORD"
-    ].clear()
-    record = {"interval_start_utc": "2026-09-28T02:00:00Z"}
-    kw = {
-        "batteries": [],
-        "import_price": 0.1,
-        "export_price": 0.05,
-        "import_limit_kw": 15.0,
-        "export_limit_kw": 30.0,
-        "period_hours": 0.5,
-    }
-    posted = _posts(monkeypatch)
-    monkeypatch.setattr(
-        sw,
-        "build_flex_telemetry_record",
-        lambda *a, **k: SimpleNamespace(record=record, reason="", clamped_fields=()),
-    )
-    publish.publish_flex_telemetry_record({}, None, NOW, **kw)
-    first = posted[-1]
-    monkeypatch.setattr(
-        sw,
-        "build_flex_telemetry_record",
-        lambda *a, **k: SimpleNamespace(
-            record=None, reason="no ranging", clamped_fields=()
-        ),
-    )
-    publish.publish_flex_telemetry_record({}, None, NOW, hold_last=True, **kw)
-    assert posted[-1] == first
-    publish.publish_flex_telemetry_record({}, None, NOW, hold_last=False, **kw)
-    # #1634: not held -- the reason is published, never the stale record.
-    assert posted[-1][1] == "no_record"
-    assert posted[-1][2]["last_record_interval"] == record["interval_start_utc"]

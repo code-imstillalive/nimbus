@@ -124,7 +124,10 @@ def site(monkeypatch, tmp_path):
     store.reset_decision_inputs_cache()
 
 
-def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(site):
+def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(
+    site, monkeypatch
+):
+    # test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters
     kinds = []
     for minutes, kw in (
         (0, 2.0),
@@ -151,8 +154,7 @@ def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(site):
     )
     assert len(out["records"][0]["rows"]["time"]) == 48
 
-
-def test_an_export_window_must_be_forward_and_at_most_a_day(site):
+    # test_an_export_window_must_be_forward_and_at_most_a_day
     for start, end, says in [
         (T0, T0, "after start"),
         (T0, T0 + timedelta(hours=25), "at most"),
@@ -160,26 +162,24 @@ def test_an_export_window_must_be_forward_and_at_most_a_day(site):
         with pytest.raises(ValueError, match=says):
             site.export(start, end)
 
-
-def test_nothing_is_captured_without_a_published_plan(site):
+    # test_nothing_is_captured_without_a_published_plan
     assert site.capture() is None
     site.publish(0, 2.0)
     site.states["sensor.nimbus_solver_battery_forecast"].attributes["forecast"] = []
     assert site.capture() is None
 
+    # test_the_plan_this_install_posted_is_preferred
+    with monkeypatch.context() as mp:
+        mp.setattr(shared.NATIVE, "hass", site.hass)
+        mp.setitem(
+            shared._LAST_POSTED, store._PLAN_ENTITY, (1.0, {"forecast": _rows(0.0, 4)})
+        )
+        mp.setitem(shared._LAST_POSTED_AT, store._PLAN_ENTITY, T0)
+        assert site.capture() == "horizon"
+        out = site.export(T0, T0 + timedelta(hours=1))
+        assert len(out["records"][0]["rows"]["time"]) == 4
 
-def test_the_plan_this_install_posted_is_preferred(site, monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", site.hass)
-    monkeypatch.setitem(
-        shared._LAST_POSTED, store._PLAN_ENTITY, (1.0, {"forecast": _rows(0.0, 4)})
-    )
-    monkeypatch.setitem(shared._LAST_POSTED_AT, store._PLAN_ENTITY, T0)
-    assert site.capture() == "horizon"
-    out = site.export(T0, T0 + timedelta(hours=1))
-    assert len(out["records"][0]["rows"]["time"]) == 4
-
-
-def test_dispatch_class_uses_the_automations_own_deadband():
+    # test_dispatch_class_uses_the_automations_own_deadband
     # test_dispatch_class_uses_the_automations_own_deadband
     for kw, cls in [
         (0.06, "discharge"),

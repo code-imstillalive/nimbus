@@ -94,6 +94,7 @@ def _run(coro):
 
 
 def test_todays_plan_is_captured_once_and_survives_a_restart(store):
+    # test_todays_plan_is_captured_once_and_survives_a_restart
     hass = _hass(_rows(store["now"]))
     assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is True
     assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is False  # once a day
@@ -106,8 +107,7 @@ def test_todays_plan_is_captured_once_and_survives_a_restart(store):
     assert _run(fss.async_load_snapshot(hass, "E1", key)) == snap
     assert _run(fss.async_load_snapshot(hass, "E1", "1999-01-01")) is None
 
-
-def test_nothing_usable_published_is_no_snapshot(store):
+    # test_nothing_usable_published_is_no_snapshot
     for rows in [
         None,
         [],
@@ -118,8 +118,7 @@ def test_nothing_usable_published_is_no_snapshot(store):
         assert _run(fss.async_capture_todays_snapshot(_hass(rows), "E1")) is False
         assert Disk.saves == []
 
-
-def test_a_failing_store_never_raises(store):
+    # test_a_failing_store_never_raises
     Disk.fail_load = True
     hass = _hass(_rows(store["now"]))
     assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is False

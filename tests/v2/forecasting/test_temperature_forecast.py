@@ -72,7 +72,8 @@ def _make_bare_coordinator() -> NimbusCoordinator:
 # -- weather.* path, the real #123 fix ----------------------------------------
 
 
-def test_weather_domain_entity_not_in_response_returns_empty():
+def test_weather_domain_entity_not_in_response_returns_empty(caplog):
+    # test_weather_domain_entity_not_in_response_returns_empty
     # test_weather_domain_entity_not_in_response_returns_empty
     # A real, plausible shape if the response somehow omits the entity
     # (defensive -- shouldn't happen for a single-entity target, but
@@ -96,15 +97,8 @@ def test_weather_domain_entity_not_in_response_returns_empty():
     assert result.minute == 0
     assert result.day == 24
 
-
-# -- #269 mitigation B: warn on state-change, not just the first-ever tick ---
-
-
-def test_recovery_logs_info_and_a_later_failure_re_warns(caplog):
-    """Case 4 from issue #269: fail once, then succeed -- one INFO on
-    recovery, and confirms a LATER failure re-fires the WARNING (state-
-    change on both edges, not a one-shot that's now permanently spent).
-    """
+    # test_recovery_logs_info_and_a_later_failure_re_warns: Case 4 from issue #269: fail once, then succeed -- one INFO on
+    caplog.clear()
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.flaky"})
     coord.hass = MagicMock()
@@ -134,16 +128,7 @@ def test_recovery_logs_info_and_a_later_failure_re_warns(caplog):
     assert len(warnings) == 1
     assert "stopped yielding" in warnings[0].getMessage()
 
-
-# -- #269 mitigation A: cache the last-good forecast across ticks -------------
-
-
-def test_cache_hit_rescues_a_transient_failure():
-    """Populate the cache with a successful fetch, then make the SAME
-    entity fail -- the cached, still-future values are returned instead
-    of an empty list, so that cycle's training isn't degraded to zero
-    signal by a purely transient failure.
-    """
+    # test_cache_hit_rescues_a_transient_failure: Populate the cache with a successful fetch, then make the SAME
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"})
     coord.hass = MagicMock()
@@ -164,3 +149,9 @@ def test_cache_hit_rescues_a_transient_failure():
     coord.hass.services.async_call = AsyncMock(side_effect=RuntimeError("transient"))
     rescued = asyncio.run(coord._async_fetch_temperature_forecast())
     assert [t for _, t in rescued] == [21.0, 22.5]
+
+
+# -- #269 mitigation B: warn on state-change, not just the first-ever tick ---
+
+
+# -- #269 mitigation A: cache the last-good forecast across ticks -------------

@@ -6,6 +6,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from solver import lp as _solver_lp
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
@@ -17,17 +19,17 @@ from custom_components.nimbus_load.solver import lp as lp_mod
 
 class TestTheFieldExists(unittest.TestCase):
     def test_lpresult_carries_the_weight(self):
+        # test_lpresult_carries_the_weight
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn("calibration_weight_used", lp_mod.LPResult.__dataclass_fields__)
 
-    def test_it_defaults_to_None(self):
-        """None means "no calibration ran", the same posture as the two
-        sibling #1179 fields. A default of 0.0 or 1.0 would be a claim."""
+        # test_it_defaults_to_None: None means "no calibration ran", the same posture as the two
+        _solver_lp._lex_calibration_failed_until = 0.0
         field = lp_mod.LPResult.__dataclass_fields__["calibration_weight_used"]
         self.assertIsNone(field.default)
 
-    def test_it_sits_beside_its_two_siblings(self):
-        """Grouped deliberately -- all three are #1179 diagnostics and are
-        read together when an episode recurs."""
+        # test_it_sits_beside_its_two_siblings: Grouped deliberately -- all three are #1179 diagnostics and are
+        _solver_lp._lex_calibration_failed_until = 0.0
         names = list(lp_mod.LPResult.__dataclass_fields__)
         i = names.index("calibration_weight_used")
         neighbourhood = names[max(0, i - 3) : i + 1]

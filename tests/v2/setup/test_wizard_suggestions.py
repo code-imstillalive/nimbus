@@ -68,6 +68,7 @@ ENERGY = {"device_class": "energy", "state_class": "total_increasing"}
 
 
 def test_the_solver_pages_take_the_dashboards_battery_soc_and_grid_prices(dashboard):
+    # test_the_solver_pages_take_the_dashboards_battery_soc_and_grid_prices
     dashboard["energy_sources"] = [
         {"type": "battery", "stat_soc": "sensor.soc"},
         {
@@ -89,8 +90,7 @@ def test_the_solver_pages_take_the_dashboards_battery_soc_and_grid_prices(dashbo
         const.CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.buy",
     }
 
-
-def test_a_soc_that_is_not_a_battery_percentage_is_not_suggested(dashboard):
+    # test_a_soc_that_is_not_a_battery_percentage_is_not_suggested
     dashboard["energy_sources"] = [
         {"type": "battery", "stat_soc": "sensor.soc"},
         "junk",
@@ -104,8 +104,7 @@ def test_a_soc_that_is_not_a_battery_percentage_is_not_suggested(dashboard):
         == {}
     )
 
-
-def test_the_switchboard_takes_energy_totals_and_monetary_prices_only(dashboard):
+    # test_the_switchboard_takes_energy_totals_and_monetary_prices_only
     dashboard["energy_sources"] = [
         {
             "type": "grid",
@@ -138,14 +137,12 @@ def test_the_switchboard_takes_energy_totals_and_monetary_prices_only(dashboard)
         const.CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: "sensor.in",
     }
 
-
-def test_without_an_energy_dashboard_the_forms_are_simply_empty(dashboard):
+    # test_without_an_energy_dashboard_the_forms_are_simply_empty
     dashboard["broken"] = True
     assert asyncio.run(ho._energy_dashboard_solver_source_suggestions(_hass())) == {}
     assert asyncio.run(ho._energy_dashboard_switchboard_suggestions(_hass())) == {}
 
-
-def test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household():
+    # test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household
     # test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household
     one = _hass(
         _state("sensor.t", device_class="temperature"),
@@ -192,8 +189,7 @@ def test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household
     broken = SimpleNamespace(states=SimpleNamespace(async_all=lambda domain: 1 / 0))
     assert ho._discover_nimbus_load_forecast_candidates(broken) == ([], [])
 
-
-def test_a_battery_tower_soc_is_suggested_from_the_dashboard(dashboard):
+    # test_a_battery_tower_soc_is_suggested_from_the_dashboard
     dashboard["energy_sources"] = [{"type": "battery", "stat_soc": "sensor.tower_soc"}]
     hass = _hass(
         _state(
