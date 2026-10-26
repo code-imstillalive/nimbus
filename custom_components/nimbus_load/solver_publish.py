@@ -1224,6 +1224,13 @@ def _dispatch_hold(
     return abs(grid_import_kw - grid_export_kw) > DISPATCH_HOLD_GRID_KW
 
 
+# nimbus #2066: the solar-charge flag's own thresholds, separate from the
+# hold ones above so retuning either leaves the other alone (Mark Purcell's
+# review of #2067). Same 0.05 kW deadband today.
+DISPATCH_SOLAR_CHARGE_BATTERY_KW = 0.05
+DISPATCH_SOLAR_CHARGE_GRID_KW = 0.05
+
+
 def _dispatch_solar_charge(
     battery_kw: float, grid_to_battery_kw: float, grid_export_kw: float
 ) -> bool:
@@ -1235,11 +1242,11 @@ def _dispatch_solar_charge(
     forced 0.8-0.9 kW charge with 0.2-0.4 kW of sun, all of it imported at
     16.8 c). When the plan also exports, the forced charge stays: self-
     consume would put that export into the battery instead."""
-    if battery_kw >= -DISPATCH_HOLD_BATTERY_KW:
+    if battery_kw >= -DISPATCH_SOLAR_CHARGE_BATTERY_KW:
         return False
-    if grid_to_battery_kw > DISPATCH_HOLD_BATTERY_KW:
+    if grid_to_battery_kw > DISPATCH_SOLAR_CHARGE_BATTERY_KW:
         return False
-    return grid_export_kw <= DISPATCH_HOLD_GRID_KW
+    return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
 
 
 # Household, 20 Oct 2026: a kW below which a planned flow counts as none, for
