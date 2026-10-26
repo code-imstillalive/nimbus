@@ -227,6 +227,9 @@ def test_a_main_plan_that_used_half_the_drive_budget_skips_the_drive(caplog):
         (None, 9.2, False),
         (40.0, 19.9, True),
     ]:
+        _solver_lp._lex_calibration_failed_until = 0.0
+        assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+        solver_plan.reset_stochastic_state()
         caplog.clear()
         kw, det, stoch = _det_and_stoch()
         cfg = {"solver_stochastic_dispatch": True}

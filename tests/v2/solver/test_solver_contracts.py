@@ -671,6 +671,7 @@ def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
     _solver_lp._lex_calibration_failed_until = 0.0
     with monkeypatch.context() as mp:
         for elapsed in [0.1, 70.0]:
+            _solver_lp._lex_calibration_failed_until = 0.0
             with mp.context() as mp:
                 lines = _timing_lines(mp, _BrokenInfoHighs(), elapsed)
                 if elapsed < lp._SLOW_LP_CALL_SECONDS:
@@ -952,6 +953,7 @@ def test_the_dump_note_says_whether_the_file_survives(monkeypatch, tmp_path, cap
     _solver_lp._lex_calibration_failed_until = 0.0
     with monkeypatch.context() as mp:
         for configured in [None, "/data/nimbus_dumps"]:
+            _solver_lp._lex_calibration_failed_until = 0.0
             with mp.context() as mp:
                 if configured is None:
                     mp.delenv(lp._LP_DUMP_DIR_ENV, raising=False)

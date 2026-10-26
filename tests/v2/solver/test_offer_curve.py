@@ -291,6 +291,7 @@ def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
     _solver_lp._lex_calibration_failed_until = 0.0
     for direction, raw, bound in [("up", 0.30, 0.60), ("down", 0.10, 0.02)]:
         for aversion in [0.0, 0.25, 0.9, 1.0]:
+            _solver_lp._lex_calibration_failed_until = 0.0
             from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
 
             band = np.array([bound])
@@ -542,6 +543,7 @@ def test_the_curves_exact_work_is_bounded(monkeypatch):
     the best one-way plan its search found instead of an exact MIP, so a
     large site's curve cannot run on (#2010's bounded secondary work)."""
     for budget, most in [(0, 0), (12, 2), (None, None)]:
+        _solver_lp._lex_calibration_failed_until = 0.0
         with monkeypatch.context() as mp:
             import copy as copy_mod
 

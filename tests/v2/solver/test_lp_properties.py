@@ -535,6 +535,7 @@ def test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so(monkeypatch):
     _solver_lp._lex_calibration_failed_until = 0.0
     with monkeypatch.context() as mp:
         for options in [LexOptions(), CalibratedOptions()]:
+            _solver_lp._lex_calibration_failed_until = 0.0
             with mp.context() as mp:
                 mp.setattr(lp, "_lex_calibration_failed_until", 0.0)
 

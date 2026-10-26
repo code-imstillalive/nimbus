@@ -41,20 +41,19 @@ def _battery(spike_kw, max_discharge_kw):
     )
 
 
-def test_otherwise_the_rate_passes_through_unchanged(caplog):
-    for spike_kw, ceiling, expected in [
-        (None, 8.0, None),
-        (6.0, 8.0, 6.0),
-        (8.0, 8.0, 8.0),
-        (12.0, 8.0, 12.0),
-    ]:
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            assert (
-                sw.clamp_spike_override_to_live_ceiling(LIVE, spike_kw, ceiling)
-                == expected
-            )
-        assert caplog.text == ""
+@pytest.mark.parametrize(
+    ("spike_kw", "ceiling", "expected"),
+    [(None, 8.0, None), (6.0, 8.0, 6.0), (8.0, 8.0, 8.0), (12.0, 8.0, 12.0)],
+    ids=["not_armed", "within", "at_the_ceiling", "above_the_static_setting"],
+)
+def test_otherwise_the_rate_passes_through_unchanged(
+    caplog, spike_kw, ceiling, expected
+):
+    with caplog.at_level(logging.WARNING):
+        assert (
+            sw.clamp_spike_override_to_live_ceiling(LIVE, spike_kw, ceiling) == expected
+        )
+    assert caplog.text == ""
 
 
 def test_the_warning_comes_once_per_episode(caplog):

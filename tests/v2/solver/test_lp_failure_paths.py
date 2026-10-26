@@ -170,6 +170,7 @@ def test_a_timed_out_mip_is_an_error_unless_it_opts_in(caplog, monkeypatch):
         ({0}, "probe_not_optimal"),
         ({1}, "probe_not_optimal"),
     ]:
+        _solver_lp._lex_calibration_failed_until = 0.0
         real = lp._calibrate_blend_weight
 
         def stricter(h, cols, primary, secondary, lex_cost, tol):

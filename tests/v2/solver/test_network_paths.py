@@ -731,6 +731,7 @@ def test_a_plan_needs_named_batteries_each_once():
     _solver_lp._lex_calibration_failed_until = 0.0
     for neighbour in [False, True]:
         for price in [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)]:
+            _solver_lp._lex_calibration_failed_until = 0.0
             n = len(price)
             plan = build_plan(
                 periods=PeriodGrid(np.ones(n)),

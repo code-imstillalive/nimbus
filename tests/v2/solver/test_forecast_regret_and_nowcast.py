@@ -80,6 +80,7 @@ def test_hindsight_is_never_beaten(regret, day):
     # test_too_little_measured_or_misaligned_input_is_no_score
     _solver_lp._lex_calibration_failed_until = 0.0
     for measured, short in [(5, False), (24, True)]:
+        _solver_lp._lex_calibration_failed_until = 0.0
         load = day["load_real_kw"][:-1] if short else day["load_real_kw"]
         assert (
             compute_load_nowcast_skill(
