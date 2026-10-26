@@ -276,6 +276,7 @@ def test_a_retrain_then_refresh_publishes_the_learned_forecast(
         else:
             assert coord._change_only_from(start, NOW) is None
 
+    # --- what is kept across restarts ------------------------------------------------
     # test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain
     tmp_6 = (
         tmp_path / "test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain"
@@ -509,6 +510,3 @@ def _site_coordinator(hass, **options):
         }
     )
     return coord
-
-
-# --- what is kept across restarts ------------------------------------------------

@@ -117,6 +117,7 @@ def test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation():
     back["devices"].reverse()
     assert dc.serialise(back) == dc.serialise(doc)
 
+    # --- #1574 "Shared hardware" ------------------------------------------------
     # test_shared_hardware_one_integration_three_logical_devices
     doc = _with(
         _minimal(),
@@ -217,9 +218,6 @@ def _derived(device_id, role, depends_on):
         "source": {"kind": "derived", "calculation": "sum", "depends_on": depends_on},
         "provenance": {"origin": "derived", "confirmed": True},
     }
-
-
-# --- #1574 "Shared hardware" ------------------------------------------------
 
 
 # --- F02, DC-001's structural slice ------------------------------------------

@@ -217,6 +217,7 @@ def test_a_timed_out_mip_is_an_error_unless_it_opts_in(caplog, monkeypatch):
         assert r.calibration_weight_used == pytest.approx(1e-12)
         assert r.failing_model_path == "model.mps"
 
+    # --- #1179: the HiGHS snapshot never breaks a failing cycle ----------------------
     # test_the_highs_snapshot_survives_any_handle: #1179: no getInfo, or one that raises, is an empty snapshot; a field
     _solver_lp._lex_calibration_failed_until = 0.0
 
@@ -237,6 +238,7 @@ def test_a_timed_out_mip_is_an_error_unless_it_opts_in(caplog, monkeypatch):
         mp.setattr(lp, "_diagnostics_quiet", lambda: True)
         assert lp._dump_failing_model(object(), "any_phase") is None
 
+    # --- #1797: absorbing one problem into another -----------------------------------
     # test_absorb_refuses_what_would_collide: #1797: an unprefixed absorb is only into an empty problem (it must
     _solver_lp._lex_calibration_failed_until = 0.0
     other = LPProblem()
@@ -340,9 +342,3 @@ def _calibration_spy(edit=None):
 
     with patch.object(lp, "_calibrate_blend_weight", spy):
         yield seen
-
-
-# --- #1179: the HiGHS snapshot never breaks a failing cycle ----------------------
-
-
-# --- #1797: absorbing one problem into another -----------------------------------

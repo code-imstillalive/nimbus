@@ -195,6 +195,7 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
         mp.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
         assert prc.frozen_rate_field(_hass({"sensor.x": "$/kWh"}), "sensor.x") is None
 
+    # --- the NEM region from an address -----------------------------------------------------------
     # test_the_region_and_postcode_prefix_come_from_the_geocoded_address
     for address, region, prefix in [
         ("12 Smith St, Brisbane City QLD 4000, Australia", "QLD1", "400"),
@@ -261,6 +262,7 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
         f"{ps.pa.PRICING_FIELD_LABELS[EXPORT]}: sensor.b is unavailable",
     ]
 
+    # --- the first install -------------------------------------------------------------------------------
     # test_installing_creates_the_hub_once_and_points_at_the_settings
     calls, flow = [], cf.NimbusConfigFlow()
 
@@ -313,9 +315,6 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
     assert sd.resolve_geocoded_region_and_prefix([asleep]) == (None, None)
 
 
-# --- the NEM region from an address -----------------------------------------------------------
-
-
 # --- the pricing source profiles ------------------------------------------------------------------
 
 
@@ -335,6 +334,3 @@ IMPORT, EXPORT, ARRAY = (
     const.CONF_SOLVER_EXPORT_PRICE_SENSOR,
     const.CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
 )
-
-
-# --- the first install -------------------------------------------------------------------------------

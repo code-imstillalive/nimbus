@@ -159,6 +159,7 @@ def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site)
         [5.0] * 4
     )
 
+    # --- what the plan publishes about it ---------------------------------------------------------
     # test_the_decision_is_published_as_a_stable_set_of_scalars
     keys = set(solver_publish._LOAD_FORECAST_SOURCE_KEYS)
     blank = solver_publish._load_forecast_source_attributes(None)
@@ -199,6 +200,3 @@ def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site)
         ]
         is None
     )
-
-
-# --- what the plan publishes about it ---------------------------------------------------------

@@ -416,6 +416,7 @@ def test_each_load_publishes_its_plan_and_what_it_costs(site, monkeypatch, caplo
     site.solve(T0, sheddable={"gone": ON})
     assert site.state("gone").commanded_state is True and site.calls == []
 
+    # --- a failure is reported, and costs no more than it must (#1019) ---------------------------
     # test_a_load_that_fails_costs_only_itself_and_says_so
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -433,9 +434,6 @@ def test_each_load_publishes_its_plan_and_what_it_costs(site, monkeypatch, caplo
             site.solve(T0, sheddable={"bad": ON, "good": ON})
         assert [c[2]["entity_id"] for c in site.calls] == ["switch.good"]
         assert "'bad'" in caplog.text and "NOT commanded" in caplog.text
-
-
-# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
 
 
 def test_a_failure_of_the_whole_cycle_is_a_warning_never_an_exception(site, caplog):

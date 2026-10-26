@@ -94,6 +94,7 @@ def test_threshold_is_5000_or_within_10_percent_of_the_cap():
     )
     assert desc.min_value == 0
 
+    # ---- rule (b): dispatch disagrees -------------------------------------------
     # test_rule_b_flags_the_1615_pair: Rule (b): Mark's minimal pair. P5MIN run 16:15 forecast $23,200 for
     run, published = _run("202610151615")
     end, price = _dispatch(next(p for p in DISPATCH if "202610151615" in p.name))
@@ -245,9 +246,6 @@ def test_threshold_is_5000_or_within_10_percent_of_the_cap():
     )
     assert desc.default == 5000.0 and desc.unit == "AUD/MWh"
     assert desc.min_value <= 5000.0 <= desc.max_value == 23200
-
-
-# ---- rule (b): dispatch disagrees -------------------------------------------
 
 
 # ---- the whole event, replayed ---------------------------------------------

@@ -129,6 +129,7 @@ def test_amber_express_pairs_its_simple_forecast_with_the_detailed_intervals():
         (0.0, False),
     ]
 
+    # --- on the plan's grid --------------------------------------------------------------------------
     # test_intervals_on_the_grid_hold_the_latest_value_and_mark_real_coverage
     intervals = pi.aemo_nem_intervals([_aemo(0, 30, 0.1), _aemo(60, 90, 0.3)])
     grid = [
@@ -204,6 +205,3 @@ def _aemo(start_min, end_min, price):
 
 def _lv(end_min, **row):
     return {"intervalEnd": (T0 + timedelta(minutes=end_min)).isoformat(), **row}
-
-
-# --- on the plan's grid --------------------------------------------------------------------------

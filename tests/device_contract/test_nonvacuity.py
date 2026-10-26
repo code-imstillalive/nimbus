@@ -52,6 +52,7 @@ def test_the_unmutated_site_balances():
     for fid in ("F06", "F09", "F10", "F12"):  # discovery, safety, revision
         assert reg["fixtures"][fid]["status"]["production_obligation"] == "pending", fid
 
+    # F04, F05, F09, F11 negative controls -----------------------------------
     # test_unit_mutation_case_folding_mw_is_detected
     from tests.device_contract.oracles_signals import power_kw
 
@@ -94,6 +95,7 @@ def test_the_unmutated_site_balances():
     graph["b"] = {"a"}
     assert any("cycle" in p for p in dependency_problems(graph))
 
+    # F02 shared-limit negative controls ---------------------------------------
     # test_limit_mutation_copying_the_rating_onto_each_member_is_detected
     from tests.device_contract.oracles_limits import (
         Member,
@@ -125,6 +127,8 @@ def test_the_unmutated_site_balances():
     twice = [*once, SharedLimit("inv", "inverter_ac_power", ("pv", "bat"), 8.0)]
     assert any("twice" in p for p in limit_problems(twice, kinds))
 
+    # DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
+    # overlap ----------------------------------------------------------------------
     # test_reconciliation_mutation_a_double_count_turns_agrees_into_disagrees
     from tests.device_contract.oracles_accounting import Meter, reconcile
 
@@ -203,13 +207,3 @@ def test_the_unmutated_site_balances():
     assert possible_undeclared_inclusion(child, parent, hours)
     shuffled = child[12:] + child[:12]  # same values, wrong hours
     assert not possible_undeclared_inclusion(shuffled, parent, hours)
-
-
-# F04, F05, F09, F11 negative controls -----------------------------------
-
-
-# F02 shared-limit negative controls ---------------------------------------
-
-
-# DC-003 accounting oracles: reconciliation, residuals, boundaries, mobility,
-# overlap ----------------------------------------------------------------------

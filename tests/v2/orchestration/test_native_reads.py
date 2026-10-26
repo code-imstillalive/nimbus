@@ -156,6 +156,7 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
     assert sw.fetch_entity_power_history_kw("sensor.x", START, END) == []
     assert shared.fetch_entity_went_unavailable("sensor.x", START, END) is None
 
+    # --- service calls with a response ------------------------------------------------
     # test_a_service_response_comes_back_from_the_loop
     hass.service_result = {"calendar.x": {"events": []}}
     assert sw.ha_call_service_with_response("calendar", "get_events", {}) == {
@@ -184,9 +185,6 @@ def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
         if r.levelno == logging.INFO
     )
     assert publish.states_set == [] and MANAGED not in shared._MANAGED_SKIP_STREAK
-
-
-# --- service calls with a response ------------------------------------------------
 
 
 # --- publishing -------------------------------------------------------------------

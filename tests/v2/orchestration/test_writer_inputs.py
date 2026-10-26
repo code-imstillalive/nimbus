@@ -929,6 +929,7 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
     none = array_branch({})
     assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
 
+    # --- one entity's recorded history, and the price history that wraps it (#363) ---------------
     # test_history_is_read_sorted_skipping_what_is_not_a_number
     def pt(minutes, state):
         return HistoryPoint(_iso(T0 + timedelta(minutes=minutes)), state, {})
@@ -1041,9 +1042,6 @@ def array_branch(monkeypatch):
 
     build.seen = seen
     return build
-
-
-# --- one entity's recorded history, and the price history that wraps it (#363) ---------------
 
 
 @pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])

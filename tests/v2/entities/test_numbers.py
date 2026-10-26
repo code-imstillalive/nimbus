@@ -63,6 +63,7 @@ def test_every_solver_setting_starts_inside_its_own_range(monkeypatch):
     assert len(keys) == len(set(keys))
     assert set(sm._SOLVER_NUMBER_ENTITY_KEYS) <= set(keys)
 
+    # --- the shared store ----------------------------------------------------------------
     # test_a_stored_value_reads_back_with_when_it_was_written
     for data, read in [
         ({"k": {"value": 2.5, "written_at": 10.0}}, (2.5, 10.0)),
@@ -221,9 +222,6 @@ def test_every_solver_setting_starts_inside_its_own_range(monkeypatch):
     _run(n.async_set_native_value(desc.min_value))
     assert store.store.data[f"load1_{desc.key}"]["value"] == desc.min_value
     assert written == [desc.min_value]
-
-
-# --- the shared store ----------------------------------------------------------------
 
 
 # --- coming back after a restart ------------------------------------------------------

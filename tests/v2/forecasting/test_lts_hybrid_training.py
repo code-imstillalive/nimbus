@@ -245,6 +245,9 @@ def test_lts_source_drops_insane_means():
         assert v == 7.7
     assert not coordinator_module.statistics_during_period.called
 
+    # ---------------------------------------------------------------------------
+    # Dispatch: unknown source falls back to recorder (defensive)
+    # ---------------------------------------------------------------------------
     # test_unknown_source_falls_back_to_recorder: A future release adds a fourth training_source that this build
     now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 4.4) for h in range(24)]
@@ -267,11 +270,6 @@ def test_lts_source_drops_insane_means():
 
 # ---------------------------------------------------------------------------
 # Dispatch: training_source=hybrid concatenates older-LTS + recent-recorder
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Dispatch: unknown source falls back to recorder (defensive)
 # ---------------------------------------------------------------------------
 
 

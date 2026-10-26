@@ -49,6 +49,7 @@ def test_the_start_here_steps_cover_every_tab_with_a_live_tick():
     epr = next(f for t, _m, f in help_tab.GLOSSARY if t == "EPR")
     assert "J_ref" in epr and "43.4%" in epr
 
+    # --- the wizard's own screens and words -----------------------------------------------------
     # test_every_wizard_screen_with_fields_has_its_section
     strings = json.loads((PACKAGE / "strings.json").read_text(encoding="utf-8"))
     covered = {path for _title, path in help_tab.WIZARD_STEPS}
@@ -66,6 +67,3 @@ def test_the_start_here_steps_cover_every_tab_with_a_live_tick():
     # test_no_jinja_text_comes_in_from_the_wizard_strings: The wizard text is pasted into markdown the template engine renders.
     raw = (PACKAGE / "strings.json").read_text(encoding="utf-8")
     assert "{{" not in raw and "{%" not in raw
-
-
-# --- the wizard's own screens and words -----------------------------------------------------
