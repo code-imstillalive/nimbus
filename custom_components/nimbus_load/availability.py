@@ -67,3 +67,38 @@ def available_states(
 def is_available(state: object, states: frozenset[str]) -> bool:
     """True when `state` is one of `states`. None is never available."""
     return state is not None and _normal(state) in states
+
+
+#: States that say nothing about availability: never counted as "seen".
+NOT_REPORTED: frozenset[str] = frozenset({"", "unknown", "unavailable", "none"})
+
+
+def needs_listed_match(entity_id: str, configured: str | Iterable[str] | None) -> bool:
+    """True when availability depends on the household's own list matching:
+    a list is set, or the entity is a kind with no standard meaning (a plain
+    sensor, available only in listed states). A binary_sensor, tracker or
+    person left on its standard state is not checked (#2014): a car that is
+    simply away all week reads "not_home", which is no mismatch."""
+    if isinstance(configured, str):
+        configured = configured.split(",")
+    if any(_normal(s) for s in configured or ()):
+        return True
+    domain = entity_id.split(".", 1)[0] if entity_id else ""
+    return domain not in DEFAULT_STATES_BY_DOMAIN
+
+
+def unmatched_states(
+    seen: Iterable[object], states: frozenset[str]
+) -> tuple[str, ...] | None:
+    """The distinct states `seen` reported, when it reported some and none is
+    in `states`; else None (#2014). Unknown and unavailable don't count."""
+    real = sorted(
+        {
+            str(v).strip()
+            for v in seen
+            if v is not None and _normal(v) not in NOT_REPORTED
+        }
+    )
+    if not real or any(_normal(v) in states for v in real):
+        return None
+    return tuple(real)

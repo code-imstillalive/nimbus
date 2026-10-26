@@ -68,10 +68,11 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
         },
         has_load_forecast=True,
         failed_streak={"count": 5, "since": "2026-09-20T06:00:00+00:00"},
+        availability_mismatches=[("p1", "Car", "sensor.c", ("Charge",), "Charging")],
     )
     infeasible = sh._plan_failing_issue({"count": 5, "status": "infeasible"})
     every.append(infeasible)
-    assert len({i.kind for i in every}) == 13
+    assert len({i.kind for i in every}) == 14
     for issue in every:
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
