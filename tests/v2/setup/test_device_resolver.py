@@ -207,9 +207,8 @@ def test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped():
     assert (match.status, match.sign) == (dr.CANDIDATE, -1)
 
 
-@pytest.mark.parametrize(
-    ("candidates", "energy_out", "status", "says"),
-    [
+def test_without_enough_evidence_nothing_is_proposed_and_the_reason_is_given():
+    for candidates, energy_out, status, says in [
         ({}, 5.0, dr.NO_CANDIDATES, "no power sensors"),
         ({"sensor.x": [(T0 + timedelta(hours=11), 1.0)]}, 5.0, dr.INSUFFICIENT, "90%"),
         ({"sensor.x": _power(flat)}, None, dr.INSUFFICIENT, "no energy counter"),
@@ -231,14 +230,10 @@ def test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped():
             dr.INSUFFICIENT,
             "readable in only",
         ),
-    ],
-)
-def test_without_enough_evidence_nothing_is_proposed_and_the_reason_is_given(
-    candidates, energy_out, status, says
-):
-    match = dr.match_power_sensor(candidates, T0, END, energy_out=energy_out)
-    assert match.status == status and match.entity_id is None
-    assert says in match.reason
+    ]:
+        match = dr.match_power_sensor(candidates, T0, END, energy_out=energy_out)
+        assert match.status == status and match.entity_id is None
+        assert says in match.reason
 
 
 def test_a_total_alone_can_match_and_solar_never_runs_backwards():
@@ -271,9 +266,8 @@ def test_a_balanced_site_agrees():
     )
 
 
-@pytest.mark.parametrize(
-    ("change", "explanation"),
-    [
+def test_one_change_that_closes_the_balance_is_named():
+    for change, explanation in [
         (
             lambda load, sol, bat, grid: (load, sol, [-b for b in bat], grid),
             "flip:battery",
@@ -282,11 +276,9 @@ def test_a_balanced_site_agrees():
             lambda load, sol, bat, grid: (load, sol, bat, [g * 1000 for g in grid]),
             "scale:grid:/1000",
         ),
-    ],
-)
-def test_one_change_that_closes_the_balance_is_named(change, explanation):
-    v = dr.check_energy_balance(*change(*_site()))
-    assert v.ok is False and explanation in v.hypotheses
+    ]:
+        v = dr.check_energy_balance(*change(*_site()))
+        assert v.ok is False and explanation in v.hypotheses
 
 
 def test_a_partial_solar_sensor_is_recognised():

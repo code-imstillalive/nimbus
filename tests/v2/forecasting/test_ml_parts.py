@@ -102,9 +102,8 @@ def test_blending_is_a_weighted_mean_and_the_spread_is_the_range():
     np.testing.assert_allclose(blend.cross_source_spread([a]), [0.0, 0.0])
 
 
-@pytest.mark.parametrize(
-    "call",
-    [
+def test_misaligned_or_empty_inputs_are_refused():
+    for call in [
         lambda: blend.weights_from_mae([]),
         lambda: blend.blend_point_estimate([]),
         lambda: blend.blend_point_estimate([1.0], [0.5, 0.5]),
@@ -113,11 +112,9 @@ def test_blending_is_a_weighted_mean_and_the_spread_is_the_range():
         lambda: blend.blend_forecast_array([np.zeros(2)], [0.5, 0.5]),
         lambda: blend.cross_source_spread([]),
         lambda: blend.cross_source_spread([np.zeros(2), np.zeros(3)]),
-    ],
-)
-def test_misaligned_or_empty_inputs_are_refused(call):
-    with pytest.raises(ValueError):
-        call()
+    ]:
+        with pytest.raises(ValueError):
+            call()
 
 
 # --- resampling recorded events ---------------------------------------------------------

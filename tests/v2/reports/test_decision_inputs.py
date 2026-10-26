@@ -230,9 +230,8 @@ def _express():
     }
 
 
-@pytest.mark.parametrize(
-    ("attrs", "shape"),
-    [
+def test_a_providers_series_is_kept_in_its_own_shape_and_reads_back():
+    for attrs, shape in [
         (lambda: {"forecast": _sample("1550_aemo_nem_qld.json")}, pi.AEMO_NEM_DOMAIN),
         (
             lambda: {"forecast": _sample("1550_pd7day_qld_wholesale.json")},
@@ -254,18 +253,15 @@ def _express():
             pi.AMBER_CORE_DOMAIN,
         ),
         (_express, pi.AMBER_EXPRESS_DOMAIN),
-    ],
-    ids=["aemo", "pd7day", "amber_core", "amber_core_rows", "amber_express"],
-)
-def test_a_providers_series_is_kept_in_its_own_shape_and_reads_back(attrs, shape):
-    a = attrs()
-    body = di.source_series(a)
-    assert (body["shape"], body["to_dollars"]) == (shape, 1.0)
-    shape_again, intervals = di._provider_series(a)
-    assert shape_again == shape
-    stored = json.loads(json.dumps(body))
-    assert di.series_points(stored) == [(i.start, i.value) for i in intervals]
-    assert body["end"] == intervals[-1].end.isoformat()
+    ]:
+        a = attrs()
+        body = di.source_series(a)
+        assert (body["shape"], body["to_dollars"]) == (shape, 1.0)
+        shape_again, intervals = di._provider_series(a)
+        assert shape_again == shape
+        stored = json.loads(json.dumps(body))
+        assert di.series_points(stored) == [(i.start, i.value) for i in intervals]
+        assert body["end"] == intervals[-1].end.isoformat()
 
 
 def test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read():

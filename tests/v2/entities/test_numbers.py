@@ -15,8 +15,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -48,18 +46,16 @@ def _run(coro):
 # --- the table ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("desc", nm._DESCRIPTIONS, ids=lambda d: d.key)
-def test_every_solver_setting_starts_inside_its_own_range(desc):
-    assert desc.min_value <= desc.default <= desc.max_value
-    assert desc.step > 0
+def test_every_solver_setting_starts_inside_its_own_range():
+    for desc in nm._DESCRIPTIONS:
+        assert desc.min_value <= desc.default <= desc.max_value
+        assert desc.step > 0
 
 
-@pytest.mark.parametrize(
-    "desc", nm._CONTROLLABLE_LOAD_DESCRIPTIONS, ids=lambda d: d.key
-)
-def test_every_load_setting_starts_inside_its_own_range(desc):
-    assert desc.min_value <= desc.default <= desc.max_value
-    assert desc.kinds
+def test_every_load_setting_starts_inside_its_own_range():
+    for desc in nm._CONTROLLABLE_LOAD_DESCRIPTIONS:
+        assert desc.min_value <= desc.default <= desc.max_value
+        assert desc.kinds
 
 
 def test_every_number_the_solver_reads_has_an_entity_and_ids_are_unique():
