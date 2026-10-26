@@ -465,11 +465,10 @@ async def _async_availability_mismatches(
 ) -> list[tuple[str, str, str, tuple[str, ...], str]]:
     """#2014: each battery participant whose availability list matched none of
     the states its entity reported over `AVAILABILITY_WINDOW`. Read from the
-    recorder every `AVAILABILITY_RECHECK`, the result kept between refreshes.
+    recorder every `AVAILABILITY_RECHECK`; only that read is kept between
+    refreshes, and the lists are matched against it on every refresh, so an
+    edited list clears its Repair at once (Mark Purcell's review of #2055).
     An entity with no history yet is not reported."""
-    cached = state.get("availability")
-    if cached is not None and now - cached[0] < AVAILABILITY_RECHECK:
-        return cached[1]
     try:
         from .availability import (
             available_states,
@@ -495,16 +494,25 @@ async def _async_availability_mismatches(
                 checks.append((subentry_id, str(name), entity_id, listed))
         found: list[tuple[str, str, str, tuple[str, ...], str]] = []
         if checks:
-            seen = await _async_states_seen(
-                hass, sorted({c[2] for c in checks}), now - AVAILABILITY_WINDOW, now
-            )
+            entity_ids = tuple(sorted({c[2] for c in checks}))
+            cached = state.get("availability")
+            if (
+                cached is not None
+                and cached[1] == entity_ids
+                and now - cached[0] < AVAILABILITY_RECHECK
+            ):
+                seen = cached[2]
+            else:
+                seen = await _async_states_seen(
+                    hass, list(entity_ids), now - AVAILABILITY_WINDOW, now
+                )
+                state["availability"] = (now, entity_ids, seen)
             for subentry_id, name, entity_id, listed in checks:
                 unmatched = unmatched_states(
                     seen.get(entity_id, ()), available_states(entity_id, listed)
                 )
                 if unmatched:
                     found.append((subentry_id, name, entity_id, unmatched, listed))
-        state["availability"] = (now, found)
         return found
     except Exception:
         _LOGGER.debug("Nimbus: availability check failed", exc_info=True)

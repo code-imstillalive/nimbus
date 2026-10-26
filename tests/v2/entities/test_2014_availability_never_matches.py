@@ -154,6 +154,26 @@ def test_the_recorder_is_read_at_most_every_six_hours():
     assert later == [] and len(calls3) == 1
 
 
+def test_an_edited_list_clears_at_once_without_a_new_read():
+    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
+    found, calls, state = _run(entry, {"sensor.charger_a": ["Charge"]})
+    assert len(found) == 1 and len(calls) == 1
+    edited = _entry(p1=_participant("sensor.charger_a", "Charging, Charge"))
+    again, calls2, _ = _run(edited, {}, state, NOW + timedelta(minutes=5))
+    assert again == [] and calls2 == []
+
+
+def test_a_new_entity_is_read_at_once():
+    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
+    _, _, state = _run(entry, {"sensor.charger_a": ["Charging"]})
+    moved = _entry(p1=_participant("sensor.charger_b", "Charging"))
+    found, calls, _ = _run(
+        moved, {"sensor.charger_b": ["Charge"]}, state, NOW + timedelta(minutes=5)
+    )
+    assert len(found) == 1 and len(calls) == 1
+    assert calls[0][0] == ("sensor.charger_b",)
+
+
 def test_a_failed_read_raises_no_repair():
     async def broken(*_a, **_k):
         raise RuntimeError("recorder not ready")
