@@ -1,0 +1,52 @@
+# Diag only, never merged: which planted bugs the pre-#2084 suite caught
+# that main's suite misses.
+name: Diag mutation gap
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - custom_components/nimbus_load/solver/network.py
+          - custom_components/nimbus_load/solver/lp.py
+          - custom_components/nimbus_load/solver/elements.py
+          - custom_components/nimbus_load/solver_writer.py
+          - custom_components/nimbus_load/solver_plan.py
+          - custom_components/nimbus_load/solver_publish.py
+          - custom_components/nimbus_load/solver/stochastic_dispatch.py
+          - custom_components/nimbus_load/load_run_state.py
+        chunk: [1, 2, 3, 4, 5, 6]
+        include:
+          - module: custom_components/nimbus_load/solver/network.py
+            chunk: 0
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          path: new
+          ref: e59d4fda1f27b6f697e702355f13dd91873269bf
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          path: old
+          ref: 4d21159b84a3e83751a4e0a9fe1a25879d38b47c
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          path: driver
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - run: pip install -e './new[dev]'
+      - name: Plant and run
+        run: |
+          slug=$(basename ${{ matrix.module }} .py)
+          python driver/diag/mutation_gap.py ${{ matrix.module }} ${{ matrix.chunk }} 4 24 gap-$slug-${{ matrix.chunk }}.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
+        if: always()
+        with:
+          name: gap-${{ strategy.job-index }}
+          path: gap-*.json
