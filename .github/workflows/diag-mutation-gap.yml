@@ -22,7 +22,7 @@ jobs:
           - custom_components/nimbus_load/solver_publish.py
           - custom_components/nimbus_load/solver/stochastic_dispatch.py
           - custom_components/nimbus_load/load_run_state.py
-        chunk: [1, 2, 3, 4, 5, 6]
+        chunk: [1, 2, 3, 4]
         include:
           - module: custom_components/nimbus_load/solver/network.py
             chunk: 0
@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
           path: new
-          ref: e59d4fda1f27b6f697e702355f13dd91873269bf
+          ref: 66b51ffbcd27f86919720f8e98efbb8b3f295830
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
           path: old
@@ -45,7 +45,7 @@ jobs:
       - name: Plant and run
         run: |
           slug=$(basename ${{ matrix.module }} .py)
-          python driver/diag/mutation_gap.py ${{ matrix.module }} ${{ matrix.chunk }} 4 24 gap-$slug-${{ matrix.chunk }}.json
+          python driver/diag/mutation_gap.py ${{ matrix.module }} ${{ matrix.chunk }} 6 24 gap-$slug-${{ matrix.chunk }}.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         if: always()
         with:
