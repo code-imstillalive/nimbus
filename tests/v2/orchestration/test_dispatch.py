@@ -590,3 +590,224 @@ def test_a_thermal_load_samples_and_learns_its_own_rates(site):
     assert (
         st.thermal_rates_source == "fallback"
     )  # no recorder here: the defaults, stamped
+
+
+# --- the paths the coverage-by-risk map found untested (#1837) ---------------------------------
+
+
+def _recorder(monkeypatch, history):
+    """A recorder that answers from `history`, {entity_id: [state, ...]}."""
+
+    class Instance:
+        async def async_add_executor_job(self, fn, *args):
+            return fn(*args)
+
+    def changes(_hass, _start, _end, entity_id, _no_attributes):
+        return {entity_id: list(history.get(entity_id, []))}
+
+    recorder = types.ModuleType("homeassistant.components.recorder")
+    recorder.get_instance = lambda _hass: Instance()
+    recorder.history = SimpleNamespace(state_changes_during_period=changes)
+    monkeypatch.setitem(sys.modules, "homeassistant.components.recorder", recorder)
+
+
+def _tank_history(now):
+    """Three days of a tank: idle at 0.5 C/h, one 2 h run at 3.7 kW and
+    2 C/kWh, readings every half hour, ambient every hour."""
+    temps, powers, ambient = [], [], []
+    temp = 60.0
+    t = now - timedelta(hours=60)
+    while t < now - timedelta(hours=1):
+        heating = now - timedelta(hours=50) <= t < now - timedelta(hours=48)
+        kw = 3.7 if heating else 0.0
+        temps.append((t, temp))
+        powers.append((t, kw))
+        temp += 3.7 * 0.5 * 2.0 if heating else -0.25
+        t += HALF_HOUR
+    t = now - timedelta(hours=60)
+    while t < now - timedelta(hours=1):
+        ambient.append((t, 20.0 + (t.hour % 6)))
+        t += timedelta(hours=1)
+    return temps, powers, ambient
+
+
+def _row(t, state="", **attributes):
+    return SimpleNamespace(state=state, attributes=attributes, last_changed=t)
+
+
+def test_the_rates_are_learned_from_the_recorder_and_the_weather(site, monkeypatch):
+    """The recorder path end to end: the tank's readings and its power
+    sensor (in W) become the learner's (time, temperature, kW) samples,
+    out-of-order rows are sorted, unreadable ones and a non-power unit are
+    dropped, and the weather's history gives the loss coefficient."""
+    now = T0 + timedelta(hours=8)
+    temps, powers, ambient = _tank_history(now)
+    junk_t = temps[0][0] - timedelta(minutes=1)
+    history = {
+        "water_heater.hws": [
+            *[_row(t, "eco", current_temperature=v) for t, v in reversed(temps)],
+            _row(junk_t, "eco", current_temperature=None),
+            _row(junk_t, "eco", current_temperature="n/a"),
+        ],
+        "sensor.hws_power": [
+            *[_row(t, str(kw * 1000), unit_of_measurement="W") for t, kw in powers],
+            _row(junk_t, "unavailable", unit_of_measurement="W"),
+            _row(junk_t, "9", unit_of_measurement="A"),
+        ],
+        "weather.home": [
+            *[_row(t, "sunny", temperature=v) for t, v in ambient],
+            _row(junk_t, "sunny", temperature=None),
+            _row(junk_t, "sunny", temperature="n/a"),
+        ],
+    }
+    _recorder(monkeypatch, history)
+    asked = []
+
+    def forecast(entity_id):
+        asked.append(entity_id)
+        return [
+            {"datetime": (now + timedelta(hours=1)).isoformat(), "temperature": 18.0},
+            {"datetime": None, "temperature": 18.0},
+            "not a forecast",
+        ]
+
+    monkeypatch.setattr(sw, "_fetch_weather_hourly_forecast", forecast)
+    _heater(site, 55.0, seed={"thermal_rates_learned_day_key": ""})
+    plan = SimpleNamespace(
+        sheddable_loads=[],
+        adequacy_loads=[
+            SimpleNamespace(subentry_id="hws", power_kw=np.zeros(4), shortfall_kwh=0.0)
+        ],
+    )
+    sw.apply_commanded_state_guard(
+        plan,
+        now,
+        [now + HALF_HOUR * i for i in range(4)],
+        np.full(4, 0.5),
+        cfg={"solver_weather_forecast_sensor": "weather.home"},
+    )
+    expected = thermal_forecast.learn_thermal_rates(
+        [(t, v, kw) for (t, v), (_t, kw) in zip(temps, powers, strict=True)],
+        on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+        ambient_history=ambient,
+    )
+    assert expected.is_learned and expected.loss_coeff_per_h is not None
+    st = site.state("hws")
+    assert st.thermal_rates_source == "learned"
+    assert st.thermal_heating_rate_c_per_kwh == pytest.approx(
+        expected.heating_rate_c_per_kwh
+    )
+    assert st.thermal_idle_decay_c_per_hour == pytest.approx(
+        expected.idle_decay_c_per_hour
+    )
+    assert st.thermal_loss_coeff_per_h == pytest.approx(expected.loss_coeff_per_h)
+    assert asked == ["weather.home"]
+
+
+def test_a_failed_weather_history_read_learns_without_ambient(
+    site, monkeypatch, caplog
+):
+    now = T0 + timedelta(hours=8)
+    temps, powers, _ambient = _tank_history(now)
+    history = {
+        "water_heater.hws": [_row(t, "eco", current_temperature=v) for t, v in temps],
+        "sensor.hws_power": [_row(t, str(kw)) for t, kw in powers],
+    }
+
+    class Instance:
+        async def async_add_executor_job(self, fn, *args):
+            if args[3] == "weather.home":
+                raise RuntimeError("recorder gone")
+            return fn(*args)
+
+    def changes(_hass, _start, _end, entity_id, _no_attributes):
+        return {entity_id: list(history.get(entity_id, []))}
+
+    recorder = types.ModuleType("homeassistant.components.recorder")
+    recorder.get_instance = lambda _hass: Instance()
+    recorder.history = SimpleNamespace(state_changes_during_period=changes)
+    monkeypatch.setitem(sys.modules, "homeassistant.components.recorder", recorder)
+    monkeypatch.setattr(sw, "_fetch_weather_hourly_forecast", lambda _e: None)
+    _heater(site, 55.0, seed={"thermal_rates_learned_day_key": ""})
+    plan = SimpleNamespace(
+        sheddable_loads=[],
+        adequacy_loads=[
+            SimpleNamespace(subentry_id="hws", power_kw=np.zeros(4), shortfall_kwh=0.0)
+        ],
+    )
+    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
+        sw.apply_commanded_state_guard(
+            plan,
+            now,
+            [now + HALF_HOUR * i for i in range(4)],
+            np.full(4, 0.5),
+            cfg={"solver_weather_forecast_sensor": "weather.home"},
+        )
+    st = site.state("hws")
+    assert st.thermal_rates_source == "learned"
+    assert st.thermal_loss_coeff_per_h is None
+    assert "ambient history fetch failed for weather.home" in caplog.text
+
+
+def test_an_unreadable_ceiling_floor_and_done_condition_cap_nothing(site):
+    """max_temp, min_temp and done_when all unreadable: no ceiling, no floor,
+    the forecast heats as if none were set, and nothing raises."""
+    _heater(site, 58.0, done_when="hot enough", max_temp="n/a", min_temp="n/a")
+    st = _forecast(site, 3.7)
+    assert st.temperature_forecast[0]["value"] == pytest.approx(58.0 + 14.8, abs=0.01)
+    assert st.floor_crossing_forecast_time is None
+
+
+def test_a_plan_that_wants_on_only_after_the_hold_window_lets_the_load_go_off(site):
+    """#595's look-ahead is bounded by the hold: an ON beyond it is a new
+    start, not a dip, so a load commanded on goes off."""
+    site.load("s", "switch.pump", controllable_load_min_hold_minutes=10)
+    hours = np.full(5, 5.0 / 60.0)
+    for i in range(4):
+        site.solve(T0 + STEP * i, adequacy={"s": np.full(5, 0.65)}, hours=hours)
+    assert site.state("s").commanded_state is True
+    late = np.array([0.0, 0.0, 0.0, 0.65, 0.65])
+    for i in range(4, 9):
+        site.solve(T0 + STEP * i, adequacy={"s": late}, hours=hours)
+    assert site.state("s").commanded_state is False
+    assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
+
+
+def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog):
+    site.load("s", "switch.pump", controllable_load_min_hold_minutes=0)
+    site.solve(T0, sheddable={"s": ON})
+    site.failing = {"switch"}
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0 + STEP, sheddable={"s": OFF})
+        site.solve(T0 + 2 * STEP, sheddable={"s": OFF})
+    st = site.state("s")
+    assert st.commanded_state is False and st.last_dispatch_failed is True
+    assert "dispatch OFF failed for controllable load 's'" in caplog.text
+    site.failing = set()
+    site.solve(T0 + 3 * STEP, sheddable={"s": OFF})
+    assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
+    assert site.state("s").last_dispatch_failed is False
+
+
+def test_a_failed_resend_is_recorded_and_warned(site, caplog):
+    site.load("s", "switch.pump")
+    site.seed(
+        "s",
+        commanded_state=True,
+        commanded_since=T0.timestamp() - 3600,
+        last_dispatch_failed=True,
+    )
+    site.failing = {"switch"}
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0, sheddable={"s": ON})
+    st = site.state("s")
+    assert st.commanded_state is True and st.last_dispatch_failed is True
+    assert "re-send failed for controllable load 's' (switch.pump)" in caplog.text
+
+
+def test_with_no_hub_entry_nothing_is_decided_or_sent(site, monkeypatch):
+    site.load("s", "switch.pump")
+    monkeypatch.setattr(site.hass.config_entries, "async_entries", lambda _d: [])
+    site.solve(T0, sheddable={"s": ON})
+    assert site.calls == []
+    assert site.state("s") == load_run_state.LoadRunState()
