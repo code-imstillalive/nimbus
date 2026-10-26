@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from solver.elements import (
     AdequacyLoadConfig,
+    AdequacyWindow,
     BatteryConfig,
     DegenerateConfigError,
     GridConfig,
@@ -246,6 +247,247 @@ REFUSED = [
 ]
 
 
+def _nan_but(i, value):
+    a = np.full(N, np.nan)
+    a[i] = value
+    return a
+
+
+def _window(earliest, deadline, target=1.0):
+    return AdequacyWindow(
+        earliest_period=earliest, deadline_period=deadline, target_kwh=target
+    )
+
+
+# Added on Mark Purcell's review of #2064: every other rejection path in the
+# same classes, so the title holds.
+REFUSED += [
+    # GridConfig: limits, the floor, the pinned export and its band
+    ("a negative import limit", lambda: _grid(import_limit_kw=-1.0), "limits"),
+    (
+        "a negative export limit in one period",
+        lambda: _grid(export_limit_kw=np.array([10.0, -1.0, 10.0])),
+        "limits",
+    ),
+    (
+        "a negative export floor",
+        lambda: _grid(export_floor_price=-0.01),
+        "export_floor_price",
+    ),
+    (
+        "a pinned export above the export limit",
+        lambda: _grid(fixed_export_kw=_nan_but(1, 11.0)),
+        "within [0, export_limit_kw]",
+    ),
+    (
+        "a negative pinned export",
+        lambda: _grid(fixed_export_kw=_nan_but(0, -1.0)),
+        "within [0, export_limit_kw]",
+    ),
+    (
+        "an export ceiling with no pinned export",
+        lambda: _grid(fixed_export_max_kw=np.ones(N)),
+        "requires fixed_export_kw",
+    ),
+    (
+        "an export ceiling of another length",
+        lambda: _grid(fixed_export_kw=np.ones(N), fixed_export_max_kw=np.ones(N + 1)),
+        "fixed_export_max_kw must have the same length",
+    ),
+    (
+        "an export ceiling below the pinned export",
+        lambda: _grid(
+            fixed_export_kw=np.full(N, 2.0), fixed_export_max_kw=np.full(N, 1.0)
+        ),
+        "banded entries",
+    ),
+    (
+        "an export ceiling above the export limit",
+        lambda: _grid(
+            fixed_export_kw=np.full(N, 2.0), fixed_export_max_kw=np.full(N, 11.0)
+        ),
+        "banded entries",
+    ),
+    # BatteryConfig: bounds, power, start, index sets, costs, spike override
+    (
+        "a floor above the ceiling",
+        lambda: _battery(min_soc_kwh=9.5),
+        "Invalid SoC bounds",
+    ),
+    (
+        "a ceiling above capacity",
+        lambda: _battery(max_soc_kwh=11.0),
+        "Invalid SoC bounds",
+    ),
+    ("a negative floor", lambda: _battery(min_soc_kwh=-1.0), "Invalid SoC bounds"),
+    (
+        "no capacity",
+        lambda: _battery(
+            capacity_kwh=0.0, min_soc_kwh=0.0, max_soc_kwh=0.0, initial_soc_kwh=0.0
+        ),
+        "capacity_kwh",
+    ),
+    ("a negative charge rate", lambda: _battery(max_charge_kw=-1.0), "max_charge_kw"),
+    (
+        "a negative discharge rate",
+        lambda: _battery(max_discharge_kw=-1.0),
+        "max_discharge_kw",
+    ),
+    (
+        "a start above capacity",
+        lambda: _battery(initial_soc_kwh=11.0),
+        "initial_soc_kwh",
+    ),
+    ("a negative start", lambda: _battery(initial_soc_kwh=-1.0), "initial_soc_kwh"),
+    (
+        "a negative unavailable period",
+        lambda: _battery(unavailable_period_indices=[-1]),
+        "unavailable_period_indices",
+    ),
+    (
+        "a negative terminal value period",
+        lambda: _battery(
+            terminal_value_breakpoints=[(8.0, 0.1)], terminal_value_period_indices=(-1,)
+        ),
+        "non-negative",
+    ),
+    (
+        "a terminal value period twice",
+        lambda: _battery(
+            terminal_value_breakpoints=[(8.0, 0.1)],
+            terminal_value_period_indices=(1, 1),
+        ),
+        "duplicates",
+    ),
+    (
+        "a negative degradation cost",
+        lambda: _battery(degradation_cost_per_kwh=-0.01),
+        "degradation_cost_per_kwh",
+    ),
+    (
+        "a spike override above the discharge rate",
+        lambda: _battery(spike_override_discharge_kw=6.0),
+        "spike_override_discharge_kw",
+    ),
+    (
+        "a negative spike override",
+        lambda: _battery(spike_override_discharge_kw=-1.0),
+        "spike_override_discharge_kw",
+    ),
+    # Power curves (the battery's floor is 1, its ceiling 9)
+    (
+        "a power curve of one point",
+        lambda: _battery(charge_power_curve=[(1.0, 5.0)]),
+        "at least 2 points",
+    ),
+    (
+        "a power curve out of order",
+        lambda: _battery(charge_power_curve=[(9.0, 1.0), (1.0, 5.0)]),
+        "ascending",
+    ),
+    (
+        "a power curve that starts above the floor",
+        lambda: _battery(charge_power_curve=[(2.0, 5.0), (9.0, 1.0)]),
+        "first point",
+    ),
+    (
+        "a power curve that stops below the ceiling",
+        lambda: _battery(charge_power_curve=[(1.0, 5.0), (8.0, 1.0)]),
+        "last point",
+    ),
+    (
+        "a power curve with a negative power",
+        lambda: _battery(charge_power_curve=[(1.0, 5.0), (9.0, -1.0)]),
+        "cannot be negative",
+    ),
+    (
+        "a discharge curve of one point",
+        lambda: _battery(discharge_power_curve=[(1.0, 5.0)]),
+        "discharge_power_curve",
+    ),
+    # Confidence bands: one-sided, and not around the forecast
+    (
+        "a solar band with no upper side",
+        lambda: SolarConfig(forecast_kw=np.ones(N), lower_kw=np.zeros(N)),
+        "both be given",
+    ),
+    (
+        "a solar band above the forecast",
+        lambda: SolarConfig(
+            forecast_kw=np.ones(N), lower_kw=np.full(N, 2.0), upper_kw=np.full(N, 3.0)
+        ),
+        "lower_kw <= forecast_kw <= upper_kw",
+    ),
+    (
+        "a solar quantile band with no p90",
+        lambda: SolarConfig(forecast_kw=np.ones(N), p10_kw=np.zeros(N)),
+        "Solar quantile",
+    ),
+    (
+        "a load band with no lower side",
+        lambda: LoadConfig(name="house", forecast_kw=np.ones(N), upper_kw=np.ones(N)),
+        "both be given",
+    ),
+    (
+        "a load band below the forecast",
+        lambda: LoadConfig(
+            name="house",
+            forecast_kw=np.ones(N),
+            lower_kw=np.zeros(N),
+            upper_kw=np.full(N, 0.5),
+        ),
+        "lower_kw <= forecast_kw <= upper_kw",
+    ),
+    (
+        "a sheddable band with no upper side",
+        lambda: _shed(lower_kw=np.zeros(N)),
+        "both be given",
+    ),
+    (
+        "a sheddable band above the forecast",
+        lambda: _shed(lower_kw=np.full(N, 2.0), upper_kw=np.full(N, 3.0)),
+        "lower_kw <= forecast_kw <= upper_kw",
+    ),
+    # AdequacyLoadConfig: daily cap, deferral saving, windows
+    (
+        "a daily cap of zero",
+        lambda: _adequacy(max_kwh_per_day=0.0),
+        "max_kwh_per_day",
+    ),
+    (
+        "a negative deferral saving",
+        lambda: _adequacy(min_deferral_saving_dollars=-0.01),
+        "min_deferral_saving_dollars",
+    ),
+    ("an empty window list", lambda: _adequacy(windows=()), "non-empty"),
+    (
+        "windows and allowed together",
+        lambda: _adequacy(windows=(_window(0, 1),), allowed=np.ones(N, dtype=bool)),
+        "both windows and",
+    ),
+    (
+        "a window with a negative start",
+        lambda: _adequacy(windows=(_window(-1, 1),)),
+        "windows[0].earliest_period",
+    ),
+    (
+        "a window with no target",
+        lambda: _adequacy(windows=(_window(0, 1, target=0.0),)),
+        "windows[0].target_kwh",
+    ),
+    (
+        "a window that ends before it starts",
+        lambda: _adequacy(windows=(_window(2, 1),)),
+        "windows[0].deadline_period",
+    ),
+    (
+        "windows that overlap",
+        lambda: _adequacy(windows=(_window(0, 1), _window(1, 2))),
+        "chronologically",
+    ),
+]
+
+
 @pytest.mark.parametrize(
     ("case", "build", "says"), REFUSED, ids=[c for c, _b, _s in REFUSED]
 )
@@ -263,6 +505,12 @@ DEGENERATE = [
     (
         "a terminal value whose rate rises",
         lambda: _battery(terminal_value_breakpoints=[(4.0, 0.1), (4.0, 0.2)]),
+    ),
+    ("a lossless charge", lambda: _battery(charge_efficiency=1.0)),
+    ("a discharge with no output", lambda: _battery(discharge_efficiency=0.0)),
+    (
+        "a power curve that bends upward",
+        lambda: _battery(charge_power_curve=[(1.0, 1.0), (5.0, 1.5), (9.0, 5.0)]),
     ),
 ]
 
