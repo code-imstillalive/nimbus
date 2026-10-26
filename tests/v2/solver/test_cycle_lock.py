@@ -53,6 +53,35 @@ def _pid_in(path):
         return f.read()
 
 
+def test_a_second_thread_is_refused_until_the_first_releases(lock_path):
+    assert cycle_lock.acquire_lock(lock_path)
+    assert _pid_in(lock_path) == str(os.getpid())
+    assert not _on_another_thread(lock_path)
+    cycle_lock.release_lock(lock_path)
+    assert not os.path.exists(lock_path)
+    assert _on_another_thread(lock_path)
+    cycle_lock.release_lock(lock_path)
+    for _ in range(5):  # one solve after another is unaffected
+        assert cycle_lock.acquire_lock(lock_path)
+        cycle_lock.release_lock(lock_path)
+
+
+def test_exactly_one_of_many_simultaneous_threads_wins(lock_path):
+    start = threading.Barrier(12)
+    wins = []
+
+    def race():
+        start.wait()
+        wins.append(cycle_lock.acquire_lock(lock_path))
+
+    threads = [threading.Thread(target=race) for _ in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    assert sorted(wins) == [False] * 11 + [True]
+
+
 def test_a_live_process_in_the_pid_file_blocks_and_the_thread_lock_is_let_go(
     lock_path, monkeypatch
 ):
@@ -93,3 +122,13 @@ def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypat
 def test_releasing_what_was_never_taken_is_harmless(lock_path):
     cycle_lock.release_lock(lock_path)
     assert cycle_lock.acquire_lock(lock_path)
+
+
+def test_the_writers_own_lock_is_the_one_at_its_lock_path(lock_path, monkeypatch):
+    import solver_writer as sw
+
+    monkeypatch.setattr(sw, "LOCK_PATH", lock_path)
+    assert sw._IN_PROCESS_LOCK is cycle_lock._IN_PROCESS_LOCK
+    assert sw.acquire_lock() and _pid_in(lock_path) == str(os.getpid())
+    sw.release_lock()
+    assert not os.path.exists(lock_path)

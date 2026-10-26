@@ -16,6 +16,8 @@ import importlib
 import logging
 import os
 import sys
+import tempfile
+import time
 import types
 import urllib.error
 from datetime import UTC, datetime, timedelta
@@ -156,6 +158,35 @@ def test_a_missing_dependency_fails_the_cycle_and_notifies_once(monkeypatch, cap
     assert "highspy" in data["message"]
 
 
+def test_a_successful_cycle_solves_then_releases_the_lock(monkeypatch):
+    sw = FakeSW()
+    _ready(monkeypatch, sw)
+    assert rt._run_one_cycle(FakeHass()) is True
+    assert sw.calls == ["acquire", "main", "release"]
+    assert rt._cycles_started == 1
+
+
+def test_first_use_binds_the_solver_and_backgrounds_the_stochastic_shadow(monkeypatch):
+    sw = types.ModuleType(f"{PKG}.solver_writer")
+    bound = []
+    sw.set_native_hass = bound.append
+    plan = types.ModuleType(f"{PKG}.solver_plan")
+    plan.STOCHASTIC_SHADOW_IN_BACKGROUND = False
+    for name, mod in (("solver_writer", sw), ("solver_plan", plan)):
+        monkeypatch.setitem(sys.modules, f"{PKG}.{name}", mod)
+        monkeypatch.setattr(sys.modules[PKG], name, mod, raising=False)
+    for var in [v for v in os.environ if v.startswith("NIMBUS_")]:
+        monkeypatch.delenv(var)
+    hass = FakeHass(config_dir=tempfile.mkdtemp())
+    assert rt._ensure_ready(hass) is sw
+    assert rt._ensure_ready(hass) is sw
+    assert bound == [hass]
+    assert plan.STOCHASTIC_SHADOW_IN_BACKGROUND is True
+    assert os.environ["NIMBUS_SOLVER_PLAN_STATE_PATH"].startswith(
+        hass.config.config_dir
+    )
+
+
 def test_a_held_lock_skips_quietly_once_then_warns_and_asks_for_a_rerun(
     monkeypatch, caplog
 ):
@@ -253,6 +284,18 @@ def test_only_the_config_sensor_startup_race_is_a_plain_warning(
     assert sw.calls[-1] == "release"
 
 
+def test_any_other_failure_is_logged_and_the_lock_still_released(monkeypatch, caplog):
+    def main():
+        raise ValueError("boom")
+
+    sw = FakeSW(main=main)
+    _ready(monkeypatch, sw)
+    with caplog.at_level(logging.ERROR, logger=rt.__name__):
+        assert rt._run_one_cycle(FakeHass()) is False
+    assert caplog.records[-1].exc_info is not None
+    assert sw.calls == ["acquire", "main", "release"]
+
+
 @pytest.mark.parametrize(("seconds", "warns"), [(120.0, False), (120.5, True)])
 def test_a_cycle_over_two_minutes_is_flagged(
     monkeypatch, caplog, clean, seconds, warns
@@ -281,6 +324,22 @@ _PERIOD = {
     "time": "2026-09-20T06:00:00+00:00",
     "dispatch_direction": "charge",
 }
+
+
+def test_the_dry_run_records_the_current_period_without_any_service_call(monkeypatch):
+    sw = FakeSW()
+    hass = FakeHass(
+        {DRY_SWITCH: _state("on"), FORECAST: _state("ok", forecast=[_PERIOD])}
+    )
+    rt._log_dispatch_dry_run(hass, sw)
+    ((entity, value, attrs),) = sw.pushed
+    assert entity == "sensor.nimbus_solver_dispatch_dry_run"
+    assert value == -2.346
+    assert attrs["soc_pct"] == 55.0 and attrs["period_time"] == _PERIOD["time"]
+    assert attrs["dry_run_enabled"] is True
+    assert attrs["dispatch_direction"] == "charge"
+    assert attrs["dispatch_source_a_label"] is None
+    assert hass.jobs == []
 
 
 def test_the_dry_run_prefers_the_plan_this_cycle_posted(monkeypatch):
@@ -419,6 +478,30 @@ def test_a_successful_solve_records_the_outcome_and_captures_the_day(monkeypatch
     assert rt._in_flight_future is None
 
 
+def test_a_failed_solve_records_the_outcome_but_captures_nothing(monkeypatch):
+    seen = _stores(monkeypatch)
+
+    def main():
+        raise ValueError("x")
+
+    _ready(monkeypatch, FakeSW(main=main))
+    assert asyncio.run(rt.async_run_solve(FakeHass(entries=[_entry()]))) is False
+    assert [s[0] for s in seen] == [
+        "async_ensure_snapshots_loaded",
+        "async_note_solve_outcome",
+    ]
+
+
+@pytest.mark.parametrize(
+    "entries", [[], [_entry("A"), _entry("B")]], ids=["none", "two"]
+)
+def test_without_exactly_one_entry_nothing_per_entry_is_touched(monkeypatch, entries):
+    seen = _stores(monkeypatch)
+    _ready(monkeypatch, FakeSW())
+    assert asyncio.run(rt.async_run_solve(FakeHass(entries=entries))) is True
+    assert seen == []
+
+
 def test_unreadable_entries_mean_no_snapshot_key():
     hass = FakeHass()
 
@@ -430,6 +513,19 @@ def test_unreadable_entries_mean_no_snapshot_key():
     assert rt._entry_id_for_snapshot(FakeHass(entries=[_entry("X")])) == "X"
 
 
+def test_a_trigger_during_a_cycle_gets_exactly_one_follow_up(monkeypatch):
+    _stores(monkeypatch)
+    sw = FakeSW()
+
+    def main():
+        rt._rerun_requested = True  # a tick arrived mid-cycle, every time
+
+    sw._main = main
+    _ready(monkeypatch, sw)
+    assert asyncio.run(rt.async_run_solve(FakeHass())) is True
+    assert sw.calls.count("main") == 2
+
+
 def test_a_cycle_that_found_the_lock_held_runs_no_follow_up(monkeypatch):
     _stores(monkeypatch)
     sw = FakeSW(lock=False)
@@ -439,7 +535,36 @@ def test_a_cycle_that_found_the_lock_held_runs_no_follow_up(monkeypatch):
     assert rt._take_rerun_request() is True  # left for the running cycle
 
 
+def test_the_follow_up_counts_when_only_it_succeeds(monkeypatch):
+    _stores(monkeypatch)
+    runs = iter([ValueError("first"), None])
+
+    def main():
+        rt._rerun_requested = True
+        err = next(runs)
+        if err:
+            raise err
+
+    _ready(monkeypatch, FakeSW(main=main))
+    assert asyncio.run(rt.async_run_solve(FakeHass())) is True
+
+
 # --- unload --------------------------------------------------------------------
+
+
+def test_unload_waits_for_nothing_when_no_solve_is_running():
+    asyncio.run(rt.wait_for_in_flight_solve(timeout=0.01))
+
+
+def test_unload_waits_for_the_running_solve_to_finish():
+    async def go():
+        future = asyncio.get_running_loop().create_future()
+        rt._in_flight_future = future
+        asyncio.get_running_loop().call_later(0.01, future.set_result, True)
+        await rt.wait_for_in_flight_solve(timeout=5)
+        return future.done()
+
+    assert asyncio.run(go()) is True
 
 
 @pytest.mark.parametrize(
@@ -467,7 +592,55 @@ def test_unload_never_blocks_or_raises_on_a_stuck_or_failed_solve(
     assert any(r.levelno == level and text in r.getMessage() for r in caplog.records)
 
 
+def test_reset_clears_every_cached_value_and_the_per_entry_stores(monkeypatch):
+    cleared = []
+    for name, attr in (
+        ("forecast_snapshot_store", "reset_snapshot_cache"),
+        ("quality_history_store", "reset_quality_history_cache"),
+        ("decision_inputs_store", "reset_decision_inputs_cache"),
+    ):
+        monkeypatch.setattr(
+            sys.modules[f"{PKG}.{name}"], attr, lambda n=name: cleared.append(n)
+        )
+    sensor = SimpleNamespace(record=lambda **kw: None)
+    for attr, value in {
+        "_solver_writer": object(),
+        "_last_solve_completed_monotonic": 1.0,
+        "_import_error_notified": True,
+        "_price_latency_sensor": sensor,
+        "_consecutive_lock_skips": 3,
+        "_rerun_requested": True,
+        "_consecutive_not_configured": 4,
+        "_not_configured_since": 5.0,
+        "_not_configured_warned": True,
+        "_single_skip_total": 9,
+    }.items():
+        setattr(rt, attr, value)
+    rt._STARTUP_ABSENCE_SINCE["k"] = 1.0
+    rt._STARTUP_ABSENCE_WARNED.add("k")
+    rt.reset_module_state()
+    assert (rt._solver_writer, rt._last_solve_completed_monotonic) == (None, None)
+    assert rt._import_error_notified is False and rt._price_latency_sensor is None
+    assert (rt._consecutive_lock_skips, rt._single_skip_total) == (0, 0)
+    assert rt._rerun_requested is False
+    assert (rt._consecutive_not_configured, rt._not_configured_since) == (0, None)
+    assert rt._not_configured_warned is False
+    assert not rt._STARTUP_ABSENCE_SINCE and not rt._STARTUP_ABSENCE_WARNED
+    assert cleared == [
+        "forecast_snapshot_store",
+        "quality_history_store",
+        "decision_inputs_store",
+    ]
+
+
 # --- solve bookkeeping and paths ----------------------------------------------
+
+
+def test_time_since_last_solve_counts_from_any_trigger(clean):
+    assert rt.time_since_last_solve() is None
+    rt.record_solve_completed(trigger_source="cron")
+    clean.now += 42
+    assert rt.time_since_last_solve() == 42
 
 
 def test_only_a_price_change_solve_feeds_the_latency_sensor(monkeypatch):
@@ -497,3 +670,44 @@ def test_only_a_price_change_solve_feeds_the_latency_sensor(monkeypatch):
         "debounce_s": 5.0,
     }
     assert got[1]["latency_s"] is None
+
+
+def test_runtime_paths_persist_state_under_config_and_scaffolding_per_install(
+    monkeypatch,
+):
+    for var in [v for v in os.environ if v.startswith("NIMBUS_")]:
+        monkeypatch.delenv(var)
+    rt.set_default_env_vars(FakeHass(config_dir="/srv/a"))
+    first = {k: v for k, v in os.environ.items() if k.startswith("NIMBUS_")}
+    for name in (
+        "PLAN_STATE",
+        "SOLAR_DELIVERY_RATIO",
+        "AMBER_SPOT",
+        "PRICE_CONSOLIDATION",
+        "SOLAR_QUANTILES",
+        "PRICE_ERROR_HISTORY",
+    ):
+        assert first[f"NIMBUS_SOLVER_{name}_PATH"].startswith(
+            os.path.join("/srv/a", "")
+        )
+    assert first["NIMBUS_LP_DUMP_DIR"] == os.path.join("/srv/a", "nimbus_diagnostics")
+    assert first["NIMBUS_SOLVER_PATH"] == os.path.dirname(rt.__file__)
+    # #1324: the deleted-every-cycle files stay out of /config, keyed per install.
+    tmp = tempfile.gettempdir()
+    for var in ("NIMBUS_SOLVER_LOCK_PATH", "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH"):
+        assert os.path.dirname(first[var]) == tmp
+    for var in [v for v in os.environ if v.startswith("NIMBUS_")]:
+        monkeypatch.delenv(var)
+    rt.set_default_env_vars(FakeHass(config_dir="/srv/b"))
+    assert os.environ["NIMBUS_SOLVER_LOCK_PATH"] != first["NIMBUS_SOLVER_LOCK_PATH"]
+    # An operator's own setting wins.
+    monkeypatch.setenv("NIMBUS_SOLVER_LOCK_PATH", "/mine.lock")
+    rt.set_default_env_vars(FakeHass(config_dir="/srv/b"))
+    assert os.environ["NIMBUS_SOLVER_LOCK_PATH"] == "/mine.lock"
+
+
+def test_the_tests_clock_never_reaches_the_event_loop():
+    """The clock is solver_runtime's own: asyncio reads the global
+    time.monotonic, and frozen it never lets a timer fall due on Linux."""
+    assert not isinstance(time.monotonic, Clock)
+    assert isinstance(rt.time.monotonic(), float)
