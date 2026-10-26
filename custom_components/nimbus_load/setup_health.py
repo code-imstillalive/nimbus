@@ -35,6 +35,12 @@ Conditions (stage 2):
   zero-export site can genuinely set it to the floor.
 - **contradictory battery settings** (#1800): Min SoC at or above Max SoC, or
   a Charge By target above Max SoC.
+- **an availability list that never matches** (#2014): a battery
+  participant's availability entity reported states over the last
+  `AVAILABILITY_WINDOW` and none of them is in the household's "States that
+  mean available", so the participant reads as away on every cycle and is
+  never planned. Checked only where a list is set or the entity is a plain
+  sensor (see `availability.needs_listed_match`).
 - **no whole-house sensor set** (#1998): the hub has a Load forecast but the
   whole-house cross-check field is blank, so no load gets the Forecaster's
   whole-house fixes (#6, #7). Since #1994 that field is the only way the
@@ -93,6 +99,10 @@ _LOGGER = logging.getLogger(__name__)
 
 TRAIN_GRACE = timedelta(minutes=30)
 REFRESH_INTERVAL = timedelta(minutes=15)
+# #2014: how far back an availability entity's states are read, and how often.
+# A week: a correct list for a car kept at home matches at least once in it.
+AVAILABILITY_WINDOW = timedelta(days=7)
+AVAILABILITY_RECHECK = timedelta(hours=6)
 
 KIND_NOT_TRAINED = "forecast_not_trained"
 KIND_ENERGY_UNIT = "energy_unit_power_input"
@@ -103,6 +113,7 @@ KIND_FEES_ON_TARIFF = "fees_on_top_of_pd7day_tariff"
 KIND_SOLVER_INPUT = "solver_input_missing"
 KIND_NO_REGIONAL_FORECAST = "regional_forecast_missing"
 KIND_WHOLE_HOUSE_UNSET = "whole_house_sensor_unset"
+KIND_AVAILABILITY_MISMATCH = "availability_states_never_match"
 KIND_PLACEHOLDER_SETTINGS = "placeholder_settings"
 KIND_CONTRADICTORY_SETTINGS = "contradictory_settings"
 # Nimbus could not make a plan for PLAN_FAILING_AFTER cycles in a row
@@ -165,6 +176,7 @@ def evaluate_health(
     settings: Mapping[str, float] | None = None,
     has_load_forecast: bool = False,
     failed_streak: Mapping[str, Any] | None = None,
+    availability_mismatches: Iterable[tuple[str, str, str, tuple[str, ...], str]] = (),
 ) -> list[HealthIssue]:
     """Every current setup gap. Pure.
 
@@ -175,9 +187,26 @@ def evaluate_health(
     NEM PD7DAY import tariff (#1581). `settings` is the live value of each
     `SETTING_KEYS` number that exists; a missing one is not checked (#1800).
     `failed_streak` is solver_publish.failed_streak(): consecutive cycles
-    without an optimal plan.
+    without an optimal plan. `availability_mismatches` is (subentry_id,
+    participant name, availability entity, states it reported, the configured
+    list) for each participant whose list matched none of them (#2014).
     """
     issues: list[HealthIssue] = []
+
+    for subentry_id, name, entity_id, seen, listed in availability_mismatches:
+        issues.append(
+            HealthIssue(
+                key=f"{KIND_AVAILABILITY_MISMATCH}_{subentry_id}",
+                kind=KIND_AVAILABILITY_MISMATCH,
+                placeholders={
+                    "name": name,
+                    "entity": entity_id,
+                    "seen": ", ".join(seen),
+                    "listed": listed or "(none)",
+                    "days": str(AVAILABILITY_WINDOW.days),
+                },
+            )
+        )
 
     if hub_up_for >= TRAIN_GRACE:
         for subentry_id, title, data in forecasts:
@@ -431,6 +460,87 @@ def _live_settings(hass: Any, entry: Any) -> dict[str, float]:
     return out
 
 
+async def _async_availability_mismatches(
+    hass: Any, entry: Any, state: dict[str, Any], now: datetime
+) -> list[tuple[str, str, str, tuple[str, ...], str]]:
+    """#2014: each battery participant whose availability list matched none of
+    the states its entity reported over `AVAILABILITY_WINDOW`. Read from the
+    recorder every `AVAILABILITY_RECHECK`; only that read is kept between
+    refreshes, and the lists are matched against it on every refresh, so an
+    edited list clears its Repair at once (Mark Purcell's review of #2055).
+    An entity with no history yet is not reported."""
+    try:
+        from .availability import (
+            available_states,
+            needs_listed_match,
+            unmatched_states,
+        )
+        from .const import (
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
+            CONF_BATTERY_PARTICIPANT_NAME,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+
+        checks = []
+        for subentry_id, sub in entry.subentries.items():
+            if getattr(sub, "subentry_type", None) != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+                continue
+            data = dict(sub.data)
+            entity_id = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+            listed = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES) or ""
+            if entity_id and needs_listed_match(entity_id, listed):
+                name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or sub.title
+                checks.append((subentry_id, str(name), entity_id, listed))
+        found: list[tuple[str, str, str, tuple[str, ...], str]] = []
+        if checks:
+            entity_ids = tuple(sorted({c[2] for c in checks}))
+            cached = state.get("availability")
+            if (
+                cached is not None
+                and cached[1] == entity_ids
+                and now - cached[0] < AVAILABILITY_RECHECK
+            ):
+                seen = cached[2]
+            else:
+                seen = await _async_states_seen(
+                    hass, list(entity_ids), now - AVAILABILITY_WINDOW, now
+                )
+                state["availability"] = (now, entity_ids, seen)
+            for subentry_id, name, entity_id, listed in checks:
+                unmatched = unmatched_states(
+                    seen.get(entity_id, ()), available_states(entity_id, listed)
+                )
+                if unmatched:
+                    found.append((subentry_id, name, entity_id, unmatched, listed))
+        return found
+    except Exception:
+        _LOGGER.debug("Nimbus: availability check failed", exc_info=True)
+        return []
+
+
+async def _async_states_seen(
+    hass: Any, entity_ids: list[str], start: datetime, end: datetime
+) -> dict[str, list[Any]]:
+    from homeassistant.components.recorder import get_instance, history
+
+    def _read() -> dict[str, list[Any]]:
+        return history.get_significant_states(
+            hass,
+            start,
+            end,
+            entity_ids=entity_ids,
+            significant_changes_only=False,
+            no_attributes=True,
+        )
+
+    raw = await get_instance(hass).async_add_executor_job(_read)
+    return {
+        eid: [getattr(st, "state", None) for st in states]
+        for eid, states in raw.items()
+    }
+
+
 def _issue_id(entry_id: str, key: str) -> str:
     return f"{entry_id}_{key}"
 
@@ -484,6 +594,9 @@ async def async_refresh_health(
                 for sub in entry.subentries.values()
             ),
             failed_streak=_solver_failed_streak(),
+            availability_mismatches=await _async_availability_mismatches(
+                hass, entry, state, now or datetime.now(UTC)
+            ),
         )
 
         current = set()

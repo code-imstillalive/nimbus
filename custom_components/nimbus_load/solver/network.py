@@ -434,6 +434,31 @@ DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SP
 # price would otherwise get a penalty that doesn't actually dominate.
 DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER: float = 10.0
 
+
+def soft_soc_penalty(
+    import_price: Any, export_price: Any, other_rates: Any = ()
+) -> float:
+    """The derived soft min/max-SoC penalty, $/kWh (#328).
+
+    DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER times the largest price MAGNITUDE
+    in play, floored at 0.01. Magnitude, not signed maximum (#2045): with
+    every price negative (import -1, export -2) the signed maximum is -1,
+    the 0.01 floor won, and a 0.10 $/kWh penalty lost to being paid 1 $/kWh
+    to import -- both batteries filled to capacity past max_soc_kwh. A
+    negative price pays as much per kWh as a positive one costs, so it has
+    to be dominated the same way. With no price at all (no periods, no
+    other rate) the floor is the answer, not a TypeError (Mark Purcell's
+    review of #2054).
+    """
+    rates = [
+        float(np.max(np.abs(np.asarray(a, dtype=np.float64))))
+        for a in (import_price, export_price)
+        if len(a)
+    ]
+    rates += [abs(float(r)) for r in other_rates]
+    return DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max([*rates, 0.01])
+
+
 # How close two periods' own real start times need to be to count as
 # "the same real moment" for cross-solve alignment (proximal
 # regularization, rate limiting). 1 second comfortably absorbs any
@@ -1909,12 +1934,18 @@ def _offer_curve_ranging_walk(
             return interval
         lower, upper = interval
         ends = []
-        for bound, limit in (
-            (lower, _OFFER_CURVE_DOMAIN_MIN),
-            (upper, _OFFER_CURVE_DOMAIN_MAX),
+        for bound, limit, below in (
+            (lower, _OFFER_CURVE_DOMAIN_MIN, True),
+            (upper, _OFFER_CURVE_DOMAIN_MAX, False),
         ):
-            probe = max(bound, limit) if limit < price else min(bound, limit)
-            if abs(probe - price) <= 1e-12:
+            # Each end is probed only inside the domain, and only on its own
+            # side of `price`. At a price on or past a domain limit (#2054: a
+            # retail import of exactly -1.00, the floor) there is nothing to
+            # probe on that side: an unbounded end is kept as it is, never
+            # handed to plateau_end, whose -inf - -inf made a NaN price that
+            # HiGHS then never returned from.
+            probe = max(bound, limit) if below else min(bound, limit)
+            if (probe >= price - 1e-12) if below else (probe <= price + 1e-12):
                 ends.append(bound)
                 continue
             end, _past = plateau_end(price, probe, values[-1])
@@ -2353,8 +2384,8 @@ def _build_plan_once(
             # by tests/v2's bounds property, #1837).
             candidate_rates.append(float(b.salvage_value))
         soft_soc_other_rates = candidate_rates[2:]
-        soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-            *candidate_rates, 0.01
+        soft_soc_penalty_per_kwh = soft_soc_penalty(
+            grid.import_price, grid.export_price, soft_soc_other_rates
         )
 
     p = LPProblem()
@@ -5069,12 +5100,7 @@ def _build_plan_once(
                         export_price_risk_aversion,
                         direction="down",
                     )
-                penalty = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
-                    float(np.max(raw_imp)) if len(raw_imp) else 0.0,
-                    float(np.max(raw_exp)) if len(raw_exp) else 0.0,
-                    *soft_soc_other_rates,
-                    0.01,
-                )
+                penalty = soft_soc_penalty(raw_imp, raw_exp, soft_soc_other_rates)
                 for b in batteries:
                     for var in (*underfill_vars[b.name], *overfill_vars[b.name]):
                         costs[var] = penalty
@@ -5183,6 +5209,15 @@ def _build_plan_once(
                     return q.value_of(exact, var)
             return q.value_of(exact, var)
 
+        # #2054: the plan's own direction rounds may already hold binaries in
+        # `p`, and the base solve fixes them at the retail price's answer. A
+        # one-way point at another price is then optimal only within that
+        # fixed direction pattern (found on a paid-to-import shared charger:
+        # 3 kW now at -0.54 where a fresh solve waits to be paid -1.00), so
+        # it is checked by the exact MIP, which frees them, within the same
+        # budget as every other exact solve.
+        plan_held_binaries = p.is_mip
+
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
             def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
                 x = step.x
@@ -5190,7 +5225,15 @@ def _build_plan_once(
                     return step.value, True
                 first = _two_way(x, frozenset())
                 if first is None:
-                    return step.value, True
+                    if not plan_held_binaries or exact_left[0] <= 0:
+                        return step.value, True
+                    exact_left[0] -= 1
+                    exact = _exact_mip(costs(price), var, x)
+                    if exact is None or abs(exact - step.value) <= (
+                        _OFFER_CURVE_VALUE_TOL
+                    ):
+                        return step.value, True
+                    return exact, False
                 return one_way(price, step, x, first), False
 
             def one_way(
