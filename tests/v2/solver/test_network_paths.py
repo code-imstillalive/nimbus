@@ -807,3 +807,46 @@ def _small(name, **kw):
         salvage_value=0.0,
         **kw,
     )
+
+
+def test_a_first_solve_through_one_charger_both_ways_is_flagged():
+    """#2031: the first solve, before any direction round, discharges one
+    member into the other; the rounds start from that being named."""
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    batteries = [_small("a", **group), _small("c", **group)]
+    first = network._build_plan_thermal_fallback(
+        periods=PeriodGrid(np.ones(3)),
+        grid=GridConfig(
+            import_price=np.full(3, -1.0),
+            export_price=np.full(3, -2.0),
+            import_limit_kw=28.0,
+            export_limit_kw=10.0,
+        ),
+        batteries=batteries,
+        solar=SolarConfig(forecast_kw=np.zeros(3)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(3))],
+    )
+    charging = sum(b.charge_kw for b in first.batteries)
+    discharging = sum(b.discharge_kw for b in first.batteries)
+    opposed = np.flatnonzero(np.minimum(charging, discharging) > 1e-6)
+    assert opposed.size
+    flagged = network._opposing_flow_binaries(first, batteries)
+    assert {f"charger_dir_g_{t}" for t in opposed} <= flagged
+    assert not any(
+        n.startswith("charger_dir_") for n in network._opposing_flow_binaries(first)
+    )
+
+
+def test_one_charger_never_charges_one_member_from_another():
+    """#2031 (Mark Purcell): a shared charger is one conversion path. Paid to
+    import, the plan once discharged one member into the other through it to
+    burn energy in losses, and used 6.5 of its 7 kW in period 0. Now its
+    members all charge or all discharge, and period 0 fills the charger."""
+    group = {"shared_charger_group": "g", "shared_charger_max_kw": 7.0}
+    plan = _paid_to_import(_small("a", **group), _small("c", **group))
+    assert plan.status == "optimal"
+    assert plan.direction_exclusivity == "enforced"
+    charging = sum(b.charge_kw for b in plan.batteries)
+    discharging = sum(b.discharge_kw for b in plan.batteries)
+    assert (np.minimum(charging, discharging) <= 1e-6).all()
+    assert float(charging[0]) == pytest.approx(7.0, abs=1e-6)
