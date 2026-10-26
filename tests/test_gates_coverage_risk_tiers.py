@@ -87,3 +87,31 @@ def test_pin_only_lines_are_named_by_the_pin_that_reaches_them():
         "tests/test_1703_run_hold.py": [3, 4],
         "tests/test_1801_x.py": [4],
     }
+
+
+def test_the_smallest_cover_keeps_every_line_and_drops_what_adds_nothing():
+    by_module = {
+        "a.py": {
+            1: {"tests/v2/test_a.py::test_wide|run", "golden:base"},
+            2: {"tests/v2/test_a.py::test_wide|run"},
+            3: {
+                "tests/v2/test_a.py::test_wide|run",
+                "tests/test_1703_x.py::test_pin[case1]|run",
+            },
+            4: {"tests/test_1703_x.py::test_pin[case2]|run"},
+        },
+        "b.py": {1: {"tests/v2/test_b.py::test_narrow|setup"}},
+    }
+    r = cbr.smallest_cover(by_module)
+    assert r["kept"] == [
+        "tests/test_1703_x.py::test_pin",
+        "tests/v2/test_a.py::test_wide",
+        "tests/v2/test_b.py::test_narrow",
+    ]
+    assert r["adds_nothing"] == []
+    assert r["lines"] == 5
+    by_module["a.py"][5] = {"tests/v2/test_a.py::test_wide|run"}
+    by_module["b.py"][1].add("tests/v2/test_a.py::test_wide|run")
+    r = cbr.smallest_cover(by_module)
+    assert "tests/v2/test_b.py::test_narrow" in r["adds_nothing"]
+    assert r["tests_measured"] == 3
