@@ -456,6 +456,56 @@ def test_a_main_plan_that_used_half_the_shadow_budget_skips_the_shadow(
     assert f"took {seconds:.1f} s of the 30 s shadow budget" in warning.getMessage()
 
 
+@pytest.mark.parametrize(
+    ("budget", "seconds", "runs"),
+    [(None, 4.9, True), (None, 5.0, False), (None, 9.2, False), (40.0, 19.9, True)],
+)
+def test_a_main_plan_that_used_half_the_drive_budget_skips_the_drive(
+    budget, seconds, runs, caplog
+):
+    """#2047: drive mode gets the shadow's backstop against its own budget
+    (10 s by default, or the configured one). The skipped cycle publishes the
+    main plan with a named reason, logs once, and leaves the backoff alone:
+    the next fast cycle drives at once."""
+    kw, det, stoch = _det_and_stoch()
+    cfg = {"solver_stochastic_dispatch": True}
+    if budget is not None:
+        cfg["solver_stochastic_drive_budget_seconds"] = budget
+    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+        for minute in (0, 6):
+            published, summary = solver_plan.run_stochastic_dispatch(
+                cfg,
+                now=T0 + timedelta(minutes=minute),
+                plan=det,
+                build_kwargs=kw,
+                deterministic_seconds=seconds,
+            )
+        assert spy.call_count == (2 if runs else 0)
+        if runs:
+            assert published is not det
+            return
+        assert published is det
+        assert summary["mode"] == "drive"
+        assert summary["status"] == "skipped"
+        assert summary["fallback_reason"] == "deterministic_too_slow"
+        assert summary["deterministic_solve_seconds"] == seconds
+        (warning,) = [
+            r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
+        ]
+        assert f"took {seconds:.1f} s of the 10 s drive budget" in (
+            warning.getMessage()
+        )
+        published, _ = solver_plan.run_stochastic_dispatch(
+            cfg,
+            now=T0 + timedelta(minutes=7),
+            plan=det,
+            build_kwargs=kw,
+            deterministic_seconds=0.5,
+        )
+        assert spy.call_count == 1
+        assert published is not det
+
+
 def test_drive_publishes_the_stochastic_plan():
     kw, det, stoch = _det_and_stoch()
     det = dataclasses.replace(det, offer_curve_import=[(0.1, 2.0)])

@@ -318,7 +318,8 @@ STOCHASTIC_SHADOW_BUDGET_SECONDS = 30.0
 # #2025 (Mark Purcell's backstop): a cycle whose deterministic solve alone
 # took at least this share of the shadow budget skips the shadow solve. The
 # joint problem is three copies of that one, so it cannot fit the budget,
-# and a shadow computation must never cost more than it is worth.
+# and a shadow computation must never cost more than it is worth. Drive mode
+# skips at the same share of its own budget (#2047).
 STOCHASTIC_SHADOW_SKIP_SHARE = 0.5
 # Kept for the shadow slow-solve threshold's history: a drive solve is bounded
 # by STOCHASTIC_DRIVE_BUDGET_SECONDS instead.
@@ -644,6 +645,20 @@ def _run_drive(
     settings: dict[str, Any],
 ) -> tuple[network.Plan, dict]:
     state = _STOCHASTIC_STATE
+    budget = float(settings["drive_budget_seconds"])
+    if deterministic_seconds >= STOCHASTIC_SHADOW_SKIP_SHARE * budget:
+        # #2047 (Mark Purcell): the shadow's backstop (#2025), on the dispatch
+        # path. The main plan is already computed and is what this publishes;
+        # the backoff is untouched, since nothing was tried.
+        _log_fallback_once(
+            "deterministic_too_slow",
+            f"the main plan alone took {deterministic_seconds:.1f} s of the "
+            f"{budget:.0f} s drive budget, so no stochastic solve this cycle; "
+            "this cycle publishes the deterministic plan",
+        )
+        return plan, _stochastic_fallback(
+            "drive", now, "deterministic_too_slow", plan, deterministic_seconds
+        )
     with _STOCHASTIC_LOCK:
         n_fail = int(state["consecutive_fallbacks"])
         wait = (
