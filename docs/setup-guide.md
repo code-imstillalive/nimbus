@@ -1087,7 +1087,7 @@ EV-specific fields worth knowing:
 | Field | Does |
 |---|---|
 | Availability sensor | Says whether this participant is here: a `binary_sensor` ("plugged in"), a `device_tracker` or `person` ("at home"), or a `sensor`, `input_boolean` or `switch`. While it is not in an available state, this participant cannot charge or discharge at all |
-| States that mean available | Optional, comma-separated, e.g. `Charging, Connected` for a charger status sensor (case is ignored). Blank: `on` for a binary_sensor, input_boolean or switch, `home` for a device_tracker or person. A plain sensor needs its states listed, otherwise it never counts as available |
+| States that mean available | Optional, comma-separated, e.g. `Charging, Connected` for a charger status sensor (case is ignored). Blank: `on` for a binary_sensor, input_boolean or switch, `home` for a device_tracker or person. A plain sensor needs its states listed, otherwise it never counts as available. If the entity reported real states for 7 days and none is in the list, a Repair names them |
 | Departure hour + Required SoC by departure | Set both to define the planning target. Check availability, achievable charging time and actual SoC before departure. |
 | Live charge-limit entity | Uses the vehicle's charge limit instead of the configured Max SoC for that solve |
 | Trip calendar | Include distance in the event title, such as "Trip to Brisbane 120 km". Events without distance are ignored. |
