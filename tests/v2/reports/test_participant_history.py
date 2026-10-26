@@ -102,28 +102,32 @@ def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(site):
     assert soc_hist == site.soc
 
 
-@pytest.mark.parametrize(
-    "case", ["none", "other_kind", "no_power_sensor", "no_history", "bad_soc_range"]
-)
-def test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash(site, case):
-    if case == "other_kind":
-        site.add({"load_sensor": "sensor.pool"}, kind="load")
-    elif case == "no_power_sensor":
-        site.add(
-            {k: v for k, v in EV.items() if k != "battery_participant_power_sensor"}
-        )
-    elif case == "no_history":
-        site.power = site.soc = []
-        site.add()
-    elif case == "bad_soc_range":
-        site.add(
-            {
-                **EV,
-                "battery_participant_min_soc_percent": 95.0,
-                "battery_participant_max_soc_percent": 20.0,
-            }
-        )
-    assert resolve() == []
+def test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash(site):
+    for case in [
+        "none",
+        "other_kind",
+        "no_power_sensor",
+        "no_history",
+        "bad_soc_range",
+    ]:
+        if case == "other_kind":
+            site.add({"load_sensor": "sensor.pool"}, kind="load")
+        elif case == "no_power_sensor":
+            site.add(
+                {k: v for k, v in EV.items() if k != "battery_participant_power_sensor"}
+            )
+        elif case == "no_history":
+            site.power = site.soc = []
+            site.add()
+        elif case == "bad_soc_range":
+            site.add(
+                {
+                    **EV,
+                    "battery_participant_min_soc_percent": 95.0,
+                    "battery_participant_max_soc_percent": 20.0,
+                }
+            )
+        assert resolve() == []
 
 
 # --- the hours it was away (#467, #768) -------------------------------------------------------
@@ -205,19 +209,15 @@ def _row(hour, state, unit="kW"):
     return row
 
 
-@pytest.mark.parametrize(
-    ("rows", "expected"),
-    [
+def test_what_each_row_reads_as(rest):
+    for rows, expected in [
         ([_row(9, 7.5, None)], [7.5]),  # no unit: kW, as always
         ([_row(9, 7.5, "kWh"), _row(9.5, 7.5, "A"), _row(10, 2.0)], [2.0]),  # #1643
         ([_row(9, "unavailable", "W"), _row(10, "heating"), _row(11, 5.0)], [5.0]),
         ([_row(11, 3.0), _row(9, 1.0), _row(10, 2.0)], [1.0, 2.0, 3.0]),
         ([], []),
-    ],
-    ids=["no_unit", "not_power", "not_a_number", "unsorted", "empty"],
-)
-def test_what_each_row_reads_as(rest, rows, expected):
-    assert rest(rows) == expected
+    ]:
+        assert rest(rows) == expected
 
 
 def test_a_failed_read_is_no_history(rest):

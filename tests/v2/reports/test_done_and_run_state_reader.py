@@ -121,12 +121,11 @@ def test_every_load_reads_its_own_state_and_an_unknown_load_reads_fresh(reader):
     assert coord.get("other") == lrs.LoadRunState()
 
 
-@pytest.mark.parametrize("disk_state", [None, "broken"])
-def test_an_empty_or_unreadable_store_means_every_load_starts_fresh(
-    reader, caplog, disk_state
-):
-    coord, disk = reader
-    disk.broken = disk_state == "broken"
-    with caplog.at_level(logging.WARNING, logger=lrc._LOGGER.name):
-        assert asyncio.run(coord._async_update_data()) == {}
-    assert ("read failed" in caplog.text) is disk.broken
+def test_an_empty_or_unreadable_store_means_every_load_starts_fresh(reader, caplog):
+    for disk_state in [None, "broken"]:
+        caplog.clear()
+        coord, disk = reader
+        disk.broken = disk_state == "broken"
+        with caplog.at_level(logging.WARNING, logger=lrc._LOGGER.name):
+            assert asyncio.run(coord._async_update_data()) == {}
+        assert ("read failed" in caplog.text) is disk.broken

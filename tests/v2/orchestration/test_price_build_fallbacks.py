@@ -75,19 +75,18 @@ def _build(**cfg):
     )
 
 
-@pytest.mark.parametrize(
-    "price_now",
-    [lambda eid, fallback: float("nan"), lambda eid, fallback: 1 / 0],
-    ids=["no_reading", "unreadable"],
-)
-def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, price_now):
-    monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
-    monkeypatch.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
-    monkeypatch.setattr(sw, "price_now", price_now)
-    out = _build(solver_regional_spot_current_price_sensor="sensor.spot")
-    assert out.spot_import_raw == AEMO_IMPORT
-    assert writer["live_spot"] == [None, None]
-    assert not any(isinstance(v, float) and math.isnan(v) for v in writer["live_spot"])
+def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch):
+    for price_now in [lambda eid, fallback: float("nan"), lambda eid, fallback: 1 / 0]:
+        with monkeypatch.context() as mp:
+            mp.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
+            mp.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
+            mp.setattr(sw, "price_now", price_now)
+            out = _build(solver_regional_spot_current_price_sensor="sensor.spot")
+            assert out.spot_import_raw == AEMO_IMPORT
+            assert writer["live_spot"] == [None, None]
+            assert not any(
+                isinstance(v, float) and math.isnan(v) for v in writer["live_spot"]
+            )
 
 
 def test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so(writer, monkeypatch):

@@ -285,34 +285,30 @@ def _banded_plan(n, solar, start, aversion, imp0=None, exp0=None, curve=True):
     )
 
 
-@pytest.mark.parametrize(
-    "direction, raw, bound", [("up", 0.30, 0.60), ("down", 0.10, 0.02)]
-)
-@pytest.mark.parametrize("aversion", [0.0, 0.25, 0.9, 1.0])
-def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted(
-    direction, raw, bound, aversion
-):
+def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
     """#1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
     period 0 wherever an inverse exists; at an aversion of 1, inside the
     band, every raw price adjusts to the bound, and the plan's own is kept."""
-    from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
+    for direction, raw, bound in [("up", 0.30, 0.60), ("down", 0.10, 0.02)]:
+        for aversion in [0.0, 0.25, 0.9, 1.0]:
+            from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
 
-    band = np.array([bound])
-    for r in np.linspace(-0.5, 1.5, 41):
-        adjusted = float(
-            _risk_adjusted_one_sided(
-                np.array([r]), band, aversion, direction=direction
-            )[0]
-        )
-        back = _raw_price_for_adjusted(
-            adjusted, raw, band, aversion, direction=direction
-        )
-        # At the bound itself (to float noise) every raw price ties.
-        inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
-        if aversion >= 1.0 and inside:
-            assert back == raw
-        else:
-            assert back == pytest.approx(r, abs=1e-12)
+            band = np.array([bound])
+            for r in np.linspace(-0.5, 1.5, 41):
+                adjusted = float(
+                    _risk_adjusted_one_sided(
+                        np.array([r]), band, aversion, direction=direction
+                    )[0]
+                )
+                back = _raw_price_for_adjusted(
+                    adjusted, raw, band, aversion, direction=direction
+                )
+                # At the bound itself (to float noise) every raw price ties.
+                inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
+                if aversion >= 1.0 and inside:
+                    assert back == raw
+                else:
+                    assert back == pytest.approx(r, abs=1e-12)
 
 
 class _FakeRangingResult:
@@ -546,34 +542,33 @@ def _shared_charger_plan(imp0=None, curve=True, prices=_PAID_ALL_DAY):
 
 # The site's 12 direction pairs: 3 grid, 6 battery, 3 shared charger. A
 # budget of 12 buys one exact fallback: its targeted and its every-pair round.
-@pytest.mark.parametrize(
-    ("budget", "most"), [(0, 0), (12, 2), (None, None)], ids=["spent", "one", "default"]
-)
-def test_the_curves_exact_work_is_bounded(budget, most, monkeypatch):
+def test_the_curves_exact_work_is_bounded(monkeypatch):
     """#2031 (Mark Purcell): past its budget of direction pairs, a point keeps
     the best one-way plan its search found instead of an exact MIP, so a
     large site's curve cannot run on (#2010's bounded secondary work)."""
-    import copy as copy_mod
+    for budget, most in [(0, 0), (12, 2), (None, None)]:
+        with monkeypatch.context() as mp:
+            import copy as copy_mod
 
-    from solver import lp, network
+            from solver import lp, network
 
-    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    if budget is not None:
-        monkeypatch.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
-    copies = []
-    real = copy_mod.deepcopy
+            mp.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+            if budget is not None:
+                mp.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
+            copies = []
+            real = copy_mod.deepcopy
 
-    def deepcopy(obj, *a, **k):
-        if isinstance(obj, lp.LPProblem):
-            copies.append(obj)
-        return real(obj, *a, **k)
+            def deepcopy(obj, *a, **k):
+                if isinstance(obj, lp.LPProblem):
+                    copies.append(obj)  # noqa: B023
+                return real(obj, *a, **k)  # noqa: B023
 
-    monkeypatch.setattr(network.copy, "deepcopy", deepcopy)
-    plan = _shared_charger_plan()
-    assert plan.status == "optimal"
-    assert plan.offer_curve_import
-    if most is None:
-        assert len(copies) > 2  # unbounded by the tests above
-    else:
-        assert len(copies) <= most
-        assert (len(copies) > 0) == (most > 0)
+            mp.setattr(network.copy, "deepcopy", deepcopy)
+            plan = _shared_charger_plan()
+            assert plan.status == "optimal"
+            assert plan.offer_curve_import
+            if most is None:
+                assert len(copies) > 2  # unbounded by the tests above
+            else:
+                assert len(copies) <= most
+                assert (len(copies) > 0) == (most > 0)

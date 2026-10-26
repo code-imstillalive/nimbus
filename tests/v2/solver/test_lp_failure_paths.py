@@ -277,32 +277,31 @@ def test_the_diagnostics_are_reported_and_never_steer_the_solve():
     assert flipped.calibration_fallback_reason == "cost_not_preserved"
 
 
-@pytest.mark.parametrize(
-    ("failing", "reason"),
-    [
-        (set(), "cost_not_preserved"),
-        ({0}, "probe_not_optimal"),
-        ({1}, "probe_not_optimal"),
-    ],
-    ids=["both_solve", "largest_fails", "smallest_fails"],
-)
-def test_a_probe_that_did_not_solve_outranks_a_cost_that_moved(failing, reason):
+def test_a_probe_that_did_not_solve_outranks_a_cost_that_moved():
     """#1179: when no weight in the bracket keeps the primary, the fallback is
     `cost_not_preserved` only when both ends solved; either end not solving
     makes it `probe_not_optimal`. The calibrator is told the lex optimum was
     a dollar cheaper than it was, so every probe that solves reads as having
     lost primary cost."""
-    real = lp._calibrate_blend_weight
+    for failing, reason in [
+        (set(), "cost_not_preserved"),
+        ({0}, "probe_not_optimal"),
+        ({1}, "probe_not_optimal"),
+    ]:
+        real = lp._calibrate_blend_weight
 
-    def stricter(h, cols, primary, secondary, lex_cost, tol):
-        return real(h, cols, primary, secondary, lex_cost - 1.0, tol)
+        def stricter(h, cols, primary, secondary, lex_cost, tol):
+            return real(h, cols, primary, secondary, lex_cost - 1.0, tol)  # noqa: B023
 
-    with _probes_fail(failing), patch.object(lp, "_calibrate_blend_weight", stricter):
-        r = _near_tie(10.0).solve(options=CalibratedOptions())
-    assert r.status == "optimal"
-    assert r.calibration_min_weight_fallback
-    assert r.calibration_fallback_reason == reason
-    assert r.calibration_weight_used == pytest.approx(1e-12)
+        with (
+            _probes_fail(failing),
+            patch.object(lp, "_calibrate_blend_weight", stricter),
+        ):
+            r = _near_tie(10.0).solve(options=CalibratedOptions())
+        assert r.status == "optimal"
+        assert r.calibration_min_weight_fallback
+        assert r.calibration_fallback_reason == reason
+        assert r.calibration_weight_used == pytest.approx(1e-12)
 
 
 def test_a_failed_final_solve_still_carries_the_calibration(monkeypatch):

@@ -68,9 +68,8 @@ def sensor(monkeypatch):
 # --- what is real coverage ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("attrs", "grid", "real"),
-    [
+def test_coverage_is_real_only_inside_a_published_interval(sensor):
+    for attrs, grid, real in [
         (  # in AEMO's hole; then at its final END
             {"forecast": AEMO},
             ["2026-10-07T12:00:00+10:00", "2026-10-08T04:00:00+10:00"],
@@ -118,24 +117,12 @@ def sensor(monkeypatch):
             ["2026-10-06T13:15:00+10:00", "2026-10-06T13:20:00+10:00"],
             [True, False],
         ),
-    ],
-    ids=[
-        "aemo",
-        "pd7day",
-        "pd7day_seam",
-        "amber_core",
-        "amber_express",
-        "express_wrong_key",
-        "time_value",
-    ],
-)
-def test_coverage_is_real_only_inside_a_published_interval(sensor, attrs, grid, real):
-    assert sensor([t(g) for g in grid], **attrs)[1] == real
+    ]:
+        assert sensor([t(g) for g in grid], **attrs)[1] == real
 
 
-@pytest.mark.parametrize(
-    "attrs",
-    [
+def test_no_usable_price_is_no_forecast_never_a_filled_one(sensor):
+    for attrs in [
         {"forecast": [dict(PD7_TARIFF["pd7_import"][0], value=None)]},
         {
             "forecast": [
@@ -148,11 +135,8 @@ def test_coverage_is_real_only_inside_a_published_interval(sensor, attrs, grid, 
         },
         {"forecasts": []},
         {"forecasts": [{"time": "x"}]},
-    ],
-    ids=["pd7day_null", "aemo_null", "empty", "unreadable"],
-)
-def test_no_usable_price_is_no_forecast_never_a_filled_one(sensor, attrs):
-    assert sensor([t("2026-10-06T12:40:00+10:00")], **attrs) is None
+    ]:
+        assert sensor([t("2026-10-06T12:40:00+10:00")], **attrs) is None
 
 
 # --- the regional forecast past the retail feed --------------------------------------------------
@@ -235,16 +219,12 @@ def openadr(monkeypatch):
     return read
 
 
-@pytest.mark.parametrize(
-    "response",
-    [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}],
-    ids=["failed", "another_entity"],
-)
-def test_no_answer_for_this_entity_is_no_forecast(openadr, response):
-    rows = _ADR["openadr_import"]["selected_native_rows"]
-    if response:
-        response["sensor.other"]["forecast"] = rows
-    assert openadr(["2026-10-06T13:12:00+10:00"], rows, response=response) is None
+def test_no_answer_for_this_entity_is_no_forecast(openadr):
+    for response in [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}]:
+        rows = _ADR["openadr_import"]["selected_native_rows"]
+        if response:
+            response["sensor.other"]["forecast"] = rows
+        assert openadr(["2026-10-06T13:12:00+10:00"], rows, response=response) is None
 
 
 # --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
@@ -360,20 +340,17 @@ def test_no_usable_spot_in_progress_is_none():
         assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
 
 
-@pytest.mark.parametrize(
-    ("row", "expected"),
-    [
+def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch):
+    for row, expected in [
         ({"value": 0.20, "calibrated": 0.99}, [0.20]),  # value first, as it always was
         ({"raw_value": 8.999, "calibrated": 0.105355}, [0.105355]),  # never raw_value
         ({"spike_credible": True}, None),
-    ],
-    ids=["value_over_calibrated", "calibrated_not_raw", "neither"],
-)
-def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch, row, expected):
-    rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
-    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
-    grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
-    assert sw.resample_generic_price_forecast("sensor.price", grid) == expected
+    ]:
+        with monkeypatch.context() as mp:
+            rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
+            mp.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})  # noqa: B023
+            grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
+            assert sw.resample_generic_price_forecast("sensor.price", grid) == expected
 
 
 def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one():

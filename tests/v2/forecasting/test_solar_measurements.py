@@ -73,19 +73,13 @@ def _nowcast(now, anchor, forecast, cfg=NOWCAST):
 # --- the nowcast check (#1259) -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "cfg",
-    [
+def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(state):
+    for cfg in [
         {**NOWCAST, "solver_nowcast_measurement_enabled": False},
         {**NOWCAST, "solver_solar_power_sensor": None},
-    ],
-    ids=["switched_off", "no_pv_sensor"],
-)
-def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
-    state, cfg
-):
-    assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
-    assert state.readings["calls"] == 0 and state.empty()
+    ]:
+        assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
+        assert state.readings["calls"] == 0 and state.empty()
 
 
 def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
@@ -106,29 +100,30 @@ def test_twilight_levels_are_not_even_considered(state):
     ) == (0, None, None)
 
 
-@pytest.mark.parametrize(
-    ("actual", "closer", "anchor_err", "forecast_err"),
-    [(17.875, "forecast", 16.095, 1.985), (2.10, "anchor", None, None)],
-    ids=["the_1259_event", "the_other_answer"],
-)
-def test_once_reality_arrives_the_closer_of_the_two_is_recorded(
-    state, actual, closer, anchor_err, forecast_err
-):
+def test_once_reality_arrives_the_closer_of_the_two_is_recorded(state):
     """The event that opened #1259: the forecast was closer by 8x, which is
     why the anchor is not blended forward. The reverse must be recordable
     too, or the instrument measures nothing."""
-    _r, grid = _nowcast(NOON, 1.78, 15.89)
-    state.readings["rows"] = [(grid[1], actual)]
-    result, _ = _nowcast(grid[1], 15.89, 15.89)
-    assert result["resolved_count"] == 1
-    assert result[f"{closer}_closer_count"] == 1
-    assert result["forecast_closer_fraction"] == (1.0 if closer == "forecast" else 0.0)
-    if anchor_err is not None:
-        assert result["mean_anchor_abs_error_kw"] == pytest.approx(anchor_err, abs=1e-3)
-        assert result["mean_forecast_abs_error_kw"] == pytest.approx(
-            forecast_err, abs=1e-3
+    for actual, closer, anchor_err, forecast_err in [
+        (17.875, "forecast", 16.095, 1.985),
+        (2.10, "anchor", None, None),
+    ]:
+        _r, grid = _nowcast(NOON, 1.78, 15.89)
+        state.readings["rows"] = [(grid[1], actual)]
+        result, _ = _nowcast(grid[1], 15.89, 15.89)
+        assert result["resolved_count"] == 1
+        assert result[f"{closer}_closer_count"] == 1
+        assert result["forecast_closer_fraction"] == (
+            1.0 if closer == "forecast" else 0.0
         )
-    assert state.read()["nowcast_pending"] == []
+        if anchor_err is not None:
+            assert result["mean_anchor_abs_error_kw"] == pytest.approx(
+                anchor_err, abs=1e-3
+            )
+            assert result["mean_forecast_abs_error_kw"] == pytest.approx(
+                forecast_err, abs=1e-3
+            )
+        assert state.read()["nowcast_pending"] == []
 
 
 def test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie(state):
@@ -189,28 +184,27 @@ def test_a_small_forecast_is_dropped_not_graded(state):
     assert state.readings["calls"] == calls
 
 
-@pytest.mark.parametrize(
-    ("ratios", "kept"),
-    [
+def test_impossible_or_stale_ratios_are_dropped(state):
+    for ratios, kept in [
         ([("now", 1121.05), ("now", 0.9)], 0.9),  # a unit mix-up's ratio is dropped
         ([("stale", 0.5), ("fresh", 0.9)], 0.9),  # the window rolls
-    ],
-)
-def test_impossible_or_stale_ratios_are_dropped(state, ratios, kept):
-    when = {
-        "now": NOON,
-        "stale": NOON - timedelta(hours=sw.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
-        "fresh": NOON - timedelta(minutes=10),
-    }
-    state.write(
-        {
-            "pending": [],
-            "ratios": [{"time": when[k].isoformat(), "ratio": r} for k, r in ratios],
+    ]:
+        when = {
+            "now": NOON,
+            "stale": NOON - timedelta(hours=sw.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
+            "fresh": NOON - timedelta(minutes=10),
         }
-    )
-    result = _ratio(NOON)
-    assert result["solar_delivery_sample_count"] == 1
-    assert result["solar_delivery_ratio"] == pytest.approx(kept, abs=1e-3)
+        state.write(
+            {
+                "pending": [],
+                "ratios": [
+                    {"time": when[k].isoformat(), "ratio": r} for k, r in ratios
+                ],
+            }
+        )
+        result = _ratio(NOON)
+        assert result["solar_delivery_sample_count"] == 1
+        assert result["solar_delivery_ratio"] == pytest.approx(kept, abs=1e-3)
 
 
 # --- one state file, two measurements ---------------------------------------------------------

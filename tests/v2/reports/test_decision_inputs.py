@@ -152,13 +152,13 @@ def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(site):
     assert len(out["records"][0]["rows"]["time"]) == 48
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "says"),
-    [(T0, T0, "after start"), (T0, T0 + timedelta(hours=25), "at most")],
-)
-def test_an_export_window_must_be_forward_and_at_most_a_day(site, start, end, says):
-    with pytest.raises(ValueError, match=says):
-        site.export(start, end)
+def test_an_export_window_must_be_forward_and_at_most_a_day(site):
+    for start, end, says in [
+        (T0, T0, "after start"),
+        (T0, T0 + timedelta(hours=25), "at most"),
+    ]:
+        with pytest.raises(ValueError, match=says):
+            site.export(start, end)
 
 
 def test_nothing_is_captured_without_a_published_plan(site):

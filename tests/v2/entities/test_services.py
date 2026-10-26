@@ -264,9 +264,8 @@ def test_a_quality_report_is_scored_for_a_past_window(writer, monkeypatch):
     assert out["window_hours"] == 12.0 and out["epr"] == 0.9 and seen == [False]
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "raises", "says"),
-    [
+def test_a_window_that_cannot_be_scored_says_why(writer, monkeypatch):
+    for start, end, raises, says in [
         (
             "2026-09-19T12:00:00+10:00",
             "2026-09-19T12:00:00+10:00",
@@ -285,14 +284,15 @@ def test_a_quality_report_is_scored_for_a_past_window(writer, monkeypatch):
             Failed,
             "cannot score window",
         ),
-    ],
-)
-def test_a_window_that_cannot_be_scored_says_why(
-    writer, monkeypatch, start, end, raises, says
-):
-    monkeypatch.setattr(writer, "_compute_report_for_window", lambda *a, **k: None)
-    with pytest.raises(raises, match=says):
-        _call(_hass(), svc.SERVICE_COMPUTE_QUALITY_REPORT, {"start": start, "end": end})
+    ]:
+        with monkeypatch.context() as mp:
+            mp.setattr(writer, "_compute_report_for_window", lambda *a, **k: None)
+            with pytest.raises(raises, match=says):
+                _call(
+                    _hass(),
+                    svc.SERVICE_COMPUTE_QUALITY_REPORT,
+                    {"start": start, "end": end},
+                )
 
 
 def test_a_scoring_failure_is_reported_with_its_window(writer, monkeypatch):

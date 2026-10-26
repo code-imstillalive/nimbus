@@ -134,21 +134,20 @@ def test_power_history_from_the_recorder_is_in_kw(hass):
     assert [v for _t, v in got] == [2.0, 3.0]
 
 
-@pytest.mark.parametrize(
-    ("states", "went"),
-    [
+def test_went_unavailable_counts_only_changes_after_the_cutoff(hass):
+    for states, went in [
         ([_s(-10, "1.0"), _s(-5, "2")], False),
         ([_s(-10, "1.0"), _s(-5, "unavailable")], True),
         ([_s(-90, "unavailable"), _s(-5, "2")], False),  # before `after`: not counted
         ([], False),
-    ],
-)
-def test_went_unavailable_counts_only_changes_after_the_cutoff(hass, states, went):
-    hass.history["sensor.x"] = states
-    assert (
-        shared.fetch_entity_went_unavailable("sensor.x", T0 - timedelta(hours=1), END)
-        is went
-    )
+    ]:
+        hass.history["sensor.x"] = states
+        assert (
+            shared.fetch_entity_went_unavailable(
+                "sensor.x", T0 - timedelta(hours=1), END
+            )
+            is went
+        )
 
 
 def test_a_failing_recorder_reads_as_no_history_not_an_error(hass):

@@ -352,9 +352,8 @@ def test_the_dry_run_prefers_the_plan_this_cycle_posted(monkeypatch):
     assert sw.pushed[0][1] == 1.0
 
 
-@pytest.mark.parametrize(
-    ("states", "warning"),
-    [
+def test_the_dry_run_skips_without_a_usable_current_period(caplog):
+    for states, warning in [
         ({DRY_SWITCH: _state("off")}, None),
         ({DRY_SWITCH: _state("on")}, None),
         ({DRY_SWITCH: _state("on"), FORECAST: _state("ok", forecast=[])}, "is empty"),
@@ -365,16 +364,14 @@ def test_the_dry_run_prefers_the_plan_this_cycle_posted(monkeypatch):
             },
             "no 'battery_kw' key (keys present: ['soc_pct'])",
         ),
-    ],
-    ids=["switch_off", "no_forecast_yet", "empty_forecast", "no_battery_kw"],
-)
-def test_the_dry_run_skips_without_a_usable_current_period(caplog, states, warning):
-    sw = FakeSW()
-    with caplog.at_level(logging.WARNING, logger=rt.__name__):
-        rt._log_dispatch_dry_run(FakeHass(states), sw)
-    assert sw.pushed == []
-    found = _messages(caplog, logging.WARNING)
-    assert (found == []) if warning is None else (warning in found[0])
+    ]:
+        caplog.clear()
+        sw = FakeSW()
+        with caplog.at_level(logging.WARNING, logger=rt.__name__):
+            rt._log_dispatch_dry_run(FakeHass(states), sw)
+        assert sw.pushed == []
+        found = _messages(caplog, logging.WARNING)
+        assert (found == []) if warning is None else (warning in found[0])
 
 
 def test_a_missing_entity_warns_once_per_absence_after_the_startup_grace(caplog, clean):
@@ -492,14 +489,13 @@ def test_a_failed_solve_records_the_outcome_but_captures_nothing(monkeypatch):
     ]
 
 
-@pytest.mark.parametrize(
-    "entries", [[], [_entry("A"), _entry("B")]], ids=["none", "two"]
-)
-def test_without_exactly_one_entry_nothing_per_entry_is_touched(monkeypatch, entries):
-    seen = _stores(monkeypatch)
-    _ready(monkeypatch, FakeSW())
-    assert asyncio.run(rt.async_run_solve(FakeHass(entries=entries))) is True
-    assert seen == []
+def test_without_exactly_one_entry_nothing_per_entry_is_touched(monkeypatch):
+    for entries in [[], [_entry("A"), _entry("B")]]:
+        with monkeypatch.context() as mp:
+            seen = _stores(mp)
+            _ready(mp, FakeSW())
+            assert asyncio.run(rt.async_run_solve(FakeHass(entries=entries))) is True
+            assert seen == []
 
 
 def test_unreadable_entries_mean_no_snapshot_key():

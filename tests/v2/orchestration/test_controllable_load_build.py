@@ -180,32 +180,26 @@ def test_an_overnight_or_open_ended_window_is_one_window(site):
     assert open_ended.windows is None and open_ended.deadline_period == len(grid) - 1
 
 
-@pytest.mark.parametrize(
-    ("static", "entity_state", "expect"),
-    [
+def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(site):
+    for static, entity_state, expect in [
         (0.10, None, 0.10),
         (0.10, "0.25", 0.25),
         (0.10, "unavailable", 0.10),
         (None, "0.07", 0.07),
-    ],
-)
-def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(
-    site, static, entity_state, expect
-):
-    data = {"deferrable_max_power_kw": 5.0, "deferrable_target_kwh": 0.5}
-    if static is not None:
-        data["deferrable_value_per_kwh"] = static
-    if entity_state is not None:
-        data["deferrable_value_per_kwh_entity"] = "input_number.pay"
-        site.state("input_number.pay", entity_state)
-    site.load(**data)
-    _, (load,), _ = site.build(n=8)
-    assert load.value_per_kwh == expect
+    ]:
+        data = {"deferrable_max_power_kw": 5.0, "deferrable_target_kwh": 0.5}
+        if static is not None:
+            data["deferrable_value_per_kwh"] = static
+        if entity_state is not None:
+            data["deferrable_value_per_kwh_entity"] = "input_number.pay"
+            site.state("input_number.pay", entity_state)
+        site.load(**data)
+        _, (load,), _ = site.build(n=8)
+        assert load.value_per_kwh == expect
 
 
-@pytest.mark.parametrize(
-    ("entity", "value", "done_when", "attrs", "released"),
-    [
+def test_a_load_that_reports_done_is_released_and_an_unreadable_one_is_scheduled(site):
+    for entity, value, done_when, attrs, released in [
         ("binary_sensor.hot", "on", None, {}, True),
         ("binary_sensor.hot", "off", None, {}, False),
         ("binary_sensor.hot", "unavailable", None, {}, False),  # fails open
@@ -230,36 +224,28 @@ def test_a_live_value_per_kwh_overrides_the_static_one_while_it_reads(
         ("water_heater.hws", "eco", ">= 58", {}, False),  # no reading: fails open
         ("water_heater.hws", "eco", None, {"current_temperature": 59}, False),
         ("climate.ac", "cool", ">= 20", {"current_temperature": 21}, True),
-    ],
-)
-def test_a_load_that_reports_done_is_released_and_an_unreadable_one_is_scheduled(
-    site, entity, value, done_when, attrs, released
-):
-    data = {**HWS, "deferrable_done_entity": entity}
-    if done_when:
-        data["deferrable_done_when"] = done_when
-    site.load(**data)
-    site.state(entity, value, **attrs)
-    _, adequacy, _ = site.build(n=8)
-    assert (adequacy == []) is released
+    ]:
+        data = {**HWS, "deferrable_done_entity": entity}
+        if done_when:
+            data["deferrable_done_when"] = done_when
+        site.load(**data)
+        site.state(entity, value, **attrs)
+        _, adequacy, _ = site.build(n=8)
+        assert (adequacy == []) is released
 
 
-@pytest.mark.parametrize(
-    ("entity", "value", "attrs"),
-    [
+def test_a_condition_that_cannot_be_read_is_warned_about_once(site, caplog):
+    for entity, value, attrs in [
         ("sensor.tank", "55", {}),
         ("water_heater.hws", "eco", {"current_temperature": 55}),
-    ],
-)
-def test_a_condition_that_cannot_be_read_is_warned_about_once(
-    site, caplog, entity, value, attrs
-):
-    site.load(**HWS, deferrable_done_entity=entity, deferrable_done_when="> warm")
-    site.state(entity, value, **attrs)
-    with caplog.at_level(logging.WARNING):
-        assert len(site.build(n=8)[1]) == 1  # not done: scheduled
-        site.build(n=8)
-    assert caplog.text.count("could not be evaluated") == 1
+    ]:
+        caplog.clear()
+        site.load(**HWS, deferrable_done_entity=entity, deferrable_done_when="> warm")
+        site.state(entity, value, **attrs)
+        with caplog.at_level(logging.WARNING):
+            assert len(site.build(n=8)[1]) == 1  # not done: scheduled
+            site.build(n=8)
+        assert caplog.text.count("could not be evaluated") == 1
 
 
 def _windows(now, delivered=0.0, done=False, grid=None):
@@ -283,37 +269,33 @@ def test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed(
     assert grid[windows[0].earliest_period].date() == late.date() + timedelta(days=1)
 
 
-@pytest.mark.parametrize(
-    ("temperature", "floor", "window"),
-    [
+def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(site, caplog):
+    """#712/#713: the heat pump started itself, outside the plan, three
+    nights running. Pulling the deadline in is what makes the plan heat
+    before the floor; widening the start did nothing."""
+    for temperature, floor, window in [
         (50.0, 45.0, (12, 20)),  # crosses at 10:00: deadline pulled in
         (50.0, -5.0, (12, 32)),  # never crosses in the window
         (45.25, 45.0, (12, 12)),  # crosses before it opens: clamped, not inverted
         (44.0, 45.0, (12, 32)),  # already below: not this check's case
-    ],
-)
-def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(
-    site, caplog, temperature, floor, window
-):
-    """#712/#713: the heat pump started itself, outside the plan, three
-    nights running. Pulling the deadline in is what makes the plan heat
-    before the floor; widening the start did nothing."""
-    site.load(
-        deferrable_max_power_kw=0.65,
-        deferrable_target_kwh=4.0,
-        deferrable_earliest_hour=6.0,
-        deferrable_deadline_hour=16.0,
-        deferrable_done_entity="water_heater.hws",
-    )
-    site.state(
-        "water_heater.hws", "eco", current_temperature=temperature, min_temp=floor
-    )
-    with caplog.at_level(logging.WARNING):
-        _, (load,), _ = site.build()
-    first = load.windows[0]
-    assert (first.earliest_period, first.deadline_period) == window
-    assert first.target_kwh == 4.0
-    assert ("physical floor" in caplog.text) is (window[1] < 32)
+    ]:
+        caplog.clear()
+        site.load(
+            deferrable_max_power_kw=0.65,
+            deferrable_target_kwh=4.0,
+            deferrable_earliest_hour=6.0,
+            deferrable_deadline_hour=16.0,
+            deferrable_done_entity="water_heater.hws",
+        )
+        site.state(
+            "water_heater.hws", "eco", current_temperature=temperature, min_temp=floor
+        )
+        with caplog.at_level(logging.WARNING):
+            _, (load,), _ = site.build()
+        first = load.windows[0]
+        assert (first.earliest_period, first.deadline_period) == window
+        assert first.target_kwh == 4.0
+        assert ("physical floor" in caplog.text) is (window[1] < 32)
 
 
 # --- what a load's power sensor says it delivered ------------------------------------------
@@ -333,37 +315,35 @@ def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_o
     assert caplog.text.count("reports Watts") == 1
 
 
-@pytest.mark.parametrize("value", ["unavailable", None])
-def test_a_reading_that_is_not_there_writes_nothing(site, value):
-    if value:
-        site.state("sensor.p", value)
-    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
-    assert site.run_state() == load_run_state.LoadRunState()
+def test_a_reading_that_is_not_there_writes_nothing(site):
+    for value in ["unavailable", None]:
+        if value:
+            site.state("sensor.p", value)
+        cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
+        assert site.run_state() == load_run_state.LoadRunState()
 
 
-@pytest.mark.parametrize(
-    ("delivered", "day", "target"),
-    [(1.48, "2026-09-07", 0.52), (2.165, "2026-09-07", None), (1.9, "2026-09-06", 2.0)],
-    ids=["partly", "met", "yesterdays"],
-)
-def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(
-    site, delivered, day, target
-):
-    now = datetime(2026, 9, 7, 13, 5, tzinfo=TZ)
-    site.seed(
-        delivered_today_kwh=delivered, day_key=day, last_sample_at=now.timestamp()
-    )
-    site.load(
-        controllable_load_power_sensor="sensor.p",
-        deferrable_max_power_kw=0.65,
-        deferrable_target_kwh=2.0,
-    )
-    site.state("sensor.p", "0.65")
-    _, adequacy, _ = site.build(now, n=8)
-    if target is None:
-        assert adequacy == []
-    else:
-        assert adequacy[0].target_kwh == pytest.approx(target)
+def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(site):
+    for delivered, day, target in [
+        (1.48, "2026-09-07", 0.52),
+        (2.165, "2026-09-07", None),
+        (1.9, "2026-09-06", 2.0),
+    ]:
+        now = datetime(2026, 9, 7, 13, 5, tzinfo=TZ)
+        site.seed(
+            delivered_today_kwh=delivered, day_key=day, last_sample_at=now.timestamp()
+        )
+        site.load(
+            controllable_load_power_sensor="sensor.p",
+            deferrable_max_power_kw=0.65,
+            deferrable_target_kwh=2.0,
+        )
+        site.state("sensor.p", "0.65")
+        _, adequacy, _ = site.build(now, n=8)
+        if target is None:
+            assert adequacy == []
+        else:
+            assert adequacy[0].target_kwh == pytest.approx(target)
 
 
 def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(

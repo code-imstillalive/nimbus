@@ -129,25 +129,26 @@ def _build(install, site, now, grid, cfg=None):
 # --- what it compares against ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("minimum", "reason", "active"),
-    [(None, "below_minimum", False), (1.5, "judged", True)],
-)
-def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(
-    install, minimum, reason, active
-):
-    def at(t):
-        return {6.5: 1.9, 7.0: 3.0}.get(t.hour + t.minute / 60, 0.0)
+def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
+    for minimum, reason, active in [
+        (None, "below_minimum", False),
+        (1.5, "judged", True),
+    ]:
 
-    now = TODAY.replace(hour=7, minute=5)
-    site = Site(_day(TODAY, at, lambda t: 0.5), history=_held(now, 0))
-    cfg = (
-        _cfg() if minimum is None else _cfg(solver_solar_running_low_min_p50_kw=minimum)
-    )
-    r = _judge(install, site, now, cfg)
-    assert (r["reason"], r["active"]) == (reason, active)
-    if minimum is None:
-        assert site.history_calls == 0  # not even read
+        def at(t):
+            return {6.5: 1.9, 7.0: 3.0}.get(t.hour + t.minute / 60, 0.0)
+
+        now = TODAY.replace(hour=7, minute=5)
+        site = Site(_day(TODAY, at, lambda t: 0.5), history=_held(now, 0))
+        cfg = (
+            _cfg()
+            if minimum is None
+            else _cfg(solver_solar_running_low_min_p50_kw=minimum)
+        )
+        r = _judge(install, site, now, cfg)
+        assert (r["reason"], r["active"]) == (reason, active)
+        if minimum is None:
+            assert site.history_calls == 0  # not even read
 
 
 # --- on, off, and held -------------------------------------------------------------------------
@@ -184,28 +185,22 @@ def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(i
 # --- inert, off, and a recorder that is behind -------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("history", "cfg_over", "reason"),
-    [
+def test_without_what_it_needs_it_is_off_even_if_it_was_on(install):
+    for history, cfg_over, reason in [
         ([], {}, "no_history"),
         (RuntimeError("recorder down"), {}, "no_history"),
         (None, {"solver_solar_running_low_min_p50_kw": 0}, "off"),
         (None, {"solver_solar_power_sensor": None}, "no_solar_power_sensor"),
-    ],
-    ids=["no_history", "history_raises", "minimum_zero", "no_pv_sensor"],
-)
-def test_without_what_it_needs_it_is_off_even_if_it_was_on(
-    install, history, cfg_over, reason
-):
-    today = _day(TODAY, *FLAT)
-    now = TODAY.replace(hour=10)
-    assert _judge(install, Site(today, history=_held(now, 500)), now)["active"]
-    later = now + timedelta(minutes=5)
-    site = Site(today, history=_held(later, 0) if history is None else history)
-    r = _judge(install, site, later, _cfg(**cfg_over))
-    assert (r["reason"], r["active"]) == (reason, False)
-    if reason == "off":
-        assert site.history_calls == 0
+    ]:
+        today = _day(TODAY, *FLAT)
+        now = TODAY.replace(hour=10)
+        assert _judge(install, Site(today, history=_held(now, 500)), now)["active"]
+        later = now + timedelta(minutes=5)
+        site = Site(today, history=_held(later, 0) if history is None else history)
+        r = _judge(install, site, later, _cfg(**cfg_over))
+        assert (r["reason"], r["active"]) == (reason, False)
+        if reason == "off":
+            assert site.history_calls == 0
 
 
 def _ramp():
@@ -277,23 +272,19 @@ def _blend_site(history_w):
     return site, now, [now, TODAY.replace(hour=11), TOMORROW.replace(hour=11)], cfg
 
 
-@pytest.mark.parametrize(
-    ("history_w", "scale"), [(2000, 0.5), (400, 0.3)], ids=["half", "floored"]
-)
-def test_each_member_is_lowered_by_its_own_path_and_the_ratio_is_floored(
-    install, history_w, scale
-):
-    site, now, grid, cfg = _blend_site(history_w)
-    (kw, lo, _up), pub = _build(install, site, now, grid, cfg)
-    assert pub["active"] and pub["reference_source"] == "solcast"
-    assert (
-        pub["members_p10"],
-        pub["members_lower_bound"],
-        pub["members_ratio_scaled"],
-    ) == (1, 1, 1)
-    assert pub["ratio_scale_used"] == scale
-    assert kw[1] == pytest.approx((3.5 + 6.0 * scale + 1.5) / 3) and lo[1] <= kw[1]
-    assert kw[2] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # tomorrow untouched
+def test_each_member_is_lowered_by_its_own_path_and_the_ratio_is_floored(install):
+    for history_w, scale in [(2000, 0.5), (400, 0.3)]:
+        site, now, grid, cfg = _blend_site(history_w)
+        (kw, lo, _up), pub = _build(install, site, now, grid, cfg)
+        assert pub["active"] and pub["reference_source"] == "solcast"
+        assert (
+            pub["members_p10"],
+            pub["members_lower_bound"],
+            pub["members_ratio_scaled"],
+        ) == (1, 1, 1)
+        assert pub["ratio_scale_used"] == scale
+        assert kw[1] == pytest.approx((3.5 + 6.0 * scale + 1.5) / 3) and lo[1] <= kw[1]
+        assert kw[2] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # tomorrow untouched
 
 
 def test_solcast_without_p10_is_scaled_never_zeroed(install):

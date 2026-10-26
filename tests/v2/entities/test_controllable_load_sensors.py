@@ -85,20 +85,20 @@ def views(monkeypatch):
     return seen
 
 
-@pytest.mark.parametrize("name", sorted(SCHEDULE))
-def test_each_schedule_sensor_publishes_its_own_figure(name, views):
-    suffix, value = SCHEDULE[name]
-    s = getattr(sm, name)(
-        _coordinator(), _hass(), SimpleNamespace(entry_id="hub1"), _sub(), "1"
-    )
-    assert (
-        s.entity_id == f"sensor.nimbus_hot_water_{suffix}"
-        and s._attr_unique_id == f"hw1_{suffix}"
-    )
-    assert s.native_value == value
-    assert s._attr_device_info["model"] == "Controllable Load"
-    if "Cost" in name:
-        assert s.native_unit_of_measurement == "AUD"
+def test_each_schedule_sensor_publishes_its_own_figure(views):
+    for name in sorted(SCHEDULE):
+        suffix, value = SCHEDULE[name]
+        s = getattr(sm, name)(
+            _coordinator(), _hass(), SimpleNamespace(entry_id="hub1"), _sub(), "1"
+        )
+        assert (
+            s.entity_id == f"sensor.nimbus_hot_water_{suffix}"
+            and s._attr_unique_id == f"hw1_{suffix}"
+        )
+        assert s.native_value == value
+        assert s._attr_device_info["model"] == "Controllable Load"
+        if "Cost" in name:
+            assert s.native_unit_of_measurement == "AUD"
 
 
 def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):

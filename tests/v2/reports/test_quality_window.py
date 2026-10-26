@@ -104,37 +104,32 @@ def window(c=None, start=DAY, end=END, partial=True):
 # --- the window's shape -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("start", "end"), [(DAY, DAY), (END, DAY)], ids=["empty", "reversed"]
-)
-def test_a_window_with_no_length_is_not_scored(history, start, end):
-    assert window(start=start, end=end) is None
+def test_a_window_with_no_length_is_not_scored(history):
+    for start, end in [(DAY, DAY), (END, DAY)]:
+        assert window(start=start, end=end) is None
 
 
-@pytest.mark.parametrize(
-    ("length", "periods", "hours"),
-    [
+def test_the_window_is_scored_at_the_dispatch_grids_own_resolution(
+    history, monkeypatch
+):
+    for length, periods, hours in [
         (timedelta(minutes=30), 6, 5 / 60),  # inside the 5-minute tier
         (timedelta(hours=6), 12, 0.5),
         (timedelta(days=1), 48, 0.5),
         (timedelta(days=2), 96, 0.5),
-    ],
-    ids=["30min", "6h", "24h", "48h"],
-)
-def test_the_window_is_scored_at_the_dispatch_grids_own_resolution(
-    history, monkeypatch, length, periods, hours
-):
-    grids = []
-    real = elements.PeriodGrid
+    ]:
+        with monkeypatch.context() as mp:
+            grids = []
+            real = elements.PeriodGrid
 
-    def spy(*a, **kw):
-        grids.append(kw["hours"])
-        return real(*a, **kw)
+            def spy(*a, **kw):
+                grids.append(kw["hours"])  # noqa: B023
+                return real(*a, **kw)  # noqa: B023
 
-    monkeypatch.setattr(sw.elements, "PeriodGrid", spy)
-    assert window(end=DAY + length) is not None
-    (used,) = grids
-    assert (len(used), float(used[0])) == (periods, pytest.approx(hours))
+            mp.setattr(sw.elements, "PeriodGrid", spy)
+            assert window(end=DAY + length) is not None
+            (used,) = grids
+            assert (len(used), float(used[0])) == (periods, pytest.approx(hours))
 
 
 # --- P2P settlement is read only for one whole calendar day ------------------------------------
@@ -205,33 +200,24 @@ def _burst(history):
 # --- a SoC reading outside the envelope is clamped, never raised (#325) -------------------------
 
 
-@pytest.mark.parametrize(
-    ("soc", "max_pct"),
-    [(3.85, 100.0), (0.0, 100.0), (104.0, 95.0)],
-    ids=["below_floor", "zero", "above_ceiling"],
-)
-def test_a_soc_reading_outside_the_envelope_still_scores_the_whole_report(
-    history, soc, max_pct
-):
-    healthy = window()
-    history["sensor.combined_soc"] = flat(soc)
-    clamped = window(cfg(solver_battery_max_soc_percent=max_pct))
-    assert clamped is not None and set(clamped) == set(healthy)
+def test_a_soc_reading_outside_the_envelope_still_scores_the_whole_report(history):
+    for soc, max_pct in [(3.85, 100.0), (0.0, 100.0), (104.0, 95.0)]:
+        healthy = window()
+        history["sensor.combined_soc"] = flat(soc)
+        clamped = window(cfg(solver_battery_max_soc_percent=max_pct))
+        assert clamped is not None and set(clamped) == set(healthy)
 
 
-@pytest.mark.parametrize(
-    ("setting", "soc"),
-    [
+def test_the_efficiency_backtest_starts_inside_any_envelope(history):
+    """It starts from 50 %, outside a 60 % floor or a 40 % ceiling."""
+    for setting, soc in [
         ("solver_battery_min_soc_percent", 70.0),
         ("solver_battery_max_soc_percent", 20.0),
-    ],
-)
-def test_the_efficiency_backtest_starts_inside_any_envelope(history, setting, soc):
-    """It starts from 50 %, outside a 60 % floor or a 40 % ceiling."""
-    history["sensor.combined_soc"] = flat(soc)
-    value = 60.0 if setting.endswith("min_soc_percent") else 40.0
-    result = sw.compute_efficiency_backtest_report(cfg(**{setting: value}), END)
-    assert result is None or isinstance(result, dict)
+    ]:
+        history["sensor.combined_soc"] = flat(soc)
+        value = 60.0 if setting.endswith("min_soc_percent") else 40.0
+        result = sw.compute_efficiency_backtest_report(cfg(**{setting: value}), END)
+        assert result is None or isinstance(result, dict)
 
 
 # --- every skip says why (#313, #314) ---------------------------------------------------------
@@ -653,23 +639,18 @@ def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog)
 # --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
 
 
-@pytest.mark.parametrize(
-    ("key", "metered", "status"),
-    [
+def test_the_window_is_checked_against_the_households_grid_meter(history):
+    for key, metered, status in [
         ("switchboard_grid_meter_sensor", 2.0, "agrees"),  # load 2 kW from the grid
         ("switchboard_grid_meter_sensor", 9.0, "disagrees"),
         ("grid_sensor", 9.0, "disagrees"),  # the Forecaster's grid sensor, failing that
-    ],
-)
-def test_the_window_is_checked_against_the_households_grid_meter(
-    history, key, metered, status
-):
-    history["sensor.grid_meter"] = flat(metered)
-    scored = window(cfg(**{key: "sensor.grid_meter"}))
-    assert scored["meter_reconciliation"]["status"] == status
-    if status == "disagrees":
-        assert scored["epr_reliable"] is False
-        assert scored["epr_reason"] == "grid_meter_disagrees"
+    ]:
+        history["sensor.grid_meter"] = flat(metered)
+        scored = window(cfg(**{key: "sensor.grid_meter"}))
+        assert scored["meter_reconciliation"]["status"] == status
+        if status == "disagrees":
+            assert scored["epr_reliable"] is False
+            assert scored["epr_reason"] == "grid_meter_disagrees"
 
 
 def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so(

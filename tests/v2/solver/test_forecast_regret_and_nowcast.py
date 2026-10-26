@@ -128,22 +128,22 @@ def test_a_zero_load_forecast_has_no_split_but_still_has_a_cost(day):
 # --- the load nowcast ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(("measured", "short"), [(5, False), (24, True)])
-def test_too_little_measured_or_misaligned_input_is_no_score(day, measured, short):
-    load = day["load_real_kw"][:-1] if short else day["load_real_kw"]
-    assert (
-        compute_load_nowcast_skill(
-            periods=day["periods"],
-            grid=day["grid"],
-            battery=day["battery"],
-            solar_real_kw=day["solar_real_kw"],
-            load_real_kw=day["load_real_kw"],
-            load_nowcast_kw=load,
-            load_persistence_kw=day["load_persistence_kw"],
-            n_periods_measured=measured,
+def test_too_little_measured_or_misaligned_input_is_no_score(day):
+    for measured, short in [(5, False), (24, True)]:
+        load = day["load_real_kw"][:-1] if short else day["load_real_kw"]
+        assert (
+            compute_load_nowcast_skill(
+                periods=day["periods"],
+                grid=day["grid"],
+                battery=day["battery"],
+                solar_real_kw=day["solar_real_kw"],
+                load_real_kw=day["load_real_kw"],
+                load_nowcast_kw=load,
+                load_persistence_kw=day["load_persistence_kw"],
+                n_periods_measured=measured,
+            )
+            is None
         )
-        is None
-    )
 
 
 T0 = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)

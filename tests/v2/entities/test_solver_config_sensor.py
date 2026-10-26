@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -54,18 +52,18 @@ def _numbers(value="5"):
     return {f"number.nimbus_{key}": SimpleNamespace(state=value) for key in NUMBERS}
 
 
-@pytest.mark.parametrize("value", ["unknown", "unavailable", "lots"])
-def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, value):
-    states = _numbers()
-    states[f"number.nimbus_{NUMBERS[0]}"] = SimpleNamespace(state=value)
-    s = _sensor(monkeypatch, states)
-    assert s.native_value == "unconfigured"
-    assert s.extra_state_attributes["unresolved_required_keys"] == [NUMBERS[0]]
+def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch):
+    for value in ["unknown", "unavailable", "lots"]:
+        with monkeypatch.context() as mp:
+            states = _numbers()
+            states[f"number.nimbus_{NUMBERS[0]}"] = SimpleNamespace(state=value)
+            s = _sensor(mp, states)
+            assert s.native_value == "unconfigured"
+            assert s.extra_state_attributes["unresolved_required_keys"] == [NUMBERS[0]]
 
 
-@pytest.mark.parametrize(
-    ("domain", "keys", "state", "value"),
-    [
+def test_each_kind_of_setting_reads_in_the_form_the_solve_uses(monkeypatch):
+    for domain, keys, state, value in [
         ("time", sm._SOLVER_TIME_ENTITY_KEYS, "05:30:00", 5.5),
         ("time", sm._SOLVER_TIME_ENTITY_KEYS, "17", 17.0),
         ("time", sm._SOLVER_TIME_ENTITY_KEYS, "x:y", None),
@@ -75,17 +73,16 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, valu
         ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "unavailable", None),
         ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "away", "away"),
         ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "unknown", None),
-    ],
-)
-def test_each_kind_of_setting_reads_in_the_form_the_solve_uses(
-    monkeypatch, domain, keys, state, value
-):
-    key = min(set(keys) & set(sm._SOLVER_ALL_KEYS))
-    states = _numbers() | {f"{domain}.nimbus_{key}": SimpleNamespace(state=state)}
-    s = _sensor(monkeypatch, states)
-    assert s.extra_state_attributes[key] == value
-    missing = _sensor(monkeypatch, _numbers())
-    assert missing.extra_state_attributes[key] is None
+    ]:
+        with monkeypatch.context() as mp:
+            key = min(set(keys) & set(sm._SOLVER_ALL_KEYS))
+            states = _numbers() | {
+                f"{domain}.nimbus_{key}": SimpleNamespace(state=state)
+            }
+            s = _sensor(mp, states)
+            assert s.extra_state_attributes[key] == value
+            missing = _sensor(mp, _numbers())
+            assert missing.extra_state_attributes[key] is None
 
 
 def test_unconfigured_is_warned_once_per_change_with_the_keys_named(

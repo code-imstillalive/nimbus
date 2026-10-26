@@ -86,35 +86,34 @@ def test_measure_reads_the_record_and_changes_nothing(site):
     assert (site["reads"], site["fetches"]) == (1, 0)
 
 
-@pytest.mark.parametrize(
-    ("cfg", "history"),
-    [
+def test_persistence_without_a_real_baseline_keeps_the_ml_forecast_and_says_why(
+    site, caplog
+):
+    for cfg, history in [
         ({}, None),  # no whole-house sensor
         (HOUSE, []),  # an empty recorder read
         (
             HOUSE,
             [(NOW - timedelta(hours=h), 0.0) for h in range(24, 0, -1)],
         ),  # all zero is not a baseline
-    ],
-    ids=["no_sensor", "empty_history", "all_zero"],
-)
-def test_persistence_without_a_real_baseline_keeps_the_ml_forecast_and_says_why(
-    site, caplog, cfg, history
-):
-    site["history"] = history
-    load = [1.0] * 8
-    with caplog.at_level("WARNING"):
-        out, decision, persistence = _resolve(
-            {"solver_load_forecast_source_policy": "persistence", **cfg}, load
+    ]:
+        caplog.clear()
+        site["history"] = history
+        load = [1.0] * 8
+        with caplog.at_level("WARNING"):
+            out, decision, persistence = _resolve(
+                {"solver_load_forecast_source_policy": "persistence", **cfg}, load
+            )
+        assert (
+            out is load and persistence is None and decision.persistence_weight == 0.0
         )
-    assert out is load and persistence is None and decision.persistence_weight == 0.0
-    if not cfg:
-        assert decision.reason == "persistence_baseline_unavailable"
-        assert (decision.days_scored, decision.days_persistence_won) == (
-            len(LOSING),
-            len(LOSING),
-        )
-        assert decision.mean_value_add_dollars is not None
+        if not cfg:
+            assert decision.reason == "persistence_baseline_unavailable"
+            assert (decision.days_scored, decision.days_persistence_won) == (
+                len(LOSING),
+                len(LOSING),
+            )
+            assert decision.mean_value_add_dollars is not None
 
 
 def _yesterday(value=lambda h: float(h)):

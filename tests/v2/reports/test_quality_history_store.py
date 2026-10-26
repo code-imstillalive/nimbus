@@ -83,18 +83,15 @@ def test_a_days_score_is_archived_once_and_again_when_it_changes(disk):
     assert asyncio.run(qh.async_load_quality_history(hass, "hub1")) == disk.data
 
 
-@pytest.mark.parametrize(
-    "attrs",
-    [
+def test_nothing_scored_is_nothing_archived(disk):
+    for attrs in [
         None,
         {"epr": 0.9},
         {"latest_date": "2026-09-20", "epr": None},
         {"latest_date": "", "epr": 1},
-    ],
-)
-def test_nothing_scored_is_nothing_archived(disk, attrs):
-    assert asyncio.run(qh.async_capture_quality_day(_hass(attrs), "hub1")) is False
-    assert disk.saves == 0
+    ]:
+        assert asyncio.run(qh.async_capture_quality_day(_hass(attrs), "hub1")) is False
+        assert disk.saves == 0
 
 
 def test_the_archive_keeps_the_newest_days():

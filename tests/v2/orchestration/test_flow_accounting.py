@@ -64,9 +64,8 @@ def test_every_terminal_is_conserved_and_no_export_is_invented(
     _conserves(flow, solar, load, charge, discharge, export)
 
 
-@pytest.mark.parametrize(
-    ("args", "export", "expect"),
-    [
+def test_the_flows_follow_the_merit_order():
+    for args, export, expect in [
         # Solar serves the load, then the battery, then the grid.
         (
             (10.0, 2.0, 5.0, 0.0),
@@ -96,12 +95,10 @@ def test_every_terminal_is_conserved_and_no_export_is_invented(
             6.0,
             {"pv_to_grid": 4.0, "battery_to_grid": 2.0, "battery_to_losses": 5.0},
         ),
-    ],
-)
-def test_the_flows_follow_the_merit_order(args, export, expect):
-    flow = publish._flow_decomposition(*args, grid_export_kw_i=export)
-    for key, value in expect.items():
-        assert flow[key] == pytest.approx(value, abs=1e-6), key
+    ]:
+        flow = publish._flow_decomposition(*args, grid_export_kw_i=export)
+        for key, value in expect.items():
+            assert flow[key] == pytest.approx(value, abs=1e-6), key
 
 
 def test_solar_held_back_by_forecast_risk_is_its_own_margin_not_curtailment():

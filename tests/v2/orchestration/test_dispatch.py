@@ -134,9 +134,8 @@ def site(monkeypatch):
     s.close()
 
 
-@pytest.mark.parametrize(
-    ("device", "options", "on_call", "off_call"),
-    [
+def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(site):
+    for device, options, on_call, off_call in [
         ("switch.pump", {}, ("switch", "turn_on", {}), ("switch", "turn_off", {})),
         (
             "water_heater.hws",
@@ -150,21 +149,16 @@ def site(monkeypatch):
             ("climate", "set_hvac_mode", {"hvac_mode": "cool"}),
             ("climate", "set_hvac_mode", {"hvac_mode": "off"}),
         ),
-    ],
-    ids=["switch", "water_heater", "climate"],
-)
-def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
-    site, device, options, on_call, off_call
-):
-    site.load("s", device, controllable_load_min_hold_minutes=0, **options)
-    site.solve(T0, sheddable={"s": ON})
-    assert site.state("s").commanded_state is True
-    assert site.calls == [(*on_call[:2], {"entity_id": device, **on_call[2]})]
-    site.solve(T0 + STEP, adequacy={"s": OFF})
-    assert len(site.calls) == 1  # one disagreeing solve is not yet a change
-    site.solve(T0 + 2 * STEP, adequacy={"s": OFF})
-    assert site.calls[-1] == (*off_call[:2], {"entity_id": device, **off_call[2]})
-    assert site.state("s").commanded_state is False
+    ]:
+        site.load("s", device, controllable_load_min_hold_minutes=0, **options)
+        site.solve(T0, sheddable={"s": ON})
+        assert site.state("s").commanded_state is True
+        assert site.calls == [(*on_call[:2], {"entity_id": device, **on_call[2]})]
+        site.solve(T0 + STEP, adequacy={"s": OFF})
+        assert len(site.calls) == 1  # one disagreeing solve is not yet a change
+        site.solve(T0 + 2 * STEP, adequacy={"s": OFF})
+        assert site.calls[-1] == (*off_call[:2], {"entity_id": device, **off_call[2]})
+        assert site.state("s").commanded_state is False
 
 
 def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds(
@@ -222,24 +216,22 @@ def test_the_daily_activation_cap_stops_a_second_start(site):
     assert st.commanded_state is True and st.activations_today == 1
 
 
-@pytest.mark.parametrize(
-    ("device", "options", "warns"),
-    [
+def test_a_load_nimbus_cannot_command_is_still_decided_but_nothing_is_sent(
+    site, caplog
+):
+    for device, options, warns in [
         (None, {}, None),
         ("climate.ac", {}, None),  # no mode configured: never guessed
         ("fan.circulator", {}, "unsupported domain"),
-    ],
-)
-def test_a_load_nimbus_cannot_command_is_still_decided_but_nothing_is_sent(
-    site, caplog, device, options, warns
-):
-    site.load("s", device, **options)
-    with caplog.at_level(logging.WARNING):
-        site.solve(T0, sheddable={"s": ON})
-    assert site.calls == []
-    assert site.state("s").commanded_state is True
-    if warns:
-        assert warns in caplog.text
+    ]:
+        caplog.clear()
+        site.load("s", device, **options)
+        with caplog.at_level(logging.WARNING):
+            site.solve(T0, sheddable={"s": ON})
+        assert site.calls == []
+        assert site.state("s").commanded_state is True
+        if warns:
+            assert warns in caplog.text
 
 
 def test_a_failing_device_does_not_stop_the_others(site):
@@ -286,9 +278,8 @@ def _forecast(site, kw, *, step=HALF_HOUR, n=4):
     return site.state("hws")
 
 
-@pytest.mark.parametrize(
-    ("seed", "live", "kw", "anchor", "first"),
-    [
+def test_a_reading_taken_while_heating_or_settling_never_becomes_the_anchor(site):
+    for seed, live, kw, anchor, first in [
         ({}, 55.2, 0.0, 55.2, 55.2 - 0.25),  # settled: the reading is the anchor
         (
             {"currently_on": True, "last_idle_temperature": 50.0},
@@ -307,56 +298,41 @@ def _forecast(site, kw, *, step=HALF_HOUR, n=4):
             50.0,
             49.75,
         ),  # stopped a minute ago: still settling
-    ],
-    ids=["settled", "heating", "settling"],
-)
-def test_a_reading_taken_while_heating_or_settling_never_becomes_the_anchor(
-    site, seed, live, kw, anchor, first
-):
-    _heater(site, live, seed=seed)
-    st = _forecast(site, kw)
-    assert st.last_idle_temperature == anchor
-    assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
+    ]:
+        _heater(site, live, seed=seed)
+        st = _forecast(site, kw)
+        assert st.last_idle_temperature == anchor
+        assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
 
 
-@pytest.mark.parametrize(
-    ("live", "attrs", "done_when", "first", "last"),
-    [
+def test_the_forecast_never_heats_past_the_tanks_ceiling(site):
+    for live, attrs, done_when, first, last in [
         (58.0, {"temperature": 60.0}, None, 60.0, 60.0),  # its own setpoint
         (58.0, {}, None, 58.0 + 14.8, None),  # nothing to cap at
         (45.0, {"temperature": 45.0, "max_temp": 65.0}, None, 45.0 + 14.8, 65.0),
         (58.0, {}, ">= 60", 60.0, 60.0),  # the done condition's threshold
-    ],
-    ids=["setpoint", "none", "max_temp_over_eco", "done_when"],
-)
-def test_the_forecast_never_heats_past_the_tanks_ceiling(
-    site, live, attrs, done_when, first, last
-):
-    _heater(site, live, done_when=done_when, **attrs)
-    st = _forecast(site, 3.7)
-    assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
-    if last is not None:
-        assert st.temperature_forecast[-1]["value"] == last
+    ]:
+        _heater(site, live, done_when=done_when, **attrs)
+        st = _forecast(site, 3.7)
+        assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
+        if last is not None:
+            assert st.temperature_forecast[-1]["value"] == last
 
 
-@pytest.mark.parametrize(
-    ("seed", "source", "rate"),
-    [
+def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(site):
+    for seed, source, rate in [
         ({"thermal_rates_learned_day_key": ""}, "fallback", None),
         ({"thermal_rates_source": ""}, "fallback", None),  # stamped by an older learner
         ({"thermal_heating_rate_c_per_kwh": 1.2}, "learned", 1.2),
-    ],
-    ids=["never", "older_learner", "today"],
-)
-def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
-    site, seed, source, rate
-):
-    _heater(site, 55.0, seed=seed)
-    st = _forecast(site, 0.0)
-    assert st.thermal_rates_source == source
-    assert st.thermal_rates_learned_day_key == "2026-09-11"
-    expect = thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH if rate is None else rate
-    assert st.thermal_heating_rate_c_per_kwh == expect
+    ]:
+        _heater(site, 55.0, seed=seed)
+        st = _forecast(site, 0.0)
+        assert st.thermal_rates_source == source
+        assert st.thermal_rates_learned_day_key == "2026-09-11"
+        expect = (
+            thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH if rate is None else rate
+        )
+        assert st.thermal_heating_rate_c_per_kwh == expect
 
 
 def test_a_recorder_that_fails_mid_fetch_falls_back_like_no_recorder(

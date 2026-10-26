@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
@@ -86,19 +85,19 @@ class TestTheSchemaVersionAsymmetry:
 
 
 class TestTheResidualBufferAlsoDegrades:
-    @pytest.mark.parametrize(
-        "content",
-        [
+    def test_unusable_content_starts_fresh(self, tmp_path):
+        for content in [
             "not json at all",
             '{"not": "a list"}',
             '["strings", "not", "numbers"]',
             "[1.0, 2.0, null]",
-        ],
-    )
-    def test_unusable_content_starts_fresh(self, tmp_path, content):
-        p = tmp_path / "residuals.json"
-        p.write_text(content, encoding="utf-8")
-        assert NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p)) == []
+        ]:
+            p = tmp_path / "residuals.json"
+            p.write_text(content, encoding="utf-8")
+            assert (
+                NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p))
+                == []
+            )
 
     def test_a_missing_file_starts_fresh(self, tmp_path):
         p = tmp_path / "absent.json"

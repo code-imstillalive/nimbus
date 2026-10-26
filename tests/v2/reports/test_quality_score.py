@@ -404,12 +404,12 @@ def _plan(gi, ge, curt):
 J_REF, J_ACH, J_STAR, J_STAR_EVAL = 5.4897, 8.9872, 6.9308, 4.4419  # 17 Sep
 
 
-@pytest.mark.parametrize("delta", [0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411])
-@pytest.mark.parametrize("sign", [1.0, -1.0])
-def test_a_flat_day_is_never_both_perfect_and_flagged(delta, sign):
-    r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
-    degenerate = r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
-    assert not (degenerate and r.denominator_reason is not None)
+def test_a_flat_day_is_never_both_perfect_and_flagged():
+    for delta in [0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411]:
+        for sign in [1.0, -1.0]:
+            r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
+            degenerate = r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
+            assert not (degenerate and r.denominator_reason is not None)
 
 
 def test_each_unreliable_condition_warns_from_its_own_set():

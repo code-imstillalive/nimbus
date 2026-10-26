@@ -97,16 +97,13 @@ def _dead(pid, sig):
     raise ProcessLookupError
 
 
-@pytest.mark.parametrize(
-    "content",
-    ["{other}", "not a pid", ""],
-    ids=["dead_process", "corrupt", "empty"],
-)
-def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch, content):
-    _pid_file(lock_path, content.format(other=os.getpid() + 1))
-    monkeypatch.setattr(cycle_lock.os, "kill", _dead)
-    assert cycle_lock.acquire_lock(lock_path)
-    assert _pid_in(lock_path) == str(os.getpid())
+def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch):
+    for content in ["{other}", "not a pid", ""]:
+        with monkeypatch.context() as mp:
+            _pid_file(lock_path, content.format(other=os.getpid() + 1))
+            mp.setattr(cycle_lock.os, "kill", _dead)
+            assert cycle_lock.acquire_lock(lock_path)
+            assert _pid_in(lock_path) == str(os.getpid())
 
 
 def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypatch):

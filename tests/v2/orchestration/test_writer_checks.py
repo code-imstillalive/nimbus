@@ -254,9 +254,10 @@ def test_the_oldest_provisional_day_whose_settlement_has_landed_is_rescored(
     assert rescored == [(3, {"2026-09-22"})]
 
 
-@pytest.mark.parametrize(
-    ("quality", "settled", "cfg"),
-    [
+def test_nothing_is_rescored_without_a_landed_settlement_for_a_past_day(
+    ha, monkeypatch
+):
+    for quality, settled, cfg in [
         (None, None, CFG),
         ({"state": "1", "attributes": {"history": []}}, None, CFG),
         (_quality({"2026-09-23": {"p": 1}}), None, CFG),
@@ -276,25 +277,13 @@ def test_the_oldest_provisional_day_whose_settlement_has_landed_is_rescored(
             {"state": "1", "attributes": {"history": {"2026-09-25": 1}}},
             CFG,
         ),
-    ],
-    ids=[
-        "no_report",
-        "no_history",
-        "no_settlement",
-        "settlement_without_history",
-        "not_settled",
-        "no_sensor",
-        "today",
-    ],
-)
-def test_nothing_is_rescored_without_a_landed_settlement_for_a_past_day(
-    ha, monkeypatch, quality, settled, cfg
-):
-    monkeypatch.setattr(
-        sw, "rescore_quality_history", lambda *a, **k: pytest.fail("rescored")
-    )
-    if quality is not None:
-        ha.states[sw.QUALITY_ENTITY_ID] = quality
-    if settled is not None:
-        ha.states["sensor.settled"] = settled
-    assert sw.repair_provisional_quality_history(cfg, NOW) is None
+    ]:
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                sw, "rescore_quality_history", lambda *a, **k: pytest.fail("rescored")
+            )
+            if quality is not None:
+                ha.states[sw.QUALITY_ENTITY_ID] = quality
+            if settled is not None:
+                ha.states["sensor.settled"] = settled
+            assert sw.repair_provisional_quality_history(cfg, NOW) is None

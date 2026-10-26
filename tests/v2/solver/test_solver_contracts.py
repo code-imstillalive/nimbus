@@ -272,27 +272,25 @@ def _two_objective_lp() -> LPProblem:
     return p
 
 
-@pytest.mark.parametrize("rescued", [True, False])
-@pytest.mark.parametrize(
-    "options", [None, CalibratedOptions(), LexOptions()], ids=["plain", "cal", "lex"]
-)
-def test_an_unknown_gets_one_interior_point_retry(options, rescued, _retry_counts):
+def test_an_unknown_gets_one_interior_point_retry(_retry_counts):
     """#1360 (a tester's install, 11 Oct 2026: 169 Unknowns in three hours
     with a $23/kWh spike in the horizon): before the previous plan is kept,
     the solve is re-run once with the interior-point solver, on every path a
     calibrated or lex solve can fall back to. Every retry is counted, and a
     rescue as recovered (#1360, 15 Oct: the episode was only found from
     recorder history, so the counts are published)."""
-    with patch.object(highspy.Highs, "getModelStatus", _unknown(rescued)):
-        problem = _two_objective_lp()
-        result = problem.solve(options=options)
-    if rescued:
-        assert result.status == "optimal"
-        assert problem.value_of(result, "x") == pytest.approx(10.0)
-        assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 1}
-    else:
-        assert (result.status, result.raw_status) == ("error", "Unknown")
-        assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
+    for rescued in [True, False]:
+        for options in [None, CalibratedOptions(), LexOptions()]:
+            with patch.object(highspy.Highs, "getModelStatus", _unknown(rescued)):
+                problem = _two_objective_lp()
+                result = problem.solve(options=options)
+            if rescued:
+                assert result.status == "optimal"
+                assert problem.value_of(result, "x") == pytest.approx(10.0)
+                assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 1}
+            else:
+                assert (result.status, result.raw_status) == ("error", "Unknown")
+                assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
 
 
 def test_a_quiet_solve_is_retried_but_never_counted(_retry_counts):
@@ -665,18 +663,19 @@ def _timing_lines(monkeypatch, h, elapsed, raises=None, label="primary_minimize"
     return [r for r in records if "#773 diag" in r.getMessage()]
 
 
-@pytest.mark.parametrize("elapsed", [0.1, 70.0])
-def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch, elapsed):
+def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
     """#773: the reads are best-effort, so a diagnostic is never why a solve
     cycle dies; a slow call still logs its elapsed time and call site, the
     unread fields as None."""
-    lines = _timing_lines(monkeypatch, _BrokenInfoHighs(), elapsed)
-    if elapsed < lp._SLOW_LP_CALL_SECONDS:
-        assert lines == []
-        return
-    (line,) = lines
-    assert "70.0s" in line.getMessage()
-    assert "simplex_iterations=None" in line.getMessage()
+    for elapsed in [0.1, 70.0]:
+        with monkeypatch.context() as mp:
+            lines = _timing_lines(mp, _BrokenInfoHighs(), elapsed)
+            if elapsed < lp._SLOW_LP_CALL_SECONDS:
+                assert lines == []
+                continue
+            (line,) = lines
+            assert "70.0s" in line.getMessage()
+            assert "simplex_iterations=None" in line.getMessage()
 
 
 def _lp_tree():
@@ -956,27 +955,28 @@ _AT_5_6, _AT_15_16 = (0.65, 0.65, 0.0, 0.0), (0.0, 0.0, 0.65, 0.65)
 # --- #773 / #1179: every dump says whether it will survive ---------------------
 
 
-@pytest.mark.parametrize("configured", [None, "/data/nimbus_dumps"])
-def test_the_dump_note_says_whether_the_file_survives(configured, monkeypatch):
+def test_the_dump_note_says_whether_the_file_survives(monkeypatch):
     """#773 (18 Sep 2026: the first real capture landed in a container's
     /tmp and was gone at the next restart): with no dump folder set, the
     note says the file is TEMPORARY, will not survive, to copy it NOW, and
     names the setting that makes it persistent; with one set, it says the
     file persists and raises no alarm. The public alias (#1179, used by the
     writer) only delegates."""
-    if configured is None:
-        monkeypatch.delenv(lp._LP_DUMP_DIR_ENV, raising=False)
-    else:
-        monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, configured)
-    note = lp._dump_location_note()
-    assert lp.dump_location_note() == note
-    if configured is None:
-        for word in ("TEMPORARY", "will not survive", "NOW", "persistent"):
-            assert word in note, word
-        assert lp._LP_DUMP_DIR_ENV in note
-    else:
-        assert "persists" in note
-        assert "TEMPORARY" not in note and "will not survive" not in note
+    for configured in [None, "/data/nimbus_dumps"]:
+        with monkeypatch.context() as mp:
+            if configured is None:
+                mp.delenv(lp._LP_DUMP_DIR_ENV, raising=False)
+            else:
+                mp.setenv(lp._LP_DUMP_DIR_ENV, configured)
+            note = lp._dump_location_note()
+            assert lp.dump_location_note() == note
+            if configured is None:
+                for word in ("TEMPORARY", "will not survive", "NOW", "persistent"):
+                    assert word in note, word
+                assert lp._LP_DUMP_DIR_ENV in note
+            else:
+                assert "persists" in note
+                assert "TEMPORARY" not in note and "will not survive" not in note
 
 
 class _WritingHighs(_PhaseHighs):

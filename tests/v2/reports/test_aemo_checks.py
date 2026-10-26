@@ -120,19 +120,18 @@ def aemo_now(monkeypatch):
     return set_state
 
 
-@pytest.mark.parametrize(
-    ("retail", "flagged", "gap"),
-    [(0.30, False, 0.0), (0.55, True, 0.25), (0.40, False, 0.10), (0.05, True, -0.25)],
-    ids=["agrees", "above", "at_threshold", "below"],
-)
-def test_retail_is_flagged_past_the_threshold_either_way(
-    aemo_now, retail, flagged, gap
-):
-    aemo_now("0.10")
-    got = sw.check_aemo_p5min_disagreement(P5, retail, 10, {10: 0.20}, 0.10)
-    assert got["flagged"] is flagged
-    assert got["disagreement_dollars"] == pytest.approx(gap)
-    assert got["expected_retail"] == pytest.approx(0.30)
+def test_retail_is_flagged_past_the_threshold_either_way(aemo_now):
+    for retail, flagged, gap in [
+        (0.30, False, 0.0),
+        (0.55, True, 0.25),
+        (0.40, False, 0.10),
+        (0.05, True, -0.25),
+    ]:
+        aemo_now("0.10")
+        got = sw.check_aemo_p5min_disagreement(P5, retail, 10, {10: 0.20}, 0.10)
+        assert got["flagged"] is flagged
+        assert got["disagreement_dollars"] == pytest.approx(gap)
+        assert got["expected_retail"] == pytest.approx(0.30)
 
 
 def test_a_disagreement_is_warned_once_per_period(monkeypatch, caplog):

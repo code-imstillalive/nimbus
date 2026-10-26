@@ -151,9 +151,8 @@ def test_two_localvolts_sites_or_none_loaded_is_no_proposal(world):
     assert pa.detect_localvolts_v2_profile(other.hass()) == {}
 
 
-@pytest.mark.parametrize(
-    ("domain", "uids", "expected"),
-    [
+def test_each_retail_provider_is_proposed_only_for_a_single_site(world):
+    for domain, uids, expected in [
         (
             pi.AMBER_EXPRESS_DOMAIN,
             {
@@ -192,19 +191,15 @@ def test_two_localvolts_sites_or_none_loaded_is_no_proposal(world):
             {IMPORT: "sensor.pd7_buy", EXPORT: "sensor.pd7_sell"},
         ),
         (pi.PD7DAY_DOMAIN, {"qld1_tariff": "sensor.a", "nsw1_tariff": "sensor.b"}, {}),
-    ],
-)
-def test_each_retail_provider_is_proposed_only_for_a_single_site(
-    world, domain, uids, expected
-):
-    for uid, eid in uids.items():
-        world.add(domain, eid, uid)
-    detect = {
-        pi.AMBER_EXPRESS_DOMAIN: pa.detect_amber_express_profile,
-        pi.AMBER_CORE_DOMAIN: pa.detect_amber_core_profile,
-        pi.PD7DAY_DOMAIN: pa.detect_pd7day_tariff_pair,
-    }[domain]
-    assert detect(world.hass()) == expected
+    ]:
+        for uid, eid in uids.items():
+            world.add(domain, eid, uid)
+        detect = {
+            pi.AMBER_EXPRESS_DOMAIN: pa.detect_amber_express_profile,
+            pi.AMBER_CORE_DOMAIN: pa.detect_amber_core_profile,
+            pi.PD7DAY_DOMAIN: pa.detect_pd7day_tariff_pair,
+        }[domain]
+        assert detect(world.hass()) == expected
 
 
 def test_a_regional_forecast_prefers_pd7day_and_picks_the_home_region_among_several(
@@ -373,9 +368,8 @@ def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
 
 
-@pytest.mark.parametrize(
-    ("domain", "uids", "notice"),
-    [
+def test_each_detected_provider_has_its_own_notice(world):
+    for domain, uids, notice in [
         (
             pi.AMBER_EXPRESS_DOMAIN,
             {"s_general_price": "sensor.ae_buy"},
@@ -387,17 +381,15 @@ def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
             pa.NOTIFY_AMBER_CORE_DETECTED_ID,
         ),
         (pi.OPENADR_DOMAIN, {"ven_price": "sensor.adr"}, pa.NOTIFY_OPENADR_DETECTED_ID),
-    ],
-)
-def test_each_detected_provider_has_its_own_notice(world, domain, uids, notice):
-    for uid, eid in uids.items():
-        world.add(domain, eid, uid)
-    notices = _notices(world, {})
-    assert notice in notices
-    assert (
-        "Nothing has been changed" in notices[notice]
-        or "nothing changes unless you confirm" in notices[notice]
-    )
+    ]:
+        for uid, eid in uids.items():
+            world.add(domain, eid, uid)
+        notices = _notices(world, {})
+        assert notice in notices
+        assert (
+            "Nothing has been changed" in notices[notice]
+            or "nothing changes unless you confirm" in notices[notice]
+        )
 
 
 def test_a_matched_rate_without_a_price_array_is_called_out(world):

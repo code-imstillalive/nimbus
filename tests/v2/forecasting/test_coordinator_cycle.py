@@ -357,28 +357,28 @@ def test_a_weather_entity_is_read_through_its_forecast_service(tmp_path, site):
     assert len(hass.service_calls) == 1 and again and again[0][0] >= NOW
 
 
-@pytest.mark.parametrize(
-    "source", [const.TRAINING_SOURCE_LTS, const.TRAINING_SOURCE_HYBRID]
-)
-def test_long_term_statistics_train_the_older_days(tmp_path, site, source):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(
-        hass, **{const.CONF_TRAINING_SOURCE: source, const.CONF_HYBRID_RECENT_DAYS: 5}
-    )
-    asyncio.run(coord._async_retrain())
-    assert coord._last_retrain_error is None and coord._trained is not None
-    lts = [r for r in hass.lts_reads if r[0] == LOAD]
-    assert lts, "the load was read from long-term statistics"
-    start = NOW - timedelta(days=21)
-    if source == const.TRAINING_SOURCE_HYBRID:
-        # Statistics for the older days, the recorder for the last five.
-        assert lts[0][2] == NOW - timedelta(days=5)
-        assert any(
-            r[0] == LOAD and r[1] == NOW - timedelta(days=5) for r in hass.history_reads
+def test_long_term_statistics_train_the_older_days(tmp_path, site):
+    for source in [const.TRAINING_SOURCE_LTS, const.TRAINING_SOURCE_HYBRID]:
+        hass = _site_hass(tmp_path)
+        coord = _site_coordinator(
+            hass,
+            **{const.CONF_TRAINING_SOURCE: source, const.CONF_HYBRID_RECENT_DAYS: 5},
         )
-        assert coord._change_only_from(start, NOW) == NOW - timedelta(days=5)
-    else:
-        assert coord._change_only_from(start, NOW) is None
+        asyncio.run(coord._async_retrain())
+        assert coord._last_retrain_error is None and coord._trained is not None
+        lts = [r for r in hass.lts_reads if r[0] == LOAD]
+        assert lts, "the load was read from long-term statistics"
+        start = NOW - timedelta(days=21)
+        if source == const.TRAINING_SOURCE_HYBRID:
+            # Statistics for the older days, the recorder for the last five.
+            assert lts[0][2] == NOW - timedelta(days=5)
+            assert any(
+                r[0] == LOAD and r[1] == NOW - timedelta(days=5)
+                for r in hass.history_reads
+            )
+            assert coord._change_only_from(start, NOW) == NOW - timedelta(days=5)
+        else:
+            assert coord._change_only_from(start, NOW) is None
 
 
 # --- what is kept across restarts ------------------------------------------------
@@ -412,31 +412,32 @@ def test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain(
     assert tracked[-1] == "off"
 
 
-@pytest.mark.parametrize("damage", ["garbage", "features", "newer"])
 def test_a_damaged_or_foreign_model_file_is_discarded_and_retrained(
-    tmp_path, site, monkeypatch, damage
+    tmp_path, site, monkeypatch
 ):
-    hass = _site_hass(tmp_path)
-    coord = _coordinator(hass)
-    asyncio.run(coord._async_retrain())
-    trained = coord._trained
-    if damage == "garbage":
-        coord._model_path.write_bytes(b"not a pickle")
-    elif damage == "features":
-        trained.x_mean = trained.x_mean[:-1]
-        coord._save_model_to_disk(trained)
-    else:
-        trained.schema_version = cm.TRAINED_MODEL_SCHEMA_VERSION + 1
-        coord._save_model_to_disk(trained)
-    coord._residual_path.write_text('["x"]', encoding="utf-8")
-    created = []
-    monkeypatch.setattr(cm, "async_track_time_change", lambda *a, **k: lambda: None)
-    hass.async_create_task = lambda coro: created.append(coro) or coro.close()
-    again = _coordinator(hass)
-    again.entry.async_on_unload = lambda cb: None
-    asyncio.run(again.async_setup())
-    assert again._trained is None and again._residuals == []
-    assert len(created) == 1  # retrain now, not at tonight's hour
+    for damage in ["garbage", "features", "newer"]:
+        with monkeypatch.context() as mp:
+            hass = _site_hass(tmp_path)
+            coord = _coordinator(hass)
+            asyncio.run(coord._async_retrain())
+            trained = coord._trained
+            if damage == "garbage":
+                coord._model_path.write_bytes(b"not a pickle")
+            elif damage == "features":
+                trained.x_mean = trained.x_mean[:-1]
+                coord._save_model_to_disk(trained)
+            else:
+                trained.schema_version = cm.TRAINED_MODEL_SCHEMA_VERSION + 1
+                coord._save_model_to_disk(trained)
+            coord._residual_path.write_text('["x"]', encoding="utf-8")
+            created = []
+            mp.setattr(cm, "async_track_time_change", lambda *a, **k: lambda: None)
+            hass.async_create_task = lambda coro: created.append(coro) or coro.close()  # noqa: B023
+            again = _coordinator(hass)
+            again.entry.async_on_unload = lambda cb: None
+            asyncio.run(again.async_setup())
+            assert again._trained is None and again._residuals == []
+            assert len(created) == 1  # retrain now, not at tonight's hour
 
 
 def test_each_refresh_scores_the_last_prediction_and_flags_drift_once(

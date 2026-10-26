@@ -114,26 +114,25 @@ def test_a_recorder_gap_credits_only_the_guards_own_hour(site, monkeypatch):
     assert wider.delivered_kwh == pytest.approx(6.0) and wider.stale_period_count == 19
 
 
-@pytest.mark.parametrize(
-    ("configured", "rows", "reason"),
-    [(False, None, clh.REASON_NO_POWER_SENSOR), (True, [], clh.REASON_NO_HISTORY)],
-    ids=["no_sensor", "before_the_sensor_existed"],
-)
-def test_a_load_that_cannot_be_reconstructed_says_why_not_zero(
-    site, configured, rows, reason
-):
-    data = dict(HWS)
-    if not configured:
-        del data["controllable_load_power_sensor"]
-    site.add("hws", data)
-    site.history = {"sensor.hws_power": rows or []}
-    out = _resolve()["hws"]
-    assert (out.scorable, out.reason, out.delivered_kwh) == (False, reason, None)
-    assert out.observed_period_fraction is None and out.delivered_kwh_by_period == ()
-    assert out.name == "Hot water"
-    attr = out.as_attribute()
-    assert attr["delivered_kwh"] is None and attr["reason"] == reason
-    assert "delivered_kwh_by_period" not in attr  # never the per-period series
+def test_a_load_that_cannot_be_reconstructed_says_why_not_zero(site):
+    for configured, rows, reason in [
+        (False, None, clh.REASON_NO_POWER_SENSOR),
+        (True, [], clh.REASON_NO_HISTORY),
+    ]:
+        data = dict(HWS)
+        if not configured:
+            del data["controllable_load_power_sensor"]
+        site.add("hws", data)
+        site.history = {"sensor.hws_power": rows or []}
+        out = _resolve()["hws"]
+        assert (out.scorable, out.reason, out.delivered_kwh) == (False, reason, None)
+        assert (
+            out.observed_period_fraction is None and out.delivered_kwh_by_period == ()
+        )
+        assert out.name == "Hot water"
+        attr = out.as_attribute()
+        assert attr["delivered_kwh"] is None and attr["reason"] == reason
+        assert "delivered_kwh_by_period" not in attr  # never the per-period series
 
 
 # --- the oracle's controllable loads, built from what each really delivered (#1357) ------------
@@ -206,9 +205,8 @@ def test_with_nothing_delivered_or_no_entry_the_oracle_gets_nothing(monkeypatch)
     assert _oracle(monkeypatch, [_ran()], None) is None
 
 
-@pytest.mark.parametrize(
-    ("delivery", "data", "reason"),
-    [
+def test_every_load_left_out_is_named_with_why(monkeypatch):
+    for delivery, data, reason in [
         (
             _ran(kind="thermal", name="Tank"),
             {"controllable_load_kind": "thermal"},
@@ -230,16 +228,14 @@ def test_with_nothing_delivered_or_no_entry_the_oracle_gets_nothing(monkeypatch)
             },
             clh.ORACLE_SKIP_NO_WINDOW,
         ),
-    ],
-    ids=["thermal", "unscorable", "no_energy", "unknown_kind", "inverted_window"],
-)
-def test_every_load_left_out_is_named_with_why(monkeypatch, delivery, data, reason):
-    bundle = _oracle(monkeypatch, [delivery], {"s1": data})
-    assert (bundle.adequacy, bundle.sheddable) == ((), ())
-    assert bundle.skipped == ((delivery.name, reason),)
-    assert (
-        bundle.delivered_kwh_by_period is None
-    )  # nothing taken that is not given back
+    ]:
+        with monkeypatch.context() as mp:
+            bundle = _oracle(mp, [delivery], {"s1": data})
+            assert (bundle.adequacy, bundle.sheddable) == ((), ())
+            assert bundle.skipped == ((delivery.name, reason),)
+            assert (
+                bundle.delivered_kwh_by_period is None
+            )  # nothing taken that is not given back
 
 
 def test_only_the_loads_given_to_the_oracle_are_taken_out_of_its_base_load(monkeypatch):

@@ -121,23 +121,21 @@ def _payload(specs, value_of):
     return out
 
 
-@pytest.mark.parametrize("name", sorted(TABLES))
-def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
-    name, clock
-):
-    ents, dispatch = _build(name)
-    payload = _payload(
-        [e._spec for e in ents], lambda spec: f"v-{spec.entity_id_suffix}"
-    )
-    dispatch(ents, payload)
-    for e in ents:
-        assert e.native_value == f"v-{e._spec.entity_id_suffix}", e.entity_id
-        assert e.writes == 1 and e.available
-    dispatch(ents, {})  # a payload without these keys changes nothing
-    assert all(
-        e.native_value == f"v-{e._spec.entity_id_suffix}" and e.writes == 1
-        for e in ents
-    )
+def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(clock):
+    for name in sorted(TABLES):
+        ents, dispatch = _build(name)
+        payload = _payload(
+            [e._spec for e in ents], lambda spec: f"v-{spec.entity_id_suffix}"
+        )
+        dispatch(ents, payload)
+        for e in ents:
+            assert e.native_value == f"v-{e._spec.entity_id_suffix}", e.entity_id
+            assert e.writes == 1 and e.available
+        dispatch(ents, {})  # a payload without these keys changes nothing
+        assert all(
+            e.native_value == f"v-{e._spec.entity_id_suffix}" and e.writes == 1
+            for e in ents
+        )
 
 
 def _spec(**kw):

@@ -107,20 +107,16 @@ def test_todays_plan_is_captured_once_and_survives_a_restart(store):
     assert _run(fss.async_load_snapshot(hass, "E1", "1999-01-01")) is None
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
+def test_nothing_usable_published_is_no_snapshot(store):
+    for rows in [
         None,
         [],
         [{"time": "not a time", "solar_kw": 1, "load_kw": 1}],
         [{"time": "2026-09-20T15:00:00+10:00"}],
         ["x"],
-    ],
-    ids=["no_entity", "no_rows", "bad_time", "no_values", "not_a_row"],
-)
-def test_nothing_usable_published_is_no_snapshot(store, rows):
-    assert _run(fss.async_capture_todays_snapshot(_hass(rows), "E1")) is False
-    assert Disk.saves == []
+    ]:
+        assert _run(fss.async_capture_todays_snapshot(_hass(rows), "E1")) is False
+        assert Disk.saves == []
 
 
 def test_a_failing_store_never_raises(store):

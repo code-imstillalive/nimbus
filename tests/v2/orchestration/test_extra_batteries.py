@@ -101,23 +101,18 @@ def test_a_live_charge_limit_and_a_shared_charger_carry_through(site):
     assert (b.shared_charger_group, b.shared_charger_max_kw) == ("dc", 25.0)
 
 
-@pytest.mark.parametrize(
-    ("change", "reason"),
-    [
+def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(site, caplog):
+    for change, reason in [
         ({"battery_participant_capacity_kwh": None}, "missing capacity_kwh"),
         ({"battery_participant_soc_sensor": None}, "missing capacity_kwh"),
         ({"battery_participant_name": "home"}, "reserved"),
-    ],
-    ids=["no_capacity", "no_soc_sensor", "named_home"],
-)
-def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
-    site, caplog, change, reason
-):
-    site.add("ev", {**EV, **change})
-    site.state("sensor.ev_soc", "55.0")
-    with caplog.at_level(logging.WARNING):
-        assert eb.build_extra_batteries() == []
-    assert reason in caplog.text
+    ]:
+        caplog.clear()
+        site.add("ev", {**EV, **change})
+        site.state("sensor.ev_soc", "55.0")
+        with caplog.at_level(logging.WARNING):
+            assert eb.build_extra_batteries() == []
+        assert reason in caplog.text
 
 
 def _departure(site, *, hour=8, pct=90.0, periods=None):
@@ -225,11 +220,12 @@ def test_an_unreadable_soc_holds_the_last_reading_never_the_floor(car, caplog):
     assert "car" not in eb._SOC_UNREADABLE_WARNED  # waking ends the spell
 
 
-@pytest.mark.parametrize("soc", ["unavailable", None], ids=["unavailable", "missing"])
-def test_with_nothing_to_hold_the_car_sits_out(car, caplog, soc):
-    with caplog.at_level(logging.WARNING):
-        assert car(soc) == []
-    assert soc is None or "leaving it out" in caplog.text
+def test_with_nothing_to_hold_the_car_sits_out(car, caplog):
+    for soc in ["unavailable", None]:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert car(soc) == []
+        assert soc is None or "leaving it out" in caplog.text
 
 
 # --- a participant that can never move is built, and said once (#1067) ------------------------
@@ -256,19 +252,16 @@ def test_a_participant_with_no_power_limits_is_built_and_warned_about_once(
     assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
 
 
-@pytest.mark.parametrize(
-    "limits",
-    [
+def test_a_one_directional_participant_is_not_warned_about(site, caplog, monkeypatch):
+    for limits in [
         {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
         {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
-    ],
-)
-def test_a_one_directional_participant_is_not_warned_about(
-    site, caplog, monkeypatch, limits
-):
-    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-    site.add("ev", {**EV, **limits})
-    site.state("sensor.ev_soc", "55.0")
-    with caplog.at_level(logging.WARNING):
-        assert len(eb.build_extra_batteries()) == 1
-    assert "#1067" not in caplog.text
+    ]:
+        caplog.clear()
+        with monkeypatch.context() as mp:
+            mp.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+            site.add("ev", {**EV, **limits})
+            site.state("sensor.ev_soc", "55.0")
+            with caplog.at_level(logging.WARNING):
+                assert len(eb.build_extra_batteries()) == 1
+            assert "#1067" not in caplog.text

@@ -56,42 +56,41 @@ def _arrays(cfg, **kw):
     return solar.build_solar_arrays(cfg, GRID, N, **kw)
 
 
-@pytest.mark.parametrize(
-    "broken",
-    [{"something_else": 1}, urllib.error.URLError("down")],
-    ids=["unknown_shape", "unreachable"],
-)
-def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog, broken):
-    site["sensor.bad"] = broken
-    site["sensor.good"] = _forecast([4.0] * N)
-    cfg = {
-        "solver_solar_forecast_sensor": "sensor.bad",
-        "solver_solar_forecast_sensor_2": "sensor.good",
-    }
-    with caplog.at_level(logging.WARNING):
-        assert _arrays(cfg)[0] == [4.0] * N  # never averaged in as zeros
-        _arrays(cfg)
-    assert caplog.text.count("sensor.bad") == 1
-
-
-@pytest.mark.parametrize(
-    ("reading", "unit", "first"),
-    [("3800", "W", 3.8), ("3.8", "kW", 3.8), ("-1", "kW", 0.0), ("unknown", "kW", 2.0)],
-)
-def test_a_live_solar_reading_anchors_the_first_period_only(site, reading, unit, first):
-    site["sensor.a"] = _forecast([2.0] * N)
-    site["sensor.pv_power"] = {
-        "state": reading,
-        "attributes": {"unit_of_measurement": unit},
-    }
-    kw, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_power_sensor": "sensor.pv_power",
+def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog):
+    for broken in [{"something_else": 1}, urllib.error.URLError("down")]:
+        caplog.clear()
+        site["sensor.bad"] = broken
+        site["sensor.good"] = _forecast([4.0] * N)
+        cfg = {
+            "solver_solar_forecast_sensor": "sensor.bad",
+            "solver_solar_forecast_sensor_2": "sensor.good",
         }
-    )
-    assert (kw[0], lo[0], up[0]) == pytest.approx((first, first, first))
-    assert kw[1:] == [2.0] * (N - 1)
+        with caplog.at_level(logging.WARNING):
+            assert _arrays(cfg)[0] == [4.0] * N  # never averaged in as zeros
+            _arrays(cfg)
+        assert caplog.text.count("sensor.bad") == 1
+
+
+def test_a_live_solar_reading_anchors_the_first_period_only(site):
+    for reading, unit, first in [
+        ("3800", "W", 3.8),
+        ("3.8", "kW", 3.8),
+        ("-1", "kW", 0.0),
+        ("unknown", "kW", 2.0),
+    ]:
+        site["sensor.a"] = _forecast([2.0] * N)
+        site["sensor.pv_power"] = {
+            "state": reading,
+            "attributes": {"unit_of_measurement": unit},
+        }
+        kw, lo, up = _arrays(
+            {
+                "solver_solar_forecast_sensor": "sensor.a",
+                "solver_solar_power_sensor": "sensor.pv_power",
+            }
+        )
+        assert (kw[0], lo[0], up[0]) == pytest.approx((first, first, first))
+        assert kw[1:] == [2.0] * (N - 1)
 
 
 def _solcast(values, low, high):

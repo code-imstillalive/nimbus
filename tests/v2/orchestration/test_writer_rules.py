@@ -255,23 +255,19 @@ def test_without_a_recorded_trail_or_baseline_there_is_no_skill(monkeypatch):
     )
 
 
-@pytest.mark.parametrize(
-    ("trail_points", "solar", "reason"),
-    [
+def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(monkeypatch):
+    for trail_points, solar, reason in [
         (4, np.zeros(3), "input_length_mismatch"),
         (1, None, "coverage_below_threshold"),
         (4, None, "scenario_solve_failed"),
-    ],
-)
-def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(
-    monkeypatch, trail_points, solar, reason
-):
-    trail = [(t, 1.0) for t in _grid(4)[:trail_points]]
-    prev = [(t - timedelta(hours=24), 1.0) for t in _grid(4)]
-    out, _, _ = _nowcast(monkeypatch, trail=trail, prev=prev, result=None, solar=solar)
-    assert out["load_nowcast_skill_reason"] == reason
-    assert out["load_nowcast_skill_periods_measured"] == trail_points
-    assert out["load_nowcast_skill_coverage"] == round(trail_points / 4, 3)
+    ]:
+        with monkeypatch.context() as mp:
+            trail = [(t, 1.0) for t in _grid(4)[:trail_points]]
+            prev = [(t - timedelta(hours=24), 1.0) for t in _grid(4)]
+            out, _, _ = _nowcast(mp, trail=trail, prev=prev, result=None, solar=solar)
+            assert out["load_nowcast_skill_reason"] == reason
+            assert out["load_nowcast_skill_periods_measured"] == trail_points
+            assert out["load_nowcast_skill_coverage"] == round(trail_points / 4, 3)
 
 
 # --- flex availability, the P2P step lookup, consolidation's spike rule ----------
