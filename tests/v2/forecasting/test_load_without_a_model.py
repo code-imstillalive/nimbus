@@ -88,8 +88,7 @@ DETERMINISTIC = {
 
 
 def test_matches_what_predict_returns_for_the_same_timestamps():
-    """The no-model path and predict()'s deterministic branch share one
-    helper, so the values cannot drift apart."""
+    # test_matches_what_predict_returns_for_the_same_timestamps: The no-model path and predict()'s deterministic branch share one
     forecast = _run(_coordinator(DETERMINISTIC))["forecast"]
     timestamps = [datetime.fromisoformat(p["time"]) for p in forecast]
     via_predict = predict(
@@ -106,8 +105,7 @@ def test_matches_what_predict_returns_for_the_same_timestamps():
     assert via_predict == deterministic_values(timestamps, 1.3, 8.0, 15.0)
     assert [p["value"] for p in forecast] == [round(v, 3) for v in via_predict]
 
-
-def test_overnight_window_wraps():
+    # test_overnight_window_wraps
     coord = _coordinator(
         {
             CONF_EXPECTED_LOAD_KW: 2.0,
@@ -119,11 +117,7 @@ def test_overnight_window_wraps():
         expected = 2.0 if _in_window(point["time"], 22.0, 6.0) else 0.0
         assert point["value"] == expected, point
 
-
-# --- Mark's review of #1593: readiness and provenance ---------------------------
-
-
-def test_configured_zero_incomplete_rule_and_missing_history_are_distinct():
+    # test_configured_zero_incomplete_rule_and_missing_history_are_distinct
     zero = _run(
         _coordinator(
             {
@@ -148,3 +142,6 @@ def test_configured_zero_incomplete_rule_and_missing_history_are_distinct():
         missing = _run(_coordinator(data))
         assert missing["forecast_readiness"] == "not_trained", data
         assert missing["forecast_origin"] is None
+
+
+# --- Mark's review of #1593: readiness and provenance ---------------------------

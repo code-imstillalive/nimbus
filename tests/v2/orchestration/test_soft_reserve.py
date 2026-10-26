@@ -97,6 +97,7 @@ class TestReserveWindow(unittest.TestCase):
     WINDOW = range(6)
 
     def test_a_margin_too_small_sells_before_the_drop(self):
+        # test_a_margin_too_small_sells_before_the_drop
         # 5c is less than the 13.9c -> 6.9c drop, so selling early still wins:
         # the margin must cover the gap to the after-window price.
         prices = np.full(W_N, 0.139)
@@ -105,7 +106,7 @@ class TestReserveWindow(unittest.TestCase):
         sold = float(np.sum(plan.grid_export_kw[:6] * W_HOURS[:6]))
         self.assertGreater(sold, 5.0)
 
-    def test_an_empty_window_is_no_reserve(self):
+        # test_an_empty_window_is_no_reserve
         a = _window_plan(_battery(20.0), np.full(W_N, 0.139), 0.228)
         b = _window_plan(
             _windowed(20.0, 15.0, 0.20, frozenset()), np.full(W_N, 0.139), 0.228

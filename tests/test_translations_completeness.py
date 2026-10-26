@@ -68,6 +68,7 @@ def _schema_keys(schema) -> list[str]:
 
 
 def test_compute_quality_report_service_has_a_translation():
+    # test_compute_quality_report_service_has_a_translation
     strings = json.loads(_STRINGS_PATH.read_text(encoding="utf-8"))
     services = strings.get("services", {})
     assert "compute_quality_report" in services, (
@@ -81,8 +82,7 @@ def test_compute_quality_report_service_has_a_translation():
             f"compute_quality_report field {field!r} has no translation"
         )
 
-
-def test_strings_json_and_translations_en_json_stay_byte_identical():
+    # test_strings_json_and_translations_en_json_stay_byte_identical
     strings_text = _STRINGS_PATH.read_text(encoding="utf-8")
     translations_text = _TRANSLATIONS_PATH.read_text(encoding="utf-8")
     assert strings_text == translations_text, (

@@ -64,6 +64,7 @@ def run(coro):
 
 
 def test_revision_race_one_wins_the_other_changes_nothing():
+    # test_revision_race_one_wins_the_other_changes_nothing
     mem = Memory()
     store = ds.ContractStore(mem)
     run(store.async_commit(0, _doc(), origin="legacy_import", now=NOW))
@@ -72,8 +73,7 @@ def test_revision_race_one_wins_the_other_changes_nothing():
     assert a.ok and not b.ok and b.code == "revision_conflict" and b.revision == 2
     assert run(store.async_read())["document"] == _doc(41.0)
 
-
-def test_an_invalid_document_is_refused_and_nothing_is_written():
+    # test_an_invalid_document_is_refused_and_nothing_is_written
     mem = Memory()
     store = ds.ContractStore(mem)
     bad = _doc()
@@ -83,8 +83,7 @@ def test_an_invalid_document_is_refused_and_nothing_is_written():
     assert "grid_missing" in [p.code for p in res.problems]
     assert mem.saves == 0
 
-
-def test_a_revert_is_a_new_revision_and_numbers_are_never_reused():
+    # test_a_revert_is_a_new_revision_and_numbers_are_never_reused
     store = ds.ContractStore(Memory())
     run(store.async_commit(0, _doc(40.0), origin="t", now=NOW))
     run(store.async_commit(1, _doc(41.0), origin="t", now=NOW))
@@ -94,8 +93,7 @@ def test_a_revert_is_a_new_revision_and_numbers_are_never_reused():
     assert state["document"] == _doc(40.0) and state["origin"] == "revert:1"
     assert not run(store.async_revert(3, 99, now=NOW)).ok
 
-
-def test_modes_move_only_along_the_allowed_path():
+    # test_modes_move_only_along_the_allowed_path
     store = ds.ContractStore(Memory())
     assert run(store.async_set_mode(0, "shadow")).code == "no_document"
     run(store.async_commit(0, _doc(), origin="t", now=NOW))
@@ -106,16 +104,11 @@ def test_modes_move_only_along_the_allowed_path():
     assert run(store.async_set_mode(1, "bogus")).code == "mode_unknown"
     assert run(store.async_set_mode(0, "shadow")).code == "revision_conflict"
 
-
-def test_the_logic_imports_no_home_assistant_at_module_level():
+    # test_the_logic_imports_no_home_assistant_at_module_level
     head = Path(ds.__file__).read_text(encoding="utf-8").split("def ha_backend")[0]
     assert "homeassistant" not in head
 
-
-def test_the_view_marker_follows_the_stored_revision_only():
-    """DC-004 step 5b, commit order step 3: the store records which revision
-    the legacy views hold, and refuses a revision it does not hold, so the
-    marker can never run ahead of the document."""
+    # test_the_view_marker_follows_the_stored_revision_only: DC-004 step 5b, commit order step 3: the store records which revision
     store = ds.ContractStore(Memory())
     first = run(store.async_commit(0, _doc(), origin="legacy_import", now=NOW))
     ahead = run(store.async_set_view_revision(first.revision + 1))

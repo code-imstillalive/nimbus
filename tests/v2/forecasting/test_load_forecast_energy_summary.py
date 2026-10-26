@@ -24,13 +24,13 @@ def _fc(values, minutes=30, start=NOW):
 
 
 def test_a_missing_value_is_skipped_not_zero():
+    # test_a_missing_value_is_skipped_not_zero
     fc = _fc([1.0, None, 1.0])
     s = fs.energy_summary(fc, NOW)
     # 1.0 held 0-60 min (its span runs to the next valued point), 1.0 for the
     # last point's held 60 min: 2 kWh, not 1.5.
     assert s[fs.ATTR_ENERGY_FORECAST_KWH] == pytest.approx(2.0)
 
-
-def test_no_points_no_summary():
+    # test_no_points_no_summary
     assert fs.energy_summary([], NOW) == {}
     assert fs.energy_summary([{"time": "not a time", "value": 1}], NOW) == {}

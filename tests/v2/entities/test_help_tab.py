@@ -26,7 +26,8 @@ def _solver_rows() -> list[str]:
     return [k for _block, _card, keys in help_tab._settings_by_card() for k in keys]
 
 
-def test_the_start_here_steps_cover_every_tab_with_a_live_tick() -> None:
+def test_the_start_here_steps_cover_every_tab_with_a_live_tick():
+    # test_the_start_here_steps_cover_every_tab_with_a_live_tick
     start = help_tab._START_HERE
     for tab in (
         "Solver",
@@ -41,19 +42,14 @@ def test_the_start_here_steps_cover_every_tab_with_a_live_tick() -> None:
     # A derived stand-in inverter is not a real Power Source.
     assert "rejectattr('derived', 'defined')" in start
 
-
-def test_the_glossary_carries_formulas() -> None:
+    # test_the_glossary_carries_formulas
     terms = {t for t, _m, _f in help_tab.GLOSSARY}
     for term in ("EPR", "Regret", "Grid money", "Risk aversion", "Salvage value"):
         assert term in terms
     epr = next(f for t, _m, f in help_tab.GLOSSARY if t == "EPR")
     assert "J_ref" in epr and "43.4%" in epr
 
-
-# --- the wizard's own screens and words -----------------------------------------------------
-
-
-def test_every_wizard_screen_with_fields_has_its_section() -> None:
+    # test_every_wizard_screen_with_fields_has_its_section
     strings = json.loads((PACKAGE / "strings.json").read_text(encoding="utf-8"))
     covered = {path for _title, path in help_tab.WIZARD_STEPS}
     expected = set()
@@ -67,8 +63,9 @@ def test_every_wizard_screen_with_fields_has_its_section() -> None:
                 expected.add(("config_subentries", sub, "step", step))
     assert sorted(expected - covered) == []
 
-
-def test_no_jinja_text_comes_in_from_the_wizard_strings() -> None:
-    """The wizard text is pasted into markdown the template engine renders."""
+    # test_no_jinja_text_comes_in_from_the_wizard_strings: The wizard text is pasted into markdown the template engine renders.
     raw = (PACKAGE / "strings.json").read_text(encoding="utf-8")
     assert "{{" not in raw and "{%" not in raw
+
+
+# --- the wizard's own screens and words -----------------------------------------------------

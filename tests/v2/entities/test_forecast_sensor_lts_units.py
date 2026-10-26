@@ -61,13 +61,13 @@ def _run_remediation(hass, metadata: dict, instant_done: bool = True):
 
 
 def test_no_lts_row_yet_does_nothing():
+    # test_no_lts_row_yet_does_nothing
     # Brand-new entity, never statistics-eligible before -- nothing to fix.
     hass = MagicMock()
     recorder = _run_remediation(hass, metadata={})
     recorder.async_update_statistics_metadata.assert_not_called()
 
-
-def test_corrects_empty_string_unit():
+    # test_corrects_empty_string_unit
     hass = MagicMock()
     metadata = {ENTITY_ID: (123, {"unit_of_measurement": ""})}
     recorder = _run_remediation(hass, metadata)
@@ -76,8 +76,7 @@ def test_corrects_empty_string_unit():
     assert args[0] == ENTITY_ID
     assert kwargs["new_unit_of_measurement"] == "kW"
 
-
-def test_a_genuinely_different_real_unit_is_never_touched():
+    # test_a_genuinely_different_real_unit_is_never_touched
     # Real safety property: this function must only ever relabel a
     # genuinely EMPTY row, never reinterpret an existing real unit --
     # that would be a silent, wrong data reinterpretation, not a fix.
@@ -86,8 +85,7 @@ def test_a_genuinely_different_real_unit_is_never_touched():
     recorder = _run_remediation(hass, metadata)
     recorder.async_update_statistics_metadata.assert_not_called()
 
-
-def test_a_recorder_error_never_propagates():
+    # test_a_recorder_error_never_propagates
     # This is a cosmetic, one-time cleanup -- it must never be capable
     # of blocking or crashing real entity setup, regardless of cause.
     #

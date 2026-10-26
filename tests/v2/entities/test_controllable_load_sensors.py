@@ -135,6 +135,7 @@ def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
 
 
 def test_todays_mean_import_price_reads_only_todays_plan():
+    # test_todays_mean_import_price_reads_only_todays_plan
     for forecast, mean in [
         (None, None),
         ([], None),
@@ -152,8 +153,7 @@ def test_todays_mean_import_price_reads_only_todays_plan():
         )
         assert sm._today_mean_import_price(_hass(states), NOW) == mean
 
-
-def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings():
+    # test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings
     state = lrs.LoadRunState(
         commanded_state=True, commanded_since=NOW.timestamp(), currently_on=True
     )
@@ -175,8 +175,7 @@ def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settin
     off = sm.NimbusControllableLoadStateSensor(_coordinator(), _hass(), None, sub, "1")
     assert off.native_value == "off"
 
-
-def test_the_temperature_forecast_shows_the_tank_now_and_the_planned_trajectory():
+    # test_the_temperature_forecast_shows_the_tank_now_and_the_planned_trajectory
     state = lrs.LoadRunState(
         plan_temperature_forecast=[{"time": NOW.isoformat(), "value": 55.0}],
         thermal_rates_source="learned",

@@ -214,6 +214,7 @@ class TestReleasesNameTheirConsumerCheck(unittest.TestCase):
     """
 
     def test_every_enforced_release_states_what_a_household_sees(self):
+        # test_every_enforced_release_states_what_a_household_sees
         in_flight = _in_flight_version()
         missing = sorted(
             ".".join(str(p) for p in ver)
@@ -232,10 +233,7 @@ class TestReleasesNameTheirConsumerCheck(unittest.TestCase):
             f"answer, which is a real answer and not an exemption.",
         )
 
-    def test_the_threshold_does_not_reject_history(self):
-        """The measurement this guard's own scope rests on. If the
-        threshold is ever lowered, it must be lowered deliberately and
-        with the entries below it brought into compliance first."""
+        # test_the_threshold_does_not_reject_history: The measurement this guard's own scope rests on. If the
         below = [
             ver
             for ver, body in _sections().items()
@@ -249,19 +247,14 @@ class TestReleasesNameTheirConsumerCheck(unittest.TestCase):
             "extended backwards",
         )
 
-    def test_the_guard_is_not_satisfied_by_talking_about_it(self):
-        """The mirror-image defeat #1057 found on the sibling guard: an
-        entry that merely names the phrase in a code span must not pass."""
+        # test_the_guard_is_not_satisfied_by_talking_about_it: The mirror-image defeat #1057 found on the sibling guard: an
         self.assertIsNone(
             _CONSUMER_RE.search(
                 _prose_only("see that entry's own `Consumer check:` note")
             )
         )
 
-    def test_the_guard_matches_both_real_shapes(self):
-        """Bullet and bare paragraph, because the file genuinely writes
-        both -- the measurement that stopped the sibling guard requiring
-        a dash."""
+        # test_the_guard_matches_both_real_shapes: Bullet and bare paragraph, because the file genuinely writes
         self.assertIsNotNone(
             _CONSUMER_RE.search("- Consumer check: nothing visible changed.")
         )
@@ -272,6 +265,7 @@ class TestReleasesNameTheirConsumerCheck(unittest.TestCase):
 
 class TestReleasesNameTheirValidation(unittest.TestCase):
     def test_every_enforced_release_states_what_was_validated(self):
+        # test_every_enforced_release_states_what_was_validated
         in_flight = _in_flight_version()
         missing = sorted(
             ".".join(str(p) for p in ver)
@@ -291,10 +285,7 @@ class TestReleasesNameTheirValidation(unittest.TestCase):
             f"release was verified unless it was.",
         )
 
-    def test_the_enforced_window_is_not_empty(self):
-        """Guards the guard: if _MIN_ENFORCED_VERSION ever drifted above
-        the newest release, every assertion above would pass vacuously
-        while enforcing nothing."""
+        # test_the_enforced_window_is_not_empty: Guards the guard: if _MIN_ENFORCED_VERSION ever drifted above
         in_flight = _in_flight_version()
         enforced = [v for v in _sections() if _MIN_ENFORCED_VERSION <= v < in_flight]
         self.assertGreater(
@@ -305,11 +296,7 @@ class TestReleasesNameTheirValidation(unittest.TestCase):
             "file is enforcing nothing.",
         )
 
-    def test_the_boundary_has_not_moved_backwards(self):
-        """The boundary exists because this session could only attest to
-        releases it actually verified. Moving it earlier would mean
-        someone asserted validation they didn't perform -- the exact
-        thing #594 exists to stop."""
+        # test_the_boundary_has_not_moved_backwards: The boundary exists because this session could only attest to
         self.assertGreaterEqual(
             _MIN_ENFORCED_VERSION,
             (0, 94, 289),

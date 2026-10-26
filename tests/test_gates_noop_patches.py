@@ -134,6 +134,7 @@ class TestTheGatesOwnTestsAreNotInTheDefaultSelection(unittest.TestCase):
     """
 
     def test_gate_self_tests_are_excluded(self):
+        # test_gate_self_tests_are_excluded
         selected = {p.name for p in np._list_candidate_test_files(REPO_ROOT)}
         offenders = {n for n in selected if n.startswith("test_gates_")}
         self.assertEqual(
@@ -144,12 +145,7 @@ class TestTheGatesOwnTestsAreNotInTheDefaultSelection(unittest.TestCase):
             "test, and was 87% of a tracked side's runtime",
         )
 
-    def test_the_selection_is_still_substantial(self):
-        """The other half: an exclusion that quietly emptied the selection
-        would make this gate measure nothing, which is the #1400 failure it
-        was just fixed for. A floor, not an exact count, so an ordinary new
-        test file does not fail this.
-        """
+        # test_the_selection_is_still_substantial: The other half: an exclusion that quietly emptied the selection
         selected = np._list_candidate_test_files(REPO_ROOT)
         self.assertGreater(
             len(selected),
@@ -158,11 +154,7 @@ class TestTheGatesOwnTestsAreNotInTheDefaultSelection(unittest.TestCase):
             "nothing has not passed, it has stopped checking",
         )
 
-    def test_an_excluded_file_can_still_be_targeted_explicitly(self):
-        """The escape hatch is real: `--tests` bypasses the selection, which
-        is how the gate tooling's own patch sites get checked when the
-        tooling is what changed.
-        """
+        # test_an_excluded_file_can_still_be_targeted_explicitly: The escape hatch is real: `--tests` bypasses the selection, which
         gate_test = REPO_ROOT / "tests" / "test_gates_coverage_compare.py"
         self.assertTrue(gate_test.exists(), "fixture file for this test moved")
         self.assertTrue(
@@ -176,6 +168,7 @@ class TestNoopPatchesOnSyntheticFixture(unittest.TestCase):
     """The two required cases: caught on the bad commit, clean on the good one."""
 
     def test_1316_shape_is_caught(self):
+        # test_1316_shape_is_caught
         with (
             tempfile.TemporaryDirectory() as base_tmp,
             tempfile.TemporaryDirectory() as head_tmp,
@@ -207,7 +200,7 @@ class TestNoopPatchesOnSyntheticFixture(unittest.TestCase):
             "test_compute_uses_the_patched_helper", report.regressions[0].test_id
         )
 
-    def test_unchanged_production_code_reports_clean(self):
+        # test_unchanged_production_code_reports_clean
         with (
             tempfile.TemporaryDirectory() as base_tmp,
             tempfile.TemporaryDirectory() as head_tmp,
@@ -247,6 +240,7 @@ class TestCliExitCodes(unittest.TestCase):
         )
 
     def test_exit_one_on_the_1316_shape(self):
+        # test_exit_one_on_the_1316_shape
         with (
             tempfile.TemporaryDirectory() as base_tmp,
             tempfile.TemporaryDirectory() as head_tmp,
@@ -261,7 +255,7 @@ class TestCliExitCodes(unittest.TestCase):
         self.assertIn("FAIL", result.stdout)
         self.assertIn("fake_prod.helper", result.stdout)
 
-    def test_exit_zero_when_unchanged(self):
+        # test_exit_zero_when_unchanged
         with (
             tempfile.TemporaryDirectory() as base_tmp,
             tempfile.TemporaryDirectory() as head_tmp,
@@ -351,6 +345,7 @@ class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
     """
 
     def test_an_empty_base_record_is_a_failure_not_a_pass(self):
+        # test_an_empty_base_record_is_a_failure_not_a_pass
         report = np.compare_runs(
             {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
             {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
@@ -359,12 +354,7 @@ class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
         self.assertIsNotNone(report.vacuous_reason)
         self.assertIn("no tests at all", report.vacuous_reason)
 
-    def test_tests_that_ran_but_established_no_trackable_site_is_a_failure(self):
-        """Distinct from the case above, and worth its own test: the base run
-        really happened, so `tests_run_base` is non-zero and the old summary
-        line looked healthy -- but every site in it was untrackable (or there
-        were none), leaving nothing for head to regress FROM.
-        """
+        # test_tests_that_ran_but_established_no_trackable_site_is_a_failure: Distinct from the case above, and worth its own test: the base run
         report = np.compare_runs(
             {
                 "records": {"tests/test_x.py::test_y": {}},
@@ -380,11 +370,7 @@ class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
         self.assertTrue(report.failed)
         self.assertIn("0 trackable patch site", report.vacuous_reason)
 
-    def test_a_pytest_run_that_did_not_happen_is_named_as_the_reason(self):
-        """A collection error (rc 2) must be reported as the base tree's own
-        failure to run, not as a clean comparison. Asserts the rc appears in
-        the reason so a red gate says which side to look at.
-        """
+        # test_a_pytest_run_that_did_not_happen_is_named_as_the_reason: A collection error (rc 2) must be reported as the base tree's own
         report = np.compare_runs(
             {"records": {}, "untracked_constants": {}, "pytest_returncode": 2},
             {"records": {}, "untracked_constants": {}, "pytest_returncode": 0},
@@ -393,19 +379,13 @@ class TestAGateThatMeasuredNothingIsNotAPass(unittest.TestCase):
         self.assertIn("base tree", report.vacuous_reason)
         self.assertIn("exited 2", report.vacuous_reason)
 
-    def test_a_passing_comparison_is_still_not_vacuous(self):
-        """The guard must not fire on a genuine clean result -- otherwise it
-        trades a false pass for a false failure, which is worse.
-        """
+        # test_a_passing_comparison_is_still_not_vacuous: The guard must not fire on a genuine clean result -- otherwise it
         touched = {"records": {"t::a": {"mod.name": True}}, "pytest_returncode": 0}
         report = np.compare_runs(touched, touched)
         self.assertFalse(report.failed)
         self.assertIsNone(report.vacuous_reason)
 
-    def test_cli_exits_one_when_the_tracked_run_cannot_be_collected(self):
-        """End to end, through the real CLI, on the real cause: a test module
-        that raises ImportError on import. Pre-fix this exited 0.
-        """
+        # test_cli_exits_one_when_the_tracked_run_cannot_be_collected: End to end, through the real CLI, on the real cause: a test module
         with (
             tempfile.TemporaryDirectory() as base_tmp,
             tempfile.TemporaryDirectory() as head_tmp,

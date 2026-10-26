@@ -45,13 +45,13 @@ def _render() -> str:
 
 
 def test_only_the_first_build_replaces_the_shadow_dom():
+    # test_only_the_first_build_replaces_the_shadow_dom
     body = _render()
     assert body.count("this.shadowRoot.innerHTML = html") == 1
     assert "nimbusPatchChildren(this.shadowRoot, tpl.content)" in body
     assert body.index("if (!this._patched)") < body.index("nimbusPatchChildren(")
 
-
-def test_listeners_are_bound_once_per_node():
+    # test_listeners_are_bound_once_per_node
     body = _render()
     for needle in (
         "if (fresh(btn)) btn.addEventListener('click'",
@@ -61,9 +61,7 @@ def test_listeners_are_bound_once_per_node():
     ):
         assert needle in body
 
-
-def test_a_kept_scroll_box_is_not_written_to():
-    """The restore runs only when the box is a new node."""
+    # test_a_kept_scroll_box_is_not_written_to: The restore runs only when the box is a new node.
     body = _render()
     guard = body.index("if (newWrap && newWrap !== prevWrap) {")
     assert guard < body.index("newWrap.scrollTop = prevScrollTop")

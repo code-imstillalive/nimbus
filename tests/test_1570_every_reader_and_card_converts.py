@@ -64,7 +64,7 @@ def _js_scale_fn(card: str) -> str:
 
 
 def test_the_solver_and_forecaster_use_it():
-    """No hand-rolled W check is left anywhere in the integration."""
+    # test_the_solver_and_forecaster_use_it: No hand-rolled W check is left anywhere in the integration.
     pattern = re.compile(r"""==\s*["']W["']|lower\(\)\s*==\s*["']w["']""")
     offenders = [
         f"{p.relative_to(CC)}:{i}"
@@ -79,20 +79,17 @@ def test_the_solver_and_forecaster_use_it():
         encoding="utf-8"
     )
 
-
-def test_the_live_whole_house_load_is_converted():
+    # test_the_live_whole_house_load_is_converted
     src = (CC / "solver_inputs" / "load.py").read_text(encoding="utf-8")
     assert "sw._kw_scale_factor(whole_house_cross_check_sensor)" in src
 
-
-def test_each_card_matches_power_units():
+    # test_each_card_matches_power_units
     for card in CARDS:
         table, exact = _tables((FE / card).read_text(encoding="utf-8"))
         assert table == pytest.approx(pu.POWER_TO_KW)
         assert exact == pytest.approx(pu._EXACT)
 
-
-def test_the_dispatch_card_converts_every_power_entity_and_its_history():
+    # test_the_dispatch_card_converts_every_power_entity_and_its_history
     src = (FE / "nimbus-dispatch-card-v4.js").read_text(encoding="utf-8")
     for read in (
         "this._numAsKw(this._battEntity, 0)",
@@ -110,11 +107,7 @@ def test_the_dispatch_card_converts_every_power_entity_and_its_history():
     ):
         assert raw not in src, raw
 
-
-def test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in():
-    """A tester, 11 Oct 2026: a W source behind a kW forecast was drawn at
-    the right height (converted to kW) but its tooltip read "34.5 W". When
-    _history() rescales, the series must carry the forecast's unit too."""
+    # test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in: A tester, 11 Oct 2026: a W source behind a kW forecast was drawn at
     src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
     body = src[src.index("_history(s, name") :]
     body = body[: body.index("\n  }\n")]
@@ -122,11 +115,7 @@ def test_forecast_card_history_is_labelled_in_the_unit_it_is_drawn_in():
     assert 'series.unit = fu || "kW"' in body
     assert body.index("series.transform") < body.index("series.unit")
 
-
-def test_the_solver_power_series_are_drawn_as_steps():
-    """11 Oct 2026: a plan row is the START of its period. Drawn as a line,
-    the P2P block's last 30-minute period sloped down to the next row and
-    the block read as ending 30 minutes early."""
+    # test_the_solver_power_series_are_drawn_as_steps: 11 Oct 2026: a plan row is the START of its period. Drawn as a line,
     src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
     block = src[src.index("if (f.solver) {") :][:2500]
     assert 'const step = { curve: "stepline" };' in block
@@ -134,10 +123,7 @@ def test_the_solver_power_series_are_drawn_as_steps():
         at = block.index(f'"Solver {name} (proposed)"')
         assert "...step" in block[at - 120 : at], name
 
-
-def test_the_soc_axis_hides_its_negative_half():
-    """SoC is never below 0; its axis runs -100..100 only to line 0% up with
-    0 kW, so the negative labels are blank."""
+    # test_the_soc_axis_hides_its_negative_half: SoC is never below 0; its axis runs -100..100 only to line 0% up with
     src = (FE / "nimbus-forecast-card.js").read_text(encoding="utf-8")
     at = src.index('id: "soc", show: true')
     assert "v < 0 ? ''" in src[at : at + 400]

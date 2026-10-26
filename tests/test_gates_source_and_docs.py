@@ -76,39 +76,40 @@ class TestReadmeEntityAndServiceReferencesAreReal(unittest.TestCase):
         )
 
     def test_health_report_sensor_documented_and_real(self):
+        # test_health_report_sensor_documented_and_real
         self._assert_readme_mentions("sensor.nimbus_health_report")
         self.assertIn('"sensor.nimbus_health_report"', self.sensor_py)
 
-    def test_dispatch_dry_run_documented_and_real(self):
+        # test_dispatch_dry_run_documented_and_real
         self._assert_readme_mentions("sensor.nimbus_solver_dispatch_dry_run")
         self._assert_readme_mentions("switch.nimbus_solver_dispatch_dry_run")
         self.assertIn("nimbus_solver_dispatch_dry_run", self.sensor_py)
         self.assertIn("CONF_SOLVER_DISPATCH_DRY_RUN", self.switch_py)
 
-    def test_price_response_latency_documented_and_real(self):
+        # test_price_response_latency_documented_and_real
         self._assert_readme_mentions("sensor.nimbus_solver_price_response_latency")
         self.assertIn('"sensor.nimbus_solver_price_response_latency"', self.sensor_py)
 
-    def test_mirror_forecast_sensors_documented_and_real(self):
+        # test_mirror_forecast_sensors_documented_and_real
         self._assert_readme_mentions("sensor.nimbus_mirror_temperature_forecast")
         self._assert_readme_mentions("sensor.nimbus_mirror_humidity_forecast")
         self.assertIn("nimbus_mirror_temperature_forecast", self.sensor_py)
         self.assertIn("nimbus_mirror_humidity_forecast", self.sensor_py)
 
-    def test_compute_quality_report_service_documented_and_real(self):
+        # test_compute_quality_report_service_documented_and_real
         self._assert_readme_mentions("nimbus_load.compute_quality_report")
         self.assertIn(
             'SERVICE_COMPUTE_QUALITY_REPORT = "compute_quality_report"',
             self.services_py,
         )
 
-    def test_retrain_and_solve_now_services_documented_and_real(self):
+        # test_retrain_and_solve_now_services_documented_and_real
         self._assert_readme_mentions("nimbus_load.retrain")
         self._assert_readme_mentions("nimbus_load.solve_now")
         self.assertIn('SERVICE_RETRAIN = "retrain"', self.services_py)
         self.assertIn('SERVICE_SOLVE_NOW = "solve_now"', self.services_py)
 
-    def test_every_domain_service_constant_is_mentioned_somewhere_in_readme(self):
+        # test_every_domain_service_constant_is_mentioned_somewhere_in_readme
         # Broader net: catch a FUTURE new service that never gets added to
         # the README at all, not just the three named above.
         service_constants = re.findall(
@@ -174,6 +175,7 @@ def _references() -> dict[str, set[str]]:
 
 class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
     def test_every_referenced_test_file_exists(self):
+        # test_every_referenced_test_file_exists
         existing = _existing_test_filenames()
         references = _references()
         self.assertTrue(
@@ -197,16 +199,7 @@ class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
             f"genuinely gone: {broken}",
         )
 
-    def test_the_standalone_writer_is_actually_being_swept(self):
-        """Guard on the mechanism, not the data (nimbus issue #955).
-
-        Adding `_STANDALONE` to the scanned roots is worth nothing if a
-        later refactor moves or renames that directory: `rglob` on a
-        missing path yields nothing and raises nothing, so this file
-        would keep passing while silently dropping back to
-        integration-only coverage -- the exact "enforcing less, still
-        green" shape #955 is about.
-        """
+        # test_the_standalone_writer_is_actually_being_swept: Guard on the mechanism, not the data (nimbus issue #955).
         self.assertTrue(
             _STANDALONE.is_dir(),
             f"{_STANDALONE} no longer exists -- the standalone/cron writer has "
@@ -220,10 +213,7 @@ class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
             "them), or the sweep has stopped reaching that directory.",
         )
 
-    def test_the_two_known_corrections_stay_correct(self):
-        """The specific pair this file was written for, pinned by name so
-        a future edit that reverts either one fails with the reason
-        attached rather than as an anonymous entry in the sweep above."""
+        # test_the_two_known_corrections_stay_correct: The specific pair this file was written for, pinned by name so
         existing = _existing_test_filenames()
         for expected in (
             # The guard moved to tests/v2 with #1837.
@@ -376,8 +366,7 @@ def _names_in_init(package_dir: pathlib.Path) -> frozenset[str]:
 
 class TestRelativeImportDepthResolves(unittest.TestCase):
     def test_every_relative_import_points_at_something_real(self):
-        """A relative import whose target does not exist on disk is a runtime
-        failure in the real package, however green this suite is."""
+        # test_every_relative_import_points_at_something_real: A relative import whose target does not exist on disk is a runtime
         checked = 0
         broken: list[str] = []
         for path in sorted(_NIMBUS_DIR.rglob("*.py")):
@@ -425,11 +414,7 @@ class TestRelativeImportDepthResolves(unittest.TestCase):
             "v0.94.428 and found on devhub:\n  " + "\n  ".join(broken),
         )
 
-    def test_the_check_would_have_caught_the_v0_94_428_regression(self):
-        """Non-vacuity, and a guard against the resolver silently accepting
-        anything. Synthesises the exact shape that shipped -- a module inside a
-        subpackage importing a root-level module with one dot -- and requires it
-        to be rejected, and the two-dot form to be accepted."""
+        # test_the_check_would_have_caught_the_v0_94_428_regression: Non-vacuity, and a guard against the resolver silently accepting
         inner = _NIMBUS_DIR / "solver_inputs" / "controllable_loads.py"
         self.assertTrue(inner.exists(), "fixture module moved")
 
@@ -449,13 +434,7 @@ class TestRelativeImportDepthResolves(unittest.TestCase):
             "`from .. import done_condition` must resolve from inside solver_inputs/",
         )
 
-    def test_controllable_loads_uses_the_right_depth_everywhere(self):
-        """The specific file that shipped broken, pinned by name.
-
-        Its module-level block was already correct with `..` while seven
-        function-level imports used `.`, so a file-wide "does it use `..`
-        anywhere" check would have passed. This asserts every single-dot import in
-        it names a real sibling."""
+        # test_controllable_loads_uses_the_right_depth_everywhere: The specific file that shipped broken, pinned by name.
         path = _NIMBUS_DIR / "solver_inputs" / "controllable_loads.py"
         siblings = {p.stem for p in path.parent.glob("*.py")} - {"__init__"}
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -537,6 +516,7 @@ def _modules_with_literal_in_code(literal: str) -> set[str]:
 
 class TestDiscoveryRulesAreNotMirrored(unittest.TestCase):
     def test_each_rule_is_defined_in_exactly_one_module(self):
+        # test_each_rule_is_defined_in_exactly_one_module
         for literal in _DEFINING_LITERALS:
             with self.subTest(literal=literal):
                 owners = _modules_with_literal_in_code(literal)
@@ -551,13 +531,7 @@ class TestDiscoveryRulesAreNotMirrored(unittest.TestCase):
                     f"function in {_OWNER} instead of re-filtering.",
                 )
 
-    def test_the_sweep_can_actually_see_code(self):
-        """The mechanism, not the data: if `_modules_with_literal_in_code`
-        ever stops finding anything -- a moved package, a changed
-        literal, an AST walk that quietly excludes too much -- the test
-        above would pass vacuously by comparing an empty set against an
-        empty expectation.
-        """
+        # test_the_sweep_can_actually_see_code: The mechanism, not the data: if `_modules_with_literal_in_code`
         for literal in _DEFINING_LITERALS:
             with self.subTest(literal=literal):
                 self.assertIn(
@@ -568,13 +542,7 @@ class TestDiscoveryRulesAreNotMirrored(unittest.TestCase):
                     f"this sweep has stopped seeing code at all",
                 )
 
-    def test_prose_is_excluded_rather_than_the_files_being_lucky(self):
-        """`sensor.py` still describes both entity shapes in its
-        docstrings, and must keep being allowed to. If the docstring
-        exclusion broke, the guard above would start failing on prose --
-        so pin that the exclusion is doing real work here, not passing
-        because nobody happens to mention these names.
-        """
+        # test_prose_is_excluded_rather_than_the_files_being_lucky: `sensor.py` still describes both entity shapes in its
         sensor_py = (_INTEGRATION_sensor_discovery_is_not_ / "sensor.py").read_text(
             encoding="utf-8"
         )
@@ -643,8 +611,7 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
         self.writer = writer_source()
 
     def test_the_sweep_finds_a_real_set_of_fields(self):
-        """Guards the guard: a regex that silently matched nothing would
-        make every assertion below pass vacuously."""
+        # test_the_sweep_finds_a_real_set_of_fields: Guards the guard: a regex that silently matched nothing would
         self.assertGreater(
             len(self.fields),
             30,
@@ -653,7 +620,7 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
             "file would be passing on an empty set",
         )
 
-    def test_no_solver_number_is_silently_inert(self):
+        # test_no_solver_number_is_silently_inert
         inert = sorted(
             f for f in self.fields if f not in self.writer and f not in KNOWN_INERT
         )
@@ -668,10 +635,7 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
             "with the issue number and a reason.",
         )
 
-    def test_known_inert_fields_are_still_inert(self):
-        """Self-cleaning. When #1013 is fixed, this fails and says so,
-        rather than leaving a stale exemption to quietly protect a field
-        that no longer needs protecting."""
+        # test_known_inert_fields_are_still_inert: Self-cleaning. When #1013 is fixed, this fails and says so,
         for field, reason in KNOWN_INERT.items():
             with self.subTest(field=field):
                 self.assertNotIn(
@@ -682,9 +646,7 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
                     f"{reason}",
                 )
 
-    def test_known_inert_fields_still_exist_at_all(self):
-        """A renamed or removed field must not linger as a dead
-        exemption that silently weakens the check above."""
+        # test_known_inert_fields_still_exist_at_all: A renamed or removed field must not linger as a dead
         for field in KNOWN_INERT:
             with self.subTest(field=field):
                 self.assertIn(
@@ -779,6 +741,7 @@ def _diag_call_levels() -> list[tuple[int, str, str]]:
 
 class TestTemporaryDiagnosticsAreNotWarnings(unittest.TestCase):
     def test_no_per_issue_diag_message_logs_at_warning_or_above(self):
+        # test_no_per_issue_diag_message_logs_at_warning_or_above
         noisy = [
             (ln, lvl, msg)
             for ln, lvl, msg in _diag_call_levels()
@@ -795,10 +758,7 @@ class TestTemporaryDiagnosticsAreNotWarnings(unittest.TestCase):
             "without consuming the default window for everyone else.",
         )
 
-    def test_the_scan_actually_finds_the_known_diag_messages(self):
-        """Guards the guard. If the `#N diag:` convention were renamed, or
-        the lookback stopped attributing messages to their _LOGGER call,
-        the assertion above would pass while checking nothing."""
+        # test_the_scan_actually_finds_the_known_diag_messages: Guards the guard. If the `#N diag:` convention were renamed, or
         found = _diag_call_levels()
         self.assertGreaterEqual(
             len(found),
@@ -809,7 +769,7 @@ class TestTemporaryDiagnosticsAreNotWarnings(unittest.TestCase):
             f"nothing.",
         )
 
-    def test_every_found_diag_is_attributed_to_a_real_level(self):
+        # test_every_found_diag_is_attributed_to_a_real_level
         for ln, lvl, msg in _diag_call_levels():
             with self.subTest(line=ln, msg=msg):
                 self.assertIn(lvl, ("debug", "info", "warning", "error", "critical"))
@@ -861,6 +821,7 @@ class TestTheDiscoveryItselfWorks(unittest.TestCase):
     """
 
     def test_it_finds_the_known_factories(self):
+        # test_it_finds_the_known_factories
         facs = _factories(_source())
         self.assertGreaterEqual(
             len(facs),
@@ -870,7 +831,7 @@ class TestTheDiscoveryItselfWorks(unittest.TestCase):
             "matching rather than the factories having gone away",
         )
 
-    def test_every_discovered_table_yields_suffixes(self):
+        # test_every_discovered_table_yields_suffixes
         src = _source()
         for name, _prefix, table in _factories(src):
             with self.subTest(factory=name, table=table):
@@ -880,10 +841,7 @@ class TestTheDiscoveryItselfWorks(unittest.TestCase):
                     "broken, not the table",
                 )
 
-    def test_the_known_shared_prefix_is_still_shared(self):
-        """If this ever fails because `nimbus_flex` stopped being shared,
-        that is good news and this test should be updated -- but it should
-        be noticed, not silently skipped."""
+        # test_the_known_shared_prefix_is_still_shared: If this ever fails because `nimbus_flex` stopped being shared,
         by_prefix = collections.defaultdict(list)
         for _name, prefix, table in _factories(_source()):
             by_prefix[prefix].append(table)
@@ -900,6 +858,7 @@ class TestNoSuffixCollisionWithinAPrefix(unittest.TestCase):
     """The actual invariant."""
 
     def test_tables_sharing_a_prefix_have_disjoint_suffixes(self):
+        # test_tables_sharing_a_prefix_have_disjoint_suffixes
         src = _source()
         by_prefix: dict[str, list[str]] = collections.defaultdict(list)
         for _name, prefix, table in _factories(src):
@@ -924,9 +883,7 @@ class TestNoSuffixCollisionWithinAPrefix(unittest.TestCase):
                             "suffix.",
                         )
 
-    def test_suffixes_are_unique_within_each_table_too(self):
-        """A table that repeats a suffix collides with itself, which no
-        amount of prefix separation fixes."""
+        # test_suffixes_are_unique_within_each_table_too: A table that repeats a suffix collides with itself, which no
         src = _source()
         for _name, _prefix, table in _factories(src):
             i = src.index(table + ":")
@@ -1076,6 +1033,7 @@ def _split(tree: ast.Module) -> dict[str, tuple[int, int]]:
 
 class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
     def test_per_form_field_counts(self):
+        # test_per_form_field_counts
         actual = _key_counts(_tree())
         self.assertEqual(
             {k: actual.get(k) for k in EXPECTED_KEY_COUNTS},
@@ -1083,9 +1041,7 @@ class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
             "a form's field count changed." + _WHEN_THIS_FIRES,
         )
 
-    def test_the_total_a_household_actually_meets(self):
-        """46 across three forms, before any subentry. #448 had been
-        arguing from 26 -- the Solver step alone, under 60% of it."""
+        # test_the_total_a_household_actually_meets: 46 across three forms, before any subentry. #448 had been
         actual = _key_counts(_tree())
         total = sum(actual.get(k, 0) for k in EXPECTED_KEY_COUNTS)
         self.assertEqual(
@@ -1095,10 +1051,7 @@ class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
             f"{sum(EXPECTED_KEY_COUNTS.values())}." + _WHEN_THIS_FIRES,
         )
 
-    def test_required_versus_optional_split_per_form(self):
-        """The interesting half. A form rendering 16 fields of which 2 are
-        required is a very different thing from 16 real decisions, and
-        that distinction is what #449 is about surfacing."""
+        # test_required_versus_optional_split_per_form: The interesting half. A form rendering 16 fields of which 2 are
         actual = _split(_tree())
         self.assertEqual(
             {k: actual.get(k) for k in EXPECTED_SPLIT},
@@ -1106,10 +1059,7 @@ class TestTheConfigSurfaceIsMeasured(unittest.TestCase):
             "a form's required/optional split changed." + _WHEN_THIS_FIRES,
         )
 
-    def test_only_five_fields_are_genuinely_required(self):
-        """The number worth quoting, and the one nobody had: the wizard
-        looks like 46 decisions and is 5, plus 41 optional refinements.
-        Two of the three forms can be submitted entirely blank."""
+        # test_only_five_fields_are_genuinely_required: The number worth quoting, and the one nobody had: the wizard
         actual = _split(_tree())
         required = sum(r for r, _o in actual.values())
         self.assertEqual(
@@ -1199,20 +1149,17 @@ class TestTheVendoredCopyIsIntact(unittest.TestCase):
     """Catches a local edit to a file this repo does not own."""
 
     def test_the_file_exists_where_495_expects_it(self):
+        # test_the_file_exists_where_495_expects_it
         self.assertTrue(
             _SCHEMA_PATH.is_file(),
             "#495 is blocked on exactly this file being present",
         )
 
-    def test_the_bytes_match_what_was_vendored(self):
-        """The whole point of a vendored copy is that it is the upstream
-        file, unmodified. If this fails, either someone edited it here --
-        which is never the right fix, the fix belongs upstream -- or it
-        was re-pinned without updating PROVENANCE.md."""
+        # test_the_bytes_match_what_was_vendored: The whole point of a vendored copy is that it is the upstream
         got = hashlib.sha256(_SCHEMA_PATH.read_bytes()).hexdigest()
         self.assertEqual(got, _PINNED_SHA256)
 
-    def test_it_is_parseable_json(self):
+        # test_it_is_parseable_json
         self.assertIsInstance(_schema(), dict)
 
 
@@ -1222,20 +1169,18 @@ class TestItIsTheSchemaNumber495Describes(unittest.TestCase):
     cannot pass as a routine version bump."""
 
     def test_draft_and_version(self):
+        # test_draft_and_version
         s = _schema()
         self.assertEqual(s["$schema"], "https://json-schema.org/draft/2020-12/schema")
         self.assertEqual(str(s["version"]), "2.0")
 
-    def test_additional_properties_is_closed_at_the_top_level(self):
-        """#495 calls this out specifically: the record is validated with
-        `additionalProperties: false`, so an extra field Nimbus emits is
-        a hard failure rather than something silently ignored."""
+        # test_additional_properties_is_closed_at_the_top_level: #495 calls this out specifically: the record is validated with
         self.assertFalse(_schema()["additionalProperties"])
 
-    def test_schema_version_is_a_const(self):
+        # test_schema_version_is_a_const
         self.assertEqual(str(_schema()["properties"]["schema_version"]["const"]), "2.0")
 
-    def test_every_required_field_495_maps_is_present(self):
+        # test_every_required_field_495_maps_is_present
         s = _schema()
         required = set(s["required"])
         missing = _REQUIRED - required
@@ -1248,18 +1193,11 @@ class TestItIsTheSchemaNumber495Describes(unittest.TestCase):
         # cannot validate anything against it.
         self.assertEqual(required - set(s["properties"]), set())
 
-    def test_the_settled_naive_baseline_method_is_still_in_the_enum(self):
-        """`subtraction` was Mark's own call on 2026-09-13, chosen
-        because the value #495 originally proposed (`nimbus_counterfactual`)
-        was not in this enum. If the enum changes, that decision needs
-        revisiting rather than silently breaking the emitter."""
+        # test_the_settled_naive_baseline_method_is_still_in_the_enum: `subtraction` was Mark's own call on 2026-09-13, chosen
         enum = _schema()["properties"]["naive_baseline_method"]["enum"]
         self.assertIn("subtraction", enum)
 
-    def test_region_and_postcode_prefix_are_the_shapes_nimbus_shipped_for(self):
-        """These two were genuinely new config (shipped v0.94.299/300)
-        precisely because the schema requires them. Pinned so the config
-        surface and the schema cannot drift apart."""
+        # test_region_and_postcode_prefix_are_the_shapes_nimbus_shipped_for: These two were genuinely new config (shipped v0.94.299/300)
         props = _schema()["properties"]
         self.assertIn("QLD1", props["region"]["enum"])
         self.assertEqual(props["postcode_prefix"]["pattern"], "^[0-9]{3}$")
@@ -1386,6 +1324,7 @@ _SECTION_ALLOWED = {"hub_options.py"}
 
 class TestOnlyTheFlattenedPathUsesASection(unittest.TestCase):
     def test_no_unflattened_flow_module_imports_the_section_helper(self):
+        # test_no_unflattened_flow_module_imports_the_section_helper
         offenders = [
             p.name
             for p in _flow_files()
@@ -1404,9 +1343,7 @@ class TestOnlyTheFlattenedPathUsesASection(unittest.TestCase):
             "_SECTION_ALLOWED in the same commit -- see nimbus issue #1067.",
         )
 
-    def test_hub_options_only_qualifies_because_it_flattens(self):
-        """The allowance is conditional, not a permanent exemption. If the
-        flattening were removed while the section stayed, this fails."""
+        # test_hub_options_only_qualifies_because_it_flattens: The allowance is conditional, not a permanent exemption. If the
         text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
         for required in (
             "_flatten_section_input",
@@ -1421,15 +1358,7 @@ class TestOnlyTheFlattenedPathUsesASection(unittest.TestCase):
                     "that safe. Removing it reopens #1067's silent-null bug.",
                 )
 
-    def test_the_forecaster_and_switchboard_steps_are_NOT_sectioned(self):
-        """Both still read `user_input.get(key)` directly, so neither may be
-        wrapped. This is the specific regression the narrowing above could
-        let through if nobody pinned it.
-
-        Read from the source text rather than by importing the module: this
-        file is a static guard over the flows directory and deliberately has
-        no HA stubs installed.
-        """
+        # test_the_forecaster_and_switchboard_steps_are_NOT_sectioned: Both still read `user_input.get(key)` directly, so neither may be
         text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
         for step in ("async_step_forecaster", "async_step_switchboard"):
             i = text.index(f"async def {step}(")
@@ -1450,6 +1379,7 @@ class TestTheGuardIsNotVacuous(unittest.TestCase):
     nothing and should be re-read rather than left passing."""
 
     def test_the_flat_merge_is_still_there(self):
+        # test_the_flat_merge_is_still_there
         text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
         self.assertIn(
             _FLAT_MERGE,
@@ -1459,13 +1389,11 @@ class TestTheGuardIsNotVacuous(unittest.TestCase):
             "guard deliberately rather than leaving it asserting nothing.",
         )
 
-    def test_the_flat_merge_is_used_by_both_steps(self):
-        """Two steps share it. A fix that only reached one would leave the
-        other silently vulnerable."""
+        # test_the_flat_merge_is_used_by_both_steps: Two steps share it. A fix that only reached one would leave the
         text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(text.count(_FLAT_MERGE), 2)
 
-    def test_the_wholesale_persist_is_still_there(self):
+        # test_the_wholesale_persist_is_still_there
         hits = [
             p.name for p in _flow_files() if _WHOLESALE in p.read_text(encoding="utf-8")
         ]
@@ -1475,9 +1403,7 @@ class TestTheGuardIsNotVacuous(unittest.TestCase):
             "second half of this guard is protecting nothing.",
         )
 
-    def test_there_are_flow_modules_to_check_at_all(self):
-        """A rename or a move that emptied the glob would make every
-        assertion above pass by measuring nothing."""
+        # test_there_are_flow_modules_to_check_at_all: A rename or a move that emptied the glob would make every
         self.assertGreater(len(_flow_files()), 5)
 
 
@@ -1485,6 +1411,7 @@ class TestTheDetectorItself(unittest.TestCase):
     """The detector is the part that can silently stop working."""
 
     def test_it_finds_a_from_import(self):
+        # test_it_finds_a_from_import
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -1494,7 +1421,7 @@ class TestTheDetectorItself(unittest.TestCase):
             path = pathlib.Path(fh.name)
         self.assertTrue(_imports_section(path))
 
-    def test_it_finds_an_attribute_use(self):
+        # test_it_finds_an_attribute_use
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -1505,9 +1432,7 @@ class TestTheDetectorItself(unittest.TestCase):
             path = pathlib.Path(fh.name)
         self.assertTrue(_imports_section(path))
 
-    def test_prose_and_attribute_names_do_not_trip_it(self):
-        """ "section" is an ordinary English word and appears throughout
-        these files. A guard that fires on a comment gets retired."""
+        # test_prose_and_attribute_names_do_not_trip_it: "section" is an ordinary English word and appears throughout
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -1544,6 +1469,7 @@ def test_the_section_detector_sees_a_fully_qualified_import(tmp_path):
 
 
 def test_1213_both_string_files_describe_the_price_event_field():
+    # test_1213_both_string_files_describe_the_price_event_field
     base = _REPO_ROOT / "custom_components" / "nimbus_load"
     for name in ("strings.json", "translations/en.json"):
         blob = json.loads((base / name).read_text(encoding="utf-8"))
@@ -1554,36 +1480,14 @@ def test_1213_both_string_files_describe_the_price_event_field():
         desc = blob["options"]["step"]["solver_grid"]["data_description"]
         assert "{" not in desc["solver_price_event_sensor"], name
 
-
-# --- test_1179_the_diagnostics_steer_nothing --------------------------------------------------
-# #1179: the blend weight, HiGHS's own numbers and the dumped model are
-# observability only. The solve never branches on the weight it reports, the
-# writer branches on the diagnostics exactly once (whether to print a path it
-# has), and sensor.py's staleness fingerprint names how many keys
-# `solve_diagnostics` emits. The fallback flag and reason are tested by
-# behaviour in tests/v2/solver/test_lp_failure_paths.py.
-
-_SOLVER_DIR = _REPO_ROOT / "custom_components" / "nimbus_load" / "solver"
-
-
-def _conditions(path):
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return [
-        ast.unparse(n.test)
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.If, ast.While, ast.IfExp))
-    ]
-
-
-def test_1179_the_solver_never_branches_on_the_weight_it_reports():
+    # test_1179_the_solver_never_branches_on_the_weight_it_reports
     for name in ("lp.py", "network.py"):
         hits = [
             t for t in _conditions(_SOLVER_DIR / name) if "calibration_weight_used" in t
         ]
         assert hits == [], f"{name} branches on the reported weight: {hits}"
 
-
-def test_1179_the_writer_branches_on_the_highs_diagnostics_only_to_log_them():
+    # test_1179_the_writer_branches_on_the_highs_diagnostics_only_to_log_them
     hits = [
         t
         for path in writer_source_paths()
@@ -1592,8 +1496,7 @@ def test_1179_the_writer_branches_on_the_highs_diagnostics_only_to_log_them():
     ]
     assert hits == ["plan.failing_model_path is not None"], hits
 
-
-def test_1179_sensor_py_names_how_many_solve_diagnostics_keys_there_are():
+    # test_1179_sensor_py_names_how_many_solve_diagnostics_keys_there_are
     keys = None
     for _path, tree in writer_trees():
         for node in ast.walk(tree):
@@ -1635,6 +1538,33 @@ def test_1179_sensor_py_names_how_many_solve_diagnostics_keys_there_are():
     )
     assert f"emits **{words[len(keys)]}**" in doc, len(keys)
 
+    # test_the_cron_copy_stamps_the_row_before_it_is_frozen
+    src = _CRON.read_text(encoding="utf-8")
+    assert "def _nimbus_version()" in src
+    assert '_QUALITY_HISTORY_VERSION_FIELD = "v"' in src
+    stamp = src.index("day_entry[_QUALITY_HISTORY_VERSION_FIELD] = _version")
+    assert stamp < src.index("quality_history[day_key] = day_entry")
+
+
+# --- test_1179_the_diagnostics_steer_nothing --------------------------------------------------
+# #1179: the blend weight, HiGHS's own numbers and the dumped model are
+# observability only. The solve never branches on the weight it reports, the
+# writer branches on the diagnostics exactly once (whether to print a path it
+# has), and sensor.py's staleness fingerprint names how many keys
+# `solve_diagnostics` emits. The fallback flag and reason are tested by
+# behaviour in tests/v2/solver/test_lp_failure_paths.py.
+
+_SOLVER_DIR = _REPO_ROOT / "custom_components" / "nimbus_load" / "solver"
+
+
+def _conditions(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return [
+        ast.unparse(n.test)
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.If, ast.While, ast.IfExp))
+    ]
+
 
 # --- test_1120_the_cron_copy_stamps_its_rows --------------------------------------------------
 # nimbus #1120: the standalone (cron) quality writer stamps the row it writes
@@ -1650,14 +1580,6 @@ _CRON = (
     / "files"
     / "nimbus_solver_quality_writer.py"
 )
-
-
-def test_the_cron_copy_stamps_the_row_before_it_is_frozen():
-    src = _CRON.read_text(encoding="utf-8")
-    assert "def _nimbus_version()" in src
-    assert '_QUALITY_HISTORY_VERSION_FIELD = "v"' in src
-    stamp = src.index("day_entry[_QUALITY_HISTORY_VERSION_FIELD] = _version")
-    assert stamp < src.index("quality_history[day_key] = day_entry")
 
 
 # --- test_125_the_cron_copy_labels_the_same ---------------------------------------------------
@@ -1776,19 +1698,7 @@ class TestTheCopiesAreGone(unittest.TestCase):
     class is duplication itself, which no behavioural test can see."""
 
     def test_the_helper_has_exactly_four_callers(self):
-        """Counted over the AST's real references, not the source text.
-
-        This was a `writer_source().count(...) == 5` check until nimbus #1357,
-        and a plain text count cannot tell a CALL from a mention in a comment or
-        a docstring. That cuts both ways and the second way is the dangerous
-        one: a module that explains in prose why it does NOT use this helper
-        pushed the count to 6 and failed the gate, and equally, someone adding a
-        real fifth call site while deleting one prose mention in the same change
-        would have kept the count at 5 and passed it. Counting name LOADS --
-        whether bare (`ast.Name`) or reached through the `sw.` seam
-        (`ast.Attribute`) -- distinguishes the two, while a definition is
-        neither.
-        """
+        # test_the_helper_has_exactly_four_callers: Counted over the AST's real references, not the source text.
         import ast
 
         from _writer_source import writer_trees
@@ -1833,10 +1743,7 @@ class TestTheCopiesAreGone(unittest.TestCase):
             "already cost this project one real inconsistency",
         )
 
-    def test_no_inline_copy_of_the_predicate_remains_in_those_functions(self):
-        """`earliest_today` should now appear only inside the helper and
-        inside `_build_daily_adequacy_windows()`, which is a superset
-        rather than a copy."""
+        # test_no_inline_copy_of_the_predicate_remains_in_those_functions: `earliest_today` should now appear only inside the helper and
         import ast
 
         source = solver_writer.__file__.replace(".pyc", ".py")
@@ -1925,13 +1832,7 @@ class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
         self.repo = Path(__file__).resolve().parent.parent
 
     def test_the_documented_importer_set_is_the_real_one(self):
-        """Measures real IMPORT statements, not textual mentions. The
-        first version of this test matched any file containing the string
-        and so flagged `solver_writer.py`, which only names the module in
-        a docstring -- a count measuring the wrong thing, the same error
-        four probes made on 2026-09-15. The doc's claim is about who
-        CALLS it, so imports are the right proxy; prose is not.
-        """
+        # test_the_documented_importer_set_is_the_real_one: Measures real IMPORT statements, not textual mentions. The
         importers = {
             path.name
             for path in (self.repo / "custom_components" / "nimbus_load").rglob("*.py")
@@ -1957,11 +1858,7 @@ class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
             "update this test",
         )
 
-    def test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon(self):
-        """The specific thing a reader could get wrong: comparing
-        `load_nowcast_skill_value_add_dollars` against the benchmark's
-        own `nimbus_value_add_dollars` as though they measured the same
-        thing. One is one-step-ahead, the other day-ahead."""
+        # test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon: The specific thing a reader could get wrong: comparing
         doc = (self.repo / "docs" / "reference-benchmark.md").read_text(
             encoding="utf-8"
         )
@@ -1988,10 +1885,8 @@ def _helpers():
     return ns
 
 
-def test_the_package_never_uses_the_name_time_for_the_stdlib() -> None:
-    """Loading the `time` platform sets the package's attribute `time` to
-    time.py, replacing a stdlib `import time` in __init__.py: setup then
-    failed on `time.monotonic()` (devhub, 11 Oct 2026)."""
+def test_the_package_never_uses_the_name_time_for_the_stdlib():
+    # test_the_package_never_uses_the_name_time_for_the_stdlib: Loading the `time` platform sets the package's attribute `time` to
     src = (_PKG / "__init__.py").read_text(encoding="utf-8")
     code = "\n".join(
         line for line in src.splitlines() if not line.lstrip().startswith("#")
@@ -1999,6 +1894,25 @@ def test_the_package_never_uses_the_name_time_for_the_stdlib() -> None:
     assert "\nimport time\n" not in "\n" + code + "\n"
     assert "time.monotonic(" not in code
     assert "time.time(" not in code
+
+    # test_the_published_dict_carries_the_stamp
+    keys = _published_literal_keys()
+    assert "report_schema" in keys and "j_star_path_delta_explained" in keys
+
+    # test_the_field_set_matches_the_schema_number
+    digest = hashlib.sha256("\n".join(_published_literal_keys()).encode()).hexdigest()
+    assert digest == _EXPECTED_HASHES.get(quality.QUALITY_REPORT_SCHEMA), (
+        "The published quality-report field set changed. Bump "
+        "QUALITY_REPORT_SCHEMA in solver_reports/quality.py and add "
+        f"{{{quality.QUALITY_REPORT_SCHEMA + 1}: '{digest}'}} here."
+    )
+
+    # test_467_calendar_trips_imports_nothing_from_the_solver
+    source = (_NIMBUS_LOAD / "solver_inputs" / "calendar_trips.py").read_text(
+        encoding="utf-8"
+    )
+    assert "from ..solver" not in source
+    assert "import AdequacyWindow" not in source
 
 
 # --- test_1496_the_schema_number_tracks_the_fields --------------------------------------------
@@ -2030,31 +1944,9 @@ def _published_literal_keys() -> list[str]:
     return sorted(keys)
 
 
-def test_the_published_dict_carries_the_stamp():
-    keys = _published_literal_keys()
-    assert "report_schema" in keys and "j_star_path_delta_explained" in keys
-
-
-def test_the_field_set_matches_the_schema_number():
-    digest = hashlib.sha256("\n".join(_published_literal_keys()).encode()).hexdigest()
-    assert digest == _EXPECTED_HASHES.get(quality.QUALITY_REPORT_SCHEMA), (
-        "The published quality-report field set changed. Bump "
-        "QUALITY_REPORT_SCHEMA in solver_reports/quality.py and add "
-        f"{{{quality.QUALITY_REPORT_SCHEMA + 1}: '{digest}'}} here."
-    )
-
-
 # --- test_467_calendar_trip_windows -----------------------------------------------------------
 # #467: calendar trips are resolved into plain tuples, so the dependency points
 # one way: this module turns calendar data into numbers and the caller decides
 # which solver element to build. (Its Home Assistant boundary is enforced by
 # tests/v2/orchestration/test_calendar_trip_windows.py loading it by path with
 # no Home Assistant; an entity_id that is not Nimbus's own fails the #1994 gate.)
-
-
-def test_467_calendar_trips_imports_nothing_from_the_solver():
-    source = (_NIMBUS_LOAD / "solver_inputs" / "calendar_trips.py").read_text(
-        encoding="utf-8"
-    )
-    assert "from ..solver" not in source
-    assert "import AdequacyWindow" not in source

@@ -87,6 +87,7 @@ def _full_solver_data() -> dict:
 
 
 def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
+    # test_solver_sources_step_attempts_to_dismiss_the_setup_notification
     import asyncio
 
     flow = _make_flow(options={})
@@ -105,37 +106,7 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
         {"notification_id": "nimbus_setup_incomplete"},
     )
 
-
-# -- async_step_switchboard: same merge-not-replace, clear-stays-cleared
-# discipline as async_step_forecaster, applied to the new topology-
-# diagram fields (2026-08-23) --
-
-
-# -- _energy_dashboard_switchboard_suggestions (2026-08-23) --
-
-
-def _energy_state(entity_id: str, device_class: str, state_class: str):
-    st = MagicMock()
-    st.attributes = {"device_class": device_class, "state_class": state_class}
-    return entity_id, st
-
-
-def _hass_with_states(states: dict):
-    hass = MagicMock()
-    hass.states.get = lambda eid: states.get(eid)
-    return hass
-
-
-# nimbus issue #554: entity_energy_price on a grid source's own flow_from/
-# flow_to entries -- a live price ENTITY the household configured against
-# that flow (HA's schema also allows a fixed number instead, which has
-# nothing to suggest, see test below). Safe to disambiguate import vs
-# export the same way the energy-sensor suggestions above already are:
-# the Energy Dashboard's own flow_from/flow_to structure does it, not a
-# guess by elimination among every monetary sensor -- a genuinely
-# different, safer case than _forecaster_settings_suggestions()'s own
-# deliberate price-sensor exclusion elsewhere in this file.
-def test_suggests_import_and_export_price_sensors_from_grid_flows():
+    # test_suggests_import_and_export_price_sensors_from_grid_flows
     import asyncio
     from unittest.mock import AsyncMock, patch
 
@@ -177,8 +148,7 @@ def test_suggests_import_and_export_price_sensors_from_grid_flows():
     assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.import_price"
     assert result[CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR] == "sensor.export_price"
 
-
-def test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash():
+    # test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash
     # HA's own schema allows entity_energy_price OR a fixed number
     # (number_energy_price) -- a fixed number is a real, valid household
     # config with no entity to suggest, not a malformed one.
@@ -211,8 +181,7 @@ def test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash():
     assert result[CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR] == "sensor.real_import"
     assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
 
-
-def test_wrong_device_class_is_never_suggested():
+    # test_wrong_device_class_is_never_suggested
     # Real, documented precedent this guards against: a plausible-looking
     # sensor that is genuinely the wrong KIND (e.g. a power sensor, or a
     # another optimiser's plan/forecast sensor) must never be proposed at all.
@@ -236,6 +205,107 @@ def test_wrong_device_class_is_never_suggested():
     ):
         result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
     assert CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR not in result
+
+    # test_type_safe_suggestions_power_and_price_fields_are_never_suggested
+    # Deliberately excluded from this function entirely (see its own
+    # docstring) -- even a single power/monetary sensor is genuinely
+    # ambiguous about WHICH of battery/grid/solar (or import/export) it
+    # is, unlike temperature/humidity/SoC which have exactly one real
+    # field each.
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.the_only_power_sensor", "power"),
+            _typed_state("sensor.the_only_monetary_sensor", "monetary"),
+        ]
+    )
+    assert _type_safe_entity_suggestions(hass) == {}
+
+    # test_forecaster_step_fills_temperature_and_humidity_from_suggestions
+    import asyncio
+
+    flow = _make_flow(options={})  # nothing saved yet
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.outdoor_temp", "temperature"),
+        _typed_state("sensor.outdoor_humidity", "humidity"),
+    ]
+    result = asyncio.run(flow.async_step_forecaster(None))
+    temp_marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
+    assert temp_marker.description == {"suggested_value": "sensor.outdoor_temp"}
+    humidity_marker = _find_marker(result["data_schema"], CONF_HUMIDITY_SENSOR)
+    assert humidity_marker.description == {"suggested_value": "sensor.outdoor_humidity"}
+
+    # test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    flow = _make_flow(options={})
+    # nimbus #1686: "Review pricing suggestions" is offered only when there
+    # is something to review.
+    with patch.object(type(flow), "_pricing_suggestions", AsyncMock(return_value=[])):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result["type"] == "menu"
+    assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
+    with patch.object(
+        type(flow),
+        "_pricing_suggestions",
+        AsyncMock(return_value=[{"field": "x", "proposed": "sensor.y"}]),
+    ):
+        result = asyncio.run(flow.async_step_init(None))
+    assert result["menu_options"] == [
+        "forecaster",
+        "solver_battery",
+        "switchboard",
+        "pricing_suggestions",
+    ]
+
+    # test_solver_sources_schema_keeps_saved_multi_values_selectable
+    schema = _solver_sources_schema(
+        {
+            CONF_SOLVER_LOAD_FORECAST_ENTITIES: [
+                "sensor.circuit_a",
+                "sensor.circuit_gone",
+            ]
+        },
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
+    )
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a",
+        "sensor.circuit_b",
+        "sensor.circuit_gone",
+    ]
+
+
+# -- async_step_switchboard: same merge-not-replace, clear-stays-cleared
+# discipline as async_step_forecaster, applied to the new topology-
+# diagram fields (2026-08-23) --
+
+
+# -- _energy_dashboard_switchboard_suggestions (2026-08-23) --
+
+
+def _energy_state(entity_id: str, device_class: str, state_class: str):
+    st = MagicMock()
+    st.attributes = {"device_class": device_class, "state_class": state_class}
+    return entity_id, st
+
+
+def _hass_with_states(states: dict):
+    hass = MagicMock()
+    hass.states.get = lambda eid: states.get(eid)
+    return hass
+
+
+# nimbus issue #554: entity_energy_price on a grid source's own flow_from/
+# flow_to entries -- a live price ENTITY the household configured against
+# that flow (HA's schema also allows a fixed number instead, which has
+# nothing to suggest, see test below). Safe to disambiguate import vs
+# export the same way the energy-sensor suggestions above already are:
+# the Energy Dashboard's own flow_from/flow_to structure does it, not a
+# guess by elimination among every monetary sensor -- a genuinely
+# different, safer case than _forecaster_settings_suggestions()'s own
+# deliberate price-sensor exclusion elsewhere in this file.
 
 
 # -- _discover_nimbus_load_forecast_candidates (2026-08-24, "Group A") ----
@@ -267,80 +337,6 @@ def _typed_state(entity_id: str, device_class: str):
     return st
 
 
-def test_type_safe_suggestions_power_and_price_fields_are_never_suggested():
-    # Deliberately excluded from this function entirely (see its own
-    # docstring) -- even a single power/monetary sensor is genuinely
-    # ambiguous about WHICH of battery/grid/solar (or import/export) it
-    # is, unlike temperature/humidity/SoC which have exactly one real
-    # field each.
-    hass = _hass_with_all_states(
-        [
-            _typed_state("sensor.the_only_power_sensor", "power"),
-            _typed_state("sensor.the_only_monetary_sensor", "monetary"),
-        ]
-    )
-    assert _type_safe_entity_suggestions(hass) == {}
-
-
-def test_forecaster_step_fills_temperature_and_humidity_from_suggestions():
-    import asyncio
-
-    flow = _make_flow(options={})  # nothing saved yet
-    flow.hass.states.async_all = lambda domain: [
-        _typed_state("sensor.outdoor_temp", "temperature"),
-        _typed_state("sensor.outdoor_humidity", "humidity"),
-    ]
-    result = asyncio.run(flow.async_step_forecaster(None))
-    temp_marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
-    assert temp_marker.description == {"suggested_value": "sensor.outdoor_temp"}
-    humidity_marker = _find_marker(result["data_schema"], CONF_HUMIDITY_SENSOR)
-    assert humidity_marker.description == {"suggested_value": "sensor.outdoor_humidity"}
-
-
-def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
-    import asyncio
-    from unittest.mock import AsyncMock, patch
-
-    flow = _make_flow(options={})
-    # nimbus #1686: "Review pricing suggestions" is offered only when there
-    # is something to review.
-    with patch.object(type(flow), "_pricing_suggestions", AsyncMock(return_value=[])):
-        result = asyncio.run(flow.async_step_init(None))
-    assert result["type"] == "menu"
-    assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
-    with patch.object(
-        type(flow),
-        "_pricing_suggestions",
-        AsyncMock(return_value=[{"field": "x", "proposed": "sensor.y"}]),
-    ):
-        result = asyncio.run(flow.async_step_init(None))
-    assert result["menu_options"] == [
-        "forecaster",
-        "solver_battery",
-        "switchboard",
-        "pricing_suggestions",
-    ]
-
-
 # -- nimbus issue #340: include_entities IS enforced at validation, so a
 # saved value outside the discovered candidate list must be folded back
 # in or the whole Solver wizard becomes unsubmittable -------------------------
-
-
-def test_solver_sources_schema_keeps_saved_multi_values_selectable():
-    schema = _solver_sources_schema(
-        {
-            CONF_SOLVER_LOAD_FORECAST_ENTITIES: [
-                "sensor.circuit_a",
-                "sensor.circuit_gone",
-            ]
-        },
-        single_load_forecast_candidates=["sensor.whole_house_signal"],
-        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
-    )
-    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
-    assert schema.schema[multi_marker].config["include_entities"] == [
-        "sensor.circuit_a",
-        "sensor.circuit_b",
-        "sensor.circuit_gone",
-    ]

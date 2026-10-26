@@ -650,6 +650,7 @@ def test_the_publisher_falls_through_to_a_rescore_only_when_due(
 
 
 def test_the_row_field_is_one_character_and_its_own():
+    # test_the_row_field_is_one_character_and_its_own
     field = sw._QUALITY_HISTORY_FORECAST_VALUE_ADD_FIELD
     taken = {
         sw._QUALITY_HISTORY_VERSION_FIELD,
@@ -659,8 +660,7 @@ def test_the_row_field_is_one_character_and_its_own():
     }
     assert len(field) == 1 and field not in taken
 
-
-def test_only_a_real_verdict_is_recorded_never_a_made_up_zero():
+    # test_only_a_real_verdict_is_recorded_never_a_made_up_zero
     for entry, expected in [
         (
             {

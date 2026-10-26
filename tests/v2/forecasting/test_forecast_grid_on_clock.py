@@ -21,6 +21,7 @@ NOW = datetime(2026, 10, 13, 4, 28, 30, 287956, tzinfo=UTC)  # 14:28:30 AEST
 
 
 def test_now_and_the_clock_run_are_predicted_separately_and_joined():
+    # test_now_and_the_clock_run_are_predicted_separately_and_joined
     calls = []
 
     def fake(lo, hi):
@@ -35,8 +36,7 @@ def test_now_and_the_clock_run_are_predicted_separately_and_joined():
     assert out.values == [0.0, 1.0, 1.0, 1.0, 1.0]
     assert out.model_lower == [0.0] * 5 and out.model_upper == [9.0] * 5
 
-
-def test_a_single_point_grid_is_one_call():
+    # test_a_single_point_grid_is_one_call
     calls = []
 
     def fake(lo, hi):

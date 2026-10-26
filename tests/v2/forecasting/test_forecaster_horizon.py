@@ -26,26 +26,23 @@ def _solver_plan_hours() -> float:
 
 
 def test_the_minimum_covers_the_solvers_whole_plan():
-    """If the Solver's horizon ever grows, this fails instead of the plan
-    silently going flat again."""
+    # test_the_minimum_covers_the_solvers_whole_plan: If the Solver's horizon ever grows, this fails instead of the plan
     assert MIN_FORECAST_HORIZON_HOURS >= _solver_plan_hours()
 
-
-def test_the_default_is_the_minimum():
+    # test_the_default_is_the_minimum
     assert DEFAULT_FORECAST_HORIZON_HOURS == MIN_FORECAST_HORIZON_HOURS
+
+    # test_an_unparseable_saved_value_gives_the_default
+    assert (
+        _coord({CONF_FORECAST_HORIZON_HOURS: "x"})._horizon_hours
+        == DEFAULT_FORECAST_HORIZON_HOURS
+    )
 
 
 def _coord(options):
     coord = NimbusCoordinator.__new__(NimbusCoordinator)
     coord.entry = SimpleNamespace(options=options)
     return coord
-
-
-def test_an_unparseable_saved_value_gives_the_default():
-    assert (
-        _coord({CONF_FORECAST_HORIZON_HOURS: "x"})._horizon_hours
-        == DEFAULT_FORECAST_HORIZON_HOURS
-    )
 
 
 def _horizon_marker(schema):

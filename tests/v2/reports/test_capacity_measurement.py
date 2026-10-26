@@ -29,6 +29,7 @@ def _writer_source() -> str:
 
 class TestTheFunctionIsGone(unittest.TestCase):
     def test_the_module_exposes_no_capacity_measurement(self):
+        # test_the_module_exposes_no_capacity_measurement
         self.assertFalse(
             hasattr(sw, "_measured_usable_capacity_kwh"),
             "the retracted capacity measurement is back on the module. It "
@@ -36,10 +37,7 @@ class TestTheFunctionIsGone(unittest.TestCase):
             "file's docstring before reinstating it.",
         )
 
-    def test_its_threshold_constant_is_gone_too(self):
-        """`_MIN_CAPACITY_RISE_PCT` existed only to make the unsound
-        division look trustworthy by refusing small denominators. A
-        bigger denominator does not make the quantity correct."""
+        # test_its_threshold_constant_is_gone_too: `_MIN_CAPACITY_RISE_PCT` existed only to make the unsound
         self.assertFalse(hasattr(sw, "_MIN_CAPACITY_RISE_PCT"))
 
 

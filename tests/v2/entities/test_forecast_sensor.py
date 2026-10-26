@@ -51,6 +51,7 @@ def _sensor(*, kind=None, role=None, data=None, source_state="1.2"):
 
 
 def test_a_signal_forecast_takes_its_roles_unit():
+    # test_a_signal_forecast_takes_its_roles_unit
     for role, unit, device_class in [
         ("temperature", "°C", "TEMPERATURE"),
         ("humidity", "%", "HUMIDITY"),
@@ -62,8 +63,7 @@ def test_a_signal_forecast_takes_its_roles_unit():
         assert s._attr_native_unit_of_measurement == unit
         assert s._attr_device_class is getattr(sm.SensorDeviceClass, device_class)
 
-
-def test_the_forecast_and_its_provenance_are_published_as_given():
+    # test_the_forecast_and_its_provenance_are_published_as_given
     now = datetime.now(UTC)
     forecast = [
         {"time": (now + timedelta(minutes=15 * i)).isoformat(), "value": 2.0}
@@ -88,15 +88,13 @@ def test_the_forecast_and_its_provenance_are_published_as_given():
     summary = set(attrs) - set(temp.extra_state_attributes)
     assert summary and summary == set(sm.forecast_stats.energy_summary(forecast, now))
 
-
-def test_before_any_data_the_sensor_is_empty_and_unavailable():
+    # test_before_any_data_the_sensor_is_empty_and_unavailable
     s = _sensor(data=None)
     assert s.native_value is None and not s.available
     assert s.extra_state_attributes[const.ATTR_FORECAST] == []
     assert s.extra_state_attributes[const.ATTR_MODE] == "unscheduled"
 
-
-def test_a_failed_update_is_unavailable():
+    # test_a_failed_update_is_unavailable
     s = _sensor(data={"state": 1.0})
     s.coordinator.last_update_success = False
     assert not s.available

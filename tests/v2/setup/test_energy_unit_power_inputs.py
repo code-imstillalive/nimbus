@@ -82,6 +82,7 @@ def _forecaster_flow(hass, options):
 
 
 def test_forecaster_step_refuses_an_energy_counter_and_saves_nothing():
+    # test_forecaster_step_refuses_an_energy_counter_and_saves_nothing
     flow = _forecaster_flow(_hass(), {CONF_SOLAR_SENSOR: "sensor.solar_power"})
     flow.async_create_entry = MagicMock(side_effect=AssertionError("must not save"))
     result = asyncio.run(
@@ -91,8 +92,7 @@ def test_forecaster_step_refuses_an_energy_counter_and_saves_nothing():
     assert result["step_id"] == "forecaster"
     assert result["errors"] == {CONF_SOLAR_SENSOR: "energy_sensor_not_power"}
 
-
-def test_forecaster_step_saves_a_power_sensor():
+    # test_forecaster_step_saves_a_power_sensor
     flow = _forecaster_flow(_hass(), {})
     flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
     result = asyncio.run(
@@ -107,16 +107,7 @@ def test_forecaster_step_saves_a_power_sensor():
     saved = flow.async_create_entry.call_args.kwargs["data"]
     assert saved[CONF_SOLAR_SENSOR] == "sensor.solar_power"
 
-
-def _subentry_flow(cls, hass):
-    flow = cls.__new__(cls)
-    flow.source = "user"
-    flow.hass = hass
-    flow._get_entry = MagicMock(return_value=SimpleNamespace(subentries={}))
-    return flow
-
-
-def test_load_and_signal_flows_refuse_an_energy_counter():
+    # test_load_and_signal_flows_refuse_an_energy_counter
     for cls in (NimbusLoadSubentryFlowHandler, NimbusSignalSubentryFlowHandler):
         flow = _subentry_flow(cls, _hass())
         flow.async_create_entry = MagicMock(side_effect=AssertionError("must not save"))
@@ -128,12 +119,63 @@ def test_load_and_signal_flows_refuse_an_energy_counter():
             cls.__name__
         )
 
-
-def test_load_flow_accepts_a_power_sensor():
+    # test_load_flow_accepts_a_power_sensor
     flow = _subentry_flow(NimbusLoadSubentryFlowHandler, _hass())
     flow.async_create_entry = MagicMock(return_value={"type": "create_entry"})
     result = asyncio.run(flow.async_step_user({CONF_LOAD_SENSOR: "sensor.grid_power"}))
     assert result == {"type": "create_entry"}
+
+    # test_the_conversion_warning_names_an_energy_unit_for_what_it_is
+    energy = coordinator_module._unconvertible_unit_message("Wh") % ("sensor.x", "Wh")
+    assert "energy counter" in energy and "treating as kW" not in energy
+    lts = coordinator_module._unconvertible_unit_message("kWh", lts=True) % (
+        "sensor.x",
+        "kWh",
+    )
+    assert lts.startswith("sensor.x LTS reports") and "energy counter" in lts
+    other = coordinator_module._unconvertible_unit_message("VA") % ("sensor.x", "VA")
+    assert other == "sensor.x reported unconvertible unit 'VA' -- treating as kW as-is"
+
+    # test_find_names_hub_inputs_and_load_or_signal_sensors_only
+    entry = _entry(
+        {
+            CONF_SOLAR_SENSOR: "sensor.solar_production_total",
+            CONF_GRID_SENSOR: "sensor.grid_power",
+        },
+        _sub("a", SUBENTRY_TYPE_LOAD, "sensor.battery_energy", "Heater"),
+        _sub("b", SUBENTRY_TYPE_SIGNAL, "sensor.solar_power", "Solar"),
+        _sub("c", SUBENTRY_TYPE_POWER_SOURCE, "sensor.battery_energy", "PS"),
+    )
+    found = pic.find_energy_unit_inputs(_hass(), entry)
+    assert found == [
+        ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh"),
+        ("Load 'Heater'", "sensor.battery_energy", "kWh"),
+    ]
+
+    # test_the_old_notification_is_dismissed_and_the_repair_takes_over: nimbus #1574 stage 2: the household-facing report is a Repair
+    hass = _hass()
+    bad = _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})
+    asyncio.run(pic.async_notify_energy_unit_inputs(hass, bad))
+    services = [c.args[:2] for c in hass.services.async_call.call_args_list]
+    assert ("persistent_notification", "create") not in services
+    domain, service, data = hass.services.async_call.call_args.args[:3]
+    assert (domain, service, data) == (
+        "persistent_notification",
+        "dismiss",
+        {"notification_id": pic.NOTIFICATION_ID},
+    )
+    # and the Repair's input is still found
+    assert pic.find_energy_unit_inputs(hass, bad) == [
+        ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh")
+    ]
+
+
+def _subentry_flow(cls, hass):
+    flow = cls.__new__(cls)
+    flow.source = "user"
+    flow.hass = hass
+    flow._get_entry = MagicMock(return_value=SimpleNamespace(subentries={}))
+    return flow
 
 
 # --- runtime: the feature is ignored, not read as kW --------------------------
@@ -149,18 +191,6 @@ def _coordinator(hass, options, load_sensor="sensor.some_load"):
         data={CONF_LOAD_SENSOR: load_sensor},
     )
     return coord
-
-
-def test_the_conversion_warning_names_an_energy_unit_for_what_it_is():
-    energy = coordinator_module._unconvertible_unit_message("Wh") % ("sensor.x", "Wh")
-    assert "energy counter" in energy and "treating as kW" not in energy
-    lts = coordinator_module._unconvertible_unit_message("kWh", lts=True) % (
-        "sensor.x",
-        "kWh",
-    )
-    assert lts.startswith("sensor.x LTS reports") and "energy counter" in lts
-    other = coordinator_module._unconvertible_unit_message("VA") % ("sensor.x", "VA")
-    assert other == "sensor.x reported unconvertible unit 'VA' -- treating as kW as-is"
 
 
 # --- startup notification ----------------------------------------------------
@@ -179,41 +209,3 @@ def _sub(sid, kind, sensor, title):
         data={CONF_LOAD_SENSOR: sensor},
         title=title,
     )
-
-
-def test_find_names_hub_inputs_and_load_or_signal_sensors_only():
-    entry = _entry(
-        {
-            CONF_SOLAR_SENSOR: "sensor.solar_production_total",
-            CONF_GRID_SENSOR: "sensor.grid_power",
-        },
-        _sub("a", SUBENTRY_TYPE_LOAD, "sensor.battery_energy", "Heater"),
-        _sub("b", SUBENTRY_TYPE_SIGNAL, "sensor.solar_power", "Solar"),
-        _sub("c", SUBENTRY_TYPE_POWER_SOURCE, "sensor.battery_energy", "PS"),
-    )
-    found = pic.find_energy_unit_inputs(_hass(), entry)
-    assert found == [
-        ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh"),
-        ("Load 'Heater'", "sensor.battery_energy", "kWh"),
-    ]
-
-
-def test_the_old_notification_is_dismissed_and_the_repair_takes_over():
-    """nimbus #1574 stage 2: the household-facing report is a Repair
-    (setup_health), which clears itself. The startup check only logs and
-    dismisses the notification 0.94.440 created."""
-    hass = _hass()
-    bad = _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})
-    asyncio.run(pic.async_notify_energy_unit_inputs(hass, bad))
-    services = [c.args[:2] for c in hass.services.async_call.call_args_list]
-    assert ("persistent_notification", "create") not in services
-    domain, service, data = hass.services.async_call.call_args.args[:3]
-    assert (domain, service, data) == (
-        "persistent_notification",
-        "dismiss",
-        {"notification_id": pic.NOTIFICATION_ID},
-    )
-    # and the Repair's input is still found
-    assert pic.find_energy_unit_inputs(hass, bad) == [
-        ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh")
-    ]

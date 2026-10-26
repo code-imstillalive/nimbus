@@ -240,6 +240,7 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, unit, currency, sc
 
 
 def test_rate_rows_become_intervals():
+    # test_rate_rows_become_intervals
     t = T0
     rows = [
         {"time": _iso(t), "end": _iso(t + timedelta(minutes=30)), "value": 20},
@@ -275,8 +276,7 @@ def test_rate_rows_become_intervals():
         0.1,
     ) in lv
 
-
-def test_volume_rows_become_matched_rates():
+    # test_volume_rows_become_matched_rates
     end = T0 + timedelta(minutes=30)
     rows = [
         {
@@ -297,16 +297,7 @@ def test_volume_rows_become_matched_rates():
         (end - timedelta(minutes=5), end, sw.P2P_NO_MATCH, 0.0),
     ]
 
-
-def _p2p_state(rows, **attrs):
-    return {
-        "state": "1",
-        "last_updated": _iso(T0),
-        "attributes": {"forecast": rows, **attrs},
-    }
-
-
-def test_a_p2p_source_that_is_absent_unknown_or_expired_is_unavailable():
+    # test_a_p2p_source_that_is_absent_unknown_or_expired_is_unavailable
     for state in (
         None,
         {"state": "unavailable", "attributes": {}},
@@ -326,8 +317,7 @@ def test_a_p2p_source_that_is_absent_unknown_or_expired_is_unavailable():
     )
     assert fresh["status"] == "ok"
 
-
-def test_a_p2p_rate_source_with_a_non_price_unit_is_not_used():
+    # test_a_p2p_rate_source_with_a_non_price_unit_is_not_used
     state = _p2p_state(
         [{"time": _iso(T0), "end": _iso(T0 + timedelta(minutes=5)), "value": 1}],
         unit_of_measurement="kWh",
@@ -337,8 +327,7 @@ def test_a_p2p_rate_source_with_a_non_price_unit_is_not_used():
         == sw.P2P_UNAVAILABLE
     )
 
-
-def test_a_matched_rate_feed_reports_its_horizon_and_sorted_intervals():
+    # test_a_matched_rate_feed_reports_its_horizon_and_sorted_intervals
     later = T0 + timedelta(minutes=10)
     rows = [
         {"time": _iso(later), "value": 30},
@@ -361,14 +350,21 @@ def test_a_matched_rate_feed_reports_its_horizon_and_sorted_intervals():
     )
     assert plain["horizon"] is None and plain["intervals"] == []
 
-
-def test_a_volume_shaped_source_is_read_as_triples():
+    # test_a_volume_shaped_source_is_read_as_triples
     end = T0 + timedelta(minutes=5)
     state = _p2p_state(
         [{"time": _iso(end), "volume": 1.0, "proportionP2P": 1.0, "matchedCost": 0.3}]
     )
     out = sw._p2p_source_observations(state, "sensor.p2p", None)
     assert out["intervals"] == [(T0, end, sw.P2P_RATE, 0.3)]
+
+
+def _p2p_state(rows, **attrs):
+    return {
+        "state": "1",
+        "last_updated": _iso(T0),
+        "attributes": {"forecast": rows, **attrs},
+    }
 
 
 # --- the live grid meter ------------------------------------------------------
@@ -650,6 +646,7 @@ def _resolve(*sources, blocks=None, n=4):
 
 
 def test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing():
+    # test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing
     feed = _source(
         T0, (0, sw.P2P_RATE, 0.2), (1, sw.P2P_RATE, 0.0), (2, sw.P2P_NO_MATCH, 0.0)
     )
@@ -663,8 +660,7 @@ def test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_noth
         _resolve(down, blocks=[5.0] * 4) == [0.0] * 4
     )  # an unavailable feed gives nothing
 
-
-def test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered():
+    # test_inside_a_feeds_horizon_silence_is_no_match_and_past_it_uncovered
     horizon = (T0, T0 + 2 * M5)
     feed = _source(T0, (0, sw.P2P_RATE, 0.3), horizon=horizon)
     assert sw._p2p_observation_at(feed, T0 + M5) == (sw.P2P_NO_MATCH, 0.0)

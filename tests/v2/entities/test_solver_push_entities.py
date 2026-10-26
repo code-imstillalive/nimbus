@@ -45,6 +45,7 @@ def _construct(cls):
 
 
 def test_battery_forecast_has_required_sensor_entity_class_attributes():
+    # test_battery_forecast_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusSolverBatteryForecastSensor
     assert cls._attr_has_entity_name is True
     assert cls._attr_name == "Solver Battery Forecast"
@@ -87,8 +88,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
         }  # #1797, #1786
     )
 
-
-def test_household_load_total_forecast_has_required_sensor_entity_class_attributes():
+    # test_household_load_total_forecast_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusHouseholdLoadTotalForecastSensor
     assert cls._attr_has_entity_name is True
     assert cls._attr_name == "Household Load Total Forecast"
@@ -109,6 +109,83 @@ def test_household_load_total_forecast_has_required_sensor_entity_class_attribut
             "price_consolidation",
         }  # #1797, #1786
     )
+
+    # test_quality_report_has_required_sensor_entity_class_attributes
+    cls = sensor.NimbusSolverQualityReportSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Solver Quality Report"
+    assert cls._attr_native_unit_of_measurement == "%"
+    assert cls._attr_suggested_display_precision == 1
+    # EPR is a percentage -- no matching HA device_class.
+    assert cls._attr_device_class is None
+    from homeassistant.components.sensor import SensorStateClass
+
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    # nimbus issue #362 (Mark Purcell): the parent's real payload carries
+    # j_ref_hourly/j_ach_hourly/j_star_hourly/hourly_regret (24 ISO-keyed
+    # rows x 7 floats each) -- a realistic payload measured at 14,609
+    # bytes against the recorder's 16,384-byte cap. These are excluded,
+    # matching what the flattened children already exclude; every other
+    # (small, scalar) attribute stays recorded. soc_discrepancy_hourly
+    # (nimbus issue #681) joins them for the identical reason -- another
+    # real per-hour array this payload's own size budget has no margin
+    # for.
+    assert cls._unrecorded_attributes == frozenset(
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            "soc_discrepancy_hourly",
+        }
+    )
+
+    # test_efficiency_backtest_has_required_sensor_entity_class_attributes
+    cls = sensor.NimbusEfficiencyBacktestSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Efficiency Backtest"
+    # nimbus issue #1232: this asserted `== "%"`. The native state is
+    # `spread_dollars`, a CURRENCY amount -- the old `"%"` came from a
+    # docstring that wrongly described the state as the configured
+    # efficiency, and with state_class MEASUREMENT it had HA recording
+    # long-term statistics in percent for a currency value.
+    #
+    # Explicitly None rather than absent: dropping the attribute made it
+    # inherit `_NimbusSolverPushSensor`'s own UnitOfPower.KILO_WATT, so a
+    # reader of the class attribute got "kW" for a currency sensor. Pinned
+    # here because a property override does not prevent that fallthrough.
+    assert cls._attr_native_unit_of_measurement is None
+    assert cls._attr_native_unit_of_measurement != "%"
+    from homeassistant.const import UnitOfPower
+
+    assert cls._attr_native_unit_of_measurement != UnitOfPower.KILO_WATT
+    # The real unit comes from the install's own currency, never hardcoded.
+    assert isinstance(cls.native_unit_of_measurement, property)
+    assert cls._attr_suggested_display_precision == 2
+    assert cls._attr_device_class is None
+    from homeassistant.components.sensor import SensorStateClass
+    from homeassistant.const import EntityCategory
+
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    # Retrospective validation, not a primary user-facing signal.
+    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
+    assert cls._unrecorded_attributes == frozenset()
+
+    # test_counterfactual_soc_has_required_sensor_entity_class_attributes
+    cls = sensor.NimbusCounterfactualSocSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Counterfactual SoC"
+    assert cls._attr_native_unit_of_measurement == "%"
+    assert cls._attr_suggested_display_precision == 1
+    from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+    from homeassistant.const import EntityCategory
+
+    # State-of-charge percentage IS a battery reading -- HA's BATTERY
+    # device_class handles the 0-100 percent contract exactly.
+    assert cls._attr_device_class is SensorDeviceClass.BATTERY
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
+    assert cls._unrecorded_attributes == frozenset()
 
 
 # --- __init__ preserves entity identity -----------------------------------
@@ -176,86 +253,6 @@ def _clean_dispatch_state():
 
 
 # --- class-attribute properties -------------------------------------------
-
-
-def test_quality_report_has_required_sensor_entity_class_attributes():
-    cls = sensor.NimbusSolverQualityReportSensor
-    assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Solver Quality Report"
-    assert cls._attr_native_unit_of_measurement == "%"
-    assert cls._attr_suggested_display_precision == 1
-    # EPR is a percentage -- no matching HA device_class.
-    assert cls._attr_device_class is None
-    from homeassistant.components.sensor import SensorStateClass
-
-    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
-    # nimbus issue #362 (Mark Purcell): the parent's real payload carries
-    # j_ref_hourly/j_ach_hourly/j_star_hourly/hourly_regret (24 ISO-keyed
-    # rows x 7 floats each) -- a realistic payload measured at 14,609
-    # bytes against the recorder's 16,384-byte cap. These are excluded,
-    # matching what the flattened children already exclude; every other
-    # (small, scalar) attribute stays recorded. soc_discrepancy_hourly
-    # (nimbus issue #681) joins them for the identical reason -- another
-    # real per-hour array this payload's own size budget has no margin
-    # for.
-    assert cls._unrecorded_attributes == frozenset(
-        {
-            "j_ref_hourly",
-            "j_ach_hourly",
-            "j_star_hourly",
-            "hourly_regret",
-            "soc_discrepancy_hourly",
-        }
-    )
-
-
-def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
-    cls = sensor.NimbusEfficiencyBacktestSensor
-    assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Efficiency Backtest"
-    # nimbus issue #1232: this asserted `== "%"`. The native state is
-    # `spread_dollars`, a CURRENCY amount -- the old `"%"` came from a
-    # docstring that wrongly described the state as the configured
-    # efficiency, and with state_class MEASUREMENT it had HA recording
-    # long-term statistics in percent for a currency value.
-    #
-    # Explicitly None rather than absent: dropping the attribute made it
-    # inherit `_NimbusSolverPushSensor`'s own UnitOfPower.KILO_WATT, so a
-    # reader of the class attribute got "kW" for a currency sensor. Pinned
-    # here because a property override does not prevent that fallthrough.
-    assert cls._attr_native_unit_of_measurement is None
-    assert cls._attr_native_unit_of_measurement != "%"
-    from homeassistant.const import UnitOfPower
-
-    assert cls._attr_native_unit_of_measurement != UnitOfPower.KILO_WATT
-    # The real unit comes from the install's own currency, never hardcoded.
-    assert isinstance(cls.native_unit_of_measurement, property)
-    assert cls._attr_suggested_display_precision == 2
-    assert cls._attr_device_class is None
-    from homeassistant.components.sensor import SensorStateClass
-    from homeassistant.const import EntityCategory
-
-    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
-    # Retrospective validation, not a primary user-facing signal.
-    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
-    assert cls._unrecorded_attributes == frozenset()
-
-
-def test_counterfactual_soc_has_required_sensor_entity_class_attributes():
-    cls = sensor.NimbusCounterfactualSocSensor
-    assert cls._attr_has_entity_name is True
-    assert cls._attr_name == "Counterfactual SoC"
-    assert cls._attr_native_unit_of_measurement == "%"
-    assert cls._attr_suggested_display_precision == 1
-    from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-    from homeassistant.const import EntityCategory
-
-    # State-of-charge percentage IS a battery reading -- HA's BATTERY
-    # device_class handles the 0-100 percent contract exactly.
-    assert cls._attr_device_class is SensorDeviceClass.BATTERY
-    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
-    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
-    assert cls._unrecorded_attributes == frozenset()
 
 
 # --- __init__ preserves entity identity + sub-device DeviceInfo -----------

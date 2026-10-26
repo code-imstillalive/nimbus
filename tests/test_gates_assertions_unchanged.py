@@ -152,6 +152,7 @@ class TestBadRefactorIsCaught(unittest.TestCase):
             return au.compare_trees(Path(base_tmp), Path(head_tmp), allowed or set())
 
     def test_changed_assertion_value_is_flagged(self):
+        # test_changed_assertion_value_is_flagged
         report = self._compare(_GOOD_TEST_BASE, _BAD_TEST_HEAD_CHANGED_ASSERTION)
         self.assertEqual(len(report.changes), 1)
         change = report.changes[0]
@@ -159,25 +160,23 @@ class TestBadRefactorIsCaught(unittest.TestCase):
         self.assertIn("2", change.old.text)
         self.assertIn("3", change.new.text)
 
-    def test_removed_assertion_is_flagged(self):
+        # test_removed_assertion_is_flagged
         report = self._compare(_GOOD_TEST_BASE, _BAD_TEST_HEAD_REMOVED_ASSERTION)
         self.assertEqual(len(report.changes), 1)
         change = report.changes[0]
         self.assertIsNotNone(change.old)
         self.assertIsNone(change.new)
 
-    def test_only_additions_pass_clean(self):
+        # test_only_additions_pass_clean
         report = self._compare(_GOOD_TEST_BASE, _GOOD_TEST_HEAD_ONLY_ADDITIONS)
         self.assertEqual(report.changes, [])
         self.assertEqual(report.files_compared, 1)
 
-    def test_pure_reformat_is_not_flagged(self):
-        """Structural comparison, not raw text -- see the tool's own
-        module docstring for why."""
+        # test_pure_reformat_is_not_flagged: Structural comparison, not raw text -- see the tool's own
         report = self._compare(_GOOD_TEST_BASE, _REFORMATTED_ONLY)
         self.assertEqual(report.changes, [])
 
-    def test_allowed_changes_suppresses_a_listed_line(self):
+        # test_allowed_changes_suppresses_a_listed_line
         report_unsuppressed = self._compare(
             _GOOD_TEST_BASE, _BAD_TEST_HEAD_CHANGED_ASSERTION
         )
@@ -190,7 +189,7 @@ class TestBadRefactorIsCaught(unittest.TestCase):
         self.assertEqual(report.changes, [])
         self.assertEqual(len(report.suppressed), 1)
 
-    def test_allowed_changes_by_qualified_test_name(self):
+        # test_allowed_changes_by_qualified_test_name
         allowed = {"tests/test_fixture.py::TestThing.test_adds_to_two"}
         report = self._compare(
             _GOOD_TEST_BASE, _BAD_TEST_HEAD_CHANGED_ASSERTION, allowed=allowed
@@ -198,9 +197,7 @@ class TestBadRefactorIsCaught(unittest.TestCase):
         self.assertEqual(report.changes, [])
         self.assertEqual(len(report.suppressed), 1)
 
-    def test_new_file_in_head_only_is_out_of_scope(self):
-        """A wholly new test file is fine -- only files present at both
-        ends are compared."""
+        # test_new_file_in_head_only_is_out_of_scope: A wholly new test file is fine -- only files present at both
         import tempfile
 
         with (
@@ -221,6 +218,7 @@ class TestBadRefactorIsCaught(unittest.TestCase):
 
 class TestAllowedChangesParsing(unittest.TestCase):
     def test_json_list(self):
+        # test_json_list
         import json
         import tempfile
 
@@ -232,7 +230,7 @@ class TestAllowedChangesParsing(unittest.TestCase):
             entries, {"tests/test_x.py:10", "tests/test_y.py::TestA.test_b"}
         )
 
-    def test_markdown_prose_is_scraped(self):
+        # test_markdown_prose_is_scraped
         import tempfile
 
         content = (
@@ -247,7 +245,7 @@ class TestAllowedChangesParsing(unittest.TestCase):
         self.assertIn("tests/test_x.py:42", entries)
         self.assertIn("tests/test_y.py::TestA.test_b", entries)
 
-    def test_no_spec_means_empty_allowlist(self):
+        # test_no_spec_means_empty_allowlist
         self.assertEqual(au._load_allowed_changes(None), set())
 
 
@@ -277,6 +275,7 @@ class TestCliExitCodes(unittest.TestCase):
         )
 
     def test_exit_zero_on_clean_diff(self):
+        # test_exit_zero_on_clean_diff
         import tempfile
 
         with (
@@ -291,7 +290,7 @@ class TestCliExitCodes(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("OK", result.stdout)
 
-    def test_exit_one_on_changed_assertion(self):
+        # test_exit_one_on_changed_assertion
         import tempfile
 
         with (

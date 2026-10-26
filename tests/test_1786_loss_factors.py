@@ -13,6 +13,7 @@ from solver_inputs import loss_factors as lf
 
 
 def test_what_cannot_be_looked_up_says_why_and_never_guesses():
+    # test_what_cannot_be_looked_up_says_why_and_never_guesses
     when = datetime(2026, 10, 19, tzinfo=UTC)
     assert lf.site_factor(None, "BL0A", when) == lf.SiteFactor(None, "no_codes")
     assert lf.site_factor("NCMA", "", when) == lf.SiteFactor(None, "no_codes")
@@ -23,6 +24,5 @@ def test_what_cannot_be_looked_up_says_why_and_never_guesses():
     far = datetime(2030, 1, 1, tzinfo=UTC)
     assert lf.site_factor("NCMA", "BL0A", far) == lf.SiteFactor(None, "year_missing")
 
-
-def test_the_table_covers_both_published_years():
+    # test_the_table_covers_both_published_years
     assert lf.years() == ["2025-26", "2026-27"]

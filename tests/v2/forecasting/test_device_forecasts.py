@@ -54,6 +54,7 @@ def _solcast(values, start=T0):
 
 
 def test_each_provider_shape_reads_in_kw():
+    # test_each_provider_shape_reads_in_kw
     assert df._generic({"forecast": []}) is None
     rows = df._solcast(_solcast([2.0]))
     assert rows == [{"time": T0.isoformat(), "value": 2.0, "lower": 1.0, "upper": 0.0}]
@@ -64,8 +65,7 @@ def test_each_provider_shape_reads_in_kw():
     ]
     assert df._open_meteo({"watts": {}}) is None
 
-
-def test_an_adapter_is_found_only_by_its_name_and_integer_version():
+    # test_an_adapter_is_found_only_by_its_name_and_integer_version
     for spec, found in [
         ({"name": "solcast", "version": 1}, "solcast"),
         ({"name": "solcast", "version": 2}, None),
@@ -77,8 +77,7 @@ def test_an_adapter_is_found_only_by_its_name_and_integer_version():
         adapter = df.forecast_adapter({"adapter": spec})
         assert (adapter.name if adapter else None) == found
 
-
-def test_a_member_that_cannot_be_read_says_why():
+    # test_a_member_that_cannot_be_read_says_why
     for source, entities, reason in [
         (
             {
@@ -120,8 +119,7 @@ def test_a_member_that_cannot_be_read_says_why():
         )
         assert (member.state, member.reason, member.value) == ("missing", reason, None)
 
-
-def test_one_member_is_its_own_value_and_none_is_missing():
+    # test_one_member_is_its_own_value_and_none_is_missing
     entities = {"sensor.a": _generic([1.0, 2.0, 3.0, 4.0])}
     one = _resolve(
         {

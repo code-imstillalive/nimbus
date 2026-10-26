@@ -35,6 +35,7 @@ def _attach(entity):
 
 
 def test_the_headline_says_what_the_check_did_in_plain_words():
+    # test_the_headline_says_what_the_check_did_in_plain_words
     for summary, line in [
         (None, "Not running"),
         ({"status": "optimal"}, "Hedge computed"),
@@ -80,22 +81,7 @@ def test_the_headline_says_what_the_check_did_in_plain_words():
     ]:
         assert st.headline(summary) == line
 
-
-# --- scenarios on the plan's grid ------------------------------------------------------
-
-
-def _plan(n=4, minutes=30):
-    return [
-        {
-            "time": (T0 + timedelta(minutes=minutes * i)).isoformat(),
-            "hours": minutes / 60,
-            "soc_pct": 50.0 + i,
-        }
-        for i in range(n)
-    ]
-
-
-def test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end():
+    # test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end
     ends = [(T0 + timedelta(hours=h)).isoformat() for h in (1, 2)]
     source = {
         "forecast": _plan(4),
@@ -105,8 +91,7 @@ def test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end():
     # Period ends: 16:30 (before the paths start), 17:00, 17:30 (halfway), 18:00.
     assert [r["p50"] for r in rows] == [None, 10.0, 15.0, 20.0]
 
-
-def test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period():
+    # test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period
     for paths in [
         {"ends": ["x"], "soc_pct": {"p50": [1]}},
         {"ends": [T0.isoformat()], "soc_pct": {"p50": [1, 2]}},
@@ -116,8 +101,7 @@ def test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period():
             2 - len(paths["soc_pct"]["p50"][:2])
         )
 
-
-def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
+    # test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan
     assert st.scenario_rows({}) == []
     rows = st.scenario_rows({"forecast": [*_plan(1), "junk"], "stochastic_paths": "x"})
     assert rows == [{"time": _plan(1)[0]["time"], "hours": 0.5, "main": 50.0}]
@@ -130,19 +114,7 @@ def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
     )
     assert gap[0]["p"] is None
 
-
-# --- one SoC sensor per battery ----------------------------------------------------------
-
-
-def _participant(sid, name=None):
-    return SimpleNamespace(
-        subentry_id=sid,
-        subentry_type=const.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
-        data={const.CONF_BATTERY_PARTICIPANT_NAME: name} if name else {},
-    )
-
-
-def test_a_battery_the_plan_skipped_keeps_its_last_value():
+    # test_a_battery_the_plan_skipped_keeps_its_last_value
     for batteries in [
         [],
         [{"name": "Car", "forecast": "x"}],
@@ -163,3 +135,28 @@ def test_a_battery_the_plan_skipped_keeps_its_last_value():
             {}, parent_attributes={"forecast": _plan(1), "batteries": batteries}
         )
         assert car.native_value == 70.0
+
+
+# --- scenarios on the plan's grid ------------------------------------------------------
+
+
+def _plan(n=4, minutes=30):
+    return [
+        {
+            "time": (T0 + timedelta(minutes=minutes * i)).isoformat(),
+            "hours": minutes / 60,
+            "soc_pct": 50.0 + i,
+        }
+        for i in range(n)
+    ]
+
+
+# --- one SoC sensor per battery ----------------------------------------------------------
+
+
+def _participant(sid, name=None):
+    return SimpleNamespace(
+        subentry_id=sid,
+        subentry_type=const.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        data={const.CONF_BATTERY_PARTICIPANT_NAME: name} if name else {},
+    )

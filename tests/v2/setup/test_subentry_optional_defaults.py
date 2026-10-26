@@ -54,6 +54,7 @@ def _suggested(marker: vol.Marker):
 
 
 def test_pv_string_deleted_parent_is_not_offered_back():
+    # test_pv_string_deleted_parent_is_not_offered_back
     entry = _entry_with_power_sources("ps_alive")
     defaults = {
         CONF_PV_STRING_ENTITY: "sensor.pv",
@@ -67,11 +68,7 @@ def test_pv_string_deleted_parent_is_not_offered_back():
     assert _suggested(markers[CONF_PV_STRING_POWER_SOURCE]) == "ps_alive"
     assert markers[CONF_PV_STRING_ENTITY].default() == "sensor.pv"
 
-
-# -- Battery Tower ---------------------------------------------------------
-
-
-def test_battery_tower_deleted_parent_is_not_offered_back():
+    # test_battery_tower_deleted_parent_is_not_offered_back
     entry = _entry_with_power_sources("ps_alive")
     defaults = {CONF_BATTERY_TOWER_POWER_SOURCE: "ps_deleted"}
     markers = _markers(battery_tower_subentry._schema(defaults, entry))
@@ -79,3 +76,6 @@ def test_battery_tower_deleted_parent_is_not_offered_back():
     defaults[CONF_BATTERY_TOWER_POWER_SOURCE] = "ps_alive"
     markers = _markers(battery_tower_subentry._schema(defaults, entry))
     assert _suggested(markers[CONF_BATTERY_TOWER_POWER_SOURCE]) == "ps_alive"
+
+
+# -- Battery Tower ---------------------------------------------------------

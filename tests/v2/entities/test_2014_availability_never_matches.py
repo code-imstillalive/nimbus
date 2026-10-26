@@ -29,6 +29,7 @@ NOW = datetime(2026, 10, 25, 6, 0, tzinfo=UTC)
 
 
 def test_which_entities_are_checked():
+    # test_which_entities_are_checked
     # A list set: always checked.
     assert av.needs_listed_match("device_tracker.car", "home, charging")
     # A plain sensor with no list is never available: checked.
@@ -37,6 +38,62 @@ def test_which_entities_are_checked():
     # away all week ("not_home") raises nothing.
     assert not av.needs_listed_match("device_tracker.car", None)
     assert not av.needs_listed_match("binary_sensor.plugged_in", " , ")
+
+    # test_only_the_mismatched_participant_is_reported_over_a_week
+    entry = _entry(
+        p1=_participant("sensor.charger_a", "Charging", name="Tesla"),
+        p2=_participant("sensor.charger_b", "Connected", name="Mini"),
+        p3=_participant("device_tracker.car", "", name="Away car"),
+    )
+    history = {
+        "sensor.charger_a": ["Charge", "Idle"],
+        "sensor.charger_b": ["Idle", "Connected"],
+        "device_tracker.car": ["not_home"],
+    }
+    found, calls, _ = _run(entry, history)
+    assert found == [
+        ("p1", "Tesla", "sensor.charger_a", ("Charge", "Idle"), "Charging")
+    ]
+    # The tracker on its standard meaning is not even read.
+    ((entity_ids, start, end),) = calls
+    assert entity_ids == ("sensor.charger_a", "sensor.charger_b")
+    assert end - start == timedelta(days=7)
+
+    # test_the_recorder_is_read_at_most_every_six_hours
+    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
+    history = {"sensor.charger_a": ["Charge"]}
+    found, calls, state = _run(entry, history)
+    assert len(found) == 1 and len(calls) == 1
+    again, calls2, _ = _run(entry, {}, state, NOW + timedelta(hours=1))
+    assert again == found and calls2 == []
+    later, calls3, _ = _run(
+        entry, {"sensor.charger_a": ["Charging"]}, state, NOW + timedelta(hours=6)
+    )
+    assert later == [] and len(calls3) == 1
+
+    # test_a_new_entity_is_read_at_once
+    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
+    _, _, state = _run(entry, {"sensor.charger_a": ["Charging"]})
+    moved = _entry(p1=_participant("sensor.charger_b", "Charging"))
+    found, calls, _ = _run(
+        moved, {"sensor.charger_b": ["Charge"]}, state, NOW + timedelta(minutes=5)
+    )
+    assert len(found) == 1 and len(calls) == 1
+    assert calls[0][0] == ("sensor.charger_b",)
+
+    # test_a_failed_read_raises_no_repair
+    async def broken(*_a, **_k):
+        raise RuntimeError("recorder not ready")
+
+    original = sh._async_states_seen
+    sh._async_states_seen = broken
+    try:
+        entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
+        assert (
+            asyncio.run(sh._async_availability_mismatches(None, entry, {}, NOW)) == []
+        )
+    finally:
+        sh._async_states_seen = original
 
 
 # --- the Repair ---------------------------------------------------------------
@@ -80,63 +137,3 @@ def _run(entry, history, state=None, now=NOW):
     finally:
         sh._async_states_seen = original
     return found, calls, state
-
-
-def test_only_the_mismatched_participant_is_reported_over_a_week():
-    entry = _entry(
-        p1=_participant("sensor.charger_a", "Charging", name="Tesla"),
-        p2=_participant("sensor.charger_b", "Connected", name="Mini"),
-        p3=_participant("device_tracker.car", "", name="Away car"),
-    )
-    history = {
-        "sensor.charger_a": ["Charge", "Idle"],
-        "sensor.charger_b": ["Idle", "Connected"],
-        "device_tracker.car": ["not_home"],
-    }
-    found, calls, _ = _run(entry, history)
-    assert found == [
-        ("p1", "Tesla", "sensor.charger_a", ("Charge", "Idle"), "Charging")
-    ]
-    # The tracker on its standard meaning is not even read.
-    ((entity_ids, start, end),) = calls
-    assert entity_ids == ("sensor.charger_a", "sensor.charger_b")
-    assert end - start == timedelta(days=7)
-
-
-def test_the_recorder_is_read_at_most_every_six_hours():
-    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
-    history = {"sensor.charger_a": ["Charge"]}
-    found, calls, state = _run(entry, history)
-    assert len(found) == 1 and len(calls) == 1
-    again, calls2, _ = _run(entry, {}, state, NOW + timedelta(hours=1))
-    assert again == found and calls2 == []
-    later, calls3, _ = _run(
-        entry, {"sensor.charger_a": ["Charging"]}, state, NOW + timedelta(hours=6)
-    )
-    assert later == [] and len(calls3) == 1
-
-
-def test_a_new_entity_is_read_at_once():
-    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
-    _, _, state = _run(entry, {"sensor.charger_a": ["Charging"]})
-    moved = _entry(p1=_participant("sensor.charger_b", "Charging"))
-    found, calls, _ = _run(
-        moved, {"sensor.charger_b": ["Charge"]}, state, NOW + timedelta(minutes=5)
-    )
-    assert len(found) == 1 and len(calls) == 1
-    assert calls[0][0] == ("sensor.charger_b",)
-
-
-def test_a_failed_read_raises_no_repair():
-    async def broken(*_a, **_k):
-        raise RuntimeError("recorder not ready")
-
-    original = sh._async_states_seen
-    sh._async_states_seen = broken
-    try:
-        entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
-        assert (
-            asyncio.run(sh._async_availability_mismatches(None, entry, {}, NOW)) == []
-        )
-    finally:
-        sh._async_states_seen = original

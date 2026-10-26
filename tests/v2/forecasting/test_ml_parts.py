@@ -90,6 +90,7 @@ def test_blend_weights_sum_to_one_and_favour_the_more_accurate(maes):
 
 
 def test_blending_is_a_weighted_mean_and_the_spread_is_the_range():
+    # test_blending_is_a_weighted_mean_and_the_spread_is_the_range
     assert blend.blend_point_estimate([1.0, 3.0]) == 2.0
     assert blend.blend_point_estimate([1.0, 3.0], [0.75, 0.25]) == 1.5
     a, b = np.array([1.0, 2.0]), np.array([3.0, 2.0])
@@ -101,8 +102,7 @@ def test_blending_is_a_weighted_mean_and_the_spread_is_the_range():
     )
     np.testing.assert_allclose(blend.cross_source_spread([a]), [0.0, 0.0])
 
-
-def test_misaligned_or_empty_inputs_are_refused():
+    # test_misaligned_or_empty_inputs_are_refused
     for call in [
         lambda: blend.weights_from_mae([]),
         lambda: blend.blend_point_estimate([]),

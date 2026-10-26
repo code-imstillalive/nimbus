@@ -37,6 +37,7 @@ def _tank(days=3, *, decay=0.8, loss=None, ambient=15.0, start=55.0):
 
 
 def test_ambient_between_readings_is_interpolated_and_held_at_the_ends():
+    # test_ambient_between_readings_is_interpolated_and_held_at_the_ends
     amb = [(T0, 10.0), (T0 + timedelta(hours=2), 20.0)]
     assert tf._ambient_value_at(amb, T0 + timedelta(hours=1)) == 15.0
     assert tf._ambient_value_at(amb, T0 - timedelta(hours=1)) == 10.0
@@ -44,15 +45,7 @@ def test_ambient_between_readings_is_interpolated_and_held_at_the_ends():
     assert tf._ambient_value_at([], T0) is None
     assert tf._ambient_value_at([(T0, 3.0), (T0, 4.0)], T0) in (3.0, 4.0)
 
-
-def _plan(powers, start=T0, minutes=30):
-    return [
-        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": p}
-        for i, p in enumerate(powers)
-    ]
-
-
-def test_a_projection_heats_when_on_and_decays_when_off_up_to_a_ceiling():
+    # test_a_projection_heats_when_on_and_decays_when_off_up_to_a_ceiling
     plan = _plan([0.0, 4.0, 4.0, 0.0])
     out = tf.project_temperature_forecast(
         plan,
@@ -93,8 +86,7 @@ def test_a_projection_heats_when_on_and_decays_when_off_up_to_a_ceiling():
         == []
     )
 
-
-def test_the_floor_crossing_and_its_naive_estimate():
+    # test_the_floor_crossing_and_its_naive_estimate
     forecast = [
         {"time": "a", "value": 50.0},
         {"time": "b", "value": 44.9},
@@ -117,8 +109,7 @@ def test_the_floor_crossing_and_its_naive_estimate():
     )  # past the horizon
     assert tf.naive_floor_crossing_period([], T0, 50.0, 2.0, 45.0) is None
 
-
-def test_the_floor_is_the_configured_minimum_else_the_done_condition():
+    # test_the_floor_is_the_configured_minimum_else_the_done_condition
     parse = lambda text: (">=", float(text.split()[-1]))
     assert tf.resolve_floor_temperature(42, ">= 50", parse) == 42.0
     assert tf.resolve_floor_temperature("x", ">= 50", parse) == 50.0
@@ -130,16 +121,7 @@ def test_the_floor_is_the_configured_minimum_else_the_done_condition():
     )
     assert tf.resolve_floor_temperature(None, None, parse) is None
 
-
-def _series(rows):
-    """[(minutes, temperature, power)] from T0."""
-    return [(T0 + timedelta(minutes=m), temp, p) for m, temp, p in rows]
-
-
-IDLE_BEFORE = [(0, 50.0, 0.0), (30, 49.6, 0.0)]
-
-
-def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate():
+    # test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate
     for rows in [
         # heating for one 5-minute sample: too short to trust
         IDLE_BEFORE + [(35, 49.5, 3.6), (40, 52.0, 0.0), (70, 51.6, 0.0)],
@@ -155,3 +137,18 @@ def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate():
         rates = tf.learn_thermal_rates(_series(rows), on_threshold_kw=0.5)
         assert rates.heating_sample_count == 0
         assert rates.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH
+
+
+def _plan(powers, start=T0, minutes=30):
+    return [
+        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": p}
+        for i, p in enumerate(powers)
+    ]
+
+
+def _series(rows):
+    """[(minutes, temperature, power)] from T0."""
+    return [(T0 + timedelta(minutes=m), temp, p) for m, temp, p in rows]
+
+
+IDLE_BEFORE = [(0, 50.0, 0.0), (30, 49.6, 0.0)]

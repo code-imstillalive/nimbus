@@ -50,6 +50,7 @@ def flat(h):
 
 
 def test_each_kind_of_energy_source_is_read_with_its_own_fields():
+    # test_each_kind_of_energy_source_is_read_with_its_own_fields
     prefs = {
         "energy_sources": [
             {
@@ -114,8 +115,7 @@ def test_each_kind_of_energy_source_is_read_with_its_own_fields():
     assert legacy.power_config == ({"x": 1},)
     assert dr.parse_energy_sources(None) == []
 
-
-def test_individual_devices_keep_what_contains_them():
+    # test_individual_devices_keep_what_contains_them
     prefs = {
         "device_consumption": [
             {
@@ -140,11 +140,7 @@ def test_individual_devices_keep_what_contains_them():
         "d",
     ) == ["sensor.a"]
 
-
-# --- integrating history --------------------------------------------------------------------
-
-
-def test_power_integrates_into_the_energy_it_delivered_split_by_direction():
+    # test_power_integrates_into_the_energy_it_delivered_split_by_direction
     series = [
         (T0, 2.0),
         (T0 + timedelta(hours=1), -1.0),
@@ -158,8 +154,7 @@ def test_power_integrates_into_the_energy_it_delivered_split_by_direction():
         series, T0 + timedelta(minutes=30), T0 + timedelta(hours=1)
     ) == (1.0, 0.0)
 
-
-def test_an_energy_counter_rises_by_what_was_delivered():
+    # test_an_energy_counter_rises_by_what_was_delivered
     for series, rise in [
         (
             [
@@ -197,17 +192,12 @@ def test_an_energy_counter_rises_by_what_was_delivered():
     ]:
         assert dr.counter_rise(series, T0, T0 + timedelta(hours=1)) == rise
 
-
-# --- matching a power sensor to an energy counter ---------------------------------------------
-
-
-def test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped():
+    # test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped
     candidates = {"sensor.inverted": _power(lambda h: -solar(h))}
     match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
     assert (match.status, match.sign) == (dr.CANDIDATE, -1)
 
-
-def test_without_enough_evidence_nothing_is_proposed_and_the_reason_is_given():
+    # test_without_enough_evidence_nothing_is_proposed_and_the_reason_is_given
     for candidates, energy_out, status, says in [
         ({}, 5.0, dr.NO_CANDIDATES, "no power sensors"),
         ({"sensor.x": [(T0 + timedelta(hours=11), 1.0)]}, 5.0, dr.INSUFFICIENT, "90%"),
@@ -235,8 +225,7 @@ def test_without_enough_evidence_nothing_is_proposed_and_the_reason_is_given():
         assert match.status == status and match.entity_id is None
         assert says in match.reason
 
-
-def test_a_total_alone_can_match_and_solar_never_runs_backwards():
+    # test_a_total_alone_can_match_and_solar_never_runs_backwards
     total = sum(p for p, _n in [dr.integrate_parts(_power(solar), T0, END)])
     match = dr.match_power_sensor(
         {"sensor.pv_w": _power(solar)}, T0, END, energy_out=total
@@ -246,6 +235,18 @@ def test_a_total_alone_can_match_and_solar_never_runs_backwards():
     assert (
         dr.match_power_sensor(two_way, T0, END, energy_out=24.0).status == dr.NO_MATCH
     )
+
+    # test_a_balanced_site_agrees
+    v = dr.check_energy_balance(*_site())
+    assert (v.ok, v.explanation) == (True, "agree") and v.residual_kw == pytest.approx(
+        0.0
+    )
+
+
+# --- integrating history --------------------------------------------------------------------
+
+
+# --- matching a power sensor to an energy counter ---------------------------------------------
 
 
 # --- the site's energy balance -------------------------------------------------------------------
@@ -259,14 +260,8 @@ def _site(n=24):
     return load, sol, bat, grid
 
 
-def test_a_balanced_site_agrees():
-    v = dr.check_energy_balance(*_site())
-    assert (v.ok, v.explanation) == (True, "agree") and v.residual_kw == pytest.approx(
-        0.0
-    )
-
-
 def test_one_change_that_closes_the_balance_is_named():
+    # test_one_change_that_closes_the_balance_is_named
     for change, explanation in [
         (
             lambda load, sol, bat, grid: (load, sol, [-b for b in bat], grid),
@@ -280,14 +275,12 @@ def test_one_change_that_closes_the_balance_is_named():
         v = dr.check_energy_balance(*change(*_site()))
         assert v.ok is False and explanation in v.hypotheses
 
-
-def test_a_partial_solar_sensor_is_recognised():
+    # test_a_partial_solar_sensor_is_recognised
     load, sol, bat, grid = _site()
     v = dr.check_energy_balance(load, [s * 0.5 for s in sol], bat, grid)
     assert "partial_solar" in v.hypotheses
 
-
-def test_too_little_or_misaligned_data_is_insufficient():
+    # test_too_little_or_misaligned_data_is_insufficient
     for series in [
         ([1.0] * 5, [0.0] * 5, [0.0] * 5, [1.0] * 5),  # too few samples
         ([1.0] * 24, [0.0] * 23, [0.0] * 24, [1.0] * 24),  # not aligned
@@ -295,8 +288,7 @@ def test_too_little_or_misaligned_data_is_insufficient():
     ]:
         assert dr.check_energy_balance(*series).explanation == dr.INSUFFICIENT
 
-
-def test_a_balance_nothing_explains_says_so():
+    # test_a_balance_nothing_explains_says_so
     load, sol, bat, grid = _site()
     v = dr.check_energy_balance(
         load, sol, bat, [g + 7.0 * ((i % 5) - 2) for i, g in enumerate(grid)]

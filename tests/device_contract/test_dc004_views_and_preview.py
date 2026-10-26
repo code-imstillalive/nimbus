@@ -116,18 +116,14 @@ F10 = {
 
 
 def test_an_option_and_number_conflict_is_reported_not_silently_kept():
+    # test_an_option_and_number_conflict_is_reported_not_silently_kept
     snap = copy.deepcopy(F10)
     snap["options"]["solver_battery_capacity_kwh"] = 38.0
     pv = di.preview(snap)
     assert [c.code for c in pv.conflicts] == ["conflict_setting_copies"]
     assert not pv.clean
 
-
-def test_view_writes_lists_only_what_differs_and_never_adds_a_subentry():
-    """DC-004 step 5b: an active commit writes only the owned keys whose
-    value differs from the view. F10's own view against F10 is nothing; one
-    changed option, number and subentry field are exactly those three; a
-    subentry the install doesn't have is never created."""
+    # test_view_writes_lists_only_what_differs_and_never_adds_a_subentry: DC-004 step 5b: an active commit writes only the owned keys whose
     view = di.legacy_view(di.import_legacy(F10).document)
     assert di.view_writes(view, F10) == {"options": {}, "numbers": {}, "subentries": {}}
     edited = copy.deepcopy(view)
@@ -144,12 +140,7 @@ def test_view_writes_lists_only_what_differs_and_never_adds_a_subentry():
         "subentries": {sid: {field: "changed"}},
     }
 
-
-def test_a_live_number_writes_through_to_the_document_only_where_owned():
-    """DC-004 step 5c: a contract-owned number commits a new revision; the
-    slider edits the document, never a second copy. Its view is the new
-    value, every other key unchanged; a number the document doesn't own
-    gives nothing to commit."""
+    # test_a_live_number_writes_through_to_the_document_only_where_owned: DC-004 step 5c: a contract-owned number commits a new revision; the
     doc = di.import_legacy(F10).document
     edited = di.with_number(doc, "solver_battery_capacity_kwh", 55.0)
     assert edited is not None and edited is not doc
@@ -171,11 +162,7 @@ def test_a_live_number_writes_through_to_the_document_only_where_owned():
     assert "solver_price_spike_threshold" not in di.owned_number_keys()
     assert di.import_legacy(F10).document == doc  # the input is untouched
 
-
-def test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document():
-    """ "Keep my change" for one drifted key: the new document holds that
-    key's current value; another drifted key keeps the document's value, so
-    it is still drift until the household chooses for it too."""
+    # test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document: "Keep my change" for one drifted key: the new document holds that
     doc = di.import_legacy(F10).document
     edited = copy.deepcopy(F10)
     edited["options"]["grid_sensor"] = "sensor.meter2"
@@ -197,11 +184,7 @@ def test_keep_my_change_adopts_one_key_and_leaves_the_others_to_the_document():
         ("subentries", "s1", "load_sensor"),
     }
 
-
-def test_keep_my_change_on_a_drifted_solver_number():
-    """Mark Purcell, #1882 review: a `numbers.` path fell into the subentry
-    parse. Keep on a drifted Solver number (a reset after a restart) builds
-    exactly that path, so it must keep the number and nothing else."""
+    # test_keep_my_change_on_a_drifted_solver_number: Mark Purcell, #1882 review: a `numbers.` path fell into the subentry
     doc = di.import_legacy(F10).document
     edited = copy.deepcopy(F10)
     edited["numbers"]["solver_battery_capacity_kwh"] = 33.0
@@ -215,8 +198,7 @@ def test_keep_my_change_on_a_drifted_solver_number():
     )
     assert di.drift(kept.document, edited) == []
 
-
-def test_a_settings_path_that_is_none_of_the_three_is_refused_plainly():
+    # test_a_settings_path_that_is_none_of_the_three_is_refused_plainly
     for bad in ("numbers", "subentry:l1", "battery.capacity"):
         with pytest.raises(ValueError, match="not a settings path"):
             di._value_at(F10, bad)

@@ -31,6 +31,7 @@ def _row(when, region, rrp, intervention=0):
 
 
 def test_parse_keeps_the_region_and_the_physical_run_in_dollars_per_kwh():
+    # test_parse_keeps_the_region_and_the_physical_run_in_dollars_per_kwh
     text = (
         "C,NEMP.WORLD,DISPATCHIS\n"
         + HEADER
@@ -45,8 +46,7 @@ def test_parse_keeps_the_region_and_the_physical_run_in_dollars_per_kwh():
         datetime(2026, 10, 20, 20, 0, tzinfo=NEM): pytest.approx(0.150),
     }
 
-
-def test_nested_archive_zips_are_read():
+    # test_nested_archive_zips_are_read
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w") as z:
         z.writestr("a.CSV", HEADER + _row("2026/10/20 19:55:00", "QLD1", 143))
@@ -56,8 +56,7 @@ def test_nested_archive_zips_are_read():
     texts = list(nc._csv_texts(outer.getvalue()))
     assert len(texts) == 1 and "QLD1" in texts[0]
 
-
-def test_score_pairs_each_interval_with_the_state_at_its_end():
+    # test_score_pairs_each_interval_with_the_state_at_its_end
     t0 = datetime(2026, 10, 20, 10, 0, tzinfo=NEM)
     settled = {t0 + timedelta(minutes=5 * i): 0.10 + 0.01 * i for i in range(4)}
     factor = 1.05

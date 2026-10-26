@@ -86,6 +86,7 @@ def _switch(
 
 
 def test_the_restored_state_wins_unless_the_store_is_newer():
+    # test_the_restored_state_wins_unless_the_store_is_newer
     s, shared = _switch(
         last=_last("on", 100.0),
         store={
@@ -106,8 +107,7 @@ def test_the_restored_state_wins_unless_the_store_is_newer():
     _run(newer.async_added_to_hass())
     assert newer._attr_is_on is False
 
-
-def test_without_a_restored_state_the_store_then_the_options_seed_it():
+    # test_without_a_restored_state_the_store_then_the_options_seed_it
     for last, store, options, on in [
         (
             _last("unavailable"),
@@ -176,6 +176,7 @@ def test_switching_stores_the_value_and_solve_on_price_change_rewires_the_watche
 
 
 def test_a_corrupt_switch_store_reads_as_empty():
+    # test_a_corrupt_switch_store_reads_as_empty
     shared = swm._SharedSwitchStore(store=MemoryStore(broken=True))
     assert _run(shared._async_read_entry("k")) is None
     _run(shared.async_write("k", True))
@@ -183,11 +184,7 @@ def test_a_corrupt_switch_store_reads_as_empty():
         "k": {"value": True, "written_at": shared.store.data["k"]["written_at"]}
     }
 
-
-# --- times of day -----------------------------------------------------------------------
-
-
-def test_a_time_entitys_state_reads_as_hours():
+    # test_a_time_entitys_state_reads_as_hours
     for state, hours in [
         ("05:30:00", 5.5),
         ("17:15", 17.25),
@@ -195,6 +192,40 @@ def test_a_time_entitys_state_reads_as_hours():
         (None, None),
     ]:
         assert tm.state_to_hours(state) == hours
+
+    # test_a_time_comes_back_from_its_state_then_its_store_then_the_old_number
+    t, key = _time(last=SimpleNamespace(state="02:45:00"))
+    _run(t.async_added_to_hass())
+    assert t._attr_native_value == time(2, 45)
+    own, key = _time(own={tm.TIME_SETTINGS[0][0]: {"value": 6.5}})
+    _run(own.async_added_to_hass())
+    assert own._attr_native_value == time(6, 30)
+    # Upgrading from the number entity: its stored hours carry over and are kept.
+    moved, key = _time(number={tm.TIME_SETTINGS[0][0]: 22.0})
+    _run(moved.async_added_to_hass())
+    assert moved._attr_native_value == time(22, 0)
+    assert moved._own_store.data[key]["value"] == 22.0
+
+    # test_without_any_saved_value_the_options_then_the_default_apply
+    key = tm.TIME_SETTINGS[0][0]
+    t, _ = _time(options={key: "3.25"})
+    _run(t.async_added_to_hass())
+    assert t._attr_native_value == time(3, 15)
+    bad, _ = _time(options={key: "soon"}, own={key: {"value": "x"}})
+    _run(bad.async_added_to_hass())
+    assert bad._attr_native_value == tm.hours_to_time(tm.TIME_DEFAULTS.get(key, 0.0))
+    broken, _ = _time()
+    broken._own_store.broken = broken._number_store.broken = True
+    _run(broken.async_added_to_hass())
+    assert broken._attr_native_value == tm.hours_to_time(tm.TIME_DEFAULTS.get(key, 0.0))
+
+    # test_setting_a_time_stores_its_hours
+    t, key = _time()
+    _run(t.async_set_value(time(5, 30)))
+    assert t.writes == [time(5, 30)] and t._own_store.data[key]["value"] == 5.5
+
+
+# --- times of day -----------------------------------------------------------------------
 
 
 def _time(key=None, *, last=None, own=None, number=None, options=None):
@@ -211,40 +242,6 @@ def _time(key=None, *, last=None, own=None, number=None, options=None):
     t.writes = []
     t.async_write_ha_state = lambda: t.writes.append(t._attr_native_value)
     return t, key
-
-
-def test_a_time_comes_back_from_its_state_then_its_store_then_the_old_number():
-    t, key = _time(last=SimpleNamespace(state="02:45:00"))
-    _run(t.async_added_to_hass())
-    assert t._attr_native_value == time(2, 45)
-    own, key = _time(own={tm.TIME_SETTINGS[0][0]: {"value": 6.5}})
-    _run(own.async_added_to_hass())
-    assert own._attr_native_value == time(6, 30)
-    # Upgrading from the number entity: its stored hours carry over and are kept.
-    moved, key = _time(number={tm.TIME_SETTINGS[0][0]: 22.0})
-    _run(moved.async_added_to_hass())
-    assert moved._attr_native_value == time(22, 0)
-    assert moved._own_store.data[key]["value"] == 22.0
-
-
-def test_without_any_saved_value_the_options_then_the_default_apply():
-    key = tm.TIME_SETTINGS[0][0]
-    t, _ = _time(options={key: "3.25"})
-    _run(t.async_added_to_hass())
-    assert t._attr_native_value == time(3, 15)
-    bad, _ = _time(options={key: "soon"}, own={key: {"value": "x"}})
-    _run(bad.async_added_to_hass())
-    assert bad._attr_native_value == tm.hours_to_time(tm.TIME_DEFAULTS.get(key, 0.0))
-    broken, _ = _time()
-    broken._own_store.broken = broken._number_store.broken = True
-    _run(broken.async_added_to_hass())
-    assert broken._attr_native_value == tm.hours_to_time(tm.TIME_DEFAULTS.get(key, 0.0))
-
-
-def test_setting_a_time_stores_its_hours():
-    t, key = _time()
-    _run(t.async_set_value(time(5, 30)))
-    assert t.writes == [time(5, 30)] and t._own_store.data[key]["value"] == 5.5
 
 
 def test_setup_replaces_the_old_number_entities_with_times(monkeypatch):

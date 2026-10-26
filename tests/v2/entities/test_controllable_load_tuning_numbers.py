@@ -51,13 +51,13 @@ def _make_entry():
 
 
 def test_no_duplicate_keys():
+    # test_no_duplicate_keys
     keys = [d.key for d in _CONTROLLABLE_LOAD_DESCRIPTIONS]
     assert len(keys) == len(set(keys)), (
         f"duplicate _ControllableLoadNumberDescription.key found: {keys}"
     )
 
-
-def test_every_default_is_within_its_own_bounds():
+    # test_every_default_is_within_its_own_bounds
     offenders = [
         d.key
         for d in _CONTROLLABLE_LOAD_DESCRIPTIONS
@@ -65,15 +65,13 @@ def test_every_default_is_within_its_own_bounds():
     ]
     assert not offenders, f"default outside min/max bounds: {offenders}"
 
-
-def test_exactly_seven_fields_matching_issue_645s_own_scope():
+    # test_exactly_seven_fields_matching_issue_645s_own_scope
     assert len(_CONTROLLABLE_LOAD_DESCRIPTIONS) == 7, (
         "expected exactly 7 fields per #645's own explicit proposal list "
         "(5 deferrable-only + 2 shared) -- a field was added/removed?"
     )
 
-
-def test_deferrable_only_fields_do_not_apply_to_sheddable():
+    # test_deferrable_only_fields_do_not_apply_to_sheddable
     deferrable_only_keys = {
         "deferrable_target_kwh",
         "deferrable_max_power_kw",
@@ -85,8 +83,7 @@ def test_deferrable_only_fields_do_not_apply_to_sheddable():
         if desc.key in deferrable_only_keys:
             assert desc.kinds == (CONTROLLABLE_LOAD_KIND_DEFERRABLE,), desc.key
 
-
-def test_shared_fields_apply_to_both_kinds():
+    # test_shared_fields_apply_to_both_kinds
     shared_keys = {
         "controllable_load_min_hold_minutes",
         "controllable_load_max_activations_per_day",
@@ -96,35 +93,12 @@ def test_shared_fields_apply_to_both_kinds():
             assert CONTROLLABLE_LOAD_KIND_SHEDDABLE in desc.kinds, desc.key
             assert CONTROLLABLE_LOAD_KIND_DEFERRABLE in desc.kinds, desc.key
 
-
-# --- Entity attribute wiring --------------------------------------------
-
-
-def test_is_entity_category_config():
+    # test_is_entity_category_config
     from homeassistant.const import EntityCategory
 
     assert NimbusControllableLoadNumber._attr_entity_category == EntityCategory.CONFIG
 
-
-# --- Per-kind field filtering (async_setup_entry's own list comprehension) -
-
-
-def _entities_for_kind(entry, subentry) -> list[NimbusControllableLoadNumber]:
-    """Mirrors async_setup_entry's own filtering expression exactly (see
-    number.py, nimbus issue #645) so a drift between the two would show up
-    here rather than only being caught by a full-platform-setup test."""
-    shared_store = _fresh_shared_store(f"kind-filter-{subentry.subentry_id}")
-    return [
-        NimbusControllableLoadNumber(entry, subentry, desc, None, shared_store)
-        for desc in _CONTROLLABLE_LOAD_DESCRIPTIONS
-        if subentry.data.get(CONF_CONTROLLABLE_LOAD_KIND) in desc.kinds
-    ]
-
-
-# --- Seed-from-wizard-data / restore chain ------------------------------
-
-
-def test_no_restored_state_and_no_wizard_data_falls_back_to_class_default():
+    # test_no_restored_state_and_no_wizard_data_falls_back_to_class_default
     entry = _make_entry()
     subentry = _make_subentry(data={})
     desc = next(
@@ -144,8 +118,7 @@ def test_no_restored_state_and_no_wizard_data_falls_back_to_class_default():
 
     assert entity._attr_native_value == desc.default
 
-
-def test_successful_restore_wins_over_wizard_data():
+    # test_successful_restore_wins_over_wizard_data
     entry = _make_entry()
     subentry = _make_subentry(data={"deferrable_target_kwh": 2.5})
     desc = next(
@@ -168,3 +141,24 @@ def test_successful_restore_wins_over_wizard_data():
     asyncio.run(entity.async_added_to_hass())
 
     assert entity._attr_native_value == 4.4
+
+
+# --- Entity attribute wiring --------------------------------------------
+
+
+# --- Per-kind field filtering (async_setup_entry's own list comprehension) -
+
+
+def _entities_for_kind(entry, subentry) -> list[NimbusControllableLoadNumber]:
+    """Mirrors async_setup_entry's own filtering expression exactly (see
+    number.py, nimbus issue #645) so a drift between the two would show up
+    here rather than only being caught by a full-platform-setup test."""
+    shared_store = _fresh_shared_store(f"kind-filter-{subentry.subentry_id}")
+    return [
+        NimbusControllableLoadNumber(entry, subentry, desc, None, shared_store)
+        for desc in _CONTROLLABLE_LOAD_DESCRIPTIONS
+        if subentry.data.get(CONF_CONTROLLABLE_LOAD_KIND) in desc.kinds
+    ]
+
+
+# --- Seed-from-wizard-data / restore chain ------------------------------

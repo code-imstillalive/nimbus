@@ -17,6 +17,7 @@ def _fake_adequacy_load(subentry_id: str | None, power_kw: list[float]):
 
 
 def test_zero_whole_house_load_period_contributes_nothing_not_a_crash():
+    # test_zero_whole_house_load_period_contributes_nothing_not_a_crash
     # Real edge case, not synthetic paranoia: a period where the whole
     # house genuinely draws nothing (every configured load is off) must
     # not divide by zero -- 0.0 contribution, not a crash.
@@ -30,8 +31,7 @@ def test_zero_whole_house_load_period_contributes_nothing_not_a_crash():
     )
     assert result["a"] == 0.0
 
-
-def test_load_with_no_subentry_id_is_skipped():
+    # test_load_with_no_subentry_id_is_skipped
     # Same "not every AdequacyLoadPlan is subentry-backed" guard
     # marginal_cost/profit_horizon's own downstream reader (apply_
     # commanded_state_guard()) already has to handle.

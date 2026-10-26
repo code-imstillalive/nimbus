@@ -33,6 +33,7 @@ NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 
 
 def test_the_spread_is_the_raw_range_and_no_source_is_none():
+    # test_the_spread_is_the_raw_range_and_no_source_is_none
     _v, spread, _m = pc.consolidate(
         {"a": [1.0, 1.0], "b": [3.0, 2.0], "c": [10.0, None]}
     )
@@ -40,15 +41,13 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none():
     assert pc.consolidate({"a": [None, 2.0], "b": [None]})[1] == [None, 0.0]
     assert pc.consolidate({"a": [None]})[2] == "none"
 
-
-def test_an_unscored_source_still_takes_a_spike_it_alone_forecasts():
+    # test_an_unscored_source_still_takes_a_spike_it_alone_forecasts
     values, _s, method = pc.consolidate(
         {"a": [0.30, 0.30], "b": [0.25, 5.00]}, {"a": 1.0}, spike_threshold=0.85
     )
     assert values == [0.30, 5.00] and method == "mixed"
 
-
-def test_the_aemo_markup_series_is_wholesale_plus_the_learned_markup():
+    # test_the_aemo_markup_series_is_wholesale_plus_the_learned_markup
     pts = [(NOW + timedelta(minutes=30), 0.10), (NOW + timedelta(minutes=60), 0.20)]
     grid = [NOW, NOW + timedelta(minutes=30), NOW + timedelta(minutes=90)]
     assert pc.aemo_markup_series(grid, pts, {1: 0.05}, lambda t: 1) == [
@@ -58,20 +57,7 @@ def test_the_aemo_markup_series_is_wholesale_plus_the_learned_markup():
     ]
     assert pc.aemo_markup_series(grid, [], {}, lambda t: 0) == [None] * 3
 
-
-# --- each source's running error ----------------------------------------------------------------
-
-
-def _train(tr, source_values, settled, n):
-    t = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
-    for k in range(n):
-        ti = t + timedelta(minutes=5 * k)
-        for name, v in source_values.items():
-            tr.record(name, ti - timedelta(minutes=2), ti, v)
-        tr.settle(pc.interval_key(ti), settled)
-
-
-def test_the_blend_corrects_a_premium_but_shows_and_spikes_on_the_sources_own_price():
+    # test_the_blend_corrects_a_premium_but_shows_and_spikes_on_the_sources_own_price
     tr = pc.SourceErrorTracker()
     _train(tr, {"primary": 0.14, "amber": 0.16}, 0.14, 200)
     now = datetime(2026, 10, 17, 3, 0, 30, tzinfo=UTC)
@@ -87,15 +73,7 @@ def test_the_blend_corrects_a_premium_but_shows_and_spikes_on_the_sources_own_pr
     )
     assert spiked[0] == pytest.approx(1.01)
 
-
-def _tracker_with(a, b):
-    tr = pc.SourceErrorTracker()
-    tr.mae = {"a": {"0-5 min": 0.01}, "b": {"0-5 min": 0.03}}
-    tr.samples = {"a": {"0-5 min": a}, "b": {"0-5 min": b}}
-    return tr
-
-
-def test_the_tracker_round_trips_and_a_damaged_or_older_state_loads():
+    # test_the_tracker_round_trips_and_a_damaged_or_older_state_loads
     tr = _tracker_with(60, 70)
     _train(tr, {"amber": 0.16}, 0.14, 3)
     tr.last_interval, tr.last_settled = 123, 0.31
@@ -107,6 +85,36 @@ def test_the_tracker_round_trips_and_a_damaged_or_older_state_loads():
         pc.SourceErrorTracker().to_dict()
     )
     assert pc.SourceErrorTracker.from_dict(None).mae == {}
+
+    # test_live_a_period_with_nothing_to_consolidate_keeps_its_own_price
+    _, raw, _, lab_i, _ = _apply(
+        True,
+        n_settled=1,
+        masks=[True, False, False, False],
+        imp=[0.30, 0.77, 0.77, 0.77],
+        labels=["primary", "fallback", "fallback", "fallback"],
+    )
+    assert raw == [0.30, 0.77, 0.77, 0.77]
+    assert lab_i == ["primary", "fallback", "fallback", "fallback"]
+
+
+# --- each source's running error ----------------------------------------------------------------
+
+
+def _train(tr, source_values, settled, n):
+    t = datetime(2026, 10, 16, 3, 0, tzinfo=UTC)
+    for k in range(n):
+        ti = t + timedelta(minutes=5 * k)
+        for name, v in source_values.items():
+            tr.record(name, ti - timedelta(minutes=2), ti, v)
+        tr.settle(pc.interval_key(ti), settled)
+
+
+def _tracker_with(a, b):
+    tr = pc.SourceErrorTracker()
+    tr.mae = {"a": {"0-5 min": 0.01}, "b": {"0-5 min": 0.03}}
+    tr.samples = {"a": {"0-5 min": a}, "b": {"0-5 min": b}}
+    return tr
 
 
 # --- apply_price_consolidation() ----------------------------------------------------------------
@@ -144,18 +152,6 @@ def _apply(live, aemo=None, n_settled=2, masks=None, imp=None, labels=None):
             lab_e,
         )
     return result, raw, exp, lab_i, lab_e
-
-
-def test_live_a_period_with_nothing_to_consolidate_keeps_its_own_price():
-    _, raw, _, lab_i, _ = _apply(
-        True,
-        n_settled=1,
-        masks=[True, False, False, False],
-        imp=[0.30, 0.77, 0.77, 0.77],
-        labels=["primary", "fallback", "fallback", "fallback"],
-    )
-    assert raw == [0.30, 0.77, 0.77, 0.77]
-    assert lab_i == ["primary", "fallback", "fallback", "fallback"]
 
 
 def test_a_failure_returns_none_and_touches_nothing(monkeypatch):
@@ -277,6 +273,7 @@ def test_main_live_moves_every_future_period_and_not_the_settled_one(freezer):
 
 
 def test_the_live_switch_is_declared_off_and_reaches_the_config():
+    # test_the_live_switch_is_declared_off_and_reaches_the_config
     from _ha_stubs import install_ha_stubs
 
     install_ha_stubs()
@@ -290,6 +287,56 @@ def test_the_live_switch_is_declared_off_and_reaches_the_config():
         const.CONF_SOLVER_PRICE_CONSOLIDATION_LIVE in sensor._SOLVER_SWITCH_ENTITY_KEYS
     )
 
+    # test_no_factor_or_no_aemo_point_is_none_never_a_guess
+    late = [(T0 + timedelta(minutes=10), 0.10)]
+    assert (
+        pc.retail_from_rrp_series(GRID, late, {}, _bucket, lambda t: K)[:2]
+        == [None] * 2
+    )
+    assert (
+        pc.retail_from_rrp_series(GRID, late, {}, _bucket, lambda t: None) == [None] * 6
+    )
+    assert pc.retail_from_rrp_series(GRID, None, {}, _bucket, lambda t: K) == [None] * 6
+
+    # test_by_contract_import_carries_gst_and_the_factor_is_reported
+    w = _Writer({"sensor.tni": "NCMA", "sensor.dlf": "BL0A"})
+    imp, exp, summary = prices._retail_from_rrp(
+        w, CODES, T0, GRID, [(T0, 0.10)], [], [], {}
+    )
+    assert summary == {
+        "tni": "NCMA",
+        "dlf_code": "BL0A",
+        "financial_year": "2026-27",
+        "value": round(K, 6),
+        "reason": "ok",
+    }
+    assert exp[0] == pytest.approx(0.08 * K)
+    assert imp[:2] == [
+        pytest.approx(0.08 * K * loss_factors.IMPORT_GST),
+        pytest.approx(0.10 * K * loss_factors.IMPORT_GST),
+    ]
+    assert [s(T0) for s in w.scales] == [
+        pytest.approx(K * loss_factors.IMPORT_GST),
+        pytest.approx(K),
+    ]
+
+    # test_without_usable_codes_nothing_is_priced_by_contract_and_it_says_why
+    plain = {"solver_regional_spot_current_price_sensor": "sensor.rrp_now"}
+    assert (
+        prices._retail_from_rrp(_Writer({}), plain, T0, GRID, [(T0, 0.1)], [], [], {})
+        is None
+    )
+    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "unavailable"})
+    imp, exp, summary = prices._retail_from_rrp(
+        w, CODES, T0, GRID, [(T0, 0.1)], [], [], {}
+    )
+    assert (imp, exp, summary["reason"]) == (None, None, "no_codes")
+    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "BL0A"})
+    assert (
+        prices._retail_from_rrp(w, CODES, T0, GRID, [], [], [], {})[2]["reason"]
+        == "unknown_tni"
+    )
+
 
 # --- the AEMO source priced by contract ---------------------------------------------------------
 
@@ -300,18 +347,6 @@ K = 0.9912 * 1.0594  # a site's MLF x DLF
 
 def _bucket(t):
     return t.hour * 12 + t.minute // 5
-
-
-def test_no_factor_or_no_aemo_point_is_none_never_a_guess():
-    late = [(T0 + timedelta(minutes=10), 0.10)]
-    assert (
-        pc.retail_from_rrp_series(GRID, late, {}, _bucket, lambda t: K)[:2]
-        == [None] * 2
-    )
-    assert (
-        pc.retail_from_rrp_series(GRID, late, {}, _bucket, lambda t: None) == [None] * 6
-    )
-    assert pc.retail_from_rrp_series(GRID, None, {}, _bucket, lambda t: K) == [None] * 6
 
 
 class _Writer:
@@ -334,44 +369,3 @@ CODES = {
     "solver_loss_factor_dlf_code_sensor": "sensor.dlf",
     "solver_regional_spot_current_price_sensor": "sensor.rrp_now",
 }
-
-
-def test_by_contract_import_carries_gst_and_the_factor_is_reported():
-    w = _Writer({"sensor.tni": "NCMA", "sensor.dlf": "BL0A"})
-    imp, exp, summary = prices._retail_from_rrp(
-        w, CODES, T0, GRID, [(T0, 0.10)], [], [], {}
-    )
-    assert summary == {
-        "tni": "NCMA",
-        "dlf_code": "BL0A",
-        "financial_year": "2026-27",
-        "value": round(K, 6),
-        "reason": "ok",
-    }
-    assert exp[0] == pytest.approx(0.08 * K)
-    assert imp[:2] == [
-        pytest.approx(0.08 * K * loss_factors.IMPORT_GST),
-        pytest.approx(0.10 * K * loss_factors.IMPORT_GST),
-    ]
-    assert [s(T0) for s in w.scales] == [
-        pytest.approx(K * loss_factors.IMPORT_GST),
-        pytest.approx(K),
-    ]
-
-
-def test_without_usable_codes_nothing_is_priced_by_contract_and_it_says_why():
-    plain = {"solver_regional_spot_current_price_sensor": "sensor.rrp_now"}
-    assert (
-        prices._retail_from_rrp(_Writer({}), plain, T0, GRID, [(T0, 0.1)], [], [], {})
-        is None
-    )
-    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "unavailable"})
-    imp, exp, summary = prices._retail_from_rrp(
-        w, CODES, T0, GRID, [(T0, 0.1)], [], [], {}
-    )
-    assert (imp, exp, summary["reason"]) == (None, None, "no_codes")
-    w = _Writer({"sensor.tni": "ZZZZ", "sensor.dlf": "BL0A"})
-    assert (
-        prices._retail_from_rrp(w, CODES, T0, GRID, [], [], [], {})[2]["reason"]
-        == "unknown_tni"
-    )

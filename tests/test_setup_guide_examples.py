@@ -57,6 +57,7 @@ def _render(rows, health=None):
 
 
 def test_missing_or_invalid_period_never_claims_current():
+    # test_missing_or_invalid_period_never_claims_current
     for rows in [
         None,
         [],
@@ -77,8 +78,7 @@ def test_missing_or_invalid_period_never_claims_current():
         assert "Period check: missing or invalid period" in output
         assert "covers now" not in output
 
-
-def test_period_boundaries_and_timezone():
+    # test_period_boundaries_and_timezone
     for start, hours, expected in [
         ("2026-10-04T11:00:00+00:00", 1, "expired period"),
         ("2026-10-04T12:05:00+00:00", 1, "future period"),
@@ -87,8 +87,7 @@ def test_period_boundaries_and_timezone():
     ]:
         assert f"Period check: {expected}" in _render([{"time": start, "hours": hours}])
 
-
-def test_health_diagnostics_do_not_hide_empty_or_missing_values():
+    # test_health_diagnostics_do_not_hide_empty_or_missing_values
     empty = _render([], {"recent_errors": [], "never_trained": []})
     missing = _render([])
     warning = _render([], {"recent_warnings": ["example warning"]})
@@ -97,8 +96,7 @@ def test_health_diagnostics_do_not_hide_empty_or_missing_values():
     assert "Recent errors: None" in missing
     assert "example warning" in warning
 
-
-def test_flat_price_templates_render_dollars_not_cents():
+    # test_flat_price_templates_render_dollars_not_cents
     text = GUIDE.read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if line.startswith("| State |"))
     templates = re.findall(r"`([^`]+)`", row)
@@ -106,8 +104,7 @@ def test_flat_price_templates_render_dollars_not_cents():
     values = [float(Environment().from_string(t).render()) for t in templates]
     assert values == [0.30, 0.05]
 
-
-def test_first_card_has_only_sensors_and_no_control_helpers():
+    # test_first_card_has_only_sensors_and_no_control_helpers
     blocks = _blocks("yaml")
     assert len(blocks) == 1
     card = yaml.safe_load(blocks[0])

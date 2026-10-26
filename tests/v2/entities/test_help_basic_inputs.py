@@ -15,6 +15,7 @@ from custom_components.nimbus_load import help_tab
 
 
 def test_every_basic_input_has_a_live_row():
+    # test_every_basic_input_has_a_live_row
     text = help_tab._BASIC_INPUTS
     for ref in (
         "${@option:solver_battery_soc_sensor}",
@@ -29,11 +30,9 @@ def test_every_basic_input_has_a_live_row():
         assert f"set e = '{ref}'" in text, ref
     assert "Review pricing suggestions" in text and "Settings → Repairs" in text
 
-
-def test_a_number_on_its_placeholder_is_not_ticked():
+    # test_a_number_on_its_placeholder_is_not_ticked
     row = help_tab._input_row("Battery capacity", "number.x", number=True, unit="kWh")
     assert "float(0) > 0.1" in row and "placeholder 0.1" in row
 
-
-def test_step_2_no_longer_sends_the_user_to_the_dashboard_first():
+    # test_step_2_no_longer_sends_the_user_to_the_dashboard_first
     assert "Solver settings screen 1 asks for capacity" in help_tab._START_HERE

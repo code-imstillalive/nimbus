@@ -93,10 +93,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         )
 
     def test_a_period_with_no_commitment_reads_nan_and_falls_through(self):
-        """`fixed_export_kw` is an array over the whole horizon with NaN
-        in every uncommitted period, so period 0 is routinely NaN on an
-        install that has P2P configured at all. That must not swallow a
-        genuinely unexplained value."""
+        # test_a_period_with_no_commitment_reads_nan_and_falls_through: `fixed_export_kw` is an array over the whole horizon with NaN
         label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(),
             _EXPORT_LIMIT_KW,
@@ -108,10 +105,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         )
         self.assertIn("unexpected", label)
 
-    def test_a_value_that_is_not_the_pin_is_still_unexpected(self):
-        """The guard this branch sits next to exists to surface bounds
-        nothing in the function models. Narrowing it to the pin keeps
-        that guard live for the next one."""
+        # test_a_value_that_is_not_the_pin_is_still_unexpected: The guard this branch sits next to exists to surface bounds
         label, _ = solver_publish.compute_binding_constraint_label(
             self._pinned_plan(value_kw=7.5),
             _EXPORT_LIMIT_KW,
@@ -123,9 +117,7 @@ class TestP2PPinnedExport(unittest.TestCase):
         )
         self.assertIn("unexpected", label)
 
-    def test_the_pin_only_applies_to_grid_export(self):
-        """`fixed_export_kw` bounds one variable. A battery value that
-        coincidentally equals the pin must not borrow its explanation."""
+        # test_the_pin_only_applies_to_grid_export: `fixed_export_kw` bounds one variable. A battery value that
         plan = _fake_plan(
             reduced_costs={"battery_discharge_0": 0.05},
             battery_discharge_kw=(self._PIN_KW,),

@@ -32,6 +32,7 @@ def _states(states):
 
 
 def test_price_now_falls_back_on_a_non_finite_state():
+    # test_price_now_falls_back_on_a_non_finite_state
     for text in NON_FINITE:
         state = {"state": text, "attributes": {"unit_of_measurement": "$/kWh"}}
         with _states({"sensor.price": state}):
@@ -39,8 +40,7 @@ def test_price_now_falls_back_on_a_non_finite_state():
         assert value == pytest.approx(0.3)
         assert math.isfinite(value)
 
-
-def test_the_aemo_cross_check_skips_a_non_finite_spot_price():
+    # test_the_aemo_cross_check_skips_a_non_finite_spot_price
     for text in NON_FINITE:
         with _states({"sensor.spot": {"state": text}}):
             result = solver_writer.check_aemo_p5min_disagreement(

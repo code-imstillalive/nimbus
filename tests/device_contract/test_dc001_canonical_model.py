@@ -102,7 +102,8 @@ def _with(doc, device):
 # --- DC-R02 / F06 -----------------------------------------------------------
 
 
-def test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation() -> None:
+def test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation():
+    # test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation
     doc = _minimal()
     reordered = copy.deepcopy(doc)
     reordered["devices"].reverse()
@@ -116,21 +117,7 @@ def test_dc_r02_f06_reordering_devices_changes_neither_ids_nor_validation() -> N
     back["devices"].reverse()
     assert dc.serialise(back) == dc.serialise(doc)
 
-
-# --- DC-R16 / F11 -----------------------------------------------------------
-
-
-def _derived(device_id, role, depends_on):
-    return {
-        "source": {"kind": "derived", "calculation": "sum", "depends_on": depends_on},
-        "provenance": {"origin": "derived", "confirmed": True},
-    }
-
-
-# --- #1574 "Shared hardware" ------------------------------------------------
-
-
-def test_shared_hardware_one_integration_three_logical_devices() -> None:
+    # test_shared_hardware_one_integration_three_logical_devices
     doc = _with(
         _minimal(),
         {
@@ -167,20 +154,7 @@ def test_shared_hardware_one_integration_three_logical_devices() -> None:
         "solar",
     ]
 
-
-# --- F02, DC-001's structural slice ------------------------------------------
-
-
-def _solar(i, entity, boundary):
-    return {
-        "id": f"solar_{i}",
-        "kind": "solar",
-        "boundary": {"id": boundary, "domain": "dc", "phases": "all"},
-        "bindings": {"power": _binding(entity, "generation")},
-    }
-
-
-def test_f02_a_shared_inverter_limit_validates_and_a_capacity_needs_a_basis() -> None:
+    # test_f02_a_shared_inverter_limit_validates_and_a_capacity_needs_a_basis
     doc = _with(_minimal(), _solar(1, "sensor.inv1", "b1"))
     battery = {
         "id": "battery_home",
@@ -193,6 +167,71 @@ def test_f02_a_shared_inverter_limit_validates_and_a_capacity_needs_a_basis() ->
         {"devices": ["solar_1", "battery_home"], "quantity": "ac_power", "limit_kw": 10}
     )
     assert _codes(doc) == ["capacity_basis_missing"]
+
+    # test_every_problem_code_has_a_negative_case
+    for code in _CODES:
+        assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
+
+    # test_the_spec_table_and_the_tests_name_the_same_codes
+    spec = (
+        Path(__file__).resolve().parents[2]
+        / "docs/specs/device-contract/001-canonical-device-model.md"
+    ).read_text(encoding="utf-8")
+    table = spec[
+        spec.index("| code | rule |") : spec.index("What it deliberately does")
+    ]
+    import re
+
+    # The codes are the first column only; the rule column names fields too.
+    named = {
+        code
+        for line in table.splitlines()
+        if line.startswith("| `")
+        for code in re.findall(r"`([a-z_]+)`", line.split("|")[1])
+    }
+    assert named == set(_CODES)
+
+    # test_parse_refuses_a_non_object
+    with pytest.raises(TypeError):
+        dc.parse("[]")
+
+    # test_no_module_imports_the_device_contract_yet
+    offenders = [
+        str(p.relative_to(_PKG))
+        for p in _PKG.rglob("*.py")
+        if p.name not in _DC_BUILDERS
+        and (
+            "device_contract" in p.read_text(encoding="utf-8")
+            or "device_import" in p.read_text(encoding="utf-8")
+            or "device_storage" in p.read_text(encoding="utf-8")
+        )
+    ]
+    assert offenders == []
+
+
+# --- DC-R16 / F11 -----------------------------------------------------------
+
+
+def _derived(device_id, role, depends_on):
+    return {
+        "source": {"kind": "derived", "calculation": "sum", "depends_on": depends_on},
+        "provenance": {"origin": "derived", "confirmed": True},
+    }
+
+
+# --- #1574 "Shared hardware" ------------------------------------------------
+
+
+# --- F02, DC-001's structural slice ------------------------------------------
+
+
+def _solar(i, entity, boundary):
+    return {
+        "id": f"solar_{i}",
+        "kind": "solar",
+        "boundary": {"id": boundary, "domain": "dc", "phases": "all"},
+        "bindings": {"power": _binding(entity, "generation")},
+    }
 
 
 # --- one negative test per problem code (DC-000 non-vacuity) -----------------
@@ -325,37 +364,7 @@ _CODES = (
 )
 
 
-def test_every_problem_code_has_a_negative_case():
-    for code in _CODES:
-        assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
-
-
-def test_the_spec_table_and_the_tests_name_the_same_codes() -> None:
-    spec = (
-        Path(__file__).resolve().parents[2]
-        / "docs/specs/device-contract/001-canonical-device-model.md"
-    ).read_text(encoding="utf-8")
-    table = spec[
-        spec.index("| code | rule |") : spec.index("What it deliberately does")
-    ]
-    import re
-
-    # The codes are the first column only; the rule column names fields too.
-    named = {
-        code
-        for line in table.splitlines()
-        if line.startswith("| `")
-        for code in re.findall(r"`([a-z_]+)`", line.split("|")[1])
-    }
-    assert named == set(_CODES)
-
-
 # --- round trip ----------------------------------------------------------------
-
-
-def test_parse_refuses_a_non_object() -> None:
-    with pytest.raises(TypeError):
-        dc.parse("[]")
 
 
 # --- no consumer reads it yet (until DC-006) ------------------------------------
@@ -397,17 +406,3 @@ _DC_BUILDERS = frozenset(
         "device_forecasts.py",
     }
 )
-
-
-def test_no_module_imports_the_device_contract_yet() -> None:
-    offenders = [
-        str(p.relative_to(_PKG))
-        for p in _PKG.rglob("*.py")
-        if p.name not in _DC_BUILDERS
-        and (
-            "device_contract" in p.read_text(encoding="utf-8")
-            or "device_import" in p.read_text(encoding="utf-8")
-            or "device_storage" in p.read_text(encoding="utf-8")
-        )
-    ]
-    assert offenders == []

@@ -56,15 +56,12 @@ def _run_ratchet(*extra_args: str) -> subprocess.CompletedProcess[str]:
 
 class TestMypyRatchetGoodCase(unittest.TestCase):
     def test_clean_fixture_at_zero_baseline_passes(self):
+        # test_clean_fixture_at_zero_baseline_passes
         proc = _run_ratchet("--target", _OK_TARGET, "--baseline", "0")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("OK -- 0 finding(s)", proc.stdout)
 
-    def test_bad_fixture_at_a_generous_baseline_passes(self):
-        """The count itself is unchanged; only whether it EXCEEDS the
-        baseline matters. A baseline at or above the real count must
-        still pass -- this is the "ratchet only tightens, never demands
-        perfection it wasn't given" half of the contract."""
+        # test_bad_fixture_at_a_generous_baseline_passes: The count itself is unchanged; only whether it EXCEEDS the
         proc = _run_ratchet("--target", _BAD_TARGET, "--baseline", "2")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertIn("OK -- 2 finding(s)", proc.stdout)
@@ -77,9 +74,7 @@ class TestMypyRatchetGoodCase(unittest.TestCase):
 
 class TestMypyRatchetBadCase(unittest.TestCase):
     def test_bad_fixture_exceeding_a_low_baseline_fails(self):
-        """The real fixture case the task asks for: a fake baseline
-        claiming a low count, run against a module with real type errors
-        exceeding it."""
+        # test_bad_fixture_exceeding_a_low_baseline_fails: The real fixture case the task asks for: a fake baseline
         proc = _run_ratchet("--target", _BAD_TARGET, "--baseline", "0")
         self.assertEqual(
             proc.returncode,
@@ -93,11 +88,7 @@ class TestMypyRatchetBadCase(unittest.TestCase):
         # number gives a future reader nothing to act on.
         self.assertIn("Incompatible types in assignment", proc.stdout)
 
-    def test_a_fake_baseline_file_with_a_low_count_also_fails(self):
-        """Same as the case above, but via --baseline-file (a real file
-        on disk claiming a low count) rather than --baseline (a bare
-        integer) -- proving the file-reading path, not just the
-        CLI-override path, correctly triggers a failure."""
+        # test_a_fake_baseline_file_with_a_low_count_also_fails: Same as the case above, but via --baseline-file (a real file
         with self._temp_baseline_file(count=0) as baseline_path:
             proc = _run_ratchet(
                 "--target", _BAD_TARGET, "--baseline-file", baseline_path

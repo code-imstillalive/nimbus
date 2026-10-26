@@ -107,8 +107,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
     policy asked for. Each is separately reachable and separately named."""
 
     def test_a_thin_sample_is_refused_even_when_persistence_won_every_day(self):
-        """#937's own caveat is that 14 days is already a small sample. Three
-        days, even three unanimous ones, is a verdict about three days."""
+        # test_a_thin_sample_is_refused_even_when_persistence_won_every_day: #937's own caveat is that 14 days is already a small sample. Three
         d = select_forecast_source(
             value_add_by_day={
                 "2026-09-10": -2.0,
@@ -123,11 +122,7 @@ class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
         self.assertEqual(d.persistence_weight, 0.0)
         self.assertEqual(d.reason, fss.REASON_INSUFFICIENT_SCORED_DAYS)
 
-    def test_a_forecaster_losing_by_pennies_is_left_alone(self):
-        """The threshold's whole purpose. A mean of -3c/day is a forecaster
-        indistinguishable from persistence, and #937's own series has three days
-        inside +-10c -- not a reason to change what a live battery dispatches
-        on."""
+        # test_a_forecaster_losing_by_pennies_is_left_alone: The threshold's whole purpose. A mean of -3c/day is a forecaster
         d = select_forecast_source(
             value_add_by_day={f"2026-09-{day:02d}": -0.03 for day in range(5, 13)},
             today=TODAY,
@@ -149,8 +144,7 @@ class TestTheTrailingWindowIsCalendarBased(unittest.TestCase):
     """
 
     def test_a_stale_record_thins_rather_than_lying(self):
-        """Fourteen unanimous days, all two months old. Most-recent-N would act
-        on them; a calendar window sees nothing and refuses."""
+        # test_a_stale_record_thins_rather_than_lying: Fourteen unanimous days, all two months old. Most-recent-N would act
         stale = {f"2026-07-{day:02d}": -2.0 for day in range(1, 15)}
         d = select_forecast_source(
             value_add_by_day=stale, today=TODAY, policy=fss.POLICY_PERSISTENCE
@@ -158,7 +152,7 @@ class TestTheTrailingWindowIsCalendarBased(unittest.TestCase):
         self.assertEqual(d.days_scored, 0)
         self.assertEqual(d.reason, fss.REASON_NO_TRAILING_RECORD)
 
-    def test_a_future_dated_row_is_not_evidence(self):
+        # test_a_future_dated_row_is_not_evidence
         record = dict(ISSUE_937_SERIES)
         record["2026-12-25"] = -99.0
         d = select_forecast_source(
@@ -170,7 +164,7 @@ class TestTheTrailingWindowIsCalendarBased(unittest.TestCase):
         self.assertEqual(d.days_scored, 14)
         self.assertGreater(d.mean_value_add_dollars, -1.0)
 
-    def test_a_zero_or_negative_window_reads_nothing(self):
+        # test_a_zero_or_negative_window_reads_nothing
         d = select_forecast_source(
             value_add_by_day=ISSUE_937_SERIES,
             today=TODAY,
@@ -187,6 +181,7 @@ class TestAMalformedRecordCannotDecideAnything(unittest.TestCase):
     decision."""
 
     def test_unparseable_keys_and_values_are_skipped(self):
+        # test_unparseable_keys_and_values_are_skipped
         record = dict(ISSUE_937_SERIES)
         record.update(
             {
@@ -204,7 +199,7 @@ class TestAMalformedRecordCannotDecideAnything(unittest.TestCase):
         )
         self.assertEqual(d.days_scored, 13)  # the 14 minus the unparseable one
 
-    def test_a_non_finite_value_cannot_poison_the_mean(self):
+        # test_a_non_finite_value_cannot_poison_the_mean
         record = dict(ISSUE_937_SERIES)
         record["2026-09-06"] = float("nan")
         record["2026-09-07"] = float("-inf")
@@ -222,19 +217,14 @@ class TestTheBlendArithmetic(unittest.TestCase):
     """`blend_load_forecast()` is what actually reaches the LP."""
 
     def test_zero_weight_needs_no_persistence_array_at_all(self):
-        """The no-change path must not be able to fail on the shape of an array
-        it does not use -- a length check firing at weight 0.0 would turn a
-        no-op into a crash on the live dispatch path."""
+        # test_zero_weight_needs_no_persistence_array_at_all: The no-change path must not be able to fail on the shape of an array
         self.assertEqual(blend_load_forecast([1.0, 2.0], [], 0.0), [1.0, 2.0])
 
-    def test_a_length_mismatch_raises_rather_than_truncating(self):
-        """A silently short load array is the shape that costs real money: the
-        periods past the end become whatever the LP's padding does, on an input
-        the household believes is a forecast."""
+        # test_a_length_mismatch_raises_rather_than_truncating: A silently short load array is the shape that costs real money: the
         with self.assertRaises(ValueError):
             blend_load_forecast([1.0, 2.0, 3.0], [1.0, 2.0], 0.5)
 
-    def test_a_weight_outside_zero_to_one_raises(self):
+        # test_a_weight_outside_zero_to_one_raises
         for bad in (-0.1, 1.1):
             with self.assertRaises(ValueError):
                 blend_load_forecast([1.0], [2.0], bad)

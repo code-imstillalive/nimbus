@@ -37,6 +37,7 @@ class TestTheCardNoLongerTellsHouseholdsTheirPackIsWrong(unittest.TestCase):
         return CARD_JS.read_text(encoding="utf-8")
 
     def test_the_card_does_not_read_the_retracted_field(self):
+        # test_the_card_does_not_read_the_retracted_field
         code = [
             line
             for line in self._source().splitlines()
@@ -45,7 +46,7 @@ class TestTheCardNoLongerTellsHouseholdsTheirPackIsWrong(unittest.TestCase):
         ]
         self.assertEqual(code, [], "the card reads the retracted field again")
 
-    def test_the_sentence_itself_is_gone(self):
+        # test_the_sentence_itself_is_gone
         self.assertNotIn("would account for", self._source())
 
 
@@ -66,6 +67,7 @@ class TestTheReasoningIsRecordedWhereItWillBeRead(unittest.TestCase):
     naturally re-add it. The comment block is the trace."""
 
     def test_the_writer_explains_why_there_is_no_measurement(self):
+        # test_the_writer_explains_why_there_is_no_measurement
         src = _writer_source()
         self.assertIn(
             "there is deliberately NO capacity measurement here",
@@ -73,7 +75,7 @@ class TestTheReasoningIsRecordedWhereItWillBeRead(unittest.TestCase):
         )
         self.assertIn("Do not reintroduce this from a power sensor", src)
 
-    def test_it_names_this_test_so_the_guard_is_findable(self):
+        # test_it_names_this_test_so_the_guard_is_findable
         self.assertIn(
             "test_1172_the_regret_card_drops_the_measured_capacity",
             _writer_source(),

@@ -93,8 +93,7 @@ def _source_value(binding):
 
 
 def test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity():
-    """#1528, carried onto #1574 18 Oct: grid, battery, solar and the loads,
-    and their inclusion, from the Energy Dashboard alone."""
+    # test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity: #1528, carried onto #1574 18 Oct: grid, battery, solar and the loads,
     p = dd.propose_from_energy_dashboard(PREFS, site=SITE)
     doc = p.document
     kinds = {d["id"]: d["kind"] for d in doc["devices"]}
@@ -151,9 +150,7 @@ def test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity(
     }
     assert {_source_value(b) for _d, _r, b in _bindings(doc)} == named
 
-
-def test_two_solar_sources_are_two_solar_devices():
-    """Two inverters are two devices (DC-001 / F02)."""
+    # test_two_solar_sources_are_two_solar_devices: Two inverters are two devices (DC-001 / F02).
     prefs = {
         "energy_sources": [
             {"type": "solar", "stat_energy_from": "sensor.pv1_kwh"},
@@ -169,8 +166,7 @@ def test_two_solar_sources_are_two_solar_devices():
     ]
     assert p.problems == []
 
-
-def test_included_in_an_unknown_statistic_is_a_finding_not_a_relationship():
+    # test_included_in_an_unknown_statistic_is_a_finding_not_a_relationship
     prefs = {
         "device_consumption": [
             {"stat_consumption": "sensor.pump_kwh", "included_in_stat": "sensor.nope"}
@@ -184,8 +180,7 @@ def test_included_in_an_unknown_statistic_is_a_finding_not_a_relationship():
         ("included_in_unknown_statistic", "sensor.nope")
     ]
 
-
-def test_a_fixed_price_is_reported_not_proposed():
+    # test_a_fixed_price_is_reported_not_proposed
     prefs = {
         "energy_sources": [
             {
@@ -202,9 +197,7 @@ def test_a_fixed_price_is_reported_not_proposed():
         ("fixed_price_not_proposed", 0.28)
     ]
 
-
-def test_dc_r15_discovery_is_pure():
-    """No Home Assistant import, so it cannot call a service."""
+    # test_dc_r15_discovery_is_pure: No Home Assistant import, so it cannot call a service.
     tree = ast.parse((_PKG / "device_discovery.py").read_text(encoding="utf-8"))
     imported = {
         alias.name

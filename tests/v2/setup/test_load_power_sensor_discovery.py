@@ -85,9 +85,7 @@ class _DiscoveryTestBase(unittest.TestCase):
 
 class TestDiscoversTheRealDevicePair(_DiscoveryTestBase):
     def test_a_user_device_class_override_wins_over_the_original(self):
-        """HA lets a user override device_class on the registry entry, and
-        renders using the override -- discovery must apply the same
-        precedence or it would disagree with what the user sees."""
+        # test_a_user_device_class_override_wins_over_the_original: HA lets a user override device_class on the registry entry, and
         entries = [
             _FakeRegistryEntry("water_heater.hws", "dev"),
             _FakeRegistryEntry(
@@ -96,11 +94,7 @@ class TestDiscoversTheRealDevicePair(_DiscoveryTestBase):
         ]
         self.assertEqual(self._run(entries, "water_heater.hws"), "sensor.mislabelled")
 
-    def test_discovery_is_by_device_not_by_name(self):
-        """The core anti-regression: a sensor named exactly like the
-        device but belonging to a DIFFERENT device must not be picked.
-        A name-shaped implementation would pass every other test in this
-        file and fail this one."""
+        # test_discovery_is_by_device_not_by_name: The core anti-regression: a sensor named exactly like the
         entries = [
             _FakeRegistryEntry("water_heater.wwk302", "dev_hws"),
             # Same naming, different physical device.
@@ -113,9 +107,7 @@ class TestDiscoversTheRealDevicePair(_DiscoveryTestBase):
 
 class TestRefusesToGuess(_DiscoveryTestBase):
     def test_multiple_power_sensors_refuses_rather_than_picking_one(self):
-        """A device exposing per-phase power is a real shape. Silently
-        picking one would be the same confidently-wrong class as #118's
-        $46/day misplan -- refuse and say so."""
+        # test_multiple_power_sensors_refuses_rather_than_picking_one: A device exposing per-phase power is a real shape. Silently
         entries = [
             _FakeRegistryEntry("water_heater.hws", "dev"),
             _FakeRegistryEntry("sensor.hws_power_l1", "dev", original="power"),
@@ -128,7 +120,7 @@ class TestRefusesToGuess(_DiscoveryTestBase):
             any("refusing to guess" in m for m in caught.output), caught.output
         )
 
-    def test_an_entity_with_no_device_returns_none(self):
+        # test_an_entity_with_no_device_returns_none
         entries = [_FakeRegistryEntry("water_heater.hws", None)]
         self.assertIsNone(self._run(entries, "water_heater.hws"))
 

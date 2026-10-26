@@ -31,20 +31,19 @@ baseline = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(baseline)
 
 
-def test_the_committed_inventory_is_the_pinned_baseline() -> None:
+def test_the_committed_inventory_is_the_pinned_baseline():
+    # test_the_committed_inventory_is_the_pinned_baseline
     assert COMMITTED["baseline"] == REG["baseline"]
     s = COMMITTED["summary"]
     assert s["config_keys"] == len(COMMITTED["config"])
     assert s["dynamic_domain_service_calls"] == 0  # every service domain resolved
 
-
-def test_the_inventory_is_deterministic() -> None:
+    # test_the_inventory_is_deterministic
     a = json.dumps(baseline.inventory(ROOT), sort_keys=True)
     b = json.dumps(baseline.inventory(ROOT), sort_keys=True)
     assert a == b
 
-
-def test_equipment_is_only_operated_from_solver_dispatch() -> None:
+    # test_equipment_is_only_operated_from_solver_dispatch
     inv = baseline.inventory(ROOT)
     actuating = [s for s in inv["service_calls"] if s["control_capable"]]
     assert actuating, "found no control-capable call: the scanner is broken"
@@ -54,7 +53,6 @@ def test_equipment_is_only_operated_from_solver_dispatch() -> None:
         s for s in inv["service_calls"] if s["domain"] == "<dynamic>"
     ]
 
-
-def test_every_config_key_is_read_somewhere() -> None:
+    # test_every_config_key_is_read_somewhere
     inv = baseline.inventory(ROOT)
     assert inv["never_read"] == []

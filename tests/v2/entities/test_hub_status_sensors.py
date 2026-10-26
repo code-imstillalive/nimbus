@@ -39,6 +39,7 @@ CONFIGURED = {"sensor.nimbus_solver_config": _state("configured")}
 
 
 def test_the_status_is_the_first_thing_wrong_or_working_well():
+    # test_the_status_is_the_first_thing_wrong_or_working_well
     for states, word, reason in [
         ({}, "Not yet configured", "Solver settings wizard"),
         (
@@ -86,8 +87,7 @@ def test_the_status_is_the_first_thing_wrong_or_working_well():
         assert reason in s.extra_state_attributes["reason"]
         assert s.entity_id == "sensor.nimbus_status"
 
-
-def test_the_health_report_counts_errors_and_lists_each_forecasters_state():
+    # test_the_health_report_counts_errors_and_lists_each_forecasters_state
     health.reset_log_buffer_for_tests()
     health.install_log_buffer_handler()
     logging.getLogger("custom_components.nimbus_load.x").error("broken")
@@ -124,8 +124,7 @@ def test_the_health_report_counts_errors_and_lists_each_forecasters_state():
     assert status["b"]["mode"] == "unscheduled"
     assert {"recent_errors", "subentry_status"} <= s._unrecorded_attributes
 
-
-def test_price_response_latency_keeps_the_last_and_a_rolling_spread():
+    # test_price_response_latency_keeps_the_last_and_a_rolling_spread
     s = sm.NimbusSolverPriceResponseLatencySensor(SimpleNamespace(entry_id="hub1"), "1")
     writes = []
     s.hass = SimpleNamespace()

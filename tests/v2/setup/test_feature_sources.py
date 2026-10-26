@@ -73,10 +73,7 @@ def _feature_accessors() -> list[str]:
 
 
 def test_every_feature_accessor_is_covered_and_guarded():
-    """Generic: every `*_sensor` accessor on the coordinator, including one
-    added after this test, refuses the subentry's own sensor. Every hub
-    option ending in `_sensor` is pointed at that sensor at once, so a new
-    accessor reading a new option is caught without editing this file."""
+    # test_every_feature_accessor_is_covered_and_guarded: Generic: every `*_sensor` accessor on the coordinator, including one
     accessors = _feature_accessors()
     assert set(accessors) >= {a for _, _, a in FEATURES}
     sensor_keys = [
@@ -90,6 +87,22 @@ def test_every_feature_accessor_is_covered_and_guarded():
         for name in accessors:
             assert getattr(coord, name) is None, (name, subentry_type)
 
+    # test_a_model_that_learned_from_its_own_source_is_flagged_for_retrain
+    coord = _coordinator({CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
+    coord._trained = _model_with("temp_c", [-1.0, 0.0, 1.5])
+    assert coord._trained_on_own_source() is True
+
+    # test_a_model_retrained_without_it_is_not_flagged_again
+    coord = _coordinator({CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
+    coord._trained = _model_with("temp_c", [0.0, 0.0, 0.0])
+    assert coord._trained_on_own_source() is False
+
+    # test_no_model_or_an_unreadable_one_is_not_flagged
+    coord = _coordinator({CONF_HUMIDITY_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
+    for trained in (None, MagicMock(), SimpleNamespace(x_train=np.zeros((0, 3)))):
+        coord._trained = trained
+        assert coord._trained_on_own_source() is False
+
 
 # --- a model persisted before the guard is replaced at startup -------------
 
@@ -98,22 +111,3 @@ def _model_with(column: str, values) -> SimpleNamespace:
     x = np.zeros((len(values), len(FEATURE_NAMES)))
     x[:, FEATURE_NAMES.index(column)] = values
     return SimpleNamespace(x_train=x)
-
-
-def test_a_model_that_learned_from_its_own_source_is_flagged_for_retrain():
-    coord = _coordinator({CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
-    coord._trained = _model_with("temp_c", [-1.0, 0.0, 1.5])
-    assert coord._trained_on_own_source() is True
-
-
-def test_a_model_retrained_without_it_is_not_flagged_again():
-    coord = _coordinator({CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
-    coord._trained = _model_with("temp_c", [0.0, 0.0, 0.0])
-    assert coord._trained_on_own_source() is False
-
-
-def test_no_model_or_an_unreadable_one_is_not_flagged():
-    coord = _coordinator({CONF_HUMIDITY_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
-    for trained in (None, MagicMock(), SimpleNamespace(x_train=np.zeros((0, 3)))):
-        coord._trained = trained
-        assert coord._trained_on_own_source() is False

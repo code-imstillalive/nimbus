@@ -81,6 +81,7 @@ def _kinds(r):
 
 
 def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
+    # test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so
     prefs = copy.deepcopy(PREFS)
     prefs["energy_sources"][1]["stat_rate"] = "sensor.battery_power_renamed"
     regs = {**REGS, "sensor.battery_power_renamed": "r_bat"}
@@ -100,8 +101,7 @@ def test_dc_r02_f06_a_renamed_entity_is_the_same_source_and_says_so():
     ]
     assert not [q for q in r.questions if q["code"] == "replaced_equipment"]
 
-
-def test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap():
+    # test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap
     prefs = copy.deepcopy(PREFS)
     prefs["energy_sources"][1]["stat_rate"] = "sensor.new_battery_power"
     regs = {**REGS, "sensor.new_battery_power": "r_bat_new"}
@@ -113,8 +113,7 @@ def test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap():
     assert q["candidate"]["source"] == "sensor.new_battery_power"
     assert r.differences == []
 
-
-def test_a_new_device_is_proposed_and_a_missing_one_is_kept():
+    # test_a_new_device_is_proposed_and_a_missing_one_is_kept
     stored = _stored()
     prefs = copy.deepcopy(PREFS)
     prefs["device_consumption"] = [
@@ -132,8 +131,7 @@ def test_a_new_device_is_proposed_and_a_missing_one_is_kept():
         (f["code"], f["device"]) for f in r.findings if f["code"] == "not_seen"
     ] == [("not_seen", "load_pool")]
 
-
-def test_a_discovered_device_matching_two_stored_ones_is_asked():
+    # test_a_discovered_device_matching_two_stored_ones_is_asked
     stored = _stored()
     pool = next(d for d in stored["devices"] if d["id"] == "load_pool")
     twin = copy.deepcopy(pool)

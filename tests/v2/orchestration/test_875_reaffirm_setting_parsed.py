@@ -15,6 +15,7 @@ from solver_dispatch import guard
 
 
 def test_a_configured_wait_is_read_in_seconds():
+    # test_a_configured_wait_is_read_in_seconds
     for raw, seconds in [
         (5, 300.0),
         ("2.5", 150.0),
@@ -23,8 +24,7 @@ def test_a_configured_wait_is_read_in_seconds():
     ]:
         assert guard._resolve_reaffirm_after_seconds({KEY: raw}) == seconds
 
-
-def test_unset_garbled_or_negative_falls_back_to_the_default():
+    # test_unset_garbled_or_negative_falls_back_to_the_default
     for raw in [None, "soon", "", [], -1, "-0.5"]:
         data = {} if raw is None else {KEY: raw}
         assert guard._resolve_reaffirm_after_seconds(data) is None

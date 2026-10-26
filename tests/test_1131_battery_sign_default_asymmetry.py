@@ -73,6 +73,7 @@ class TestTheAsymmetryIsStillReal(unittest.TestCase):
     longer exists."""
 
     def test_the_home_battery_field_is_optional_with_no_default(self):
+        # test_the_home_battery_field_is_optional_with_no_default
         source = _read(_HUB)
         match = re.search(
             r"vol\.Optional\(\s*CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE",
@@ -93,7 +94,7 @@ class TestTheAsymmetryIsStillReal(unittest.TestCase):
             "resolves falsy by omission",
         )
 
-    def test_the_participant_field_is_required_and_defaults_true(self):
+        # test_the_participant_field_is_required_and_defaults_true
         source = _read(_PARTICIPANT)
         self.assertRegex(
             source,
@@ -123,27 +124,23 @@ class TestTheAsymmetryIsDocumented(unittest.TestCase):
         return source[start:end]
 
     def test_the_declaration_carries_a_comment(self):
+        # test_the_declaration_carries_a_comment
         self.assertIn("nimbus issue #1131", _read(_PARTICIPANT))
 
-    def test_it_says_the_default_is_opposite(self):
+        # test_it_says_the_default_is_opposite
         self.assertIn("OPPOSITE", self._comment_block())
 
-    def test_it_names_the_counterpart_explicitly(self):
+        # test_it_names_the_counterpart_explicitly
         block = self._comment_block()
         self.assertIn("CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE", block)
         self.assertIn("hub_options.py", block)
 
-    def test_it_does_not_invent_a_justification(self):
-        """The honest half. A comment asserting a reason nobody recorded
-        would be worse than the silence it replaces — it would read as
-        evidence."""
+        # test_it_does_not_invent_a_justification: The honest half. A comment asserting a reason nobody recorded
         block = self._comment_block()
         self.assertIn("not established", block)
         self.assertIn("No claim either way", block)
 
-    def test_it_names_the_cost_of_getting_it_wrong(self):
-        """Without this the comment is trivia. The point is that the
-        failure is silent and mimics a known confound."""
+        # test_it_names_the_cost_of_getting_it_wrong: Without this the comment is trivia. The point is that the
         block = self._comment_block()
         self.assertIn("does\n        # not error", block)
         self.assertIn("#535", block)

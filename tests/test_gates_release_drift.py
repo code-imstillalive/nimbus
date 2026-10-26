@@ -30,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 class TestTheThreshold(unittest.TestCase):
     def test_over_the_threshold_fails_and_names_both_numbers(self):
+        # test_over_the_threshold_fails_and_names_both_numbers
         drift = rd.evaluate(
             newest_tag="v0.94.426",
             manifest_version="0.94.426",
@@ -41,10 +42,7 @@ class TestTheThreshold(unittest.TestCase):
         self.assertIn("16 commits", drift.problems[0])
         self.assertIn("threshold of 8", drift.problems[0])
 
-    def test_exactly_at_the_threshold_is_not_drift(self):
-        """A boundary worth pinning rather than leaving to `>` vs `>=`: the
-        threshold is the largest ACCEPTABLE count, so 8 passes and 9 does not.
-        """
+        # test_exactly_at_the_threshold_is_not_drift: A boundary worth pinning rather than leaving to `>` vs `>=`: the
         at = rd.evaluate(
             newest_tag="v1.0.0",
             manifest_version="1.0.0",
@@ -62,7 +60,7 @@ class TestTheThreshold(unittest.TestCase):
         self.assertFalse(at.failed)
         self.assertTrue(over.failed)
 
-    def test_a_clean_state_reports_nothing(self):
+        # test_a_clean_state_reports_nothing
         drift = rd.evaluate(
             newest_tag="v0.94.427",
             manifest_version="0.94.427",
@@ -88,6 +86,7 @@ class TestTheRealIncidentStaysCaught(unittest.TestCase):
     """
 
     def test_the_default_threshold_would_have_caught_it(self):
+        # test_the_default_threshold_would_have_caught_it
         drift = rd.evaluate(
             newest_tag="v0.94.426",
             manifest_version="0.94.426",
@@ -100,12 +99,7 @@ class TestTheRealIncidentStaysCaught(unittest.TestCase):
             f"derived from (currently {rd.DEFAULT_MAX_SHIPPED_COMMITS})",
         )
 
-    def test_the_ordinary_cadence_does_not_trip_it(self):
-        """The other half, and the reason the threshold is 8 rather than 2:
-        the median interval in this repo is 1-2 shipped commits and 27 of the
-        30 most recent intervals are at or below 6. A gate that fires on the
-        normal rhythm gets ignored, which is worse than no gate.
-        """
+        # test_the_ordinary_cadence_does_not_trip_it: The other half, and the reason the threshold is 8 rather than 2:
         for count in (1, 1, 2, 2, 3, 3, 3, 4, 6, 6):
             with self.subTest(shipped_commits=count):
                 drift = rd.evaluate(
@@ -121,6 +115,7 @@ class TestCannotMeasureIsAFailure(unittest.TestCase):
     """Applying #1400's own lesson to a new gate on the day it is written."""
 
     def test_no_visible_tag_fails_rather_than_passing(self):
+        # test_no_visible_tag_fails_rather_than_passing
         drift = rd.evaluate(
             newest_tag=None,
             manifest_version="0.94.427",
@@ -131,7 +126,7 @@ class TestCannotMeasureIsAFailure(unittest.TestCase):
         self.assertIn("could not be measured", drift.problems[0])
         self.assertIn("has not passed", drift.problems[0])
 
-    def test_missing_tags_can_be_declared_deliberately(self):
+        # test_missing_tags_can_be_declared_deliberately
         drift = rd.evaluate(
             newest_tag=None,
             manifest_version="0.94.427",
@@ -144,6 +139,7 @@ class TestCannotMeasureIsAFailure(unittest.TestCase):
 
 class TestManifestVersusTag(unittest.TestCase):
     def test_manifest_ahead_means_a_tag_was_never_pushed(self):
+        # test_manifest_ahead_means_a_tag_was_never_pushed
         drift = rd.evaluate(
             newest_tag="v0.94.426",
             manifest_version="0.94.427",
@@ -154,7 +150,7 @@ class TestManifestVersusTag(unittest.TestCase):
         self.assertIn("never", drift.problems[0])
         self.assertIn("Tag it", drift.problems[0])
 
-    def test_manifest_behind_means_the_tag_misstates_its_contents(self):
+        # test_manifest_behind_means_the_tag_misstates_its_contents
         drift = rd.evaluate(
             newest_tag="v0.94.427",
             manifest_version="0.94.426",
@@ -164,7 +160,7 @@ class TestManifestVersusTag(unittest.TestCase):
         self.assertTrue(drift.failed)
         self.assertIn("wrong about its own contents", drift.problems[0])
 
-    def test_an_unreadable_manifest_is_not_invented_as_a_mismatch(self):
+        # test_an_unreadable_manifest_is_not_invented_as_a_mismatch
         drift = rd.evaluate(
             newest_tag="v0.94.427",
             manifest_version=None,
@@ -176,16 +172,7 @@ class TestManifestVersusTag(unittest.TestCase):
 
 class TestTheReportIsDerivedNotStored(unittest.TestCase):
     def test_the_report_always_says_the_deployed_version_is_unknown(self):
-        """The whole reason this tool exists rather than another handover
-        file. `docs/handover/2026-09-21-travel-handover.md` asserts, under a
-        heading reading "verified live 13:05 AEST", that production runs
-        v0.94.413 and the newest tag is v0.94.415; by 2026-09-28 the tag was
-        v0.94.427. A stored number rots and then misleads with an
-        authoritative label on it.
-
-        So the report must never claim to know what is deployed. Asserted
-        here so the line cannot be quietly "improved" into a cached value.
-        """
+        # test_the_report_always_says_the_deployed_version_is_unknown: The whole reason this tool exists rather than another handover
         text = rd.format_report(
             rd.evaluate(
                 newest_tag="v0.94.427",
@@ -197,7 +184,7 @@ class TestTheReportIsDerivedNotStored(unittest.TestCase):
         self.assertIn("UNKNOWN", text)
         self.assertIn("needs a live read", text)
 
-    def test_problems_appear_in_the_report_body(self):
+        # test_problems_appear_in_the_report_body
         text = rd.format_report(
             rd.evaluate(
                 newest_tag="v0.94.426",
@@ -229,16 +216,13 @@ class TestCli(unittest.TestCase):
         )
 
     def test_report_mode_always_exits_zero_and_prints_a_report(self):
+        # test_report_mode_always_exits_zero_and_prints_a_report
         result = self._run("--report")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Nimbus release state", result.stdout)
         self.assertIn("UNKNOWN", result.stdout)
 
-    def test_report_mode_runs_whether_or_not_tags_are_available(self):
-        """It must not crash in a shallow checkout with no tags -- that is
-        the environment a CI job or a fresh container starts in, and a
-        display that raises there is a display nobody keeps.
-        """
+        # test_report_mode_runs_whether_or_not_tags_are_available: It must not crash in a shallow checkout with no tags -- that is
         result = self._run("--report", "--ref", "HEAD")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

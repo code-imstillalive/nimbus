@@ -266,6 +266,7 @@ def test_switching_profile_sets_its_sensors_and_clears_what_it_does_not_use(prov
 
 
 def test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem():
+    # test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem
     hass = SimpleNamespace(
         states=SimpleNamespace(
             get={
@@ -282,11 +283,7 @@ def test_a_profile_with_a_missing_or_unavailable_sensor_lists_the_problem():
         f"{ps.pa.PRICING_FIELD_LABELS[EXPORT]}: sensor.b is unavailable",
     ]
 
-
-# --- the first install -------------------------------------------------------------------------------
-
-
-def test_installing_creates_the_hub_once_and_points_at_the_settings():
+    # test_installing_creates_the_hub_once_and_points_at_the_settings
     calls, flow = [], cf.NimbusConfigFlow()
 
     async def call(domain, service, data):
@@ -318,8 +315,7 @@ def test_installing_creates_the_hub_once_and_points_at_the_settings():
         == "NimbusHubOptionsFlow"
     )
 
-
-def test_the_region_is_read_from_the_one_geocoded_location_that_answers():
+    # test_the_region_is_read_from_the_one_geocoded_location_that_answers
     sd = importlib.import_module("custom_components.nimbus_load.sensor_discovery")
 
     def state(eid, value):
@@ -337,3 +333,6 @@ def test_the_region_is_read_from_the_one_geocoded_location_that_answers():
     )
     assert sd.resolve_geocoded_region_and_prefix([phone, other]) == (None, None)
     assert sd.resolve_geocoded_region_and_prefix([asleep]) == (None, None)
+
+
+# --- the first install -------------------------------------------------------------------------------

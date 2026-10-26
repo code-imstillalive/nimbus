@@ -88,24 +88,21 @@ class TestTheIncrementToLevelConversion(unittest.TestCase):
 
 class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
     def test_a_departure_in_the_current_period_is_dropped(self):
-        """No period remains in which to charge for it. Emitting the window
-        would convert a decision that is already made into a permanent
-        reported shortfall."""
+        # test_a_departure_in_the_current_period_is_dropped: No period remains in which to charge for it. Emitting the window
         self.assertEqual(_windows([TripEvent(_T0, _at(2), "leaving now 50 km")]), ())
 
-    def test_an_event_beyond_the_horizon_is_dropped(self):
+        # test_an_event_beyond_the_horizon_is_dropped
         later = TripEvent(_END + timedelta(hours=2), _END + timedelta(hours=3), "40 km")
         self.assertEqual(_windows([later]), ())
 
-    def test_a_fully_driven_trip_needs_no_charge(self):
+        # test_a_fully_driven_trip_needs_no_charge
         out = _windows(
             [TripEvent(_at(7), _at(9), "trip 100 km")],
             already_driven_km_by_start={_at(7): 100.0},
         )
         self.assertEqual(out, ())
 
-    def test_an_empty_grid_returns_nothing_rather_than_raising(self):
-        """A solve with no periods is a degenerate config, not a crash site."""
+        # test_an_empty_grid_returns_nothing_rather_than_raising: A solve with no periods is a degenerate config, not a crash site.
         self.assertEqual(
             ct.resolve_trip_windows(
                 [TripEvent(_at(7), _at(9), "40 km")],
@@ -116,9 +113,7 @@ class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
             (),
         )
 
-    def test_a_usable_trip_still_lands_when_another_is_skipped(self):
-        """One unparseable event must not suppress the rest -- the same
-        defensive posture the sweep paths in this codebase already take."""
+        # test_a_usable_trip_still_lands_when_another_is_skipped: One unparseable event must not suppress the rest -- the same
         out = _windows(
             [
                 TripEvent(_at(7), _at(9), "dinner"),

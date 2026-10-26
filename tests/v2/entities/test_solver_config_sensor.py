@@ -119,19 +119,18 @@ _const = importlib.import_module("custom_components.nimbus_load.const")
 
 
 def test_every_key_the_wizard_saves_is_exposed():
+    # test_every_key_the_wizard_saves_is_exposed
     assert [
         k
         for k in _hub_options._SOLVER_WIZARD_SCHEMA_KEYS
         if k not in sm._SOLVER_ALL_KEYS
     ] == []
 
-
-def test_every_number_entity_is_read_live_not_from_saved_options():
+    # test_every_number_entity_is_read_live_not_from_saved_options
     keys = [d.key for d in _number._DESCRIPTIONS]
     assert [k for k in keys if k not in sm._SOLVER_NUMBER_ENTITY_KEYS] == []
 
-
-def test_every_switch_the_solve_reads_is_read_live():
+    # test_every_switch_the_solve_reads_is_read_live
     read_by_the_solve = (
         _const.CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
         _const.CONF_SOLVE_ON_PRICE_CHANGE,
@@ -147,13 +146,11 @@ def test_every_switch_the_solve_reads_is_read_live():
     # Dry run is read from its live switch directly, never through the solve.
     assert _const.CONF_SOLVER_DISPATCH_DRY_RUN not in sm._SOLVER_SWITCH_ENTITY_KEYS
 
-
-def test_the_household_mode_is_exposed_and_read_live():
+    # test_the_household_mode_is_exposed_and_read_live
     assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_ALL_KEYS
     assert _const.CONF_HOUSEHOLD_MODE in sm._SOLVER_SELECT_ENTITY_KEYS
 
-
-def test_every_live_setting_is_exposed_to_the_solve():
+    # test_every_live_setting_is_exposed_to_the_solve
     live = (
         set(sm._SOLVER_NUMBER_ENTITY_KEYS)
         | set(sm._SOLVER_TIME_ENTITY_KEYS)

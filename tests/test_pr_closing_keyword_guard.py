@@ -48,24 +48,25 @@ class TestTheTwoRealIncidentsAreRejected(unittest.TestCase):
     work. Both issues had to be reopened by hand."""
 
     def test_the_partial_scope_possessive_is_caught(self):
+        # test_the_partial_scope_possessive_is_caught
         body = "Closes #1120's first of three parts -- the version stamp."
         found = guard.find_offences(body)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0][1], "1120")
 
-    def test_the_other_real_incident_is_caught(self):
+        # test_the_other_real_incident_is_caught
         body = "Closes #496's **unblocked** diagnostics half."
         found = guard.find_offences(body)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0][1], "496")
 
-    def test_a_typographic_apostrophe_is_caught_too(self):
+        # test_a_typographic_apostrophe_is_caught_too
         # A body pasted from anywhere that does smart quotes would
         # otherwise sail through while behaving identically on GitHub.
         body = "Closes #1120’s first of three parts."
         self.assertEqual(len(guard.find_offences(body)), 1)
 
-    def test_every_closing_keyword_spelling_is_covered(self):
+        # test_every_closing_keyword_spelling_is_covered
         for kw in (
             "close",
             "closes",
@@ -94,27 +95,28 @@ class TestLegitimateClosesAreAccepted(unittest.TestCase):
     it closes."""
 
     def test_a_plain_close_is_not_an_offence(self):
+        # test_a_plain_close_is_not_an_offence
         self.assertEqual(guard.find_offences("Closes #1140"), [])
 
-    def test_two_plain_closes_on_their_own_lines(self):
+        # test_two_plain_closes_on_their_own_lines
         body = "Scope: two IV&V findings.\n\nCloses #1140\nCloses #1141\n"
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_a_close_followed_by_a_colon_and_prose(self):
+        # test_a_close_followed_by_a_colon_and_prose
         body = "Closes #1104 + #1102: close two IV&V findings."
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_a_close_followed_by_a_full_stop_and_more_prose(self):
+        # test_a_close_followed_by_a_full_stop_and_more_prose
         body = "Closes #1098. The defect, measured on a real fleet, was ..."
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_scope_first_phrasing_is_not_an_offence(self):
+        # test_scope_first_phrasing_is_not_an_offence
         # The form CLAUDE.md step 9 recommends, and the one this guard
         # exists to push people toward.
         body = "Part 1 of 3 for issue 1120 -- stamp each scored day."
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_an_unrelated_possessive_is_not_an_offence(self):
+        # test_an_unrelated_possessive_is_not_an_offence
         body = "This follows @purcell-lab's filing and #1120's own thread."
         self.assertEqual(guard.find_offences(body), [])
 
@@ -125,20 +127,22 @@ class TestTheDeliberatelyExcludedShapes(unittest.TestCase):
     to change, not something that drifts in."""
 
     def test_a_narrowing_clause_after_a_sentence_break_is_allowed(self):
+        # test_a_narrowing_clause_after_a_sentence_break_is_allowed
         body = "Closes #1089. Its other criterion stays open."
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_a_narrowing_clause_after_a_dash_is_allowed(self):
+        # test_a_narrowing_clause_after_a_dash_is_allowed
         body = "Closes #1073 -- the remaining half."
         self.assertEqual(guard.find_offences(body), [])
 
-    def test_a_narrowing_word_on_the_next_line_is_allowed(self):
+        # test_a_narrowing_word_on_the_next_line_is_allowed
         body = "Closes #769\n\nFirst of two parts."
         self.assertEqual(guard.find_offences(body), [])
 
 
 class TestTheEntryPoint(unittest.TestCase):
     def test_a_clean_body_exits_zero(self):
+        # test_a_clean_body_exits_zero
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -148,7 +152,7 @@ class TestTheEntryPoint(unittest.TestCase):
             path = fh.name
         self.assertEqual(guard.main(["check", path]), 0)
 
-    def test_an_offending_body_exits_nonzero(self):
+        # test_an_offending_body_exits_nonzero
         import tempfile
 
         with tempfile.NamedTemporaryFile(
@@ -158,16 +162,11 @@ class TestTheEntryPoint(unittest.TestCase):
             path = fh.name
         self.assertEqual(guard.main(["check", path]), 1)
 
-    def test_wrong_arity_is_a_usage_error_not_a_pass(self):
+        # test_wrong_arity_is_a_usage_error_not_a_pass
         # Exit 2, not 0 -- a guard invoked wrongly must not look clean.
         self.assertEqual(guard.main(["check"]), 2)
 
-    def test_an_empty_body_passes_but_says_it_proved_nothing(self):
-        """`github.event.pull_request.body` is null on a PR opened with
-        no description, and an unqualified "clean" line would then be
-        indistinguishable from a real pass -- the vacuity failure this
-        repo keeps recording. An empty body is legal, so it passes; what
-        must not happen is passing silently."""
+        # test_an_empty_body_passes_but_says_it_proved_nothing: `github.event.pull_request.body` is null on a PR opened with
         import io
         import tempfile
         from contextlib import redirect_stdout
@@ -185,7 +184,7 @@ class TestTheEntryPoint(unittest.TestCase):
         self.assertEqual(rc, 0, "an empty body is legal and must not fail")
         self.assertIn("proved nothing", out.getvalue())
 
-    def test_a_real_body_reports_how_much_it_checked(self):
+        # test_a_real_body_reports_how_much_it_checked
         import io
         import tempfile
         from contextlib import redirect_stdout
@@ -230,20 +229,21 @@ class TestTheNegatedFormIsRejected(unittest.TestCase):
     """
 
     def test_the_1283_incident_is_caught(self):
+        # test_the_1283_incident_is_caught
         body = "**This does not fix #937.** It names the blocker precisely."
         self.assertEqual(
             [n for _, n in guard.find_offences(body)],
             ["937"],
         )
 
-    def test_the_1122_incident_is_caught(self):
+        # test_the_1122_incident_is_caught
         body = "This does not close #496 -- the flex family only."
         self.assertEqual(
             [n for _, n in guard.find_offences(body)],
             ["496"],
         )
 
-    def test_other_real_negator_spellings(self):
+        # test_other_real_negator_spellings
         for body in (
             "This PR will not close #123 yet.",
             "It cannot fix #123 on its own.",
@@ -260,33 +260,22 @@ class TestTheNegatedBranchDoesNotOverreach(unittest.TestCase):
     never negates itself, which is what makes that possible."""
 
     def test_a_negation_in_a_PRIOR_sentence_is_not_an_offence(self):
-        """The window stops at a full stop, so an unrelated negation earlier
-        in the paragraph cannot drag an innocent close into a match."""
+        # test_a_negation_in_a_PRIOR_sentence_is_not_an_offence: The window stops at a full stop, so an unrelated negation earlier
         self.assertEqual(guard.find_offences("No new tests needed. Closes #77"), [])
 
-    def test_a_negation_on_a_PREVIOUS_line_is_not_an_offence(self):
+        # test_a_negation_on_a_PREVIOUS_line_is_not_an_offence
         self.assertEqual(guard.find_offences("Not a refactor\nCloses #77"), [])
 
-    def test_the_recommended_safe_phrasing_passes(self):
-        """What the advice text tells people to write instead. If this ever
-        failed, the guard would be rejecting its own remedy."""
+        # test_the_recommended_safe_phrasing_passes: What the advice text tells people to write instead. If this ever
         self.assertEqual(
             guard.find_offences("this is not a fix for issue 937"),
             [],
         )
 
-    def test_keyword_separated_from_the_number_is_not_flagged(self):
-        """ "a fix for #55" does NOT auto-close on GitHub -- the keyword must
-        be immediately followed by the reference. Flagging it would reject
-        something harmless, so the guard deliberately mirrors GitHub's own
-        parser rather than being broader than it.
-
-        Recorded because my first draft of this test asserted the opposite
-        and the implementation was right.
-        """
+        # test_keyword_separated_from_the_number_is_not_flagged: "a fix for #55" does NOT auto-close on GitHub -- the keyword must
         self.assertEqual(guard.find_offences("It isn't a fix for #55"), [])
 
-    def test_plain_closes_still_pass(self):
+        # test_plain_closes_still_pass
         for body in ("Closes #123", "Fixes #123 and #124", "Resolves #9"):
             with self.subTest(body=body):
                 self.assertEqual(guard.find_offences(body), [])
@@ -294,11 +283,10 @@ class TestTheNegatedBranchDoesNotOverreach(unittest.TestCase):
 
 class TestBothShapesReportTogether(unittest.TestCase):
     def test_a_body_carrying_both_reports_both_in_reading_order(self):
+        # test_a_body_carrying_both_reports_both_in_reading_order
         body = "Fixes #100's own first half. Also, this does not fix #200."
         self.assertEqual([n for _, n in guard.find_offences(body)], ["100", "200"])
 
-    def test_no_duplicate_report_for_one_position(self):
-        """De-duplicated by offset, so a phrase satisfying both patterns is
-        reported once rather than twice."""
+        # test_no_duplicate_report_for_one_position: De-duplicated by offset, so a phrase satisfying both patterns is
         offences = guard.find_offences("does not fix #937")
         self.assertEqual(len(offences), 1)

@@ -139,8 +139,82 @@ def _widen(grid, export_kw):
 
 
 def test_without_a_commitment_the_grid_is_returned_untouched():
+    # test_without_a_commitment_the_grid_is_returned_untouched
     for grid in (_grid(), _grid(pin=np.full(N, np.nan))):
         assert _widen(grid, 5.0) is grid
+
+    # test_an_hours_sample_is_the_soc_as_it_begins: Hour 0 is the initial SoC; later hours the end of the period before
+    quarter = _bounds(_quarters(3), np.arange(12, dtype=float), -1.0)
+    assert [quarter[_key(h)] for h in range(3)] == [-1.0, 3.0, 7.0]
+    hourly = _bounds(np.full(3, 1.0), np.array([10.0, 20.0, 30.0]), 5.0)
+    assert [hourly[_key(h)] for h in range(3)] == [5.0, 10.0, 20.0]
+    assert _bounds(np.array([]), np.array([]), 1.0) == {}
+
+    # test_a_sensor_tracking_the_ramp_exactly_agrees_only_when_compared_like_for_like
+    rows, bounds, real = _ramp()
+    fixed = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=bounds)
+    assert fixed["soc_discrepancy_basis"] == "hour_boundary"
+    assert float(fixed["soc_discrepancy_max_pct"]) < 0.5
+    assert fixed["soc_discrepancy_reliable"]
+    before = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=None)
+    assert before["soc_discrepancy_basis"] == "hourly_mean"
+    assert float(before["soc_discrepancy_max_pct"]) > 5.0
+    partial = dict(list(bounds.items())[:2])
+    mixed = sw._soc_discrepancy_stats(
+        [(real, 100.0)], rows, ach_soc_pct_at_hour=partial
+    )
+    assert mixed["soc_discrepancy_basis"] == "mixed"
+
+    # test_a_reconstruction_double_counting_the_meter_disagrees_either_sign: 5 Oct: reconstructed 71.6 / 88.6 kWh against a meter's 32.7 / 69.5.
+    r = _reconcile(_metered(32.740, 69.530), 71.579, 88.642)
+    assert r["status"] == mr.DISAGREES and "kWh" in r["reason"]
+    assert (r["metered_import_kwh"], r["metered_export_kwh"]) == (
+        pytest.approx(32.740),
+        pytest.approx(69.530),
+    )
+    assert r["import_residual_kwh"] == pytest.approx(38.839, abs=1e-3)
+    assert r["tolerance_kwh"] == pytest.approx(10.227, abs=1e-3)
+    flipped = _reconcile(_metered(69.530, 32.740), 71.579, 88.642)
+    assert flipped["status"] == mr.DISAGREES
+    assert (
+        max(abs(flipped["import_residual_kwh"]), abs(flipped["export_residual_kwh"]))
+        > 19.0
+    )
+    assert _reconcile(_metered(30.0, 70.0), 45.0, 70.0)["status"] == mr.DISAGREES
+
+    # test_no_meter_or_too_little_of_its_history_is_not_evidence
+    for stale in [10.5, 50.0, None]:
+        assert _reconcile(_metered(32.7, 69.5), 71.6, 88.6, stale=stale)["status"] == (
+            mr.INSUFFICIENT_COVERAGE
+        )
+        none = _reconcile(None, 71.579, 88.642, stale=None, sensor=None)
+        assert none["status"] == mr.NOT_CHECKED
+        assert none["reconstructed_import_kwh"] == pytest.approx(71.579)
+        assert (
+            mr.TOLERANCE_FRACTION,
+            mr.TOLERANCE_FLOOR_KWH,
+            mr.MAX_STALE_PERIODS_PCT,
+        ) == (
+            0.10,
+            2.0,
+            10.0,
+        )
+
+    # test_each_batterys_leftover_is_credited_and_mismatched_lists_are_refused
+    zero = np.zeros(1)
+    a, b = _small("a", salvage_value=0.10), _small("b", salvage_value=0.20)
+    cost = _fleet_cost([a, b], [zero, zero], [zero, zero], [10.0, 20.0], n=1, load=0.0)
+    assert cost.total_cost == pytest.approx(-5.0, abs=1e-6)
+    with pytest.raises(ValueError):
+        _fleet_cost([_small()], [np.zeros(2), np.zeros(2)], [np.zeros(2)], [10.0])
+
+    # test_curtailment_on_a_negative_price_hour_is_explained_too
+    imp, exp = np.full(N, 0.30), np.full(N, 0.05)
+    imp[12], exp[12] = -0.157, -0.160
+    solar = np.zeros(N)
+    solar[9:16] = 30.0
+    r = _explained(_jstar_report(grid=_grid(imp=imp, exp=exp), solar=solar))
+    assert abs(r.j_star_path_delta_unexplained) < 0.01
 
 
 # --- end to end: achieved never beats the oracle ---------------------------------------------
@@ -207,16 +281,6 @@ def _key(h, day=SEP24):
     return (day + timedelta(hours=h)).isoformat()
 
 
-def test_an_hours_sample_is_the_soc_as_it_begins():
-    """Hour 0 is the initial SoC; later hours the end of the period before
-    (the per-period array is end-of-period)."""
-    quarter = _bounds(_quarters(3), np.arange(12, dtype=float), -1.0)
-    assert [quarter[_key(h)] for h in range(3)] == [-1.0, 3.0, 7.0]
-    hourly = _bounds(np.full(3, 1.0), np.array([10.0, 20.0, 30.0]), 5.0)
-    assert [hourly[_key(h)] for h in range(3)] == [5.0, 10.0, 20.0]
-    assert _bounds(np.array([]), np.array([]), 1.0) == {}
-
-
 def _ramp(rate=12.0, n_hours=6):
     hours = _quarters(n_hours)
     soc = 10.0 + rate * (np.arange(len(hours)) + 1) * 0.25
@@ -224,22 +288,6 @@ def _ramp(rate=12.0, n_hours=6):
         (SEP24 + timedelta(minutes=15 * (i + 1)), float(v)) for i, v in enumerate(soc)
     ]
     return _means(hours, soc), _bounds(hours, soc, 10.0), real
-
-
-def test_a_sensor_tracking_the_ramp_exactly_agrees_only_when_compared_like_for_like():
-    rows, bounds, real = _ramp()
-    fixed = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=bounds)
-    assert fixed["soc_discrepancy_basis"] == "hour_boundary"
-    assert float(fixed["soc_discrepancy_max_pct"]) < 0.5
-    assert fixed["soc_discrepancy_reliable"]
-    before = sw._soc_discrepancy_stats([(real, 100.0)], rows, ach_soc_pct_at_hour=None)
-    assert before["soc_discrepancy_basis"] == "hourly_mean"
-    assert float(before["soc_discrepancy_max_pct"]) > 5.0
-    partial = dict(list(bounds.items())[:2])
-    mixed = sw._soc_discrepancy_stats(
-        [(real, 100.0)], rows, ach_soc_pct_at_hour=partial
-    )
-    assert mixed["soc_discrepancy_basis"] == "mixed"
 
 
 # --- the reconstruction is checked against the grid meter (#1465) -----------------------------
@@ -258,44 +306,6 @@ def _reconcile(metered, imp, exp, stale=0.0, sensor="sensor.grid"):
         reconstructed_import_kwh=imp,
         reconstructed_export_kwh=exp,
     )
-
-
-def test_a_reconstruction_double_counting_the_meter_disagrees_either_sign():
-    """5 Oct: reconstructed 71.6 / 88.6 kWh against a meter's 32.7 / 69.5."""
-    r = _reconcile(_metered(32.740, 69.530), 71.579, 88.642)
-    assert r["status"] == mr.DISAGREES and "kWh" in r["reason"]
-    assert (r["metered_import_kwh"], r["metered_export_kwh"]) == (
-        pytest.approx(32.740),
-        pytest.approx(69.530),
-    )
-    assert r["import_residual_kwh"] == pytest.approx(38.839, abs=1e-3)
-    assert r["tolerance_kwh"] == pytest.approx(10.227, abs=1e-3)
-    flipped = _reconcile(_metered(69.530, 32.740), 71.579, 88.642)
-    assert flipped["status"] == mr.DISAGREES
-    assert (
-        max(abs(flipped["import_residual_kwh"]), abs(flipped["export_residual_kwh"]))
-        > 19.0
-    )
-    assert _reconcile(_metered(30.0, 70.0), 45.0, 70.0)["status"] == mr.DISAGREES
-
-
-def test_no_meter_or_too_little_of_its_history_is_not_evidence():
-    for stale in [10.5, 50.0, None]:
-        assert _reconcile(_metered(32.7, 69.5), 71.6, 88.6, stale=stale)["status"] == (
-            mr.INSUFFICIENT_COVERAGE
-        )
-        none = _reconcile(None, 71.579, 88.642, stale=None, sensor=None)
-        assert none["status"] == mr.NOT_CHECKED
-        assert none["reconstructed_import_kwh"] == pytest.approx(71.579)
-        assert (
-            mr.TOLERANCE_FRACTION,
-            mr.TOLERANCE_FLOOR_KWH,
-            mr.MAX_STALE_PERIODS_PCT,
-        ) == (
-            0.10,
-            2.0,
-            10.0,
-        )
 
 
 # --- achieved cost for a fleet on one grid connection (#768) ----------------------------------
@@ -326,15 +336,6 @@ def _fleet_cost(batteries, charge, discharge, final, n=2, load=1.0, exp=0.05):
         discharge_committed_kw=discharge,
         final_soc_kwh=final,
     )
-
-
-def test_each_batterys_leftover_is_credited_and_mismatched_lists_are_refused():
-    zero = np.zeros(1)
-    a, b = _small("a", salvage_value=0.10), _small("b", salvage_value=0.20)
-    cost = _fleet_cost([a, b], [zero, zero], [zero, zero], [10.0, 20.0], n=1, load=0.0)
-    assert cost.total_cost == pytest.approx(-5.0, abs=1e-6)
-    with pytest.raises(ValueError):
-        _fleet_cost([_small()], [np.zeros(2), np.zeros(2)], [np.zeros(2)], [10.0])
 
 
 # --- j_star priced two ways, and the difference explained (#1081, #1480) -----------------------
@@ -389,15 +390,6 @@ def _explained(r):
     return r
 
 
-def test_curtailment_on_a_negative_price_hour_is_explained_too():
-    imp, exp = np.full(N, 0.30), np.full(N, 0.05)
-    imp[12], exp[12] = -0.157, -0.160
-    solar = np.zeros(N)
-    solar[9:16] = 30.0
-    r = _explained(_jstar_report(grid=_grid(imp=imp, exp=exp), solar=solar))
-    assert abs(r.j_star_path_delta_unexplained) < 0.01
-
-
 def _plan(gi, ge, curt):
     return SimpleNamespace(
         grid_import_kw=np.array(gi, float),
@@ -421,6 +413,7 @@ def test_a_flat_day_is_never_both_perfect_and_flagged(delta, sign):
 
 
 def test_each_unreliable_condition_warns_from_its_own_set():
+    # test_each_unreliable_condition_warns_from_its_own_set
     sets = {
         id(sw._QUALITY_REPORT_UNRELIABLE_WARNED),
         id(sw._QUALITY_REPORT_NEGATIVE_REGRET_WARNED),
@@ -428,43 +421,7 @@ def test_each_unreliable_condition_warns_from_its_own_set():
     }
     assert len(sets) == 3
 
-
-# --- a shared charger's cap reaches the oracle, as wide as the day and no wider (#1109) --------
-
-
-Z6 = np.zeros(6)
-
-
-def _ev(name, group, cap):
-    return BatteryConfig(
-        name=name,
-        capacity_kwh=60.0,
-        initial_soc_kwh=30.0,
-        min_soc_kwh=0.0,
-        max_soc_kwh=60.0,
-        max_charge_kw=15.0,
-        max_discharge_kw=15.0,
-        charge_efficiency=0.97,
-        discharge_efficiency=0.97,
-        charge_cost=0.01,
-        discharge_cost=0.01,
-        salvage_value=0.0,
-        shared_charger_group=group,
-        shared_charger_max_kw=cap,
-    )
-
-
-def _caps(members):
-    rows = [
-        (_ev(n, g, cap), np.asarray(c, float), Z6, 0.0, []) for n, g, cap, c in members
-    ]
-    return [
-        r[0].shared_charger_max_kw
-        for r in participants._widen_shared_charger_cap_to_achieved(rows)
-    ]
-
-
-def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only():
+    # test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only
     for members, expected in [
         (
             [
@@ -512,6 +469,113 @@ def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only():
         ([], []),
     ]:
         assert _caps(members) == expected
+
+    # test_no_controllable_loads_scores_exactly_as_before
+    omitted = _cl_report()
+    for other in (_cl_report(None), _cl_report(OracleControllableLoads())):
+        assert [getattr(other, k) for k in SCALARS] == [
+            getattr(omitted, k) for k in SCALARS
+        ]
+    assert (
+        omitted.oracle_controllable_loads_scored,
+        omitted.oracle_controllable_loads_skipped,
+    ) == ((), ())
+    assert omitted.oracle_controllable_loads_unsubtracted_kwh == 0.0
+
+    # test_the_bundle_cannot_be_built_inconsistently
+    with pytest.raises(ValueError, match="double-count"):
+        OracleControllableLoads(adequacy=(_dishwasher(4.0),))
+    with pytest.raises(ValueError, match="never give it back"):
+        OracleControllableLoads(delivered_kwh_by_period=_ran((18, 19), 2.0))
+    ok = _bundle(skipped=(("tank", "kind=thermal"),))
+    assert len(ok.adequacy) == 1 and ok.skipped == (("tank", "kind=thermal"),)
+
+    # test_a_sheddable_load_is_accepted_too
+    profile = np.zeros(N)
+    profile[12:16] = 1.5
+    pool = SheddableLoadConfig(name="pool", forecast_kw=profile, shed_cost=0.45)
+    r = _cl_report(
+        OracleControllableLoads(
+            sheddable=(pool,), delivered_kwh_by_period=profile * HOURS
+        )
+    )
+    assert r.oracle_controllable_loads_scored == ("pool",)
+
+    # test_energy_the_house_never_drew_is_published_not_absorbed: 12 kWh claimed across two 2 kW hours: only 4 can be removed.
+    r = _cl_report(_bundle(kwh=6.0))
+    assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
+
+    # test_each_hours_values_are_published_for_an_outside_check
+    (row,) = _stats(55.0, 50.0)["soc_discrepancy_hourly"]
+    expected = {
+        "hour": H0.isoformat(),
+        "real_pct": 55.0,
+        "ach_pct": 50.0,
+        "gap_pct": 5.0,
+        "out_of_range": False,
+        "boundary_exempted": False,
+    }
+    assert {k: row[k] for k in expected} == expected
+    over = _stats(60.0, 327.67)["soc_discrepancy_hourly"][0]
+    assert over["out_of_range"] and over["gap_pct"] == 40.0
+    edge = _stats(0.0, -9.0)["soc_discrepancy_hourly"][0]
+    assert edge["out_of_range"] and edge["boundary_exempted"]
+    h1 = H0 + timedelta(hours=1)
+    two = sw._soc_discrepancy_stats(
+        [([(H0, 55.0), (h1, 40.0)], 100.0)],
+        {H0.isoformat(): {"soc_pct": 50.0}, h1.isoformat(): {"soc_pct": 20.0}},
+    )["soc_discrepancy_hourly"]
+    assert {r["hour"]: r["gap_pct"] for r in two} == {
+        H0.isoformat(): 5.0,
+        h1.isoformat(): 20.0,
+    }
+    assert sw._soc_discrepancy_stats([], {})["soc_discrepancy_hourly"] is None
+    assert _stats(55.0, None)["soc_discrepancy_hourly"] is None
+
+    # test_beating_the_oracle_below_its_own_floor_is_named_and_measured_in_kwh
+    s = _feasibility(DRIFTED, -0.73)
+    assert (s["regret_reliable"], s["achieved_within_lp_soc_bounds"]) == (False, False)
+    assert s["epr_reason"] == "oracle_beaten_achieved_outside_lp_soc_bounds"
+    assert s["achieved_soc_min_pct"] == pytest.approx(0.5)
+    assert s["achieved_below_floor_kwh"] == pytest.approx(1.5)
+    assert s["achieved_above_ceiling_kwh"] == 0.0
+    # A 0-100 % check would have passed the same day: the floor is the LP's.
+    assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
+
+
+# --- a shared charger's cap reaches the oracle, as wide as the day and no wider (#1109) --------
+
+
+Z6 = np.zeros(6)
+
+
+def _ev(name, group, cap):
+    return BatteryConfig(
+        name=name,
+        capacity_kwh=60.0,
+        initial_soc_kwh=30.0,
+        min_soc_kwh=0.0,
+        max_soc_kwh=60.0,
+        max_charge_kw=15.0,
+        max_discharge_kw=15.0,
+        charge_efficiency=0.97,
+        discharge_efficiency=0.97,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.0,
+        shared_charger_group=group,
+        shared_charger_max_kw=cap,
+    )
+
+
+def _caps(members):
+    rows = [
+        (_ev(n, g, cap), np.asarray(c, float), Z6, 0.0, []) for n, g, cap, c in members
+    ]
+    return [
+        r[0].shared_charger_max_kw
+        for r in participants._widen_shared_charger_cap_to_achieved(rows)
+    ]
 
 
 # --- the oracle can re-time the day's controllable loads, and only the oracle (#1357) ----------
@@ -583,46 +647,6 @@ SCALARS = (
 )
 
 
-def test_no_controllable_loads_scores_exactly_as_before():
-    omitted = _cl_report()
-    for other in (_cl_report(None), _cl_report(OracleControllableLoads())):
-        assert [getattr(other, k) for k in SCALARS] == [
-            getattr(omitted, k) for k in SCALARS
-        ]
-    assert (
-        omitted.oracle_controllable_loads_scored,
-        omitted.oracle_controllable_loads_skipped,
-    ) == ((), ())
-    assert omitted.oracle_controllable_loads_unsubtracted_kwh == 0.0
-
-
-def test_the_bundle_cannot_be_built_inconsistently():
-    with pytest.raises(ValueError, match="double-count"):
-        OracleControllableLoads(adequacy=(_dishwasher(4.0),))
-    with pytest.raises(ValueError, match="never give it back"):
-        OracleControllableLoads(delivered_kwh_by_period=_ran((18, 19), 2.0))
-    ok = _bundle(skipped=(("tank", "kind=thermal"),))
-    assert len(ok.adequacy) == 1 and ok.skipped == (("tank", "kind=thermal"),)
-
-
-def test_a_sheddable_load_is_accepted_too():
-    profile = np.zeros(N)
-    profile[12:16] = 1.5
-    pool = SheddableLoadConfig(name="pool", forecast_kw=profile, shed_cost=0.45)
-    r = _cl_report(
-        OracleControllableLoads(
-            sheddable=(pool,), delivered_kwh_by_period=profile * HOURS
-        )
-    )
-    assert r.oracle_controllable_loads_scored == ("pool",)
-
-
-def test_energy_the_house_never_drew_is_published_not_absorbed():
-    """12 kWh claimed across two 2 kW hours: only 4 can be removed."""
-    r = _cl_report(_bundle(kwh=6.0))
-    assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
-
-
 # --- the SoC discrepancy statistic itself (#427, #445, #571, #681, #949) ------------------------
 
 
@@ -632,34 +656,6 @@ H0 = datetime(2026, 8, 24, 0, 0, tzinfo=sw.LOCAL_TZ)
 def _stats(real, ach, capacity=100.0):
     rows = {H0.isoformat(): {} if ach is None else {"soc_pct": ach}}
     return sw._soc_discrepancy_stats([([(H0, real)], capacity)], rows)
-
-
-def test_each_hours_values_are_published_for_an_outside_check():
-    (row,) = _stats(55.0, 50.0)["soc_discrepancy_hourly"]
-    expected = {
-        "hour": H0.isoformat(),
-        "real_pct": 55.0,
-        "ach_pct": 50.0,
-        "gap_pct": 5.0,
-        "out_of_range": False,
-        "boundary_exempted": False,
-    }
-    assert {k: row[k] for k in expected} == expected
-    over = _stats(60.0, 327.67)["soc_discrepancy_hourly"][0]
-    assert over["out_of_range"] and over["gap_pct"] == 40.0
-    edge = _stats(0.0, -9.0)["soc_discrepancy_hourly"][0]
-    assert edge["out_of_range"] and edge["boundary_exempted"]
-    h1 = H0 + timedelta(hours=1)
-    two = sw._soc_discrepancy_stats(
-        [([(H0, 55.0), (h1, 40.0)], 100.0)],
-        {H0.isoformat(): {"soc_pct": 50.0}, h1.isoformat(): {"soc_pct": 20.0}},
-    )["soc_discrepancy_hourly"]
-    assert {r["hour"]: r["gap_pct"] for r in two} == {
-        H0.isoformat(): 5.0,
-        h1.isoformat(): 20.0,
-    }
-    assert sw._soc_discrepancy_stats([], {})["soc_discrepancy_hourly"] is None
-    assert _stats(55.0, None)["soc_discrepancy_hourly"] is None
 
 
 # --- a negative regret is a broken comparison, not a score (#956) -----------------------------
@@ -676,17 +672,6 @@ def _feasibility(soc_pcts, regret, min_pct=2.0, max_pct=100.0, capacity=100.0):
 
 
 DRIFTED = [16.0, 12.0, 5.0, 4.0, 10.0, 40.0, 80.0, 60.0, 30.0, 0.5]  # ends below 2 %
-
-
-def test_beating_the_oracle_below_its_own_floor_is_named_and_measured_in_kwh():
-    s = _feasibility(DRIFTED, -0.73)
-    assert (s["regret_reliable"], s["achieved_within_lp_soc_bounds"]) == (False, False)
-    assert s["epr_reason"] == "oracle_beaten_achieved_outside_lp_soc_bounds"
-    assert s["achieved_soc_min_pct"] == pytest.approx(0.5)
-    assert s["achieved_below_floor_kwh"] == pytest.approx(1.5)
-    assert s["achieved_above_ceiling_kwh"] == 0.0
-    # A 0-100 % check would have passed the same day: the floor is the LP's.
-    assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
 
 
 def test_without_a_trajectory_the_regret_verdict_still_stands():

@@ -64,6 +64,7 @@ def _run(hass, entry, registry) -> MagicMock:
 
 
 def test_stale_entity_id_gets_renamed_when_target_is_free():
+    # test_stale_entity_id_gets_renamed_when_target_is_free
     sub = _make_subentry(
         "abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw"
     )
@@ -80,8 +81,7 @@ def test_stale_entity_id_gets_renamed_when_target_is_free():
         new_entity_id="sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast",
     )
 
-
-def test_already_correct_entity_id_is_a_no_op():
+    # test_already_correct_entity_id_is_a_no_op
     sub = _make_subentry("abc123", SUBENTRY_TYPE_SIGNAL, "sensor.logger_load_power")
     entry = MagicMock()
     entry.subentries = {"abc123": sub}
@@ -93,8 +93,7 @@ def test_already_correct_entity_id_is_a_no_op():
     registry = _run(hass=MagicMock(), entry=entry, registry=registry)
     registry.async_update_entity.assert_not_called()
 
-
-def test_collision_with_existing_entity_blocks_the_rename():
+    # test_collision_with_existing_entity_blocks_the_rename
     sub = _make_subentry(
         "abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw"
     )
@@ -111,8 +110,7 @@ def test_collision_with_existing_entity_blocks_the_rename():
     registry = _run(hass=MagicMock(), entry=entry, registry=registry)
     registry.async_update_entity.assert_not_called()
 
-
-def test_load_subentry_uses_load_forecast_suffix_not_signal_forecast():
+    # test_load_subentry_uses_load_forecast_suffix_not_signal_forecast
     sub = _make_subentry("xyz789", SUBENTRY_TYPE_LOAD, "sensor.sw24_hws_l3_temperature")
     entry = MagicMock()
     entry.subentries = {"xyz789": sub}
@@ -121,8 +119,7 @@ def test_load_subentry_uses_load_forecast_suffix_not_signal_forecast():
     called_uid = registry.async_get_entity_id.call_args[0][2]
     assert called_uid == "xyz789_load_forecast", called_uid
 
-
-def test_non_forecastable_subentry_type_is_skipped_entirely():
+    # test_non_forecastable_subentry_type_is_skipped_entirely
     sub = _make_subentry("other1", "some_other_subentry_type", "sensor.irrelevant")
     entry = MagicMock()
     entry.subentries = {"other1": sub}

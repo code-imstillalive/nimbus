@@ -82,13 +82,13 @@ def _grid_box_top(src: str) -> float:
 
 
 def test_grid_box_really_is_above_the_origin():
+    # test_grid_box_really_is_above_the_origin
     # The premise of the bug: without a shift the box is at negative y.
     # If this ever stops being true the shift logic is moot and this file
     # should be rethought, not silently passed.
     assert _grid_box_top(_source()) < 0
 
-
-def test_top_shift_is_derived_from_the_grid_box_not_the_header():
+    # test_top_shift_is_derived_from_the_grid_box_not_the_header
     src = _source()
     assert "const diagramTop = gmY - gmH / 2;" in src
     m = re.search(
@@ -103,8 +103,7 @@ def test_top_shift_is_derived_from_the_grid_box_not_the_header():
     shift_without_header = -box_top + margin
     assert box_top + shift_without_header >= 8
 
-
-def test_translate_viewbox_and_footer_all_use_top_shift():
+    # test_translate_viewbox_and_footer_all_use_top_shift
     src = _source()
     assert "transform: `translate(0, ${topShift})`" in src
     assert "`0 0 ${totalW} ${totalH + topShift + footerHeight}`" in src
@@ -114,8 +113,7 @@ def test_translate_viewbox_and_footer_all_use_top_shift():
     assert "${totalH + whHeight + footerHeight}" not in src
     assert "y: whHeight + totalH + 14" not in src
 
-
-def test_header_is_not_shifted():
+    # test_header_is_not_shifted
     # The whole-house header sits at the top-left and shares no horizontal
     # space with the Grid column; it must stay outside the shifted group,
     # or the fix would push it down and open a blank band at the top.

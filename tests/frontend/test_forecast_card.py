@@ -40,7 +40,8 @@ def _card() -> str:
     return CARD_JS.read_text(encoding="utf-8")
 
 
-def test_card_is_registered_with_a_matching_tag() -> None:
+def test_card_is_registered_with_a_matching_tag():
+    # test_card_is_registered_with_a_matching_tag
     frontend_py = (PKG / "frontend.py").read_text(encoding="utf-8")
     assert (
         '_CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card")' in frontend_py
@@ -51,15 +52,13 @@ def test_card_is_registered_with_a_matching_tag() -> None:
     )  # nimbus #1601
     assert 'type: "nimbus-forecast-card"' in src
 
-
-def test_renders_through_apexcharts_and_says_so_when_missing() -> None:
+    # test_renders_through_apexcharts_and_says_so_when_missing
     src = _card()
     assert 'document.createElement("apexcharts-card")' in src
     assert 'customElements.get("apexcharts-card")' in src
     assert "Nimbus Forecaster needs ApexCharts Card" in src
 
-
-def test_every_nimbus_attribute_the_card_reads_is_published() -> None:
+    # test_every_nimbus_attribute_the_card_reads_is_published
     src = _card()
     read = set(re.findall(r"\battributes\.([a-z_]+)", src))
     read -= {"friendly_name", "unit_of_measurement", "forecast"}
@@ -71,8 +70,7 @@ def test_every_nimbus_attribute_the_card_reads_is_published() -> None:
     missing = sorted(a for a in read if f'"{a}"' not in publishers)
     assert not missing, f"card reads attributes nothing publishes: {missing}"
 
-
-def test_discovers_rather_than_lists() -> None:
+    # test_discovers_rather_than_lists
     src = _card()
     for needle in (
         'id.startsWith("sensor.nimbus_")',
@@ -86,8 +84,7 @@ def test_discovers_rather_than_lists() -> None:
     # No household entity id may appear in the card.
     assert not re.search(r"sensor\.(cb_|logger_|archerfield|pirateweather)", src)
 
-
-def test_w_sources_are_scaled_to_kw() -> None:
+    # test_w_sources_are_scaled_to_kw
     # nimbus #1570: any power unit through the shared table, not only W
     # behind a kW forecast; test_1570_every_reader_and_card_converts.py checks the table.
     src = _card()
@@ -96,6 +93,31 @@ def test_w_sources_are_scaled_to_kw() -> None:
         in src
     )
     assert 'if (k !== 1) series.transform = "return x * " + k + ";";' in src
+
+    # test_python_reference_hash_matches_live_colours: The live chart's circuit colours, as rendered on the reference
+    live = {
+        "sensor.nimbus_cb_lt_l1_power_forecast": "#CB4D9A",
+        "sensor.nimbus_cb_pw_ac_b1_power_forecast": "#4DCB79",
+        "sensor.nimbus_cb_pw_comms_power_forecast": "#514DCB",
+        "sensor.nimbus_cb_pw_oven_power_forecast": "#92CB4D",
+    }
+    for eid, colour in live.items():
+        assert _py_hash_color(eid) == colour, eid
+
+    # test_js_hash_port_has_the_same_constants
+    src = _card()
+    body = src[src.index("function nimbusFcHashColor") :]
+    body = body[: body.index("\n}\n")]
+    assert "Math.imul(h, 31) + entityId.charCodeAt(i)) >>> 0" in body
+    assert "(h % 360) / 360.0" in body
+    assert "const l = 0.55;" in body and "const s = 0.55;" in body
+    assert "Math.floor(x * 255)" in body
+
+    # test_soc_series_is_labelled_percent_not_the_plan_sensors_kw: The Solver plan sensor's unit is kW, so without an explicit unit the
+    src = _card()
+    soc = src[src.index('name: "Solver SoC % (proposed)"') :]
+    soc = soc[: soc.index("}")]
+    assert 'unit: "%"' in soc
 
 
 def _py_hash_color(entity_id: str) -> str:
@@ -107,43 +129,8 @@ def _py_hash_color(entity_id: str) -> str:
     return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
 
 
-def test_python_reference_hash_matches_live_colours() -> None:
-    """The live chart's circuit colours, as rendered on the reference
-    install. The card's JS port was diffed against these by headless run;
-    this pins the reference algorithm the port must equal."""
-    live = {
-        "sensor.nimbus_cb_lt_l1_power_forecast": "#CB4D9A",
-        "sensor.nimbus_cb_pw_ac_b1_power_forecast": "#4DCB79",
-        "sensor.nimbus_cb_pw_comms_power_forecast": "#514DCB",
-        "sensor.nimbus_cb_pw_oven_power_forecast": "#92CB4D",
-    }
-    for eid, colour in live.items():
-        assert _py_hash_color(eid) == colour, eid
-
-
-def test_js_hash_port_has_the_same_constants() -> None:
-    src = _card()
-    body = src[src.index("function nimbusFcHashColor") :]
-    body = body[: body.index("\n}\n")]
-    assert "Math.imul(h, 31) + entityId.charCodeAt(i)) >>> 0" in body
-    assert "(h % 360) / 360.0" in body
-    assert "const l = 0.55;" in body and "const s = 0.55;" in body
-    assert "Math.floor(x * 255)" in body
-
-
-def test_soc_series_is_labelled_percent_not_the_plan_sensors_kw() -> None:
-    """The Solver plan sensor's unit is kW, so without an explicit unit the
-    SoC series inherited it and its legend read "70.6 kW"."""
-    src = _card()
-    soc = src[src.index('name: "Solver SoC % (proposed)"') :]
-    soc = soc[: soc.index("}")]
-    assert 'unit: "%"' in soc
-
-
-def test_sizes_itself_full_width_in_a_sections_view() -> None:
-    """Without getGridOptions() a sections view gives the card a small
-    default tile and the wide charts are squeezed into a narrow column
-    (seen live on the reference household, 6 Oct 2026)."""
+def test_sizes_itself_full_width_in_a_sections_view():
+    # test_sizes_itself_full_width_in_a_sections_view: Without getGridOptions() a sections view gives the card a small
     src = _card()
     body = src[src.index("getGridOptions()") :]
     body = body[: body.index("}") + 1]
@@ -151,14 +138,7 @@ def test_sizes_itself_full_width_in_a_sections_view() -> None:
     assert 'rows: "auto"' in body
     assert ":host{display:block;width:100%}" in src
 
-
-def test_charts_refresh_once_a_minute_not_on_every_state_change() -> None:
-    """nimbus #1602: with no update_interval, apexcharts-card refreshes on
-    every state change of any series entity. These charts carry the live
-    measured sensor behind each forecast, so on the reference household
-    both charts re-fetched 54 h of history 285 times a minute and never
-    stopped spinning. Every generated chart comes from _base(), which sets
-    1 minute (household decision, 7 Oct 2026)."""
+    # test_charts_refresh_once_a_minute_not_on_every_state_change: nimbus #1602: with no update_interval, apexcharts-card refreshes on
     src = _card()
     base = src[src.index("_base(title, height) {") :]
     base = base[: base.index("\n  }\n")]
@@ -168,24 +148,13 @@ def test_charts_refresh_once_a_minute_not_on_every_state_change() -> None:
     assert src.count('type: "custom:apexcharts-card"') == 1
     assert src.count("this._base(") >= 2
 
-
-def test_no_loading_spinner_on_each_refresh() -> None:
-    """The household still saw the spinner on every one-minute refresh with
-    v0.94.443: apexcharts-card draws it while `show.loading` (default on)
-    and a refresh is running. Off, the chart stays drawn while it
-    refreshes; the data still updates once a minute."""
+    # test_no_loading_spinner_on_each_refresh: The household still saw the spinner on every one-minute refresh with
     src = _card()
     base = src[src.index("_base(title, height) {") :]
     base = base[: base.index("\n  }\n")]
     assert "show: { loading: false }" in base
 
-
-def test_history_lines_are_steps_not_smoothed() -> None:
-    """Household, 9 Oct 2026: hot water history was drawn as a smooth ramp
-    rising for hours before it switched on, while the recorded state was 0
-    until 11:01 and then ~3.8 kW. A recorded state holds until the next
-    change; apexcharts-card's default smooth curve interpolates between two
-    far-apart states instead. Every measured (history) series is a step."""
+    # test_history_lines_are_steps_not_smoothed: Household, 9 Oct 2026: hot water history was drawn as a smooth ramp
     src = _card()
     hist = src[src.index("  _history(s, name, color, yaxis, width) {") :]
     hist = hist[: hist.index("\n  }\n")]

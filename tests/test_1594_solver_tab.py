@@ -145,11 +145,8 @@ def _height(card) -> int:
     return total
 
 
-def test_the_sliders_are_sliders() -> None:
-    """Household, 11 Oct 2026: "u have called it sliders but produced
-    inputs". 12 Oct: the household's mushroom slider with a 100 px icon
-    where mushroom is installed, HA's tile slider elsewhere."""
-
+def test_the_sliders_are_sliders():
+    # test_the_sliders_are_sliders: Household, 11 Oct 2026: "u have called it sliders but produced
     def lookup(key):
         return {"card:mushroom": MUSH}.get(key, f"number.nimbus_{key}")
 
@@ -173,6 +170,35 @@ def test_the_sliders_are_sliders() -> None:
                     {"type": "numeric-input", "style": "slider"}
                 ]
 
+    # test_an_entities_card_with_nothing_left_is_dropped: With no entities at all only the Solve now button and the block bands
+    view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
+    assert [[_block(c) for c in s["cards"]] for s in view] == [
+        [None],  # Solve now needs no entity
+        ["Plan"],
+        ["Money"],
+        ["Performance"],
+        ["Basic settings"],
+        ["Advanced settings"],
+        ["More settings"],
+        ["Stochastic"],
+    ]
+
+    # test_the_design_is_the_same_on_every_install
+    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
+    assert dash.design_of(spec) == dash.design_of(spec)
+    assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
+
+    # test_forecast_card_soc_is_drawn_at_the_end_of_each_period
+    import pathlib
+
+    js = (
+        pathlib.Path(solver_tab.__file__).parent
+        / "frontend"
+        / "nimbus-forecast-card.js"
+    ).read_text(encoding="utf-8")
+    soc = js[js.index('name: "Solver SoC % (proposed)"') :][:400]
+    assert "(p.hours || 0) * 3600000, p.soc_pct" in soc
+
 
 def _row(title_or_header: str) -> list[dict]:
     """The sections from the one whose first card is `title_or_header` to
@@ -189,37 +215,3 @@ def _row(title_or_header: str) -> list[dict]:
             break
         out.append(s)
     return out
-
-
-def test_an_entities_card_with_nothing_left_is_dropped() -> None:
-    """With no entities at all only the Solve now button and the block bands
-    are left: every card, chart and slider goes, and its column with it."""
-    view = solver_tab.resolve(solver_tab.template(), lambda _k: None)
-    assert [[_block(c) for c in s["cards"]] for s in view] == [
-        [None],  # Solve now needs no entity
-        ["Plan"],
-        ["Money"],
-        ["Performance"],
-        ["Basic settings"],
-        ["Advanced settings"],
-        ["More settings"],
-        ["Stochastic"],
-    ]
-
-
-def test_the_design_is_the_same_on_every_install() -> None:
-    spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
-    assert dash.design_of(spec) == dash.design_of(spec)
-    assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
-
-
-def test_forecast_card_soc_is_drawn_at_the_end_of_each_period() -> None:
-    import pathlib
-
-    js = (
-        pathlib.Path(solver_tab.__file__).parent
-        / "frontend"
-        / "nimbus-forecast-card.js"
-    ).read_text(encoding="utf-8")
-    soc = js[js.index('name: "Solver SoC % (proposed)"') :][:400]
-    assert "(p.hours || 0) * 3600000, p.soc_pct" in soc

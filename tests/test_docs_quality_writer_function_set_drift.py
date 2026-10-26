@@ -156,10 +156,11 @@ class TestTheGuardIsLookingAtRealFiles(unittest.TestCase):
     vacuously -- the same sanity check the sibling guard makes."""
 
     def test_both_sides_have_real_content(self):
+        # test_both_sides_have_real_content
         self.assertGreater(len(_top_level_defs(_DOCS_QUALITY)), 10)
         self.assertGreater(len(_integration_defs()), 40)
 
-    def test_every_integration_file_exists(self):
+        # test_every_integration_file_exists
         missing = [p.name for p in _INTEGRATION_FILES if not p.exists()]
         self.assertEqual(
             missing,
@@ -194,6 +195,7 @@ class TestTheListsDoNotGoStale(unittest.TestCase):
     permanent difference as if it still existed."""
 
     def test_no_listed_name_has_vanished_from_the_cron_copy(self):
+        # test_no_listed_name_has_vanished_from_the_cron_copy
         cron = _top_level_defs(_DOCS_QUALITY)
         for name, label in (
             *((n, "INTENTIONAL_CRON_ONLY") for n in INTENTIONAL_CRON_ONLY),
@@ -208,9 +210,7 @@ class TestTheListsDoNotGoStale(unittest.TestCase):
                     "rather than leaving a stale annotation",
                 )
 
-    def test_no_listed_name_has_quietly_been_ported(self):
-        """The more interesting direction: if a KNOWN_OPEN_DRIFT entry now
-        exists in the integration, the gap is CLOSED and the list is lying."""
+        # test_no_listed_name_has_quietly_been_ported: The more interesting direction: if a KNOWN_OPEN_DRIFT entry now
         integration = _integration_defs()
         ported = sorted(KNOWN_OPEN_DRIFT_CRON_ONLY & integration)
         self.assertEqual(
@@ -229,6 +229,7 @@ class TestThe937GapIsPinnedSpecifically(unittest.TestCase):
     so that closing it is visible rather than incidental."""
 
     def test_the_forecast_snapshot_loader_is_still_cron_only(self):
+        # test_the_forecast_snapshot_loader_is_still_cron_only
         integration = _integration_defs()
         self.assertNotIn(
             "load_forecast_snapshot",
@@ -239,9 +240,7 @@ class TestThe937GapIsPinnedSpecifically(unittest.TestCase):
             "('more days') has been blocked on exactly this.",
         )
 
-    def test_compute_forecast_regret_IS_available_so_only_the_input_is_missing(self):
-        """The distinction that makes this tractable: the machinery is
-        already native, only its input is not."""
+        # test_compute_forecast_regret_IS_available_so_only_the_input_is_missing: The distinction that makes this tractable: the machinery is
         self.assertIn("compute_forecast_regret", _integration_defs())
 
 

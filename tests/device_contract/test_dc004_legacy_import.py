@@ -70,6 +70,7 @@ def _sub(sid, kind, title, **data):
 
 
 def test_every_subentry_is_mapped_or_kept_never_dropped():
+    # test_every_subentry_is_mapped_or_kept_never_dropped
     subs = [
         _sub("a1", "load", "Pool pump", load_sensor="sensor.pool_power"),
         _sub("b2", "power_source", "Inverter 1"),
@@ -97,15 +98,13 @@ def test_every_subentry_is_mapped_or_kept_never_dropped():
     }
     assert res.problems == []
 
-
-def test_two_loads_with_one_name_get_suffixed_ids_in_creation_order():
+    # test_two_loads_with_one_name_get_suffixed_ids_in_creation_order
     subs = [_sub("a1", "load", "Pool"), _sub("a2", "load", "Pool")]
     res = di.import_legacy(_snapshot(subentries=subs))
     ids = [d["id"] for d in res.document["devices"] if d.get("history_subentry_id")]
     assert ids == ["pool", "pool_2"]
 
-
-def test_a_power_signal_on_another_sensor_is_a_conflict():
+    # test_a_power_signal_on_another_sensor_is_a_conflict
     sub = _sub(
         "g1",
         "power_signal",
@@ -118,8 +117,7 @@ def test_a_power_signal_on_another_sensor_is_a_conflict():
     assert c.code == "conflict_role_sources" and c.path == "devices.grid.bindings.power"
     assert "power" not in _device(res.document, "grid")["bindings"]
 
-
-def test_an_ev_participant_is_its_own_battery():
+    # test_an_ev_participant_is_its_own_battery
     sub = _sub(
         "ev1",
         "battery_participant",
@@ -141,8 +139,7 @@ def test_an_ev_participant_is_its_own_battery():
     assert car["constraints"] == {"charge_limit": 11}
     assert res.problems == []
 
-
-def test_control_is_authorised_only_where_a_device_entity_exists():
+    # test_control_is_authorised_only_where_a_device_entity_exists
     with_entity = _sub(
         "h1",
         "controllable_load",
@@ -159,7 +156,6 @@ def test_control_is_authorised_only_where_a_device_entity_exists():
     assert _device(res.document, "hot_water")["control"]["entity_id"] == "switch.hws"
     assert "control" not in _device(res.document, "dryer")
 
-
-def test_the_module_makes_no_home_assistant_import():
+    # test_the_module_makes_no_home_assistant_import
     text = Path(di.__file__).read_text(encoding="utf-8")
     assert "homeassistant" not in text

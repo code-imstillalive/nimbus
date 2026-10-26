@@ -28,6 +28,7 @@ FORBIDDEN = (
 
 
 def test_no_module_writes_a_dashboard():
+    # test_no_module_writes_a_dashboard
     hits = []
     for path in PACKAGE.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
@@ -36,13 +37,11 @@ def test_no_module_writes_a_dashboard():
                 hits.append(f"{path.name}: {pattern}")
     assert hits == []
 
-
-def test_setup_does_not_touch_dashboards():
+    # test_setup_does_not_touch_dashboards
     init = (PACKAGE / "__init__.py").read_text(encoding="utf-8")
     assert "forecaster_dashboard" not in init.replace("forecaster_dashboard.py", "")
 
-
-def test_the_dashboard_is_returned_on_request():
+    # test_the_dashboard_is_returned_on_request
     import yaml
 
     services = yaml.safe_load((PACKAGE / "services.yaml").read_text(encoding="utf-8"))

@@ -29,6 +29,7 @@ lrs = importlib.import_module("custom_components.nimbus_load.load_run_state")
 
 
 def test_a_done_condition_is_an_operator_and_a_threshold():
+    # test_a_done_condition_is_an_operator_and_a_threshold
     for expr, temp, done in [
         (">= 60", 60.0, True),
         (">=60", 59.9, False),
@@ -42,15 +43,13 @@ def test_a_done_condition_is_an_operator_and_a_threshold():
         assert op(temp, threshold) is done
         assert dc.is_tank_done(temp, expr) is done
 
-
-def test_a_condition_that_cannot_be_read_is_refused_or_unknown():
+    # test_a_condition_that_cannot_be_read_is_refused_or_unknown
     for expr in ["60", "about 60", "=> 60", ">= hot"]:
         with pytest.raises(ValueError):
             dc.parse_done_when(expr)
         assert dc.is_tank_done(55.0, expr) is None
 
-
-def test_without_a_condition_the_heaters_own_setpoint_decides():
+    # test_without_a_condition_the_heaters_own_setpoint_decides
     for temp, setpoint, done in [
         (None, 60, None),
         (61.0, 60, True),
@@ -60,8 +59,7 @@ def test_without_a_condition_the_heaters_own_setpoint_decides():
     ]:
         assert dc.is_tank_done(temp, None, setpoint_temperature=setpoint) is done
 
-
-def test_the_tank_temperature_comes_from_a_heaters_own_attribute():
+    # test_the_tank_temperature_comes_from_a_heaters_own_attribute
     for entity, state, attrs, temp in [
         ("water_heater.tank", "eco", {"current_temperature": "58.5"}, 58.5),
         ("climate.ac", "cool", {"current_temperature": 22}, 22.0),

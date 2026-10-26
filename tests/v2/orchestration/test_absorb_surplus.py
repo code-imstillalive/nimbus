@@ -34,17 +34,16 @@ def _call(**over):
 
 
 def test_a_hold_with_spare_solar_is_absorbed_too():
+    # test_a_hold_with_spare_solar_is_absorbed_too
     # Battery idle in the plan, spare solar, cheap export: soak it up.
     assert _call(battery_kw=0.0) == (True, "spare_solar_below_floor")
 
-
-def test_grid_charging_is_left_to_the_plan():
+    # test_grid_charging_is_left_to_the_plan
     # Self-consume cannot charge from the grid.
     assert _call(battery_kw=-40.0, grid_to_battery_kw=36.0) == (
         False,
         "grid_charging",
     )
 
-
-def test_a_p2p_block_is_left_to_the_plan():
+    # test_a_p2p_block_is_left_to_the_plan
     assert _call(committed_export_kw=11.5) == (False, "p2p_block")

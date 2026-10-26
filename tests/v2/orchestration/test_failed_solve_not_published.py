@@ -57,22 +57,19 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
         )
 
     def test_the_failed_branch_returns(self):
+        # test_the_failed_branch_returns
         self.assertTrue(
             any(isinstance(stmt, ast.Return) for stmt in self.guard.body),
             "the plan.solver_failed branch must return before publishing "
             "anything -- nimbus issue #757",
         )
 
-    def test_it_returns_nothing_rather_than_a_value(self):
-        """publish_plan() has no return value anywhere else; a `return
-        something` here would be a new, unhandled contract."""
+        # test_it_returns_nothing_rather_than_a_value: publish_plan() has no return value anywhere else; a `return
         for stmt in self.guard.body:
             if isinstance(stmt, ast.Return):
                 self.assertIsNone(stmt.value)
 
-    def test_the_guard_is_reached_before_any_publish_call(self):
-        """Ordering is the whole point. A guard placed after the first
-        ha_post_state() would be decoration."""
+        # test_the_guard_is_reached_before_any_publish_call: Ordering is the whole point. A guard placed after the first
         posts = [
             node.lineno
             for node in ast.walk(self.func)
@@ -92,9 +89,7 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
         self.assertTrue(posts, "no ha_post_state() calls found in publish_plan()")
         self.assertLess(self.guard.lineno, min(posts))
 
-    def test_the_operator_is_told_why_nothing_was_published(self):
-        """Skipping silently would trade one invisible failure for
-        another -- the branch must still log before it returns."""
+        # test_the_operator_is_told_why_nothing_was_published: Skipping silently would trade one invisible failure for
         logged = [
             node
             for node in ast.walk(self.guard)
@@ -109,10 +104,7 @@ class TestPublishPlanReturnsEarly(unittest.TestCase):
             "nimbus issue #757 spent ten investigations on",
         )
 
-    def test_infeasible_is_not_also_guarded_out(self):
-        """A deliberate scope boundary, asserted so a later 'tidy-up'
-        that folds the two statuses together fails here rather than
-        silently hiding real infeasibility from the household."""
+        # test_infeasible_is_not_also_guarded_out: A deliberate scope boundary, asserted so a later 'tidy-up'
         for node in ast.walk(self.func):
             if not isinstance(node, ast.If):
                 continue

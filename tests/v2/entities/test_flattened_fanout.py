@@ -125,22 +125,28 @@ def _real_looking_parent_payload() -> dict:
 
 
 def test_should_poll_is_false():
-    """Before this fix, these ~77 entities had no _attr_should_poll at
-    all -- SensorEntity's own default of True meant HA's platform-wide
-    30s poll incidentally re-evaluated `available` for every one of
-    them, a needless state write every 30s per entity purely as a side
-    effect of never having set this explicitly."""
+    # test_should_poll_is_false: Before this fix, these ~77 entities had no _attr_should_poll at
     assert sensor_flattened._FlattenedAttributeSensor._attr_should_poll is False
 
-
-def test_recheck_availability_is_marked_hass_callback():
-    """Same real bug class as issue #82 (see test_push_availability.py's
-    own coverage of the sibling class): registered directly as async_
-    track_time_interval's own callback, so it must be @callback-marked
-    or HA's job-type detection would route every tick to the executor
-    thread pool instead of the event loop."""
+    # test_recheck_availability_is_marked_hass_callback: Same real bug class as issue #82 (see test_push_availability.py's
     job = sensor_flattened._FlattenedAttributeSensor._async_recheck_availability
     assert getattr(job, "_hass_callback", False) is True
+
+    # test_current_dispatch_covers_every_entity_no_stragglers: Every spec row's source_key must exist in the real production
+    row = _real_looking_forecast_row()
+    for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
+        assert spec.source_key in row, (
+            f"FLATTENED_ATTRS_CURRENT references {spec.source_key!r} which is "
+            "not present in the real forecast[0] row -- typo or a field the "
+            "LP doesn't publish."
+        )
+
+    # test_flex_source_keys_are_unique
+    source_keys = [spec.source_key for spec in sensor_flattened.FLATTENED_ATTRS_FLEX]
+    assert len(set(source_keys)) == len(source_keys), (
+        "duplicate source_key in FLATTENED_ATTRS_FLEX -- one row would "
+        "silently overwrite another's dispatch"
+    )
 
 
 # --- category rule (by what it measures) ----------------------------------
@@ -232,19 +238,6 @@ def _real_looking_forecast_row() -> dict:
 # --- fan-out extraction (via dispatch_to_flattened_current) ----------------
 
 
-def test_current_dispatch_covers_every_entity_no_stragglers():
-    """Every spec row's source_key must exist in the real production
-    row -- catches a typo or a source_key referencing a field the LP
-    doesn't publish."""
-    row = _real_looking_forecast_row()
-    for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
-        assert spec.source_key in row, (
-            f"FLATTENED_ATTRS_CURRENT references {spec.source_key!r} which is "
-            "not present in the real forecast[0] row -- typo or a field the "
-            "LP doesn't publish."
-        )
-
-
 # --- category classification (primary vs diagnostic) ----------------------
 
 
@@ -259,11 +252,3 @@ def _build_entities_flex():
     for e in entities:
         e.hass = None
     return entities, entry
-
-
-def test_flex_source_keys_are_unique():
-    source_keys = [spec.source_key for spec in sensor_flattened.FLATTENED_ATTRS_FLEX]
-    assert len(set(source_keys)) == len(source_keys), (
-        "duplicate source_key in FLATTENED_ATTRS_FLEX -- one row would "
-        "silently overwrite another's dispatch"
-    )

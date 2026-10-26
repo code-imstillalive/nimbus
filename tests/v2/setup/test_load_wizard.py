@@ -49,18 +49,12 @@ def _make_flow(source: str = "user") -> NimbusLoadSubentryFlowHandler:
 
 
 def test_expected_load_kw_carries_real_default_once_configured():
+    # test_expected_load_kw_carries_real_default_once_configured
     schema = _schema({CONF_EXPECTED_LOAD_KW: 3.7})
     marker = _find_marker(schema, CONF_EXPECTED_LOAD_KW)
     assert marker.default() == 3.7
 
-
-# -- _derive_title: friendly_name preferred, entity_id as fallback ----------
-
-
-# -- async_step_user: real, live-bitten reconfigure-vs-new routing ----------
-
-
-def test_reconfigure_with_no_input_shows_form_prefilled_from_existing_data():
+    # test_reconfigure_with_no_input_shows_form_prefilled_from_existing_data
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(
         data={CONF_LOAD_SENSOR: "sensor.existing", CONF_SCHEDULE_START_HOUR: 11.0}
@@ -70,3 +64,9 @@ def test_reconfigure_with_no_input_shows_form_prefilled_from_existing_data():
     assert result["type"] == "form"
     marker = _find_marker(result["data_schema"], CONF_SCHEDULE_START_HOUR)
     assert marker.default() == 11.0  # prefilled from the existing subentry, not blank
+
+
+# -- _derive_title: friendly_name preferred, entity_id as fallback ----------
+
+
+# -- async_step_user: real, live-bitten reconfigure-vs-new routing ----------

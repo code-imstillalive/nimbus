@@ -33,6 +33,7 @@ def _sample(state, minutes, kw, **kw_args):
 
 
 def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it():
+    # test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     s = _sample(lrs.LoadRunState(), 0, 2.0)
     assert (s.delivered_today_kwh, s.currently_on, s.on_since) == (
         0.0,
@@ -50,8 +51,7 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     )
     assert s.delivered_today_kwh == pytest.approx(1.0025)
 
-
-def test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap():
+    # test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap
     s = replace(
         lrs.LoadRunState(),
         day_key="2026-09-19",
@@ -67,8 +67,7 @@ def test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap():
     )
     assert first.carry_kwh == 0.0  # no yesterday to carry from
 
-
-def test_todays_target_is_quota_plus_carry_capped_and_the_rest_is_never_negative():
+    # test_todays_target_is_quota_plus_carry_capped_and_the_rest_is_never_negative
     assert (
         lrs.effective_target_kwh(
             quota_kwh_per_day=4.0, carry_kwh=2.0, max_per_day_kwh=5.0
@@ -83,23 +82,7 @@ def test_todays_target_is_quota_plus_carry_capped_and_the_rest_is_never_negative
     )
     assert lrs.remaining_kwh(target_kwh=5.0, delivered_today_kwh=6.0) == 0.0
 
-
-# --- the debounced command --------------------------------------------------------------------
-
-
-def _cmd(state, minutes, on, hysteresis=600):
-    return lrs.decide_commanded_state(
-        state,
-        raw_new_state=on,
-        now=T0 + timedelta(minutes=minutes),
-        min_hysteresis_seconds=hysteresis,
-    )
-
-
-# --- activation and reaffirm limits -----------------------------------------------------------------
-
-
-def test_activations_are_counted_per_day_against_the_limit():
+    # test_activations_are_counted_per_day_against_the_limit
     s = lrs.LoadRunState()
     assert lrs.activation_allowed(s, max_activations_per_day=None, day_key=DAY)
     s = lrs.record_activation(lrs.record_activation(s, day_key=DAY), day_key=DAY)
@@ -108,19 +91,7 @@ def test_activations_are_counted_per_day_against_the_limit():
     assert lrs.activation_allowed(s, max_activations_per_day=2, day_key="2026-09-21")
     assert lrs.record_activation(s, day_key="2026-09-21").activations_today == 1
 
-
-def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
-    return replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        commanded_since=now - seconds_ago,
-        currently_on=False,
-        off_since=now - seconds_ago,
-        **kw,
-    )
-
-
-def test_a_load_that_ignored_its_command_is_reaffirmed_within_limits():
+    # test_a_load_that_ignored_its_command_is_reaffirmed_within_limits
     for state, kw, allowed in [
         (_diverged(1200.0), {}, True),
         (_diverged(60.0), {}, False),  # not diverged long enough
@@ -146,18 +117,13 @@ def test_a_load_that_ignored_its_command_is_reaffirmed_within_limits():
             lrs.reaffirm_allowed(state, now_ts=10_000.0, day_key=DAY, **kw) is allowed
         )
 
-
-def test_reaffirms_are_counted_per_day():
+    # test_reaffirms_are_counted_per_day
     s = lrs.record_reaffirm(lrs.LoadRunState(), now_ts=5.0, day_key=DAY)
     s = lrs.record_reaffirm(s, now_ts=6.0, day_key=DAY)
     assert (s.reaffirms_today, s.last_reaffirm_at) == (2, 6.0)
     assert lrs.record_reaffirm(s, now_ts=7.0, day_key="2026-09-21").reaffirms_today == 1
 
-
-# --- why a load is or is not running -------------------------------------------------------------------
-
-
-def test_the_status_reason_says_running_deferred_or_not_scheduled():
+    # test_the_status_reason_says_running_deferred_or_not_scheduled
     times = [T0 + timedelta(minutes=30 * i) for i in range(4)]
     reason = lambda kw, price, lo=0, hi=3: lrs.compute_load_status_reason(
         power_kw=kw,
@@ -181,18 +147,7 @@ def test_the_status_reason_says_running_deferred_or_not_scheduled():
     assert reason([0, 0, 0, 2], [0.3] * 4, hi=2) == "not scheduled to run this window"
     assert reason([], []) is None
 
-
-# --- the schedule view ---------------------------------------------------------------------------------
-
-
-def _plan(values, start=T0, minutes=30):
-    return [
-        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": v}
-        for i, v in enumerate(values)
-    ]
-
-
-def test_the_next_run_its_length_energy_and_cost():
+    # test_the_next_run_its_length_energy_and_cost
     s = replace(
         lrs.LoadRunState(),
         plan_forecast=_plan([0, 2, 2, 0, 3]),
@@ -223,7 +178,47 @@ def test_the_next_run_its_length_energy_and_cost():
     assert last.target_today_kwh is None
 
 
+# --- the debounced command --------------------------------------------------------------------
+
+
+def _cmd(state, minutes, on, hysteresis=600):
+    return lrs.decide_commanded_state(
+        state,
+        raw_new_state=on,
+        now=T0 + timedelta(minutes=minutes),
+        min_hysteresis_seconds=hysteresis,
+    )
+
+
+# --- activation and reaffirm limits -----------------------------------------------------------------
+
+
+def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
+    return replace(
+        lrs.LoadRunState(),
+        commanded_state=True,
+        commanded_since=now - seconds_ago,
+        currently_on=False,
+        off_since=now - seconds_ago,
+        **kw,
+    )
+
+
+# --- why a load is or is not running -------------------------------------------------------------------
+
+
+# --- the schedule view ---------------------------------------------------------------------------------
+
+
+def _plan(values, start=T0, minutes=30):
+    return [
+        {"time": (start + timedelta(minutes=minutes * i)).isoformat(), "value": v}
+        for i, v in enumerate(values)
+    ]
+
+
 def test_the_status_line_says_the_one_thing_that_matters_most():
+    # test_the_status_line_says_the_one_thing_that_matters_most
     for state, kind, kw, status in [
         ({"commanded_state": True}, "deferrable", {}, "running"),
         ({"plan_shortfall_kwh": 1.5}, "deferrable", {}, "will miss target by 1.50 kWh"),
@@ -273,8 +268,7 @@ def test_the_status_line_says_the_one_thing_that_matters_most():
             lrs.derive_schedule_view(s, load_kind=kind, now=T0, **kw).status == status
         )
 
-
-def test_money_saved_today_is_what_the_mean_price_would_have_cost_less_what_it_did():
+    # test_money_saved_today_is_what_the_mean_price_would_have_cost_less_what_it_did
     s = replace(lrs.LoadRunState(), delivered_today_kwh=4.0, cost_today=0.5)
     assert (
         lrs.derive_schedule_view(
@@ -286,6 +280,22 @@ def test_money_saved_today_is_what_the_mean_price_would_have_cost_less_what_it_d
         lrs.derive_schedule_view(s, load_kind="deferrable", now=T0).cost_avoided_today
         is None
     )
+
+    # test_an_unreadable_store_starts_the_load_afresh
+    for store in [
+        MemoryStore(broken=True),
+        MemoryStore({"hw": {"delivered_today_kwh": "lots"}}),
+        MemoryStore(None),
+    ]:
+        assert (
+            asyncio.run(lrs.LoadRunStateStore(store=store).async_read("hw"))
+            == lrs.LoadRunState()
+        )
+        asyncio.run(
+            lrs.LoadRunStateStore(store=MemoryStore(broken=True)).async_write(
+                "hw", lrs.LoadRunState()
+            )
+        )
 
 
 # --- kept across restarts -----------------------------------------------------------------------------------
@@ -302,20 +312,3 @@ class MemoryStore:
 
     async def async_save(self, data):
         self.data = data
-
-
-def test_an_unreadable_store_starts_the_load_afresh():
-    for store in [
-        MemoryStore(broken=True),
-        MemoryStore({"hw": {"delivered_today_kwh": "lots"}}),
-        MemoryStore(None),
-    ]:
-        assert (
-            asyncio.run(lrs.LoadRunStateStore(store=store).async_read("hw"))
-            == lrs.LoadRunState()
-        )
-        asyncio.run(
-            lrs.LoadRunStateStore(store=MemoryStore(broken=True)).async_write(
-                "hw", lrs.LoadRunState()
-            )
-        )

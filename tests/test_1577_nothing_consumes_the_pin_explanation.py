@@ -17,6 +17,7 @@ PKG = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_loa
 
 
 def test_only_solver_plan_uses_the_helper_or_its_fields():
+    # test_only_solver_plan_uses_the_helper_or_its_fields
     allowed = {PKG / "solver_plan.py", PKG / "solver" / "pin_blockers.py"}
     users = [
         path
@@ -29,8 +30,7 @@ def test_only_solver_plan_uses_the_helper_or_its_fields():
     assert users, "scan found nothing -- wrong root?"
     assert sorted(set(users) - allowed) == []
 
-
-def test_the_repairs_path_does_not_read_the_instrument():
+    # test_the_repairs_path_does_not_read_the_instrument
     text = (PKG / "setup_health.py").read_text(encoding="utf-8")
     for token in ("period0", "pin_blockers", "pinned_blockers", "#1577"):
         assert token not in text

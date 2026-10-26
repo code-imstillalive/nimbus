@@ -47,6 +47,7 @@ def _make_bare_coordinator() -> NimbusCoordinator:
 
 
 def test_parse_time_to_hour_bare_float_is_already_a_decimal_hour():
+    # test_parse_time_to_hour_bare_float_is_already_a_decimal_hour
     # The real 2026-08-15 live crash this guards against: a load
     # reconfigured under the old NumberSelector-based flow still has a
     # raw float (e.g. 8.0) sitting in its subentry data, and calling
@@ -55,40 +56,25 @@ def test_parse_time_to_hour_bare_float_is_already_a_decimal_hour():
     # refresh cycle.
     assert _parse_time_to_hour(8.0) == 8.0
 
-
-def test_parse_time_to_hour_empty_string_is_none():
+    # test_parse_time_to_hour_empty_string_is_none
     assert _parse_time_to_hour("") is None
 
-
-def test_parse_time_to_hour_garbage_string_returns_none_not_raises():
+    # test_parse_time_to_hour_garbage_string_returns_none_not_raises
     assert _parse_time_to_hour("not-a-time") is None
 
-
-# -- _nearest_temp (interpolated) --------------------------------------------
-
-
-def test_nearest_temp_target_before_first_point_clamps_to_first():
+    # test_nearest_temp_target_before_first_point_clamps_to_first
     forecast = [(_T0 + timedelta(hours=1), 20.0), (_T0 + timedelta(hours=2), 22.0)]
     assert _nearest_temp(forecast, _T0, fallback=0.0) == 20.0
 
-
-def test_nearest_temp_target_after_last_point_clamps_to_last():
+    # test_nearest_temp_target_after_last_point_clamps_to_last
     forecast = [(_T0, 20.0), (_T0 + timedelta(hours=1), 22.0)]
     assert _nearest_temp(forecast, _T0 + timedelta(hours=5), fallback=0.0) == 22.0
 
-
-# -- _step_lookup (NOT interpolated -- boolean/curtailment-style signals) ---
-
-
-def test_step_lookup_exact_match_on_a_point_returns_that_point():
+    # test_step_lookup_exact_match_on_a_point_returns_that_point
     forecast = [(_T0, 0.0), (_T0 + timedelta(hours=1), 1.0)]
     assert _step_lookup(forecast, _T0 + timedelta(hours=1), fallback=-1.0) == 1.0
 
-
-# -- _current_humidity (bound method, real graceful-degradation logic) ------
-
-
-def test_current_humidity_sensor_state_missing_returns_fallback():
+    # test_current_humidity_sensor_state_missing_returns_fallback
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_HUMIDITY_SENSOR: "sensor.missing"})
     # #1540: the feature accessor compares against the own load sensor.
@@ -97,8 +83,7 @@ def test_current_humidity_sensor_state_missing_returns_fallback():
     coord.hass.states.get.return_value = None
     assert coord._current_humidity() == DEFAULT_FALLBACK_HUMIDITY_PCT
 
-
-def test_current_humidity_unparseable_state_returns_fallback_not_raises():
+    # test_current_humidity_unparseable_state_returns_fallback_not_raises
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_HUMIDITY_SENSOR: "sensor.humidity"})
     # #1540: the feature accessor compares against the own load sensor.
@@ -108,22 +93,26 @@ def test_current_humidity_unparseable_state_returns_fallback_not_raises():
     assert coord._current_humidity() == DEFAULT_FALLBACK_HUMIDITY_PCT
 
 
+# -- _nearest_temp (interpolated) --------------------------------------------
+
+
+# -- _step_lookup (NOT interpolated -- boolean/curtailment-style signals) ---
+
+
+# -- _current_humidity (bound method, real graceful-degradation logic) ------
+
+
 # -- _current_measured_power (bound method, real 2026-08-15 unit-mismatch bug) --
 
 
 def test_current_measured_power_unparseable_state_returns_zero_not_raises():
+    # test_current_measured_power_unparseable_state_returns_zero_not_raises
     coord = _make_bare_coordinator()
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = MagicMock(state="unknown", attributes={})
     assert coord._current_measured_power("sensor.battery") == 0.0
 
-
-def test_current_measured_power_nan_state_returns_zero_not_nan():
-    """nimbus issue #353: float("nan") does not raise, unlike a genuinely
-    unparseable state -- a template/REST/Modbus sensor without a numeric
-    device_class/state_class can publish this. Feeding NaN into a live
-    forecast's stale-flat-carry feature would poison every recursive step.
-    """
+    # test_current_measured_power_nan_state_returns_zero_not_nan: nimbus issue #353: float("nan") does not raise, unlike a genuinely
     coord = _make_bare_coordinator()
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = MagicMock(
@@ -131,8 +120,7 @@ def test_current_measured_power_nan_state_returns_zero_not_nan():
     )
     assert coord._current_measured_power("sensor.battery") == 0.0
 
-
-def test_current_measured_power_kw_reading_passes_through_unchanged():
+    # test_current_measured_power_kw_reading_passes_through_unchanged
     coord = _make_bare_coordinator()
     coord.hass = MagicMock()
     coord.hass.states.get.return_value = MagicMock(
@@ -140,8 +128,7 @@ def test_current_measured_power_kw_reading_passes_through_unchanged():
     )
     assert coord._current_measured_power("sensor.battery") == 13.4
 
-
-def test_current_measured_power_unconvertible_unit_falls_back_to_raw_value():
+    # test_current_measured_power_unconvertible_unit_falls_back_to_raw_value
     # A genuinely unknown/unconvertible unit shouldn't crash the whole
     # coordinator cycle -- treat the raw value as-is (with a logged
     # warning, not asserted here) rather than raise.

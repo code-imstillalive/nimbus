@@ -36,34 +36,10 @@ def _construct(cls=sensor.NimbusSolverBatteryForecastSensor):
 
 
 def test_should_poll_is_false():
-    """nimbus issue #302: this class has no update()/async_update() at
-    all -- it's a pure push entity, updated only via update_from_solver().
-    Leaving should_poll at its default True meant HA's own default
-    entity-platform scan interval (15s on a real installed core) polled
-    it anyway, force-refreshing a push-only entity that never asked to
-    be polled -- confirmed as the real cause of a live flap on the
-    reference household's own NUC1 (sensor.nimbus_solver_quality_report
-    alternating between its real value and a bare "unknown" every ~30s).
-
-    nimbus issue #362 (Mark Purcell, codebase review) correctly flagged
-    the fix's own code comment as misleadingly calling this "DIAG:
-    temporary" when #302's own closed conclusion says the opposite --
-    this must never be reverted or reintroduced as an actual temporary
-    flag; this test locks in that it stays False permanently.
-    """
+    # test_should_poll_is_false: nimbus issue #302: this class has no update()/async_update() at
     assert sensor._NimbusSolverPushSensor._attr_should_poll is False
 
-
-# --- available: pre-first-solve is "unknown", not "unavailable" -----------
-
-
-# --- available: fresh push is available ------------------------------------
-
-
-# --- available: staleness threshold ----------------------------------------
-
-
-def test_a_second_fresh_push_resets_staleness():
+    # test_a_second_fresh_push_resets_staleness
     instance = _construct()
     instance.hass = None
     instance.update_from_solver(1.5, {"forecast": []})
@@ -73,6 +49,43 @@ def test_a_second_fresh_push_resets_staleness():
     # leave it permanently stuck once it's gone stale once.
     instance.update_from_solver(2.5, {"forecast": []})
     assert instance.available is True
+
+    # test_update_from_solver_is_marked_hass_callback: Real, live-breaking regression (issue #82, found on Mark Purcell's
+    assert (
+        getattr(
+            sensor.NimbusSolverBatteryForecastSensor.update_from_solver,
+            "_hass_callback",
+            False,
+        )
+        is True
+    )
+    assert (
+        getattr(
+            sensor.NimbusHouseholdLoadTotalForecastSensor.update_from_solver,
+            "_hass_callback",
+            False,
+        )
+        is True
+    )
+
+    # test_recheck_availability_is_marked_hass_callback: Same real bug class, second instance: _async_recheck_availability
+    assert (
+        getattr(
+            sensor.NimbusSolverBatteryForecastSensor._async_recheck_availability,
+            "_hass_callback",
+            False,
+        )
+        is True
+    )
+
+
+# --- available: pre-first-solve is "unknown", not "unavailable" -----------
+
+
+# --- available: fresh push is available ------------------------------------
+
+
+# --- available: staleness threshold ----------------------------------------
 
 
 # --- log-when-unavailable: transition logging, not per-tick ----------------
@@ -91,57 +104,3 @@ def test_a_second_fresh_push_resets_staleness():
 # --- issue #82: both hass.add_job()/async_track_time_interval targets  ----
 # --- must genuinely be event-loop-safe (@callback), not just "work"    ----
 # --- under a stub that doesn't model real HA's thread-dispatch logic.  ----
-
-
-def test_update_from_solver_is_marked_hass_callback():
-    """Real, live-breaking regression (issue #82, found on Mark Purcell's
-    real v0.73.0 install): update_from_solver() is invoked via
-    solver_writer.ha_post_state()'s hass.add_job(functools.partial(
-    handler, ...)) -- real HA's add_job() inspects its target for the
-    _hass_callback marker to decide whether to run it directly on the
-    event loop or dispatch it to the executor THREAD POOL. Undecorated,
-    every single solve tick sent this method to a worker thread, where
-    its own async_write_ha_state() call (genuinely requires the event
-    loop) raised RuntimeError silently on every call -- both headline
-    sensors stuck at `unknown` forever, no visible crash, just "Future
-    exception was never retrieved" buried in the log.
-
-    Checks the exact attribute (_hass_callback) real HA's own @callback
-    decorator sets -- confirmed directly against HA core's current
-    source, not guessed -- via the test stub's own now-faithful
-    replica (see _ha_stubs.py's own comment on why a plain identity
-    lambda was a real, proven gap here, not a harmless simplification).
-    """
-    assert (
-        getattr(
-            sensor.NimbusSolverBatteryForecastSensor.update_from_solver,
-            "_hass_callback",
-            False,
-        )
-        is True
-    )
-    assert (
-        getattr(
-            sensor.NimbusHouseholdLoadTotalForecastSensor.update_from_solver,
-            "_hass_callback",
-            False,
-        )
-        is True
-    )
-
-
-def test_recheck_availability_is_marked_hass_callback():
-    """Same real bug class, second instance: _async_recheck_availability
-    is registered directly as async_track_time_interval's own callback
-    and also ends with async_write_ha_state() -- undecorated, this would
-    have hit the identical crash on every single periodic re-check tick,
-    in code that had never been live-tested before this fix (shipped the
-    same session)."""
-    assert (
-        getattr(
-            sensor.NimbusSolverBatteryForecastSensor._async_recheck_availability,
-            "_hass_callback",
-            False,
-        )
-        is True
-    )

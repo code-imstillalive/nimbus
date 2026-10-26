@@ -63,6 +63,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         return solver_writer.build_controllable_loads(now, grid_times, len(grid_times))
 
     def test_missing_max_power_kw_is_skipped_not_crashed(self):
+        # test_missing_max_power_kw_is_skipped_not_crashed
         data = {
             "controllable_load_name": "HWS",
             "controllable_load_kind": "thermal",
@@ -75,7 +76,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states)
         self.assertEqual(thermal, [])
 
-    def test_missing_target_temperature_is_skipped_not_crashed(self):
+        # test_missing_target_temperature_is_skipped_not_crashed
         data = {
             "controllable_load_name": "HWS",
             "controllable_load_kind": "thermal",
@@ -88,7 +89,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states)
         self.assertEqual(thermal, [])
 
-    def test_missing_temperature_entity_is_skipped_not_crashed(self):
+        # test_missing_temperature_entity_is_skipped_not_crashed
         data = {
             "controllable_load_name": "HWS",
             "controllable_load_kind": "thermal",
@@ -98,7 +99,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states={})
         self.assertEqual(thermal, [])
 
-    def test_a_non_water_heater_climate_temperature_entity_is_skipped(self):
+        # test_a_non_water_heater_climate_temperature_entity_is_skipped
         # done_condition.read_current_temperature() only supports
         # water_heater/climate domains -- a plain sensor has no
         # current_temperature ATTRIBUTE contract to read.
@@ -113,7 +114,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states)
         self.assertEqual(thermal, [])
 
-    def test_comfort_floor_fields_are_carried_through_when_set(self):
+        # test_comfort_floor_fields_are_carried_through_when_set
         data = {
             "controllable_load_name": "HWS",
             "controllable_load_kind": "thermal",
@@ -131,7 +132,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         self.assertEqual(tl.comfort_floor_c, 40.0)
         self.assertEqual(tl.comfort_floor_cost, 5.0)
 
-    def test_explicit_rate_overrides_win_over_module_defaults(self):
+        # test_explicit_rate_overrides_win_over_module_defaults
         data = {
             "controllable_load_name": "HWS",
             "controllable_load_kind": "thermal",
@@ -154,7 +155,7 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         self.assertEqual(tl.heating_rate_origin, "override")
         self.assertEqual(tl.idle_decay_origin, "override")
 
-    def test_persisted_run_state_rate_wins_over_module_default_when_no_override(self):
+        # test_persisted_run_state_rate_wins_over_module_default_when_no_override
         # A load migrated from kind=deferrable already has a real,
         # previously-learned rate sitting in its own LoadRunState (keyed
         # by subentry_id, not kind) -- read via run_state_sample, which

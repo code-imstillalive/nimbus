@@ -52,6 +52,7 @@ def _grade(hist, side, source, interval, forecast, settled, lead_min=2.0):
 
 
 def test_lead_bucket_extends_the_trackers_four_with_beyond_24h():
+    # test_lead_bucket_extends_the_trackers_four_with_beyond_24h
     for lead, bucket in [
         (0.0, "0-5 min"),
         (5.0, "5-60 min"),
@@ -67,8 +68,7 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h():
         # The first four are the tracker's own, unchanged.
         assert peh.LEAD_BUCKETS[:4] == pc.LEAD_BUCKETS
 
-
-def test_spike_threshold_reuses_existing_settings_only():
+    # test_spike_threshold_reuses_existing_settings_only
     # The household's own retail spike threshold wins when set.
     assert peh.spike_threshold({"solver_price_spike_threshold": 1.5}) == (
         1.5,
@@ -85,12 +85,78 @@ def test_spike_threshold_reuses_existing_settings_only():
         None,
     )
 
-
-def test_classify():
+    # test_classify
     assert peh.classify(6.0, 0.3, 5.0) == peh.CLS_SPIKE
     assert peh.classify(0.3, 6.0, 5.0) == peh.CLS_SURPRISE
     assert peh.classify(0.3, 0.3, 5.0) == peh.CLS_NORMAL
     assert peh.classify(9.0, 9.0, None) == peh.CLS_NORMAL
+
+    # test_malformed_state_loads_empty
+    for bad in [
+        None,
+        [],
+        "x",
+        {"pending": {"import": {"k": {}}}},
+        {"samples": {"import": 3}},
+    ]:
+        assert peh.PriceErrorHistory.from_dict(bad).sample_count() == 0
+
+    # test_loo_band_coverage
+    assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)
+    # Day 2 sits wholly above days 1's band: every value graded "above".
+    days = [1] * 20 + [2] * 5
+    values = [float(i % 10) for i in range(20)] + [100.0] * 5
+    below, above = peh.loo_band_coverage(days, values)
+    assert above >= 100.0 * 5 / 25
+    assert below is not None
+
+    # test_summary_without_a_threshold_has_no_spike_counts
+    h = peh.PriceErrorHistory()
+    assert peh.on_stride(6004)
+    h.samples["import"]["a"] = {"0-5 min": {"normal": [[6004, 1, 0.3, 0.3]]}}
+    out = peh.summarise(h)["import"]["a"]["0-5 min"]
+    assert "spike" not in out and "at_or_above" not in out
+
+    # test_summary_is_cached_until_the_samples_change
+    h = _full_history(("primary",))
+    first = peh._summary(h)
+    assert peh._summary(h) is first
+    h.set_threshold(4.0)
+    assert peh._summary(h) is not first
+
+    # test_fed_every_cycle_from_the_trackers_own_settle_point_and_persisted
+    start = _key_on_stride(True) - timedelta(minutes=5) + timedelta(seconds=10)
+    with isolated_state_paths(solver_writer) as tmp:
+        # An hour of 5-minute cycles: saved on the first (the threshold is
+        # adopted), then on the first grade 30 minutes or more later.
+        for i in range(13):
+            result = _cycle(start + timedelta(minutes=5 * i))
+        eh = result["error_history"]
+        assert eh["read_by_dispatch"] is False
+        assert eh["threshold"] == 5.0
+        assert eh["samples"] >= 1
+        # The 0-5 min forecast of 0.30 settled at 0.31: a +0.01 signed error.
+        hist = solver_writer._PRICE_ERROR_HISTORY_CACHE
+        pairs = hist.samples["import"]["primary"]["0-5 min"]["normal"]
+        assert pairs[0][2:] == [0.3, 0.31]
+        # The #1786 tracker scored the very same intervals.
+        tracker = solver_writer._PRICE_CONSOLIDATION_CACHE["import"]
+        assert tracker.samples["primary"]["0-5 min"] >= len(pairs)
+        # Persisted in the config dir, and restored after a restart.
+        path = os.path.join(tmp, "nimbus_solver_price_error_history.json")
+        assert os.path.exists(path)
+        solver_writer._PRICE_ERROR_HISTORY_CACHE = None
+        restored = peh._load(solver_writer)
+        saved = restored.samples["import"]["primary"]["0-5 min"]["normal"]
+        assert saved and saved == pairs[: len(saved)]
+        assert restored.threshold == 5.0
+        # The file also carries the full table; the attribute, the compact one.
+        with open(path, encoding="utf-8") as f:
+            on_disk = json.load(f)
+        assert on_disk["summary"]["columns"] == list(peh.COLUMNS)
+        assert "below" in on_disk["summary"]["import"]["primary"]["0-5 min"]
+        row = eh["import"]["primary"]["0-5 min"]
+        assert len(row) == len(peh.COMPACT_COLUMNS)
 
 
 # -- recording and settling ------------------------------------------------------
@@ -102,17 +168,6 @@ def test_classify():
 # -- persistence ------------------------------------------------------------------
 
 
-def test_malformed_state_loads_empty():
-    for bad in [
-        None,
-        [],
-        "x",
-        {"pending": {"import": {"k": {}}}},
-        {"samples": {"import": 3}},
-    ]:
-        assert peh.PriceErrorHistory.from_dict(bad).sample_count() == 0
-
-
 # -- the distribution ----------------------------------------------------------------
 
 
@@ -121,24 +176,6 @@ def _pairs(diffs, forecast=0.30, days=3):
         [i, 739000 + i % days, forecast, round(forecast + d, 6)]
         for i, d in enumerate(diffs)
     ]
-
-
-def test_loo_band_coverage():
-    assert peh.loo_band_coverage([1] * 10, list(range(10))) == (None, None)
-    # Day 2 sits wholly above days 1's band: every value graded "above".
-    days = [1] * 20 + [2] * 5
-    values = [float(i % 10) for i in range(20)] + [100.0] * 5
-    below, above = peh.loo_band_coverage(days, values)
-    assert above >= 100.0 * 5 / 25
-    assert below is not None
-
-
-def test_summary_without_a_threshold_has_no_spike_counts():
-    h = peh.PriceErrorHistory()
-    assert peh.on_stride(6004)
-    h.samples["import"]["a"] = {"0-5 min": {"normal": [[6004, 1, 0.3, 0.3]]}}
-    out = peh.summarise(h)["import"]["a"]["0-5 min"]
-    assert "spike" not in out and "at_or_above" not in out
 
 
 def _full_history(sources=("primary", "secondary_2", "secondary_3", "aemo_markup")):
@@ -159,14 +196,6 @@ def _full_history(sources=("primary", "secondary_2", "secondary_3", "aemo_markup
                     "surprise": [[k, 739000, 0.3, 6.0] for k in keys[:5]],
                 }
     return h
-
-
-def test_summary_is_cached_until_the_samples_change():
-    h = _full_history(("primary",))
-    first = peh._summary(h)
-    assert peh._summary(h) is first
-    h.set_threshold(4.0)
-    assert peh._summary(h) is not first
 
 
 # -- wiring: apply_price_consolidation() ------------------------------------------
@@ -201,41 +230,6 @@ def _cycle(now, settled_import=0.31, cfg=None):
         ["primary"] * 4,
         ["primary"] * 4,
     )
-
-
-def test_fed_every_cycle_from_the_trackers_own_settle_point_and_persisted():
-    start = _key_on_stride(True) - timedelta(minutes=5) + timedelta(seconds=10)
-    with isolated_state_paths(solver_writer) as tmp:
-        # An hour of 5-minute cycles: saved on the first (the threshold is
-        # adopted), then on the first grade 30 minutes or more later.
-        for i in range(13):
-            result = _cycle(start + timedelta(minutes=5 * i))
-        eh = result["error_history"]
-        assert eh["read_by_dispatch"] is False
-        assert eh["threshold"] == 5.0
-        assert eh["samples"] >= 1
-        # The 0-5 min forecast of 0.30 settled at 0.31: a +0.01 signed error.
-        hist = solver_writer._PRICE_ERROR_HISTORY_CACHE
-        pairs = hist.samples["import"]["primary"]["0-5 min"]["normal"]
-        assert pairs[0][2:] == [0.3, 0.31]
-        # The #1786 tracker scored the very same intervals.
-        tracker = solver_writer._PRICE_CONSOLIDATION_CACHE["import"]
-        assert tracker.samples["primary"]["0-5 min"] >= len(pairs)
-        # Persisted in the config dir, and restored after a restart.
-        path = os.path.join(tmp, "nimbus_solver_price_error_history.json")
-        assert os.path.exists(path)
-        solver_writer._PRICE_ERROR_HISTORY_CACHE = None
-        restored = peh._load(solver_writer)
-        saved = restored.samples["import"]["primary"]["0-5 min"]["normal"]
-        assert saved and saved == pairs[: len(saved)]
-        assert restored.threshold == 5.0
-        # The file also carries the full table; the attribute, the compact one.
-        with open(path, encoding="utf-8") as f:
-            on_disk = json.load(f)
-        assert on_disk["summary"]["columns"] == list(peh.COLUMNS)
-        assert "below" in on_disk["summary"]["import"]["primary"]["0-5 min"]
-        row = eh["import"]["primary"]["0-5 min"]
-        assert len(row) == len(peh.COMPACT_COLUMNS)
 
 
 def test_a_persistent_failure_warns_once_not_every_cycle(caplog, monkeypatch):

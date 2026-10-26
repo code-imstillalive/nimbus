@@ -61,9 +61,7 @@ _DOCS_INTEGRATION_DIR = os.path.join(_REPO_ROOT, "docs", "real-world-integration
 
 class TestNoBundledSolverPackageExistsOutsideTheIntegration(unittest.TestCase):
     def test_nimbus_solver_app_directory_is_gone(self):
-        """The add-on that actually carried the drifting bundled copy --
-        confirmed deleted (v0.94.85), asserted here so it can never
-        silently reappear via a future revert/merge."""
+        # test_nimbus_solver_app_directory_is_gone: The add-on that actually carried the drifting bundled copy --
         addon_dir = os.path.join(_REPO_ROOT, "nimbus_solver_app")
         self.assertFalse(
             os.path.isdir(addon_dir),
@@ -72,12 +70,7 @@ class TestNoBundledSolverPackageExistsOutsideTheIntegration(unittest.TestCase):
             "drift, deleted for exactly that reason in v0.94.85",
         )
 
-    def test_docs_real_world_integration_never_bundles_solver_or_ml(self):
-        """Walks the whole docs/real-world-integration/ tree looking for
-        a directory literally named `solver` or `ml` -- the shape a
-        bundled, independently-drifting copy would take (matching
-        nimbus_solver_app/'s own former layout, `nimbus_solver_app/
-        solver/`)."""
+        # test_docs_real_world_integration_never_bundles_solver_or_ml: Walks the whole docs/real-world-integration/ tree looking for
         self.assertTrue(
             os.path.isdir(_DOCS_INTEGRATION_DIR),
             f"expected {_DOCS_INTEGRATION_DIR} to exist",
@@ -98,14 +91,7 @@ class TestNoBundledSolverPackageExistsOutsideTheIntegration(unittest.TestCase):
             "sys.path shim, never a bundled copy",
         )
 
-    def test_docs_writer_resolves_the_real_shared_solver_package_not_a_copy(self):
-        """Loads the real docs-copy script (same technique already
-        established by tests/test_settlement_capture_timing.py) and
-        confirms its own `network`/`elements` modules are the identical
-        objects `custom_components.nimbus_load.solver_writer` resolves
-        to -- not two independently-imported copies that merely happen
-        to share source, which Python would treat as genuinely distinct
-        classes even if byte-identical."""
+        # test_docs_writer_resolves_the_real_shared_solver_package_not_a_copy: Loads the real docs-copy script (same technique already
         os.environ.setdefault(
             "NIMBUS_SOLVER_PATH",
             os.path.join(_REPO_ROOT, "custom_components", "nimbus_load"),

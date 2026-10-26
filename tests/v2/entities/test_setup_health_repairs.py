@@ -43,6 +43,7 @@ def _kinds(issues):
 
 
 def test_every_kind_is_translated_in_both_files_with_matching_placeholders():
+    # test_every_kind_is_translated_in_both_files_with_matching_placeholders
     import re
 
     for rel in ("strings.json", "translations/en.json"):
@@ -56,34 +57,7 @@ def test_every_kind_is_translated_in_both_files_with_matching_placeholders():
             text = issues[kind]["title"] + issues[kind]["description"]
             assert set(re.findall(r"\{(\w+)\}", text)) <= placeholders, (rel, kind)
 
-
-# --- async_refresh_health: creates and clears Repairs -----------------------------
-
-
-class _FakeIR:
-    class IssueSeverity:
-        WARNING = "warning"
-
-    def __init__(self):
-        self.issues = {}
-
-    def async_create_issue(self, hass, domain, issue_id, **kw):
-        self.issues[issue_id] = kw
-
-    def async_delete_issue(self, hass, domain, issue_id):
-        self.issues.pop(issue_id, None)
-
-
-def _entry(options, coordinators):
-    return SimpleNamespace(
-        entry_id="e1",
-        options=options,
-        subentries={k: SimpleNamespace(title=t) for k, (t, _) in coordinators.items()},
-        runtime_data={k: SimpleNamespace(data=d) for k, (_, d) in coordinators.items()},
-    )
-
-
-def test_refresh_creates_then_clears_a_repair():
+    # test_refresh_creates_then_clears_a_repair
     fake = _FakeIR()
     hass = SimpleNamespace(data={})
     start = datetime(2026, 10, 6, 12, 0, tzinfo=UTC)
@@ -124,15 +98,11 @@ def test_refresh_creates_then_clears_a_repair():
         asyncio.run(sh.async_refresh_health(hass, trained, now=start + UP + UP))
         assert fake.issues == {}  # cleared on its own
 
-
-def test_refresh_never_raises():
+    # test_refresh_never_raises
     hass = SimpleNamespace(data=None)  # setdefault on None raises inside
     asyncio.run(sh.async_refresh_health(hass, _entry(FULL_SOLVER, {})))
 
-
-def test_an_incomplete_fixed_hours_rule_is_reported_as_configuration_not_history():
-    """nimbus #1575 (Mark's review of #1593): an incomplete rule and missing
-    history stay distinguishable, here too."""
+    # test_an_incomplete_fixed_hours_rule_is_reported_as_configuration_not_history: nimbus #1575 (Mark's review of #1593): an incomplete rule and missing
     issues = sh.evaluate_health(
         options=FULL_SOLVER,
         forecasts=[
@@ -154,3 +124,29 @@ def test_an_incomplete_fixed_hours_rule_is_reported_as_configuration_not_history
     assert set(reasons) == {"Pool", "Oven"}
     assert "schedule hours" in reasons["Pool"]
     assert "history" in reasons["Oven"]
+
+
+# --- async_refresh_health: creates and clears Repairs -----------------------------
+
+
+class _FakeIR:
+    class IssueSeverity:
+        WARNING = "warning"
+
+    def __init__(self):
+        self.issues = {}
+
+    def async_create_issue(self, hass, domain, issue_id, **kw):
+        self.issues[issue_id] = kw
+
+    def async_delete_issue(self, hass, domain, issue_id):
+        self.issues.pop(issue_id, None)
+
+
+def _entry(options, coordinators):
+    return SimpleNamespace(
+        entry_id="e1",
+        options=options,
+        subentries={k: SimpleNamespace(title=t) for k, (t, _) in coordinators.items()},
+        runtime_data={k: SimpleNamespace(data=d) for k, (_, d) in coordinators.items()},
+    )

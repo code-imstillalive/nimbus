@@ -180,6 +180,7 @@ def test_the_plan_this_install_posted_is_preferred(site, monkeypatch):
 
 
 def test_dispatch_class_uses_the_automations_own_deadband():
+    # test_dispatch_class_uses_the_automations_own_deadband
     for kw, cls in [
         (0.06, "discharge"),
         (-0.06, "charge"),
@@ -188,8 +189,7 @@ def test_dispatch_class_uses_the_automations_own_deadband():
     ]:
         assert di.dispatch_class(kw) == cls
 
-
-def test_segments_and_windows_are_whole_utc_hours():
+    # test_segments_and_windows_are_whole_utc_hours
     keys = [di.segment_key(T0 + timedelta(hours=h)) for h in range(3)] + ["junk"]
     assert (
         di.segments_overlapping(
@@ -209,28 +209,7 @@ def test_segments_and_windows_are_whole_utc_hours():
         di.segment_key(datetime(2026, 1, 1))  # noqa: DTZ001
     assert di.in_window({"captured_at": "x"}, T0, T0) is False
 
-
-# --- each source as published -----------------------------------------------------------------
-
-pi = importlib.import_module("custom_components.nimbus_load.price_intervals")
-FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
-
-
-def _sample(name, sample=None):
-    d = json.loads((FIX / name).read_text(encoding="utf-8"))
-    return (d["samples"][sample] if sample else d)["selected_native_rows"]
-
-
-def _express():
-    return {
-        "forecast": _sample("1550_amber_express.json", "amber_express_general_simple"),
-        pi.AMBER_EXPRESS_DETAILED_KEY: _sample(
-            "1550_amber_express.json", "amber_express_general_detail"
-        ),
-    }
-
-
-def test_a_providers_series_is_kept_in_its_own_shape_and_reads_back():
+    # test_a_providers_series_is_kept_in_its_own_shape_and_reads_back
     for attrs, shape in [
         (lambda: {"forecast": _sample("1550_aemo_nem_qld.json")}, pi.AEMO_NEM_DOMAIN),
         (
@@ -263,8 +242,7 @@ def test_a_providers_series_is_kept_in_its_own_shape_and_reads_back():
         assert di.series_points(stored) == [(i.start, i.value) for i in intervals]
         assert body["end"] == intervals[-1].end.isoformat()
 
-
-def test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read():
+    # test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read
     rows = [
         {
             "start": (T0 + timedelta(minutes=5 * i)).isoformat(),
@@ -281,6 +259,26 @@ def test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read():
         [0, 10],
     )
     assert body["end"] == (T0 + timedelta(minutes=15)).isoformat()
+
+
+# --- each source as published -----------------------------------------------------------------
+
+pi = importlib.import_module("custom_components.nimbus_load.price_intervals")
+FIX = Path(__file__).resolve().parents[2] / "fixtures" / "pricing"
+
+
+def _sample(name, sample=None):
+    d = json.loads((FIX / name).read_text(encoding="utf-8"))
+    return (d["samples"][sample] if sample else d)["selected_native_rows"]
+
+
+def _express():
+    return {
+        "forecast": _sample("1550_amber_express.json", "amber_express_general_simple"),
+        pi.AMBER_EXPRESS_DETAILED_KEY: _sample(
+            "1550_amber_express.json", "amber_express_general_detail"
+        ),
+    }
 
 
 def _array_rows(n=12):

@@ -71,24 +71,23 @@ class TestAMissingForecastIsNotAZeroForecast(unittest.TestCase):
         )
 
     def test_an_unknown_version_is_skipped(self):
+        # test_an_unknown_version_is_skipped
         snap = _snapshot()
         snap["version"] = fs.SNAPSHOT_VERSION + 99
         self._assert_none(snap)
 
-    def test_a_grid_starting_BEFORE_the_snapshot_is_skipped(self):
-        """A partial grid filled from the first point would attribute the
-        forecast a prediction it never made for those earlier periods."""
+        # test_a_grid_starting_BEFORE_the_snapshot_is_skipped: A partial grid filled from the first point would attribute the
         grid = [T0 - timedelta(hours=2), T0, T0 + timedelta(hours=1)]
         self._assert_none(_snapshot(), grid)
 
-    def test_a_non_dict_is_skipped(self):
+        # test_a_non_dict_is_skipped
         self._assert_none(None)
         self._assert_none([1, 2, 3])
 
-    def test_an_empty_target_grid_is_skipped(self):
+        # test_an_empty_target_grid_is_skipped
         self.assertIsNone(fs.resample_snapshot_to_grid(_snapshot(), []))
 
-    def test_corrupt_individual_points_are_dropped_not_fatal(self):
+        # test_corrupt_individual_points_are_dropped_not_fatal
         snap = _snapshot()
         snap["points"].insert(0, {"time": "not-a-date", "solar_kw": 1, "load_kw": 1})
         snap["points"].insert(1, {"solar_kw": 1})

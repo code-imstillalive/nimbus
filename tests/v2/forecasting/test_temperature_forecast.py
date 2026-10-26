@@ -73,6 +73,7 @@ def _make_bare_coordinator() -> NimbusCoordinator:
 
 
 def test_weather_domain_entity_not_in_response_returns_empty():
+    # test_weather_domain_entity_not_in_response_returns_empty
     # A real, plausible shape if the response somehow omits the entity
     # (defensive -- shouldn't happen for a single-entity target, but
     # must not crash if it does).
@@ -83,8 +84,7 @@ def test_weather_domain_entity_not_in_response_returns_empty():
     result = asyncio.run(coord._async_fetch_temperature_forecast())
     assert result == []
 
-
-def test_normalize_forecast_timestamp_naive_gets_relabelled_not_converted():
+    # test_normalize_forecast_timestamp_naive_gets_relabelled_not_converted
     # Direct, isolated proof of the actual fix -- a pure .replace(tzinfo=...),
     # zero numeric shift, regardless of what other tests exercise around it.
     # Deliberately naive (no tzinfo=) -- that's the exact real-world input

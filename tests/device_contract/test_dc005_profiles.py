@@ -62,16 +62,14 @@ def _empty():
 
 
 def test_the_proposed_adapters_are_ones_dc002_resolves():
-    """A profile never names an adapter DC-002 cannot read
-    (adapter_unknown)."""
+    # test_the_proposed_adapters_are_ones_dc002_resolves: A profile never names an adapter DC-002 cannot read
     db = _load("device_bindings")
     for profile, rows in dd.PROFILES.items():
         for _role, _key, path, adapter in rows:
             if path is not None:
                 assert (adapter["name"], adapter["version"]) in db.ADAPTERS, profile
 
-
-def test_the_energy_dashboards_price_and_a_profiles_differ_so_it_is_asked():
+    # test_the_energy_dashboards_price_and_a_profiles_differ_so_it_is_asked
     prefs = {
         "energy_sources": [
             {
@@ -90,8 +88,7 @@ def test_the_energy_dashboards_price_and_a_profiles_differ_so_it_is_asked():
         "sensor.in_kwh"
     )
 
-
-def test_the_same_price_from_both_is_corroboration_with_both_evidences():
+    # test_the_same_price_from_both_is_corroboration_with_both_evidences
     prefs = {
         "energy_sources": [
             {"type": "grid", "entity_energy_price": "sensor.lv_buy"},
@@ -105,9 +102,7 @@ def test_the_same_price_from_both_is_corroboration_with_both_evidences():
     ]
     assert not [q for q in p.questions if q["role"] == "import_price"]
 
-
-def test_a_role_step_1_asked_about_stays_asked_with_the_profile_added():
-    """A profile's source joins an existing question; it never settles it."""
+    # test_a_role_step_1_asked_about_stays_asked_with_the_profile_added: A profile's source joins an existing question; it never settles it.
     prefs = {
         "energy_sources": [
             {"type": "grid", "entity_energy_price": "sensor.a"},
@@ -134,8 +129,7 @@ def test_a_role_step_1_asked_about_stays_asked_with_the_profile_added():
     (q,) = [q for q in p.questions if q["role"] == "import_price"]
     assert [c["source"] for c in q["candidates"]] == ["sensor.a", "sensor.b"]
 
-
-def test_two_localvolts_accounts_propose_nothing_and_say_why():
+    # test_two_localvolts_accounts_propose_nothing_and_say_why
     other = copy.deepcopy(LV)
     other["instance"] = "entry_lv_2"
     p = dd.add_provider_profiles(_empty(), [LV, other])
@@ -144,8 +138,7 @@ def test_two_localvolts_accounts_propose_nothing_and_say_why():
         ("profile_several_instances", ["entry_lv", "entry_lv_2"])
     ]
 
-
-def test_recognised_providers_with_no_role_yet_are_reported():
+    # test_recognised_providers_with_no_role_yet_are_reported
     detected = [
         {"profile": "aemo_nem", "instance": "e1", "keys": {}},
         {"profile": "nem_pd7day", "instance": "e2", "keys": {}},
@@ -161,8 +154,7 @@ def test_recognised_providers_with_no_role_yet_are_reported():
         ("profile_unknown", "someone_elses"),
     ]
 
-
-def test_registry_ids_kept_and_input_untouched():
+    # test_registry_ids_kept_and_input_untouched
     base = _empty()
     before = copy.deepcopy(base.document)
     p = dd.add_provider_profiles(

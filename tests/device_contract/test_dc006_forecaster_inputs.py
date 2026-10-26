@@ -47,15 +47,12 @@ def _values(rows):
 
 
 def test_active_changes_nothing_for_a_model_trained_in_legacy():
-    """The equivalence gate on a healthy F10 site: the battery's canonical
-    sign is turned back to the sign the model learned, so every input equals
-    today's."""
+    # test_active_changes_nothing_for_a_model_trained_in_legacy: The equivalence gate on a healthy F10 site: the battery's canonical
     assert _values(_run("active", NORMAL, do.TRAINED_NATIVE)) == _values(
         _run("legacy", NORMAL, do.TRAINED_NATIVE)
     )
 
-
-def test_a_missing_reading_is_held_then_the_training_mean():
+    # test_a_missing_reading_is_held_then_the_training_mean
     hold = do.ObservationHold()
     _run("active", NORMAL, do.TRAINED_NATIVE, hold=hold)
     gone = {**NORMAL, "sensor.meter_power": _st("unavailable", "W")}
@@ -75,16 +72,12 @@ def test_a_missing_reading_is_held_then_the_training_mean():
     # never a fabricated zero
     assert late["grid_power"]["value"] != 0.0
 
-
-def test_a_feature_the_model_never_used_stays_zero():
-    """The model's own target is excluded today (#1540): `unused`, 0.0, in
-    `active` too, never the contract's reading."""
+    # test_a_feature_the_model_never_used_stays_zero: The model's own target is excluded today (#1540): `unused`, 0.0, in
     rows = _run("active", NORMAL, do.TRAINED_NATIVE, own_target="sensor.meter_power")
     assert rows["grid_power"] == {"value": 0.0, "state": "unused", "entity_id": None}
     assert rows["solar_power"]["value"] == 3.0
 
-
-def test_sign_flip_matches_the_binding():
+    # test_sign_flip_matches_the_binding
     doc = _doc()
     assert do.sign_flip(doc, "battery_power") == -1.0
     assert do.sign_flip(doc, "grid_power") == 1.0

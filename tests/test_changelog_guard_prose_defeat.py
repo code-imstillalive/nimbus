@@ -61,6 +61,7 @@ _PROSE_THAT_MERELY_DISCUSSES_ANOTHER_RELEASE = """
 
 class TestTheGuardDoesNotAcceptMerelyDiscussingAnotherRelease(unittest.TestCase):
     def test_prose_about_a_past_releases_validation_is_not_this_ones(self):
+        # test_prose_about_a_past_releases_validation_is_not_this_ones
         matched = bool(
             _VALIDATION_RE.search(
                 _prose_only(_PROSE_THAT_MERELY_DISCUSSES_ANOTHER_RELEASE)
@@ -74,13 +75,7 @@ class TestTheGuardDoesNotAcceptMerelyDiscussingAnotherRelease(unittest.TestCase)
             "about the release it is nominally guarding.",
         )
 
-    def test_both_real_line_forms_still_match(self):
-        """The other half of the fix, and the reason the bullet is
-        optional. CHANGELOG.md writes this line two ways and both are
-        truthful; a guard that only accepts one silently invalidates a
-        third of the file. Measured on the real file when #1057 was
-        fixed: 19 bulleted, 15 indented-paragraph.
-        """
+        # test_both_real_line_forms_still_match: The other half of the fix, and the reason the bullet is
         for form in (
             "- Devhub validation: deployed, restarted, solve_now optimal.",
             "  Devhub validation: **not claimed** -- nothing to observe.",
@@ -91,11 +86,7 @@ class TestTheGuardDoesNotAcceptMerelyDiscussingAnotherRelease(unittest.TestCase)
                     f"the guard stopped recognising a real form: {form!r}",
                 )
 
-    def test_the_real_changelog_still_satisfies_the_anchored_guard(self):
-        """End-to-end rather than on constructed strings: the anchoring
-        must not have broken the file it guards. This is the check that
-        caught the suggested bullet-only shape being too strict.
-        """
+        # test_the_real_changelog_still_satisfies_the_anchored_guard: End-to-end rather than on constructed strings: the anchoring
         from test_changelog_release_validation import _sections
 
         matched = [

@@ -47,27 +47,22 @@ def _run(coro):
 
 
 def test_every_solver_setting_starts_inside_its_own_range():
+    # test_every_solver_setting_starts_inside_its_own_range
     for desc in nm._DESCRIPTIONS:
         assert desc.min_value <= desc.default <= desc.max_value
         assert desc.step > 0
 
-
-def test_every_load_setting_starts_inside_its_own_range():
+    # test_every_load_setting_starts_inside_its_own_range
     for desc in nm._CONTROLLABLE_LOAD_DESCRIPTIONS:
         assert desc.min_value <= desc.default <= desc.max_value
         assert desc.kinds
 
-
-def test_every_number_the_solver_reads_has_an_entity_and_ids_are_unique():
+    # test_every_number_the_solver_reads_has_an_entity_and_ids_are_unique
     keys = [d.key for d in nm._DESCRIPTIONS]
     assert len(keys) == len(set(keys))
     assert set(sm._SOLVER_NUMBER_ENTITY_KEYS) <= set(keys)
 
-
-# --- the shared store ----------------------------------------------------------------
-
-
-def test_a_stored_value_reads_back_with_when_it_was_written():
+    # test_a_stored_value_reads_back_with_when_it_was_written
     for data, read in [
         ({"k": {"value": 2.5, "written_at": 10.0}}, (2.5, 10.0)),
         ({"k": 3}, (3.0, 0.0)),  # written before timestamps existed
@@ -80,13 +75,60 @@ def test_a_stored_value_reads_back_with_when_it_was_written():
         assert _run(store._async_read_entry("k")) == read
         assert _run(store.async_read("k")) == (read[0] if read else None)
 
-
-def test_a_corrupt_store_reads_as_empty_and_is_rewritten():
+    # test_a_corrupt_store_reads_as_empty_and_is_rewritten
     store = nm._SharedNumberStore(store=MemoryStore(broken=True))
     assert _run(store.async_read("k")) is None
     store.store.broken = False
     _run(store.async_write("k", 4.0))
     assert store.store.data["k"]["value"] == 4.0
+
+    # test_the_value_restored_by_home_assistant_wins_unless_the_store_is_newer
+    key = _desc().key
+    n, store, _, _ = _number(
+        restored=7.0, restored_at=100.0, store={key: {"value": 9.0, "written_at": 50.0}}
+    )
+    _run(n.async_added_to_hass())
+    assert n._attr_native_value == 7.0
+    assert store.store.data[key]["value"] == 7.0  # copied back to the store
+    newer, _, _, _ = _number(
+        restored=7.0,
+        restored_at=100.0,
+        store={key: {"value": 9.0, "written_at": 200.0}},
+    )
+    _run(newer.async_added_to_hass())
+    assert newer._attr_native_value == 9.0
+
+    # test_without_a_restored_value_the_store_then_the_options_seed_it
+    key = _desc().key
+    from_store, _, _, _ = _number(store={key: 3})
+    _run(from_store.async_added_to_hass())
+    assert from_store._attr_native_value == 3.0
+    seeded, store, _, _ = _number(options={key: "4.5"})
+    _run(seeded.async_added_to_hass())
+    assert seeded._attr_native_value == 4.5 and store.store.data[key]["value"] == 4.5
+    bad, _, _, _ = _number(options={key: "lots"})
+    _run(bad.async_added_to_hass())
+    assert bad._attr_native_value == _desc().default
+
+    # test_the_one_time_post_window_change_runs_once_and_only_from_the_old_value
+    key = const.CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS
+    marker, old, new = nm._ONE_TIME_VALUE_CHANGES[key]
+    upgraded, store, _, _ = _number(key=key, store={key: old})
+    _run(upgraded.async_added_to_hass())
+    assert upgraded._attr_native_value == new
+    assert marker in store.store.data
+    # The household sets it back: the next start leaves it.
+    again, _, _, _ = _number(
+        key=key, store={**store.store.data, key: {"value": old, "written_at": 9e9}}
+    )
+    _run(again.async_added_to_hass())
+    assert again._attr_native_value == old
+    other, store2, _, _ = _number(key=key, store={key: 2.0})
+    _run(other.async_added_to_hass())
+    assert other._attr_native_value == 2.0 and marker in store2.store.data
+
+
+# --- the shared store ----------------------------------------------------------------
 
 
 # --- coming back after a restart ------------------------------------------------------
@@ -123,54 +165,6 @@ def _number(
             async_create_task=lambda coro: tasks.append(coro) or coro.close(),
         )
     return n, store, writes, tasks
-
-
-def test_the_value_restored_by_home_assistant_wins_unless_the_store_is_newer():
-    key = _desc().key
-    n, store, _, _ = _number(
-        restored=7.0, restored_at=100.0, store={key: {"value": 9.0, "written_at": 50.0}}
-    )
-    _run(n.async_added_to_hass())
-    assert n._attr_native_value == 7.0
-    assert store.store.data[key]["value"] == 7.0  # copied back to the store
-    newer, _, _, _ = _number(
-        restored=7.0,
-        restored_at=100.0,
-        store={key: {"value": 9.0, "written_at": 200.0}},
-    )
-    _run(newer.async_added_to_hass())
-    assert newer._attr_native_value == 9.0
-
-
-def test_without_a_restored_value_the_store_then_the_options_seed_it():
-    key = _desc().key
-    from_store, _, _, _ = _number(store={key: 3})
-    _run(from_store.async_added_to_hass())
-    assert from_store._attr_native_value == 3.0
-    seeded, store, _, _ = _number(options={key: "4.5"})
-    _run(seeded.async_added_to_hass())
-    assert seeded._attr_native_value == 4.5 and store.store.data[key]["value"] == 4.5
-    bad, _, _, _ = _number(options={key: "lots"})
-    _run(bad.async_added_to_hass())
-    assert bad._attr_native_value == _desc().default
-
-
-def test_the_one_time_post_window_change_runs_once_and_only_from_the_old_value():
-    key = const.CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS
-    marker, old, new = nm._ONE_TIME_VALUE_CHANGES[key]
-    upgraded, store, _, _ = _number(key=key, store={key: old})
-    _run(upgraded.async_added_to_hass())
-    assert upgraded._attr_native_value == new
-    assert marker in store.store.data
-    # The household sets it back: the next start leaves it.
-    again, _, _, _ = _number(
-        key=key, store={**store.store.data, key: {"value": old, "written_at": 9e9}}
-    )
-    _run(again.async_added_to_hass())
-    assert again._attr_native_value == old
-    other, store2, _, _ = _number(key=key, store={key: 2.0})
-    _run(other.async_added_to_hass())
-    assert other._attr_native_value == 2.0 and marker in store2.store.data
 
 
 def test_a_change_is_stored_and_tells_the_device_contract(monkeypatch):

@@ -52,6 +52,7 @@ def _at(times, values, day, hour, minute=0):
 
 
 def test_the_post_midnight_zero_pins_are_untouched():
+    # test_the_post_midnight_zero_pins_are_untouched
     # The zero pins exist only with post-midnight self-consume hours set; the
     # default became 0 (#1700), so this sets the 4 it was written against.
     cfg = {**ARMED, "solver_post_window_self_consume_hours": 4}
@@ -62,8 +63,7 @@ def test_the_post_midnight_zero_pins_are_untouched():
         if t.hour < 4:
             assert after == before == 0.0
 
-
-def test_only_the_block_holding_the_spike_drops():
+    # test_only_the_block_holding_the_spike_drops
     times = _times()
     cfg = {
         **ARMED,

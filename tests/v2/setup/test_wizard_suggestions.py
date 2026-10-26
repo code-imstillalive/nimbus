@@ -146,6 +146,7 @@ def test_without_an_energy_dashboard_the_forms_are_simply_empty(dashboard):
 
 
 def test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household():
+    # test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household
     one = _hass(
         _state("sensor.t", device_class="temperature"),
         _state("sensor.h", device_class="humidity"),
@@ -164,8 +165,7 @@ def test_the_one_sensor_of_a_kind_is_suggested_and_two_are_left_to_the_household
     broken = SimpleNamespace(states=SimpleNamespace(async_all=lambda domain: 1 / 0))
     assert ho._type_safe_entity_suggestions(broken) == {}
 
-
-def test_a_solver_load_field_offers_only_nimbus_load_forecasts():
+    # test_a_solver_load_field_offers_only_nimbus_load_forecasts
     hass = _hass(
         _state(
             "sensor.pool_fc", **{const.ATTR_SUBENTRY_TYPE: const.SUBENTRY_TYPE_LOAD}

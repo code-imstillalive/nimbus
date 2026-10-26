@@ -58,8 +58,7 @@ def battery(h):  # +discharge evening, -charge midday
 
 
 def test_a_direction_the_window_cannot_tell_apart_is_insufficient():
-    """Equal charge and discharge, at the same rate: the sensor matches, but
-    nothing in the window says which sign is which."""
+    # test_a_direction_the_window_cannot_tell_apart_is_insufficient: Equal charge and discharge, at the same rate: the sensor matches, but
     sym = _series(lambda h: 4.0 if h < 12 else -4.0)
     m = dr.match_power_sensor(
         {"sensor.sym": sym},
@@ -70,6 +69,19 @@ def test_a_direction_the_window_cannot_tell_apart_is_insufficient():
     )
     assert (m.status, m.entity_id, m.sign) == (dr.INSUFFICIENT, None, None)
     assert "direction" in m.reason
+
+    # test_balance_finds_a_watts_sensor_read_as_kw
+    load, pv, bat, grid = _aligned()
+    v = dr.check_energy_balance([x * 1000 for x in load], pv, bat, grid)
+    assert v.explanation == "scale:load:/1000"
+
+    # test_balance_reports_ambiguity_instead_of_a_cause: Mark, #1590: a residual suggests, it does not uniquely prove. With no
+    load = [2.0 + (i % 5) * 0.3 for i in range(24)]
+    zeros = [0.0] * 24
+    v = dr.check_energy_balance(load, zeros, zeros, [-x for x in load])
+    assert v.explanation == dr.AMBIGUOUS
+    assert {"flip:grid", "flip:load"} <= set(v.hypotheses)
+    assert v.ok is False
 
 
 # --- the devices check each other (design §3.3) ----------------------------------
@@ -82,21 +94,3 @@ def _aligned():
     bat = [battery(h) for h in hours]
     grid = [load[i] - pv[i] - bat[i] for i in range(96)]
     return load, pv, bat, grid
-
-
-def test_balance_finds_a_watts_sensor_read_as_kw():
-    load, pv, bat, grid = _aligned()
-    v = dr.check_energy_balance([x * 1000 for x in load], pv, bat, grid)
-    assert v.explanation == "scale:load:/1000"
-
-
-def test_balance_reports_ambiguity_instead_of_a_cause():
-    """Mark, #1590: a residual suggests, it does not uniquely prove. With no
-    solar and no battery, a grid reading -load is closed equally well by
-    flipping the grid or by flipping the load, so neither is named."""
-    load = [2.0 + (i % 5) * 0.3 for i in range(24)]
-    zeros = [0.0] * 24
-    v = dr.check_energy_balance(load, zeros, zeros, [-x for x in load])
-    assert v.explanation == dr.AMBIGUOUS
-    assert {"flip:grid", "flip:load"} <= set(v.hypotheses)
-    assert v.ok is False

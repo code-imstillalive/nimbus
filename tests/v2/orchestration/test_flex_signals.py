@@ -92,6 +92,7 @@ def _plan(*, grid_signals=None, battery_signals=None, load_signals=None):
 
 class TestPublishFlexSignals(unittest.TestCase):
     def test_battery_signal_ranging_none_when_ranging_invalid(self):
+        # test_battery_signal_ranging_none_when_ranging_invalid
         # BatterySignals' own PHYSICAL fields are always populated; the
         # ranging-derived pair can independently be None (see that
         # dataclass's own docstring) -- confirm this doesn't crash and
@@ -110,7 +111,7 @@ class TestPublishFlexSignals(unittest.TestCase):
         self.assertIsNone(attrs["battery_signals"][0]["available_up_ranging_kw"])
         self.assertIsNone(attrs["battery_signals"][0]["available_down_ranging_kw"])
 
-    def test_publishes_per_load_signals(self):
+        # test_publishes_per_load_signals
         plan = _plan(
             grid_signals=_grid_signals(),
             load_signals=[

@@ -163,6 +163,7 @@ def _one(spec, hass=True):
 
 
 def test_a_figure_can_carry_a_mapping_as_its_attributes():
+    # test_a_figure_can_carry_a_mapping_as_its_attributes
     e = _one(_spec(attrs_source_key="detail"))
     e.update_from_parent({"k": 1, "detail": {"a": 1}})
     assert e.extra_state_attributes == {"a": 1, "nimbus_version": "0.94.485"}
@@ -170,8 +171,7 @@ def test_a_figure_can_carry_a_mapping_as_its_attributes():
     assert e.extra_state_attributes == {"a": 1, "nimbus_version": "0.94.485"}
     assert _one(_spec()).extra_state_attributes == {"nimbus_version": "0.94.485"}
 
-
-def test_money_is_shown_in_the_households_currency():
+    # test_money_is_shown_in_the_households_currency
     for unit, shown in [
         (fl._CURRENCY, "AUD"),
         (fl._CURRENCY_PER_KWH, "AUD/kWh"),
@@ -188,9 +188,7 @@ def test_money_is_shown_in_the_households_currency():
         e.hass = None
         assert e.native_unit_of_measurement == unit
 
-
-def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
-    """HA's limit is inclusive: exactly the limit is a legal state."""
+    # test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it: HA's limit is inclusive: exactly the limit is a legal state.
     at = "x" * fl._MAX_STATE_LENGTH
     assert fl._clamp_state_length(at, "sensor.a") == at
     over = fl._clamp_state_length(at + "x", "sensor.a")
@@ -237,6 +235,7 @@ def _plan(n=3):
 
 
 def test_the_current_figures_read_period_zero_of_the_plan():
+    # test_the_current_figures_read_period_zero_of_the_plan
     ents = fl.create_flattened_entities_current(ENTRY, "1")
     for e in ents:
         e.hass = None
@@ -248,8 +247,7 @@ def test_the_current_figures_read_period_zero_of_the_plan():
     fl.dispatch_to_flattened_current(ents, {"forecast": ["junk"]})
     assert battery[0].native_value == 0.0
 
-
-def test_a_price_figure_publishes_the_whole_horizon_as_a_detailed_forecast():
+    # test_a_price_figure_publishes_the_whole_horizon_as_a_detailed_forecast
     detailed = fl._detailed_price_forecast(_plan(), "import_price")
     rows = detailed["detailedForecast"]
     assert len(rows) == 3
@@ -305,6 +303,7 @@ def test_the_hub_device_is_found_when_home_assistant_can_say(
 
 
 def test_every_table_key_is_distinct_within_its_table():
+    # test_every_table_key_is_distinct_within_its_table
     for table in (
         fl.FLATTENED_ATTRS,
         fl.FLATTENED_ATTRS_QUALITY,
@@ -314,26 +313,13 @@ def test_every_table_key_is_distinct_within_its_table():
         suffixes = [s.entity_id_suffix for s in table]
         assert len(suffixes) == len(set(suffixes))
 
-
-def test_the_state_length_limit_is_home_assistants_own():
-    """Defined locally so the stubs need not carry it; the real constant
-    decides, where Home Assistant is importable."""
+    # test_the_state_length_limit_is_home_assistants_own: Defined locally so the stubs need not carry it; the real constant
     real = pytest.importorskip("homeassistant.const")
     if not hasattr(real, "MAX_LENGTH_STATE_STATE"):
         pytest.skip("the installed homeassistant.const is a stub")
     assert fl._MAX_STATE_LENGTH == real.MAX_LENGTH_STATE_STATE
 
-
-def _flattened_keys():
-    return {
-        spec.source_key
-        for name in dir(fl)
-        if name.startswith("FLATTENED_ATTRS")
-        for spec in getattr(fl, name)
-    }
-
-
-def test_what_gets_its_own_history_and_what_deliberately_does_not():
+    # test_what_gets_its_own_history_and_what_deliberately_does_not
     for key, has_a_child in [
         # #849: varying numbers that had no history at all.
         ("envelope_import_limit_kw", True),
@@ -350,3 +336,12 @@ def test_what_gets_its_own_history_and_what_deliberately_does_not():
         ("solve_diagnostics", False),
     ]:
         assert (key in _flattened_keys()) is has_a_child
+
+
+def _flattened_keys():
+    return {
+        spec.source_key
+        for name in dir(fl)
+        if name.startswith("FLATTENED_ATTRS")
+        for spec in getattr(fl, name)
+    }

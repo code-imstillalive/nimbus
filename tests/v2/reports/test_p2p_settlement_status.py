@@ -107,9 +107,7 @@ def _run(cfg, start, end, *, history=SETTLED, raises=False, branch_may_fire=True
 
 class TestP2PSettlementStatusIsReported(unittest.TestCase):
     def test_a_non_calendar_window_is_named_not_silently_zeroed(self):
-        """The #1015 case. Same day, same settlement data, a window that
-        does not start at local midnight -- the lookup genuinely cannot
-        happen, and the report must say which of the two zeros this is."""
+        # test_a_non_calendar_window_is_named_not_silently_zeroed: The #1015 case. Same day, same settlement data, a window that
         shifted = DAY_START + timedelta(hours=10)
         report = _run(
             _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
@@ -126,9 +124,7 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
         )
         self.assertEqual(report["real_p2p_dollars"], 0.0)
 
-    def test_an_unreadable_sensor_is_distinct_again(self):
-        """A configuration or connectivity fault, which is actionable in
-        a way the other zeros are not."""
+        # test_an_unreadable_sensor_is_distinct_again: A configuration or connectivity fault, which is actionable in
         report = _run(
             _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
             DAY_START,

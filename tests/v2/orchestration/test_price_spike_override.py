@@ -22,15 +22,13 @@ def _cfg(**overrides):
 
 class TestSpikeDetectionByAlertEntity(unittest.TestCase):
     def test_alert_entity_off_is_not_detected(self):
+        # test_alert_entity_off_is_not_detected
         cfg = _cfg(solver_price_spike_alert_entity="binary_sensor.retailer_spike")
         with patch.object(solver_writer, "ha_get", return_value={"state": "off"}):
             _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.10)
         self.assertFalse(detected)
 
-    def test_alert_entity_fetch_failure_fails_open_to_not_detected(self):
-        """A spike-alert integration having a bad moment must never
-        crash a regular solve cycle -- fails open to "no alert", same
-        posture as every other optional external entity read."""
+        # test_alert_entity_fetch_failure_fails_open_to_not_detected: A spike-alert integration having a bad moment must never
         import urllib.error
 
         cfg = _cfg(solver_price_spike_alert_entity="binary_sensor.retailer_spike")

@@ -60,6 +60,7 @@ class TestTypeSafety(unittest.TestCase):
     and is another optimiser's forecast on this very install."""
 
     def test_a_soc_field_with_the_wrong_unit_is_refused(self):
+        # test_a_soc_field_with_the_wrong_unit_is_refused
         out = _suggest(
             [{"type": "battery", "stat_soc": "sensor.kwh_not_pct"}],
             {
@@ -70,8 +71,7 @@ class TestTypeSafety(unittest.TestCase):
         )
         self.assertNotIn(CONF_SOLVER_BATTERY_SOC_SENSOR, out)
 
-    def test_an_entity_that_does_not_exist_is_refused(self):
-        """A stale Energy Dashboard config outliving a renamed entity."""
+        # test_an_entity_that_does_not_exist_is_refused: A stale Energy Dashboard config outliving a renamed entity.
         out = _suggest(
             [
                 {
@@ -89,9 +89,7 @@ class TestTheRestraint(unittest.TestCase):
     argue for it rather than drift into it."""
 
     def test_no_power_sensor_is_ever_suggested(self):
-        """The Energy Dashboard holds ENERGY (kWh); these fields want POWER (kW).
-        Bridging them by guessing a sibling entity is the wrong-kind error
-        safeguard 1 exists to stop, arriving from the inside."""
+        # test_no_power_sensor_is_ever_suggested: The Energy Dashboard holds ENERGY (kWh); these fields want POWER (kW).
         out = _suggest(
             [
                 {"type": "battery", "stat_energy_from": "sensor.batt_out_kwh"},
@@ -109,9 +107,7 @@ class TestTheRestraint(unittest.TestCase):
         self.assertNotIn(CONF_SOLVER_BATTERY_POWER_SENSOR, out)
         self.assertNotIn(CONF_SOLVER_SOLAR_POWER_SENSOR, out)
 
-    def test_a_fixed_number_price_is_not_treated_as_a_sensor(self):
-        """`number_energy_price` is a static figure. Nimbus wants a live sensor
-        it can resample per period, so a fixed number is not a substitute."""
+        # test_a_fixed_number_price_is_not_treated_as_a_sensor: `number_energy_price` is a static figure. Nimbus wants a live sensor
         out = _suggest(
             [{"type": "grid", "flow_from": [{"number_energy_price": 0.28}]}],
             {},

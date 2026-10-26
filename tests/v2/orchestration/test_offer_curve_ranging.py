@@ -30,6 +30,7 @@ def _plan(
 
 class TestBuildOfferCurveBands(unittest.TestCase):
     def test_adjacent_exact_duplicates_collapse_to_one_row(self):
+        # test_adjacent_exact_duplicates_collapse_to_one_row
         # nimbus issue #706: two raw solves that round to the identical
         # (price_lower, price_upper, kw) triple carry zero extra
         # information -- collapse them, unlike the #677 collision case
@@ -47,7 +48,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
             ],
         )
 
-    def test_730_real_import_curve_shape_collapses_to_two_bands(self):
+        # test_730_real_import_curve_shape_collapses_to_two_bands
         # nimbus issue #730 (Mark Purcell, live finding): a walk step and
         # the always-separate retail solve landed in the same tied
         # degenerate basis -- two bands both open at -inf, one's range a
@@ -69,7 +70,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
             ],
         )
 
-    def test_730_real_export_curve_shape_collapses_to_two_bands(self):
+        # test_730_real_export_curve_shape_collapses_to_two_bands
         # Same incident, export side -- the nested pair is bands 2/3
         # this time (bands 1/2 are adjacent-but-disjoint, correctly kept
         # separate: no subset relation between them).
@@ -92,6 +93,7 @@ class TestBuildOfferCurveBands(unittest.TestCase):
 
 class TestPublishOfferCurveAttributes(unittest.TestCase):
     def test_publishes_band_shaped_curves(self):
+        # test_publishes_band_shaped_curves
         plan = _plan(
             offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
             offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],
@@ -124,7 +126,7 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
         self.assertNotIn("import_curve_ranging", attrs)
         self.assertNotIn("export_curve_ranging", attrs)
 
-    def test_price_limits_published_as_a_real_json_object(self):
+        # test_price_limits_published_as_a_real_json_object
         # nimbus issue #705: the real AEMO domain the walk was bounded by,
         # not just a Python constant no consumer can read.
         from solver.network import _OFFER_CURVE_DOMAIN_MAX, _OFFER_CURVE_DOMAIN_MIN

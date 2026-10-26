@@ -58,6 +58,7 @@ def _make_flow(
 
 
 def test_reconfigure_source_updates_existing_entry_not_creates_new():
+    # test_reconfigure_source_updates_existing_entry_not_creates_new
     user_input = {CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.old_soc"}
     # nimbus issue #360 (Mark Purcell, codebase review): calling
     # async_step_user() directly (below) bypasses FlowManager.
@@ -72,13 +73,7 @@ def test_reconfigure_source_updates_existing_entry_not_creates_new():
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 
-
-# nimbus issue #554: _energy_dashboard_soc_suggestion() itself -- same
-# type-safety/graceful-degradation contract as hub_options.py's own
-# sibling _energy_dashboard_switchboard_suggestions().
-
-
-def test_energy_dashboard_ignores_wrong_device_class():
+    # test_energy_dashboard_ignores_wrong_device_class
     hass = _hass_with_state("sensor.not_soc", _soc_state("power", "%"))
     manager = MagicMock(
         data={"energy_sources": [{"type": "battery", "stat_soc": "sensor.not_soc"}]}
@@ -90,8 +85,7 @@ def test_energy_dashboard_ignores_wrong_device_class():
         result = asyncio.run(_energy_dashboard_soc_suggestion(hass))
     assert result is None
 
-
-def test_energy_dashboard_ignores_wrong_unit():
+    # test_energy_dashboard_ignores_wrong_unit
     hass = _hass_with_state("sensor.not_soc", _soc_state("battery", "kWh"))
     manager = MagicMock(
         data={"energy_sources": [{"type": "battery", "stat_soc": "sensor.not_soc"}]}
@@ -103,8 +97,7 @@ def test_energy_dashboard_ignores_wrong_unit():
         result = asyncio.run(_energy_dashboard_soc_suggestion(hass))
     assert result is None
 
-
-def test_energy_dashboard_ignores_non_battery_sources():
+    # test_energy_dashboard_ignores_non_battery_sources
     hass = _hass_with_state("sensor.solar", _soc_state("battery", "%"))
     manager = MagicMock(
         data={"energy_sources": [{"type": "solar", "stat_energy_from": "sensor.solar"}]}
@@ -115,3 +108,8 @@ def test_energy_dashboard_ignores_non_battery_sources():
     ):
         result = asyncio.run(_energy_dashboard_soc_suggestion(hass))
     assert result is None
+
+
+# nimbus issue #554: _energy_dashboard_soc_suggestion() itself -- same
+# type-safety/graceful-degradation contract as hub_options.py's own
+# sibling _energy_dashboard_switchboard_suggestions().

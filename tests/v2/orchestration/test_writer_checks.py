@@ -40,6 +40,7 @@ def _pt(i, value, **extra):
 
 
 def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
+    # test_a_canonical_forecast_is_read_in_kw_with_its_bands
     attrs = {
         "unit_of_measurement": "W",
         "forecast": [
@@ -64,8 +65,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
         {"time": attrs["forecast"][1]["time"], "value": 2.5},
     ]
 
-
-def test_an_unusable_forecast_is_refused_with_a_reason_a_household_can_act_on():
+    # test_an_unusable_forecast_is_refused_with_a_reason_a_household_can_act_on
     for attrs, says in [
         (
             {"forecast": [], "model_trained_at": None},
@@ -149,6 +149,7 @@ def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path)
 
 
 def test_a_score_is_reliable_only_when_every_part_is():
+    # test_a_score_is_reliable_only_when_every_part_is
     for kwargs, out in [
         ({"soc": True, "regret": True}, True),
         ({"soc": False, "regret": True}, False),
@@ -170,8 +171,7 @@ def test_a_score_is_reliable_only_when_every_part_is():
         )
         assert got is out
 
-
-def test_each_stored_day_carries_the_first_reason_it_cannot_be_trusted():
+    # test_each_stored_day_carries_the_first_reason_it_cannot_be_trusted
     for entry, code in [
         ({}, None),
         ({"epr_reliable": True}, "y"),

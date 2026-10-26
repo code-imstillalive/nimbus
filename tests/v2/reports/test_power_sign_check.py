@@ -86,14 +86,12 @@ class TestTheFourCaseTruthTable(unittest.TestCase):
 
 class TestWhatIsDeliberatelyNotEvidence(unittest.TestCase):
     def test_near_zero_power_says_nothing_about_direction(self):
+        # test_near_zero_power_says_nothing_about_direction
         soc, power = _series([50, 60, 70, 80, 90], [0.01, 0.01, 0.01, 0.01])
         got = detect_power_sign_convention(soc, power, declared_positive_is_charge=True)
         self.assertIs(got.verdict, SignVerdict.INSUFFICIENT_EVIDENCE)
 
-    def test_a_genuinely_mixed_history_is_reported_as_mixed(self):
-        """Half agreeing is not a sign error -- it means something else is
-        wrong with one of the two series, and picking the majority of a coin
-        flip would bury that."""
+        # test_a_genuinely_mixed_history_is_reported_as_mixed: Half agreeing is not a sign error -- it means something else is
         soc, power = _series([50, 60, 50, 60, 50, 60], [5.0, 5.0, -5.0, -5.0, 5.0])
         got = detect_power_sign_convention(
             soc, power, declared_positive_is_charge=True, min_windows=1
@@ -101,7 +99,7 @@ class TestWhatIsDeliberatelyNotEvidence(unittest.TestCase):
         self.assertIs(got.verdict, SignVerdict.INSUFFICIENT_EVIDENCE)
         self.assertIn("mixed", (got.reason or "").lower())
 
-    def test_empty_history_does_not_raise(self):
+        # test_empty_history_does_not_raise
         got = detect_power_sign_convention([], [], declared_positive_is_charge=True)
         self.assertIs(got.verdict, SignVerdict.INSUFFICIENT_EVIDENCE)
 

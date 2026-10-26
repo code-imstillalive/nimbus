@@ -48,6 +48,7 @@ def _health(**kw):
 
 
 def test_every_repair_has_a_translation_with_exactly_its_placeholders():
+    # test_every_repair_has_a_translation_with_exactly_its_placeholders
     every = _health(
         options={},
         forecasts=[("s1", "Pool", {})],
@@ -73,8 +74,7 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
 
-
-def test_a_trained_or_rule_based_forecast_needs_nothing():
+    # test_a_trained_or_rule_based_forecast_needs_nothing
     for data in [
         {"trained_at": "t"},
         {"forecast": [1]},
@@ -82,8 +82,7 @@ def test_a_trained_or_rule_based_forecast_needs_nothing():
     ]:
         assert _health(forecasts=[("s1", "Pool", data)]) == []
 
-
-def test_placeholder_and_contradictory_settings_are_named():
+    # test_placeholder_and_contradictory_settings_are_named
     for settings, says in [
         (
             {const.CONF_SOLVER_MAX_CHARGE_KW: 0.1},

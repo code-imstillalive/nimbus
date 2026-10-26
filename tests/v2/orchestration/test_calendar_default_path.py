@@ -157,9 +157,7 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         return writer
 
     def test_a_participant_WITH_a_calendar_does_reach_it(self):
-        """The positive control, and the reason the two tests above mean
-        anything: it proves this harness CAN observe the call. Without it,
-        "never called" would pass just as happily on a mis-wired stub."""
+        # test_a_participant_WITH_a_calendar_does_reach_it: The positive control, and the reason the two tests above mean
         writer = self._drive(
             self._participant(
                 **{
@@ -178,10 +176,7 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
         )
         self.assertEqual(writer.calendar_calls[0][0], "calendar.ev_trips")
 
-    def test_the_guard_also_requires_a_real_period_grid(self):
-        """`periods is not None and periods.period_starts` is the guard's
-        second half: even an opted-in participant cannot reach the call before
-        a grid exists, which is the cache-reconstruction path."""
+        # test_the_guard_also_requires_a_real_period_grid: `periods is not None and periods.period_starts` is the guard's
         writer = self._FakeWriter(self._FakeHass([]))
         real = extra_batteries._solver_writer
         extra_batteries._solver_writer = lambda: writer

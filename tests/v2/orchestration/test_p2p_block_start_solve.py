@@ -97,6 +97,7 @@ def _utc(h, m, s=5):
 
 
 def test_solves_in_the_block_start_minute():
+    # test_solves_in_the_block_start_minute
     run_solve = AsyncMock(return_value=True)
     _, recorded = _setup_and_fire(
         "entry_p2p_fire", BLOCK_17_24_LEAD_1, _utc(16, 59), run_solve
@@ -104,21 +105,30 @@ def test_solves_in_the_block_start_minute():
     run_solve.assert_called_once()
     recorded.assert_called_once_with(trigger_source="p2p_block_start")
 
-
-def test_does_nothing_outside_a_block():
+    # test_does_nothing_outside_a_block
     for h, m in ((16, 58), (12, 0), (0, 30)):
         run_solve = AsyncMock(return_value=True)
         _setup_and_fire(f"entry_p2p_{h}{m}", BLOCK_17_24_LEAD_1, _utc(h, m), run_solve)
         run_solve.assert_not_called()
 
-
-def test_a_failed_solve_is_not_recorded():
+    # test_a_failed_solve_is_not_recorded
     run_solve = AsyncMock(return_value=False)
     _, recorded = _setup_and_fire(
         "entry_p2p_failed", BLOCK_17_24_LEAD_1, _utc(16, 59), run_solve
     )
     run_solve.assert_called_once()
     recorded.assert_not_called()
+
+    # test_in_a_block_it_re_plans_when_no_solve_is_recent
+    for s in (5, 20, 35, 50):
+        run_solve, recorded = _replan(_utc(18, 10, s), since=15.2)
+        run_solve.assert_called_once()
+        recorded.assert_called_once_with(trigger_source="p2p_block_replan")
+
+    # test_in_a_block_it_skips_when_any_solve_is_recent
+    # e.g. a household automation calling solve_now every 15 s
+    run_solve, _ = _replan(_utc(18, 10, 20), since=9.0)
+    run_solve.assert_not_called()
 
 
 # --- nimbus #1678: re-plan every ~15 s while a block is active --------------
@@ -136,16 +146,3 @@ def _replan(fire_at, since):
             run_solve,
         )
     return run_solve, recorded
-
-
-def test_in_a_block_it_re_plans_when_no_solve_is_recent():
-    for s in (5, 20, 35, 50):
-        run_solve, recorded = _replan(_utc(18, 10, s), since=15.2)
-        run_solve.assert_called_once()
-        recorded.assert_called_once_with(trigger_source="p2p_block_replan")
-
-
-def test_in_a_block_it_skips_when_any_solve_is_recent():
-    # e.g. a household automation calling solve_now every 15 s
-    run_solve, _ = _replan(_utc(18, 10, 20), since=9.0)
-    run_solve.assert_not_called()

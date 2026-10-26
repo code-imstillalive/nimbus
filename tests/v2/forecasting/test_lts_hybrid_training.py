@@ -128,10 +128,7 @@ def _install_lts_rows(rows: list[dict]) -> None:
 
 
 def test_lts_source_drops_insane_means():
-    """Same MAX_SANE_POWER_KW guard as the recorder path: a bad Modbus
-    read (nimbus issue #-log 2026-08-17, a real 21_474_836.5 kW state)
-    can propagate into an LTS row's mean. Drop it, don't train on it.
-    """
+    # test_lts_source_drops_insane_means: Same MAX_SANE_POWER_KW guard as the recorder path: a bad Modbus
     now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     _install_lts_rows(
         [
@@ -154,16 +151,7 @@ def test_lts_source_drops_insane_means():
     values = [v for _, v in result]
     assert values == [2.0], f"insane value must be dropped, got {values}"
 
-
-def test_recorder_source_drops_nan_states():
-    """nimbus issue #353 (Mark Purcell): float("nan") does not raise, so
-    the existing try/except (TypeError, ValueError) around float(s.state)
-    lets a "nan" state straight through -- and abs(nan) > MAX_SANE_POWER_KW
-    is False, so the existing sanity ceiling doesn't catch it either. A
-    template/REST/Modbus sensor without a numeric device_class/state_class
-    can genuinely publish this. One NaN training row poisons x_mean/x_std
-    for the whole retrain -- dropped here, same as an unparseable state.
-    """
+    # test_recorder_source_drops_nan_states: nimbus issue #353 (Mark Purcell): float("nan") does not raise, so
     now = datetime(2026, 9, 4, 0, 0, tzinfo=UTC)
     _install_recorder_history([])  # unused directly -- states set below
     coordinator_module.get_significant_states = MagicMock(
@@ -207,12 +195,7 @@ def test_recorder_source_drops_nan_states():
     )
     assert [v for _, v in forecast_path] == [2.0, 3.0]
 
-
-def test_lts_source_drops_nan_means():
-    """Same NaN-poisoning risk as the recorder path (see its own test) --
-    an hourly LTS mean built from a NaN-containing bucket is itself NaN,
-    and the abs(value) > MAX_SANE_POWER_KW guard can't catch it either.
-    """
+    # test_lts_source_drops_nan_means: Same NaN-poisoning risk as the recorder path (see its own test) --
     now = datetime(2026, 9, 4, 0, 0, tzinfo=UTC)
     _install_lts_rows(
         [
@@ -233,18 +216,7 @@ def test_lts_source_drops_nan_means():
     values = [v for _, v in result]
     assert values == [1.0, 2.0], f"NaN mean must be dropped, got {values}"
 
-
-# ---------------------------------------------------------------------------
-# Dispatch: training_source=hybrid concatenates older-LTS + recent-recorder
-# ---------------------------------------------------------------------------
-
-
-def test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window():
-    """If a user misconfigures CONF_HYBRID_RECENT_DAYS >= CONF_TRAIN_DAYS
-    (e.g. 30 recent days out of 30 total), the LTS slice would be empty
-    and fetching it wastes an executor round-trip. Degrade to pure
-    recorder rather than call statistics_during_period at all.
-    """
+    # test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window: If a user misconfigures CONF_HYBRID_RECENT_DAYS >= CONF_TRAIN_DAYS
     now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 7.7) for h in range(24)]
     _install_recorder_history(recorder_events)
@@ -273,20 +245,7 @@ def test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window():
         assert v == 7.7
     assert not coordinator_module.statistics_during_period.called
 
-
-# ---------------------------------------------------------------------------
-# Dispatch: unknown source falls back to recorder (defensive)
-# ---------------------------------------------------------------------------
-
-
-def test_unknown_source_falls_back_to_recorder():
-    """A future release adds a fourth training_source that this build
-    doesn't understand yet, or an installer hand-edits an option to a
-    typo. Either way, degrade to the recorder path with a WARNING log
-    rather than crash the retrain -- same "never take the integration
-    down mid-training" convention as ml/model.py's own returns-None-not-
-    raises pattern (see train_model()'s own docstring).
-    """
+    # test_unknown_source_falls_back_to_recorder: A future release adds a fourth training_source that this build
     now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 4.4) for h in range(24)]
     _install_recorder_history(recorder_events)
@@ -304,6 +263,16 @@ def test_unknown_source_falls_back_to_recorder():
     assert len(result) == 24
     for _, v in result:
         assert v == 4.4
+
+
+# ---------------------------------------------------------------------------
+# Dispatch: training_source=hybrid concatenates older-LTS + recent-recorder
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Dispatch: unknown source falls back to recorder (defensive)
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

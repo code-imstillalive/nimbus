@@ -13,6 +13,7 @@ fetch_solver_config = solver_writer.fetch_solver_config
 
 
 def test_entity_does_not_exist_yet_raises_a_clear_runtime_error():
+    # test_entity_does_not_exist_yet_raises_a_clear_runtime_error
     def _raise(entity_id):
         raise solver_writer.urllib.error.HTTPError(
             url=None,
@@ -31,8 +32,7 @@ def test_entity_does_not_exist_yet_raises_a_clear_runtime_error():
     assert "HTTP Error 404" not in str(exc_info.value)
     assert "does not exist yet" in str(exc_info.value)
 
-
-def test_a_non_404_http_error_still_propagates_unmasked():
+    # test_a_non_404_http_error_still_propagates_unmasked
     # Only the specific "entity doesn't exist" case gets a friendlier
     # message -- a genuine server-side failure (500, etc.) must not be
     # silently reframed as "doesn't exist yet", which would be actively

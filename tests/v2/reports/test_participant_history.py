@@ -244,13 +244,13 @@ def at(hour):
 
 
 def test_no_configured_limit_judges_nothing():
+    # test_no_configured_limit_judges_nothing
     for bound in [0.0, -1.0]:
         hist = [(at(9), 1514.417), (at(10), -0.77)]
         assert drop(hist, bound=bound) == hist
         assert drop([], bound=bound) == []
 
-
-def test_a_dropped_reading_leaves_nothing_behind_in_the_hour():
+    # test_a_dropped_reading_leaves_nothing_behind_in_the_hour
     good = [(at(9) + timedelta(minutes=m), 6.0) for m in (10, 20, 30, 40, 50)]
     kept = drop([(at(9) + timedelta(minutes=5), 1514.417), *good])
     assert kept == good  # discarded, never clamped to the bound
@@ -337,6 +337,7 @@ def deadline(charge, discharge=None, **over):
 
 
 def test_no_departure_requirement():
+    # test_no_departure_requirement
     for over in [
         {"departure_hour": None, "must_have_soc_pct": None},
         {"must_have_soc_pct": None},  # half configured is unset, as live
@@ -346,23 +347,20 @@ def test_no_departure_requirement():
         n = len(over.get("grid_times", DEP_GRID))
         assert deadline([0.0] * n, **over) == (None, None)
 
-
-DEPARTING = {
-    **EV,
-    "battery_participant_departure_hour": 7,
-    "battery_participant_must_have_soc_by_departure_percent": 80.0,
-}
-
-
-def test_a_scalar_list_or_array_period_length_gives_the_same_deadline():
-    """The history path passes one scalar period length; every shape agrees,
-    and a tiered sequence is honoured rather than flattened (#1336)."""
+    # test_a_scalar_list_or_array_period_length_gives_the_same_deadline: The history path passes one scalar period length; every shape agrees,
     kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
     scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
     assert scalar[0] == 5
     assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
     assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
     assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
+
+
+DEPARTING = {
+    **EV,
+    "battery_participant_departure_hour": 7,
+    "battery_participant_must_have_soc_by_departure_percent": 80.0,
+}
 
 
 # --- a participant with no away-gate (#1247) --------------------------------------------------

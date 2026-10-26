@@ -96,6 +96,7 @@ def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, 
 
 
 def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused():
+    # test_a_mostly_zero_sum_with_a_failed_circuit_is_refused
     for total, failed, refused in [
         ([0.0] * 10, [], False),  # nothing failed: a quiet house is believed
         ([0.0] * 10, ["sensor.x"], True),
@@ -110,25 +111,7 @@ def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused():
         if refused:
             assert "#933" in error and "sensor.x" in error
 
-
-# --- per-battery energy balance --------------------------------------------------------
-
-
-def _balance(**kw):
-    base = {
-        "name": "home",
-        "in_kwh": 10.0,
-        "out_kwh": 0.0,
-        "initial_soc_kwh": 5.0,
-        "final_soc_kwh": 14.0,
-        "capacity_kwh": 20.0,
-        "charge_efficiency": 0.95,
-        "discharge_efficiency": 0.95,
-    }
-    return sw.battery_energy_balance(**{**base, **kw})
-
-
-def test_a_charge_only_window_gives_the_implied_charge_efficiency():
+    # test_a_charge_only_window_gives_the_implied_charge_efficiency
     out = _balance()
     assert out["implied_charge_efficiency"] == 0.9
     assert out["implied_efficiency_reason"] is None
@@ -136,8 +119,7 @@ def test_a_charge_only_window_gives_the_implied_charge_efficiency():
     assert out["residual_pct_of_capacity"] == 2.5
     assert out["implied_discharge_efficiency"] is None
 
-
-def test_each_window_that_cannot_measure_efficiency_says_why():
+    # test_each_window_that_cannot_measure_efficiency_says_why
     for kw, reason in [
         ({"away_period_count": 1, "n_periods": 48}, "participant_away_during_window"),
         ({"in_kwh": 0.0, "final_soc_kwh": 6.0}, "soc_moved_without_throughput"),
@@ -158,8 +140,7 @@ def test_each_window_that_cannot_measure_efficiency_says_why():
     ]:
         assert _balance(**kw)["implied_efficiency_reason"] == reason
 
-
-def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
+    # test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden
     out = _balance(
         stale_period_count=12,
         n_periods=48,
@@ -171,11 +152,7 @@ def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
     assert out["residual_pct_of_capacity"] is None
     assert out["implied_discharge_efficiency"] == round(1.0 / (9.5 - 7.0), 4)
 
-
-# --- whether a provisional score stands -------------------------------------------------
-
-
-def test_a_provisional_score_is_redone_hourly_until_its_settlement_lands():
+    # test_a_provisional_score_is_redone_hourly_until_its_settlement_lands
     for attrs, age_minutes, keep in [
         ({"real_p2p_settlement_status": "settled"}, 600, True),
         (
@@ -202,6 +179,26 @@ def test_a_provisional_score_is_redone_hourly_until_its_settlement_lands():
         if age_minutes is not None:
             attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
         assert sw._keep_published_quality_score(attrs, T0) is keep
+
+
+# --- per-battery energy balance --------------------------------------------------------
+
+
+def _balance(**kw):
+    base = {
+        "name": "home",
+        "in_kwh": 10.0,
+        "out_kwh": 0.0,
+        "initial_soc_kwh": 5.0,
+        "final_soc_kwh": 14.0,
+        "capacity_kwh": 20.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+    }
+    return sw.battery_energy_balance(**{**base, **kw})
+
+
+# --- whether a provisional score stands -------------------------------------------------
 
 
 # --- the load-nowcast skill ---------------------------------------------------------------

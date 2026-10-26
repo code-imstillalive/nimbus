@@ -68,6 +68,7 @@ class TestEveryRegisteredHandlerIsNativeManaged(unittest.TestCase):
     """The invariant. This is the test that would have caught the gap."""
 
     def test_no_registered_entity_id_is_missing_from_the_set(self):
+        # test_no_registered_entity_id_is_missing_from_the_set
         registered = _registered_entity_ids()
         managed = set(solver_writer._NATIVE_MANAGED_ENTITY_IDS)
         missing = sorted(registered - managed)
@@ -82,9 +83,7 @@ class TestEveryRegisteredHandlerIsNativeManaged(unittest.TestCase):
             f"#312): {missing}",
         )
 
-    def test_the_three_that_were_missing_are_present(self):
-        """Explicit, so a future refactor that rebuilds the set cannot
-        silently drop exactly these again."""
+        # test_the_three_that_were_missing_are_present: Explicit, so a future refactor that rebuilds the set cannot
         for entity_id in (
             "sensor.nimbus_flex_signals",
             "sensor.nimbus_flex_report",
@@ -93,16 +92,7 @@ class TestEveryRegisteredHandlerIsNativeManaged(unittest.TestCase):
             with self.subTest(entity_id=entity_id):
                 self.assertIn(entity_id, solver_writer._NATIVE_MANAGED_ENTITY_IDS)
 
-    def test_the_set_does_not_claim_entity_ids_nothing_registers(self):
-        """The other direction, and deliberately a weaker assertion.
-
-        An entry with no handler would be inert rather than harmful — the
-        guard would skip a fallback for an entity_id that never gets a
-        real entity, silently dropping its updates. That is worth knowing
-        about, so it is reported; it is not worth failing over a name that
-        is registered somewhere this parse does not see, so the message
-        says which.
-        """
+        # test_the_set_does_not_claim_entity_ids_nothing_registers: The other direction, and deliberately a weaker assertion.
         registered = _registered_entity_ids()
         extra = sorted(set(solver_writer._NATIVE_MANAGED_ENTITY_IDS) - registered)
         self.assertEqual(

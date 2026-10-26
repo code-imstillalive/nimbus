@@ -36,6 +36,7 @@ class TestTheGuardRejectsAVacuousAnswer(unittest.TestCase):
     # colon -- a placeholder lookahead, a real-word lookahead and a
     # length floor. "Nothing user-visible changed" still passes.
     def test_a_bare_label_does_not_satisfy_the_guard(self):
+        # test_a_bare_label_does_not_satisfy_the_guard
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check:")),
             "a CHANGELOG entry with only the bare 'Consumer check:' "
@@ -43,14 +44,14 @@ class TestTheGuardRejectsAVacuousAnswer(unittest.TestCase):
             "confirm the consumer question was actually answered",
         )
 
-    def test_a_placeholder_answer_of_na_does_not_satisfy_the_guard(self):
+        # test_a_placeholder_answer_of_na_does_not_satisfy_the_guard
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check: N/A")),
             "'Consumer check: N/A' passed the guard with a placeholder "
             "answer that names no real content",
         )
 
-    def test_a_placeholder_answer_of_tbd_does_not_satisfy_the_guard(self):
+        # test_a_placeholder_answer_of_tbd_does_not_satisfy_the_guard
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check: tbd")),
             "'Consumer check: tbd' passed the guard with a placeholder "

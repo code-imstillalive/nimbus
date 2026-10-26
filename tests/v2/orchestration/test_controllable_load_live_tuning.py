@@ -44,6 +44,7 @@ class TestLiveOverlay(unittest.TestCase):
         solver_writer.NATIVE.hass = self._orig
 
     def test_all_seven_live_fields_can_be_overridden_independently(self):
+        # test_all_seven_live_fields_can_be_overridden_independently
         slug = "hot_water_heat_pump"
         solver_writer.NATIVE.hass = _hass(
             {
@@ -70,9 +71,7 @@ class TestLiveOverlay(unittest.TestCase):
         self.assertEqual(result["controllable_load_min_hold_minutes"], 6.6)
         self.assertEqual(result["controllable_load_max_activations_per_day"], 7.0)
 
-    def test_non_numeric_live_state_falls_back_to_wizard_data(self):
-        """Defensive against a genuinely corrupt/mid-transition state --
-        must never crash the whole load's own solve over one bad read."""
+        # test_non_numeric_live_state_falls_back_to_wizard_data: Defensive against a genuinely corrupt/mid-transition state --
         solver_writer.NATIVE.hass = _hass(
             {
                 "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(

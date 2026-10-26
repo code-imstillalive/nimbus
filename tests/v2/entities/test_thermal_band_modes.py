@@ -113,16 +113,12 @@ class TestTheDecisionIsWhatIsActuallyImplemented(unittest.TestCase):
     the only place either could silently change."""
 
     def test_the_band_bounds_are_covered_by_a_preset(self):
+        # test_the_band_bounds_are_covered_by_a_preset
         moved = {key for levers in hm.THERMAL_BAND_PRESETS.values() for key in levers}
         self.assertIn(hm.THERMAL_TARGET_KEY, moved)
         self.assertIn(hm.THERMAL_COMFORT_FLOOR_KEY, moved)
 
-    def test_no_table_ever_moves_a_clock_lever(self):
-        """Option 3. `build_controllable_loads()` DROPS a load out of the
-        plan for the cycle -- warning only -- when a resolved deadline
-        lands before its earliest hour, so an hour preset can silently
-        remove a real load from a real plan. Different in kind from
-        scaling a price, which the LP simply absorbs."""
+        # test_no_table_ever_moves_a_clock_lever: Option 3. `build_controllable_loads()` DROPS a load out of the
         clock_levers = {
             "deferrable_earliest_hour",
             "deferrable_deadline_hour",
@@ -139,10 +135,7 @@ class TestTheDecisionIsWhatIsActuallyImplemented(unittest.TestCase):
                     with self.subTest(table=table_name, mode=mode, key=key):
                         self.assertNotIn(key, clock_levers)
 
-    def test_the_band_table_holds_bounds_only_never_a_cost(self):
-        """The whole reason the band has its own table is that a reader
-        can see which entries move a constraint boundary. A cost that
-        drifted in here would defeat that."""
+        # test_the_band_table_holds_bounds_only_never_a_cost: The whole reason the band has its own table is that a reader
         for mode, levers in hm.THERMAL_BAND_PRESETS.items():
             for key in levers:
                 with self.subTest(mode=mode, key=key):
@@ -150,18 +143,13 @@ class TestTheDecisionIsWhatIsActuallyImplemented(unittest.TestCase):
                         key, (hm.THERMAL_TARGET_KEY, hm.THERMAL_COMFORT_FLOOR_KEY)
                     )
 
-    def test_every_band_entry_is_a_degree_delta_not_a_factor(self):
-        """A multiplier on a Celsius setpoint has no physical meaning --
-        0.9 x 55 C is an arbitrary 5.5 C, not '10% less heat'."""
+        # test_every_band_entry_is_a_degree_delta_not_a_factor: A multiplier on a Celsius setpoint has no physical meaning --
         for mode, levers in hm.THERMAL_BAND_PRESETS.items():
             for key, (op, _operand) in levers.items():
                 with self.subTest(mode=mode, key=key):
                     self.assertEqual(op, hm.DELTA)
 
-    def test_every_band_key_is_a_real_config_key(self):
-        """A preset naming a key nothing reads is dead config that looks
-        live: a household switches mode, nothing happens, no error says
-        why."""
+        # test_every_band_key_is_a_real_config_key: A preset naming a key nothing reads is dead config that looks
         from custom_components.nimbus_load import const
 
         known = {
@@ -181,6 +169,7 @@ class TestAwayReallyDropsTheBand(unittest.TestCase):
     band'."""
 
     def test_away_schedules_strictly_less_heat_in_a_real_plan(self):
+        # test_away_schedules_strictly_less_heat_in_a_real_plan
         home, _ = hm.apply_to_load_config(_BASE_THERMAL_DATA, "home")
         away, _ = hm.apply_to_load_config(_BASE_THERMAL_DATA, "away")
         home_plan = _solve(_thermal_from(home))
@@ -194,10 +183,7 @@ class TestAwayReallyDropsTheBand(unittest.TestCase):
             "the bound never reached the constraint",
         )
 
-    def test_a_load_with_no_comfort_floor_only_moves_its_target(self):
-        """`comfort_floor_c` is optional and `None` by default. `float(None)`
-        raises, so the generic path must skip it rather than crash a real
-        solve -- and the repair pass must cope with a half-present band."""
+        # test_a_load_with_no_comfort_floor_only_moves_its_target: `comfort_floor_c` is optional and `None` by default. `float(None)`
         data = dict(_BASE_THERMAL_DATA)
         data[hm.THERMAL_COMFORT_FLOOR_KEY] = None
         out, applied = hm.apply_to_load_config(data, "away")

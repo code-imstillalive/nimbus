@@ -23,6 +23,7 @@ CRON = (
 
 
 def test_no_solve_path_reads_raw_configured_capacity_any_more():
+    # test_no_solve_path_reads_raw_configured_capacity_any_more
     for label, src in (("integration", writer_source()), ("cron", CRON)):
         raw = [
             ln
@@ -33,8 +34,5 @@ def test_no_solve_path_reads_raw_configured_capacity_any_more():
         ]
         assert raw == [], f"{label}: a solve path bypasses the SoH derating: {raw}"
 
-
-def test_the_cron_copy_has_the_helper_too():
-    """#357: the standalone writer has drifted behind the integration on a
-    shipped fix before."""
+    # test_the_cron_copy_has_the_helper_too: #357: the standalone writer has drifted behind the integration on a
     assert "def resolve_effective_capacity_kwh(" in CRON

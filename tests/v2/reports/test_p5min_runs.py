@@ -30,11 +30,11 @@ TEXT = FIXTURE.read_text()
 
 
 def test_an_unknown_region_or_an_empty_file_is_none_not_an_empty_forecast():
+    # test_an_unknown_region_or_an_empty_file_is_none_not_an_empty_forecast
     assert p5min.parse_region_solution(TEXT, "WA1") is None
     assert p5min.parse_region_solution("", "QLD1") is None
 
-
-def test_region_comes_from_the_configured_aemo_sensor_ids():
+    # test_region_comes_from_the_configured_aemo_sensor_ids
     ids = [
         "sensor.nem_pd7day_qld1_nem_spot_price_forecast",
         "sensor.aemo_nem_qld1_current_5min_period_price",
@@ -44,6 +44,25 @@ def test_region_comes_from_the_configured_aemo_sensor_ids():
     # Two regions named: refuse rather than pick one.
     assert p5min.region_from_entity_ids([ids[0], "sensor.aemo_nem_vic1_x"]) is None
     assert p5min.region_from_entity_ids([None, "sensor.localvolts_v2_buy"]) is None
+
+    # test_a_file_without_the_region_keeps_the_last_good_run
+    s = _sensor()
+    s.apply("f1.zip", p5min.parse_region_solution(TEXT, "QLD1"))
+    s.apply("f2.zip", None)
+    assert s.available is True and s.native_value == -0.00544
+    assert "no QLD1 rows" in s.extra_state_attributes["last_error"]
+
+    # test_series_are_excluded_from_recorder
+    # #1778 added two lists that can grow: the first interval's violated
+    # constraints and the forecast-vs-dispatch record.
+    assert sp.NimbusP5MinForecastSensor._unrecorded_attributes == frozenset(
+        {
+            "forecast",
+            "previous_forecast",
+            "violated_constraints",
+            "forecast_at_dispatch",
+        }
+    )
 
 
 def _entry(forecast_id, current_id):
@@ -62,27 +81,6 @@ def _sensor():
     s = sp.NimbusP5MinForecastSensor(entry, "QLD1", "0.94.445")
     s.hass = None
     return s
-
-
-def test_a_file_without_the_region_keeps_the_last_good_run():
-    s = _sensor()
-    s.apply("f1.zip", p5min.parse_region_solution(TEXT, "QLD1"))
-    s.apply("f2.zip", None)
-    assert s.available is True and s.native_value == -0.00544
-    assert "no QLD1 rows" in s.extra_state_attributes["last_error"]
-
-
-def test_series_are_excluded_from_recorder():
-    # #1778 added two lists that can grow: the first interval's violated
-    # constraints and the forecast-vs-dispatch record.
-    assert sp.NimbusP5MinForecastSensor._unrecorded_attributes == frozenset(
-        {
-            "forecast",
-            "previous_forecast",
-            "violated_constraints",
-            "forecast_at_dispatch",
-        }
-    )
 
 
 # ---- #1660's readiness rule, shadow only, on the real 9 Oct runs ----------

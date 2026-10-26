@@ -55,14 +55,11 @@ def _days(n, per_day, lo, hi):
 
 
 def test_with_nothing_measured_and_no_usable_band_there_is_no_band():
+    # test_with_nothing_measured_and_no_usable_band_there_is_no_band
     for solcast in [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])]:
         assert _bands([1.0, 2.0], solcast=solcast) == (None, None, None)
 
-
-# --- the quantile table and its calibration ----------------------------------------------------
-
-
-def test_coverage_is_graded_leaving_each_day_out():
+    # test_coverage_is_graded_leaving_each_day_out
     calibrated = [[f"d{d}", r] for d in range(4) for r in np.linspace(0.55, 1.45, 10)]
     assert sq.loo_coverage(calibrated) == (10.0, 10.0)
     narrow = [[f"d{d}", r] for d in range(3) for r in np.linspace(0.9, 1.1, 10)] + [
@@ -72,11 +69,7 @@ def test_coverage_is_graded_leaving_each_day_out():
     assert below >= 25.0  # a band too narrow for one bad day shows it
     assert sq.loo_coverage([["d0", 1.0]] * 60) == (None, None)
 
-
-# --- the history -------------------------------------------------------------------------------
-
-
-def test_one_forecast_is_kept_per_interval_and_bucket_the_closest_to_its_lead():
+    # test_one_forecast_is_kept_per_interval_and_bucket_the_closest_to_its_lead
     h = sq.SolarErrorHistory()
     times, hours = _grid(12)
     h.record(NOW, times, hours, [5.0] * 12)
@@ -91,8 +84,7 @@ def test_one_forecast_is_kept_per_interval_and_bucket_the_closest_to_its_lead():
     night.record(NOW, times, hours, [0.0] * 12)
     assert night.pending == {}
 
-
-def test_a_due_interval_is_graded_into_its_cell_and_a_missing_actual_is_dropped():
+    # test_a_due_interval_is_graded_into_its_cell_and_a_missing_actual_is_dropped
     h = sq.SolarErrorHistory()
     k = int(NOW.timestamp() // sq.INTERVAL_SECONDS)
     h.pending = {
@@ -106,8 +98,7 @@ def test_a_due_interval_is_graded_into_its_cell_and_a_missing_actual_is_dropped(
     assert k not in h.pending and k + 1 in h.pending
     assert h.settle({k + 1: None}, TZ) == 0 and h.pending == {}
 
-
-def test_old_samples_are_pruned_and_the_history_round_trips():
+    # test_old_samples_are_pruned_and_the_history_round_trips
     h = sq.SolarErrorHistory()
     h.samples["0-1 h"] = [["2026-09-01", 1.0], ["2026-10-15", 0.9]]
     h.pending = {5: {"0-1 h": [0.5, 2.0]}}
@@ -116,6 +107,12 @@ def test_old_samples_are_pruned_and_the_history_round_trips():
     back = sq.SolarErrorHistory.from_dict(json.loads(json.dumps(h.to_dict())))
     assert (back.samples, back.pending) == (h.samples, h.pending)
     assert sq.SolarErrorHistory.from_dict({"samples": 3}).samples == {}
+
+
+# --- the quantile table and its calibration ----------------------------------------------------
+
+
+# --- the history -------------------------------------------------------------------------------
 
 
 # --- end to end, with the file it keeps --------------------------------------------------------

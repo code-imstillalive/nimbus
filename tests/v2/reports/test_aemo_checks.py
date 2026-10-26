@@ -51,6 +51,7 @@ def samples(h, m, values, step=5):
 
 
 def test_nothing_usable_is_no_bucket():
+    # test_nothing_usable_is_no_bucket
     for entries in [
         [],
         None,
@@ -69,8 +70,7 @@ def test_nothing_usable_is_no_bucket():
         assert select_current_bucket(entries, at(12, 43)) is None
         assert select_current_bucket(FORECAST, at(20, 0)) is None
 
-
-def test_a_bad_entry_never_blocks_a_good_one():
+    # test_a_bad_entry_never_blocks_a_good_one
     for bad in (
         {"start_time": "not a time"},
         "nonsense",
@@ -79,14 +79,7 @@ def test_a_bad_entry_never_blocks_a_good_one():
         start, _e, _p = select_current_bucket([bad, *FORECAST], at(12, 43))
         assert (start.hour, start.minute) == (12, 30)
 
-
-# --- the realised mean ----------------------------------------------------------------------------
-
-
-# --- the whole cross-check ------------------------------------------------------------------------
-
-
-def test_no_bucket_or_no_samples_is_no_answer_and_zones_align():
+    # test_no_bucket_or_no_samples_is_no_answer_and_zones_align
     assert (
         compare_forecast_to_actuals(FORECAST, samples(12, 30, [0.1]), at(20, 0), 0.1)
         is None
@@ -95,6 +88,12 @@ def test_no_bucket_or_no_samples_is_no_answer_and_zones_align():
     utc = datetime(2026, 9, 13, 2, 50, tzinfo=UTC)  # 12:50 here
     got = compare_forecast_to_actuals(FORECAST, samples(12, 30, [-0.01]), utc, 0.10)
     assert got["window_start"].startswith("2026-09-13T12:30")
+
+
+# --- the realised mean ----------------------------------------------------------------------------
+
+
+# --- the whole cross-check ------------------------------------------------------------------------
 
 
 # --- retail against P5MIN plus the usual markup -----------------------------------------------------

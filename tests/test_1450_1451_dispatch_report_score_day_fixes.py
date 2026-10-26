@@ -64,9 +64,10 @@ _spec.loader.exec_module(score_day)
 
 class TestSettlementIsFinal(unittest.TestCase):
     def test_applied_is_final(self):
+        # test_applied_is_final
         self.assertTrue(score_day._settlement_is_final("applied"))
 
-    def test_the_two_permanent_statuses_are_final(self):
+        # test_the_two_permanent_statuses_are_final
         for status in (
             "no_sensor_configured",
             "window_is_not_one_local_calendar_day",
@@ -78,7 +79,7 @@ class TestSettlementIsFinal(unittest.TestCase):
                     "coming), so it must be treated as final -- nimbus #1451",
                 )
 
-    def test_the_two_genuinely_provisional_statuses_are_not_final(self):
+        # test_the_two_genuinely_provisional_statuses_are_not_final
         for status in (
             "no_settlement_entry_for_this_date",
             "settlement_sensor_unreadable",
@@ -92,6 +93,7 @@ class TestSettlementIsFinal(unittest.TestCase):
 
 class TestRealSocAtBoundary(unittest.TestCase):
     def test_uses_the_preceding_hours_last_value_when_present(self):
+        # test_uses_the_preceding_hours_last_value_when_present
         by_hour_last = {"09": {"soc": 55.5}}
         by_hour = {"10": {"soc": 40.0}}
         value, fell_back = score_day._real_soc_at_boundary(
@@ -100,7 +102,7 @@ class TestRealSocAtBoundary(unittest.TestCase):
         self.assertEqual(value, 55.5)
         self.assertFalse(fell_back)
 
-    def test_falls_back_to_the_hourly_mean_on_a_data_gap(self):
+        # test_falls_back_to_the_hourly_mean_on_a_data_gap
         by_hour_last = {}  # no "last" data anywhere -- a real gap
         by_hour = {"10": {"soc": 40.0}}
         value, fell_back = score_day._real_soc_at_boundary(
@@ -109,12 +111,7 @@ class TestRealSocAtBoundary(unittest.TestCase):
         self.assertEqual(value, 40.0)
         self.assertTrue(fell_back)
 
-    def test_a_partial_gap_is_reported_as_a_fallback_for_that_hour_only(self):
-        """The exact shape of nimbus #1450: hour 05's own preceding bucket
-        (04) has no "last" reading (a real data gap) while every other
-        hour's preceding bucket does. Hour 05 must report fell_back=True
-        even though the day overall has plenty of instant data -- which is
-        exactly what the old any(...)-over-every-hour flag could not see."""
+        # test_a_partial_gap_is_reported_as_a_fallback_for_that_hour_only: The exact shape of nimbus #1450: hour 05's own preceding bucket
         # Note: "04" is deliberately absent -- that is the gap.
         by_hour_last = {h: {"soc": 50.0} for h in ("03", "06", "07")}
         by_hour = {"05": {"soc": 33.3}}

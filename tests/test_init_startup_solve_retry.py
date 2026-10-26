@@ -47,6 +47,7 @@ async def _run(coro):
 
 
 def test_retries_with_the_configured_delay_until_it_succeeds():
+    # test_retries_with_the_configured_delay_until_it_succeeds
     import asyncio
 
     run_solve = AsyncMock(side_effect=[False, False, True])
@@ -64,8 +65,7 @@ def test_retries_with_the_configured_delay_until_it_succeeds():
     for call in sleep_mock.call_args_list:
         assert call.args[0] == _STARTUP_RETRY_DELAY_SECONDS
 
-
-def test_gives_up_after_the_configured_number_of_attempts():
+    # test_gives_up_after_the_configured_number_of_attempts
     import asyncio
 
     run_solve = AsyncMock(return_value=False)

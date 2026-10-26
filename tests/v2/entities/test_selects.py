@@ -80,6 +80,7 @@ OTHER = next(m for m in const.HOUSEHOLD_MODES if m != const.DEFAULT_HOUSEHOLD_MO
 
 
 def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
+    # test_a_select_comes_back_from_its_store_then_its_state_then_the_default
     for restored, stored, current in [
         (None, None, const.DEFAULT_HOUSEHOLD_MODE),
         (OTHER, None, OTHER),
@@ -105,8 +106,7 @@ def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
         assert s._attr_current_option == current
         assert s.entity_id == "select.nimbus_household_mode"
 
-
-def test_choosing_stores_it_and_an_unknown_choice_is_refused():
+    # test_choosing_stores_it_and_an_unknown_choice_is_refused
     s, shared = _mode()
     _run(s.async_select_option(OTHER))
     assert (
@@ -117,8 +117,7 @@ def test_choosing_stores_it_and_an_unknown_choice_is_refused():
         _run(s.async_select_option("party"))
     assert s._attr_current_option == OTHER
 
-
-def test_a_corrupt_select_store_reads_as_empty():
+    # test_a_corrupt_select_store_reads_as_empty
     shared = sel._SharedSelectStore(store=MemoryStore(broken=True))
     assert _run(shared.async_read("k")) is None
     _run(shared.async_write("k", "x"))

@@ -83,6 +83,7 @@ def _proposal():
 
 
 def test_a_flipped_sensor_is_proposed_with_its_native_sign():
+    # test_a_flipped_sensor_is_proposed_with_its_native_sign
     flipped = [(t, -v) for t, v in BAT]
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.inv_bat": flipped}}, STATS, START, END
@@ -101,8 +102,7 @@ def test_a_flipped_sensor_is_proposed_with_its_native_sign():
     }
     assert not [x for x in dc.validate(doc) if x.code == "sign_not_canonical"]
 
-
-def test_dc_r13_f06_two_equal_readings_are_asked_with_both():
+    # test_dc_r13_f06_two_equal_readings_are_asked_with_both
     p = dd.add_history_pairing(
         _proposal(),
         {"battery": {"sensor.bat_a": BAT, "sensor.bat_b": list(BAT)}},
@@ -118,8 +118,7 @@ def test_dc_r13_f06_two_equal_readings_are_asked_with_both():
     ]
     assert not [q for q in p.questions if q["code"] == "confirm_history_match"]
 
-
-def test_no_match_and_too_little_history_are_findings_not_zeros():
+    # test_no_match_and_too_little_history_are_findings_not_zeros
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.house": _series(house)}}, STATS, START, END
     )
@@ -132,16 +131,14 @@ def test_no_match_and_too_little_history_are_findings_not_zeros():
     (f,) = [f for f in p.findings if f["code"] == "history_pairing_inconclusive"]
     assert f["status"] == dr.INSUFFICIENT
 
-
-def test_no_counter_history_is_said_plainly():
+    # test_no_counter_history_is_said_plainly
     p = dd.add_history_pairing(
         _proposal(), {"battery": {"sensor.bat_power": BAT}}, {}, START, END
     )
     (f,) = [f for f in p.findings if f["code"] == "history_pairing_inconclusive"]
     assert f["reason"] == "no counter history to compare against"
 
-
-def test_a_solar_device_with_power_already_is_never_paired():
+    # test_a_solar_device_with_power_already_is_never_paired
     p = dd.add_history_pairing(
         _proposal(),
         {"solar": {"sensor.other": _series(solar)}},

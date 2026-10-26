@@ -99,6 +99,7 @@ def _states(rows):
 
 
 def test_training_fetch_marks_unavailable_and_unknown_as_gaps():
+    # test_training_fetch_marks_unavailable_and_unknown_as_gaps
     coord = _bare()
     t = START
     _states(
@@ -114,15 +115,13 @@ def test_training_fetch_marks_unavailable_and_unknown_as_gaps():
     assert math.isnan(ev[1][1]) and math.isnan(ev[3][1])
     assert len(ev) == 4
 
-
-def test_forecast_path_fetch_still_drops_non_numeric_states():
+    # test_forecast_path_fetch_still_drops_non_numeric_states
     coord = _bare()
     _states([(START, "0.0"), (START + timedelta(hours=1), "unavailable")])
     ev = asyncio.run(coord._async_fetch_recorder_history("sensor.x", START, END))
     assert ev == [(START, 0.0)]
 
-
-def test_ha_downtime_becomes_a_gap_marker():
+    # test_ha_downtime_becomes_a_gap_marker
     coord = _bare()
     down = START + timedelta(days=3)
     coord._retrain_downtime = [(down, down + timedelta(hours=4))]

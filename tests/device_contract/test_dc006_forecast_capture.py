@@ -161,11 +161,10 @@ def test_the_contract_reads_what_today_reads(case, grid):
 
 
 def test_open_meteo_is_placed_where_the_solver_places_it():
-    """#2004's offset lives in two places; they must agree."""
+    # test_open_meteo_is_placed_where_the_solver_places_it: #2004's offset lives in two places; they must agree.
     assert dfc.OPEN_METEO_WATTS_LEAD == solver_writer.OPEN_METEO_WATTS_LEAD
 
-
-def test_a_failed_member_is_dropped_on_both_sides_never_zero():
+    # test_a_failed_member_is_dropped_on_both_sides_never_zero
     options = {
         "solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast",
         "solver_solar_forecast_sensor_2": "sensor.gone",
@@ -174,22 +173,13 @@ def test_a_failed_member_is_dropped_on_both_sides_never_zero():
     gone = _contract(options, True, STATES).members[-1]
     assert (gone.state, gone.reason, gone.value) == ("missing", "unavailable", None)
 
-
-def test_a_missing_anchor_drops_the_whole_integration_as_today():
+    # test_a_missing_anchor_drops_the_whole_integration_as_today
     states = {k: v for k, v in STATES.items() if k != "sensor.sc_today"}
     _same(_legacy({}, True, states), _contract({}, True, states))
     reasons = [m.reason for m in _contract({}, True, states).members]
     assert reasons == [None, "unavailable"]
 
-
-# --- differences the gate finds: each needs a decision before the slice merges ---
-
-
-def test_difference_a_malformed_auto_include_row_raises_today():
-    """Today a configured sensor with an unparseable time is dropped
-    (`malformed`), but Solcast's and Open-Meteo's own readers do not catch
-    it, so the error reaches `build_solar_arrays`' caller. The contract drops
-    that member like any other."""
+    # test_difference_a_malformed_auto_include_row_raises_today: Today a configured sensor with an unparseable time is dropped
     states = {**STATES, "sensor.om_tomorrow": {"watts": {"not a time": 1000.0}}}
     with pytest.raises(ValueError):
         _legacy({}, True, states)
@@ -198,6 +188,47 @@ def test_difference_a_malformed_auto_include_row_raises_today():
         ("open_meteo_solar", "missing", "malformed"),
         ("solcast", "ok", None),
     ]
+
+    # test_today_s_binding_validates
+    binding = dfc.legacy_solar_binding(
+        {"solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast"}, True, KNOWN
+    )
+    assert binding is not None and len(binding["sources"]) == 3
+    assert not {
+        "source_fields_missing",
+        "combine_unknown",
+        "combine_not_allowed",
+    } & _codes(binding)
+
+    # test_continued_by_belongs_to_an_entity_attribute_source
+    binding = {
+        "source": {
+            "kind": "entity_state",
+            "entity_id": "sensor.a",
+            "continued_by": ["sensor.b"],
+        }
+    }
+    assert "source_fields_missing" in _codes(binding)
+
+    # test_one_source_stays_the_ordinary_binding
+    binding = dfc.legacy_solar_binding(
+        {"solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast"}, False, KNOWN
+    )
+    assert set(binding) == {"source"}
+    assert dfc.legacy_solar_binding({}, False, KNOWN) is None
+    assert (
+        dfc.resolve_forecast(
+            None,
+            STATES.get,
+            GRID,
+            solver_writer.resample_forecast,
+            resample_instants=solver_writer.resample_instants,
+        ).reason
+        == "unbound"
+    )
+
+
+# --- differences the gate finds: each needs a decision before the slice merges ---
 
 
 # --- the binding itself (DC-001) --------------------------------------------------
@@ -216,44 +247,3 @@ def _doc_with(binding, kind="solar", role="generation_forecast"):
 
 def _codes(binding, **kw):
     return {p.code for p in dc.validate(_doc_with(binding, **kw))}
-
-
-def test_today_s_binding_validates():
-    binding = dfc.legacy_solar_binding(
-        {"solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast"}, True, KNOWN
-    )
-    assert binding is not None and len(binding["sources"]) == 3
-    assert not {
-        "source_fields_missing",
-        "combine_unknown",
-        "combine_not_allowed",
-    } & _codes(binding)
-
-
-def test_continued_by_belongs_to_an_entity_attribute_source():
-    binding = {
-        "source": {
-            "kind": "entity_state",
-            "entity_id": "sensor.a",
-            "continued_by": ["sensor.b"],
-        }
-    }
-    assert "source_fields_missing" in _codes(binding)
-
-
-def test_one_source_stays_the_ordinary_binding():
-    binding = dfc.legacy_solar_binding(
-        {"solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast"}, False, KNOWN
-    )
-    assert set(binding) == {"source"}
-    assert dfc.legacy_solar_binding({}, False, KNOWN) is None
-    assert (
-        dfc.resolve_forecast(
-            None,
-            STATES.get,
-            GRID,
-            solver_writer.resample_forecast,
-            resample_instants=solver_writer.resample_instants,
-        ).reason
-        == "unbound"
-    )

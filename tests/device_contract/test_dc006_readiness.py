@@ -71,6 +71,7 @@ def _states(results):
 
 
 def test_observing_needs_grid_power_or_both_energies():
+    # test_observing_needs_grid_power_or_both_energies
     assert rd.evaluate(_doc())["observe"]["state"] == "needs"
     energies = {
         "import_energy": {
@@ -92,8 +93,7 @@ def test_observing_needs_grid_power_or_both_energies():
     one = {"import_energy": energies["import_energy"]}
     assert rd.evaluate(_doc(grid=one))["observe"]["state"] == "needs"
 
-
-def test_dc_r14_f11_a_training_model_is_a_status_not_a_fault():
+    # test_dc_r14_f11_a_training_model_is_a_status_not_a_fault
     r = rd.evaluate(_doc(grid=GRID, house=HOUSE), models={"load_house": "training"})
     assert r["forecast"]["state"] == "training"
     assert r["plan"]["state"] == "training"
@@ -101,8 +101,7 @@ def test_dc_r14_f11_a_training_model_is_a_status_not_a_fault():
     r = rd.evaluate(_doc(grid=GRID, house=HOUSE), models={"load_house": "trained"})
     assert r["forecast"]["state"] == "ready" and r["plan"]["state"] == "ready"
 
-
-def test_a_battery_without_capacity_is_a_need_not_a_crash():
+    # test_a_battery_without_capacity_is_a_need_not_a_crash
     battery = {
         "id": "battery",
         "kind": "battery",
@@ -117,16 +116,14 @@ def test_a_battery_without_capacity_is_a_need_not_a_crash():
     ]
     assert r["observe"]["state"] == "ready"
 
-
-def test_a_structurally_broken_document_is_unsupported_everywhere():
+    # test_a_structurally_broken_document_is_unsupported_everywhere
     doc = _doc(grid=GRID, house=HOUSE)
     doc["devices"][1]["id"] = "grid"  # duplicate id
     r = rd.evaluate(doc)
     assert set(_states(r).values()) == {"unsupported"}
     assert r["plan"]["problems"]
 
-
-def test_dc_r10_score_is_marked_not_corrected_when_exchange_disagrees():
+    # test_dc_r10_score_is_marked_not_corrected_when_exchange_disagrees
     ok = {"models": {"load_house": "trained"}, "scored_days": 3}
     doc = _doc(grid=GRID, house=HOUSE)
     assert rd.evaluate(doc, **ok, reconciliation="agrees")["score"] == {
@@ -141,8 +138,7 @@ def test_dc_r10_score_is_marked_not_corrected_when_exchange_disagrees():
         "training"
     )
 
-
-def test_the_verdict_names_are_dc003s():
+    # test_the_verdict_names_are_dc003s
     from tests.device_contract import oracles_accounting as oracles
 
     assert set(rd._RECONCILE_BLOCKS) == {
