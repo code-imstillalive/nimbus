@@ -135,7 +135,6 @@ AWAY = range(8, 11)
 
 
 def test_an_hour_with_no_reading_credits_nothing_and_is_named(site):
-    # test_an_hour_with_no_reading_credits_nothing_and_is_named
     site.add()
     site.power = [(DAY + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
     ((battery, charge, discharge, _f, _s),) = resolve()
@@ -145,7 +144,8 @@ def test_an_hour_with_no_reading_credits_nothing_and_is_named(site):
     assert len(battery.stale_history_period_indices) > 15
     assert battery.unavailable_period_indices is None  # quiet is not away
 
-    # test_which_periods_are_unobserved
+
+def test_which_periods_are_unobserved():
     for pts, grid, stale, fresh in [
         ([], [], set(), set()),
         ([], GRID, set(range(24)), set()),
@@ -220,90 +220,8 @@ def test_what_each_row_reads_as(rest, rows, expected):
     assert rest(rows) == expected
 
 
-def test_a_failed_read_is_no_history(rest, site, monkeypatch):
-    # test_a_failed_read_is_no_history
+def test_a_failed_read_is_no_history(rest):
     assert rest([], fail=True) == []
-
-    # test_no_configured_limit_judges_nothing
-    # test_no_configured_limit_judges_nothing
-    for bound in [0.0, -1.0]:
-        hist = [(at(9), 1514.417), (at(10), -0.77)]
-        assert drop(hist, bound=bound) == hist
-        assert drop([], bound=bound) == []
-
-    # test_a_dropped_reading_leaves_nothing_behind_in_the_hour
-    good = [(at(9) + timedelta(minutes=m), 6.0) for m in (10, 20, 30, 40, 50)]
-    kept = drop([(at(9) + timedelta(minutes=5), 1514.417), *good])
-    assert kept == good  # discarded, never clamped to the bound
-    assert sw.resample_history_mean(kept, [at(9)], 1.0) == [pytest.approx(6.0)]
-    alone = drop([(at(9) + timedelta(minutes=5), 1514.417)])
-    assert sw.resample_history_mean(alone, [at(9)], 1.0) == [0.0]
-
-    # test_the_quality_report_scores_home_and_every_participant
-    with monkeypatch.context() as mp:
-        cfg = {
-            "solver_solar_power_sensor": "sensor.real_solar",
-            "solver_battery_power_sensor": "sensor.real_battery",
-            "solver_whole_house_cross_check_sensor": "sensor.real_load",
-            "solver_import_price_sensor": "sensor.import_price",
-            "solver_export_price_sensor": "sensor.export_price",
-            "solver_battery_capacity_kwh": 50.0,
-            "solver_battery_min_soc_percent": 5.0,
-            "solver_battery_max_soc_percent": 100.0,
-            "solver_max_charge_kw": 10.0,
-            "solver_max_discharge_kw": 10.0,
-            "solver_efficiency_percent": 95.0,
-            "solver_charge_cost": 0.01,
-            "solver_discharge_cost": 0.01,
-            "solver_salvage_value": 0.1,
-            "solver_grid_max_import_kw": 20.0,
-            "solver_grid_max_export_kw": 20.0,
-        }
-        series = {
-            "sensor.real_load": 2.0,
-            "sensor.import_price": 0.20,
-            "sensor.export_price": 0.05,
-            "sensor.ev_soc": 55.0,
-        }
-
-        def fetch(entity, _start, _end):
-            return every(series.get(entity, 0.0))
-
-        mp.setattr(sw, "fetch_entity_history_range", fetch)
-        mp.setattr(sw, "fetch_entity_power_history_kw", fetch)
-        mp.setattr(sw.urllib.request, "urlopen", _refuse)
-        now = END + timedelta(hours=10)
-        assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == [
-            "home"
-        ]
-        site.add()
-        report = sw.compute_daily_quality_report(cfg, now)
-        assert report["scored_participants"] == ["home", "ev"]
-        assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
-
-    # test_a_participant_whose_positive_is_discharge_reads_it_so
-    site.add({**EV, "battery_participant_power_positive_is_charge": False})
-    ((_b, charge, discharge, _f, _s),) = resolve()
-    assert (charge == 0.0).all() and (discharge == 5.0).all()
-
-    # test_no_departure_requirement
-    # test_no_departure_requirement
-    for over in [
-        {"departure_hour": None, "must_have_soc_pct": None},
-        {"must_have_soc_pct": None},  # half configured is unset, as live
-        {"departure_hour": None},
-        {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
-    ]:
-        n = len(over.get("grid_times", DEP_GRID))
-        assert deadline([0.0] * n, **over) == (None, None)
-
-    # test_a_scalar_list_or_array_period_length_gives_the_same_deadline: The history path passes one scalar period length; every shape agrees,
-    kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
-    scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
-    assert scalar[0] == 5
-    assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
-    assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
-    assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
 
 
 # --- a reading no participant could make (#843 option B) --------------------------------------
@@ -325,11 +243,73 @@ def at(hour):
     return DAY + timedelta(hours=hour)
 
 
+def test_no_configured_limit_judges_nothing():
+    # test_no_configured_limit_judges_nothing
+    for bound in [0.0, -1.0]:
+        hist = [(at(9), 1514.417), (at(10), -0.77)]
+        assert drop(hist, bound=bound) == hist
+        assert drop([], bound=bound) == []
+
+    # test_a_dropped_reading_leaves_nothing_behind_in_the_hour
+    good = [(at(9) + timedelta(minutes=m), 6.0) for m in (10, 20, 30, 40, 50)]
+    kept = drop([(at(9) + timedelta(minutes=5), 1514.417), *good])
+    assert kept == good  # discarded, never clamped to the bound
+    assert sw.resample_history_mean(kept, [at(9)], 1.0) == [pytest.approx(6.0)]
+    alone = drop([(at(9) + timedelta(minutes=5), 1514.417)])
+    assert sw.resample_history_mean(alone, [at(9)], 1.0) == [0.0]
+
+
 # --- the report scores the fleet (#768) -------------------------------------------------------
+
+
+def test_the_quality_report_scores_home_and_every_participant(site, monkeypatch):
+    cfg = {
+        "solver_solar_power_sensor": "sensor.real_solar",
+        "solver_battery_power_sensor": "sensor.real_battery",
+        "solver_whole_house_cross_check_sensor": "sensor.real_load",
+        "solver_import_price_sensor": "sensor.import_price",
+        "solver_export_price_sensor": "sensor.export_price",
+        "solver_battery_capacity_kwh": 50.0,
+        "solver_battery_min_soc_percent": 5.0,
+        "solver_battery_max_soc_percent": 100.0,
+        "solver_max_charge_kw": 10.0,
+        "solver_max_discharge_kw": 10.0,
+        "solver_efficiency_percent": 95.0,
+        "solver_charge_cost": 0.01,
+        "solver_discharge_cost": 0.01,
+        "solver_salvage_value": 0.1,
+        "solver_grid_max_import_kw": 20.0,
+        "solver_grid_max_export_kw": 20.0,
+    }
+    series = {
+        "sensor.real_load": 2.0,
+        "sensor.import_price": 0.20,
+        "sensor.export_price": 0.05,
+        "sensor.ev_soc": 55.0,
+    }
+
+    def fetch(entity, _start, _end):
+        return every(series.get(entity, 0.0))
+
+    monkeypatch.setattr(sw, "fetch_entity_history_range", fetch)
+    monkeypatch.setattr(sw, "fetch_entity_power_history_kw", fetch)
+    monkeypatch.setattr(sw.urllib.request, "urlopen", _refuse)
+    now = END + timedelta(hours=10)
+    assert sw.compute_daily_quality_report(cfg, now)["scored_participants"] == ["home"]
+    site.add()
+    report = sw.compute_daily_quality_report(cfg, now)
+    assert report["scored_participants"] == ["home", "ev"]
+    assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
 
 
 def _refuse(*_a, **_k):
     raise sw.urllib.error.URLError("no network in tests")
+
+
+def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
+    site.add({**EV, "battery_participant_power_positive_is_charge": False})
+    ((_b, charge, discharge, _f, _s),) = resolve()
+    assert (charge == 0.0).all() and (discharge == 5.0).all()
 
 
 # --- a departure requirement reaches the oracle, as demanding as the day (#1111) ----------------
@@ -354,6 +334,26 @@ def deadline(charge, discharge=None, **over):
     }
     kw.update(over)
     return bp._participant_departure_deadline(**kw)
+
+
+def test_no_departure_requirement():
+    # test_no_departure_requirement
+    for over in [
+        {"departure_hour": None, "must_have_soc_pct": None},
+        {"must_have_soc_pct": None},  # half configured is unset, as live
+        {"departure_hour": None},
+        {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
+    ]:
+        n = len(over.get("grid_times", DEP_GRID))
+        assert deadline([0.0] * n, **over) == (None, None)
+
+    # test_a_scalar_list_or_array_period_length_gives_the_same_deadline: The history path passes one scalar period length; every shape agrees,
+    kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
+    scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
+    assert scalar[0] == 5
+    assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
+    assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
+    assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
 
 
 DEPARTING = {

@@ -104,69 +104,32 @@ def window(c=None, start=DAY, end=END, partial=True):
 # --- the window's shape -----------------------------------------------------------------------
 
 
-def test_a_window_with_no_length_is_not_scored(history, monkeypatch, caplog):
-    # test_a_window_with_no_length_is_not_scored
+def test_a_window_with_no_length_is_not_scored(history):
     for start, end in [(DAY, DAY), (END, DAY)]:
         assert window(start=start, end=end) is None
 
-    # test_the_window_is_scored_at_the_dispatch_grids_own_resolution
-    with monkeypatch.context() as mp:
-        for length, periods, hours in [
-            (timedelta(minutes=30), 6, 5 / 60),  # inside the 5-minute tier
-            (timedelta(hours=6), 12, 0.5),
-            (timedelta(days=1), 48, 0.5),
-            (timedelta(days=2), 96, 0.5),
-        ]:
-            with mp.context() as mp:
-                grids = []
-                real = elements.PeriodGrid
 
-                def spy(*a, **kw):
-                    grids.append(kw["hours"])  # noqa: B023
-                    return real(*a, **kw)  # noqa: B023
-
-                mp.setattr(sw.elements, "PeriodGrid", spy)
-                assert window(end=DAY + length) is not None
-                (used,) = grids
-                assert (len(used), float(used[0])) == (periods, pytest.approx(hours))
-
-    # test_a_soc_reading_outside_the_envelope_still_scores_the_whole_report
-    for soc, max_pct in [(3.85, 100.0), (0.0, 100.0), (104.0, 95.0)]:
-        healthy = window()
-        history["sensor.combined_soc"] = flat(soc)
-        clamped = window(cfg(solver_battery_max_soc_percent=max_pct))
-        assert clamped is not None and set(clamped) == set(healthy)
-
-    # test_the_efficiency_backtest_starts_inside_any_envelope: It starts from 50 %, outside a 60 % floor or a 40 % ceiling.
-    for setting, soc in [
-        ("solver_battery_min_soc_percent", 70.0),
-        ("solver_battery_max_soc_percent", 20.0),
+def test_the_window_is_scored_at_the_dispatch_grids_own_resolution(
+    history, monkeypatch
+):
+    for length, periods, hours in [
+        (timedelta(minutes=30), 6, 5 / 60),  # inside the 5-minute tier
+        (timedelta(hours=6), 12, 0.5),
+        (timedelta(days=1), 48, 0.5),
+        (timedelta(days=2), 96, 0.5),
     ]:
-        history["sensor.combined_soc"] = flat(soc)
-        value = 60.0 if setting.endswith("min_soc_percent") else 40.0
-        result = sw.compute_efficiency_backtest_report(cfg(**{setting: value}), END)
-        assert result is None or isinstance(result, dict)
+        with monkeypatch.context() as mp:
+            grids = []
+            real = elements.PeriodGrid
 
-    # test_every_reason_a_window_is_not_scored_is_logged_at_its_level
-    caplog.clear()
-    with monkeypatch.context() as mp:
-        with caplog.at_level(logging.DEBUG, logger=sw._LOGGER.name):
-            assert window(cfg(solver_solar_power_sensor=None)) is None
-            assert window(end=DAY + timedelta(hours=6), partial=False) is None
-        assert (
-            "Missing sensor config" in caplog.text
-            and "shorter than the 24" in caplog.text
-        )
-        caplog.clear()
-        for eid in ("sensor.real_solar", "sensor.real_load", "sensor.real_battery"):
-            history[eid] = lambda s, e: []
-        with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-            assert window(partial=False) is None
-        assert any(
-            "Real history missing" in r.getMessage() and "solar=0" in r.getMessage()
-            for r in caplog.records
-            if r.levelno == logging.INFO
-        )
+            def spy(*a, **kw):
+                grids.append(kw["hours"])  # noqa: B023
+                return real(*a, **kw)  # noqa: B023
+
+            mp.setattr(sw.elements, "PeriodGrid", spy)
+            assert window(end=DAY + length) is not None
+            (used,) = grids
+            assert (len(used), float(used[0])) == (periods, pytest.approx(hours))
 
 
 # --- P2P settlement is read only for one whole calendar day ------------------------------------
@@ -237,7 +200,48 @@ def _burst(history):
 # --- a SoC reading outside the envelope is clamped, never raised (#325) -------------------------
 
 
+def test_a_soc_reading_outside_the_envelope_still_scores_the_whole_report(history):
+    for soc, max_pct in [(3.85, 100.0), (0.0, 100.0), (104.0, 95.0)]:
+        healthy = window()
+        history["sensor.combined_soc"] = flat(soc)
+        clamped = window(cfg(solver_battery_max_soc_percent=max_pct))
+        assert clamped is not None and set(clamped) == set(healthy)
+
+
+def test_the_efficiency_backtest_starts_inside_any_envelope(history):
+    """It starts from 50 %, outside a 60 % floor or a 40 % ceiling."""
+    for setting, soc in [
+        ("solver_battery_min_soc_percent", 70.0),
+        ("solver_battery_max_soc_percent", 20.0),
+    ]:
+        history["sensor.combined_soc"] = flat(soc)
+        value = 60.0 if setting.endswith("min_soc_percent") else 40.0
+        result = sw.compute_efficiency_backtest_report(cfg(**{setting: value}), END)
+        assert result is None or isinstance(result, dict)
+
+
 # --- every skip says why (#313, #314) ---------------------------------------------------------
+
+
+def test_every_reason_a_window_is_not_scored_is_logged_at_its_level(
+    history, monkeypatch, caplog
+):
+    with caplog.at_level(logging.DEBUG, logger=sw._LOGGER.name):
+        assert window(cfg(solver_solar_power_sensor=None)) is None
+        assert window(end=DAY + timedelta(hours=6), partial=False) is None
+    assert (
+        "Missing sensor config" in caplog.text and "shorter than the 24" in caplog.text
+    )
+    caplog.clear()
+    for eid in ("sensor.real_solar", "sensor.real_load", "sensor.real_battery"):
+        history[eid] = lambda s, e: []
+    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
+        assert window(partial=False) is None
+    assert any(
+        "Real history missing" in r.getMessage() and "solar=0" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.INFO
+    )
 
 
 # --- a value the recorder held is not a gap (#1477) -------------------------------------------
@@ -339,45 +343,11 @@ def _span(first, last, step=5):
     return out
 
 
-def test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty(
-    short_battery, caplog
-):
-    # test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty
+def test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty():
     spans = (_span(0, 24), _span(0, 17), _span(6, 24))
     assert sw._history_coverage_hours(spans, C0, C1) == pytest.approx(17.0)
     assert sw._history_coverage_hours((_span(0, 24), [], _span(0, 24)), C0, C1) == 0.0
     assert sw._history_coverage_hours((), C0, C1) == 0.0
-
-    # test_a_day_that_keeps_failing_becomes_a_warning_counted_per_day
-    caplog.clear()
-    after = sw._COVERAGE_SKIP_WARN_AFTER
-    levels = [_skip(caplog).levelname for _ in range(after + 2)]
-    assert levels[: after - 1] == ["INFO"] * (after - 1)
-    assert levels[after - 1 :] == ["WARNING"] * 3
-    assert _skip(caplog, start=DAY - timedelta(days=1)).levelname == "INFO"
-
-    # test_a_day_that_cannot_be_repriced_or_is_mostly_stale_is_not_a_measurement
-    result, imp, _exp, _calls = _reprice({SIB: _sixteen_october()}, [])
-    assert result["price_stale_unusable"] and not result["price_stale_repriced"]
-    assert imp[26] == 10.5
-    start = _at(6, 0)
-    frozen = [
-        (start + timedelta(minutes=5 * k), start - timedelta(hours=2))
-        for k in range(84)
-    ]
-    result, *_ = _reprice({SIB: frozen}, [(OCT16, 0.05)])
-    assert result["price_stale_periods"] > 12
-    assert result["price_stale_repriced"] and result["price_stale_unusable"]
-
-    # test_a_fresh_day_or_a_failing_check_changes_nothing
-    caplog.clear()
-    fresh = [(gt, gt - timedelta(minutes=2)) for gt in GRID]
-    result, imp, *_ = _reprice({SIB: fresh}, [(OCT16, 0.05)])
-    assert result["price_stale_periods"] == 0 and imp[26] == 10.5
-    with caplog.at_level(logging.WARNING):
-        result, imp, *_ = _reprice({}, [], boom=True)
-    assert result["price_stale_periods"] == 0 and imp[26] == 10.5
-    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 @pytest.fixture
@@ -397,6 +367,16 @@ def _skip(caplog, start=DAY):
         assert window(start=start, end=start + timedelta(days=1), partial=False) is None
     (rec,) = [r for r in caplog.records if "Nimbus quality: skip" in r.getMessage()]
     return rec
+
+
+def test_a_day_that_keeps_failing_becomes_a_warning_counted_per_day(
+    short_battery, caplog
+):
+    after = sw._COVERAGE_SKIP_WARN_AFTER
+    levels = [_skip(caplog).levelname for _ in range(after + 2)]
+    assert levels[: after - 1] == ["INFO"] * (after - 1)
+    assert levels[after - 1 :] == ["WARNING"] * 3
+    assert _skip(caplog, start=DAY - timedelta(days=1)).levelname == "INFO"
 
 
 # --- stale price-source data is kept out of the score (#1825) ---------------------------------
@@ -481,6 +461,30 @@ def _reprice(stamps, aemo, *, boom=False):
         fake, LV_CFG, GRID, 0.5, OCT16, OCT16 + timedelta(days=1), imp, exp
     )
     return result, imp, exp, calls
+
+
+def test_a_day_that_cannot_be_repriced_or_is_mostly_stale_is_not_a_measurement():
+    result, imp, _exp, _calls = _reprice({SIB: _sixteen_october()}, [])
+    assert result["price_stale_unusable"] and not result["price_stale_repriced"]
+    assert imp[26] == 10.5
+    start = _at(6, 0)
+    frozen = [
+        (start + timedelta(minutes=5 * k), start - timedelta(hours=2))
+        for k in range(84)
+    ]
+    result, *_ = _reprice({SIB: frozen}, [(OCT16, 0.05)])
+    assert result["price_stale_periods"] > 12
+    assert result["price_stale_repriced"] and result["price_stale_unusable"]
+
+
+def test_a_fresh_day_or_a_failing_check_changes_nothing(caplog):
+    fresh = [(gt, gt - timedelta(minutes=2)) for gt in GRID]
+    result, imp, *_ = _reprice({SIB: fresh}, [(OCT16, 0.05)])
+    assert result["price_stale_periods"] == 0 and imp[26] == 10.5
+    with caplog.at_level(logging.WARNING):
+        result, imp, *_ = _reprice({}, [], boom=True)
+    assert result["price_stale_periods"] == 0 and imp[26] == 10.5
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
 # --- the oracle keeps a fixed P2P export block (2026-09-01, #1001) ------------------------------
@@ -595,8 +599,7 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
 # --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
 
 
-def test_the_pricing_share_of_the_regret(no_soc, caplog, history, monkeypatch):
-    # test_the_pricing_share_of_the_regret
+def test_the_pricing_share_of_the_regret():
     for regret, delta, share in [
         (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
         (-0.7855, 0.0, 0.0),
@@ -612,8 +615,18 @@ def test_the_pricing_share_of_the_regret(no_soc, caplog, history, monkeypatch):
             share, abs=1e-3
         )
 
-    # test_the_refusal_is_quiet_at_first_and_loud_when_it_persists
-    caplog.clear()
+
+# --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
+
+
+@pytest.fixture
+def no_soc(history, monkeypatch):
+    monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
+    history["sensor.combined_soc"] = lambda s, e: []
+    return history
+
+
+def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog):
     with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
         for _ in range(sw._COVERAGE_SKIP_WARN_AFTER):
             window()
@@ -622,7 +635,11 @@ def test_the_pricing_share_of_the_regret(no_soc, caplog, history, monkeypatch):
     assert "sensor.combined_soc" in lines[0].getMessage()
     assert DAY.date().isoformat() in lines[0].getMessage()
 
-    # test_the_window_is_checked_against_the_households_grid_meter
+
+# --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
+
+
+def test_the_window_is_checked_against_the_households_grid_meter(history):
     for key, metered, status in [
         ("switchboard_grid_meter_sensor", 2.0, "agrees"),  # load 2 kW from the grid
         ("switchboard_grid_meter_sensor", 9.0, "disagrees"),
@@ -635,43 +652,31 @@ def test_the_pricing_share_of_the_regret(no_soc, caplog, history, monkeypatch):
             assert scored["epr_reliable"] is False
             assert scored["epr_reason"] == "grid_meter_disagrees"
 
-    # test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so
-    with monkeypatch.context() as mp:
-        from solver_reports import quality as q
 
-        base = window()
+def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so(
+    history, monkeypatch
+):
+    from solver_reports import quality as q
 
-        def reprice(_sw, _cfg, _grid, _hours, _start, _end, imp, exp):
-            imp[:] = imp * 3.0  # the price the score must then be priced on
-            return {
-                "price_stale_periods": 48,
-                "price_stale_minutes": 1440,
-                "price_stale_windows": ["00:00-00:00"],
-                "price_stale_repriced": False,
-                "price_stale_unusable": True,
-            }
+    base = window()
 
-        mp.setattr(q, "_reprice_stale_price_periods", reprice)
-        scored = window()
-        assert scored["j_ref"] == pytest.approx(3.0 * base["j_ref"], rel=1e-6)
-        assert scored["price_stale_unusable"] is True
-        assert (
-            scored["epr_reliable"] is False
-            and scored["epr_reason"] == "price_source_stale"
-        )
+    def reprice(_sw, _cfg, _grid, _hours, _start, _end, imp, exp):
+        imp[:] = imp * 3.0  # the price the score must then be priced on
+        return {
+            "price_stale_periods": 48,
+            "price_stale_minutes": 1440,
+            "price_stale_windows": ["00:00-00:00"],
+            "price_stale_repriced": False,
+            "price_stale_unusable": True,
+        }
 
-
-# --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
-
-
-@pytest.fixture
-def no_soc(history, monkeypatch):
-    monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
-    history["sensor.combined_soc"] = lambda s, e: []
-    return history
-
-
-# --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
+    monkeypatch.setattr(q, "_reprice_stale_price_periods", reprice)
+    scored = window()
+    assert scored["j_ref"] == pytest.approx(3.0 * base["j_ref"], rel=1e-6)
+    assert scored["price_stale_unusable"] is True
+    assert (
+        scored["epr_reliable"] is False and scored["epr_reason"] == "price_source_stale"
+    )
 
 
 # --- the capacity a report states (#1013, #1172) ----------------------------------------------
