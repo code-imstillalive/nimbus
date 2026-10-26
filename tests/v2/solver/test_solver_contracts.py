@@ -226,9 +226,7 @@ def _bounded_lp() -> LPProblem:
     return p
 
 
-def test_a_proved_outcome_keeps_its_own_name(_retry_counts):
-    # test_a_proved_outcome_keeps_its_own_name
-    _solver_lp._lex_calibration_failed_until = 0.0
+def test_a_proved_outcome_keeps_its_own_name():
     infeasible = LPProblem()
     infeasible.add_variable("x", lb=5.0, ub=10.0)
     infeasible.add_ub_constraint({"x": 1.0}, 1.0)
@@ -241,30 +239,6 @@ def test_a_proved_outcome_keeps_its_own_name(_retry_counts):
     ):
         result = problem.solve()
         assert (result.status, result.raw_status) == (want, None)
-
-    # test_an_unknown_gets_one_interior_point_retry: #1360 (a tester's install, 11 Oct 2026: 169 Unknowns in three hours
-    _solver_lp._lex_calibration_failed_until = 0.0
-    for rescued in [True, False]:
-        for options in [None, CalibratedOptions(), LexOptions()]:
-            with patch.object(highspy.Highs, "getModelStatus", _unknown(rescued)):
-                problem = _two_objective_lp()
-                result = problem.solve(options=options)
-            if rescued:
-                assert result.status == "optimal"
-                assert problem.value_of(result, "x") == pytest.approx(10.0)
-                assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 1}
-            else:
-                assert (result.status, result.raw_status) == ("error", "Unknown")
-                assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
-
-    # test_a_quiet_solve_is_retried_but_never_counted: #1360 / #1797: the counters are the live solve's; the stochastic
-    _solver_lp._lex_calibration_failed_until = 0.0
-    p = _bounded_lp()
-    p.quiet_diagnostics = True
-    with patch.object(highspy.Highs, "getModelStatus", _unknown(True)):
-        result = p.solve()
-    assert result.status == "optimal"
-    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
 
 
 # --- #1360: an Unknown status gets one interior-point retry --------------------
@@ -297,6 +271,40 @@ def _two_objective_lp() -> LPProblem:
     p.add_variable("y", lb=0.0, ub=5.0, cost=1.0)
     p.set_secondary_cost("y", 1.0)
     return p
+
+
+@pytest.mark.parametrize("rescued", [True, False])
+@pytest.mark.parametrize(
+    "options", [None, CalibratedOptions(), LexOptions()], ids=["plain", "cal", "lex"]
+)
+def test_an_unknown_gets_one_interior_point_retry(options, rescued, _retry_counts):
+    """#1360 (a tester's install, 11 Oct 2026: 169 Unknowns in three hours
+    with a $23/kWh spike in the horizon): before the previous plan is kept,
+    the solve is re-run once with the interior-point solver, on every path a
+    calibrated or lex solve can fall back to. Every retry is counted, and a
+    rescue as recovered (#1360, 15 Oct: the episode was only found from
+    recorder history, so the counts are published)."""
+    with patch.object(highspy.Highs, "getModelStatus", _unknown(rescued)):
+        problem = _two_objective_lp()
+        result = problem.solve(options=options)
+    if rescued:
+        assert result.status == "optimal"
+        assert problem.value_of(result, "x") == pytest.approx(10.0)
+        assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 1}
+    else:
+        assert (result.status, result.raw_status) == ("error", "Unknown")
+        assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
+
+
+def test_a_quiet_solve_is_retried_but_never_counted(_retry_counts):
+    """#1360 / #1797: the counters are the live solve's; the stochastic
+    joint solve (`quiet_diagnostics`) is still rescued but not counted."""
+    p = _bounded_lp()
+    p.quiet_diagnostics = True
+    with patch.object(highspy.Highs, "getModelStatus", _unknown(True)):
+        result = p.solve()
+    assert result.status == "optimal"
+    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
 
 
 @SETTINGS

@@ -96,29 +96,33 @@ def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
         result["disagreement_now_kw"],
     ) == (0, None, None)
 
-    # test_once_reality_arrives_the_closer_of_the_two_is_recorded: The event that opened #1259: the forecast was closer by 8x, which is
-    for actual, closer, anchor_err, forecast_err in [
-        (17.875, "forecast", 16.095, 1.985),
-        (2.10, "anchor", None, None),
-    ]:
-        _r, grid = _nowcast(NOON, 1.78, 15.89)
-        state.readings["rows"] = [(grid[1], actual)]
-        result, _ = _nowcast(grid[1], 15.89, 15.89)
-        assert result["resolved_count"] == 1
-        assert result[f"{closer}_closer_count"] == 1
-        assert result["forecast_closer_fraction"] == (
-            1.0 if closer == "forecast" else 0.0
-        )
-        if anchor_err is not None:
-            assert result["mean_anchor_abs_error_kw"] == pytest.approx(
-                anchor_err, abs=1e-3
-            )
-            assert result["mean_forecast_abs_error_kw"] == pytest.approx(
-                forecast_err, abs=1e-3
-            )
-        assert state.read()["nowcast_pending"] == []
 
-    # test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie
+@pytest.mark.parametrize(
+    ("actual", "closer", "anchor_err", "forecast_err"),
+    [(17.875, "forecast", 16.095, 1.985), (2.10, "anchor", None, None)],
+    ids=["the_1259_event", "the_other_answer"],
+)
+def test_once_reality_arrives_the_closer_of_the_two_is_recorded(
+    state, actual, closer, anchor_err, forecast_err
+):
+    """The event that opened #1259: the forecast was closer by 8x, which is
+    why the anchor is not blended forward. The reverse must be recordable
+    too, or the instrument measures nothing."""
+    _r, grid = _nowcast(NOON, 1.78, 15.89)
+    state.readings["rows"] = [(grid[1], actual)]
+    result, _ = _nowcast(grid[1], 15.89, 15.89)
+    assert result["resolved_count"] == 1
+    assert result[f"{closer}_closer_count"] == 1
+    assert result["forecast_closer_fraction"] == (1.0 if closer == "forecast" else 0.0)
+    if anchor_err is not None:
+        assert result["mean_anchor_abs_error_kw"] == pytest.approx(anchor_err, abs=1e-3)
+        assert result["mean_forecast_abs_error_kw"] == pytest.approx(
+            forecast_err, abs=1e-3
+        )
+    assert state.read()["nowcast_pending"] == []
+
+
+def test_with_no_reading_at_the_target_the_event_is_dropped_not_a_tie(state):
     _r, grid = _nowcast(NOON, 1.78, 15.89)
     state.readings["rows"] = []
     result, _ = _nowcast(grid[1], 15.89, 15.89)

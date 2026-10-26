@@ -316,9 +316,7 @@ def test_localvolts_v2_is_recognised_from_its_registry_entries(world, monkeypatc
 # --- what a household is told --------------------------------------------------------------
 
 
-def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(
-    world, caplog, monkeypatch
-):
+def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(world):
     # test_a_nem_price_without_a_regional_forecast_is_pointed_at_one
     assert (
         pa.detect_missing_regional_forecast(
@@ -355,8 +353,15 @@ def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
 
-    # test_each_detected_provider_has_its_own_notice
-    for domain, uids, notice in [
+
+def _notices(world, options):
+    asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
+    return {nid: msg for service, nid, msg in world.calls if service == "create"}
+
+
+@pytest.mark.parametrize(
+    ("domain", "uids", "notice"),
+    [
         (
             pi.AMBER_EXPRESS_DOMAIN,
             {"s_general_price": "sensor.ae_buy"},
@@ -368,16 +373,20 @@ def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(
             pa.NOTIFY_AMBER_CORE_DETECTED_ID,
         ),
         (pi.OPENADR_DOMAIN, {"ven_price": "sensor.adr"}, pa.NOTIFY_OPENADR_DETECTED_ID),
-    ]:
-        for uid, eid in uids.items():
-            world.add(domain, eid, uid)
-        notices = _notices(world, {})
-        assert notice in notices
-        assert (
-            "Nothing has been changed" in notices[notice]
-            or "nothing changes unless you confirm" in notices[notice]
-        )
+    ],
+)
+def test_each_detected_provider_has_its_own_notice(world, domain, uids, notice):
+    for uid, eid in uids.items():
+        world.add(domain, eid, uid)
+    notices = _notices(world, {})
+    assert notice in notices
+    assert (
+        "Nothing has been changed" in notices[notice]
+        or "nothing changes unless you confirm" in notices[notice]
+    )
 
+
+def test_a_matched_rate_without_a_price_array_is_called_out(world, caplog, monkeypatch):
     # test_a_matched_rate_without_a_price_array_is_called_out
     notices = _notices(
         world, {const.CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "sensor.rate"}
@@ -428,13 +437,7 @@ def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(
         (const.CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_sell"),
     ]
 
-
-def _notices(world, options):
-    asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
-    return {nid: msg for service, nid, msg in world.calls if service == "create"}
-
-
-def test_a_price_sensor_named_for_a_nem_retailer_counts_as_nem(world):
+    # test_a_price_sensor_named_for_a_nem_retailer_counts_as_nem
     world.add(pa.LV_V2_DOMAIN, "sensor.my_buy", "lv-e1_buy_flex_up")
     hass = world.hass()
     assert pa._is_nem_price(hass, "sensor.my_buy")  # by its integration

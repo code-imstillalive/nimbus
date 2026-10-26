@@ -94,16 +94,24 @@ def test_a_second_thread_is_refused_until_the_first_releases(lock_path, monkeypa
         # The refusal released the process-local lock: nothing is wedged.
         assert _on_another_thread(lock_path)
 
-    # test_a_pid_file_nobody_is_using_is_reclaimed
-    _solver_lp._lex_calibration_failed_until = 0.0
-    with monkeypatch.context() as mp:
-        for content in ["{other}", "not a pid", ""]:
-            with mp.context() as mp:
-                _pid_file(lock_path, content.format(other=os.getpid() + 1))
-                mp.setattr(cycle_lock.os, "kill", _dead)
-                assert cycle_lock.acquire_lock(lock_path)
-                assert _pid_in(lock_path) == str(os.getpid())
 
+def _dead(pid, sig):
+    raise ProcessLookupError
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["{other}", "not a pid", ""],
+    ids=["dead_process", "corrupt", "empty"],
+)
+def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch, content):
+    _pid_file(lock_path, content.format(other=os.getpid() + 1))
+    monkeypatch.setattr(cycle_lock.os, "kill", _dead)
+    assert cycle_lock.acquire_lock(lock_path)
+    assert _pid_in(lock_path) == str(os.getpid())
+
+
+def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypatch):
     # test_a_stale_file_naming_this_very_process_is_reclaimed: Left by an unclean stop: this process is alive, so asking the OS
     _solver_lp._lex_calibration_failed_until = 0.0
     with monkeypatch.context() as mp:
@@ -128,7 +136,3 @@ def test_a_second_thread_is_refused_until_the_first_releases(lock_path, monkeypa
         assert sw.acquire_lock() and _pid_in(lock_path) == str(os.getpid())
         sw.release_lock()
         assert not os.path.exists(lock_path)
-
-
-def _dead(pid, sig):
-    raise ProcessLookupError

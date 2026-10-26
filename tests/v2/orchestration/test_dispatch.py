@@ -134,11 +134,9 @@ def site(monkeypatch):
     s.close()
 
 
-def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
-    site, caplog
-):
-    # test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves
-    for device, options, on_call, off_call in [
+@pytest.mark.parametrize(
+    ("device", "options", "on_call", "off_call"),
+    [
         ("switch.pump", {}, ("switch", "turn_on", {}), ("switch", "turn_off", {})),
         (
             "water_heater.hws",
@@ -152,17 +150,26 @@ def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
             ("climate", "set_hvac_mode", {"hvac_mode": "cool"}),
             ("climate", "set_hvac_mode", {"hvac_mode": "off"}),
         ),
-    ]:
-        site.load("s", device, controllable_load_min_hold_minutes=0, **options)
-        site.solve(T0, sheddable={"s": ON})
-        assert site.state("s").commanded_state is True
-        assert site.calls == [(*on_call[:2], {"entity_id": device, **on_call[2]})]
-        site.solve(T0 + STEP, adequacy={"s": OFF})
-        assert len(site.calls) == 1  # one disagreeing solve is not yet a change
-        site.solve(T0 + 2 * STEP, adequacy={"s": OFF})
-        assert site.calls[-1] == (*off_call[:2], {"entity_id": device, **off_call[2]})
-        assert site.state("s").commanded_state is False
+    ],
+    ids=["switch", "water_heater", "climate"],
+)
+def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
+    site, device, options, on_call, off_call
+):
+    site.load("s", device, controllable_load_min_hold_minutes=0, **options)
+    site.solve(T0, sheddable={"s": ON})
+    assert site.state("s").commanded_state is True
+    assert site.calls == [(*on_call[:2], {"entity_id": device, **on_call[2]})]
+    site.solve(T0 + STEP, adequacy={"s": OFF})
+    assert len(site.calls) == 1  # one disagreeing solve is not yet a change
+    site.solve(T0 + 2 * STEP, adequacy={"s": OFF})
+    assert site.calls[-1] == (*off_call[:2], {"entity_id": device, **off_call[2]})
+    assert site.state("s").commanded_state is False
 
+
+def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds(
+    site,
+):
     # test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds: #741: a heat pump stuck "about to start" all night. The decision
     site.load("s", "water_heater.hws", controllable_load_min_hold_minutes=15)
     site.solve(T0, adequacy={"s": OFF})
@@ -206,22 +213,28 @@ def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
     st = site.state("s")
     assert st.commanded_state is True and st.activations_today == 1
 
-    # test_a_load_nimbus_cannot_command_is_still_decided_but_nothing_is_sent
-    caplog.clear()
-    for device, options, warns in [
+
+@pytest.mark.parametrize(
+    ("device", "options", "warns"),
+    [
         (None, {}, None),
         ("climate.ac", {}, None),  # no mode configured: never guessed
         ("fan.circulator", {}, "unsupported domain"),
-    ]:
-        caplog.clear()
-        site.load("s", device, **options)
-        with caplog.at_level(logging.WARNING):
-            site.solve(T0, sheddable={"s": ON})
-        assert site.calls == []
-        assert site.state("s").commanded_state is True
-        if warns:
-            assert warns in caplog.text
+    ],
+)
+def test_a_load_nimbus_cannot_command_is_still_decided_but_nothing_is_sent(
+    site, caplog, device, options, warns
+):
+    site.load("s", device, **options)
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0, sheddable={"s": ON})
+    assert site.calls == []
+    assert site.state("s").commanded_state is True
+    if warns:
+        assert warns in caplog.text
 
+
+def test_a_failing_device_does_not_stop_the_others(site, monkeypatch, caplog):
     # test_a_failing_device_does_not_stop_the_others
     site.load("bad", "switch.bad")
     site.load("good", "switch.good")
@@ -268,46 +281,6 @@ def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
         if last is not None:
             assert st.temperature_forecast[-1]["value"] == last
 
-
-# --- the water heater's own temperature forecast ------------------------------------------
-
-HALF_HOUR = timedelta(minutes=30)
-LEARNED = {
-    "thermal_rates_learned_day_key": "2026-09-11",
-    "thermal_heating_rate_c_per_kwh": 8.0,
-    "thermal_idle_decay_c_per_hour": 0.5,
-    "thermal_rates_source": "learned",
-}
-
-
-def _heater(site, live, *, seed=None, done_when=None, **attrs):
-    data = {
-        "deferrable_done_entity": "water_heater.hws",
-        "controllable_load_power_sensor": "sensor.hws_power",
-        "deferrable_max_power_kw": 3.7,
-    }
-    if done_when:
-        data["deferrable_done_when"] = done_when
-    site.load("hws", **data)
-    site.seed("hws", **{**LEARNED, **(seed or {})})
-    site.states["water_heater.hws"] = SimpleNamespace(
-        state="eco", attributes={"current_temperature": live, **attrs}
-    )
-
-
-def _forecast(site, kw, *, step=HALF_HOUR, n=4):
-    site.solve(
-        T0 + timedelta(hours=8),
-        adequacy={"hws": np.full(n, kw) if np.isscalar(kw) else kw},
-        hours=np.full(n, step / timedelta(hours=1)),
-        step=step,
-    )
-    return site.state("hws")
-
-
-def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
-    site, monkeypatch, caplog
-):
     # test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder
     for seed, source, rate in [
         ({"thermal_rates_learned_day_key": ""}, "fallback", None),
@@ -395,6 +368,50 @@ def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
     site.solve(T0, sheddable={"gone": ON})
     assert site.state("gone").commanded_state is True and site.calls == []
 
+
+# --- the water heater's own temperature forecast ------------------------------------------
+
+HALF_HOUR = timedelta(minutes=30)
+LEARNED = {
+    "thermal_rates_learned_day_key": "2026-09-11",
+    "thermal_heating_rate_c_per_kwh": 8.0,
+    "thermal_idle_decay_c_per_hour": 0.5,
+    "thermal_rates_source": "learned",
+}
+
+
+def _heater(site, live, *, seed=None, done_when=None, **attrs):
+    data = {
+        "deferrable_done_entity": "water_heater.hws",
+        "controllable_load_power_sensor": "sensor.hws_power",
+        "deferrable_max_power_kw": 3.7,
+    }
+    if done_when:
+        data["deferrable_done_when"] = done_when
+    site.load("hws", **data)
+    site.seed("hws", **{**LEARNED, **(seed or {})})
+    site.states["water_heater.hws"] = SimpleNamespace(
+        state="eco", attributes={"current_temperature": live, **attrs}
+    )
+
+
+def _forecast(site, kw, *, step=HALF_HOUR, n=4):
+    site.solve(
+        T0 + timedelta(hours=8),
+        adequacy={"hws": np.full(n, kw) if np.isscalar(kw) else kw},
+        hours=np.full(n, step / timedelta(hours=1)),
+        step=step,
+    )
+    return site.state("hws")
+
+
+# --- each load's own published plan ------------------------------------------------------------
+
+
+# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
+
+
+def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, caplog):
     # test_a_load_that_fails_costs_only_itself_and_says_so
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -450,17 +467,6 @@ def test_the_rates_are_relearned_once_a_day_and_fall_back_without_a_recorder(
         warned = [r for r in caplog.records if "re-send cap" in r.getMessage()]
         assert len(warned) == 1 and "'hws'" in warned[0].getMessage()
 
-
-# --- each load's own published plan ------------------------------------------------------------
-
-
-# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
-
-
-# --- a device that will not follow, once the day's re-sends are spent (#875) ------------------
-
-
-def test_a_thermal_load_samples_and_learns_its_own_rates(site, monkeypatch, caplog):
     # test_a_thermal_load_samples_and_learns_its_own_rates: #873: the idle sampler and the rate fitter run for every load kind;
     from solver.network import ThermalLoadPlan
 
@@ -633,45 +639,8 @@ def test_a_thermal_load_samples_and_learns_its_own_rates(site, monkeypatch, capl
     assert site.state("s").commanded_state is False
     assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
 
-    # test_a_failed_off_is_recorded_so_it_is_sent_again
-    caplog.clear()
-    site.load("s", "switch.pump", controllable_load_min_hold_minutes=0)
-    site.solve(T0, sheddable={"s": ON})
-    site.failing = {"switch"}
-    with caplog.at_level(logging.WARNING):
-        site.solve(T0 + STEP, sheddable={"s": OFF})
-        site.solve(T0 + 2 * STEP, sheddable={"s": OFF})
-    st = site.state("s")
-    assert st.commanded_state is False and st.last_dispatch_failed is True
-    assert "dispatch OFF failed for controllable load 's'" in caplog.text
-    site.failing = set()
-    site.solve(T0 + 3 * STEP, sheddable={"s": OFF})
-    assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
-    assert site.state("s").last_dispatch_failed is False
 
-    # test_a_failed_resend_is_recorded_and_warned
-    caplog.clear()
-    site.load("s", "switch.pump")
-    site.seed(
-        "s",
-        commanded_state=True,
-        commanded_since=T0.timestamp() - 3600,
-        last_dispatch_failed=True,
-    )
-    site.failing = {"switch"}
-    with caplog.at_level(logging.WARNING):
-        site.solve(T0, sheddable={"s": ON})
-    st = site.state("s")
-    assert st.commanded_state is True and st.last_dispatch_failed is True
-    assert "re-send failed for controllable load 's' (switch.pump)" in caplog.text
-
-    # test_with_no_hub_entry_nothing_is_decided_or_sent
-    with monkeypatch.context() as mp:
-        site.load("s", "switch.pump")
-        mp.setattr(site.hass.config_entries, "async_entries", lambda _d: [])
-        site.solve(T0, sheddable={"s": ON})
-        assert site.calls == []
-        assert site.state("s") == load_run_state.LoadRunState()
+# --- a device that will not follow, once the day's re-sends are spent (#875) ------------------
 
 
 # --- the paths the coverage-by-risk map found untested (#1837) ---------------------------------
@@ -715,3 +684,45 @@ def _tank_history(now):
 
 def _row(t, state="", **attributes):
     return SimpleNamespace(state=state, attributes=attributes, last_changed=t)
+
+
+def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog, monkeypatch):
+    # test_a_failed_off_is_recorded_so_it_is_sent_again
+    caplog.clear()
+    site.load("s", "switch.pump", controllable_load_min_hold_minutes=0)
+    site.solve(T0, sheddable={"s": ON})
+    site.failing = {"switch"}
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0 + STEP, sheddable={"s": OFF})
+        site.solve(T0 + 2 * STEP, sheddable={"s": OFF})
+    st = site.state("s")
+    assert st.commanded_state is False and st.last_dispatch_failed is True
+    assert "dispatch OFF failed for controllable load 's'" in caplog.text
+    site.failing = set()
+    site.solve(T0 + 3 * STEP, sheddable={"s": OFF})
+    assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
+    assert site.state("s").last_dispatch_failed is False
+
+    # test_a_failed_resend_is_recorded_and_warned
+    caplog.clear()
+    site.load("s", "switch.pump")
+    site.seed(
+        "s",
+        commanded_state=True,
+        commanded_since=T0.timestamp() - 3600,
+        last_dispatch_failed=True,
+    )
+    site.failing = {"switch"}
+    with caplog.at_level(logging.WARNING):
+        site.solve(T0, sheddable={"s": ON})
+    st = site.state("s")
+    assert st.commanded_state is True and st.last_dispatch_failed is True
+    assert "re-send failed for controllable load 's' (switch.pump)" in caplog.text
+
+    # test_with_no_hub_entry_nothing_is_decided_or_sent
+    with monkeypatch.context() as mp:
+        site.load("s", "switch.pump")
+        mp.setattr(site.hass.config_entries, "async_entries", lambda _d: [])
+        site.solve(T0, sheddable={"s": ON})
+        assert site.calls == []
+        assert site.state("s") == load_run_state.LoadRunState()
