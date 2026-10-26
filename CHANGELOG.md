@@ -20,6 +20,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Offer curve at the price floor** (#2056). At a retail price exactly on the curve's floor (-1.00 $/kWh) the curve probed an unbounded price and handed the solver a NaN, which never returned. Each end is now probed only inside the price range, and a non-finite cost is refused before the solver sees it. A point where the plan already holds direction choices is also solved exactly, within the same budget.
 - **New Repair: availability states that never match** (#2014). Every 6 hours Nimbus reads each battery participant's availability entity over the last 7 days. If it reported real states and none of them is in the participant's "States that mean available", a Repair names the states it saw and the list. Offline-only history raises nothing; a tracker or person on its standard meaning is not checked. It clears itself as soon as the list is edited or a reported state matches.
 - Tests only: a load's re-send wait (#2063), the price build's fallbacks (#2065) and every config the solver's elements refuse (#2064), for #1837. The coverage-by-risk run now also lists each flagged module's missed lines (#2072).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 4c22bf2a**
+  (`release/0.94.491`), installed via HACS and restarted at 14:15 AEST. 123 of
+  the 127 Nimbus entities carrying a version read 0.94.491 at 14:16; the other
+  four are the daily report sensors, restored at startup and not yet
+  republished, as in 0.94.487 to 0.94.490.
+  - **The first solve**, at 14:17, was `optimal`, in 43.4 s; `period0_hysteresis` read `same_direction`.
+  - **`sensor.nimbus_solver_current_dispatch_solar_charge`** exists and reads `False` (the plan was not charging from solar alone at 14:17). The per-period `dispatch_solar_charge` is `true` in 27 of 203 periods, the first at 08:30 tomorrow: a 0.45 kW charge with 4.8 kW of forecast sun, no import and no export.
+  - No Nimbus `ERROR` or traceback in the log after the restart. The WARNINGs are the stochastic skip (main plan 43.3 s of the 30 s shadow budget, #2042, unchanged) and the existing temperature-forecast one.
+  - **The availability Repair (#2014)** raised nothing on devhub: Settings → Repairs lists no Nimbus issue after the restart.
+  - Not observable on devhub: the `grid_charge` hysteresis exception (needs a held charge that imports, at dawn on a cloudy morning), the dispatch blueprint's new input (devhub has no inverter to dispatch), the negative-price penalty (no all-negative window), and drive mode (off).
+- Consumer check: no setting changes. One new sensor (`current_dispatch_solar_charge`) and one new per-period field; the dispatch blueprint's new input is optional and, left empty, changes nothing. Plans change only where every price is negative (#2045) or a held period-0 charge would import (#2066).
 
 ## [0.94.490] - 2026-10-26
 
