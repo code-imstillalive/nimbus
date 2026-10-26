@@ -222,11 +222,6 @@ addopts = [
     "--strict-markers",
     "--strict-config",
 ]
-# nimbus #1837: the only registered marker. A PR's stub job skips it unless the
-# PR changes the coverage gate; push to main runs everything. See ci.yml.
-markers = [
-    "slow_gate: an end-to-end gate run (the coverage gate comparing the tree with itself, ~18 min in CI); a PR runs it only when the gate changes",
-]
 filterwarnings = [
     "error",
     # HA + numpy compatibility warnings we don't own -- keep the escape hatch

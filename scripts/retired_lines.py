@@ -127,7 +127,7 @@ def main() -> int:
         survivors = work / ".coverage.survivors"
         _pytest_cov(
             survivors,
-            ["tests/", "--ignore=tests/hass_integration/", "-m", "not slow_gate"],
+            ["tests/", "--ignore=tests/hass_integration/"],
             a.workers,
         )
         import coverage

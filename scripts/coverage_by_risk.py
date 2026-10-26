@@ -4,7 +4,7 @@
 (dispatch-safety, real money) versus tested because a bug happened to land
 there once". This answers it as a measurement, not prose:
 
-1. Runs the stub suite (as CI's stub run selects it, `not slow_gate`) and
+1. Runs the stub suite (as CI's stub run selects it) and
    `tests/hass_integration/` (real Home Assistant) under branch coverage
    with per-test contexts (`--cov-context=test`), plus every golden
    scenario.
@@ -210,8 +210,6 @@ def _run_suite(data: Path, workers: int) -> int:
         "--cov-report=",
         "tests/",
         "--ignore=tests/hass_integration/",
-        "-m",
-        "not slow_gate",
     ]
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
     env["COVERAGE_FILE"] = str(data)
@@ -567,7 +565,7 @@ def markdown(r: dict, meta: dict) -> str:
         ),
         "",
         (
-            f"Measured at `{meta['commit']}` on {meta['date']}: the stub suite (`not slow_gate`) and the real-HA suite, {meta['contexts']} test contexts, "
+            f"Measured at `{meta['commit']}` on {meta['date']}: the stub suite and the real-HA suite, {meta['contexts']} test contexts, "
             f"plus {meta['golden']} golden scenarios, branch coverage, per-test contexts."
         ),
         "",
