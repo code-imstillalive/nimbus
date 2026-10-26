@@ -249,16 +249,13 @@ def test_the_switchboard_page_saves_its_own_fields_only(world):
     assert saved["data"]["switchboard_import_price_sensor"] == "sensor.buy"
 
 
-@pytest.mark.parametrize(
-    ("value", "hours"),
-    [
+def test_the_forecast_horizon_is_never_shorter_than_the_solvers():
+    for value, hours in [
         (48, const.MIN_FORECAST_HORIZON_HOURS),
         (200, 200),
         ("x", const.DEFAULT_FORECAST_HORIZON_HOURS),
-    ],
-)
-def test_the_forecast_horizon_is_never_shorter_than_the_solvers(value, hours):
-    assert ho._at_least_solver_horizon(value) == hours
+    ]:
+        assert ho._at_least_solver_horizon(value) == hours
 
 
 # --- confirmed pricing suggestions ------------------------------------------------------

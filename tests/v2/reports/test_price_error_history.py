@@ -51,9 +51,8 @@ def _grade(hist, side, source, interval, forecast, settled, lead_min=2.0):
 # -- buckets, stride, threshold --------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("lead", "bucket"),
-    [
+def test_lead_bucket_extends_the_trackers_four_with_beyond_24h():
+    for lead, bucket in [
         (0.0, "0-5 min"),
         (5.0, "5-60 min"),
         (60.0, "1-4 h"),
@@ -63,12 +62,10 @@ def _grade(hist, side, source, interval, forecast, settled, lead_min=2.0):
         (2879.0, ">24 h"),
         (2880.0, None),
         (-1.0, None),
-    ],
-)
-def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(lead, bucket):
-    assert peh.lead_bucket(lead) == bucket
-    # The first four are the tracker's own, unchanged.
-    assert peh.LEAD_BUCKETS[:4] == pc.LEAD_BUCKETS
+    ]:
+        assert peh.lead_bucket(lead) == bucket
+        # The first four are the tracker's own, unchanged.
+        assert peh.LEAD_BUCKETS[:4] == pc.LEAD_BUCKETS
 
 
 def test_spike_threshold_reuses_existing_settings_only():
@@ -105,12 +102,15 @@ def test_classify():
 # -- persistence ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "bad",
-    [None, [], "x", {"pending": {"import": {"k": {}}}}, {"samples": {"import": 3}}],
-)
-def test_malformed_state_loads_empty(bad):
-    assert peh.PriceErrorHistory.from_dict(bad).sample_count() == 0
+def test_malformed_state_loads_empty():
+    for bad in [
+        None,
+        [],
+        "x",
+        {"pending": {"import": {"k": {}}}},
+        {"samples": {"import": 3}},
+    ]:
+        assert peh.PriceErrorHistory.from_dict(bad).sample_count() == 0
 
 
 # -- the distribution ----------------------------------------------------------------

@@ -12,7 +12,6 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
-import pytest
 from solver import pin_blockers
 from solver.elements import (
     BatteryConfig,
@@ -79,27 +78,23 @@ def _blamed(site, pin, batteries=None):
     return [b.split(":", 1)[0] for b in found]
 
 
-@pytest.mark.parametrize(
-    "site",
-    [
+def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
+    """Sound (a feasible pin is never blamed) and, on these sites, complete
+    (an infeasible one is always explained)."""
+    for site in [
         _site(),
         _site(soc=4.5),
         _site(soc=39.5),
         _site(export_limit=2.0),
         _site(fixed_export=5.0),
         _site(charge_power_curve=[(4.0, 10.0), (40.0, 1.0)]),
-    ],
-    ids=["plain", "low", "high", "export_cap", "p2p", "curve"],
-)
-def test_the_solver_rejects_a_pin_exactly_when_something_is_named(site):
-    """Sound (a feasible pin is never blamed) and, on these sites, complete
-    (an infeasible one is always explained)."""
-    feasible = 0
-    for pin in (-12.0, -9.0, -6.0, -4.0, -1.0, 0.0, 0.5, 2.0, 5.0, 15.0, 30.0):
-        optimal = _status(site, pin) == "optimal"
-        feasible += optimal
-        assert (_blamed(site, pin) == []) is optimal, pin
-    assert feasible >= 3
+    ]:
+        feasible = 0
+        for pin in (-12.0, -9.0, -6.0, -4.0, -1.0, 0.0, 0.5, 2.0, 5.0, 15.0, 30.0):
+            optimal = _status(site, pin) == "optimal"
+            feasible += optimal
+            assert (_blamed(site, pin) == []) is optimal, pin
+        assert feasible >= 3
 
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):

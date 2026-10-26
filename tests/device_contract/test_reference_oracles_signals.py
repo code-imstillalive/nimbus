@@ -46,24 +46,23 @@ def _rows(raw: list) -> list[Row]:
 # F04: prices on their published intervals ------------------------------
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
+def test_f04_price_over_a_window():
+    for name in [
         "thirty_min_window_over_5_min",
         "gap",
         "nothing_published",
         "thirty_min_series",
         "hole",
-    ],
-)
-def test_f04_price_over_a_window(name: str) -> None:
-    case, expected = F04["cases"][name], F04["expected"][name]
-    price, coverage = price_over(_intervals(case["intervals"]), *map(T, case["window"]))
-    assert abs(coverage - expected["coverage"]) <= TOL
-    if expected["price"] is None:
-        assert price is None
-    else:
-        assert price is not None and abs(price - expected["price"]) <= TOL
+    ]:
+        case, expected = F04["cases"][name], F04["expected"][name]
+        price, coverage = price_over(
+            _intervals(case["intervals"]), *map(T, case["window"])
+        )
+        assert abs(coverage - expected["coverage"]) <= TOL
+        if expected["price"] is None:
+            assert price is None
+        else:
+            assert price is not None and abs(price - expected["price"]) <= TOL
 
 
 def test_f04_a_utc_interval_is_the_same_instant_and_its_negative_price_is_kept() -> (
@@ -145,22 +144,22 @@ def test_f04_fees_are_added_once_and_a_missing_direction_stays_missing() -> None
 # F09: units, samples, counters -----------------------------------------
 
 
-@pytest.mark.parametrize(("value", "unit", "kw"), F09["cases"]["units"])
-def test_f09_power_units(value: float, unit: str, kw: float) -> None:
-    got = power_kw(value, unit)
-    assert got is not None and abs(got - kw) <= TOL
+def test_f09_power_units():
+    for value, unit, kw in F09["cases"]["units"]:
+        got = power_kw(value, unit)
+        assert got is not None and abs(got - kw) <= TOL
 
 
-@pytest.mark.parametrize("unit", F09["cases"]["refused_units"])
-def test_f09_energy_and_miscased_units_are_refused(unit: str) -> None:
-    with pytest.raises(UnitError):
-        power_kw(1.0, unit)
+def test_f09_energy_and_miscased_units_are_refused():
+    for unit in F09["cases"]["refused_units"]:
+        with pytest.raises(UnitError):
+            power_kw(1.0, unit)
 
 
-@pytest.mark.parametrize(("state", "value"), F09["cases"]["states"])
-def test_f09_missing_is_distinct_from_zero(state: str, value: str | None) -> None:
-    got = reading(state)
-    assert got is None if value is None else got == float(value)
+def test_f09_missing_is_distinct_from_zero():
+    for state, value in F09["cases"]["states"]:
+        got = reading(state)
+        assert got is None if value is None else got == float(value)
 
 
 def test_f09_a_held_counter_is_measured_unchanged() -> None:
@@ -207,14 +206,14 @@ def test_f09_no_rating_is_inferred_from_a_historical_peak() -> None:
 # F03: provider responses in their published shapes ----------------------
 
 
-@pytest.mark.parametrize("name", ["amber_get_forecasts", "openadr_get_forecast"])
-def test_f03_a_providers_published_intervals_price_the_window(name: str) -> None:
-    case, expected = F03["cases"][name], F03["expected"][name]
-    price, coverage = price_over(
-        _intervals(expected["intervals"]), *map(T, case["window"])
-    )
-    assert price is not None and abs(price - expected["price"]) <= TOL
-    assert abs(coverage - expected["coverage"]) <= TOL
+def test_f03_a_providers_published_intervals_price_the_window():
+    for name in ["amber_get_forecasts", "openadr_get_forecast"]:
+        case, expected = F03["cases"][name], F03["expected"][name]
+        price, coverage = price_over(
+            _intervals(expected["intervals"]), *map(T, case["window"])
+        )
+        assert price is not None and abs(price - expected["price"]) <= TOL
+        assert abs(coverage - expected["coverage"]) <= TOL
 
 
 def test_f03_amber_intervals_start_on_the_boundary_not_a_second_past() -> None:

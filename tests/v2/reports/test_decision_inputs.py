@@ -179,12 +179,14 @@ def test_the_plan_this_install_posted_is_preferred(site, monkeypatch):
     assert len(out["records"][0]["rows"]["time"]) == 4
 
 
-@pytest.mark.parametrize(
-    ("kw", "cls"),
-    [(0.06, "discharge"), (-0.06, "charge"), (0.05, "self_consume"), (None, None)],
-)
-def test_dispatch_class_uses_the_automations_own_deadband(kw, cls):
-    assert di.dispatch_class(kw) == cls
+def test_dispatch_class_uses_the_automations_own_deadband():
+    for kw, cls in [
+        (0.06, "discharge"),
+        (-0.06, "charge"),
+        (0.05, "self_consume"),
+        (None, None),
+    ]:
+        assert di.dispatch_class(kw) == cls
 
 
 def test_segments_and_windows_are_whole_utc_hours():

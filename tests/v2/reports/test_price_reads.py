@@ -346,21 +346,18 @@ def test_an_amber_only_install_needs_no_regional_sensor(monkeypatch):
     assert sw.compute_5min_offset(RETAIL) == {}
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
+def test_no_usable_spot_in_progress_is_none():
+    for rows in [
         None,
         [],
         [{"spot_per_kwh": 0.1}],
         [_spot_row(float("nan"))],
         [{**_spot_row(0.1), "spot_per_kwh": None}],
         [_spot_row(0.1, SPOT_END - timedelta(minutes=10))],  # not in progress
-    ],
-)
-def test_no_usable_spot_in_progress_is_none(rows):
-    import price_intervals as pi
+    ]:
+        import price_intervals as pi
 
-    assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
+        assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
 
 
 @pytest.mark.parametrize(

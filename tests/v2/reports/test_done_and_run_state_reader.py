@@ -28,9 +28,8 @@ lrc = importlib.import_module(
 lrs = importlib.import_module("custom_components.nimbus_load.load_run_state")
 
 
-@pytest.mark.parametrize(
-    ("expr", "temp", "done"),
-    [
+def test_a_done_condition_is_an_operator_and_a_threshold():
+    for expr, temp, done in [
         (">= 60", 60.0, True),
         (">=60", 59.9, False),
         ("<= 40", 40.0, True),
@@ -38,38 +37,32 @@ lrs = importlib.import_module("custom_components.nimbus_load.load_run_state")
         ("< 55", 54.0, True),
         ("== 50", 50.0, True),
         ("!= 50", 50.0, False),
-    ],
-)
-def test_a_done_condition_is_an_operator_and_a_threshold(expr, temp, done):
-    op, threshold = dc.parse_done_when(expr)
-    assert op(temp, threshold) is done
-    assert dc.is_tank_done(temp, expr) is done
+    ]:
+        op, threshold = dc.parse_done_when(expr)
+        assert op(temp, threshold) is done
+        assert dc.is_tank_done(temp, expr) is done
 
 
-@pytest.mark.parametrize("expr", ["60", "about 60", "=> 60", ">= hot"])
-def test_a_condition_that_cannot_be_read_is_refused_or_unknown(expr):
-    with pytest.raises(ValueError):
-        dc.parse_done_when(expr)
-    assert dc.is_tank_done(55.0, expr) is None
+def test_a_condition_that_cannot_be_read_is_refused_or_unknown():
+    for expr in ["60", "about 60", "=> 60", ">= hot"]:
+        with pytest.raises(ValueError):
+            dc.parse_done_when(expr)
+        assert dc.is_tank_done(55.0, expr) is None
 
 
-@pytest.mark.parametrize(
-    ("temp", "setpoint", "done"),
-    [
+def test_without_a_condition_the_heaters_own_setpoint_decides():
+    for temp, setpoint, done in [
         (None, 60, None),
         (61.0, 60, True),
         (59.0, 60.0, False),
         (59.0, None, None),
         (59.0, "warm", None),
-    ],
-)
-def test_without_a_condition_the_heaters_own_setpoint_decides(temp, setpoint, done):
-    assert dc.is_tank_done(temp, None, setpoint_temperature=setpoint) is done
+    ]:
+        assert dc.is_tank_done(temp, None, setpoint_temperature=setpoint) is done
 
 
-@pytest.mark.parametrize(
-    ("entity", "state", "attrs", "temp"),
-    [
+def test_the_tank_temperature_comes_from_a_heaters_own_attribute():
+    for entity, state, attrs, temp in [
         ("water_heater.tank", "eco", {"current_temperature": "58.5"}, 58.5),
         ("climate.ac", "cool", {"current_temperature": 22}, 22.0),
         ("water_heater.tank", "unavailable", {"current_temperature": 58.5}, None),
@@ -81,18 +74,14 @@ def test_without_a_condition_the_heaters_own_setpoint_decides(temp, setpoint, do
             {"current_temperature": 58},
             None,
         ),  # not a heater: no attribute read
-    ],
-)
-def test_the_tank_temperature_comes_from_a_heaters_own_attribute(
-    entity, state, attrs, temp
-):
-    hass = SimpleNamespace(
-        states=SimpleNamespace(
-            get={entity: SimpleNamespace(state=state, attributes=attrs)}.get
+    ]:
+        hass = SimpleNamespace(
+            states=SimpleNamespace(
+                get={entity: SimpleNamespace(state=state, attributes=attrs)}.get
+            )
         )
-    )
-    assert dc.read_current_temperature(hass, entity) == temp
-    assert dc.read_current_temperature(hass, "water_heater.none") is None
+        assert dc.read_current_temperature(hass, entity) == temp
+        assert dc.read_current_temperature(hass, "water_heater.none") is None
 
 
 # --- the run-state reader ---------------------------------------------------------------

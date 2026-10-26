@@ -95,23 +95,20 @@ def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, 
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
 
 
-@pytest.mark.parametrize(
-    ("total", "failed", "refused"),
-    [
+def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused():
+    for total, failed, refused in [
         ([0.0] * 10, [], False),  # nothing failed: a quiet house is believed
         ([0.0] * 10, ["sensor.x"], True),
         ([0.5] + [0.0] * 9, ["sensor.x"], False),  # 10% non-trivial
         ([0.2] * 10, ["sensor.x"], True),  # only self-consumption
         ([], ["sensor.x"], False),
-    ],
-)
-def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused(total, failed, refused):
-    error = sw.near_zero_summed_load_error(
-        total, failed, 0.2 if total == [0.2] * 10 else 0.0
-    )
-    assert (error is not None) is refused
-    if refused:
-        assert "#933" in error and "sensor.x" in error
+    ]:
+        error = sw.near_zero_summed_load_error(
+            total, failed, 0.2 if total == [0.2] * 10 else 0.0
+        )
+        assert (error is not None) is refused
+        if refused:
+            assert "#933" in error and "sensor.x" in error
 
 
 # --- per-battery energy balance --------------------------------------------------------
@@ -140,9 +137,8 @@ def test_a_charge_only_window_gives_the_implied_charge_efficiency():
     assert out["implied_discharge_efficiency"] is None
 
 
-@pytest.mark.parametrize(
-    ("kw", "reason"),
-    [
+def test_each_window_that_cannot_measure_efficiency_says_why():
+    for kw, reason in [
         ({"away_period_count": 1, "n_periods": 48}, "participant_away_during_window"),
         ({"in_kwh": 0.0, "final_soc_kwh": 6.0}, "soc_moved_without_throughput"),
         ({"in_kwh": 0.0, "final_soc_kwh": 5.2}, "no_charge_throughput"),
@@ -159,10 +155,8 @@ def test_a_charge_only_window_gives_the_implied_charge_efficiency():
             "mixed_window_not_decisive_implied_above_unity",
         ),
         ({"final_soc_kwh": 16.0}, "implied_efficiency_above_unity"),
-    ],
-)
-def test_each_window_that_cannot_measure_efficiency_says_why(kw, reason):
-    assert _balance(**kw)["implied_efficiency_reason"] == reason
+    ]:
+        assert _balance(**kw)["implied_efficiency_reason"] == reason
 
 
 def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
@@ -181,9 +175,8 @@ def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
 # --- whether a provisional score stands -------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("attrs", "age_minutes", "keep"),
-    [
+def test_a_provisional_score_is_redone_hourly_until_its_settlement_lands():
+    for attrs, age_minutes, keep in [
         ({"real_p2p_settlement_status": "settled"}, 600, True),
         (
             {"real_p2p_settlement_status": "no_settlement_entry_for_this_date"},
@@ -204,15 +197,11 @@ def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
             60,
             False,
         ),
-    ],
-)
-def test_a_provisional_score_is_redone_hourly_until_its_settlement_lands(
-    attrs, age_minutes, keep
-):
-    attrs = dict(attrs)
-    if age_minutes is not None:
-        attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
-    assert sw._keep_published_quality_score(attrs, T0) is keep
+    ]:
+        attrs = dict(attrs)
+        if age_minutes is not None:
+            attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
+        assert sw._keep_published_quality_score(attrs, T0) is keep
 
 
 # --- the load-nowcast skill ---------------------------------------------------------------
@@ -291,16 +280,11 @@ def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(
 # --- flex availability, the P2P step lookup, consolidation's spike rule ----------
 
 
-@pytest.mark.parametrize(
-    ("in_kwh", "out_kwh", "soc_delta", "closed"),
-    [
+def test_only_a_day_back_where_it_began_is_a_closed_loop():
+    for in_kwh, out_kwh, soc_delta, closed in [
         (108.136, 113.328, -0.240, True),  # back where it began, more out than in
         (0.0, 79.044, -84.667, False),  # an evening's discharge
         (92.971, 0.0, 100.954, False),  # a day's charge
         (0.0, 0.0, 6.096, False),  # no throughput: nothing to compare
-    ],
-)
-def test_only_a_day_back_where_it_began_is_a_closed_loop(
-    in_kwh, out_kwh, soc_delta, closed
-):
-    assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed
+    ]:
+        assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed

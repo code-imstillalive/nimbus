@@ -782,19 +782,14 @@ def test_a_second_rate_source_changes_neither_the_commitment_nor_the_volume(
     )
 
 
-@pytest.mark.parametrize(
-    ("state", "snapshot"),
-    [
+def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants():
+    for state, snapshot in [
         ({"attributes": {"lastUpdate": _iso(T0)}, "last_updated": _iso(T0 + M5)}, T0),
         ({"attributes": {}, "last_updated": _iso(T0 + M5)}, T0 + M5),
         ({"attributes": {"lastUpdate": "garbage"}, "last_updated": _iso(T0)}, T0),
         ({"attributes": {}}, None),
-    ],
-)
-def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
-    state, snapshot
-):
-    assert sw._p2p_snapshot_time(state) == snapshot
+    ]:
+        assert sw._p2p_snapshot_time(state) == snapshot
 
 
 def test_the_access_token_comes_from_the_environment_then_its_file(

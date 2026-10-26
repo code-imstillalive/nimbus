@@ -159,9 +159,8 @@ def test_power_integrates_into_the_energy_it_delivered_split_by_direction():
     ) == (1.0, 0.0)
 
 
-@pytest.mark.parametrize(
-    ("series", "rise"),
-    [
+def test_an_energy_counter_rises_by_what_was_delivered():
+    for series, rise in [
         (
             [
                 (T0, 10.0),
@@ -195,10 +194,8 @@ def test_power_integrates_into_the_energy_it_delivered_split_by_direction():
             ],
             None,
         ),
-    ],
-)
-def test_an_energy_counter_rises_by_what_was_delivered(series, rise):
-    assert dr.counter_rise(series, T0, T0 + timedelta(hours=1)) == rise
+    ]:
+        assert dr.counter_rise(series, T0, T0 + timedelta(hours=1)) == rise
 
 
 # --- matching a power sensor to an energy counter ---------------------------------------------
@@ -298,16 +295,13 @@ def test_a_partial_solar_sensor_is_recognised():
     assert "partial_solar" in v.hypotheses
 
 
-@pytest.mark.parametrize(
-    "series",
-    [
+def test_too_little_or_misaligned_data_is_insufficient():
+    for series in [
         ([1.0] * 5, [0.0] * 5, [0.0] * 5, [1.0] * 5),  # too few samples
         ([1.0] * 24, [0.0] * 23, [0.0] * 24, [1.0] * 24),  # not aligned
         ([1.0] * 23 + [float("nan")], [0.0] * 24, [0.0] * 24, [1.0] * 24),
-    ],
-)
-def test_too_little_or_misaligned_data_is_insufficient(series):
-    assert dr.check_energy_balance(*series).explanation == dr.INSUFFICIENT
+    ]:
+        assert dr.check_energy_balance(*series).explanation == dr.INSUFFICIENT
 
 
 def test_a_balance_nothing_explains_says_so():

@@ -145,21 +145,17 @@ def test_an_hour_with_no_reading_credits_nothing_and_is_named(site):
     assert battery.unavailable_period_indices is None  # quiet is not away
 
 
-@pytest.mark.parametrize(
-    ("pts", "grid", "stale", "fresh"),
-    [
+def test_which_periods_are_unobserved():
+    for pts, grid, stale, fresh in [
         ([], [], set(), set()),
         ([], GRID, set(range(24)), set()),
         ([(DAY + timedelta(hours=12), 7.0)], GRID, set(range(12)), {12}),
         ([(DAY + timedelta(hours=3), 1.0), (DAY, 2.0)], GRID, set(), {0, 3}),
-    ],
-    ids=["no_grid", "no_samples", "before_the_first", "unsorted"],
-)
-def test_which_periods_are_unobserved(pts, grid, stale, fresh):
-    out = sw._stale_power_period_indices(pts, grid, 1.0)
-    assert stale <= out and not (fresh & out)
-    if not grid:
-        assert out == frozenset()
+    ]:
+        out = sw._stale_power_period_indices(pts, grid, 1.0)
+        assert stale <= out and not (fresh & out)
+        if not grid:
+            assert out == frozenset()
 
 
 # --- each row in its own unit (#843 option A) -------------------------------------------------
@@ -247,11 +243,11 @@ def at(hour):
     return DAY + timedelta(hours=hour)
 
 
-@pytest.mark.parametrize("bound", [0.0, -1.0])
-def test_no_configured_limit_judges_nothing(bound):
-    hist = [(at(9), 1514.417), (at(10), -0.77)]
-    assert drop(hist, bound=bound) == hist
-    assert drop([], bound=bound) == []
+def test_no_configured_limit_judges_nothing():
+    for bound in [0.0, -1.0]:
+        hist = [(at(9), 1514.417), (at(10), -0.77)]
+        assert drop(hist, bound=bound) == hist
+        assert drop([], bound=bound) == []
 
 
 def test_a_dropped_reading_leaves_nothing_behind_in_the_hour():
@@ -340,19 +336,15 @@ def deadline(charge, discharge=None, **over):
     return bp._participant_departure_deadline(**kw)
 
 
-@pytest.mark.parametrize(
-    "over",
-    [
+def test_no_departure_requirement():
+    for over in [
         {"departure_hour": None, "must_have_soc_pct": None},
         {"must_have_soc_pct": None},  # half configured is unset, as live
         {"departure_hour": None},
         {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
-    ],
-    ids=["neither", "hour_only", "percent_only", "outside_the_window"],
-)
-def test_no_departure_requirement(over):
-    n = len(over.get("grid_times", DEP_GRID))
-    assert deadline([0.0] * n, **over) == (None, None)
+    ]:
+        n = len(over.get("grid_times", DEP_GRID))
+        assert deadline([0.0] * n, **over) == (None, None)
 
 
 DEPARTING = {

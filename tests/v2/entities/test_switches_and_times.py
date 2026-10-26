@@ -107,9 +107,8 @@ def test_the_restored_state_wins_unless_the_store_is_newer():
     assert newer._attr_is_on is False
 
 
-@pytest.mark.parametrize(
-    ("last", "store", "options", "on"),
-    [
+def test_without_a_restored_state_the_store_then_the_options_seed_it():
+    for last, store, options, on in [
         (
             _last("unavailable"),
             {const.CONF_SOLVER_DISPATCH_DRY_RUN: {"value": True, "written_at": 1}},
@@ -129,14 +128,10 @@ def test_the_restored_state_wins_unless_the_store_is_newer():
             False,
         ),  # only a real bool seeds
         (None, None, {}, False),
-    ],
-)
-def test_without_a_restored_state_the_store_then_the_options_seed_it(
-    last, store, options, on
-):
-    s, _ = _switch(last=last, store=store, options=options)
-    _run(s.async_added_to_hass())
-    assert s._attr_is_on is on
+    ]:
+        s, _ = _switch(last=last, store=store, options=options)
+        _run(s.async_added_to_hass())
+        assert s._attr_is_on is on
 
 
 @pytest.mark.parametrize(
@@ -192,12 +187,14 @@ def test_a_corrupt_switch_store_reads_as_empty():
 # --- times of day -----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("state", "hours"),
-    [("05:30:00", 5.5), ("17:15", 17.25), ("unknown", None), (None, None)],
-)
-def test_a_time_entitys_state_reads_as_hours(state, hours):
-    assert tm.state_to_hours(state) == hours
+def test_a_time_entitys_state_reads_as_hours():
+    for state, hours in [
+        ("05:30:00", 5.5),
+        ("17:15", 17.25),
+        ("unknown", None),
+        (None, None),
+    ]:
+        assert tm.state_to_hours(state) == hours
 
 
 def _time(key=None, *, last=None, own=None, number=None, options=None):

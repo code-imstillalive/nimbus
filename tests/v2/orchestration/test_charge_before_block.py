@@ -7,7 +7,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
-import pytest
 import solver_shared
 
 KEYS = {"charge_before_block_kwh", "charge_before_block_pct", "next_block_start"}
@@ -35,17 +34,13 @@ def test_a_block_already_running_points_at_the_next_one():
     assert out["next_block_start"].startswith("2026-10-14T15:00:00")
 
 
-@pytest.mark.parametrize(
-    "fixed",
-    [None, np.full(5, np.nan), np.zeros(5), np.full(5, 11.5)],
-    ids=["no_pins", "all_nan", "all_zero", "block_to_the_end"],
-)
-def test_no_next_block_means_all_none(fixed):
-    out = solver_shared.charge_before_block_summary(
-        fixed, np.zeros(5), [1.0] * 5, _times(5), 100.0
-    )
-    assert set(out) == KEYS
-    assert all(v is None for v in out.values())
+def test_no_next_block_means_all_none():
+    for fixed in [None, np.full(5, np.nan), np.zeros(5), np.full(5, 11.5)]:
+        out = solver_shared.charge_before_block_summary(
+            fixed, np.zeros(5), [1.0] * 5, _times(5), 100.0
+        )
+        assert set(out) == KEYS
+        assert all(v is None for v in out.values())
 
 
 def test_zero_capacity_leaves_the_percentage_out():

@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import device_forecasts as df
-import pytest
 import solver_writer as sw
 
 T0 = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
@@ -66,25 +65,21 @@ def test_each_provider_shape_reads_in_kw():
     assert df._open_meteo({"watts": {}}) is None
 
 
-@pytest.mark.parametrize(
-    ("spec", "found"),
-    [
+def test_an_adapter_is_found_only_by_its_name_and_integer_version():
+    for spec, found in [
         ({"name": "solcast", "version": 1}, "solcast"),
         ({"name": "solcast", "version": 2}, None),
         ({"name": "solcast", "version": True}, None),
         ({"name": "solcast", "version": "1"}, None),
         ("solcast", None),
         (None, None),
-    ],
-)
-def test_an_adapter_is_found_only_by_its_name_and_integer_version(spec, found):
-    adapter = df.forecast_adapter({"adapter": spec})
-    assert (adapter.name if adapter else None) == found
+    ]:
+        adapter = df.forecast_adapter({"adapter": spec})
+        assert (adapter.name if adapter else None) == found
 
 
-@pytest.mark.parametrize(
-    ("source", "entities", "reason"),
-    [
+def test_a_member_that_cannot_be_read_says_why():
+    for source, entities, reason in [
         (
             {
                 "kind": "entity_attribute",
@@ -115,17 +110,15 @@ def test_an_adapter_is_found_only_by_its_name_and_integer_version(spec, found):
             {"sensor.x": {"forecast": [{"time": "x", "value": 1}]}},
             "malformed",
         ),
-    ],
-)
-def test_a_member_that_cannot_be_read_says_why(source, entities, reason):
-    member = df.resolve_member(
-        source,
-        entities.get,
-        GRID,
-        sw.resample_forecast,
-        resample_instants=sw.resample_instants,
-    )
-    assert (member.state, member.reason, member.value) == ("missing", reason, None)
+    ]:
+        member = df.resolve_member(
+            source,
+            entities.get,
+            GRID,
+            sw.resample_forecast,
+            resample_instants=sw.resample_instants,
+        )
+        assert (member.state, member.reason, member.value) == ("missing", reason, None)
 
 
 def test_one_member_is_its_own_value_and_none_is_missing():

@@ -688,26 +688,22 @@ def test_the_rate_limit_holds_each_battery_to_its_own_previous_value(
     assert abs(by["ev"] - ev_prev) <= rate + 1e-6
 
 
-@pytest.mark.parametrize(
-    ("names", "says"),
-    [([], "at least one"), (["home", "home"], "unique names")],
-    ids=["none", "duplicate"],
-)
-def test_a_plan_needs_named_batteries_each_once(names, says):
+def test_a_plan_needs_named_batteries_each_once():
     """#467 stage 1: at least one battery, and each name once (the name is
     what the rate limit and every reader match on)."""
-    with pytest.raises(ValueError, match=says):
-        build_plan(
-            periods=PeriodGrid(np.ones(2)),
-            grid=GridConfig(
-                import_price=np.full(2, 0.3),
-                export_price=np.full(2, 0.05),
-                import_limit_kw=10.0,
-                export_limit_kw=10.0,
-            ),
-            batteries=[_pack(n, 0.95) for n in names],
-            solar=SolarConfig(forecast_kw=np.zeros(2)),
-        )
+    for names, says in [([], "at least one"), (["home", "home"], "unique names")]:
+        with pytest.raises(ValueError, match=says):
+            build_plan(
+                periods=PeriodGrid(np.ones(2)),
+                grid=GridConfig(
+                    import_price=np.full(2, 0.3),
+                    export_price=np.full(2, 0.05),
+                    import_limit_kw=10.0,
+                    export_limit_kw=10.0,
+                ),
+                batteries=[_pack(n, 0.95) for n in names],
+                solar=SolarConfig(forecast_kw=np.zeros(2)),
+            )
 
 
 # --- #563 items 2-3, #779: availability, the away prefix, the shared charger ------
@@ -760,26 +756,22 @@ def _small(name, **kw):
     )
 
 
-@pytest.mark.parametrize(
-    "groups",
-    [
-        ({}, {}),  # two independent batteries
-        ({"shared_charger_group": "g", "shared_charger_max_kw": 7.0}, {}),  # one member
-        ({"shared_charger_group": "g"}, {"shared_charger_group": "g"}),  # no ceiling
-    ],
-    ids=["no_group", "one_member", "no_ceiling"],
-)
-def test_only_a_shared_charger_with_a_ceiling_gets_the_binary(groups):
+def test_only_a_shared_charger_with_a_ceiling_gets_the_binary():
     """Independent batteries may still charge and discharge at once; that is
     real. A one-member group has its own battery binary, and a group with no
     declared ceiling has no cap row to share."""
-    batteries = [_small("a", **groups[0]), _small("c", **groups[1])]
-    assert network._shared_charger_groups(batteries) == {}
-    plan = _paid_to_import(*batteries)
-    assert not any(
-        n.startswith("charger_dir_")
-        for n in network._opposing_flow_binaries(plan, batteries)
-    )
+    for groups in [
+        ({}, {}),  # two independent batteries
+        ({"shared_charger_group": "g", "shared_charger_max_kw": 7.0}, {}),  # one member
+        ({"shared_charger_group": "g"}, {"shared_charger_group": "g"}),  # no ceiling
+    ]:
+        batteries = [_small("a", **groups[0]), _small("c", **groups[1])]
+        assert network._shared_charger_groups(batteries) == {}
+        plan = _paid_to_import(*batteries)
+        assert not any(
+            n.startswith("charger_dir_")
+            for n in network._opposing_flow_binaries(plan, batteries)
+        )
 
 
 @pytest.mark.parametrize("neighbour", [False, True])

@@ -50,9 +50,8 @@ def samples(h, m, values, step=5):
 # --- which bucket is now ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "entries",
-    [
+def test_nothing_usable_is_no_bucket():
+    for entries in [
         [],
         None,
         FORECAST[:1] and [_bucket(20, 0, 0.1, minutes=0)],
@@ -66,20 +65,9 @@ def samples(h, m, values, step=5):
         [dict(_bucket(12, 30, -0.01), price=True)],  # a bool is not a price
         [{k: v for k, v in _bucket(12, 30, -0.01).items() if k != "price"}],
         [_bucket(12, 30, -0.01, minutes=0)],
-    ],
-    ids=[
-        "empty",
-        "none",
-        "zero_width_far",
-        "naive",
-        "bool_price",
-        "no_price",
-        "zero_width",
-    ],
-)
-def test_nothing_usable_is_no_bucket(entries):
-    assert select_current_bucket(entries, at(12, 43)) is None
-    assert select_current_bucket(FORECAST, at(20, 0)) is None
+    ]:
+        assert select_current_bucket(entries, at(12, 43)) is None
+        assert select_current_bucket(FORECAST, at(20, 0)) is None
 
 
 def test_a_bad_entry_never_blocks_a_good_one():

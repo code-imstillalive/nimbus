@@ -74,16 +74,17 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
         assert words == set(issue.placeholders), issue.kind
 
 
-@pytest.mark.parametrize(
-    "data", [{"trained_at": "t"}, {"forecast": [1]}, {"forecast_readiness": "ready"}]
-)
-def test_a_trained_or_rule_based_forecast_needs_nothing(data):
-    assert _health(forecasts=[("s1", "Pool", data)]) == []
+def test_a_trained_or_rule_based_forecast_needs_nothing():
+    for data in [
+        {"trained_at": "t"},
+        {"forecast": [1]},
+        {"forecast_readiness": "ready"},
+    ]:
+        assert _health(forecasts=[("s1", "Pool", data)]) == []
 
 
-@pytest.mark.parametrize(
-    ("settings", "says"),
-    [
+def test_placeholder_and_contradictory_settings_are_named():
+    for settings, says in [
         (
             {const.CONF_SOLVER_MAX_CHARGE_KW: 0.1},
             "Max charge power (Battery card) is 0.1",
@@ -110,15 +111,13 @@ def test_a_trained_or_rule_based_forecast_needs_nothing(data):
             },
             None,
         ),
-    ],
-)
-def test_placeholder_and_contradictory_settings_are_named(settings, says):
-    issues = _health(settings=settings)
-    if says is None:
-        assert issues == []
-    else:
-        (issue,) = issues
-        assert says in issue.placeholders["settings"]
+    ]:
+        issues = _health(settings=settings)
+        if says is None:
+            assert issues == []
+        else:
+            (issue,) = issues
+            assert says in issue.placeholders["settings"]
 
 
 # --- raised and cleared in Home Assistant ------------------------------------------------

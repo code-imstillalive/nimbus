@@ -128,21 +128,22 @@ def _in_the_past(now):
     )
 
 
-@pytest.mark.parametrize(
-    ("make", "says"),
-    [(_unanchored, "start must be set"), (_in_the_past, "before this tick")],
-)
-def test_an_input_window_that_cannot_be_aligned_is_refused(make, says):
-    with pytest.raises(ValueError, match=says):
-        run_rolling_refinement(
-            RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=1), make
-        )
+def test_an_input_window_that_cannot_be_aligned_is_refused():
+    for make, says in [
+        (_unanchored, "start must be set"),
+        (_in_the_past, "before this tick"),
+    ]:
+        with pytest.raises(ValueError, match=says):
+            run_rolling_refinement(
+                RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=1),
+                make,
+            )
 
 
-@pytest.mark.parametrize(("n", "interval"), [(0, STEP), (1, timedelta(0))])
-def test_a_rolling_run_needs_a_positive_count_and_interval(n, interval):
-    with pytest.raises(ValueError):
-        RollingRefinementConfig(start=T0, resolve_interval=interval, n_resolves=n)
+def test_a_rolling_run_needs_a_positive_count_and_interval():
+    for n, interval in [(0, STEP), (1, timedelta(0))]:
+        with pytest.raises(ValueError):
+            RollingRefinementConfig(start=T0, resolve_interval=interval, n_resolves=n)
 
 
 def test_the_reference_day_is_fixed_and_scored():

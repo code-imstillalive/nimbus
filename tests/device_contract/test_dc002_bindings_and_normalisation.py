@@ -307,20 +307,18 @@ def test_dc_r03_model_output_carries_its_coverage_and_training_state() -> None:
 # --- DC-R04 / F09: the five states ---------------------------------------------
 
 
-@pytest.mark.parametrize(("raw", "expected"), F09["cases"]["states"])
-def test_dc_r04_f09_missing_unavailable_and_zero_stay_distinct(
-    raw: str, expected: str | None
-) -> None:
-    got = _power(raw, "kW")
-    oracle = reading(raw)
-    assert got.value == oracle
-    assert oracle is None if expected is None else oracle == float(expected)
-    if raw in ("unavailable", "unknown"):
-        assert got.state == db.UNAVAILABLE
-    elif oracle is None:
-        assert got.state == db.MISSING  # nan, inf
-    else:
-        assert got.state == db.VALID and got.value == 0.0  # a recorded "0"
+def test_dc_r04_f09_missing_unavailable_and_zero_stay_distinct():
+    for raw, expected in F09["cases"]["states"]:
+        got = _power(raw, "kW")
+        oracle = reading(raw)
+        assert got.value == oracle
+        assert oracle is None if expected is None else oracle == float(expected)
+        if raw in ("unavailable", "unknown"):
+            assert got.state == db.UNAVAILABLE
+        elif oracle is None:
+            assert got.state == db.MISSING  # nan, inf
+        else:
+            assert got.state == db.VALID and got.value == 0.0  # a recorded "0"
 
 
 def test_dc_r04_a_missing_entity_or_unbound_role_is_missing_never_zero() -> None:
@@ -516,16 +514,12 @@ _OPENADR = {
 }
 
 
-@pytest.mark.parametrize(
-    "action", ["switch.turn_on", "script.turn_on", "openadr3_ven.set_opt_out", ""]
-)
-def test_dc_r05_f03_an_action_not_on_the_read_only_list_is_refused_and_never_called(
-    action: str,
-) -> None:
-    rec = Recorder(response=_OPENADR)
-    got = _resolve(_action_doc(action), "grid_main", "import_price_forecast", rec)
-    assert (got.state, got.reason) == (db.MISSING, "action_not_read_only")
-    assert rec.calls == []  # zero service calls, zero reads of any kind
+def test_dc_r05_f03_an_action_not_on_the_read_only_list_is_refused_and_never_called():
+    for action in ["switch.turn_on", "script.turn_on", "openadr3_ven.set_opt_out", ""]:
+        rec = Recorder(response=_OPENADR)
+        got = _resolve(_action_doc(action), "grid_main", "import_price_forecast", rec)
+        assert (got.state, got.reason) == (db.MISSING, "action_not_read_only")
+        assert rec.calls == []  # zero service calls, zero reads of any kind
 
 
 def test_dc_r05_f03_an_allowed_read_only_action_is_called_once_and_read() -> None:
@@ -594,9 +588,8 @@ def test_dc_r05_f03_f09_a_statistic_without_an_entity_resolves_as_energy() -> No
     assert [c[0] for c in rec.calls] == ["statistic"]
 
 
-@pytest.mark.parametrize(
-    ("unit", "value", "expected", "reason"),
-    [
+def test_dc_r05_a_price_is_scaled_once_and_another_currency_refused():
+    for unit, value, expected, reason in [
         ("$/kWh", "0.265", 0.265, None),
         ("c/kWh", "26.5", 0.265, None),
         ("¢/kWh", "26.5", 0.265, None),
@@ -612,20 +605,19 @@ def test_dc_r05_f03_f09_a_statistic_without_an_entity_resolves_as_energy() -> No
         ("$", "0.265", None, "unit_not_price"),
         ("", "0.265", None, "unit_missing"),
         (None, "0.265", None, "unit_missing"),
-    ],
-)
-def test_dc_r05_a_price_is_scaled_once_and_another_currency_refused(
-    unit: Any, value: str, expected: float | None, reason: str | None
-) -> None:
-    doc = _doc(_device("grid_main", "grid", import_price=_entity("sensor.buy")))
-    got = _resolve(
-        doc, "grid_main", "import_price", Recorder({"sensor.buy": _state(value, unit)})
-    )
-    if expected is None:
-        assert (got.value, got.reason) == (None, reason)
-    else:
-        assert got.value is not None and abs(got.value - expected) <= TOL
-        assert got.unit == "AUD/kWh"
+    ]:
+        doc = _doc(_device("grid_main", "grid", import_price=_entity("sensor.buy")))
+        got = _resolve(
+            doc,
+            "grid_main",
+            "import_price",
+            Recorder({"sensor.buy": _state(value, unit)}),
+        )
+        if expected is None:
+            assert (got.value, got.reason) == (None, reason)
+        else:
+            assert got.value is not None and abs(got.value - expected) <= TOL
+            assert got.unit == "AUD/kWh"
 
 
 def test_dc_r05_a_price_with_no_site_currency_is_refused_not_labelled() -> None:
@@ -829,18 +821,18 @@ def _graph_doc(graph: dict[str, list[str]]) -> dict[str, Any]:
     return _doc(*devices.values())
 
 
-@pytest.mark.parametrize("name", ["self", "cycle"])
-def test_dc_r16_f11_a_run_time_cycle_is_refused(name: str) -> None:
-    graph = F11["cases"][name]
-    assert any(
-        "cycle" in p or "itself" in p
-        for p in dependency_problems({k: set(v) for k, v in graph.items()})
-    )
-    first = next(iter(graph))
-    rec = Recorder()
-    got = _resolve(_graph_doc(graph), *_ROLE_OF[first], rec)
-    assert got.value is None and got.state == db.MISSING
-    assert got.reason is not None and got.reason.startswith("dependency_cycle"), got
+def test_dc_r16_f11_a_run_time_cycle_is_refused():
+    for name in ["self", "cycle"]:
+        graph = F11["cases"][name]
+        assert any(
+            "cycle" in p or "itself" in p
+            for p in dependency_problems({k: set(v) for k, v in graph.items()})
+        )
+        first = next(iter(graph))
+        rec = Recorder()
+        got = _resolve(_graph_doc(graph), *_ROLE_OF[first], rec)
+        assert got.value is None and got.state == db.MISSING
+        assert got.reason is not None and got.reason.startswith("dependency_cycle"), got
 
 
 def _balance_doc() -> dict[str, Any]:
@@ -868,34 +860,28 @@ def test_dc_r16_f01_a_missing_dependency_makes_the_result_missing() -> None:
     assert got.reason == "dependency_missing: solar_roof.power"  # not a partial sum
 
 
-@pytest.mark.parametrize(
-    ("pv_mode", "expected"),
-    [("change_only", db.VALID), ("sampled", db.STALE)],
-    ids=["held_dependency_stays_current", "stale_dependency_propagates"],
-)
-def test_dc_r16_a_held_dependency_is_current_a_stale_one_propagates(
-    pv_mode: str, expected: str
-) -> None:
+def test_dc_r16_a_held_dependency_is_current_a_stale_one_propagates():
     """Mark's question on #1774: `held` is current by the source's own rules,
     so a derived value built on it is as current as one built on `valid`
     inputs; only `stale` carries through to the result."""
-    nine_hours_ago = (NOW - timedelta(hours=9)).isoformat()
-    doc = _balance_doc()
-    doc["devices"][2]["bindings"]["power"] = _entity(
-        "sensor.pv", freshness={"mode": pv_mode, "max_interval_s": 900}
-    )
-    rec = Recorder(
-        {
-            "sensor.house": _state("14", "kW"),
-            "sensor.pv": _state(
-                "0", "W", last_changed=nine_hours_ago, last_reported=nine_hours_ago
-            ),
-        }
-    )
-    pv = _resolve(doc, "solar_roof", "power", rec)
-    assert pv.state == (db.HELD if pv_mode == "change_only" else db.STALE)
-    got = _resolve(doc, "grid_main", "power", rec)
-    assert (got.state, got.value) == (expected, 14.0)
+    for pv_mode, expected in [("change_only", db.VALID), ("sampled", db.STALE)]:
+        nine_hours_ago = (NOW - timedelta(hours=9)).isoformat()
+        doc = _balance_doc()
+        doc["devices"][2]["bindings"]["power"] = _entity(
+            "sensor.pv", freshness={"mode": pv_mode, "max_interval_s": 900}
+        )
+        rec = Recorder(
+            {
+                "sensor.house": _state("14", "kW"),
+                "sensor.pv": _state(
+                    "0", "W", last_changed=nine_hours_ago, last_reported=nine_hours_ago
+                ),
+            }
+        )
+        pv = _resolve(doc, "solar_roof", "power", rec)
+        assert pv.state == (db.HELD if pv_mode == "change_only" else db.STALE)
+        got = _resolve(doc, "grid_main", "power", rec)
+        assert (got.state, got.value) == (expected, 14.0)
 
 
 # --- the divergence ledger for F04 (legacy price_intervals vs the oracle) ------------
@@ -978,29 +964,24 @@ def test_every_dc002_requirement_has_a_named_test() -> None:
 # --- a declared power unit (DC-006 observation slice) ---------------------------
 
 
-@pytest.mark.parametrize(
-    ("unit", "declared", "kw"),
-    [
+def test_dc_r03_f09_a_declared_unit_settles_a_missing_or_misspelt_one():
+    """Household, 19 Oct 2026 (#1893): a unitless or misspelt power sensor is
+    refused by the contract, and the household may declare W or kW for it in
+    a Repair rather than fix the sensor."""
+    for unit, declared, kw in [
         (None, "W", 0.0025),
         ("", "kW", 2.5),
         ("kw", "kW", 2.5),
         (" kW ", "kW", 2.5),
         ("w", "W", 0.0025),
         ("KW", "W", 0.0025),
-    ],
-)
-def test_dc_r03_f09_a_declared_unit_settles_a_missing_or_misspelt_one(
-    unit: Any, declared: str, kw: float
-) -> None:
-    """Household, 19 Oct 2026 (#1893): a unitless or misspelt power sensor is
-    refused by the contract, and the household may declare W or kW for it in
-    a Repair rather than fix the sensor."""
-    got = _power("2.5", unit, native_unit=declared)
-    assert got.state == db.VALID
-    assert got.value == pytest.approx(kw)
-    assert got.unit == "kW"
-    assert got.provenance["unit_declared"] == declared
-    assert got.provenance["native_unit"] == unit
+    ]:
+        got = _power("2.5", unit, native_unit=declared)
+        assert got.state == db.VALID
+        assert got.value == pytest.approx(kw)
+        assert got.unit == "kW"
+        assert got.provenance["unit_declared"] == declared
+        assert got.provenance["native_unit"] == unit
 
 
 def test_dc_r03_f09_a_stated_unit_that_disagrees_with_the_declared_one_is_refused():
@@ -1016,13 +997,11 @@ def test_dc_r03_f09_a_stated_unit_that_disagrees_with_the_declared_one_is_refuse
     assert "unit_declared" not in same.provenance
 
 
-@pytest.mark.parametrize("unit", ["A", "kVA", "Wh", "kWh"])
-def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power(
-    unit: str,
-) -> None:
-    got = _power("2.5", unit, native_unit="kW")
-    assert got.value is None and got.state == db.MISSING
-    assert got.reason in ("unit_not_power", "energy_unit_as_power")
+def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power():
+    for unit in ["A", "kVA", "Wh", "kWh"]:
+        got = _power("2.5", unit, native_unit="kW")
+        assert got.value is None and got.state == db.MISSING
+        assert got.reason in ("unit_not_power", "energy_unit_as_power")
 
 
 def test_dc_r03_f09_a_declared_unit_must_itself_be_exact():

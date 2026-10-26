@@ -38,9 +38,8 @@ def _status(states):
 CONFIGURED = {"sensor.nimbus_solver_config": _state("configured")}
 
 
-@pytest.mark.parametrize(
-    ("states", "word", "reason"),
-    [
+def test_the_status_is_the_first_thing_wrong_or_working_well():
+    for states, word, reason in [
         ({}, "Not yet configured", "Solver settings wizard"),
         (
             {"sensor.nimbus_solver_config": _state("unconfigured")},
@@ -81,13 +80,11 @@ CONFIGURED = {"sensor.nimbus_solver_config": _state("configured")}
             "Working well",
             "No known issues",
         ),
-    ],
-)
-def test_the_status_is_the_first_thing_wrong_or_working_well(states, word, reason):
-    s = _status(states)
-    assert s.native_value == word
-    assert reason in s.extra_state_attributes["reason"]
-    assert s.entity_id == "sensor.nimbus_status"
+    ]:
+        s = _status(states)
+        assert s.native_value == word
+        assert reason in s.extra_state_attributes["reason"]
+        assert s.entity_id == "sensor.nimbus_status"
 
 
 def test_the_health_report_counts_errors_and_lists_each_forecasters_state():

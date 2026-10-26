@@ -10,25 +10,21 @@ falls back to the working default rather than switching the feature off.
 
 from __future__ import annotations
 
-import pytest
 from const import CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as KEY
 from solver_dispatch import guard
 
 
-@pytest.mark.parametrize(
-    ("raw", "seconds"),
-    [
+def test_a_configured_wait_is_read_in_seconds():
+    for raw, seconds in [
         (5, 300.0),
         ("2.5", 150.0),
         (0, 0.0),
         ("0", 0.0),
-    ],
-)
-def test_a_configured_wait_is_read_in_seconds(raw, seconds):
-    assert guard._resolve_reaffirm_after_seconds({KEY: raw}) == seconds
+    ]:
+        assert guard._resolve_reaffirm_after_seconds({KEY: raw}) == seconds
 
 
-@pytest.mark.parametrize("raw", [None, "soon", "", [], -1, "-0.5"])
-def test_unset_garbled_or_negative_falls_back_to_the_default(raw):
-    data = {} if raw is None else {KEY: raw}
-    assert guard._resolve_reaffirm_after_seconds(data) is None
+def test_unset_garbled_or_negative_falls_back_to_the_default():
+    for raw in [None, "soon", "", [], -1, "-0.5"]:
+        data = {} if raw is None else {KEY: raw}
+        assert guard._resolve_reaffirm_after_seconds(data) is None

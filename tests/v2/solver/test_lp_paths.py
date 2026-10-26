@@ -119,14 +119,15 @@ def _pin(x, binary_cols):
     return h.bounds, warned
 
 
-@pytest.mark.parametrize(
-    ("value", "warns"),
-    [(1.0, False), (lp._BINARY_INTEGRALITY_TOLERANCE, False), (0.5, True)],
-)
-def test_pinning_warns_only_beyond_the_integrality_tolerance(value, warns):
+def test_pinning_warns_only_beyond_the_integrality_tolerance():
     """At exactly the tolerance it is still integral enough; well beyond it,
     the rounding is the suspect and the WARNING says so. The pin itself is
     the rounded value either way."""
-    bounds, warned = _pin([value, 0.0], [0])
-    assert bool(warned) is warns
-    assert bounds[0] == (float(round(value)), float(round(value)))
+    for value, warns in [
+        (1.0, False),
+        (lp._BINARY_INTEGRALITY_TOLERANCE, False),
+        (0.5, True),
+    ]:
+        bounds, warned = _pin([value, 0.0], [0])
+        assert bool(warned) is warns
+        assert bounds[0] == (float(round(value)), float(round(value)))

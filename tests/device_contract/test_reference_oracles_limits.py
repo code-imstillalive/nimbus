@@ -71,26 +71,26 @@ def test_the_site_limits_are_valid() -> None:
     assert limit_problems(limits, KINDS) == []
 
 
-@pytest.mark.parametrize("name", sorted(INTERVALS))
-def test_combined_quantity_and_shared_limit(name: str) -> None:
-    interval = INTERVALS[name]
-    limit = _limit(CASES["limits"][interval["limit"]])
-    members = _members(interval)
-    assert abs(combined_kw(limit.quantity, members) - EXP["combined_kw"][name]) <= TOL
-    assert within(limit, members) is EXP["within_shared_limit"][name]
+def test_combined_quantity_and_shared_limit():
+    for name in sorted(INTERVALS):
+        interval = INTERVALS[name]
+        limit = _limit(CASES["limits"][interval["limit"]])
+        members = _members(interval)
+        assert (
+            abs(combined_kw(limit.quantity, members) - EXP["combined_kw"][name]) <= TOL
+        )
+        assert within(limit, members) is EXP["within_shared_limit"][name]
 
 
-@pytest.mark.parametrize("name", sorted(INTERVALS))
-def test_a_limit_copied_onto_each_member_misses_exactly_the_named_intervals(
-    name: str,
-) -> None:
-    interval = INTERVALS[name]
-    limit = _limit(CASES["limits"][interval["limit"]])
-    members = _members(interval)
-    missed = within_copied_limits(members, limit.limit_kw) and not within(
-        limit, members
-    )
-    assert missed is (name in EXP["copied_limits_miss"])
+def test_a_limit_copied_onto_each_member_misses_exactly_the_named_intervals():
+    for name in sorted(INTERVALS):
+        interval = INTERVALS[name]
+        limit = _limit(CASES["limits"][interval["limit"]])
+        members = _members(interval)
+        missed = within_copied_limits(members, limit.limit_kw) and not within(
+            limit, members
+        )
+        assert missed is (name in EXP["copied_limits_miss"])
 
 
 def test_a_charging_and_a_discharging_vehicle_do_not_cancel() -> None:
@@ -101,11 +101,11 @@ def test_a_charging_and_a_discharging_vehicle_do_not_cancel() -> None:
     assert abs(combined_kw("charger_power", members) - 30.0) <= TOL
 
 
-@pytest.mark.parametrize("name", sorted(CASES["invalid_limits"]))
-def test_invalid_shared_limits_are_rejected(name: str) -> None:
-    limits = [_limit(raw) for raw in CASES["invalid_limits"][name]]
-    needle = EXP["invalid_limit_needles"][name]
-    assert any(needle in p for p in limit_problems(limits, KINDS)), name
+def test_invalid_shared_limits_are_rejected():
+    for name in sorted(CASES["invalid_limits"]):
+        limits = [_limit(raw) for raw in CASES["invalid_limits"][name]]
+        needle = EXP["invalid_limit_needles"][name]
+        assert any(needle in p for p in limit_problems(limits, KINDS)), name
 
 
 def test_a_missing_member_reading_is_not_a_zero() -> None:
@@ -134,16 +134,18 @@ OVERLAP = F02["undeclared_overlap"]
 PAIRS = {p["name"]: p for p in OVERLAP["pairs"]}
 
 
-@pytest.mark.parametrize("name", sorted(PAIRS))
-def test_undeclared_overlap_is_evidence_only_where_it_should_be(name: str) -> None:
+def test_undeclared_overlap_is_evidence_only_where_it_should_be():
     """DC-003 decision 5: a string inside its total is flagged; half a day,
     two independent inverters, an unrelated series below the parent, and a
     series that tracks but exceeds it are not."""
-    from tests.device_contract.oracles_accounting import possible_undeclared_inclusion
+    for name in sorted(PAIRS):
+        from tests.device_contract.oracles_accounting import (
+            possible_undeclared_inclusion,
+        )
 
-    pair = PAIRS[name]
-    n = pair["first_hours"]
-    child = OVERLAP["series"][pair["child"]][:n]
-    parent = OVERLAP["series"][pair["parent"]][:n]
-    hours = [OVERLAP["hours"]] * n
-    assert possible_undeclared_inclusion(child, parent, hours) is pair["flagged"]
+        pair = PAIRS[name]
+        n = pair["first_hours"]
+        child = OVERLAP["series"][pair["child"]][:n]
+        parent = OVERLAP["series"][pair["parent"]][:n]
+        hours = [OVERLAP["hours"]] * n
+        assert possible_undeclared_inclusion(child, parent, hours) is pair["flagged"]

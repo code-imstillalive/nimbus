@@ -13,7 +13,6 @@ import itertools
 from datetime import UTC, datetime
 
 import numpy as np
-import pytest
 from solver.elements import BatteryConfig, GridConfig, PeriodGrid
 from solver.stochastic import build_stochastic_plan
 
@@ -62,8 +61,6 @@ def _plan(*, fixed_export=False, bonus=False, salvage_value=0.15, window_price=0
     return plan
 
 
-@pytest.mark.parametrize(
-    ("fixed", "bonus"), list(itertools.product([False, True], repeat=2))
-)
-def test_every_combination_of_commitment_and_bonus_solves(fixed, bonus):
-    _plan(fixed_export=fixed, bonus=bonus)
+def test_every_combination_of_commitment_and_bonus_solves():
+    for fixed, bonus in list(itertools.product([False, True], repeat=2)):
+        _plan(fixed_export=fixed, bonus=bonus)

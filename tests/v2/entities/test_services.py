@@ -126,31 +126,28 @@ def test_every_service_registers_once_and_unloads_completely():
 # --- argument parsing -------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
+def test_a_window_bound_is_any_iso_time_read_as_local_when_naive():
+    for value, expected in [
         ("2026-09-20T10:00:00+10:00", datetime(2026, 9, 20, 0, 0, tzinfo=UTC)),
         (
             "2026-09-20T10:00:00",
             datetime(2026, 9, 20, 0, 0, tzinfo=UTC),
         ),  # naive: local
         (datetime(2026, 9, 20, 10, 0), datetime(2026, 9, 20, 0, 0, tzinfo=UTC)),  # noqa: DTZ001
-    ],
-)
-def test_a_window_bound_is_any_iso_time_read_as_local_when_naive(value, expected):
-    assert svc._coerce_datetime(value) == expected
+    ]:
+        assert svc._coerce_datetime(value) == expected
 
 
-@pytest.mark.parametrize("value", ["yesterday", 5])
-def test_a_window_bound_that_is_not_a_time_is_refused(value):
-    with pytest.raises(vol.Invalid):
-        svc._coerce_datetime(value)
+def test_a_window_bound_that_is_not_a_time_is_refused():
+    for value in ["yesterday", 5]:
+        with pytest.raises(vol.Invalid):
+            svc._coerce_datetime(value)
 
 
-@pytest.mark.parametrize("value", [[], "tail", ["head", "x"], None])
-def test_any_other_kind_is_refused(value):
-    with pytest.raises(vol.Invalid):
-        svc._coerce_kinds(value)
+def test_any_other_kind_is_refused():
+    for value in [[], "tail", ["head", "x"], None]:
+        with pytest.raises(vol.Invalid):
+            svc._coerce_kinds(value)
 
 
 # --- retrain and solve now -----------------------------------------------------------
@@ -476,9 +473,8 @@ def test_an_existing_load_is_updated_in_place_keeping_its_kind():
     )
 
 
-@pytest.mark.parametrize(
-    ("entries", "data", "raises", "says"),
-    [
+def test_a_call_that_cannot_be_applied_changes_nothing():
+    for entries, data, raises, says in [
         ([], {NAME: "x"}, Failed, "no Nimbus hub"),
         ([_hub()], {}, Invalid, "'controllable_load_name' is required"),
         ([_hub()], {NAME: "New"}, Invalid, "'controllable_load_kind' is required"),
@@ -494,13 +490,11 @@ def test_an_existing_load_is_updated_in_place_keeping_its_kind():
             Invalid,
             "no controllable_load subentry",
         ),
-    ],
-)
-def test_a_call_that_cannot_be_applied_changes_nothing(entries, data, raises, says):
-    hass = _hass(entries)
-    with pytest.raises(raises, match=says):
-        _set(hass, **data)
-    assert hass.config_entries.updated == [] and hass.config_entries.reloaded == []
+    ]:
+        hass = _hass(entries)
+        with pytest.raises(raises, match=says):
+            _set(hass, **data)
+        assert hass.config_entries.updated == [] and hass.config_entries.reloaded == []
 
 
 def test_the_service_accepts_the_wizards_fields_and_its_own_extras():

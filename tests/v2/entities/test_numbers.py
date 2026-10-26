@@ -71,21 +71,18 @@ def test_every_number_the_solver_reads_has_an_entity_and_ids_are_unique():
 # --- the shared store ----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("data", "read"),
-    [
+def test_a_stored_value_reads_back_with_when_it_was_written():
+    for data, read in [
         ({"k": {"value": 2.5, "written_at": 10.0}}, (2.5, 10.0)),
         ({"k": 3}, (3.0, 0.0)),  # written before timestamps existed
         ({"k": {"value": "x", "written_at": 1}}, None),
         ({"k": {"written_at": 1}}, None),
         ({}, None),
         (None, None),
-    ],
-)
-def test_a_stored_value_reads_back_with_when_it_was_written(data, read):
-    store = nm._SharedNumberStore(store=MemoryStore(data))
-    assert _run(store._async_read_entry("k")) == read
-    assert _run(store.async_read("k")) == (read[0] if read else None)
+    ]:
+        store = nm._SharedNumberStore(store=MemoryStore(data))
+        assert _run(store._async_read_entry("k")) == read
+        assert _run(store.async_read("k")) == (read[0] if read else None)
 
 
 def test_a_corrupt_store_reads_as_empty_and_is_rewritten():
@@ -207,23 +204,20 @@ def test_the_debounce_change_reconfigures_the_price_watcher(monkeypatch):
     assert calls == ["hub1"]
 
 
-@pytest.mark.parametrize(
-    ("unit", "currency", "shown"),
-    [
+def test_a_money_setting_is_shown_in_the_households_currency():
+    for unit, currency, shown in [
         (nm._CURRENCY_PER_KWH, "AUD", "AUD/kWh"),
         (nm._CURRENCY_PER_DAY, "AUD", "AUD/day"),
         (nm._CURRENCY, "AUD", "AUD"),
         (nm._CURRENCY_PER_KWH, "", None),
         ("kW", "AUD", "kW"),
-    ],
-)
-def test_a_money_setting_is_shown_in_the_households_currency(unit, currency, shown):
-    n, _, _, _ = _number()
-    n._desc = SimpleNamespace(unit=unit)
-    n.hass.config.currency = currency
-    assert n.native_unit_of_measurement == shown
-    n.hass = None
-    assert n.native_unit_of_measurement == unit
+    ]:
+        n, _, _, _ = _number()
+        n._desc = SimpleNamespace(unit=unit)
+        n.hass.config.currency = currency
+        assert n.native_unit_of_measurement == shown
+        n.hass = None
+        assert n.native_unit_of_measurement == unit
 
 
 # --- per-load settings and setup ------------------------------------------------------

@@ -85,11 +85,11 @@ def test_the_live_whole_house_load_is_converted():
     assert "sw._kw_scale_factor(whole_house_cross_check_sensor)" in src
 
 
-@pytest.mark.parametrize("card", CARDS)
-def test_each_card_matches_power_units(card):
-    table, exact = _tables((FE / card).read_text(encoding="utf-8"))
-    assert table == pytest.approx(pu.POWER_TO_KW)
-    assert exact == pytest.approx(pu._EXACT)
+def test_each_card_matches_power_units():
+    for card in CARDS:
+        table, exact = _tables((FE / card).read_text(encoding="utf-8"))
+        assert table == pytest.approx(pu.POWER_TO_KW)
+        assert exact == pytest.approx(pu._EXACT)
 
 
 def test_the_dispatch_card_converts_every_power_entity_and_its_history():

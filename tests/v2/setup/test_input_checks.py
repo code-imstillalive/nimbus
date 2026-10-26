@@ -193,9 +193,8 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch):
 # --- the NEM region from an address -----------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("address", "region", "prefix"),
-    [
+def test_the_region_and_postcode_prefix_come_from_the_geocoded_address():
+    for address, region, prefix in [
         ("12 Smith St, Brisbane City QLD 4000, Australia", "QLD1", "400"),
         ("1 Main Rd, Canberra ACT 2600", "NSW1", "260"),
         ("Hobart tas 7000", "TAS1", "700"),
@@ -208,12 +207,8 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch):
         ("75001 Paris, France", None, None),
         ("Somewhere", None, None),
         (None, None, None),
-    ],
-)
-def test_the_region_and_postcode_prefix_come_from_the_geocoded_address(
-    address, region, prefix
-):
-    assert nem.resolve_region_and_prefix(address) == (region, prefix)
+    ]:
+        assert nem.resolve_region_and_prefix(address) == (region, prefix)
 
 
 # --- the pricing source profiles ------------------------------------------------------------------

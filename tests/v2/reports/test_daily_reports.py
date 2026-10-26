@@ -660,9 +660,8 @@ def test_the_row_field_is_one_character_and_its_own():
     assert len(field) == 1 and field not in taken
 
 
-@pytest.mark.parametrize(
-    ("entry", "expected"),
-    [
+def test_only_a_real_verdict_is_recorded_never_a_made_up_zero():
+    for entry, expected in [
         (
             {
                 "forecast_regret_reason": None,
@@ -699,11 +698,9 @@ def test_the_row_field_is_one_character_and_its_own():
         ],
         ({"forecast_regret_reason": None}, None),
         ({"epr": 0.9}, None),  # an older release's entry
-    ],
-)
-def test_only_a_real_verdict_is_recorded_never_a_made_up_zero(entry, expected):
-    got = sw._day_ahead_value_add_for_history(entry)
-    assert got == (pytest.approx(expected) if expected is not None else None)
+    ]:
+        got = sw._day_ahead_value_add_for_history(entry)
+        assert got == (pytest.approx(expected) if expected is not None else None)
 
 
 def test_the_trailing_record_is_read_from_this_installs_own_report(ha, monkeypatch):

@@ -54,13 +54,9 @@ def _days(n, per_day, lo, hi):
 # --- the band ----------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "solcast",
-    [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])],
-    ids=["nothing", "no_spread"],
-)
-def test_with_nothing_measured_and_no_usable_band_there_is_no_band(solcast):
-    assert _bands([1.0, 2.0], solcast=solcast) == (None, None, None)
+def test_with_nothing_measured_and_no_usable_band_there_is_no_band():
+    for solcast in [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])]:
+        assert _bands([1.0, 2.0], solcast=solcast) == (None, None, None)
 
 
 # --- the quantile table and its calibration ----------------------------------------------------

@@ -77,21 +77,16 @@ def _stochastic(scenarios, weights, start=2, **kw):
     )
 
 
-@pytest.mark.parametrize(
-    ("scenarios", "weights", "start", "says"),
-    [
+def test_a_badly_formed_problem_is_refused_before_solving():
+    for scenarios, weights, start, says in [
         ([np.zeros(N)], [1.0], 2, "at least 2 scenarios"),
         ([np.zeros(N), np.zeros(N)], [1.0], 2, "expected 2"),
         ([np.zeros(N), np.zeros(N)], [0.7, 0.7], 2, "sum to exactly 1.0"),
         ([np.zeros(N), np.zeros(N - 1)], [0.5, 0.5], 2, "PeriodGrid mismatch"),
         ([np.zeros(N), np.zeros(N)], [0.5, 0.5], N, "must be within"),
-    ],
-)
-def test_a_badly_formed_problem_is_refused_before_solving(
-    scenarios, weights, start, says
-):
-    with pytest.raises(ValueError, match=says):
-        _stochastic(scenarios, weights, start)
+    ]:
+        with pytest.raises(ValueError, match=says):
+            _stochastic(scenarios, weights, start)
 
 
 # --- the inverter modes a plan implies ---------------------------------------------------------

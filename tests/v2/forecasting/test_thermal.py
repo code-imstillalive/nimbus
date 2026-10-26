@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
 import thermal_forecast as tf
 
 T0 = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
@@ -140,9 +139,8 @@ def _series(rows):
 IDLE_BEFORE = [(0, 50.0, 0.0), (30, 49.6, 0.0)]
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
+def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate():
+    for rows in [
         # heating for one 5-minute sample: too short to trust
         IDLE_BEFORE + [(35, 49.5, 3.6), (40, 52.0, 0.0), (70, 51.6, 0.0)],
         # the history opens mid-run: no idle reading before it
@@ -153,10 +151,7 @@ IDLE_BEFORE = [(0, 50.0, 0.0), (30, 49.6, 0.0)]
         # it ran and the tank got no warmer
         IDLE_BEFORE
         + [(35, 49.5, 3.6), (65, 49.5, 3.6), (70, 49.0, 0.0), (100, 48.6, 0.0)],
-    ],
-    ids=["too_short", "at_the_edge", "never_settled", "no_gain"],
-)
-def test_a_heating_run_that_cannot_be_measured_teaches_no_heating_rate(rows):
-    rates = tf.learn_thermal_rates(_series(rows), on_threshold_kw=0.5)
-    assert rates.heating_sample_count == 0
-    assert rates.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH
+    ]:
+        rates = tf.learn_thermal_rates(_series(rows), on_threshold_kw=0.5)
+        assert rates.heating_sample_count == 0
+        assert rates.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH

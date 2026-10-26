@@ -160,13 +160,11 @@ def test_a_period_counts_as_measured_when_a_sample_falls_inside_it():
     assert period_sample_coverage(samples, [], 0.5) == (0, 0)
 
 
-@pytest.mark.parametrize(
-    ("lead", "value"), [(0.0, 1.0), (0.75, 2.0), (1.5, 4.0), (2.0, None), (-1.0, None)]
-)
-def test_the_forecast_made_lead_hours_ahead_is_read_off_its_grid(lead, value):
-    grid = [T0 + timedelta(minutes=30 * i) for i in range(4)]
-    assert (
-        forecast_value_at_lead_hours(grid, np.array([1.0, 2.0, 3.0, 4.0]), T0, lead)
-        == value
-    )
-    assert forecast_value_at_lead_hours(grid, np.array([1.0]), T0, 0.0) is None
+def test_the_forecast_made_lead_hours_ahead_is_read_off_its_grid():
+    for lead, value in [(0.0, 1.0), (0.75, 2.0), (1.5, 4.0), (2.0, None), (-1.0, None)]:
+        grid = [T0 + timedelta(minutes=30 * i) for i in range(4)]
+        assert (
+            forecast_value_at_lead_hours(grid, np.array([1.0, 2.0, 3.0, 4.0]), T0, lead)
+            == value
+        )
+        assert forecast_value_at_lead_hours(grid, np.array([1.0]), T0, 0.0) is None

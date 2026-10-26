@@ -28,26 +28,23 @@ SETTINGS = settings(max_examples=40, derandomize=True, deadline=None)
 # --- features ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("hour", "start", "end", "inside"),
-    [
+def test_the_schedule_feature_wraps_midnight():
+    for hour, start, end, inside in [
         (18, 17, 19, 1.0),
         (19, 17, 19, 0.0),
         (23, 22, 6, 1.0),
         (5, 22, 6, 1.0),
         (12, 22, 6, 0.0),
         (12, None, 6, 0.0),
-    ],
-)
-def test_the_schedule_feature_wraps_midnight(hour, start, end, inside):
-    row = build_features(
-        datetime(2026, 9, 21, hour, tzinfo=BNE),
-        20.0,
-        schedule_start_hour=start,
-        schedule_end_hour=end,
-    )
-    assert row[12] == inside
-    assert row[6] == 0.0  # a Monday
+    ]:
+        row = build_features(
+            datetime(2026, 9, 21, hour, tzinfo=BNE),
+            20.0,
+            schedule_start_hour=start,
+            schedule_end_hour=end,
+        )
+        assert row[12] == inside
+        assert row[6] == 0.0  # a Monday
 
 
 # --- gradient-boosted trees ---------------------------------------------------------

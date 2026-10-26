@@ -134,26 +134,23 @@ def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
     assert kw["done_condition_met"] is False  # 58.5 is below its own 60 setpoint
 
 
-@pytest.mark.parametrize(
-    ("forecast", "mean"),
-    [
+def test_todays_mean_import_price_reads_only_todays_plan():
+    for forecast, mean in [
         (None, None),
         ([], None),
         ([{"time": "bad", "import_price": 1}, {"import_price": 2}], None),
         ([{"time": NOW.isoformat(), "import_price": "0.5"}], 0.5),
-    ],
-)
-def test_todays_mean_import_price_reads_only_todays_plan(forecast, mean):
-    states = (
-        {}
-        if forecast is None
-        else {
-            "sensor.nimbus_solver_battery_forecast": SimpleNamespace(
-                attributes={"forecast": forecast}
-            )
-        }
-    )
-    assert sm._today_mean_import_price(_hass(states), NOW) == mean
+    ]:
+        states = (
+            {}
+            if forecast is None
+            else {
+                "sensor.nimbus_solver_battery_forecast": SimpleNamespace(
+                    attributes={"forecast": forecast}
+                )
+            }
+        )
+        assert sm._today_mean_import_price(_hass(states), NOW) == mean
 
 
 def test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings():

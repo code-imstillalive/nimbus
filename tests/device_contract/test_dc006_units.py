@@ -11,7 +11,6 @@ import copy
 from datetime import UTC, datetime
 
 import device_units as du
-import pytest
 
 
 def _doc(**grid_norm):
@@ -54,11 +53,11 @@ def _reader(unit=None, state="1.5"):
     }
 
 
-@pytest.mark.parametrize("unit", ["W", "kW", "A", "kWh"])
-def test_an_exact_unit_or_another_dimension_needs_none(unit):
+def test_an_exact_unit_or_another_dimension_needs_none():
     """An exact unit is fine; A or kWh is a wrong sensor, which no declaration
     can settle (it is refused, and readiness says why)."""
-    assert du.undeclared(_doc(), _reader(unit)) == []
+    for unit in ["W", "kW", "A", "kWh"]:
+        assert du.undeclared(_doc(), _reader(unit)) == []
 
 
 def test_declare_leaves_the_input_alone_and_refuses_what_it_cannot_do():

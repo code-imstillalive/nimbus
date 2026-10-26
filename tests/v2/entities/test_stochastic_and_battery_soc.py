@@ -13,8 +13,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -36,9 +34,8 @@ def _attach(entity):
 # --- the headline -------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("summary", "line"),
-    [
+def test_the_headline_says_what_the_check_did_in_plain_words():
+    for summary, line in [
         (None, "Not running"),
         ({"status": "optimal"}, "Hedge computed"),
         (
@@ -80,10 +77,8 @@ def _attach(entity):
         ({"fallback_reason": "error:ValueError"}, "Main plan: check failed"),
         ({"fallback_reason": "something_new"}, "Main plan: something new"),
         ({}, "Main plan: skipped"),
-    ],
-)
-def test_the_headline_says_what_the_check_did_in_plain_words(summary, line):
-    assert st.headline(summary) == line
+    ]:
+        assert st.headline(summary) == line
 
 
 # --- scenarios on the plan's grid ------------------------------------------------------
@@ -111,18 +106,15 @@ def test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end():
     assert [r["p50"] for r in rows] == [None, 10.0, 15.0, 20.0]
 
 
-@pytest.mark.parametrize(
-    "paths",
-    [
+def test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period():
+    for paths in [
         {"ends": ["x"], "soc_pct": {"p50": [1]}},
         {"ends": [T0.isoformat()], "soc_pct": {"p50": [1, 2]}},
-    ],
-)
-def test_scenario_times_that_do_not_line_up_fall_back_to_period_by_period(paths):
-    rows = st.scenario_rows({"forecast": _plan(2), "stochastic_paths": paths})
-    assert [r["p50"] for r in rows] == paths["soc_pct"]["p50"][:2] + [None] * (
-        2 - len(paths["soc_pct"]["p50"][:2])
-    )
+    ]:
+        rows = st.scenario_rows({"forecast": _plan(2), "stochastic_paths": paths})
+        assert [r["p50"] for r in rows] == paths["soc_pct"]["p50"][:2] + [None] * (
+            2 - len(paths["soc_pct"]["p50"][:2])
+        )
 
 
 def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
@@ -150,25 +142,24 @@ def _participant(sid, name=None):
     )
 
 
-@pytest.mark.parametrize(
-    "batteries",
-    [
+def test_a_battery_the_plan_skipped_keeps_its_last_value():
+    for batteries in [
         [],
         [{"name": "Car", "forecast": "x"}],
         [{"name": "Car", "forecast": [{"soc_pct": None}]}],
         ["junk"],
-    ],
-)
-def test_a_battery_the_plan_skipped_keeps_its_last_value(batteries):
-    entry = SimpleNamespace(entry_id="hub1", subentries={"a": _participant("a", "Car")})
-    _home, car = (_attach(s) for s in bs.create(entry, "1"))
-    car.update_from_parent(
-        {},
-        parent_attributes={
-            "batteries": [{"name": "Car", "forecast": [{"soc_pct": 70.0}]}]
-        },
-    )
-    car.update_from_parent(
-        {}, parent_attributes={"forecast": _plan(1), "batteries": batteries}
-    )
-    assert car.native_value == 70.0
+    ]:
+        entry = SimpleNamespace(
+            entry_id="hub1", subentries={"a": _participant("a", "Car")}
+        )
+        _home, car = (_attach(s) for s in bs.create(entry, "1"))
+        car.update_from_parent(
+            {},
+            parent_attributes={
+                "batteries": [{"name": "Car", "forecast": [{"soc_pct": 70.0}]}]
+            },
+        )
+        car.update_from_parent(
+            {}, parent_attributes={"forecast": _plan(1), "batteries": batteries}
+        )
+        assert car.native_value == 70.0

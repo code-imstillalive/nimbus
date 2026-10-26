@@ -65,9 +65,8 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
     ]
 
 
-@pytest.mark.parametrize(
-    ("attrs", "says"),
-    [
+def test_an_unusable_forecast_is_refused_with_a_reason_a_household_can_act_on():
+    for attrs, says in [
         (
             {"forecast": [], "model_trained_at": None},
             "never completed a training cycle",
@@ -96,16 +95,12 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
             "'kWh', which is not a power unit",
         ),
         ({"unit_of_measurement": "A", "forecast": [_pt(0, 1)]}, "not a power unit"),
-    ],
-)
-def test_an_unusable_forecast_is_refused_with_a_reason_a_household_can_act_on(
-    attrs, says
-):
-    points, bands, error = sw._validate_and_parse_load_forecast_attrs(
-        "sensor.load", attrs
-    )
-    assert points is None and bands is False
-    assert says in error
+    ]:
+        points, bands, error = sw._validate_and_parse_load_forecast_attrs(
+            "sensor.load", attrs
+        )
+        assert points is None and bands is False
+        assert says in error
 
 
 # --- the misconfiguration notification -----------------------------------------
@@ -153,9 +148,8 @@ def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path)
 # --- how far a day's score can be trusted -----------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "out"),
-    [
+def test_a_score_is_reliable_only_when_every_part_is():
+    for kwargs, out in [
         ({"soc": True, "regret": True}, True),
         ({"soc": False, "regret": True}, False),
         ({"soc": None, "regret": True}, None),
@@ -166,22 +160,19 @@ def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path)
         ({"soc": True, "regret": True, "stale": "yes"}, True),
         ({"soc": True, "regret": True, "meter": "disagrees"}, False),
         ({"soc": True, "regret": True, "meter": "agrees"}, True),
-    ],
-)
-def test_a_score_is_reliable_only_when_every_part_is(kwargs, out):
-    got = sw._epr_reliability(
-        kwargs["soc"],
-        kwargs["regret"],
-        kwargs.get("denominator"),
-        kwargs.get("meter"),
-        kwargs.get("stale", False),
-    )
-    assert got is out
+    ]:
+        got = sw._epr_reliability(
+            kwargs["soc"],
+            kwargs["regret"],
+            kwargs.get("denominator"),
+            kwargs.get("meter"),
+            kwargs.get("stale", False),
+        )
+        assert got is out
 
 
-@pytest.mark.parametrize(
-    ("entry", "code"),
-    [
+def test_each_stored_day_carries_the_first_reason_it_cannot_be_trusted():
+    for entry, code in [
         ({}, None),
         ({"epr_reliable": True}, "y"),
         ({"epr_reliable": None}, "u"),
@@ -215,10 +206,8 @@ def test_a_score_is_reliable_only_when_every_part_is(kwargs, out):
         ({"epr_reliable": False, "meter_reconciliation": {"status": "disagrees"}}, "m"),
         ({"epr_reliable": False, "meter_reconciliation": {"status": "agrees"}}, "?"),
         ({"epr_reliable": False}, "?"),
-    ],
-)
-def test_each_stored_day_carries_the_first_reason_it_cannot_be_trusted(entry, code):
-    assert sw._epr_reliability_code(entry) == code
+    ]:
+        assert sw._epr_reliability_code(entry) == code
 
 
 # --- re-scoring a day scored before its settlement landed -------------------------

@@ -150,12 +150,10 @@ def test_a_source_that_comes_back_is_announced_and_warned_about_afresh_if_lost_a
     assert said == ["WARNING", "INFO", "WARNING"]
 
 
-@pytest.mark.parametrize(
-    "name", ["ha_get", "entity_exists", "resample_forecast", "_kw_scale_factor"]
-)
-def test_the_solar_module_reaches_the_writers_helpers_at_call_time(name):
+def test_the_solar_module_reaches_the_writers_helpers_at_call_time():
     """#735: solar.py reaches these through the solver_writer module when it
     calls them, so a patch on solver_writer (the site fixture's) reaches it.
     A module-scope binding would silently send every such test to the real
     HA API."""
-    assert not hasattr(solar, name)
+    for name in ["ha_get", "entity_exists", "resample_forecast", "_kw_scale_factor"]:
+        assert not hasattr(solar, name)

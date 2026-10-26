@@ -12,7 +12,6 @@ import copy
 from datetime import UTC, datetime
 
 import device_observation as do
-import pytest
 
 from tests.device_contract.test_dc004_views_and_preview import F10, di
 
@@ -49,23 +48,19 @@ NORMAL = {
 }
 
 
-@pytest.mark.parametrize(
-    ("unit", "reason"), [(None, "unit_missing"), ("kw", "unit_not_exact")]
-)
-def test_a_unitless_or_misspelt_sensor_is_read_today_and_refused_in_the_contract(
-    unit, reason
-):
+def test_a_unitless_or_misspelt_sensor_is_read_today_and_refused_in_the_contract():
     """The F09 divergences, decided by the household on #1893: refused until
     the household declares the unit in its Repair."""
-    states = {**NORMAL, "sensor.meter_power": _st("1.5", unit)}
-    _legacy, contract, diff = _gate(states)
-    assert contract["grid_power"]["reason"] == reason
-    assert {
-        "input": "grid_power",
-        "field": "value",
-        "legacy": 1.5,
-        "contract": None,
-    } in diff
+    for unit, reason in [(None, "unit_missing"), ("kw", "unit_not_exact")]:
+        states = {**NORMAL, "sensor.meter_power": _st("1.5", unit)}
+        _legacy, contract, diff = _gate(states)
+        assert contract["grid_power"]["reason"] == reason
+        assert {
+            "input": "grid_power",
+            "field": "value",
+            "legacy": 1.5,
+            "contract": None,
+        } in diff
 
 
 def test_the_legacy_side_matches_the_forecasters_own_reader():

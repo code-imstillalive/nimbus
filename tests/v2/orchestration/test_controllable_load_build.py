@@ -148,23 +148,20 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
     assert "no_nominal" in caplog.text and "no_target" in caplog.text
 
 
-@pytest.mark.parametrize(
-    ("hour", "is_deadline", "expect"),
-    [
+def test_an_hour_resolves_to_its_period_on_the_grid():
+    for hour, is_deadline, expect in [
         (2.0, False, 4),  # still ahead today
         (0.0, False, 47),  # already passed: tomorrow's, clamped to the horizon
         (6.0, True, 12),
         (6.25, True, 12),  # between periods: the one at or before
         (30.0, True, 47),
-    ],
-)
-def test_an_hour_resolves_to_its_period_on_the_grid(hour, is_deadline, expect):
-    grid = [MIDNIGHT + timedelta(minutes=30 * i) for i in range(48)]
-    now = MIDNIGHT + timedelta(minutes=1)
-    assert (
-        cl._resolve_hour_to_period_index(grid, now, hour, is_deadline=is_deadline)
-        == expect
-    )
+    ]:
+        grid = [MIDNIGHT + timedelta(minutes=30 * i) for i in range(48)]
+        now = MIDNIGHT + timedelta(minutes=1)
+        assert (
+            cl._resolve_hour_to_period_index(grid, now, hour, is_deadline=is_deadline)
+            == expect
+        )
 
 
 def test_an_overnight_or_open_ended_window_is_one_window(site):
@@ -398,9 +395,8 @@ def _at(hour, minute=0):
     return datetime(2026, 9, 18, hour, minute, tzinfo=UTC)
 
 
-@pytest.mark.parametrize(
-    ("now", "earliest_hour", "deadline_hour", "earliest", "deadline", "expect"),
-    [
+def test_which_period_a_window_opens_in():
+    for now, earliest_hour, deadline_hour, earliest, deadline, expect in [
         (_at(6, 1), 6.0, 16.0, 96, 40, 0),  # open since 06:00: starts now, not tomorrow
         (_at(6), 6.0, 16.0, 96, 40, 0),  # both edges inclusive
         (_at(16), 6.0, 16.0, 96, 40, 0),
@@ -413,18 +409,14 @@ def _at(hour, minute=0):
         (_at(8), 6.0, 16.0, 40, 40, 40),  # a one-period window
         (_at(8), None, 16.0, 96, 40, 96),
         (_at(8), 6.0, None, 96, 40, 96),
-    ],
-)
-def test_which_period_a_window_opens_in(
-    now, earliest_hour, deadline_hour, earliest, deadline, expect
-):
-    assert (
-        cl._earliest_period_for_same_day_window(
-            now=now,
-            earliest_hour=earliest_hour,
-            deadline_hour=deadline_hour,
-            earliest_period=earliest,
-            deadline_period=deadline,
+    ]:
+        assert (
+            cl._earliest_period_for_same_day_window(
+                now=now,
+                earliest_hour=earliest_hour,
+                deadline_hour=deadline_hour,
+                earliest_period=earliest,
+                deadline_period=deadline,
+            )
+            == expect
         )
-        == expect
-    )

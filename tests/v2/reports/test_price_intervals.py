@@ -81,17 +81,14 @@ def test_overlaps_keep_the_first_row_and_bad_rows_are_skipped():
     ]
 
 
-@pytest.mark.parametrize(
-    ("rows", "expected_minutes"),
-    [
+def test_an_openadr_row_without_a_usable_length_is_an_hour():
+    for rows, expected_minutes in [
         ([{"datetime": T0.isoformat(), "value": 0.2, "interval_minutes": 15}], 15),
         ([{"datetime": T0.isoformat(), "value": 0.2, "interval_minutes": "x"}], 60),
         ([{"datetime": T0.isoformat(), "value": 0.2}], 60),
-    ],
-)
-def test_an_openadr_row_without_a_usable_length_is_an_hour(rows, expected_minutes):
-    (got,) = pi.openadr_intervals(rows)
-    assert got.end - got.start == timedelta(minutes=expected_minutes)
+    ]:
+        (got,) = pi.openadr_intervals(rows)
+        assert got.end - got.start == timedelta(minutes=expected_minutes)
 
 
 def test_openadr_rows_come_from_the_get_forecast_response_for_price_programs_only():

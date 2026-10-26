@@ -12,8 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from tests.device_contract.oracles import (
     Flow,
     Segment,
@@ -97,16 +95,13 @@ def test_changing_the_ac_ev_schedule_replaces_its_embedded_baseline() -> None:
     assert abs(suppressed - grid) > TOL
 
 
-@pytest.mark.parametrize(
-    ("overrides", "expected"),
-    [
+def test_variants():
+    for overrides, expected in [
         ({"pv": 20.0}, -4.0),  # export variant
         ({"ev_ac": 0.0, "ev_dc": 0.0, "house": 4.0}, -12.0),  # no EV flow
         ({"bess": 3.0}, -3.0),  # BESS discharging
-    ],
-)
-def test_variants(overrides: dict, expected: float) -> None:
-    assert abs(site_grid_kw(_flows(**overrides)) - expected) <= TOL
+    ]:
+        assert abs(site_grid_kw(_flows(**overrides)) - expected) <= TOL
 
 
 def test_declared_losses_apply_on_the_ac_side() -> None:

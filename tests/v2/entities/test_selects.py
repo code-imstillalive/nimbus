@@ -79,9 +79,8 @@ def _mode(*, restored=None, stored=None):
 OTHER = next(m for m in const.HOUSEHOLD_MODES if m != const.DEFAULT_HOUSEHOLD_MODE)
 
 
-@pytest.mark.parametrize(
-    ("restored", "stored", "current"),
-    [
+def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
+    for restored, stored, current in [
         (None, None, const.DEFAULT_HOUSEHOLD_MODE),
         (OTHER, None, OTHER),
         ("retired-mode", None, const.DEFAULT_HOUSEHOLD_MODE),
@@ -100,15 +99,11 @@ OTHER = next(m for m in const.HOUSEHOLD_MODES if m != const.DEFAULT_HOUSEHOLD_MO
             {const.CONF_HOUSEHOLD_MODE: {"value": OTHER}},
             const.DEFAULT_HOUSEHOLD_MODE,
         ),
-    ],
-)
-def test_a_select_comes_back_from_its_store_then_its_state_then_the_default(
-    restored, stored, current
-):
-    s, _ = _mode(restored=restored, stored=stored)
-    _run(s.async_added_to_hass())
-    assert s._attr_current_option == current
-    assert s.entity_id == "select.nimbus_household_mode"
+    ]:
+        s, _ = _mode(restored=restored, stored=stored)
+        _run(s.async_added_to_hass())
+        assert s._attr_current_option == current
+        assert s.entity_id == "select.nimbus_household_mode"
 
 
 def test_choosing_stores_it_and_an_unknown_choice_is_refused():

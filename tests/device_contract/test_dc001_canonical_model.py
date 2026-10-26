@@ -325,9 +325,9 @@ _CODES = (
 )
 
 
-@pytest.mark.parametrize("code", _CODES)
-def test_every_problem_code_has_a_negative_case(code) -> None:
-    assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
+def test_every_problem_code_has_a_negative_case():
+    for code in _CODES:
+        assert code in _codes(_bad(code)), (code, dc.validate(_bad(code)))
 
 
 def test_the_spec_table_and_the_tests_name_the_same_codes() -> None:

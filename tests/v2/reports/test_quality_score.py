@@ -279,23 +279,23 @@ def test_a_reconstruction_double_counting_the_meter_disagrees_either_sign():
     assert _reconcile(_metered(30.0, 70.0), 45.0, 70.0)["status"] == mr.DISAGREES
 
 
-@pytest.mark.parametrize("stale", [10.5, 50.0, None])
-def test_no_meter_or_too_little_of_its_history_is_not_evidence(stale):
-    assert _reconcile(_metered(32.7, 69.5), 71.6, 88.6, stale=stale)["status"] == (
-        mr.INSUFFICIENT_COVERAGE
-    )
-    none = _reconcile(None, 71.579, 88.642, stale=None, sensor=None)
-    assert none["status"] == mr.NOT_CHECKED
-    assert none["reconstructed_import_kwh"] == pytest.approx(71.579)
-    assert (
-        mr.TOLERANCE_FRACTION,
-        mr.TOLERANCE_FLOOR_KWH,
-        mr.MAX_STALE_PERIODS_PCT,
-    ) == (
-        0.10,
-        2.0,
-        10.0,
-    )
+def test_no_meter_or_too_little_of_its_history_is_not_evidence():
+    for stale in [10.5, 50.0, None]:
+        assert _reconcile(_metered(32.7, 69.5), 71.6, 88.6, stale=stale)["status"] == (
+            mr.INSUFFICIENT_COVERAGE
+        )
+        none = _reconcile(None, 71.579, 88.642, stale=None, sensor=None)
+        assert none["status"] == mr.NOT_CHECKED
+        assert none["reconstructed_import_kwh"] == pytest.approx(71.579)
+        assert (
+            mr.TOLERANCE_FRACTION,
+            mr.TOLERANCE_FLOOR_KWH,
+            mr.MAX_STALE_PERIODS_PCT,
+        ) == (
+            0.10,
+            2.0,
+            10.0,
+        )
 
 
 # --- achieved cost for a fleet on one grid connection (#768) ----------------------------------
@@ -464,9 +464,8 @@ def _caps(members):
     ]
 
 
-@pytest.mark.parametrize(
-    ("members", "expected"),
-    [
+def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only():
+    for members, expected in [
         (
             [
                 ("a", "g", 25.0, [5, 5, 5, 0, 0, 0]),
@@ -511,21 +510,8 @@ def _caps(members):
             [13.0, 13.0, 31.0, 31.0],
         ),
         ([], []),
-    ],
-    ids=[
-        "under",
-        "at_the_cap",
-        "over",
-        "peak_not_total",
-        "one_member",
-        "no_group",
-        "no_cap",
-        "two_groups",
-        "empty",
-    ],
-)
-def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only(members, expected):
-    assert _caps(members) == expected
+    ]:
+        assert _caps(members) == expected
 
 
 # --- the oracle can re-time the day's controllable loads, and only the oracle (#1357) ----------

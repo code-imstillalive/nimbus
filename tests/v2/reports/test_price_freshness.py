@@ -50,21 +50,19 @@ def test_the_oldest_source_stamp_decides_and_an_hour_is_stale():
     assert fresh["stale"] is False  # exactly an hour is not yet stale
 
 
-@pytest.mark.parametrize(
-    "attrs",
-    [
+def test_a_source_without_a_usable_stamp_says_nothing():
+    for attrs in [
         {},
         {"source_updated": "not a time"},
         {"source_updated": "2026-10-16T00:01:55"},
         {"source_updated": 5},
-    ],
-    ids=["none", "garbage", "naive", "not_text"],
-)
-def test_a_source_without_a_usable_stamp_says_nothing(attrs):
-    assert (
-        pf.check(_reader({"sensor.buy": attrs}), ["sensor.buy", "sensor.broken"], NOW)
-        is None
-    )
+    ]:
+        assert (
+            pf.check(
+                _reader({"sensor.buy": attrs}), ["sensor.buy", "sensor.broken"], NOW
+            )
+            is None
+        )
 
 
 def test_localvolts_siblings_are_read_when_a_configured_source_is_localvolts():

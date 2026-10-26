@@ -47,28 +47,24 @@ def _flows(case: dict) -> list[tuple[str, float | None]]:
 # F01: minimal site ------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "name", ["minimal", "unresolved_grid", "no_load", "battery_field_on_load"]
-)
-def test_f01_site_structure(name: str) -> None:
-    case, expected = F01["cases"][name], F01["expected"][name]
-    assert site_problems(_devices(case)) == expected["problems"]
+def test_f01_site_structure():
+    for name in ["minimal", "unresolved_grid", "no_load", "battery_field_on_load"]:
+        case, expected = F01["cases"][name], F01["expected"][name]
+        assert site_problems(_devices(case)) == expected["problems"]
 
 
 def test_f01_grid_and_load_alone_need_nothing_battery_specific() -> None:
     assert site_problems([Device("grid", "grid"), Device("house", "load")]) == []
 
 
-@pytest.mark.parametrize(
-    "name", ["minimal", "unresolved_grid", "balanced_without_meter"]
-)
-def test_f01_grid_observation(name: str) -> None:
-    case, expected = F01["cases"][name], F01["expected"][name]
-    got = observed_grid_kw(case["grid_measured_kw"], _flows(case))
-    if expected["grid_kw"] is None:
-        assert got is None  # unresolved, never an invented zero
-    else:
-        assert got is not None and abs(got - expected["grid_kw"]) <= TOL
+def test_f01_grid_observation():
+    for name in ["minimal", "unresolved_grid", "balanced_without_meter"]:
+        case, expected = F01["cases"][name], F01["expected"][name]
+        got = observed_grid_kw(case["grid_measured_kw"], _flows(case))
+        if expected["grid_kw"] is None:
+            assert got is None  # unresolved, never an invented zero
+        else:
+            assert got is not None and abs(got - expected["grid_kw"]) <= TOL
 
 
 # F05: nested inclusion --------------------------------------------------
@@ -128,12 +124,13 @@ def test_f11_a_valid_graph_has_no_problems() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("name", "needle"),
-    [("self", "itself"), ("cycle", "cycle"), ("undeclared", "undeclared")],
-)
-def test_f11_bad_graphs_are_rejected(name: str, needle: str) -> None:
-    assert any(needle in p for p in dependency_problems(_graph(F11["cases"][name])))
+def test_f11_bad_graphs_are_rejected():
+    for name, needle in [
+        ("self", "itself"),
+        ("cycle", "cycle"),
+        ("undeclared", "undeclared"),
+    ]:
+        assert any(needle in p for p in dependency_problems(_graph(F11["cases"][name])))
 
 
 def test_f11_consumers_share_one_revision() -> None:
@@ -144,15 +141,11 @@ def test_f11_consumers_share_one_revision() -> None:
     )
 
 
-@pytest.mark.parametrize(("source", "trained", "ready"), F11["cases"]["readiness"])
-def test_f11_readiness_follows_capability(
-    source: str, trained: bool, ready: bool
-) -> None:
-    assert forecast_ready(source, trained) is ready
+def test_f11_readiness_follows_capability():
+    for source, trained, ready in F11["cases"]["readiness"]:
+        assert forecast_ready(source, trained) is ready
 
 
-@pytest.mark.parametrize(("connections", "supported"), F11["cases"]["grid_connections"])
-def test_f11_several_grid_connections_are_explicitly_unsupported(
-    connections: int, supported: bool
-) -> None:
-    assert planner_supported(connections) is supported
+def test_f11_several_grid_connections_are_explicitly_unsupported():
+    for connections, supported in F11["cases"]["grid_connections"]:
+        assert planner_supported(connections) is supported

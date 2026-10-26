@@ -104,49 +104,53 @@ needs_node = pytest.mark.skipif(
 
 
 @needs_node
-@pytest.mark.parametrize("card", sorted(CARDS))
-def test_registered_before_the_swap_still_reaches_has_registry(card: str) -> None:
+def test_registered_before_the_swap_still_reaches_has_registry():
     """The reference household's case: the card ran first, HA swapped later."""
-    result = _run(card, "early")
-    assert result["threw"] is None, result
-    for name, where in result["names"].items():
-        assert where["inNative"], (card, name)
-        assert where["inPolyfill"] and where["polyfillIsUsable"], (card, name, where)
+    for card in sorted(CARDS):
+        result = _run(card, "early")
+        assert result["threw"] is None, result
+        for name, where in result["names"].items():
+            assert where["inNative"], (card, name)
+            assert where["inPolyfill"] and where["polyfillIsUsable"], (
+                card,
+                name,
+                where,
+            )
 
 
 @needs_node
-@pytest.mark.parametrize("card", sorted(CARDS))
-def test_registered_after_the_swap_is_registered_once(card: str) -> None:
+def test_registered_after_the_swap_is_registered_once():
     """HA's registry already in place: one registration, nothing thrown when
     the settle-time checks run."""
-    result = _run(card, "late")
-    assert result["threw"] is None, result
-    for name, where in result["names"].items():
-        assert where["inPolyfill"], (card, name)
-        assert not where["inNative"], (card, name)
+    for card in sorted(CARDS):
+        result = _run(card, "late")
+        assert result["threw"] is None, result
+        for name, where in result["names"].items():
+            assert where["inPolyfill"], (card, name)
+            assert not where["inNative"], (card, name)
 
 
 @needs_node
-@pytest.mark.parametrize("card", sorted(CARDS))
-def test_an_older_copy_registered_first_does_not_break_the_file(card: str) -> None:
+def test_an_older_copy_registered_first_does_not_break_the_file():
     """An old hand-copied /local card already took the name: this file must
     still run to the end (its card-picker entry included) and still reach
     HA's registry."""
-    result = _run(card, "older_copy")
-    assert result["threw"] is None, result
-    assert CARDS[card][0] in result["pushed"]
-    for name, where in result["names"].items():
-        assert where["inPolyfill"], (card, name)
+    for card in sorted(CARDS):
+        result = _run(card, "older_copy")
+        assert result["threw"] is None, result
+        assert CARDS[card][0] in result["pushed"]
+        for name, where in result["names"].items():
+            assert where["inPolyfill"], (card, name)
 
 
-@pytest.mark.parametrize("card", sorted(CARDS))
-def test_every_card_registers_through_the_race_safe_helper(card: str) -> None:
-    src = (FE / card).read_text(encoding="utf-8")
-    for name in CARDS[card]:
-        assert (
-            f'nimbusRegisterCard("{name}"' in src
-            or f"nimbusRegisterCard('{name}'" in src
-        )
-    # The only bare define left is the helper's own first attempt.
-    assert src.count("customElements.define(") == 1
-    assert "registry.define(name, class extends cls {})" in src
+def test_every_card_registers_through_the_race_safe_helper():
+    for card in sorted(CARDS):
+        src = (FE / card).read_text(encoding="utf-8")
+        for name in CARDS[card]:
+            assert (
+                f'nimbusRegisterCard("{name}"' in src
+                or f"nimbusRegisterCard('{name}'" in src
+            )
+        # The only bare define left is the helper's own first attempt.
+        assert src.count("customElements.define(") == 1
+        assert "registry.define(name, class extends cls {})" in src

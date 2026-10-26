@@ -120,9 +120,8 @@ def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
     )
 
 
-@pytest.mark.parametrize(
-    ("state", "kw", "allowed"),
-    [
+def test_a_load_that_ignored_its_command_is_reaffirmed_within_limits():
+    for state, kw, allowed in [
         (_diverged(1200.0), {}, True),
         (_diverged(60.0), {}, False),  # not diverged long enough
         (
@@ -142,12 +141,10 @@ def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
         ),  # daily cap
         (_diverged(1200.0), {"reaffirm_after_seconds": 0}, False),  # switched off
         (lrs.LoadRunState(), {}, False),  # nothing diverged
-    ],
-)
-def test_a_load_that_ignored_its_command_is_reaffirmed_within_limits(
-    state, kw, allowed
-):
-    assert lrs.reaffirm_allowed(state, now_ts=10_000.0, day_key=DAY, **kw) is allowed
+    ]:
+        assert (
+            lrs.reaffirm_allowed(state, now_ts=10_000.0, day_key=DAY, **kw) is allowed
+        )
 
 
 def test_reaffirms_are_counted_per_day():
@@ -226,9 +223,8 @@ def test_the_next_run_its_length_energy_and_cost():
     assert last.target_today_kwh is None
 
 
-@pytest.mark.parametrize(
-    ("state", "kind", "kw", "status"),
-    [
+def test_the_status_line_says_the_one_thing_that_matters_most():
+    for state, kind, kw, status in [
         ({"commanded_state": True}, "deferrable", {}, "running"),
         ({"plan_shortfall_kwh": 1.5}, "deferrable", {}, "will miss target by 1.50 kWh"),
         (
@@ -271,11 +267,11 @@ def test_the_next_run_its_length_energy_and_cost():
             "shed 0.75 kWh today",
         ),
         ({"plan_forecast": _plan([0, 0])}, "deferrable", {}, "outside window"),
-    ],
-)
-def test_the_status_line_says_the_one_thing_that_matters_most(state, kind, kw, status):
-    s = replace(lrs.LoadRunState(), **state)
-    assert lrs.derive_schedule_view(s, load_kind=kind, now=T0, **kw).status == status
+    ]:
+        s = replace(lrs.LoadRunState(), **state)
+        assert (
+            lrs.derive_schedule_view(s, load_kind=kind, now=T0, **kw).status == status
+        )
 
 
 def test_money_saved_today_is_what_the_mean_price_would_have_cost_less_what_it_did():
@@ -308,21 +304,18 @@ class MemoryStore:
         self.data = data
 
 
-@pytest.mark.parametrize(
-    "store",
-    [
+def test_an_unreadable_store_starts_the_load_afresh():
+    for store in [
         MemoryStore(broken=True),
         MemoryStore({"hw": {"delivered_today_kwh": "lots"}}),
         MemoryStore(None),
-    ],
-)
-def test_an_unreadable_store_starts_the_load_afresh(store):
-    assert (
-        asyncio.run(lrs.LoadRunStateStore(store=store).async_read("hw"))
-        == lrs.LoadRunState()
-    )
-    asyncio.run(
-        lrs.LoadRunStateStore(store=MemoryStore(broken=True)).async_write(
-            "hw", lrs.LoadRunState()
+    ]:
+        assert (
+            asyncio.run(lrs.LoadRunStateStore(store=store).async_read("hw"))
+            == lrs.LoadRunState()
         )
-    )
+        asyncio.run(
+            lrs.LoadRunStateStore(store=MemoryStore(broken=True)).async_write(
+                "hw", lrs.LoadRunState()
+            )
+        )

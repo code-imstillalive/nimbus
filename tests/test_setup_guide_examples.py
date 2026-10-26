@@ -9,7 +9,6 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pytest
 import yaml
 from jinja2 import Environment, StrictUndefined
 
@@ -57,9 +56,8 @@ def _render(rows, health=None):
     )
 
 
-@pytest.mark.parametrize(
-    "rows",
-    [
+def test_missing_or_invalid_period_never_claims_current():
+    for rows in [
         None,
         [],
         {},
@@ -74,25 +72,20 @@ def _render(rows, health=None):
         [{"time": "2026-10-04T12:00:00+00:00", "hours": float("inf")}],
         [{"time": float("nan"), "hours": 1}],
         [{"time": float("inf"), "hours": 1}],
-    ],
-)
-def test_missing_or_invalid_period_never_claims_current(rows):
-    output = _render(rows)
-    assert "Period check: missing or invalid period" in output
-    assert "covers now" not in output
+    ]:
+        output = _render(rows)
+        assert "Period check: missing or invalid period" in output
+        assert "covers now" not in output
 
 
-@pytest.mark.parametrize(
-    ("start", "hours", "expected"),
-    [
+def test_period_boundaries_and_timezone():
+    for start, hours, expected in [
         ("2026-10-04T11:00:00+00:00", 1, "expired period"),
         ("2026-10-04T12:05:00+00:00", 1, "future period"),
         ("2026-10-04T12:00:00+00:00", 0.0833, "covers now"),
         ("2026-10-04T21:55:00+10:00", 0.25, "covers now"),
-    ],
-)
-def test_period_boundaries_and_timezone(start, hours, expected):
-    assert f"Period check: {expected}" in _render([{"time": start, "hours": hours}])
+    ]:
+        assert f"Period check: {expected}" in _render([{"time": start, "hours": hours}])
 
 
 def test_health_diagnostics_do_not_hide_empty_or_missing_values():

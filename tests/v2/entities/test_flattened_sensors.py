@@ -171,21 +171,22 @@ def test_a_figure_can_carry_a_mapping_as_its_attributes():
     assert _one(_spec()).extra_state_attributes == {"nimbus_version": "0.94.485"}
 
 
-@pytest.mark.parametrize(
-    ("unit", "shown"),
-    [(fl._CURRENCY, "AUD"), (fl._CURRENCY_PER_KWH, "AUD/kWh"), ("kWh", "kWh")],
-)
-def test_money_is_shown_in_the_households_currency(unit, shown):
-    e = _one(_spec(unit_of_measurement=unit))
-    assert e.native_unit_of_measurement == shown
-    e.hass.config.currency = ""
-    assert e.native_unit_of_measurement == (
-        None
-        if unit == fl._CURRENCY_PER_KWH
-        else ("" if unit == fl._CURRENCY else "kWh")
-    )
-    e.hass = None
-    assert e.native_unit_of_measurement == unit
+def test_money_is_shown_in_the_households_currency():
+    for unit, shown in [
+        (fl._CURRENCY, "AUD"),
+        (fl._CURRENCY_PER_KWH, "AUD/kWh"),
+        ("kWh", "kWh"),
+    ]:
+        e = _one(_spec(unit_of_measurement=unit))
+        assert e.native_unit_of_measurement == shown
+        e.hass.config.currency = ""
+        assert e.native_unit_of_measurement == (
+            None
+            if unit == fl._CURRENCY_PER_KWH
+            else ("" if unit == fl._CURRENCY else "kWh")
+        )
+        e.hass = None
+        assert e.native_unit_of_measurement == unit
 
 
 def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
@@ -332,9 +333,8 @@ def _flattened_keys():
     }
 
 
-@pytest.mark.parametrize(
-    ("key", "has_a_child"),
-    [
+def test_what_gets_its_own_history_and_what_deliberately_does_not():
+    for key, has_a_child in [
         # #849: varying numbers that had no history at all.
         ("envelope_import_limit_kw", True),
         ("envelope_export_limit_kw", True),
@@ -348,7 +348,5 @@ def _flattened_keys():
         ("efficiency_convention", False),
         ("load_forecast_source_used", False),
         ("solve_diagnostics", False),
-    ],
-)
-def test_what_gets_its_own_history_and_what_deliberately_does_not(key, has_a_child):
-    assert (key in _flattened_keys()) is has_a_child
+    ]:
+        assert (key in _flattened_keys()) is has_a_child

@@ -103,20 +103,17 @@ def baseline():
     return _assemble(**_inputs())
 
 
-@pytest.mark.parametrize(
-    ("a", "b"),
-    [
+def test_a_forecast_swapped_with_its_own_band_cannot_build():
+    for a, b in [
         ("load_kw", "load_lower_kw"),
         ("load_kw", "load_upper_kw"),
         ("solar_kw", "solar_lower_kw"),
         ("solar_kw", "solar_upper_kw"),
-    ],
-)
-def test_a_forecast_swapped_with_its_own_band_cannot_build(a, b):
-    kwargs = _inputs()
-    kwargs[a], kwargs[b] = kwargs[b], kwargs[a]
-    with pytest.raises(ValueError, match="confidence band"):
-        _assemble(**kwargs)
+    ]:
+        kwargs = _inputs()
+        kwargs[a], kwargs[b] = kwargs[b], kwargs[a]
+        with pytest.raises(ValueError, match="confidence band"):
+            _assemble(**kwargs)
 
 
 # --- the period-0 diagnostic (#1417, #1577) ---------------------------------------------------

@@ -452,9 +452,8 @@ DET = SimpleNamespace(
 )
 
 
-@pytest.mark.parametrize(
-    ("over", "drive", "want"),
-    [
+def test_the_stochastic_plan_is_refused_for_each_named_reason():
+    for over, drive, want in [
         ({}, True, None),
         ({"status": "no_band"}, False, "no_solar_band"),
         ({"status": "error"}, False, "stochastic_error"),
@@ -468,10 +467,8 @@ DET = SimpleNamespace(
         ({"direction_exclusivity": "still_two_way"}, False, "direction_still_two_way"),
         ({"solar_band": "raw"}, True, "solar_band_not_calibrated"),
         ({"solar_band": "raw"}, False, None),
-    ],
-)
-def test_the_stochastic_plan_is_refused_for_each_named_reason(over, drive, want):
-    assert solver_plan._refusal_reason(_result(**over), DET, drive=drive) == want
+    ]:
+        assert solver_plan._refusal_reason(_result(**over), DET, drive=drive) == want
 
 
 def test_a_relaxation_the_deterministic_plan_shares_is_not_a_refusal():
@@ -502,9 +499,8 @@ def _bound_plan(export_kw, reduced_cost=0.5):
     )
 
 
-@pytest.mark.parametrize(
-    ("export_kw", "pin", "label"),
-    [
+def test_a_bound_is_named_by_which_bound_the_variable_sits_at():
+    for export_kw, pin, label in [
         (5.0, None, "Grid export limit"),  # exactly at the ceiling
         (0.0, None, "Grid export at zero (not economical right now)"),
         (3.0, 3.0, "Grid export pinned at 3.00 kW by P2P export commitment"),
@@ -513,16 +509,14 @@ def _bound_plan(export_kw, reduced_cost=0.5):
             None,
             "Grid export at 3.00 kW (unexpected -- neither its 0 nor 5.00 kW bound)",
         ),
-    ],
-)
-def test_a_bound_is_named_by_which_bound_the_variable_sits_at(export_kw, pin, label):
-    plan = _bound_plan(export_kw)
-    assert publish.compute_binding_constraint_label(
-        plan, 5.0, 10.0, 4.0, 4.0, 0.5, fixed_export_kw_now=pin
-    ) == (label, 1.0)
-    assert publish.compute_binding_constraint_label(
-        _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
-    ) == ("Nothing currently binding", None)
+    ]:
+        plan = _bound_plan(export_kw)
+        assert publish.compute_binding_constraint_label(
+            plan, 5.0, 10.0, 4.0, 4.0, 0.5, fixed_export_kw_now=pin
+        ) == (label, 1.0)
+        assert publish.compute_binding_constraint_label(
+            _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
+        ) == ("Nothing currently binding", None)
 
 
 def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):

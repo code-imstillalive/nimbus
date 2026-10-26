@@ -71,17 +71,14 @@ def solved():
 # --- the band, the stages ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("hours", "k"),
-    [
+def test_stage_1_is_every_period_that_ends_in_the_first_half_hour():
+    for hours, k in [
         ([1 / 60] * 3 + [5 / 60] * 10 + [0.5] * 4, 8),  # the tiered grid: to minute 28
         ([0.5] * 4, 1),
         ([1.0] * 4, 1),  # at least one period
         ([], 0),
-    ],
-)
-def test_stage_1_is_every_period_that_ends_in_the_first_half_hour(hours, k):
-    assert sd.stage1_period_count(np.array(hours)) == k
+    ]:
+        assert sd.stage1_period_count(np.array(hours)) == k
 
 
 def test_a_calibrated_band_is_preferred_and_no_band_or_no_spread_is_no_scenarios():
@@ -103,10 +100,10 @@ def test_a_calibrated_band_is_preferred_and_no_band_or_no_spread_is_no_scenarios
     assert (result.status, result.plan) == ("no_band", None)
 
 
-@pytest.mark.parametrize("weights", [(0.5, 0.5), (0.2, 0.2, 0.2), (0.0, 0.5, 0.5)])
-def test_scenario_weights_must_be_three_positive_and_sum_to_one(weights):
-    with pytest.raises(ValueError, match="weights"):
-        sd.build_stochastic_plan(_inputs(), weights=weights)
+def test_scenario_weights_must_be_three_positive_and_sum_to_one():
+    for weights in [(0.5, 0.5), (0.2, 0.2, 0.2), (0.0, 0.5, 0.5)]:
+        with pytest.raises(ValueError, match="weights"):
+            sd.build_stochastic_plan(_inputs(), weights=weights)
 
 
 # --- the joint solve ---------------------------------------------------------------------------

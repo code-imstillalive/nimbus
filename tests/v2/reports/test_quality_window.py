@@ -613,9 +613,8 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
 # --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
 
 
-@pytest.mark.parametrize(
-    ("regret", "delta", "share"),
-    [
+def test_the_pricing_share_of_the_regret():
+    for regret, delta, share in [
         (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
         (-0.7855, 0.0, 0.0),
         (3.6485, None, 0.0),
@@ -625,10 +624,10 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
         (2.0, -1.0, 0.5),
         (1.0, 5.0, 1.0),  # a share, never past the whole
         (30.0, 15.0, 0.5),
-    ],
-)
-def test_the_pricing_share_of_the_regret(regret, delta, share):
-    assert sw._regret_path_delta_share(regret, delta) == pytest.approx(share, abs=1e-3)
+    ]:
+        assert sw._regret_path_delta_share(regret, delta) == pytest.approx(
+            share, abs=1e-3
+        )
 
 
 # --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------

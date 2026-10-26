@@ -13,8 +13,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -52,20 +50,17 @@ def _sensor(*, kind=None, role=None, data=None, source_state="1.2"):
     return s
 
 
-@pytest.mark.parametrize(
-    ("role", "unit", "device_class"),
-    [
+def test_a_signal_forecast_takes_its_roles_unit():
+    for role, unit, device_class in [
         ("temperature", "°C", "TEMPERATURE"),
         ("humidity", "%", "HUMIDITY"),
         ("battery", "kW", "POWER"),
-    ],
-)
-def test_a_signal_forecast_takes_its_roles_unit(role, unit, device_class):
-    s = _sensor(kind=const.SUBENTRY_TYPE_SIGNAL, role=role)
-    assert s._attr_unique_id == "sub1_signal_forecast"
-    assert s._attr_device_info["model"] == "Power Signal Forecaster"
-    assert s._attr_native_unit_of_measurement == unit
-    assert s._attr_device_class is getattr(sm.SensorDeviceClass, device_class)
+    ]:
+        s = _sensor(kind=const.SUBENTRY_TYPE_SIGNAL, role=role)
+        assert s._attr_unique_id == "sub1_signal_forecast"
+        assert s._attr_device_info["model"] == "Power Signal Forecaster"
+        assert s._attr_native_unit_of_measurement == unit
+        assert s._attr_device_class is getattr(sm.SensorDeviceClass, device_class)
 
 
 def test_the_forecast_and_its_provenance_are_published_as_given():

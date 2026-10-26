@@ -27,7 +27,6 @@ from datetime import datetime, timedelta
 
 import _ml_path  # noqa: F401
 import numpy as np
-import pytest
 from _isolated_state import PERSISTED_PATH_CONSTANTS
 from golden import scenarios_thermal as st
 from nimbus_load.ml import gbrt
@@ -1015,61 +1014,65 @@ def test_native_two_cycles_does_not_re_dispatch_an_unchanged_command() -> None:
         assert state["activations_today"] == 1, key
 
 
-@pytest.mark.parametrize("folder", NEMWEB_FOLDERS)
-def test_nemweb_inputs_match_their_provenance(folder: str) -> None:
-    base = GOLDEN / "nemweb" / folder
-    manifest = [
-        json.loads(line) for line in (base / "manifest.jsonl").read_text().splitlines()
-    ]
-    assert {row["feed"] for row in manifest} >= {"pd7day", "stpasa", "tradingis"}
-    assert all(row["url"].startswith("https://nemweb.com.au/") for row in manifest)
-    for variant in ("passthrough", "fitted"):
-        fc = json.loads(
-            gzip.decompress(
-                (base / f"nem_pd7day_forecast.{variant}.json.gz").read_bytes()
+def test_nemweb_inputs_match_their_provenance():
+    for folder in NEMWEB_FOLDERS:
+        base = GOLDEN / "nemweb" / folder
+        manifest = [
+            json.loads(line)
+            for line in (base / "manifest.jsonl").read_text().splitlines()
+        ]
+        assert {row["feed"] for row in manifest} >= {"pd7day", "stpasa", "tradingis"}
+        assert all(row["url"].startswith("https://nemweb.com.au/") for row in manifest)
+        for variant in ("passthrough", "fitted"):
+            fc = json.loads(
+                gzip.decompress(
+                    (base / f"nem_pd7day_forecast.{variant}.json.gz").read_bytes()
+                )
             )
+            for name, sha in fc["provenance"]["inputs"].items():
+                assert hashlib.sha256((base / name).read_bytes()).hexdigest() == sha, (
+                    name
+                )
+            sources = {p["calibrated_source"] for p in fc["attributes"]["forecast"]}
+            assert sources == (
+                {"passthrough"}
+                if variant == "passthrough"
+                else sources - {"passthrough"}
+            )
+
+
+def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated():
+    for folder in NEMWEB_FOLDERS:
+        raw = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
+        spikes = [p for p in raw["forecast"] if p["import_price"] >= SPIKE]
+        assert spikes, "no PD7DAY spike reached import_price"
+        assert any(p["battery_kw"] > 0 for p in spikes), (
+            "battery never discharges into a spike"
         )
-        for name, sha in fc["provenance"]["inputs"].items():
-            assert hashlib.sha256((base / name).read_bytes()).hexdigest() == sha, name
-        sources = {p["calibrated_source"] for p in fc["attributes"]["forecast"]}
-        assert sources == (
-            {"passthrough"} if variant == "passthrough" else sources - {"passthrough"}
+
+        # Beyond the first 30 minutes every price is a PD7DAY forecast; inside
+        # them the live price and the retail array decide (the real SA1 spike
+        # in sa_nemweb_spike_arrived is live, not forecast).
+        snap = _snapshot(f"{folder}_fitted")
+        horizon = datetime.fromisoformat(snap["cycles"][0]["instant"]) + timedelta(
+            minutes=30
         )
+        fitted = _battery(snap["cycles"][0])
+        late = [
+            p
+            for p in fitted["forecast"]
+            if datetime.fromisoformat(p["time"]) >= horizon
+            and p["import_price"] >= SPIKE
+        ]
+        assert not late, "calibration left a forecast spike in import_price"
 
 
-@pytest.mark.parametrize("folder", NEMWEB_FOLDERS)
-def test_pd7day_spikes_reach_the_lp_uncalibrated_and_not_calibrated(
-    folder: str,
-) -> None:
-    raw = _battery(_snapshot(f"{folder}_passthrough")["cycles"][0])
-    spikes = [p for p in raw["forecast"] if p["import_price"] >= SPIKE]
-    assert spikes, "no PD7DAY spike reached import_price"
-    assert any(p["battery_kw"] > 0 for p in spikes), (
-        "battery never discharges into a spike"
-    )
-
-    # Beyond the first 30 minutes every price is a PD7DAY forecast; inside
-    # them the live price and the retail array decide (the real SA1 spike
-    # in sa_nemweb_spike_arrived is live, not forecast).
-    snap = _snapshot(f"{folder}_fitted")
-    horizon = datetime.fromisoformat(snap["cycles"][0]["instant"]) + timedelta(
-        minutes=30
-    )
-    fitted = _battery(snap["cycles"][0])
-    late = [
-        p
-        for p in fitted["forecast"]
-        if datetime.fromisoformat(p["time"]) >= horizon and p["import_price"] >= SPIKE
-    ]
-    assert not late, "calibration left a forecast spike in import_price"
-
-
-@pytest.mark.parametrize("variant", ["passthrough", "fitted"])
-def test_real_spike_arms_the_override(variant: str) -> None:
-    attrs = _battery(_snapshot(f"sa_nemweb_spike_arrived_{variant}")["cycles"][0])
-    assert attrs["price_spike_active"] is True
-    assert attrs["forecast"][0]["import_price"] >= SPIKE
-    assert attrs["forecast"][0]["battery_kw"] == 5.0
+def test_real_spike_arms_the_override():
+    for variant in ["passthrough", "fitted"]:
+        attrs = _battery(_snapshot(f"sa_nemweb_spike_arrived_{variant}")["cycles"][0])
+        assert attrs["price_spike_active"] is True
+        assert attrs["forecast"][0]["import_price"] >= SPIKE
+        assert attrs["forecast"][0]["battery_kw"] == 5.0
 
 
 def test_forecast_spikes_alone_do_not_arm_the_override() -> None:
