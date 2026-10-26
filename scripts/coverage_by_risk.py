@@ -372,6 +372,20 @@ def measure(workers: int) -> tuple[dict, int, list[str], dict]:
             lines = by_module.setdefault(_key(path), {})
             for line, ctxs in data.contexts_by_lineno(path).items():
                 lines.setdefault(line, set()).update(c for c in ctxs if c)
+        # Each test's branches too, for --cover: a test can be the only one
+        # taking a branch whose lines others reach. Read straight from the
+        # data file (one query, not one per test and file).
+        by_arc: dict[str, dict[tuple[int, int], set[str]]] = {}
+        import sqlite3
+
+        with sqlite3.connect(combined) as con:
+            for path, ctx, a, b in con.execute(
+                "select file.path, context.context, arc.fromno, arc.tono from arc"
+                " join file on file.id = arc.file_id"
+                " join context on context.id = arc.context_id"
+            ):
+                if ctx:
+                    by_arc.setdefault(_key(path), {}).setdefault((a, b), set()).add(ctx)
         result = {}
         for path, f in files.items():
             s = f["summary"]
@@ -390,7 +404,15 @@ def measure(workers: int) -> tuple[dict, int, list[str], dict]:
                     f["executed_lines"], by_module.get(_key(path), {})
                 ),
             }
-    return result, len(golden), contexts, by_module
+    return (
+        result,
+        len(golden),
+        contexts,
+        {
+            m: {**by_module.get(m, {}), **by_arc.get(m, {})}
+            for m in set(by_module) | set(by_arc)
+        },
+    )
 
 
 def gaps(r: dict, measured: dict) -> dict:
@@ -417,8 +439,8 @@ def test_of(context: str) -> str:
     return context.split("|", 1)[0].split("[", 1)[0]
 
 
-def smallest_cover(by_module: dict[str, dict[int, set[str]]]) -> dict:
-    """The fewest test functions that still reach every line the suite
+def smallest_cover(by_module: dict[str, dict]) -> dict:
+    """The fewest test functions that still reach every line and branch the suite
     reaches (#1837: the household's ~1,000-test target). Greedy set cover:
     golden scenarios are always kept (they are not tests to retire); then,
     repeatedly, the test reaching the most lines not yet reached. Every
