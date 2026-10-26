@@ -263,25 +263,6 @@ def test_wide_default_pill_visible_and_dot_hidden(top_rules, compact_rules):
     assert _decls(name).get("display") == "block"
     assert _decls(unit).get("display") == "block"
 
-
-# --------------------------------------------------------------------------- #
-# Compact @container block                                                    #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture(scope="module")
-def compact_container(top_rules):
-    # Household, 19 Oct 2026: the compact query reads the card (:host), not
-    # .ftable-wrap, so the table's grid track can size to the table.
-    return _find_container(top_rules, "(max-width: 530px)")
-
-
-@pytest.fixture(scope="module")
-def compact_rules(compact_container):
-    return _container_body_rules(compact_container)
-
-
-def test_compact_now_row_shows_now_tag_not_clock(compact_rules):
     # test_compact_now_row_shows_now_tag_not_clock: On the now row inside the compact block, the clock text is hidden
     clock_hidden = _find_rule(
         compact_rules,
@@ -350,6 +331,23 @@ def test_compact_now_row_shows_now_tag_not_clock(compact_rules):
     assert neg_color.startswith("#e04a3f"), (
         f"grid-neg should be red (#e04a3f...), got {neg_color!r}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Compact @container block                                                    #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def compact_container(top_rules):
+    # Household, 19 Oct 2026: the compact query reads the card (:host), not
+    # .ftable-wrap, so the table's grid track can size to the table.
+    return _find_container(top_rules, "(max-width: 530px)")
+
+
+@pytest.fixture(scope="module")
+def compact_rules(compact_container):
+    return _container_body_rules(compact_container)
 
 
 # --------------------------------------------------------------------------- #

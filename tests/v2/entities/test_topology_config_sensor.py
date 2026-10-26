@@ -68,7 +68,6 @@ CAR = _sub(
 def test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settings(
     registry,
 ):
-    # test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settings
     registry[f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}"] = "number.cap"
     s = _sensor(
         {
@@ -107,28 +106,31 @@ def test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settin
     )
     assert s.native_value == 2
 
-    # test_a_home_battery_without_a_readable_size_has_no_capacity
-    for capacity in [None, "unknown", "lots"]:
-        states = (
-            {}
-            if capacity is None
-            else {
-                f"number.nimbus_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": SimpleNamespace(
-                    state=capacity
-                )
-            }
-        )
-        s = _sensor(
-            {
-                const.CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.bat_w",
-                const.CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
-            },
-            states=states,
-        )
-        (tower,) = s.extra_state_attributes["battery_towers"]
-        assert tower["capacity_kwh"] is None
-        assert s.extra_state_attributes["pv_strings"] == []
 
+@pytest.mark.parametrize("capacity", [None, "unknown", "lots"])
+def test_a_home_battery_without_a_readable_size_has_no_capacity(registry, capacity):
+    states = (
+        {}
+        if capacity is None
+        else {
+            f"number.nimbus_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": SimpleNamespace(
+                state=capacity
+            )
+        }
+    )
+    s = _sensor(
+        {
+            const.CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.bat_w",
+            const.CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        },
+        states=states,
+    )
+    (tower,) = s.extra_state_attributes["battery_towers"]
+    assert tower["capacity_kwh"] is None
+    assert s.extra_state_attributes["pv_strings"] == []
+
+
+def test_participants_sharing_a_charger_are_drawn_on_it(registry):
     # test_participants_sharing_a_charger_are_drawn_on_it
     van = _sub(
         "van",

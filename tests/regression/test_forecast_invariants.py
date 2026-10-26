@@ -178,6 +178,43 @@ def test_raw_01_forecast_exposes_price_raw_attributes(
             f"soc_pct {soc} out of [{lo}, {hi}] at t={x['time']}"
         )
 
+    # test_lp_02_battery_power_bounds_respected: LP-02: |forecast[i].battery_kw| within configured charge/discharge limits.
+    max_chrg = float(solver_config["solver_max_charge_kw"])
+    max_dchg = float(solver_config["solver_max_discharge_kw"])
+    for x in forecast:
+        kw = x["battery_kw"]
+        assert kw <= max_dchg + 0.01, (
+            f"discharge {kw} > max_discharge {max_dchg} at t={x['time']}"
+        )
+        assert -kw <= max_chrg + 0.01, (
+            f"charge {-kw} > max_charge {max_chrg} at t={x['time']}"
+        )
+
+    # test_lp_03_sign_conventions: LP-03: grid_import_kw, grid_export_kw, solar_kw, load_kw are all
+    for x in forecast:
+        for key in ("grid_import_kw", "grid_export_kw", "solar_kw", "load_kw"):
+            assert x[key] >= -1e-3, f"{key}={x[key]} at t={x['time']}"
+
+    # test_lp_04_battery_energy_balance_closes_when_after_efficiency_available: LP-04: Δenergy inferred from Δsoc must match Σ(battery_kw × hours),
+    if "battery_kw_after_efficiency" not in forecast[0]:
+        import pytest
+
+        pytest.skip(
+            "forecast[i].battery_kw_after_efficiency not published; energy "
+            "balance cannot be closed without knowing the efficiency curve"
+        )
+
+    cap = float(solver_config["solver_battery_capacity_kwh"])
+    soc0 = forecast[0]["soc_pct"]
+    socN = forecast[-1]["soc_pct"]
+    e_via_soc = (soc0 - socN) / 100.0 * cap
+    e_via_kw = sum(x["battery_kw_after_efficiency"] * x["hours"] for x in forecast)
+    rel_err = abs(e_via_kw - e_via_soc) / max(abs(e_via_soc), 1.0)
+    assert rel_err < 0.05, (
+        f"energy balance not closed: e_via_soc={e_via_soc:.2f} kWh, "
+        f"e_via_kw={e_via_kw:.2f} kWh, rel_err={rel_err:.3f}"
+    )
+
 
 # ─────────────────────────────────────────────────────────────
 # PRICE-* — source-sensor pass-through (#217 item 1, #216)
@@ -289,42 +326,3 @@ def _rows_in_current_nem_block(forecast: list[dict]) -> list[dict]:
 # ─────────────────────────────────────────────────────────────
 # LP-* — LP output invariants (#217 item 1)
 # ─────────────────────────────────────────────────────────────
-
-
-def test_lp_02_battery_power_bounds_respected(forecast, solver_config):
-    # test_lp_02_battery_power_bounds_respected: LP-02: |forecast[i].battery_kw| within configured charge/discharge limits.
-    max_chrg = float(solver_config["solver_max_charge_kw"])
-    max_dchg = float(solver_config["solver_max_discharge_kw"])
-    for x in forecast:
-        kw = x["battery_kw"]
-        assert kw <= max_dchg + 0.01, (
-            f"discharge {kw} > max_discharge {max_dchg} at t={x['time']}"
-        )
-        assert -kw <= max_chrg + 0.01, (
-            f"charge {-kw} > max_charge {max_chrg} at t={x['time']}"
-        )
-
-    # test_lp_03_sign_conventions: LP-03: grid_import_kw, grid_export_kw, solar_kw, load_kw are all
-    for x in forecast:
-        for key in ("grid_import_kw", "grid_export_kw", "solar_kw", "load_kw"):
-            assert x[key] >= -1e-3, f"{key}={x[key]} at t={x['time']}"
-
-    # test_lp_04_battery_energy_balance_closes_when_after_efficiency_available: LP-04: Δenergy inferred from Δsoc must match Σ(battery_kw × hours),
-    if "battery_kw_after_efficiency" not in forecast[0]:
-        import pytest
-
-        pytest.skip(
-            "forecast[i].battery_kw_after_efficiency not published; energy "
-            "balance cannot be closed without knowing the efficiency curve"
-        )
-
-    cap = float(solver_config["solver_battery_capacity_kwh"])
-    soc0 = forecast[0]["soc_pct"]
-    socN = forecast[-1]["soc_pct"]
-    e_via_soc = (soc0 - socN) / 100.0 * cap
-    e_via_kw = sum(x["battery_kw_after_efficiency"] * x["hours"] for x in forecast)
-    rel_err = abs(e_via_kw - e_via_soc) / max(abs(e_via_soc), 1.0)
-    assert rel_err < 0.05, (
-        f"energy balance not closed: e_via_soc={e_via_soc:.2f} kWh, "
-        f"e_via_kw={e_via_kw:.2f} kWh, rel_err={rel_err:.3f}"
-    )

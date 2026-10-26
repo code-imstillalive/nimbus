@@ -113,17 +113,16 @@ def test_a_pid_file_nobody_is_using_is_reclaimed(lock_path, monkeypatch, content
 
 
 def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypatch):
-    # test_a_stale_file_naming_this_very_process_is_reclaimed: Left by an unclean stop: this process is alive, so asking the OS
-    _solver_lp._lex_calibration_failed_until = 0.0
-    with monkeypatch.context() as mp:
-        asked = []
-        mp.setattr(cycle_lock.os, "kill", lambda pid, sig: asked.append(pid))
-        _pid_file(lock_path, str(os.getpid()))
-        assert cycle_lock.acquire_lock(lock_path)
-        assert asked == []
+    """Left by an unclean stop: this process is alive, so asking the OS
+    whether that PID runs would say yes and wedge every solve after."""
+    asked = []
+    monkeypatch.setattr(cycle_lock.os, "kill", lambda pid, sig: asked.append(pid))
+    _pid_file(lock_path, str(os.getpid()))
+    assert cycle_lock.acquire_lock(lock_path)
+    assert asked == []
 
-    # test_releasing_what_was_never_taken_is_harmless
-    _solver_lp._lex_calibration_failed_until = 0.0
+
+def test_releasing_what_was_never_taken_is_harmless(lock_path):
     cycle_lock.release_lock(lock_path)
     assert cycle_lock.acquire_lock(lock_path)
 

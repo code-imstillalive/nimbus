@@ -160,7 +160,8 @@ def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(site):
         with pytest.raises(ValueError, match=says):
             site.export(start, end)
 
-    # test_nothing_is_captured_without_a_published_plan
+
+def test_nothing_is_captured_without_a_published_plan(site):
     assert site.capture() is None
     site.publish(0, 2.0)
     site.states["sensor.nimbus_solver_battery_forecast"].attributes["forecast"] = []

@@ -204,7 +204,7 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
 # --- P2P matched-rate sources ------------------------------------------------
 
 
-def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope):
+def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha):
     # test_a_p2p_rate_unit_must_be_a_price_per_kwh
     with monkeypatch.context() as mp:
         for unit, currency, scale in [
@@ -388,9 +388,27 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope):
         ha.states[sw.QUALITY_ENTITY_ID] = _quality(**rec)
         assert sw._grid_meter_sign("sensor.m") == sign
 
-    # test_an_unreadable_quality_report_gives_no_meter_sign
+
+def _p2p_state(rows, **attrs):
+    return {
+        "state": "1",
+        "last_updated": _iso(T0),
+        "attributes": {"forecast": rows, **attrs},
+    }
+
+
+# --- the live grid meter ------------------------------------------------------
+
+
+def _quality(**rec):
+    return {"state": "ok", "attributes": {"meter_reconciliation": rec}}
+
+
+def test_an_unreadable_quality_report_gives_no_meter_sign(ha):
     assert sw._grid_meter_sign("sensor.m") is None
 
+
+def test_the_live_meter_reads_in_kw_with_the_reconciled_sign(ha, monkeypatch, envelope):
     # test_the_live_meter_reads_in_kw_with_the_reconciled_sign
     with monkeypatch.context() as mp:
         for cfg, state, unit, expected in [
@@ -429,21 +447,6 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope):
     assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == pytest.approx(
         [5.0, 5.0, 3.0]
     )
-
-
-def _p2p_state(rows, **attrs):
-    return {
-        "state": "1",
-        "last_updated": _iso(T0),
-        "attributes": {"forecast": rows, **attrs},
-    }
-
-
-# --- the live grid meter ------------------------------------------------------
-
-
-def _quality(**rec):
-    return {"state": "ok", "attributes": {"meter_reconciliation": rec}}
 
 
 # --- envelope limits ------------------------------------------------------------
@@ -745,28 +748,6 @@ def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
     ]:
         assert sw._p2p_snapshot_time(state) == snapshot
 
-    # test_the_access_token_comes_from_the_environment_then_its_file
-    tmp_7 = tmp_path / "test_the_access_token_comes_from_the_environment_then_its_file"
-    tmp_7.mkdir()
-    with monkeypatch.context() as mp:
-        for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
-            mp.delenv(name, raising=False)
-        token_file = tmp_7 / "token"
-        mp.setattr(sw, "TOKEN_PATH", str(token_file))
-
-        def fresh():
-            mp.setattr(sw, "_TOKEN_LOADED", False)
-            mp.setattr(sw, "_TOKEN", None)
-            return sw._load_token()
-
-        assert fresh() is None  # no environment, no file
-        token_file.write_text("from-file\n", encoding="utf-8")
-        assert fresh() == "from-file"
-        mp.setenv("HA_TOKEN", "from-env")
-        assert fresh() == "from-env"
-        token_file.write_text("changed", encoding="utf-8")
-        assert sw._load_token() == "from-env"  # read once, then kept
-
 
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
 
@@ -794,6 +775,28 @@ BLOCKS = {
     "solver_p2p_block_1_start_hour": 17,
     "solver_p2p_block_1_end_hour": 24,
 }
+
+
+def test_the_access_token_comes_from_the_environment_then_its_file(
+    monkeypatch, tmp_path
+):
+    for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    token_file = tmp_path / "token"
+    monkeypatch.setattr(sw, "TOKEN_PATH", str(token_file))
+
+    def fresh():
+        monkeypatch.setattr(sw, "_TOKEN_LOADED", False)
+        monkeypatch.setattr(sw, "_TOKEN", None)
+        return sw._load_token()
+
+    assert fresh() is None  # no environment, no file
+    token_file.write_text("from-file\n", encoding="utf-8")
+    assert fresh() == "from-file"
+    monkeypatch.setenv("HA_TOKEN", "from-env")
+    assert fresh() == "from-env"
+    token_file.write_text("changed", encoding="utf-8")
+    assert sw._load_token() == "from-env"  # read once, then kept
 
 
 # --- a price event the household arms to test the plan (#1213) ------------------------------
@@ -946,6 +949,20 @@ def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
         sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
     )
 
+    # test_a_failed_history_read_is_no_history
+    with monkeypatch.context() as mp:
+
+        def boom(*_a, **_k):
+            raise urllib.error.HTTPError("url", 500, "server error", {}, None)
+
+        mp.setattr(sw.NATIVE, "hass", None)
+        mp.setattr(sw, "_load_token", lambda: "t")
+        mp.setattr(urllib.request, "urlopen", boom)
+        assert (
+            sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1))
+            == []
+        )
+
 
 # --- P2P follows the household's own blocks (#1537) ------------------------------------------
 
@@ -1027,18 +1044,6 @@ def array_branch(monkeypatch):
 
 
 # --- one entity's recorded history, and the price history that wraps it (#363) ---------------
-
-
-def test_a_failed_history_read_is_no_history(monkeypatch):
-    def boom(*_a, **_k):
-        raise urllib.error.HTTPError("url", 500, "server error", {}, None)
-
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(sw, "_load_token", lambda: "t")
-    monkeypatch.setattr(urllib.request, "urlopen", boom)
-    assert (
-        sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1)) == []
-    )
 
 
 @pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])
