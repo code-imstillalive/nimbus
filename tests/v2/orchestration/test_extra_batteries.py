@@ -65,8 +65,7 @@ def _periods(start_hour, n, hours=1.0, tz=UTC):
     )
 
 
-def test_a_participant_becomes_its_own_battery(site, caplog, car):
-    # test_a_participant_becomes_its_own_battery
+def test_a_participant_becomes_its_own_battery(site):
     site.add("ev", EV)
     site.add("pool", {"load_sensor": "sensor.pool"}, kind="load")
     site.state("sensor.ev_soc", "55.0")
@@ -84,7 +83,8 @@ def test_a_participant_becomes_its_own_battery(site, caplog, car):
     assert b.charge_cost + b.discharge_cost >= MIN_CHARGE_DISCHARGE_COST_SPREAD
     assert b.available and b.shared_charger_group is None
 
-    # test_a_live_charge_limit_and_a_shared_charger_carry_through
+
+def test_a_live_charge_limit_and_a_shared_charger_carry_through(site):
     site.add(
         "ev",
         {
@@ -100,6 +100,10 @@ def test_a_participant_becomes_its_own_battery(site, caplog, car):
     assert b.max_soc_kwh == pytest.approx(48.0)
     assert (b.shared_charger_group, b.shared_charger_max_kw) == ("dc", 25.0)
 
+
+def test_a_participant_that_cannot_be_built_is_skipped_with_a_warning(
+    site, caplog, car
+):
     # test_a_participant_that_cannot_be_built_is_skipped_with_a_warning
     caplog.clear()
     for change, reason in [
@@ -180,6 +184,14 @@ def test_a_participant_becomes_its_own_battery(site, caplog, car):
     car("65")
     assert "car" not in eb._SOC_UNREADABLE_WARNED  # waking ends the spell
 
+    # test_with_nothing_to_hold_the_car_sits_out
+    caplog.clear()
+    for soc in ["unavailable", None]:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert car(soc) == []
+        assert soc is None or "leaving it out" in caplog.text
+
 
 def _departure(site, *, hour=8, pct=90.0, periods=None):
     data = dict(EV)
@@ -219,51 +231,40 @@ def _held(caplog):
     return [r.getMessage() for r in caplog.records if "#1715" in r.getMessage()]
 
 
-def test_with_nothing_to_hold_the_car_sits_out(car, caplog, site, monkeypatch):
-    # test_with_nothing_to_hold_the_car_sits_out
-    caplog.clear()
-    for soc in ["unavailable", None]:
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            assert car(soc) == []
-        assert soc is None or "leaving it out" in caplog.text
-
-    # test_a_participant_with_no_power_limits_is_built_and_warned_about_once
-    caplog.clear()
-    with monkeypatch.context() as mp:
-        mp.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-        stuck = {
-            **EV,
-            "battery_participant_max_charge_kw": 0.0,
-            "battery_participant_max_discharge_kw": 0.0,
-        }
-        site.add("stuck", stuck)
-        site.state("sensor.ev_soc", "55.0")
-        for _ in range(2):
-            with caplog.at_level(logging.WARNING):
-                (b,) = eb.build_extra_batteries()  # still built: a warning, not a skip
-        (line,) = [r.getMessage() for r in caplog.records if "#1067" in r.getMessage()]
-        assert all(
-            s in line
-            for s in ("oracle", "j_star", "Set real", "remove the participant")
-        )
-        assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
-
-    # test_a_one_directional_participant_is_not_warned_about
-    caplog.clear()
-    with monkeypatch.context() as mp:
-        for limits in [
-            {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
-            {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
-        ]:
-            caplog.clear()
-            with mp.context() as mp:
-                mp.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-                site.add("ev", {**EV, **limits})
-                site.state("sensor.ev_soc", "55.0")
-                with caplog.at_level(logging.WARNING):
-                    assert len(eb.build_extra_batteries()) == 1
-                assert "#1067" not in caplog.text
-
-
 # --- a participant that can never move is built, and said once (#1067) ------------------------
+
+
+def test_a_participant_with_no_power_limits_is_built_and_warned_about_once(
+    site, caplog, monkeypatch
+):
+    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+    stuck = {
+        **EV,
+        "battery_participant_max_charge_kw": 0.0,
+        "battery_participant_max_discharge_kw": 0.0,
+    }
+    site.add("stuck", stuck)
+    site.state("sensor.ev_soc", "55.0")
+    for _ in range(2):
+        with caplog.at_level(logging.WARNING):
+            (b,) = eb.build_extra_batteries()  # still built: a warning, not a skip
+    (line,) = [r.getMessage() for r in caplog.records if "#1067" in r.getMessage()]
+    assert all(
+        s in line for s in ("oracle", "j_star", "Set real", "remove the participant")
+    )
+    assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
+
+
+def test_a_one_directional_participant_is_not_warned_about(site, caplog, monkeypatch):
+    for limits in [
+        {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
+        {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
+    ]:
+        caplog.clear()
+        with monkeypatch.context() as mp:
+            mp.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+            site.add("ev", {**EV, **limits})
+            site.state("sensor.ev_soc", "55.0")
+            with caplog.at_level(logging.WARNING):
+                assert len(eb.build_extra_batteries()) == 1
+            assert "#1067" not in caplog.text

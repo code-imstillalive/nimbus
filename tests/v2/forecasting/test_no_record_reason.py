@@ -77,7 +77,8 @@ def test_the_entity_is_managed_so_its_early_posts_are_dropped(native):
     # an entity_id that never gets a handler still falls back to a raw write
     assert solver_writer.ha_post_state("sensor.nimbus_unmanaged_x", "x", {}) is True
 
-    # test_a_reason_dropped_at_startup_is_sent_once_the_entity_registers
+
+def test_a_reason_dropped_at_startup_is_sent_once_the_entity_registers(native):
     received: list[tuple] = []
     with patch.object(
         solver_writer, "build_flex_telemetry_record", lambda *_a, **_k: NO_RECORD

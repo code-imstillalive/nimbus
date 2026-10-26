@@ -289,7 +289,14 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
         )
         assert form["type"] == "form"
 
-    # test_with_no_suggestions_left_the_page_closes
+
+# --- the forecaster and switchboard pages --------------------------------------------
+
+
+# --- confirmed pricing suggestions ------------------------------------------------------
+
+
+def test_with_no_suggestions_left_the_page_closes(world):
     flow = _flow()
     flow.async_abort = lambda reason: {"type": "abort", "reason": reason}
     assert _run(flow.async_step_pricing_suggestions()) == {
@@ -297,6 +304,11 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
         "reason": "no_pricing_suggestions",
     }
 
+
+# --- the advanced section ------------------------------------------------------------------
+
+
+def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save(world):
     # test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save
     schema = vol.Schema(
         {vol.Required("a"): str, vol.Optional("b"): str, vol.Optional("c"): str}
@@ -311,20 +323,7 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
         vol.Schema({vol.Required("a"): str})
     ).schema.keys() == {"a"}
 
-
-# --- the forecaster and switchboard pages --------------------------------------------
-
-
-# --- confirmed pricing suggestions ------------------------------------------------------
-
-
-# --- the advanced section ------------------------------------------------------------------
-
-
-# --- live numbers ---------------------------------------------------------------------------
-
-
-def test_live_number_fields_show_the_current_value_but_never_the_placeholder(world):
+    # test_live_number_fields_show_the_current_value_but_never_the_placeholder
     hass = Hass(
         {
             "number.cap": SimpleNamespace(state="13.5"),
@@ -346,6 +345,9 @@ def test_live_number_fields_show_the_current_value_but_never_the_placeholder(wor
         ln.schema_fields(hass, None, "solver_battery") == {}
         and ln.schema_fields(hass, "hub1", "nope") == {}
     )
+
+
+# --- live numbers ---------------------------------------------------------------------------
 
 
 def _default_of(form, key):

@@ -189,7 +189,8 @@ def test_the_solver_pages_take_the_dashboards_battery_soc_and_grid_prices(dashbo
     broken = SimpleNamespace(states=SimpleNamespace(async_all=lambda domain: 1 / 0))
     assert ho._discover_nimbus_load_forecast_candidates(broken) == ([], [])
 
-    # test_a_battery_tower_soc_is_suggested_from_the_dashboard
+
+def test_a_battery_tower_soc_is_suggested_from_the_dashboard(dashboard):
     dashboard["energy_sources"] = [{"type": "battery", "stat_soc": "sensor.tower_soc"}]
     hass = _hass(
         _state(

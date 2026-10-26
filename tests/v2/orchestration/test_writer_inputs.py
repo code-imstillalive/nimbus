@@ -204,7 +204,7 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
 # --- P2P matched-rate sources ------------------------------------------------
 
 
-def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope, caplog):
+def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope):
     # test_a_p2p_rate_unit_must_be_a_price_per_kwh
     with monkeypatch.context() as mp:
         for unit, currency, scale in [
@@ -430,49 +430,6 @@ def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, ha, envelope, capl
         [5.0, 5.0, 3.0]
     )
 
-    # test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery
-    caplog.clear()
-    grid = _grid(2)
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
-        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
-        envelope.states["sensor.env"] = {"state": "unavailable", "attributes": {}}
-        sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid)
-        envelope.states["sensor.env"] = {"state": "lots", "attributes": {}}
-        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
-        warnings = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        assert len(warnings) == 2
-        assert "non-numeric" in warnings[1]
-        envelope.states["sensor.env"] = {"state": "6", "attributes": {}}
-        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [6.0, 6.0]
-        sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid)
-    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-    assert len([m for m in infos if "reporting again" in m]) == 1
-    assert sw._ENVELOPE_LIMIT_WARNED == set()
-
-    # test_power_history_coverage
-    for times, expected in [
-        ([], None),
-        ([0], None),
-        ([0, 0], None),
-        (
-            [0, 10, 20, 30, 100, 120],
-            {"points": 6, "median_gap_s": 600.0, "max_gap_s": 4200.0},
-        ),
-    ]:
-        pts = [(T0 + timedelta(minutes=m), 1.0) for m in times]
-        out = sw._power_history_coverage(pts, _grid(4), 0.5)
-        if expected is None:
-            assert out is None
-            continue
-        assert {k: out[k] for k in expected} == expected
-        # The 70-minute gap from 06:30 to 07:40 is past a 30-minute period, and
-        # lies wholly inside the two-hour window.
-        assert out["time_in_long_gaps_pct"] == pytest.approx(70 / 120 * 100, abs=0.01)
-        assert 0.0 <= out["stale_periods_pct"] <= 100.0
-
 
 def _p2p_state(rows, **attrs):
     return {
@@ -498,32 +455,53 @@ def envelope(ha, monkeypatch):
     return ha
 
 
+def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, caplog):
+    grid = _grid(2)
+    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
+        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
+        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
+        envelope.states["sensor.env"] = {"state": "unavailable", "attributes": {}}
+        sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid)
+        envelope.states["sensor.env"] = {"state": "lots", "attributes": {}}
+        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [10.0, 10.0]
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert len(warnings) == 2
+        assert "non-numeric" in warnings[1]
+        envelope.states["sensor.env"] = {"state": "6", "attributes": {}}
+        assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == [6.0, 6.0]
+        sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid)
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert len([m for m in infos if "reporting again" in m]) == 1
+    assert sw._ENVELOPE_LIMIT_WARNED == set()
+
+
 # --- power history ----------------------------------------------------------------
 
 
-# --- calendar trips ---------------------------------------------------------------
-#
-# Read through the package, as Home Assistant runs it: the reader's own
-# relative import has no standalone fallback.
+def test_power_history_coverage(cal):
+    # test_power_history_coverage
+    for times, expected in [
+        ([], None),
+        ([0], None),
+        ([0, 0], None),
+        (
+            [0, 10, 20, 30, 100, 120],
+            {"points": 6, "median_gap_s": 600.0, "max_gap_s": 4200.0},
+        ),
+    ]:
+        pts = [(T0 + timedelta(minutes=m), 1.0) for m in times]
+        out = sw._power_history_coverage(pts, _grid(4), 0.5)
+        if expected is None:
+            assert out is None
+            continue
+        assert {k: out[k] for k in expected} == expected
+        # The 70-minute gap from 06:30 to 07:40 is past a 30-minute period, and
+        # lies wholly inside the two-hour window.
+        assert out["time_in_long_gaps_pct"] == pytest.approx(70 / 120 * 100, abs=0.01)
+        assert 0.0 <= out["stale_periods_pct"] <= 100.0
 
-
-@pytest.fixture
-def cal(monkeypatch):
-    from _ha_stubs import install_ha_stubs
-
-    install_ha_stubs()
-    psw = importlib.import_module("custom_components.nimbus_load.solver_writer")
-    fake = FakeHA(states={})
-    monkeypatch.setattr(psw, "HA_BASE", BASE)
-    monkeypatch.setattr(psw, "_load_token", lambda: "test")
-    monkeypatch.setattr(psw.NATIVE, "hass", None)
-    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
-    return psw, fake
-
-
-def test_calendar_events_become_trips_with_a_timezone_each(
-    cal, tmp_path, monkeypatch, caplog
-):
     # test_calendar_events_become_trips_with_a_timezone_each
     psw, ha = cal
     ha.service_responses = {
@@ -560,25 +538,57 @@ def test_calendar_events_become_trips_with_a_timezone_each(
         "end_date_time": (T0 + timedelta(days=7)).isoformat(),
     }
 
-    # test_no_readable_events_is_no_trips
-    for response in [
+
+# --- calendar trips ---------------------------------------------------------------
+#
+# Read through the package, as Home Assistant runs it: the reader's own
+# relative import has no standalone fallback.
+
+
+@pytest.fixture
+def cal(monkeypatch):
+    from _ha_stubs import install_ha_stubs
+
+    install_ha_stubs()
+    psw = importlib.import_module("custom_components.nimbus_load.solver_writer")
+    fake = FakeHA(states={})
+    monkeypatch.setattr(psw, "HA_BASE", BASE)
+    monkeypatch.setattr(psw, "_load_token", lambda: "test")
+    monkeypatch.setattr(psw.NATIVE, "hass", None)
+    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
+    return psw, fake
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
         None,
         {"calendar.other": {}},
         {"calendar.car": []},
         {"calendar.car": {"events": "x"}},
-    ]:
-        psw, ha = cal
-        if response is not None:
-            ha.service_responses = {"calendar.get_events": response}
-        assert (
-            psw.fetch_calendar_trips("calendar.car", T0, T0 + timedelta(days=1)) == []
-        )
+    ],
+)
+def test_no_readable_events_is_no_trips(cal, response):
+    psw, ha = cal
+    if response is not None:
+        ha.service_responses = {"calendar.get_events": response}
+    assert psw.fetch_calendar_trips("calendar.car", T0, T0 + timedelta(days=1)) == []
 
+
+# --- a scalar reading that is not a number ------------------------------------
+
+
+# --- the stored previous plan, and the derated capacity --------------------------------------
+
+
+def test_a_stored_plan_that_did_not_solve_is_no_previous_plan(
+    tmp_path, monkeypatch, caplog
+):
     # test_a_stored_plan_that_did_not_solve_is_no_previous_plan
-    tmp_2 = tmp_path / "test_a_stored_plan_that_did_not_solve_is_no_previous_plan"
-    tmp_2.mkdir()
+    tmp_0 = tmp_path / "test_a_stored_plan_that_did_not_solve_is_no_previous_plan"
+    tmp_0.mkdir()
     with monkeypatch.context() as mp:
-        path = tmp_2 / "plan_state.json"
+        path = tmp_0 / "plan_state.json"
         mp.setattr(sw, "PLAN_STATE_PATH", str(path))
         assert sw.load_previous_plan() is None  # nothing stored
         path.write_text('{"status": "infeasible"}', encoding="utf-8")
@@ -726,11 +736,36 @@ def test_calendar_events_become_trips_with_a_timezone_each(
             committed, sw.fetch_p2p_fixed_export_kw(with_fallback, in_block)
         )
 
+    # test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants
+    for state, snapshot in [
+        ({"attributes": {"lastUpdate": _iso(T0)}, "last_updated": _iso(T0 + M5)}, T0),
+        ({"attributes": {}, "last_updated": _iso(T0 + M5)}, T0 + M5),
+        ({"attributes": {"lastUpdate": "garbage"}, "last_updated": _iso(T0)}, T0),
+        ({"attributes": {}}, None),
+    ]:
+        assert sw._p2p_snapshot_time(state) == snapshot
 
-# --- a scalar reading that is not a number ------------------------------------
+    # test_the_access_token_comes_from_the_environment_then_its_file
+    tmp_7 = tmp_path / "test_the_access_token_comes_from_the_environment_then_its_file"
+    tmp_7.mkdir()
+    with monkeypatch.context() as mp:
+        for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
+            mp.delenv(name, raising=False)
+        token_file = tmp_7 / "token"
+        mp.setattr(sw, "TOKEN_PATH", str(token_file))
 
+        def fresh():
+            mp.setattr(sw, "_TOKEN_LOADED", False)
+            mp.setattr(sw, "_TOKEN", None)
+            return sw._load_token()
 
-# --- the stored previous plan, and the derated capacity --------------------------------------
+        assert fresh() is None  # no environment, no file
+        token_file.write_text("from-file\n", encoding="utf-8")
+        assert fresh() == "from-file"
+        mp.setenv("HA_TOKEN", "from-env")
+        assert fresh() == "from-env"
+        token_file.write_text("changed", encoding="utf-8")
+        assert sw._load_token() == "from-env"  # read once, then kept
 
 
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
@@ -761,40 +796,40 @@ BLOCKS = {
 }
 
 
-def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
-    monkeypatch, tmp_path, event, caplog
+# --- a price event the household arms to test the plan (#1213) ------------------------------
+
+EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
+ARMED = {
+    "solver_price_event_enabled": True,
+    "solver_price_event_sensor": "sensor.event",
+}
+
+
+def _steps(*pairs):
+    return [
+        {"time": (EVENT_DAY + timedelta(hours=h)).isoformat(), "value": v}
+        for h, v in pairs
+    ]
+
+
+@pytest.fixture
+def event(monkeypatch):
+    def run(state, n=8, cfg=ARMED, minutes=30):
+        monkeypatch.setattr(sw, "ha_get", lambda _e: state)
+        return sw.resolve_price_event_delta(
+            cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
+        )
+
+    return run
+
+
+def _forecast(points):
+    return {"state": "0.0", "attributes": {"forecast": points}}
+
+
+def test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros(
+    event, caplog, monkeypatch, array_branch, ha
 ):
-    # test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants
-    for state, snapshot in [
-        ({"attributes": {"lastUpdate": _iso(T0)}, "last_updated": _iso(T0 + M5)}, T0),
-        ({"attributes": {}, "last_updated": _iso(T0 + M5)}, T0 + M5),
-        ({"attributes": {"lastUpdate": "garbage"}, "last_updated": _iso(T0)}, T0),
-        ({"attributes": {}}, None),
-    ]:
-        assert sw._p2p_snapshot_time(state) == snapshot
-
-    # test_the_access_token_comes_from_the_environment_then_its_file
-    tmp_1 = tmp_path / "test_the_access_token_comes_from_the_environment_then_its_file"
-    tmp_1.mkdir()
-    with monkeypatch.context() as mp:
-        for name in ("SUPERVISOR_TOKEN", "HA_TOKEN"):
-            mp.delenv(name, raising=False)
-        token_file = tmp_1 / "token"
-        mp.setattr(sw, "TOKEN_PATH", str(token_file))
-
-        def fresh():
-            mp.setattr(sw, "_TOKEN_LOADED", False)
-            mp.setattr(sw, "_TOKEN", None)
-            return sw._load_token()
-
-        assert fresh() is None  # no environment, no file
-        token_file.write_text("from-file\n", encoding="utf-8")
-        assert fresh() == "from-file"
-        mp.setenv("HA_TOKEN", "from-env")
-        assert fresh() == "from-env"
-        token_file.write_text("changed", encoding="utf-8")
-        assert sw._load_token() == "from-env"  # read once, then kept
-
     # test_an_event_that_is_not_armed_or_not_here_is_none_not_zeros
     for cfg, n, points in [
         (
@@ -880,36 +915,36 @@ def test_a_feeds_freshness_is_the_providers_own_stamp_before_home_assistants(
                 )
                 assert out.p2p_recent_volume_kwh == pytest.approx(volume)
 
+    # test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume
+    blocks = _blocks((11.5, 17, 24))
+    out = array_branch(blocks)
+    assert array_branch.seen["window"] == [11.5] * 3
+    assert out.p2p_recent_volume_kwh == pytest.approx(80.5)
+    assert out.export_bonus_price == pytest.approx([0.4] * 3)  # premium over spot
+    settled = {**blocks, "solver_p2p_settlement_history_sensor": "sensor.hist"}
+    assert array_branch(settled, recent=47.7).p2p_recent_volume_kwh == 47.7
+    none = array_branch({})
+    assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
 
-# --- a price event the household arms to test the plan (#1213) ------------------------------
+    # test_history_is_read_sorted_skipping_what_is_not_a_number
+    def pt(minutes, state):
+        return HistoryPoint(_iso(T0 + timedelta(minutes=minutes)), state, {})
 
-EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
-ARMED = {
-    "solver_price_event_enabled": True,
-    "solver_price_event_sensor": "sensor.event",
-}
-
-
-def _steps(*pairs):
-    return [
-        {"time": (EVENT_DAY + timedelta(hours=h)).isoformat(), "value": v}
-        for h, v in pairs
+    ha.history["sensor.price"] = [
+        pt(60, "0.25"),
+        pt(0, "0.10"),
+        pt(10, "unknown"),
+        pt(20, "unavailable"),
+        pt(30, "not-a-number"),
     ]
-
-
-@pytest.fixture
-def event(monkeypatch):
-    def run(state, n=8, cfg=ARMED, minutes=30):
-        monkeypatch.setattr(sw, "ha_get", lambda _e: state)
-        return sw.resolve_price_event_delta(
-            cfg, _grid(n, minutes=minutes, start=EVENT_DAY)
-        )
-
-    return run
-
-
-def _forecast(points):
-    return {"state": "0.0", "attributes": {"forecast": points}}
+    got = sw.fetch_entity_history_range(
+        "sensor.price", T0 - timedelta(hours=1), T0 + timedelta(hours=2)
+    )
+    assert [v for _t, v in got] == [0.10, 0.25]
+    assert got[0][0] < got[1][0]
+    assert (
+        sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
+    )
 
 
 # --- P2P follows the household's own blocks (#1537) ------------------------------------------
@@ -991,68 +1026,28 @@ def array_branch(monkeypatch):
     return build
 
 
-def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
-    array_branch, ha, monkeypatch
-):
-    # test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume
-    blocks = _blocks((11.5, 17, 24))
-    out = array_branch(blocks)
-    assert array_branch.seen["window"] == [11.5] * 3
-    assert out.p2p_recent_volume_kwh == pytest.approx(80.5)
-    assert out.export_bonus_price == pytest.approx([0.4] * 3)  # premium over spot
-    settled = {**blocks, "solver_p2p_settlement_history_sensor": "sensor.hist"}
-    assert array_branch(settled, recent=47.7).p2p_recent_volume_kwh == 47.7
-    none = array_branch({})
-    assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
-
-    # test_history_is_read_sorted_skipping_what_is_not_a_number
-    def pt(minutes, state):
-        return HistoryPoint(_iso(T0 + timedelta(minutes=minutes)), state, {})
-
-    ha.history["sensor.price"] = [
-        pt(60, "0.25"),
-        pt(0, "0.10"),
-        pt(10, "unknown"),
-        pt(20, "unavailable"),
-        pt(30, "not-a-number"),
-    ]
-    got = sw.fetch_entity_history_range(
-        "sensor.price", T0 - timedelta(hours=1), T0 + timedelta(hours=2)
-    )
-    assert [v for _t, v in got] == [0.10, 0.25]
-    assert got[0][0] < got[1][0]
-    assert (
-        sw.fetch_entity_history_range("sensor.none", T0, T0 + timedelta(hours=1)) == []
-    )
-
-    # test_a_failed_history_read_is_no_history
-    with monkeypatch.context() as mp:
-
-        def boom(*_a, **_k):
-            raise urllib.error.HTTPError("url", 500, "server error", {}, None)
-
-        mp.setattr(sw.NATIVE, "hass", None)
-        mp.setattr(sw, "_load_token", lambda: "t")
-        mp.setattr(urllib.request, "urlopen", boom)
-        assert (
-            sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1))
-            == []
-        )
-
-    # test_price_history_is_the_last_days_up_to_now
-    with monkeypatch.context() as mp:
-        for kwargs, days in [({"days": 3}, 3), ({}, 5)]:
-            with mp.context() as mp:
-                calls = []
-                mp.setattr(
-                    sw,
-                    "fetch_entity_history_range",
-                    lambda *a: calls.append(a) or [],  # noqa: B023
-                )
-                sw.fetch_price_history("sensor.price", **kwargs)
-                ((entity, start, end),) = calls
-                assert entity == "sensor.price" and end - start == timedelta(days=days)
-                assert datetime.now(UTC) - end < timedelta(seconds=10)
-
-
 # --- one entity's recorded history, and the price history that wraps it (#363) ---------------
+
+
+def test_a_failed_history_read_is_no_history(monkeypatch):
+    def boom(*_a, **_k):
+        raise urllib.error.HTTPError("url", 500, "server error", {}, None)
+
+    monkeypatch.setattr(sw.NATIVE, "hass", None)
+    monkeypatch.setattr(sw, "_load_token", lambda: "t")
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    assert (
+        sw.fetch_entity_history_range("sensor.price", T0, T0 + timedelta(hours=1)) == []
+    )
+
+
+@pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])
+def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
+    calls = []
+    monkeypatch.setattr(
+        sw, "fetch_entity_history_range", lambda *a: calls.append(a) or []
+    )
+    sw.fetch_price_history("sensor.price", **kwargs)
+    ((entity, start, end),) = calls
+    assert entity == "sensor.price" and end - start == timedelta(days=days)
+    assert datetime.now(UTC) - end < timedelta(seconds=10)

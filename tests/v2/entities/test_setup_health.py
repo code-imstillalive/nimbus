@@ -165,44 +165,6 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
         asyncio.run(sh.async_note_solve_outcome(hass, entry))
         assert refreshed == ["hub1", "hub1"]
 
-    # test_live_settings_are_read_from_the_number_entities
-    with monkeypatch.context() as mp:
-        er = sys.modules["homeassistant.helpers.entity_registry"]
-        ids = {
-            f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": "number.cap",
-            f"hub1_{const.CONF_SOLVER_MAX_CHARGE_KW}": "number.charge",
-        }
-        mp.setattr(
-            er,
-            "async_get",
-            lambda hass: SimpleNamespace(
-                async_get_entity_id=lambda d, p, uid: ids.get(uid)
-            ),
-            raising=False,
-        )
-        states = {
-            "number.cap": SimpleNamespace(state="13.5"),
-            "number.charge": SimpleNamespace(state="unknown"),
-        }
-        hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
-        assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {
-            const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 13.5
-        }
-        mp.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
-        assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {}
-
-    # test_the_failed_streak_comes_from_the_solver_publisher_when_it_is_loaded
-    with monkeypatch.context() as mp:
-        pub = types.ModuleType("solver_publish")
-        pub.failed_streak = lambda: {"count": 3}
-        mp.setitem(sys.modules, "solver_publish", pub)
-        mp.delitem(sys.modules, f"{sh.__package__}.solver_publish", raising=False)
-        assert sh._solver_failed_streak() == {"count": 3}
-        pub.failed_streak = lambda: 1 / 0
-        assert sh._solver_failed_streak() is None
-        mp.delitem(sys.modules, "solver_publish")
-        assert sh._solver_failed_streak() is None
-
 
 # --- raised and cleared in Home Assistant ------------------------------------------------
 
@@ -240,3 +202,43 @@ def repairs(monkeypatch):
     )
     hass = SimpleNamespace(data={})
     return hass, entry, raised, deleted
+
+
+def test_live_settings_are_read_from_the_number_entities(monkeypatch):
+    er = sys.modules["homeassistant.helpers.entity_registry"]
+    ids = {
+        f"hub1_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": "number.cap",
+        f"hub1_{const.CONF_SOLVER_MAX_CHARGE_KW}": "number.charge",
+    }
+    monkeypatch.setattr(
+        er,
+        "async_get",
+        lambda hass: SimpleNamespace(
+            async_get_entity_id=lambda d, p, uid: ids.get(uid)
+        ),
+        raising=False,
+    )
+    states = {
+        "number.cap": SimpleNamespace(state="13.5"),
+        "number.charge": SimpleNamespace(state="unknown"),
+    }
+    hass = SimpleNamespace(states=SimpleNamespace(get=states.get))
+    assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {
+        const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 13.5
+    }
+    monkeypatch.setattr(er, "async_get", lambda hass: 1 / 0, raising=False)
+    assert sh._live_settings(hass, SimpleNamespace(entry_id="hub1")) == {}
+
+
+def test_the_failed_streak_comes_from_the_solver_publisher_when_it_is_loaded(
+    monkeypatch,
+):
+    pub = types.ModuleType("solver_publish")
+    pub.failed_streak = lambda: {"count": 3}
+    monkeypatch.setitem(sys.modules, "solver_publish", pub)
+    monkeypatch.delitem(sys.modules, f"{sh.__package__}.solver_publish", raising=False)
+    assert sh._solver_failed_streak() == {"count": 3}
+    pub.failed_streak = lambda: 1 / 0
+    assert sh._solver_failed_streak() is None
+    monkeypatch.delitem(sys.modules, "solver_publish")
+    assert sh._solver_failed_streak() is None

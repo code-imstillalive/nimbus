@@ -92,10 +92,7 @@ def resolve():
     )
 
 
-def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(
-    site, rest, monkeypatch
-):
-    # test_a_participant_becomes_a_battery_with_its_day_read_as_charge
+def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(site):
     site.add()
     ((battery, charge, discharge, final_soc, soc_hist),) = resolve()
     assert (battery.name, battery.capacity_kwh) == ("ev", 60.0)
@@ -104,33 +101,40 @@ def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(
     assert (charge == 5.0).all() and (discharge == 0.0).all()
     assert soc_hist == site.soc
 
-    # test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash
-    for case in [
-        "none",
-        "other_kind",
-        "no_power_sensor",
-        "no_history",
-        "bad_soc_range",
-    ]:
-        if case == "other_kind":
-            site.add({"load_sensor": "sensor.pool"}, kind="load")
-        elif case == "no_power_sensor":
-            site.add(
-                {k: v for k, v in EV.items() if k != "battery_participant_power_sensor"}
-            )
-        elif case == "no_history":
-            site.power = site.soc = []
-            site.add()
-        elif case == "bad_soc_range":
-            site.add(
-                {
-                    **EV,
-                    "battery_participant_min_soc_percent": 95.0,
-                    "battery_participant_max_soc_percent": 20.0,
-                }
-            )
-        assert resolve() == []
 
+@pytest.mark.parametrize(
+    "case", ["none", "other_kind", "no_power_sensor", "no_history", "bad_soc_range"]
+)
+def test_a_participant_that_cannot_be_rebuilt_is_left_out_without_a_crash(site, case):
+    if case == "other_kind":
+        site.add({"load_sensor": "sensor.pool"}, kind="load")
+    elif case == "no_power_sensor":
+        site.add(
+            {k: v for k, v in EV.items() if k != "battery_participant_power_sensor"}
+        )
+    elif case == "no_history":
+        site.power = site.soc = []
+        site.add()
+    elif case == "bad_soc_range":
+        site.add(
+            {
+                **EV,
+                "battery_participant_min_soc_percent": 95.0,
+                "battery_participant_max_soc_percent": 20.0,
+            }
+        )
+    assert resolve() == []
+
+
+# --- the hours it was away (#467, #768) -------------------------------------------------------
+
+AWAY = range(8, 11)
+
+
+# --- a power sensor that stopped recording (#1161) --------------------------------------------
+
+
+def test_an_hour_with_no_reading_credits_nothing_and_is_named(site, rest, monkeypatch):
     # test_an_hour_with_no_reading_credits_nothing_and_is_named
     site.add()
     site.power = [(DAY + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
@@ -223,13 +227,29 @@ def test_a_participant_becomes_a_battery_with_its_day_read_as_charge(
         assert report["scored_participants"] == ["home", "ev"]
         assert report["j_ach"] == pytest.approx(report["j_ref"], abs=1e-6)  # all idle
 
+    # test_a_participant_whose_positive_is_discharge_reads_it_so
+    site.add({**EV, "battery_participant_power_positive_is_charge": False})
+    ((_b, charge, discharge, _f, _s),) = resolve()
+    assert (charge == 0.0).all() and (discharge == 5.0).all()
 
-# --- the hours it was away (#467, #768) -------------------------------------------------------
+    # test_no_departure_requirement
+    # test_no_departure_requirement
+    for over in [
+        {"departure_hour": None, "must_have_soc_pct": None},
+        {"must_have_soc_pct": None},  # half configured is unset, as live
+        {"departure_hour": None},
+        {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
+    ]:
+        n = len(over.get("grid_times", DEP_GRID))
+        assert deadline([0.0] * n, **over) == (None, None)
 
-AWAY = range(8, 11)
-
-
-# --- a power sensor that stopped recording (#1161) --------------------------------------------
+    # test_a_scalar_list_or_array_period_length_gives_the_same_deadline: The history path passes one scalar period length; every shape agrees,
+    kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
+    scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
+    assert scalar[0] == 5
+    assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
+    assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
+    assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
 
 
 # --- each row in its own unit (#843 option A) -------------------------------------------------
@@ -303,32 +323,6 @@ def at(hour):
 
 def _refuse(*_a, **_k):
     raise sw.urllib.error.URLError("no network in tests")
-
-
-def test_a_participant_whose_positive_is_discharge_reads_it_so(site):
-    # test_a_participant_whose_positive_is_discharge_reads_it_so
-    site.add({**EV, "battery_participant_power_positive_is_charge": False})
-    ((_b, charge, discharge, _f, _s),) = resolve()
-    assert (charge == 0.0).all() and (discharge == 5.0).all()
-
-    # test_no_departure_requirement
-    # test_no_departure_requirement
-    for over in [
-        {"departure_hour": None, "must_have_soc_pct": None},
-        {"must_have_soc_pct": None},  # half configured is unset, as live
-        {"departure_hour": None},
-        {"grid_times": DEP_GRID[:5], "period_hours": [1.0] * 5},  # never reaches 07:00
-    ]:
-        n = len(over.get("grid_times", DEP_GRID))
-        assert deadline([0.0] * n, **over) == (None, None)
-
-    # test_a_scalar_list_or_array_period_length_gives_the_same_deadline: The history path passes one scalar period length; every shape agrees,
-    kw = {"departure_hour": 15}  # index 5 of a UTC-stamped window: the loop runs
-    scalar = deadline([1.0] * 24, period_hours=1.0, **kw)
-    assert scalar[0] == 5
-    assert scalar == deadline([1.0] * 24, period_hours=[1.0] * 24, **kw)
-    assert scalar == tuple(deadline([1.0] * 24, period_hours=np.ones(24), **kw))
-    assert deadline([1.0] * 24, period_hours=[0.5] * 12 + [1.0] * 12, **kw) != scalar
 
 
 # --- a departure requirement reaches the oracle, as demanding as the day (#1111) ----------------

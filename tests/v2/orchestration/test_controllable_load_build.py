@@ -296,10 +296,8 @@ def _windows(now, delivered=0.0, done=False, grid=None):
 
 
 def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once(
-    site, caplog, monkeypatch
+    site, caplog
 ):
-    # test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once
-    caplog.clear()
     site.state("sensor.p", "550", unit_of_measurement="W")
     with caplog.at_level(logging.INFO):
         for minutes in (0, 30):
@@ -310,13 +308,16 @@ def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_o
     assert st.currently_on and st.delivered_today_kwh == pytest.approx(0.275, abs=1e-3)
     assert caplog.text.count("reports Watts") == 1
 
-    # test_a_reading_that_is_not_there_writes_nothing
-    for value in ["unavailable", None]:
-        if value:
-            site.state("sensor.p", value)
-        cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
-        assert site.run_state() == load_run_state.LoadRunState()
 
+@pytest.mark.parametrize("value", ["unavailable", None])
+def test_a_reading_that_is_not_there_writes_nothing(site, value):
+    if value:
+        site.state("sensor.p", value)
+    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
+    assert site.run_state() == load_run_state.LoadRunState()
+
+
+def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(site, monkeypatch):
     # test_todays_delivery_cuts_the_target_and_yesterdays_does_not
     for delivered, day, target in [
         (1.48, "2026-09-07", 0.52),

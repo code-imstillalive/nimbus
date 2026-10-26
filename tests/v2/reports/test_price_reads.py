@@ -168,10 +168,7 @@ def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, rows, po
     assert sw.fetch_aemo_forecast("sensor.regional") == [(t(a), v) for a, v in points]
 
 
-def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used(
-    openadr, spot_store, monkeypatch
-):
-    # test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used
+def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used():
     aemo = [(t("2026-10-06T13:30:00+10:00"), 0.0267)]
     retail = [{"time": "2026-10-06T13:00:00+10:00", "costsflexup": 0.20}]
     grid = [t("2026-10-06T13:00:00+10:00"), t("2026-10-06T13:40:00+10:00")]
@@ -184,6 +181,45 @@ def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used
     held, _ = sw.resample_price_with_extrapolation(retail, "costsflexup", grid, [], {})
     assert held == [0.20, 0.20]
 
+
+# --- OpenADR: the forecast comes from the integration's own action (#1583) ----------------------
+
+_ADR = _fixture("1550_openadr.json")["samples"]
+ADR_EID = "sensor.program_price"
+ADR_SUMMARY = {
+    "payload_type": "PRICE",
+    "forecast_rows": 338,
+    "forecast_start": "2026-10-06T13:10:00+10:00",
+    "forecast_end": "2026-10-13T13:00:00+10:00",  # the last START, not the end
+    "unit_of_measurement": "$/kWh",
+}
+
+
+@pytest.fixture
+def openadr(monkeypatch):
+    calls = []
+
+    def read(grid, rows=None, payload="PRICE", attrs=None, response=None):
+        a = {**ADR_SUMMARY, **(attrs or {})}
+        if response is None:
+            response = {
+                ADR_EID: {"payload_type": payload, "unit": "$/kWh", "forecast": rows}
+            }
+        monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": a})
+        monkeypatch.setattr(
+            sw,
+            "ha_call_service_with_response",
+            lambda d, s, data: calls.append((d, s, data)) or response,
+        )
+        return sw.resample_generic_price_forecast_with_coverage(
+            ADR_EID, [t(g) for g in grid]
+        )
+
+    read.calls = calls
+    return read
+
+
+def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypatch):
     # test_no_answer_for_this_entity_is_no_forecast
     for response in [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}]:
         rows = _ADR["openadr_import"]["selected_native_rows"]
@@ -268,42 +304,26 @@ def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used
 
         assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
 
-
-# --- OpenADR: the forecast comes from the integration's own action (#1583) ----------------------
-
-_ADR = _fixture("1550_openadr.json")["samples"]
-ADR_EID = "sensor.program_price"
-ADR_SUMMARY = {
-    "payload_type": "PRICE",
-    "forecast_rows": 338,
-    "forecast_start": "2026-10-06T13:10:00+10:00",
-    "forecast_end": "2026-10-13T13:00:00+10:00",  # the last START, not the end
-    "unit_of_measurement": "$/kWh",
-}
-
-
-@pytest.fixture
-def openadr(monkeypatch):
-    calls = []
-
-    def read(grid, rows=None, payload="PRICE", attrs=None, response=None):
-        a = {**ADR_SUMMARY, **(attrs or {})}
-        if response is None:
-            response = {
-                ADR_EID: {"payload_type": payload, "unit": "$/kWh", "forecast": rows}
-            }
-        monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": a})
-        monkeypatch.setattr(
-            sw,
-            "ha_call_service_with_response",
-            lambda d, s, data: calls.append((d, s, data)) or response,
-        )
-        return sw.resample_generic_price_forecast_with_coverage(
-            ADR_EID, [t(g) for g in grid]
-        )
-
-    read.calls = calls
-    return read
+    # test_a_rows_price_is_value_then_calibrated_never_raw
+    with monkeypatch.context() as mp:
+        for row, expected in [
+            (
+                {"value": 0.20, "calibrated": 0.99},
+                [0.20],
+            ),  # value first, as it always was
+            (
+                {"raw_value": 8.999, "calibrated": 0.105355},
+                [0.105355],
+            ),  # never raw_value
+            ({"spike_credible": True}, None),
+        ]:
+            with mp.context() as mp:
+                rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
+                mp.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})  # noqa: B023
+                grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
+                assert (
+                    sw.resample_generic_price_forecast("sensor.price", grid) == expected
+                )
 
 
 # --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
@@ -341,28 +361,7 @@ RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
 BUCKET = 19 * 12 + 1
 
 
-def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch):
-    # test_a_rows_price_is_value_then_calibrated_never_raw
-    with monkeypatch.context() as mp:
-        for row, expected in [
-            (
-                {"value": 0.20, "calibrated": 0.99},
-                [0.20],
-            ),  # value first, as it always was
-            (
-                {"raw_value": 8.999, "calibrated": 0.105355},
-                [0.105355],
-            ),  # never raw_value
-            ({"spike_credible": True}, None),
-        ]:
-            with mp.context() as mp:
-                rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
-                mp.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})  # noqa: B023
-                grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
-                assert (
-                    sw.resample_generic_price_forecast("sensor.price", grid) == expected
-                )
-
+def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one(monkeypatch):
     # test_amber_rows_that_cannot_be_read_are_skipped_one_by_one
     import price_intervals as pi
 

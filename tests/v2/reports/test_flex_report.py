@@ -89,7 +89,8 @@ def test_a_day_that_cannot_be_reported_is_none(day):
         day[entity] = None
     assert report() is None
 
-    # test_an_offer_never_made_is_unknown_and_one_made_is_integrated
+
+def test_an_offer_never_made_is_unknown_and_one_made_is_integrated(day):
     off = report()
     assert (off["offered_up_kwh"], off["offered_down_kwh"]) == (None, None)
     day[sw.FLEX_SIGNALS_ENTITY_ID], day["down"] = 1.5, 2.5

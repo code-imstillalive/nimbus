@@ -28,7 +28,7 @@ lrc = importlib.import_module(
 lrs = importlib.import_module("custom_components.nimbus_load.load_run_state")
 
 
-def test_a_done_condition_is_an_operator_and_a_threshold(reader, caplog):
+def test_a_done_condition_is_an_operator_and_a_threshold(reader):
     # test_a_done_condition_is_an_operator_and_a_threshold
     # test_a_done_condition_is_an_operator_and_a_threshold
     for expr, temp, done in [
@@ -97,16 +97,6 @@ def test_a_done_condition_is_an_operator_and_a_threshold(reader, caplog):
     assert coord.get("bad") == lrs.LoadRunState()
     assert coord.get("other") == lrs.LoadRunState()
 
-    # test_an_empty_or_unreadable_store_means_every_load_starts_fresh
-    caplog.clear()
-    for disk_state in [None, "broken"]:
-        caplog.clear()
-        coord, disk = reader
-        disk.broken = disk_state == "broken"
-        with caplog.at_level(logging.WARNING, logger=lrc._LOGGER.name):
-            assert asyncio.run(coord._async_update_data()) == {}
-        assert ("read failed" in caplog.text) is disk.broken
-
 
 # --- the run-state reader ---------------------------------------------------------------
 
@@ -129,3 +119,14 @@ def reader(monkeypatch):
         SimpleNamespace(), SimpleNamespace(entry_id="hub1")
     )
     return coord, disk
+
+
+@pytest.mark.parametrize("disk_state", [None, "broken"])
+def test_an_empty_or_unreadable_store_means_every_load_starts_fresh(
+    reader, caplog, disk_state
+):
+    coord, disk = reader
+    disk.broken = disk_state == "broken"
+    with caplog.at_level(logging.WARNING, logger=lrc._LOGGER.name):
+        assert asyncio.run(coord._async_update_data()) == {}
+    assert ("read failed" in caplog.text) is disk.broken

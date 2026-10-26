@@ -134,7 +134,7 @@ def _read(path: Path) -> dict:
 # ---- pure ----------------------------------------------------------------
 
 
-def test_source_entities_are_the_price_and_forecast_inputs_only(env, monkeypatch):
+def test_source_entities_are_the_price_and_forecast_inputs_only(env):
     # test_source_entities_are_the_price_and_forecast_inputs_only
     # Sorted by config key, so the order is stable from capture to capture.
     assert di.source_entities(CONFIG) == [
@@ -152,7 +152,11 @@ def test_source_entities_are_the_price_and_forecast_inputs_only(env, monkeypatch
     asyncio.run(store.async_flush(hass, "E"))
     assert len(_read(_files(root, "horizon")[0])["records"]) == 2
 
-    # test_export_filters_by_window_and_kind
+
+# ---- store ---------------------------------------------------------------
+
+
+def test_export_filters_by_window_and_kind(env):
     hass, clock, _root = env
     for m in range(0, 40, 1):
         _solve(hass, clock, T0 + timedelta(minutes=m), 3.0)
@@ -172,6 +176,8 @@ def test_source_entities_are_the_price_and_forecast_inputs_only(env, monkeypatch
     )
     assert part["count"] == 10
 
+
+def test_heads_go_after_48_hours_and_horizons_after_7_days(env, monkeypatch):
     # test_heads_go_after_48_hours_and_horizons_after_7_days
     hass, clock, root = env
     _solve(hass, clock, T0, 3.0)  # horizon
@@ -199,6 +205,3 @@ def test_source_entities_are_the_price_and_forecast_inputs_only(env, monkeypatch
         mp.setattr(store, "_state", lambda *_: (_ for _ in ()).throw(OSError("disk")))
         hass.set("sensor.nimbus_solver_battery_forecast", 1.0, _plan(T0, 1.0), T0)
         assert asyncio.run(store.async_capture(hass, "E")) is None
-
-
-# ---- store ---------------------------------------------------------------

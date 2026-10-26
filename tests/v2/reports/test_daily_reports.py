@@ -109,7 +109,7 @@ def ha(monkeypatch):
 # --- the Nimbus-only SoC counterfactual -------------------------------------------------------
 
 
-def test_the_counterfactual_needs_its_inputs(ha, monkeypatch):
+def test_the_counterfactual_needs_its_inputs(ha):
     # test_the_counterfactual_needs_its_inputs
     for missing in [
         {"solver_solar_power_sensor": None},
@@ -125,7 +125,8 @@ def test_the_counterfactual_needs_its_inputs(ha, monkeypatch):
     ha["series"]["sensor.real_solar"] = lambda s, e: []
     assert sw.compute_nimbus_only_soc_counterfactual(cfg(), DAY) is None
 
-    # test_a_p2p_block_sets_the_checkpoint_from_its_own_hours
+
+def test_a_p2p_block_sets_the_checkpoint_from_its_own_hours(ha):
     ha["series"]["sensor.real_load"] = flat(1.0)
     ha["series"]["sensor.real_soc"] = flat(80.0)
     block = cfg(
@@ -141,6 +142,8 @@ def test_the_counterfactual_needs_its_inputs(ha, monkeypatch):
     assert result["real_soc_checkpoint_pct"] is not None
     assert result["viable_threshold_pct"] == pytest.approx(22.0, abs=0.1)
 
+
+def test_the_counterfactual_splits_the_round_trip_efficiency(ha, monkeypatch):
     # test_the_counterfactual_splits_the_round_trip_efficiency
     with monkeypatch.context() as mp:
         built = []
@@ -219,15 +222,6 @@ def test_a_new_day_is_scored_and_published_with_its_date(ha, monkeypatch):
         mp.setattr(sw, "compute_quality_report", fail)
         assert _report(ha) is None
 
-    # test_the_p2p_settlement_is_yesterdays_own_or_nothing
-    for history, dollars, volume in [
-        ({"2026-08-24": {"export_cost": 12.5, "export_volume": 50.0}}, 12.5, 50.0),
-        ({"2026-08-01": {}}, 0.0, 0.0),
-    ]:
-        ha["states"]["sensor.settled"] = {"attributes": {"history": history}}
-        r = _report(ha, solver_p2p_settlement_history_sensor="sensor.settled")
-        assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (dollars, volume)
-
 
 # --- yesterday's quality report ---------------------------------------------------------------
 
@@ -237,6 +231,20 @@ def _report(ha, **kw):
     return sw.compute_daily_quality_report(
         cfg(solver_battery_soc_sensor=None, **kw), NOW
     )
+
+
+@pytest.mark.parametrize(
+    ("history", "dollars", "volume"),
+    [
+        ({"2026-08-24": {"export_cost": 12.5, "export_volume": 50.0}}, 12.5, 50.0),
+        ({"2026-08-01": {}}, 0.0, 0.0),
+    ],
+    ids=["yesterday", "other_day_only"],
+)
+def test_the_p2p_settlement_is_yesterdays_own_or_nothing(ha, history, dollars, volume):
+    ha["states"]["sensor.settled"] = {"attributes": {"history": history}}
+    r = _report(ha, solver_p2p_settlement_history_sensor="sensor.settled")
+    assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (dollars, volume)
 
 
 # --- history resampling -----------------------------------------------------------------------

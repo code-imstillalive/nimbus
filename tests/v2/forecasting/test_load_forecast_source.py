@@ -114,7 +114,14 @@ def test_measure_reads_the_record_and_changes_nothing(site, caplog):
             )
             assert decision.mean_value_add_dollars is not None
 
-    # test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small
+
+def _yesterday(value=lambda h: float(h)):
+    return [
+        (NOW - timedelta(hours=24) + timedelta(hours=h), value(h)) for h in range(25)
+    ]
+
+
+def test_the_baseline_is_read_once_an_hour_and_the_cache_stays_small(site):
     site["history"] = _yesterday()
     for minute in range(10):
         load_inputs._seasonal_naive_load_kw(
@@ -132,6 +139,8 @@ def test_measure_reads_the_record_and_changes_nothing(site, caplog):
         <= load_inputs._PERSISTENCE_CACHE_MAX_ENTRIES
     )
 
+
+def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site):
     # test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between
     site["history"] = _yesterday(lambda h: 3.0)
     grid = [NOW + timedelta(hours=h) for h in range(4)]
@@ -190,12 +199,6 @@ def test_measure_reads_the_record_and_changes_nothing(site, caplog):
         ]
         is None
     )
-
-
-def _yesterday(value=lambda h: float(h)):
-    return [
-        (NOW - timedelta(hours=24) + timedelta(hours=h), value(h)) for h in range(25)
-    ]
 
 
 # --- what the plan publishes about it ---------------------------------------------------------

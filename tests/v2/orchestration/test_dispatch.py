@@ -170,7 +170,10 @@ def test_each_domain_is_commanded_its_own_way_and_off_needs_two_agreeing_solves(
 def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds(
     site,
 ):
-    # test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds: #741: a heat pump stuck "about to start" all night. The decision
+    """#741: a heat pump stuck "about to start" all night. The decision
+    alternated every 5-minute solve, so it never held for the 15-minute
+    minimum and nothing was sent -- and once it settles, exactly one
+    command goes out."""
     site.load("s", "water_heater.hws", controllable_load_min_hold_minutes=15)
     site.solve(T0, adequacy={"s": OFF})
     site.calls.clear()
@@ -189,6 +192,8 @@ def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_hol
         )
     ]
 
+
+def test_a_dip_inside_the_hold_window_does_not_turn_a_load_off_or_one_on_early(site):
     # test_a_dip_inside_the_hold_window_does_not_turn_a_load_off_or_one_on_early: #595: a jagged plan that dips for one period while the load is wanted
     site.load("on")
     site.load("off")
@@ -319,55 +324,6 @@ def test_a_failing_device_does_not_stop_the_others(site, monkeypatch, caplog):
             caplog.text
         )
 
-    # test_a_tank_forecast_to_reach_its_floor_says_when_and_warns_once_a_day
-    caplog.clear()
-    _heater(site, 45.4, min_temp=45.0)
-    with caplog.at_level(logging.WARNING):
-        st = _forecast(site, 0.0)
-        _forecast(site, 0.0)
-    assert st.floor_crossing_forecast_time is not None
-    assert st.floor_crossing_forecast_temperature <= 45.0
-    assert caplog.text.count("hardware floor") == 1
-    _heater(site, 55.0, min_temp=45.0)
-    assert _forecast(site, 0.0).floor_crossing_forecast_time is None
-
-    # test_each_load_publishes_its_plan_and_what_it_costs
-    site.load("hws", deferrable_target_kwh=5.0)
-    site.load("pump", sheddable_nominal_kw=1.5)
-    hws = SimpleNamespace(
-        subentry_id="hws",
-        power_kw=np.array([2.0, 2.0, 0.0, 0.0]),
-        shortfall_kwh=0.3,
-        marginal_cost=21.891646007035034,
-        profit_horizon=3.140159265358979,
-    )
-    pump = SimpleNamespace(subentry_id="pump", served_kw=np.array([1.5, 0.8, 1.5, 1.5]))
-    plan = SimpleNamespace(sheddable_loads=[pump], adequacy_loads=[hws])
-    grid = [T0 + HALF_HOUR * i for i in range(4)]
-    sw.apply_commanded_state_guard(
-        plan,
-        T0,
-        grid,
-        np.full(4, 0.5),
-        tariff_attributed_cost_by_subentry={"hws": 21.891646007035034},
-    )
-    st = site.state("hws")
-    assert [p["value"] for p in st.plan_forecast] == [2.0, 2.0, 0.0, 0.0]
-    assert st.plan_forecast[0]["time"] == grid[0].isoformat()
-    assert [p["value"] for p in st.plan_delivered_kwh_forecast] == pytest.approx(
-        [1.0, 2.0, 2.0, 2.0]
-    )
-    assert (st.plan_target_kwh, st.plan_shortfall_kwh) == (5.0, 0.3)
-    assert (st.plan_marginal_cost, st.plan_profit_horizon) == (21.8916, 3.1402)
-    assert st.plan_tariff_attributed_cost == 21.8916 and st.plan_nominal_kw is None
-    shed = site.state("pump")
-    assert shed.plan_forecast[1]["value"] == 0.8 and shed.plan_nominal_kw == 1.5
-    assert shed.plan_target_kwh is None and shed.plan_tariff_attributed_cost is None
-
-    # test_a_plan_load_whose_subentry_is_gone_is_still_decided_but_not_sent
-    site.solve(T0, sheddable={"gone": ON})
-    assert site.state("gone").commanded_state is True and site.calls == []
-
 
 # --- the water heater's own temperature forecast ------------------------------------------
 
@@ -405,13 +361,61 @@ def _forecast(site, kw, *, step=HALF_HOUR, n=4):
     return site.state("hws")
 
 
+def test_a_tank_forecast_to_reach_its_floor_says_when_and_warns_once_a_day(
+    site, caplog
+):
+    _heater(site, 45.4, min_temp=45.0)
+    with caplog.at_level(logging.WARNING):
+        st = _forecast(site, 0.0)
+        _forecast(site, 0.0)
+    assert st.floor_crossing_forecast_time is not None
+    assert st.floor_crossing_forecast_temperature <= 45.0
+    assert caplog.text.count("hardware floor") == 1
+    _heater(site, 55.0, min_temp=45.0)
+    assert _forecast(site, 0.0).floor_crossing_forecast_time is None
+
+
 # --- each load's own published plan ------------------------------------------------------------
 
 
-# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
+def test_each_load_publishes_its_plan_and_what_it_costs(site, monkeypatch, caplog):
+    # test_each_load_publishes_its_plan_and_what_it_costs
+    site.load("hws", deferrable_target_kwh=5.0)
+    site.load("pump", sheddable_nominal_kw=1.5)
+    hws = SimpleNamespace(
+        subentry_id="hws",
+        power_kw=np.array([2.0, 2.0, 0.0, 0.0]),
+        shortfall_kwh=0.3,
+        marginal_cost=21.891646007035034,
+        profit_horizon=3.140159265358979,
+    )
+    pump = SimpleNamespace(subentry_id="pump", served_kw=np.array([1.5, 0.8, 1.5, 1.5]))
+    plan = SimpleNamespace(sheddable_loads=[pump], adequacy_loads=[hws])
+    grid = [T0 + HALF_HOUR * i for i in range(4)]
+    sw.apply_commanded_state_guard(
+        plan,
+        T0,
+        grid,
+        np.full(4, 0.5),
+        tariff_attributed_cost_by_subentry={"hws": 21.891646007035034},
+    )
+    st = site.state("hws")
+    assert [p["value"] for p in st.plan_forecast] == [2.0, 2.0, 0.0, 0.0]
+    assert st.plan_forecast[0]["time"] == grid[0].isoformat()
+    assert [p["value"] for p in st.plan_delivered_kwh_forecast] == pytest.approx(
+        [1.0, 2.0, 2.0, 2.0]
+    )
+    assert (st.plan_target_kwh, st.plan_shortfall_kwh) == (5.0, 0.3)
+    assert (st.plan_marginal_cost, st.plan_profit_horizon) == (21.8916, 3.1402)
+    assert st.plan_tariff_attributed_cost == 21.8916 and st.plan_nominal_kw is None
+    shed = site.state("pump")
+    assert shed.plan_forecast[1]["value"] == 0.8 and shed.plan_nominal_kw == 1.5
+    assert shed.plan_target_kwh is None and shed.plan_tariff_attributed_cost is None
 
+    # test_a_plan_load_whose_subentry_is_gone_is_still_decided_but_not_sent
+    site.solve(T0, sheddable={"gone": ON})
+    assert site.state("gone").commanded_state is True and site.calls == []
 
-def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, caplog):
     # test_a_load_that_fails_costs_only_itself_and_says_so
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -430,9 +434,11 @@ def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, capl
         assert [c[2]["entity_id"] for c in site.calls] == ["switch.good"]
         assert "'bad'" in caplog.text and "NOT commanded" in caplog.text
 
-    # test_a_failure_of_the_whole_cycle_is_a_warning_never_an_exception
-    caplog.clear()
 
+# --- a failure is reported, and costs no more than it must (#1019) ---------------------------
+
+
+def test_a_failure_of_the_whole_cycle_is_a_warning_never_an_exception(site, caplog):
     def broken(domain):
         raise RuntimeError("config entries unavailable")
 
@@ -443,6 +449,13 @@ def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, capl
     assert site.calls == []
     assert "NOT commanded" in caplog.text
 
+
+# --- a device that will not follow, once the day's re-sends are spent (#875) ------------------
+
+
+def test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once(
+    site, monkeypatch, caplog
+):
     # test_a_device_still_disobeying_after_the_days_resends_is_warned_about_once: Commanded on five hours ago, measured off ever since, and today's
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -640,9 +653,6 @@ def test_a_load_that_fails_costs_only_itself_and_says_so(site, monkeypatch, capl
     assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
 
 
-# --- a device that will not follow, once the day's re-sends are spent (#875) ------------------
-
-
 # --- the paths the coverage-by-risk map found untested (#1837) ---------------------------------
 
 
@@ -686,9 +696,7 @@ def _row(t, state="", **attributes):
     return SimpleNamespace(state=state, attributes=attributes, last_changed=t)
 
 
-def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog, monkeypatch):
-    # test_a_failed_off_is_recorded_so_it_is_sent_again
-    caplog.clear()
+def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog):
     site.load("s", "switch.pump", controllable_load_min_hold_minutes=0)
     site.solve(T0, sheddable={"s": ON})
     site.failing = {"switch"}
@@ -703,8 +711,8 @@ def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog, monkeypatch)
     assert site.calls[-1] == ("switch", "turn_off", {"entity_id": "switch.pump"})
     assert site.state("s").last_dispatch_failed is False
 
-    # test_a_failed_resend_is_recorded_and_warned
-    caplog.clear()
+
+def test_a_failed_resend_is_recorded_and_warned(site, caplog):
     site.load("s", "switch.pump")
     site.seed(
         "s",
@@ -719,10 +727,10 @@ def test_a_failed_off_is_recorded_so_it_is_sent_again(site, caplog, monkeypatch)
     assert st.commanded_state is True and st.last_dispatch_failed is True
     assert "re-send failed for controllable load 's' (switch.pump)" in caplog.text
 
-    # test_with_no_hub_entry_nothing_is_decided_or_sent
-    with monkeypatch.context() as mp:
-        site.load("s", "switch.pump")
-        mp.setattr(site.hass.config_entries, "async_entries", lambda _d: [])
-        site.solve(T0, sheddable={"s": ON})
-        assert site.calls == []
-        assert site.state("s") == load_run_state.LoadRunState()
+
+def test_with_no_hub_entry_nothing_is_decided_or_sent(site, monkeypatch):
+    site.load("s", "switch.pump")
+    monkeypatch.setattr(site.hass.config_entries, "async_entries", lambda _d: [])
+    site.solve(T0, sheddable={"s": ON})
+    assert site.calls == []
+    assert site.state("s") == load_run_state.LoadRunState()

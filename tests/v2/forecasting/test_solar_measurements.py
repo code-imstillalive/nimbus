@@ -73,15 +73,22 @@ def _nowcast(now, anchor, forecast, cfg=NOWCAST):
 # --- the nowcast check (#1259) -----------------------------------------------------------------
 
 
-def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(state):
-    # test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing
-    for cfg in [
+@pytest.mark.parametrize(
+    "cfg",
+    [
         {**NOWCAST, "solver_nowcast_measurement_enabled": False},
         {**NOWCAST, "solver_solar_power_sensor": None},
-    ]:
-        assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
-        assert state.readings["calls"] == 0 and state.empty()
+    ],
+    ids=["switched_off", "no_pv_sensor"],
+)
+def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
+    state, cfg
+):
+    assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
+    assert state.readings["calls"] == 0 and state.empty()
 
+
+def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
     # test_an_event_not_yet_due_stays_queued_and_reads_nothing
     _nowcast(NOON, 1.78, 15.89)
     _nowcast(NOON, 1.78, 15.89)

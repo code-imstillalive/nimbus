@@ -188,13 +188,16 @@ def test_nothing_is_fetched_again_until_the_next_run_can_exist(nemweb, monkeypat
     assert s.native_value == good
     assert s.extra_state_attributes["last_error"] == "TimeoutError: nemweb slow"
 
-    # test_a_dispatch_fault_never_blocks_the_run
+
+def test_a_dispatch_fault_never_blocks_the_run(nemweb):
     nemweb.dispatch_fail = RuntimeError("down")
     s = _sensor()
     asyncio.run(s._async_tick())
     assert s.available
     assert s.extra_state_attributes["dispatch_rhs_last_error"] == "RuntimeError: down"
 
+
+def test_the_spot_price_feeds_the_false_spike_guard_each_minute(nemweb):
     # test_the_spot_price_feeds_the_false_spike_guard_each_minute
     states = {
         "sensor.qld_price": SimpleNamespace(

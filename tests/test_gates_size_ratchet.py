@@ -93,58 +93,6 @@ def test_single_tree_mode_fails_on_a_70_line_function(tmp_path, toy_repo):
     assert "new_over_threshold" in proc.stdout
     assert "worker" in proc.stdout
 
-    # test_ratchet_mode_fails_when_the_over_limit_count_rises
-    mod = toy_repo / "pkg" / "mod.py"
-    mod.parent.mkdir(parents=True)
-    mod.write_text(_fn("first_big", 69))
-    _commit(toy_repo, "base: one over-limit function")
-
-    mod.write_text(_fn("first_big", 69) + "\n" + _fn("second_big", 69))
-    _commit(toy_repo, "head: a second over-limit function added")
-
-    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "count_rise" in proc.stdout
-
-    # test_ratchet_mode_passes_when_an_over_limit_function_only_moves: The tech-debt plan's own method: an already-over-60-line function
-    old = toy_repo / "pkg" / "old_home.py"
-    old.parent.mkdir(parents=True)
-    old.write_text(_fn("relocated", 69))
-    _commit(toy_repo, "base: relocated lives in old_home.py")
-
-    old.write_text("")  # moved out
-    new = toy_repo / "pkg" / "new_home.py"
-    new.write_text(_fn("relocated", 69))  # identical size, new file
-    _commit(toy_repo, "head: relocated moved to new_home.py, unchanged")
-
-    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "PASS" in proc.stdout
-
-    # test_ratchet_mode_passes_comparing_a_ref_to_itself
-    mod = toy_repo / "pkg" / "mod.py"
-    mod.parent.mkdir(parents=True)
-    mod.write_text(_fn("worker", 69))
-    _commit(toy_repo, "one commit")
-
-    proc = _run_ratchet(toy_repo, "HEAD", "HEAD", "pkg")
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "PASS" in proc.stdout
-
-    # test_real_solver_writer_matches_the_tech_debt_plans_own_count
-    # test_real_solver_writer_matches_the_tech_debt_plans_own_count: docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
-    target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
-    proc = _run(["--baseline-count", "36", str(target)])
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "36 function(s) over 60 lines" in proc.stdout, proc.stdout
-
-    # test_real_whole_package_is_a_materially_different_larger_number: Documents the discrepancy this tool's own docstring calls out: the
-    proc = _run(
-        ["--baseline-count", "36", str(REPO / "custom_components" / "nimbus_load")]
-    )
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "> baseline 36" in proc.stdout, proc.stdout
-
 
 # ---------------------------------------------------------------------------
 # Ratchet mode: a synthetic two-commit git repo, base vs a deliberately bad
@@ -214,6 +162,61 @@ repo, args = sys.argv[1], sys.argv[2:]
 size_ratchet.REPO = __import__("pathlib").Path(repo)
 sys.exit(size_ratchet.main(args))
 """
+
+
+def test_ratchet_mode_fails_when_the_over_limit_count_rises(toy_repo: Path) -> None:
+    mod = toy_repo / "pkg" / "mod.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text(_fn("first_big", 69))
+    _commit(toy_repo, "base: one over-limit function")
+
+    mod.write_text(_fn("first_big", 69) + "\n" + _fn("second_big", 69))
+    _commit(toy_repo, "head: a second over-limit function added")
+
+    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "count_rise" in proc.stdout
+
+
+def test_ratchet_mode_passes_when_an_over_limit_function_only_moves(toy_repo):
+    # test_ratchet_mode_passes_when_an_over_limit_function_only_moves: The tech-debt plan's own method: an already-over-60-line function
+    old = toy_repo / "pkg" / "old_home.py"
+    old.parent.mkdir(parents=True)
+    old.write_text(_fn("relocated", 69))
+    _commit(toy_repo, "base: relocated lives in old_home.py")
+
+    old.write_text("")  # moved out
+    new = toy_repo / "pkg" / "new_home.py"
+    new.write_text(_fn("relocated", 69))  # identical size, new file
+    _commit(toy_repo, "head: relocated moved to new_home.py, unchanged")
+
+    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "PASS" in proc.stdout
+
+    # test_ratchet_mode_passes_comparing_a_ref_to_itself
+    mod = toy_repo / "pkg" / "mod.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text(_fn("worker", 69))
+    _commit(toy_repo, "one commit")
+
+    proc = _run_ratchet(toy_repo, "HEAD", "HEAD", "pkg")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "PASS" in proc.stdout
+
+    # test_real_solver_writer_matches_the_tech_debt_plans_own_count
+    # test_real_solver_writer_matches_the_tech_debt_plans_own_count: docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
+    target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
+    proc = _run(["--baseline-count", "36", str(target)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "36 function(s) over 60 lines" in proc.stdout, proc.stdout
+
+    # test_real_whole_package_is_a_materially_different_larger_number: Documents the discrepancy this tool's own docstring calls out: the
+    proc = _run(
+        ["--baseline-count", "36", str(REPO / "custom_components" / "nimbus_load")]
+    )
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "> baseline 36" in proc.stdout, proc.stdout
 
 
 # ---------------------------------------------------------------------------

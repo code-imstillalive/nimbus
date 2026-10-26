@@ -68,7 +68,6 @@ def _report(epr=0.9, provisional=True, **extra):
 
 
 def test_a_days_score_is_archived_once_and_again_when_it_changes(disk):
-    # test_a_days_score_is_archived_once_and_again_when_it_changes
     hass = _hass(_report())
     assert asyncio.run(qh.async_capture_quality_day(hass, "hub1")) is True
     assert asyncio.run(qh.async_capture_quality_day(hass, "hub1")) is False  # unchanged
@@ -83,16 +82,22 @@ def test_a_days_score_is_archived_once_and_again_when_it_changes(disk):
     )
     assert asyncio.run(qh.async_load_quality_history(hass, "hub1")) == disk.data
 
-    # test_nothing_scored_is_nothing_archived
-    for attrs in [
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
         None,
         {"epr": 0.9},
         {"latest_date": "2026-09-20", "epr": None},
         {"latest_date": "", "epr": 1},
-    ]:
-        assert asyncio.run(qh.async_capture_quality_day(_hass(attrs), "hub1")) is False
-        assert disk.saves == 0
+    ],
+)
+def test_nothing_scored_is_nothing_archived(disk, attrs):
+    assert asyncio.run(qh.async_capture_quality_day(_hass(attrs), "hub1")) is False
+    assert disk.saves == 0
 
+
+def test_the_archive_keeps_the_newest_days(disk):
     # test_the_archive_keeps_the_newest_days
     stored = {f"2026-01-{d:02d}": {} for d in range(1, 11)}
     assert list(qh.prune(stored, keep_days=3)) == [

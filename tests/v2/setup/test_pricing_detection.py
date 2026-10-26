@@ -227,7 +227,13 @@ def test_localvolts_v2_is_recognised_from_its_registry_entries(world, monkeypatc
             "NEM PD7DAY",
         )
 
-    # test_suggestions_fill_only_empty_fields_from_the_dashboard_then_the_providers
+
+# --- proposals: suggested, never applied without a yes ------------------------------------
+
+
+def test_suggestions_fill_only_empty_fields_from_the_dashboard_then_the_providers(
+    world,
+):
     lv = _localvolts(world)
     suggestions = pa.pricing_suggestions(
         world.hass(),
@@ -251,6 +257,8 @@ def test_localvolts_v2_is_recognised_from_its_registry_entries(world, monkeypatc
     assert merged[EXPORT] == "sensor.mine" and merged[IMPORT] == "sensor.dash_buy"
     assert [a["field"] for a in applied] == [s["field"] for s in suggestions]
 
+
+def test_a_second_provider_becomes_the_second_price_source(world):
     # test_a_second_provider_becomes_the_second_price_source
     world.add(pi.AMBER_CORE_DOMAIN, "sensor.amber_buy", "01J-forecasts-general")
     world.add(pi.AMBER_CORE_DOMAIN, "sensor.amber_sell", "01J-forecasts-feed_in")
@@ -309,14 +317,6 @@ def test_localvolts_v2_is_recognised_from_its_registry_entries(world, monkeypatc
     assert pa.detect_fees_on_pd7day_tariff(world.hass(), {IMPORT: tariff}) is None
     assert pa.detect_fees_on_pd7day_tariff(world.hass(), {}) is None
 
-
-# --- proposals: suggested, never applied without a yes ------------------------------------
-
-
-# --- what a household is told --------------------------------------------------------------
-
-
-def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(world):
     # test_a_nem_price_without_a_regional_forecast_is_pointed_at_one
     assert (
         pa.detect_missing_regional_forecast(
@@ -352,6 +352,9 @@ def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(world):
     assert f"1 of Nimbus's {len(pa.LV_V2_PROFILE)}" in partly[pa.NOTIFY_DETECTED_ID]
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
+
+
+# --- what a household is told --------------------------------------------------------------
 
 
 def _notices(world, options):

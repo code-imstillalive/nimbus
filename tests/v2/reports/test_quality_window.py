@@ -104,9 +104,7 @@ def window(c=None, start=DAY, end=END, partial=True):
 # --- the window's shape -----------------------------------------------------------------------
 
 
-def test_a_window_with_no_length_is_not_scored(
-    history, monkeypatch, caplog, quiet_evening
-):
+def test_a_window_with_no_length_is_not_scored(history, monkeypatch, caplog):
     # test_a_window_with_no_length_is_not_scored
     for start, end in [(DAY, DAY), (END, DAY)]:
         assert window(start=start, end=end) is None
@@ -169,12 +167,6 @@ def test_a_window_with_no_length_is_not_scored(
             for r in caplog.records
             if r.levelno == logging.INFO
         )
-
-    # test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day
-    probes, _ = quiet_evening
-    assert window(partial=False) is not None
-    ((eid, after),) = probes
-    assert eid == "sensor.real_solar" and after <= DUSK + timedelta(minutes=15)
 
 
 # --- P2P settlement is read only for one whole calendar day ------------------------------------
@@ -278,6 +270,15 @@ def quality_module():
     return sys.modules[sw._compute_report_for_window.__module__]
 
 
+def test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day(
+    quiet_evening,
+):
+    probes, _ = quiet_evening
+    assert window(partial=False) is not None
+    ((eid, after),) = probes
+    assert eid == "sensor.real_solar" and after <= DUSK + timedelta(minutes=15)
+
+
 class _Response:
     def __init__(self, payload):
         self._b = json.dumps(payload).encode()
@@ -339,7 +340,7 @@ def _span(first, last, step=5):
 
 
 def test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty(
-    short_battery, caplog, p2p_day, delivery, no_soc
+    short_battery, caplog
 ):
     # test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty
     spans = (_span(0, 24), _span(0, 17), _span(6, 24))
@@ -377,67 +378,6 @@ def test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty(
         result, imp, *_ = _reprice({}, [], boom=True)
     assert result["price_stale_periods"] == 0 and imp[26] == 10.5
     assert any(r.levelno == logging.WARNING for r in caplog.records)
-
-    # test_the_oracle_never_exports_past_a_fixed_p2p_block_and_is_free_outside_it
-    assert window(p2p_day, partial=False) is not None  # no block: unaffected
-    block = {
-        **p2p_day,
-        "solver_p2p_block_1_rate_kw": 11.5,
-        "solver_p2p_block_1_start_hour": 17,
-        "solver_p2p_block_1_end_hour": 24,
-    }
-    rows = window(block, partial=False)["j_star_hourly"]
-    for hour in range(17, 24):
-        assert (
-            rows[(DAY + timedelta(hours=hour)).isoformat()]["grid_kw"] >= -11.5 - 0.05
-        )
-    assert rows[(DAY + timedelta(hours=3)).isoformat()]["grid_kw"] != pytest.approx(
-        -11.5, abs=0.05
-    )
-
-    # test_a_configured_load_is_published_with_what_it_really_delivered
-    hws = SimpleNamespace(
-        subentry_id="s_hws", subentry_type="controllable_load", data=HWS
-    )
-    (entry,) = delivery(_hass(hws))["controllable_load_delivery"]
-    assert (
-        entry["subentry_id"],
-        entry["name"],
-        entry["kind"],
-        entry["power_sensor"],
-    ) == (
-        "s_hws",
-        "Hot water",
-        "deferrable",
-        "sensor.wwk302_power",
-    )
-    assert entry["scorable"] and entry["delivered_kwh"] == pytest.approx(1.95, abs=1e-4)
-
-    # test_the_pricing_share_of_the_regret
-    for regret, delta, share in [
-        (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
-        (-0.7855, 0.0, 0.0),
-        (3.6485, None, 0.0),
-        (0.0, 2.6259, 0.0),  # a share of nothing is not a finding
-        (1e-12, 2.6259, 0.0),
-        (-2.0, 1.0, 0.5),  # magnitude: a negative regret does not flip it
-        (2.0, -1.0, 0.5),
-        (1.0, 5.0, 1.0),  # a share, never past the whole
-        (30.0, 15.0, 0.5),
-    ]:
-        assert sw._regret_path_delta_share(regret, delta) == pytest.approx(
-            share, abs=1e-3
-        )
-
-    # test_the_refusal_is_quiet_at_first_and_loud_when_it_persists
-    caplog.clear()
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        for _ in range(sw._COVERAGE_SKIP_WARN_AFTER):
-            window()
-    lines = [r for r in caplog.records if "SoC sensor" in r.getMessage()]
-    assert (lines[0].levelno, lines[-1].levelno) == (logging.INFO, logging.WARNING)
-    assert "sensor.combined_soc" in lines[0].getMessage()
-    assert DAY.date().isoformat() in lines[0].getMessage()
 
 
 @pytest.fixture
@@ -567,6 +507,26 @@ def p2p_day(history):
     )
 
 
+def test_the_oracle_never_exports_past_a_fixed_p2p_block_and_is_free_outside_it(
+    p2p_day,
+):
+    assert window(p2p_day, partial=False) is not None  # no block: unaffected
+    block = {
+        **p2p_day,
+        "solver_p2p_block_1_rate_kw": 11.5,
+        "solver_p2p_block_1_start_hour": 17,
+        "solver_p2p_block_1_end_hour": 24,
+    }
+    rows = window(block, partial=False)["j_star_hourly"]
+    for hour in range(17, 24):
+        assert (
+            rows[(DAY + timedelta(hours=hour)).isoformat()]["grid_kw"] >= -11.5 - 0.05
+        )
+    assert rows[(DAY + timedelta(hours=3)).isoformat()]["grid_kw"] != pytest.approx(
+        -11.5, abs=0.05
+    )
+
+
 # --- the battery sensor's sign (#299) ---------------------------------------------------------
 
 
@@ -613,23 +573,53 @@ def delivery(history, monkeypatch):
     return run
 
 
-# --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
+def test_a_configured_load_is_published_with_what_it_really_delivered(
+    delivery, no_soc, caplog, history, monkeypatch
+):
+    # test_a_configured_load_is_published_with_what_it_really_delivered
+    hws = SimpleNamespace(
+        subentry_id="s_hws", subentry_type="controllable_load", data=HWS
+    )
+    (entry,) = delivery(_hass(hws))["controllable_load_delivery"]
+    assert (
+        entry["subentry_id"],
+        entry["name"],
+        entry["kind"],
+        entry["power_sensor"],
+    ) == (
+        "s_hws",
+        "Hot water",
+        "deferrable",
+        "sensor.wwk302_power",
+    )
+    assert entry["scorable"] and entry["delivered_kwh"] == pytest.approx(1.95, abs=1e-4)
 
+    # test_the_pricing_share_of_the_regret
+    for regret, delta, share in [
+        (3.6485, 2.6259, 0.7197),  # most of the headline is the pricing, not dispatch
+        (-0.7855, 0.0, 0.0),
+        (3.6485, None, 0.0),
+        (0.0, 2.6259, 0.0),  # a share of nothing is not a finding
+        (1e-12, 2.6259, 0.0),
+        (-2.0, 1.0, 0.5),  # magnitude: a negative regret does not flip it
+        (2.0, -1.0, 0.5),
+        (1.0, 5.0, 1.0),  # a share, never past the whole
+        (30.0, 15.0, 0.5),
+    ]:
+        assert sw._regret_path_delta_share(regret, delta) == pytest.approx(
+            share, abs=1e-3
+        )
 
-# --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
+    # test_the_refusal_is_quiet_at_first_and_loud_when_it_persists
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
+        for _ in range(sw._COVERAGE_SKIP_WARN_AFTER):
+            window()
+    lines = [r for r in caplog.records if "SoC sensor" in r.getMessage()]
+    assert (lines[0].levelno, lines[-1].levelno) == (logging.INFO, logging.WARNING)
+    assert "sensor.combined_soc" in lines[0].getMessage()
+    assert DAY.date().isoformat() in lines[0].getMessage()
 
-
-@pytest.fixture
-def no_soc(history, monkeypatch):
-    monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
-    history["sensor.combined_soc"] = lambda s, e: []
-    return history
-
-
-# --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
-
-
-def test_the_window_is_checked_against_the_households_grid_meter(history, monkeypatch):
     # test_the_window_is_checked_against_the_households_grid_meter
     for key, metered, status in [
         ("switchboard_grid_meter_sensor", 2.0, "agrees"),  # load 2 kW from the grid
@@ -667,6 +657,22 @@ def test_the_window_is_checked_against_the_households_grid_meter(history, monkey
             scored["epr_reliable"] is False
             and scored["epr_reason"] == "price_source_stale"
         )
+
+
+# --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
+
+
+# --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
+
+
+@pytest.fixture
+def no_soc(history, monkeypatch):
+    monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
+    history["sensor.combined_soc"] = lambda s, e: []
+    return history
+
+
+# --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
 
 
 # --- the capacity a report states (#1013, #1172) ----------------------------------------------

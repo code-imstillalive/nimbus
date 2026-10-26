@@ -130,7 +130,6 @@ def _build(install, site, now, grid, cfg=None):
 
 
 def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
-    # test_it_does_not_judge_while_either_forecast_is_under_the_minimum
     for minimum, reason, active in [
         (None, "below_minimum", False),
         (1.5, "judged", True),
@@ -151,7 +150,28 @@ def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
         if minimum is None:
             assert site.history_calls == 0  # not even read
 
-    # test_16_october_late_start_does_not_trip_it_but_would_without_confirmation: The reference household's minute-by-minute ratios, 07:30-07:47:
+
+# --- on, off, and held -------------------------------------------------------------------------
+
+
+def _confirmed(install, readings, extra=None):
+    """Active after each (minute after 07:00, ratio of a flat 4 kW)."""
+    today = _day(TODAY, *FLAT)
+    cfg = {"solver_solar_power_sensor": SENSOR, "known_sources": KNOWN, **(extra or {})}
+    out = []
+    for minute, ratio in readings:
+        now = TODAY.replace(hour=7) + timedelta(minutes=minute)
+        out.append(
+            _judge(install, Site(today, history=_held(now, ratio * 4000)), now, cfg)[
+                "active"
+            ]
+        )
+    return out
+
+
+def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(install):
+    """The reference household's minute-by-minute ratios, 07:30-07:47:
+    crossing 0.70 at 07:38, so a 10-minute window never trips."""
     ratios = [0.610, 0.621, 0.632, 0.644, 0.656, 0.669, 0.680, 0.694, 0.711, 0.729]
     ratios += [0.749, 0.771, 0.794, 0.814, 0.837, 0.859, 0.881, 0.903]
     readings = [(30 + i, r) for i, r in enumerate(ratios)]
@@ -161,6 +181,11 @@ def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
         install, readings, {"solver_solar_running_low_confirm_minutes": 0}
     )[0]
 
+
+# --- inert, off, and a recorder that is behind -------------------------------------------------
+
+
+def test_without_what_it_needs_it_is_off_even_if_it_was_on(install):
     # test_without_what_it_needs_it_is_off_even_if_it_was_on
     for history, cfg_over, reason in [
         ([], {}, "no_history"),
@@ -270,27 +295,6 @@ def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
         ]
         == "no_reference"
     )
-
-
-# --- on, off, and held -------------------------------------------------------------------------
-
-
-def _confirmed(install, readings, extra=None):
-    """Active after each (minute after 07:00, ratio of a flat 4 kW)."""
-    today = _day(TODAY, *FLAT)
-    cfg = {"solver_solar_power_sensor": SENSOR, "known_sources": KNOWN, **(extra or {})}
-    out = []
-    for minute, ratio in readings:
-        now = TODAY.replace(hour=7) + timedelta(minutes=minute)
-        out.append(
-            _judge(install, Site(today, history=_held(now, ratio * 4000)), now, cfg)[
-                "active"
-            ]
-        )
-    return out
-
-
-# --- inert, off, and a recorder that is behind -------------------------------------------------
 
 
 def _ramp():

@@ -98,15 +98,15 @@ def _s(minutes, state, **attributes):
 # --- recorder reads ---------------------------------------------------------------
 
 
-def test_history_comes_from_the_recorder_without_attributes(hass, publish, caplog):
-    # test_history_comes_from_the_recorder_without_attributes
+def test_history_comes_from_the_recorder_without_attributes(hass):
     hass.history["sensor.x"] = [_s(-10, "2"), _s(-30, "1"), _s(-20, "unknown")]
     got = sw.fetch_entity_history_range("sensor.x", START, END)
     assert got == [(T0 - timedelta(minutes=30), 1.0), (T0 - timedelta(minutes=10), 2.0)]
     assert got[0][0].tzinfo == sw.LOCAL_TZ
     assert hass.history_calls == [(START, END, "sensor.x", True)]
 
-    # test_an_attribute_history_needs_the_attributes_and_converts_each
+
+def test_an_attribute_history_needs_the_attributes_and_converts_each(hass):
     hass.history["sensor.x"] = [
         _s(-10, "1", rate="0.25"),
         _s(-20, "1", rate=None),
@@ -122,6 +122,8 @@ def test_history_comes_from_the_recorder_without_attributes(hass, publish, caplo
     )
     assert none == []
 
+
+def test_power_history_from_the_recorder_is_in_kw(hass, publish, caplog):
     # test_power_history_from_the_recorder_is_in_kw
     hass.history["sensor.pv"] = [
         _s(-10, "3000", unit_of_measurement="W"),
