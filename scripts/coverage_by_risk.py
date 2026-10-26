@@ -215,6 +215,10 @@ def _run_suite(data: Path, workers: int) -> int:
     ]
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
     env["COVERAGE_FILE"] = str(data)
+    # The sys.monitoring core records a line only for the first test that
+    # reaches it, so per-test reach (pin-only, --cover) would be wrong; the
+    # C tracer records every test (#1837, measured on CI 26 Oct).
+    env["COVERAGE_CORE"] = "ctrace"
     return subprocess.run(
         cmd, cwd=ROOT, env=env, check=False, stdout=subprocess.DEVNULL
     ).returncode
@@ -224,6 +228,10 @@ def _run_hass(data: Path) -> int:
     """tests/hass_integration/, against real Home Assistant, as CI's second run."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
     env["COVERAGE_FILE"] = str(data)
+    # The sys.monitoring core records a line only for the first test that
+    # reaches it, so per-test reach (pin-only, --cover) would be wrong; the
+    # C tracer records every test (#1837, measured on CI 26 Oct).
+    env["COVERAGE_CORE"] = "ctrace"
     return subprocess.run(
         [
             sys.executable,
