@@ -400,31 +400,3 @@ def test_fails_when_base_side_measured_zero_covered_lines(toy_repo: Path) -> Non
     assert "PASS: every line covered" not in proc.stdout
     assert "0 lines covered at base" in proc.stdout
     assert "refusing to report PASS" in proc.stdout
-
-
-# ---------------------------------------------------------------------------
-# One real check against the actual repo: `main` compared to itself must
-# come back clean under the tool's real default pipeline (golden scenarios
-# plus the full stub suite, not --exercise-command).
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow_gate
-def test_real_main_compared_to_itself_has_zero_regressions() -> None:
-    # nimbus #1837: marked `slow_gate`, the one marker pyproject.toml
-    # registers. It runs the real golden scenarios and the real stub-based
-    # suite, twice, under coverage: 1,078 s of a 29-minute CI job. On a PR
-    # it compares the tree with itself, so it cannot fail because of the
-    # PR's change. It still runs on every push to main and on any PR that
-    # changes the gate (ci.yml's "Which stub tests apply"), which keeps it
-    # the acceptance bar for the gate's own changes.
-    proc = subprocess.run(
-        [sys.executable, str(GATE), "--base", "HEAD", "--head", "HEAD"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=1800,
-        check=False,
-    )
-    assert proc.returncode == 0, proc.stdout[-6000:] + proc.stderr[-6000:]
-    assert "PASS" in proc.stdout

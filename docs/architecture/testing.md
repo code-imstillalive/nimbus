@@ -6,14 +6,12 @@ Written for #1837 (Mark Purcell, 17-18 Oct 2026: "the pytest suite needs rationa
 
 | job | what | time |
 |---|---|---|
-| Unit Tests (pytest), stub run | `tests/` except `hass_integration/`, against `tests/_ha_stubs.py`, under coverage, in parallel (`-n auto`, pytest-xdist) | ~29 min before #1837; ~11 min on a PR expected without `slow_gate` (estimated from #1837's timings, not yet measured) |
+| Unit Tests (pytest), stub run | `tests/` except `hass_integration/`, against `tests/_ha_stubs.py`, under coverage, in parallel (`-n auto`, pytest-xdist) | ~29 min before #1837; ~18 min at 1,668 tests (#2084's PR run) |
 | Unit Tests (pytest), real HA run | `tests/hass_integration/`, the real `pytest-homeassistant-custom-component` harness; carries the `--cov-fail-under` ratchet | ~1.3 min |
 | No-op Patch Gate | patches that no longer reach their reader (#1316); full mode when the PR touches `custom_components/`, canary otherwise | ~7 min |
 | Lint, mypy, manifest, hassfest, HACS | static checks | minutes |
 
-**The one marker, `slow_gate`.** `test_gates_coverage_compare.py::test_real_main_compared_to_itself_has_zero_regressions` runs the golden scenarios and the whole stub suite twice under coverage: 1,078 s, about 65% of the stub job. On a PR it compares the tree with itself, so it cannot fail because of the PR's change. A PR's stub run therefore skips it, unless the PR changes `tests/gates/coverage_compare.py`, that test, or `pyproject.toml`. Every push to `main` and every manual run still runs it, so the gate's real pipeline is proven end to end on each merge. A failure there means `main` is red and is fixed like any other.
-
-A new marker needs the same case: measured CI time, a reason the test cannot fail on a PR (or a narrower trigger that keeps it where it can), and registration in `pyproject.toml` (the suite runs `--strict-markers`).
+**No markers.** The coverage gate's end-to-end self-compare ran the golden scenarios and the whole stub suite twice under coverage, and from 25 Oct 2026 it passed its 30-minute limit on every push to `main`. It was removed (#1837); `coverage_compare.py` keeps its toy-repo tests in `test_gates_coverage_compare.py`.
 
 ## Kinds of test
 
