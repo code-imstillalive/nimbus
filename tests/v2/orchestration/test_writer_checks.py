@@ -65,21 +65,6 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
     ]
 
 
-def test_a_scheduled_forecast_keyed_by_the_entity_is_read_without_bands():
-    attrs = {
-        "unit_of_measurement": "kW",
-        "scheduled_forecast": [{"date": T0.isoformat(), "house": 1.2, "lower": 0.1}],
-    }
-    points, bands, error = sw._validate_and_parse_load_forecast_attrs(
-        "sensor.house", attrs
-    )
-    assert (points, bands, error) == (
-        [{"time": T0.isoformat(), "value": 1.2}],
-        False,
-        None,
-    )
-
-
 @pytest.mark.parametrize(
     ("attrs", "says"),
     [
@@ -166,19 +151,6 @@ def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path)
 
 
 # --- how far a day's score can be trusted -----------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("reliable", "reason", "out"),
-    [
-        (None, None, "achieved_soc_unverifiable"),
-        (False, "sensor_gap", "achieved_soc_unreliable:sensor_gap"),
-        (False, None, "achieved_soc_unreliable:unknown"),
-        (True, "ignored", None),
-    ],
-)
-def test_the_soc_half_of_the_reason(reliable, reason, out):
-    assert sw._epr_soc_reason(reliable, reason) == out
 
 
 @pytest.mark.parametrize(

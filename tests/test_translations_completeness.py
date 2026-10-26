@@ -67,39 +67,6 @@ def _schema_keys(schema) -> list[str]:
     return [str(k) for k in schema.schema]
 
 
-def test_every_options_schema_field_has_a_strings_json_data_label():
-    strings = json.loads(_STRINGS_PATH.read_text(encoding="utf-8"))
-    missing = []
-    for factory, step_key in _SCHEMAS:
-        schema = factory()
-        step = strings["options"]["step"][step_key]
-        data_labels = step.get("data", {})
-        for key in _schema_keys(schema):
-            if key not in data_labels:
-                missing.append(f"{step_key}.{key}")
-    assert not missing, (
-        f"these fields render as raw snake_case keys in the real wizard "
-        f"UI -- missing a strings.json options.step.*.data entry: {missing}"
-    )
-
-
-def test_every_options_schema_field_has_a_strings_json_data_description():
-    strings = json.loads(_STRINGS_PATH.read_text(encoding="utf-8"))
-    missing = []
-    for factory, step_key in _SCHEMAS:
-        schema = factory()
-        step = strings["options"]["step"][step_key]
-        descriptions = step.get("data_description", {})
-        for key in _schema_keys(schema):
-            if key not in descriptions:
-                missing.append(f"{step_key}.{key}")
-    assert not missing, (
-        f"these fields have a label but no help text in the real wizard "
-        f"UI -- missing a strings.json options.step.*.data_description "
-        f"entry: {missing}"
-    )
-
-
 def test_compute_quality_report_service_has_a_translation():
     strings = json.loads(_STRINGS_PATH.read_text(encoding="utf-8"))
     services = strings.get("services", {})

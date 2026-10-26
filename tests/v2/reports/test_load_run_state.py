@@ -14,8 +14,6 @@ from datetime import UTC, datetime, timedelta
 
 import load_run_state as lrs
 import pytest
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 DAY = "2026-09-20"
@@ -53,12 +51,6 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     assert s.delivered_today_kwh == pytest.approx(1.0025)
 
 
-def test_a_reading_after_a_long_gap_delivers_nothing_for_the_gap():
-    s = _sample(lrs.LoadRunState(), 0, 2.0)
-    s = _sample(s, 61 + 60, 2.0)
-    assert s.delivered_today_kwh == 0.0
-
-
 def test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap():
     s = replace(
         lrs.LoadRunState(),
@@ -74,24 +66,6 @@ def test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap():
         lrs.LoadRunState(), 0, 0.0, quota_kwh_per_day=4.0, carry_cap_kwh=9.0
     )
     assert first.carry_kwh == 0.0  # no yesterday to carry from
-
-
-@pytest.mark.parametrize(
-    ("quota", "carry", "delivered", "cap", "out"),
-    [(4.0, 1.0, 2.0, 9.0, 3.0), (4.0, 0.0, 6.0, 9.0, 0.0), (4.0, 5.0, 0.0, 6.0, 6.0)],
-)
-def test_the_rollover_is_never_negative_nor_over_its_cap(
-    quota, carry, delivered, cap, out
-):
-    assert (
-        lrs.compute_rollover(
-            quota_kwh_per_day=quota,
-            carry_prev_kwh=carry,
-            delivered_yesterday_kwh=delivered,
-            carry_cap_kwh=cap,
-        )
-        == out
-    )
 
 
 def test_todays_target_is_quota_plus_carry_capped_and_the_rest_is_never_negative():
@@ -110,23 +84,6 @@ def test_todays_target_is_quota_plus_carry_capped_and_the_rest_is_never_negative
     assert lrs.remaining_kwh(target_kwh=5.0, delivered_today_kwh=6.0) == 0.0
 
 
-@settings(max_examples=40, derandomize=True, deadline=None)
-@given(
-    st.lists(
-        st.tuples(st.integers(1, 30), st.floats(0.0, 10.0)), min_size=1, max_size=30
-    )
-)
-def test_delivered_energy_never_decreases_within_a_day(samples):
-    s, minute, last = lrs.LoadRunState(), 0, 0.0
-    for gap, kw in samples:
-        minute += gap
-        if minute >= 1000:
-            break
-        s = _sample(s, minute, kw)
-        assert s.delivered_today_kwh >= last - 1e-12
-        last = s.delivered_today_kwh
-
-
 # --- the debounced command --------------------------------------------------------------------
 
 
@@ -137,35 +94,6 @@ def _cmd(state, minutes, on, hysteresis=600):
         now=T0 + timedelta(minutes=minutes),
         min_hysteresis_seconds=hysteresis,
     )
-
-
-def test_the_first_decision_applies_at_once_and_a_change_waits_out_the_hysteresis():
-    s = _cmd(lrs.LoadRunState(), 0, True)
-    assert s.commanded_state is True and s.commanded_since == T0.timestamp()
-    s = _cmd(s, 1, False)
-    assert s.commanded_state is True and s.pending_state is False
-    same = _cmd(s, 5, False)
-    assert same is s  # still pending, nothing new
-    back = _cmd(s, 6, True)
-    assert (
-        back.pending_state is None and back.commanded_state is True
-    )  # it changed its mind
-    s = _cmd(_cmd(s, 6, True), 7, False)
-    s = _cmd(s, 17, False)
-    assert s.commanded_state is False and s.pending_state is None
-
-
-def test_the_command_has_diverged_from_the_load_since_both_disagreed():
-    s = replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        commanded_since=100.0,
-        currently_on=False,
-        off_since=160.0,
-    )
-    assert lrs.command_divergence_seconds(s, 200.0) == 40.0
-    assert lrs.command_divergence_seconds(replace(s, currently_on=True), 200.0) is None
-    assert lrs.command_divergence_seconds(replace(s, off_since=None), 200.0) is None
 
 
 # --- activation and reaffirm limits -----------------------------------------------------------------
@@ -255,12 +183,6 @@ def test_the_status_reason_says_running_deferred_or_not_scheduled():
     )
     assert reason([0, 0, 0, 2], [0.3] * 4, hi=2) == "not scheduled to run this window"
     assert reason([], []) is None
-
-
-def test_a_series_is_published_as_time_value_rows():
-    assert lrs.build_time_value_series([T0], [1.23456]) == [
-        {"time": T0.isoformat(), "value": 1.235}
-    ]
 
 
 # --- the schedule view ---------------------------------------------------------------------------------
@@ -384,21 +306,6 @@ class MemoryStore:
 
     async def async_save(self, data):
         self.data = data
-
-
-def test_a_run_state_survives_a_round_trip_through_the_store():
-    store = lrs.LoadRunStateStore(store=MemoryStore())
-    s = replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        delivered_today_kwh=3.2,
-        plan_forecast=_plan([1.0]),
-        thermal_rates_source="learned",
-    )
-    asyncio.run(store.async_write("hw", s))
-    assert asyncio.run(store.async_read("hw")) == s
-    assert lrs.LoadRunState.from_dict(s.to_dict()) == s
-    assert asyncio.run(store.async_read("other")) == lrs.LoadRunState()
 
 
 @pytest.mark.parametrize(

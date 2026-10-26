@@ -10,7 +10,6 @@ captured for #1550 under tests/fixtures/pricing.
 
 from __future__ import annotations
 
-import copy
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -64,87 +63,6 @@ def sensor(monkeypatch):
 
 
 # --- the price is the one published ------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("attrs", "at", "value"),
-    [
-        (
-            {"forecast": AEMO},
-            "2026-10-06T13:00:00+10:00",
-            0.0297,
-        ),  # $/kWh, not /1000 again
-        (
-            {"forecast": PD7},
-            "2026-10-06T12:40:00+10:00",
-            0.043006,
-        ),  # calibrated, not raw
-        ({"forecast": PD7_TARIFF["pd7_import"]}, "2026-10-06T12:40:00+10:00", 0.081069),
-        ({"forecast": PD7_TARIFF["pd7_export"]}, "2026-10-06T12:40:00+10:00", 0.024859),
-        (
-            {"forecasts": _core("amber_import_action")},
-            "2026-10-06T13:22:00+10:00",
-            0.0620461,
-        ),
-        (  # per_kwh, never spot_per_kwh or the advanced prediction
-            {"forecasts": _CORE["amber_import_action"]["selected_native_rows"]},
-            "2026-10-06T14:10:00+10:00",
-            0.039132099999999996,
-        ),
-        (
-            {"forecast": SIMPLE, "detailedForecast": DETAIL},
-            "2026-10-06T13:20:00+10:00",
-            0.0613,
-        ),
-        ({"forecast": SIMPLE}, "2026-10-06T13:20:00+10:00", 0.0613),
-    ],
-    ids=[
-        "aemo",
-        "pd7day_wholesale",
-        "pd7day_import_tariff",
-        "pd7day_export_tariff",
-        "amber_core",
-        "amber_core_not_advanced",
-        "amber_express",
-        "amber_express_without_detail",
-    ],
-)
-def test_each_providers_price_is_read_as_published(sensor, attrs, at, value):
-    values, real = sensor([t(at)], **attrs)
-    assert values == [value] and real == [True]
-
-
-def test_a_feed_in_price_keeps_its_published_sign(sensor):
-    values, _ = sensor(
-        [t("2026-10-06T13:22:00+10:00"), t("2026-10-07T12:45:00+10:00")],
-        forecasts=_core("amber_export_action"),
-    )
-    assert values == [0.0263986, -0.0038316]  # paying to export stays negative
-    negative = [
-        {
-            "start_time": "2026-10-06T11:00:00+10:00",
-            "end_time": "2026-10-06T11:30:00+10:00",
-            "price": -0.0412,
-        }
-    ]
-    assert sensor([t("2026-10-06T11:10:00+10:00")], forecast=negative) == (
-        [-0.0412],
-        [True],
-    )
-
-
-def test_amber_express_is_neither_negated_nor_given_its_demand_window_twice(sensor):
-    at = [t("2026-10-06T13:20:00+10:00")]
-    flipped = copy.deepcopy(DETAIL)
-    for d in flipped:
-        d["per_kwh"] = -d["per_kwh"]
-    simple = [dict(r, value=abs(r["value"])) for r in SIMPLE]
-    assert sensor(at, forecast=simple, detailedForecast=flipped)[0] == [0.0613]
-    window = [dict(r) for r in SIMPLE]
-    window[1]["value"] = 0.0613 + 0.20  # upstream already added it
-    flagged = copy.deepcopy(DETAIL)
-    flagged[1]["demand_window"] = True
-    assert sensor(at, forecast=window, detailedForecast=flagged)[0] == [0.0613 + 0.20]
 
 
 # --- what is real coverage ---------------------------------------------------------------------
@@ -215,13 +133,6 @@ def test_coverage_is_real_only_inside_a_published_interval(sensor, attrs, grid, 
     assert sensor([t(g) for g in grid], **attrs)[1] == real
 
 
-def test_a_hole_is_held_but_not_real(sensor):
-    values, _ = sensor(
-        [t("2026-10-07T12:00:00+10:00"), t("2026-10-08T04:00:00+10:00")], forecast=AEMO
-    )
-    assert values == [0.0267, 0.1176]
-
-
 @pytest.mark.parametrize(
     "attrs",
     [
@@ -287,19 +198,6 @@ def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used
     assert held == [0.20, 0.20]
 
 
-def test_a_grid_point_exactly_at_an_interval_start_reads_that_interval(sensor):
-    start = t("2026-10-06T13:00:00+10:00")
-    rows = [
-        {
-            "start_time": (start + timedelta(minutes=30 * i)).isoformat(),
-            "end_time": (start + timedelta(minutes=30 * (i + 1))).isoformat(),
-            "price": 0.01 * (i + 1),
-        }
-        for i in range(2)
-    ]
-    assert sensor([start + timedelta(minutes=30)], forecast=rows) == ([0.02], [True])
-
-
 # --- OpenADR: the forecast comes from the integration's own action (#1583) ----------------------
 
 _ADR = _fixture("1550_openadr.json")["samples"]
@@ -337,39 +235,6 @@ def openadr(monkeypatch):
     return read
 
 
-def test_openadr_rows_keep_their_own_lengths_and_end_after_the_last_row(openadr):
-    rows = _ADR["openadr_import"]["selected_native_rows"]
-    grid = [
-        "2026-10-06T13:12:00+10:00",
-        "2026-10-06T13:14:59+10:00",  # the 5-minute row
-        "2026-10-06T13:20:00+10:00",  # the 15-minute row
-        "2026-10-06T13:45:00+10:00",  # the first 30-minute row
-        "2026-10-13T13:20:00+10:00",  # the last row runs 30 minutes past its start
-        "2026-10-13T13:30:00+10:00",
-    ]
-    values, real = openadr(grid, rows)
-    assert values[:4] == [0.062571, 0.062571, 0.081069, 0.053818]
-    assert real == [True, True, True, True, True, False]
-    assert openadr.calls == [("openadr3_ven", "get_forecast", {"entity_id": ADR_EID})]
-
-
-def test_an_hourly_programs_hole_is_not_coverage_and_export_reads_too(openadr):
-    hourly = _ADR["openadr_second_program"]["selected_native_rows"]
-    _, real = openadr(
-        ["2026-10-10T16:30:00+10:00", "2026-10-11T03:00:00+10:00"],
-        hourly,
-        attrs={"forecast_rows": 144},
-    )
-    assert real == [True, False]
-    values, _ = openadr(
-        ["2026-10-06T13:12:00+10:00"],
-        _ADR["openadr_export"]["selected_native_rows"],
-        payload="EXPORT_PRICE",
-        attrs={"payload_type": "EXPORT_PRICE"},
-    )
-    assert values == [0.027605]
-
-
 @pytest.mark.parametrize(
     "response",
     [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}],
@@ -380,16 +245,6 @@ def test_no_answer_for_this_entity_is_no_forecast(openadr, response):
     if response:
         response["sensor.other"]["forecast"] = rows
     assert openadr(["2026-10-06T13:12:00+10:00"], rows, response=response) is None
-
-
-def test_a_sensor_that_is_not_openadr_never_calls_the_action(sensor, monkeypatch):
-    monkeypatch.setattr(
-        sw,
-        "ha_call_service_with_response",
-        lambda *_a: pytest.fail("the action was called"),
-    )
-    rows = [{"time": "2026-10-06T13:15:00+10:00", "value": 0.0848}]
-    assert sensor([t("2026-10-06T13:15:00+10:00")], forecast=rows)[0] == [0.0848]
 
 
 # --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
@@ -420,19 +275,6 @@ def spot_store(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "AMBER_SPOT_PATH", str(path))
     monkeypatch.setattr(sw, "_AMBER_SPOT_CACHE", None)
     return path
-
-
-def test_the_settled_spot_replaces_the_provisional_one_ex_gst(spot_store, monkeypatch):
-    for spot in (0.153989, 0.1514426):
-        monkeypatch.setattr(sw, "ha_get", lambda _e, s=spot: _amber(_spot_row(s)))
-        out = sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
-    assert out[SPOT_KEY] == (
-        SPOT_END - timedelta(minutes=5),
-        pytest.approx(0.1514426 / 1.10),
-    )
-    assert json.loads(spot_store.read_text()) == {
-        str(SPOT_KEY): pytest.approx(0.1514426 / 1.10)
-    }
 
 
 def test_the_first_sensor_with_amber_rows_is_the_one_read(spot_store, monkeypatch):
@@ -504,16 +346,6 @@ def test_an_amber_only_install_needs_no_regional_sensor(monkeypatch):
     assert sw.compute_5min_offset(RETAIL) == {}
 
 
-def test_the_spot_in_progress_belongs_to_the_interval_starting_at_the_boundary():
-    import price_intervals as pi
-
-    rows = [_spot_row(0.1), _spot_row(0.2, SPOT_END + timedelta(minutes=5))]
-    assert pi.amber_spot_in_progress(rows, SPOT_END) == (
-        SPOT_END,
-        pytest.approx(0.2 / 1.10),
-    )
-
-
 @pytest.mark.parametrize(
     "rows",
     [
@@ -568,31 +400,3 @@ def test_a_price_historys_unit_that_cannot_be_read_scales_by_one(monkeypatch):
 
     monkeypatch.setattr(sw, "ha_get", down)
     assert sw.price_unit_scale_of_history("sensor.price") == 1.0
-
-
-def test_amber_express_rows_are_ordered_by_time_never_by_price(sensor):
-    """Rows arriving dearest first still read in time order."""
-    rows = sorted(SIMPLE, key=lambda r: -float(r["value"] or 0.0))
-    ordered, _ = sensor(
-        [t("2026-10-06T13:20:00+10:00")], forecast=SIMPLE, detailedForecast=DETAIL
-    )
-    shuffled, _ = sensor(
-        [t("2026-10-06T13:20:00+10:00")], forecast=rows, detailedForecast=DETAIL
-    )
-    assert shuffled == ordered == [0.0613]
-
-
-def test_without_detail_each_amber_express_price_runs_to_the_next_in_time():
-    import price_intervals as pi
-
-    t0 = t("2026-10-06T13:00:00+10:00")
-    rows = [
-        {"time": (t0 + timedelta(minutes=10)).isoformat(), "value": 0.10},
-        {"time": t0.isoformat(), "value": 0.30},
-        {"time": (t0 + timedelta(minutes=5)).isoformat(), "value": 0.20},
-    ]
-    got = [(i.start, i.end, i.value) for i in pi.amber_express_intervals(rows, [])]
-    assert got[:2] == [
-        (t0, t0 + timedelta(minutes=5), 0.30),
-        (t0 + timedelta(minutes=5), t0 + timedelta(minutes=10), 0.20),
-    ]

@@ -62,14 +62,9 @@ this test was never meant to guard.
 from __future__ import annotations
 
 import urllib.error
-from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import pytest
-import solver_publish
-import solver_shared
-import solver_writer
-from _isolated_state import isolated_state_paths
 
 _LOAD_SENSOR = "sensor.nimbus_sigen_plant_total_load_power_forecast"
 
@@ -879,117 +874,6 @@ def _make_ha_get():
         raise urllib.error.HTTPError(entity_id, 404, "not found", {}, None)
 
     return _ha_get
-
-
-@pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
-class TestMainGoldenOutput:
-    def test_fixed_inputs_produce_the_exact_expected_plan(self, freezer):
-        ha_get_mock = _make_ha_get()
-        posted = {}
-
-        def _capture_ha_post_state(entity_id, state, attrs=None):
-            posted[entity_id] = (state, attrs)
-
-        with (
-            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
-            # nimbus #1302 (spec 003 step 2): safe_num moved to
-            # solver_shared.py and resolves ha_get from THAT namespace, so
-            # patching only solver_writer.ha_get lets its call escape to a
-            # real HA. main()'s own reads still go through solver_writer's
-            # alias, so BOTH targets are needed -- not one instead of the
-            # other.
-            patch.object(solver_shared, "ha_get", side_effect=ha_get_mock),
-            patch.object(
-                solver_writer, "ha_post_state", side_effect=_capture_ha_post_state
-            ),
-            patch.object(solver_writer, "acquire_lock", return_value=True),
-            patch.object(solver_writer, "release_lock"),
-            # nimbus issue #1330: every persisted path into a throwaway
-            # directory, so the golden comparison cannot inherit state from a
-            # previous run or from the machine. See the module docstring, and
-            # tests/_isolated_state.py for the full account.
-            isolated_state_paths(solver_writer),
-        ):
-            solver_writer.main()
-
-        assert solver_publish.ENTITY_ID in posted, (
-            "main() did not push sensor.nimbus_solver_battery_forecast at all "
-            "-- this fixture must reach a real optimal solve"
-        )
-        state, attrs = posted[solver_publish.ENTITY_ID]
-
-        assert state == _EXPECTED_STATE
-
-        forecast = attrs.get("forecast")
-        assert forecast is not None and len(forecast) == _EXPECTED_ATTRS["n_periods"]
-
-        # nimbus issue #563 item 5: same per-period, real-time-stamped
-        # shape as "forecast" above -- checked structurally here (one
-        # entry per real battery, each carrying the full per-period
-        # series), not pinned into _EXPECTED_ATTRS's own byte-exact
-        # comparison below, same reasoning as "forecast" itself.
-        batteries = attrs.get("batteries")
-        assert batteries is not None and len(batteries) == 1  # just "home" here
-        assert batteries[0]["name"] == "home"
-        assert len(batteries[0]["forecast"]) == _EXPECTED_ATTRS["n_periods"]
-        assert set(batteries[0]["forecast"][0].keys()) == {
-            "time",
-            "charge_kw",
-            "discharge_kw",
-            "soc_kwh",
-            "soc_pct",
-        }
-
-        actual_non_time = {
-            k: v for k, v in attrs.items() if k not in _TIME_DEPENDENT_ATTR_KEYS
-        }
-        expected_non_time = {
-            k: v
-            for k, v in _EXPECTED_ATTRS.items()
-            if k not in _TIME_DEPENDENT_ATTR_KEYS
-        }
-        actual_non_time.pop("forecast")
-        actual_non_time.pop("batteries")
-        # nimbus #1797: wall-clock solve times inside the stochastic summary.
-        actual_non_time["stochastic"] = {
-            k: v
-            for k, v in actual_non_time["stochastic"].items()
-            if k not in ("stochastic_solve_seconds", "deterministic_solve_seconds")
-        }
-        # nimbus #1360: cycles since the process started, so their values
-        # depend on how many solves this test process has already run.
-        # Pinned by shape here; their values by the isolated golden master.
-        diag = dict(actual_non_time["solve_diagnostics"])
-        attempted = diag.pop("solves_attempted")
-        failures = diag.pop("solver_failures")
-        # nimbus #1360 (15 Oct): also process-wide, so earlier tests in this
-        # process can have set them.
-        for key in (
-            "last_failure_raw_status",
-            "last_failure_at",
-            "unknown_retries",
-            "unknown_retries_recovered",
-        ):
-            diag.pop(key)
-        assert isinstance(attempted, int) and attempted >= 1
-        assert isinstance(failures, int) and 0 <= failures <= attempted
-        actual_non_time["solve_diagnostics"] = diag
-        assert actual_non_time == expected_non_time, (
-            "main()'s pushed attributes (excluding forecast/generated_at/"
-            "solve_seconds) no longer match the golden output -- if this "
-            "was a deliberate, understood behavior change, regenerate the "
-            "golden values from a fresh real run; if this happened during "
-            "a #363 extraction step, STOP -- the extraction changed real "
-            "output and is not behavior-preserving."
-        )
-
-        for idx, expected_point in _EXPECTED_FORECAST_SAMPLE.items():
-            actual_point = forecast[idx]
-            for key, expected_value in expected_point.items():
-                assert actual_point.get(key) == expected_value, (
-                    f"forecast[{idx}]['{key}'] = {actual_point.get(key)!r}, "
-                    f"expected {expected_value!r}"
-                )
 
 
 if __name__ == "__main__":

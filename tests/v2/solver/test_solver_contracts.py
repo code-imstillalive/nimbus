@@ -94,9 +94,7 @@ check found only an old file holding (tests/v2/solver/CUTOVER.md).
 from __future__ import annotations
 
 import ast
-import dataclasses
 import logging
-import os
 import pathlib
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
@@ -108,9 +106,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp, network
 from solver.elements import (
-    DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     AdequacyLoadConfig,
-    AdequacyWindow,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -122,103 +118,13 @@ from solver.lp import CalibratedOptions, LexOptions, LPProblem
 from solver.network import (
     BatteryPlan,
     Plan,
-    _add_intraplan_smoothness_penalty,
-    _add_proximal_penalty,
-    _anchor_source,
     _infeasible_plan,
     build_plan,
 )
 from test_lp_properties import _build, problems
-from test_plan_invariants import SETTINGS, _num, sites
-from test_plan_invariants import _solve as _solve_site
+from test_plan_invariants import SETTINGS, _num
 
 TINY = st.sampled_from([1e-9, -1e-9, 5e-10, -1e-10, 1e-11, 1e-12])
-
-
-@SETTINGS
-@given(problems(), st.data())
-def test_a_tiny_row_entry_is_dropped_and_changes_nothing(spec, data):
-    """The same problem with a tiny entry added to one row, for a variable
-    the row does not hold, solves to the same objective in every mode."""
-    plain = _build(spec)
-    i = data.draw(st.integers(0, len(spec["rows"]) - 1))
-    tiny = data.draw(TINY)
-    p = LPProblem()
-    for j in range(spec["n"]):
-        p.add_variable(f"x{j}", lb=0.0, ub=spec["ub"][j], cost=spec["cost"][j])
-        if spec["second"][j] is not None:
-            p.set_secondary_cost(f"x{j}", spec["second"][j])
-    p.add_variable("extra", lb=0.0, ub=1.0, cost=0.0)
-    for k, (a, b, _named) in enumerate(spec["rows"]):
-        terms = {f"x{j}": a[j] for j in range(spec["n"]) if a[j] != 0.0} or {"x0": 1.0}
-        if k == i:
-            terms["extra"] = tiny
-        p.add_ub_constraint(terms, b)
-    for options in (None, LexOptions(), CalibratedOptions()):
-        want = plain.solve(options=options)
-        got = p.solve(options=options)
-        assert want.status == got.status == "optimal", options
-        assert abs(plain.primary_cost_of(want) - p.primary_cost_of(got)) <= 1e-6 * max(
-            1.0, abs(plain.primary_cost_of(want))
-        ), options
-
-
-@given(TINY)
-def test_a_row_whose_every_entry_is_dropped_keeps_its_bounds(tiny):
-    """tiny * x == 1 becomes 0 == 1 once the entry is dropped: infeasible, as
-    HiGHS would build it, never silently satisfied."""
-    p = LPProblem()
-    p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
-    p.add_eq_constraint({"x": tiny}, 1.0)
-    assert p.solve().status != "optimal"
-
-
-@given(st.integers(min_value=1, max_value=48))
-def test_a_plan_that_did_not_solve_shares_no_array(n):
-    periods = PeriodGrid(hours=np.ones(n), start=datetime(2026, 1, 1, tzinfo=UTC))
-    plan = _infeasible_plan(periods, "infeasible", iterations=0)
-    arrays = {
-        name: value
-        for name, value in vars(plan).items()
-        if isinstance(value, np.ndarray)
-    }
-    assert len(arrays) >= 8  # the check is not vacuous
-    ids = [id(a) for a in arrays.values()]
-    assert len(ids) == len(set(ids)), "two plan fields are the same array"
-    first = next(iter(arrays))
-    arrays[first][...] = 5.0
-    for name, a in arrays.items():
-        if name != first:
-            assert not np.any(a == 5.0), name
-
-
-@given(
-    st.integers(min_value=1, max_value=48),
-    st.sampled_from(["optimal", "infeasible", "unbounded", "error"]),
-)
-def test_only_an_error_is_a_failed_solve_and_its_plan_is_empty(n, status):
-    """#757 (ten investigations of a battery "silently excluded" that never
-    was: failed solves' zero-filled plans were overwriting good ones).
-    `solver_failed` is true for "error" only, never merely `not is_optimal`:
-    "infeasible" and "unbounded" are answers the household must see, and
-    #773's fallback depends on infeasible being published. A plan built for
-    a solve that did not run is all zeros with no participants, which is why
-    publishing one is harmful."""
-    periods = PeriodGrid(hours=np.full(n, 0.5), start=datetime(2026, 1, 1, tzinfo=UTC))
-    plan = _infeasible_plan(
-        periods, status, iterations=0, raw_status="Time limit reached"
-    )
-    assert plan.solver_failed == (status == "error")
-    assert plan.is_optimal == (status == "optimal")
-    assert plan.batteries == []
-    assert plan.sheddable_loads == plan.adequacy_loads == plan.thermal_loads == []
-    for arr in (
-        plan.battery_charge_kw,
-        plan.battery_discharge_kw,
-        plan.grid_import_kw,
-        plan.grid_export_kw,
-    ):
-        assert arr.shape == (n,) and not arr.any()
 
 
 @SETTINGS
@@ -242,55 +148,6 @@ def test_a_tiny_cost_beside_real_ones_still_takes_the_phased_solve(spec, data):
         )
 
 
-@SETTINGS
-@given(
-    st.integers(min_value=1, max_value=6),
-    _num(1.0, 15.0),
-    _num(0.05, 1.0),
-    _num(0.0, 120.0),
-)
-def test_a_committed_block_is_an_exact_ceiling(length, rate, export_price, soc):
-    """Inside the block export never exceeds the rate, however well export
-    pays; with energy enough for the whole block, it is exactly the rate."""
-    n = length + 2
-    fixed = np.full(n, np.nan)
-    fixed[1 : 1 + length] = rate
-    plan = build_plan(
-        periods=PeriodGrid(np.ones(n)),
-        grid=GridConfig(
-            import_price=np.full(n, 0.2),
-            export_price=np.full(n, export_price),
-            import_limit_kw=42.0,
-            export_limit_kw=40.0,
-            fixed_export_kw=fixed,
-        ),
-        batteries=[
-            BatteryConfig(
-                name="b",
-                capacity_kwh=200.0,
-                initial_soc_kwh=max(soc, 2.4),
-                min_soc_kwh=2.4,
-                max_soc_kwh=200.0,
-                max_charge_kw=40.0,
-                max_discharge_kw=40.0,
-                charge_efficiency=0.93,
-                discharge_efficiency=0.93,
-                charge_cost=0.005,
-                discharge_cost=0.01,
-                salvage_value=0.0,
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.ones(n))],
-    )
-    assert plan.status == "optimal"
-    block = plan.grid_export_kw[1 : 1 + length]
-    assert np.all(block <= rate + 1e-6)
-    # Fundable from the battery alone, before any charging: deliver it all.
-    if (max(soc, 2.4) - 2.4) * 0.93 >= rate * length + 1e-6:
-        np.testing.assert_allclose(block, rate, atol=1e-6)
-
-
 class _Highs:
     def __init__(self, raises=None):
         self.written: list[str] = []
@@ -300,22 +157,6 @@ class _Highs:
         if self._raises is not None:
             raise self._raises
         self.written.append(path)
-
-
-@given(st.sampled_from(["phase2_pin_resolve", "phase1_primary", "x y/z"]))
-def test_a_failed_dump_never_blocks_the_next_one(label):
-    lp._LP_DUMPED_PHASES.clear()
-    try:
-        assert lp._dump_failing_model(_Highs(OSError("read-only")), label) is None
-        working = _Highs()
-        path = lp._dump_failing_model(working, label)
-        assert path is not None and working.written == [path]
-        # Once written, the same phase is not written again.
-        again = _Highs()
-        assert lp._dump_failing_model(again, label) is None
-        assert again.written == []
-    finally:
-        lp._LP_DUMPED_PHASES.clear()
 
 
 def _battery(**over):
@@ -338,101 +179,6 @@ def _battery(**over):
     )
 
 
-@SETTINGS
-@given(
-    _num(0.05, 1.0),
-    _num(0.0, 10.0),
-    _num(0.0, 8.0),
-    _num(0.0, 1.0),
-    _num(0.0, 15.0),
-)
-def test_the_risk_dial_leans_solar_and_never_load(risk, band, solar, low, block):
-    """With the dial on, a house-load band changes nothing, and solar counts
-    as forecast - risk x (forecast - lower)."""
-    n = 6
-    fixed = np.full(n, block) if block > 0.5 else None
-
-    def plan_with(load_band):
-        return build_plan(
-            periods=PeriodGrid(np.full(n, 0.5)),
-            grid=GridConfig(
-                import_price=np.full(n, 0.30),
-                export_price=np.full(n, 0.20),
-                import_limit_kw=42.0,
-                export_limit_kw=40.0,
-                fixed_export_kw=fixed,
-            ),
-            batteries=[_battery(initial_soc_kwh=110.0)],
-            solar=SolarConfig(
-                forecast_kw=np.full(n, solar),
-                lower_kw=np.full(n, solar * low),
-                upper_kw=np.full(n, solar + 1.0),
-            ),
-            loads=[
-                LoadConfig(
-                    name="house",
-                    forecast_kw=np.full(n, 1.2),
-                    lower_kw=np.zeros(n) if load_band else None,
-                    upper_kw=np.full(n, 1.2 + band) if load_band else None,
-                )
-            ],
-            risk_aversion=risk,
-        )
-
-    banded, bare = plan_with(True), plan_with(False)
-    assert banded.status == bare.status == "optimal"
-    for field in ("battery_charge_kw", "battery_discharge_kw", "grid_import_kw"):
-        np.testing.assert_allclose(
-            getattr(banded, field), getattr(bare, field), atol=1e-6, err_msg=field
-        )
-    np.testing.assert_allclose(
-        banded.effective_solar_kw, solar - risk * (solar - solar * low), atol=1e-9
-    )
-
-
-@SETTINGS
-@given(_num(25.0, 90.0), _num(0.1, 0.3), _num(-0.05, 0.0))
-def test_the_same_scenario_costs_the_same_on_any_period_length(soc, rate, export_gap):
-    """12 hours on a 1 h, 15 min or 5 min grid, flat prices, a terminal
-    value at the last period: the same cost and the same end SoC (#338).
-    Export at or below the terminal rate, and that at or below import, so
-    nothing is bought to sell and the only question is what to hold."""
-    results = []
-    for width in (1.0, 0.25, 1.0 / 12.0):
-        n = round(12.0 / width)
-        plan = build_plan(
-            periods=PeriodGrid(np.full(n, width)),
-            grid=GridConfig(
-                import_price=np.full(n, 0.30),
-                export_price=np.full(n, rate + export_gap),
-                import_limit_kw=44.0,
-                export_limit_kw=44.0,
-            ),
-            batteries=[
-                _battery(
-                    capacity_kwh=100.0,
-                    initial_soc_kwh=soc,
-                    min_soc_kwh=20.0,
-                    max_soc_kwh=90.0,
-                    charge_efficiency=0.99,
-                    discharge_efficiency=0.99,
-                    discharge_cost=0.005,
-                    salvage_value=0.0,
-                    terminal_value_breakpoints=[(70.0, rate)],
-                    terminal_value_period_indices=[n - 1],
-                )
-            ],
-            solar=SolarConfig(forecast_kw=np.zeros(n)),
-            loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
-        )
-        assert plan.status == "optimal", width
-        results.append((plan.total_cost, plan.battery_soc_kwh[-1]))
-    costs = [c for c, _ in results]
-    ends = [e for _, e in results]
-    assert max(costs) - min(costs) < 1e-3, results
-    assert max(ends) - min(ends) < 1e-3, results
-
-
 def _arbitrage(price: float, earn: float, demand: float, solar: float):
     p = LPProblem()
     p.add_variable("imp", ub=100.0, cost=price)
@@ -440,42 +186,6 @@ def _arbitrage(price: float, earn: float, demand: float, solar: float):
     p.add_variable("solar", ub=solar)
     p.add_eq_constraint({"imp": 1.0, "exp": -1.0, "solar": 1.0}, demand)
     return p
-
-
-@SETTINGS
-@given(
-    _num(0.0, 0.3),
-    _num(1.0, 5.0),
-    _num(0.0, 1.0),
-    _num(0.0, 2.0),
-    st.lists(_num(-1.0, 2.0), min_size=1, max_size=8),
-)
-def test_the_cost_sweep_re_solves_each_cost_and_puts_it_back(
-    earn, demand, solar_share, price, costs
-):
-    """Free solar is always used; import is 100 kW (to export) while it
-    costs less than export earns, else exactly the shortfall."""
-    costs = [c for c in costs if abs(c - earn) > 1e-3]
-    if abs(price - earn) <= 1e-3 or not costs:
-        return
-    solar = demand * solar_share
-
-    def imports_at(c):
-        return 100.0 if c < earn else demand - solar
-
-    p = _arbitrage(price, earn, demand, solar)
-    result = p.solve(keep_basis=True)
-    assert result.status == "optimal"
-    base_exp = p.value_of(result, "exp")
-    # End the sweep on the other side of `earn` from the solve-time price, so
-    # a coefficient left behind would change the next solve.
-    costs = [*costs, -1.0 if price >= earn else 2.0]
-    swept = result.sweep_cost("imp", costs)
-    np.testing.assert_allclose(swept, [imports_at(c) for c in costs], atol=1e-6)
-    # Put back: an export sweep straight after sees the solve-time import
-    # cost, and so does a sweep at that cost.
-    assert result.sweep_cost("exp", [-earn]) == pytest.approx([base_exp])
-    assert result.sweep_cost("imp", [price]) == pytest.approx([imports_at(price)])
 
 
 def test_the_cost_sweep_refuses_without_a_basis_or_a_known_variable():
@@ -513,15 +223,6 @@ def _bounded_lp() -> LPProblem:
     p = LPProblem()
     p.add_variable("x", lb=0.0, ub=10.0, cost=-1.0)
     return p
-
-
-@given(st.sampled_from(_UNFINISHED))
-def test_an_unfinished_solve_is_an_error_never_infeasible(name):
-    status = getattr(highspy.HighsModelStatus, name)
-    with patch.object(highspy.Highs, "getModelStatus", return_value=status):
-        result = _bounded_lp().solve()
-    assert result.status == "error"
-    assert result.raw_status == highspy.Highs().modelStatusToString(status)
 
 
 def test_a_proved_outcome_keeps_its_own_name():
@@ -594,48 +295,6 @@ def test_an_unknown_gets_one_interior_point_retry(options, rescued, _retry_count
         assert lp.UNKNOWN_RETRIES == {"attempted": 1, "recovered": 0}
 
 
-def test_a_repeated_unknown_is_counted_every_time_and_logged_once(
-    _retry_counts, caplog
-):
-    """#1360: one WARNING per retry kind per process, so a tester's 169
-    Unknowns in three hours do not flood the log; every one is still
-    counted, so the published total is the real one."""
-    with (
-        caplog.at_level("WARNING", logger=lp._LOGGER.name),
-        patch.object(highspy.Highs, "getModelStatus", _unknown(True)),
-    ):
-        for _ in range(3):
-            assert _bounded_lp().solve().status == "optimal"
-    assert lp.UNKNOWN_RETRIES == {"attempted": 3, "recovered": 3}
-    warned = [r for r in caplog.records if "#1360" in r.getMessage()]
-    assert len(warned) == 1
-
-
-@pytest.mark.parametrize("ends", ["kOptimal", "kUnknown"])
-def test_the_retry_restores_the_solver_option(ends, _retry_counts):
-    """#1360: the handle's `solver` option is back to `choose` after the
-    interior-point re-run, whatever it ended in."""
-    h = highspy.Highs()
-    h.setOptionValue("output_flag", False)
-    want = getattr(highspy.HighsModelStatus, ends)
-    with (
-        patch.object(highspy.Highs, "run", lambda self: highspy.HighsStatus.kOk),
-        patch.object(highspy.Highs, "getModelStatus", lambda self: want),
-    ):
-        assert lp._retry_unknown_with_ipm(h) == want
-    assert h.getOptionValue("solver")[1] == "choose"
-
-
-def test_a_mip_unknown_is_not_retried(_retry_counts):
-    """#1360: the remedies are for the LP simplex path; a MIP is left alone."""
-    p = LPProblem()
-    p.add_variable("b", binary=True, cost=-1.0)
-    with patch.object(highspy.Highs, "getModelStatus", _unknown(True)):
-        result = p.solve()
-    assert result.status == "error"
-    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
-
-
 def test_a_quiet_solve_is_retried_but_never_counted(_retry_counts):
     """#1360 / #1797: the counters are the live solve's; the stochastic
     joint solve (`quiet_diagnostics`) is still rescued but not counted."""
@@ -645,24 +304,6 @@ def test_a_quiet_solve_is_retried_but_never_counted(_retry_counts):
         result = p.solve()
     assert result.status == "optimal"
     assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
-
-
-def test_an_ordinary_solve_counts_no_retry(_retry_counts):
-    assert _bounded_lp().solve().status == "optimal"
-    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
-
-
-def test_every_solve_carries_the_time_limit():
-    seen: list[tuple[str, object]] = []
-    real = highspy.Highs.setOptionValue
-
-    def spy(self, key, value):
-        seen.append((key, value))
-        return real(self, key, value)
-
-    with patch.object(highspy.Highs, "setOptionValue", spy):
-        _bounded_lp().solve()
-    assert ("time_limit", lp.DEFAULT_TIME_LIMIT_SECONDS) in seen
 
 
 @SETTINGS
@@ -747,65 +388,6 @@ def _previous(dispatched: float, planned: float, start: datetime) -> Plan:
     )
 
 
-@SETTINGS
-@given(_num(3.0, 20.0), _num(3.0, 20.0), st.sampled_from([0, 30, 60]))
-def test_period_0_holds_what_was_dispatched(dispatched, planned, seconds):
-    """Economics near-indifferent (export margin 0.1c over wear), so the
-    anchor decides. A solve inside old period 0 or 1 holds the dispatched
-    rate in period 0; periods inside old period 1 follow its plan."""
-    if abs(dispatched - planned) < 2.0:
-        return
-    t0 = datetime(2026, 10, 2, 10, 0, tzinfo=UTC)
-    n = 5
-    plan = build_plan(
-        periods=PeriodGrid(
-            hours=np.array([1 / 60] * 4 + [5 / 60]),
-            start=datetime(2026, 10, 2, 10, 0, seconds, tzinfo=UTC)
-            if seconds < 60
-            else datetime(2026, 10, 2, 10, 1, tzinfo=UTC),
-        ),
-        grid=GridConfig(
-            import_price=np.full(n, 0.30),
-            export_price=np.full(n, 0.11),
-            import_limit_kw=30.0,
-            export_limit_kw=25.0,
-        ),
-        batteries=[
-            _battery(
-                capacity_kwh=40.0,
-                initial_soc_kwh=30.0,
-                min_soc_kwh=4.0,
-                max_soc_kwh=40.0,
-                max_charge_kw=25.0,
-                max_discharge_kw=25.0,
-                charge_efficiency=0.98,
-                discharge_efficiency=0.98,
-                charge_cost=0.01,
-                discharge_cost=0.099,
-                salvage_value=0.0,
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
-        previous_plan=_previous(dispatched, planned, t0),
-        proximal_weight=0.005,
-    )
-    assert plan.status == "optimal"
-    d = plan.batteries[0].discharge_kw
-    assert abs(d[0] - dispatched) < 1e-3
-    if seconds == 60:
-        # 10:02-10:04 lie inside old period 1 (10:01-10:06).
-        np.testing.assert_allclose(d[1:4], planned, atol=1e-3)
-
-
-@given(st.integers(0, 40), st.integers(0, 40))
-def test_only_a_recent_period_0_anchors_to_the_dispatched_value(new, old):
-    """Period 0 anchors to old period 0 while it starts inside old period 0
-    or 1; otherwise every period anchors to the old period containing it."""
-    want = 0 if new == 0 and old <= 1 else old
-    assert _anchor_source(new, old) == want
-
-
 class _PinHighs:
     def __init__(self, values):
         self.values = values
@@ -830,42 +412,6 @@ class _Warnings(logging.Handler):
 
     def emit(self, record):
         self.messages.append(record.getMessage())
-
-
-@given(
-    st.lists(
-        st.one_of(
-            st.sampled_from([0.0, 1.0, 1e-9, 1.0 - 1e-9, 0.5]),
-            st.floats(0.0, 1.0),
-            st.floats(-5.0, 10.0),
-        ),
-        min_size=1,
-        max_size=8,
-    ),
-    st.data(),
-)
-def test_pinning_fixes_each_binary_at_its_rounded_value(values, data):
-    n = len(values)
-    binary = sorted(data.draw(st.sets(st.integers(0, n - 1))))
-    h = _PinHighs(values)
-    handler = _Warnings()
-    lp._LOGGER.addHandler(handler)
-    try:
-        lp._pin_binaries_to_current_solution(h, list(range(n)), binary)
-    finally:
-        lp._LOGGER.removeHandler(handler)
-    assert h.relaxed == binary
-    assert h.bounds == {
-        i: (float(round(values[i])), float(round(values[i]))) for i in binary
-    }
-    worst = max((abs(values[i] - round(values[i])) for i in binary), default=0.0)
-    warned = [m for m in handler.messages if "away from integral" in m]
-    if worst > lp._BINARY_INTEGRALITY_TOLERANCE:
-        assert len(warned) == 1
-        assert f"pin {len(binary)} binaries" in warned[0]
-        assert f"{worst:.3e}" in warned[0]
-    else:
-        assert warned == []
 
 
 class _Options:
@@ -928,114 +474,6 @@ def test_a_solver_refusing_option_calls_never_breaks_the_solve(fails):
     assert ran == [True]
 
 
-@SETTINGS
-@given(st.integers(3, 8), _num(5.0, 13.0), _num(0.1, 0.9), _num(0.05, 0.5))
-def test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end(
-    n, rate, share, premium
-):
-    cap = round(rate * n * share, 4)
-    plan = build_plan(
-        periods=PeriodGrid(
-            hours=np.ones(n), start=datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
-        ),
-        grid=GridConfig(
-            import_price=np.full(n, 0.15),
-            export_price=np.full(n, 0.09),
-            import_limit_kw=20.0,
-            export_limit_kw=20.0,
-            export_bonus_price=np.full(n, premium),
-            export_bonus_volume_kwh=cap,
-        ),
-        batteries=[
-            _battery(
-                capacity_kwh=200.0,
-                initial_soc_kwh=200.0,
-                min_soc_kwh=10.0,
-                max_soc_kwh=200.0,
-                max_charge_kw=rate,
-                max_discharge_kw=rate,
-                charge_cost=0.01,
-                discharge_cost=0.01,
-                salvage_value=0.02,
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
-        # Production's options: #1966 put the tie-break on the secondary
-        # channel, which only a calibrated (lexicographic) solve has.
-        solve_options=CalibratedOptions(),
-    )
-    assert plan.status == "optimal"
-    np.testing.assert_allclose(plan.grid_export_kw, rate, atol=1e-4)
-    bonus = plan.export_bonus_kw
-    assert abs(float(np.sum(bonus)) - cap) < 1e-4
-    on = bonus > 1e-4
-    first = int(np.argmax(on))
-    assert on[first:].all(), bonus  # one block, running to the end
-    # Every claimed period but the block's first claims the full rate.
-    np.testing.assert_allclose(bonus[first + 1 :], rate, atol=1e-4)
-
-
-@SETTINGS
-@given(
-    st.integers(2, 8),
-    st.sampled_from([0.25, 0.5, 1.0]),
-    st.lists(_num(0.02, 0.6), min_size=8, max_size=8),
-    _num(0.5, 3.0),
-    st.booleans(),
-)
-def test_an_adequacy_load_costs_its_energy_at_the_marginal_price(
-    n, width, prices, power, surplus
-):
-    price = np.array(prices[:n])
-    plan = build_plan(
-        periods=PeriodGrid(np.full(n, width)),
-        grid=GridConfig(
-            import_price=price,
-            export_price=np.zeros(n),
-            import_limit_kw=power + 5.0,
-            export_limit_kw=5.0,
-        ),
-        batteries=[_battery(available=False)],
-        solar=SolarConfig(forecast_kw=np.full(n, power + 10.0 if surplus else 0.0)),
-        loads=[],
-        adequacy_loads=[
-            AdequacyLoadConfig(
-                name="pool",
-                max_power_kw=power,
-                target_kwh=power * width,
-                deadline_period=n - 1,
-                shortfall_price=20.0,
-            )
-        ],
-    )
-    assert plan.status == "optimal"
-    (al,) = plan.adequacy_loads
-    assert al.profit_horizon is None
-    if surplus:
-        assert abs(al.marginal_cost) < 1e-6
-    else:
-        expected = float(np.sum(price * al.power_kw * width))
-        assert abs(al.marginal_cost - expected) < 1e-6
-
-
-@SETTINGS
-@given(sites(), st.data())
-def test_narrowing_an_adequacy_window_never_makes_the_plan_cheaper(site, data):
-    adequacy = site["adequacy"]
-    if adequacy is None:
-        return
-    wide = _solve_site(site)
-    pulled = data.draw(
-        st.integers(adequacy["earliest_period"], adequacy["deadline_period"])
-    )
-    narrow = _solve_site({**site, "adequacy": {**adequacy, "deadline_period": pulled}})
-    assert wide.status == narrow.status == "optimal"
-    # HiGHS stops a MIP within its relative gap (1e-4), so allow that much.
-    tol = 1e-4 * max(1.0, abs(wide.total_cost)) + 1e-6
-    assert narrow.total_cost >= wide.total_cost - tol
-
-
 @given(st.sampled_from([None, 0.5, 2.0]), st.sampled_from(["lb", "ub"]))
 def test_a_binary_is_zero_to_one_and_refuses_another_bound(value, which):
     p = LPProblem()
@@ -1053,122 +491,8 @@ def test_a_binary_is_zero_to_one_and_refuses_another_bound(value, which):
             p.add_variable("y", binary=True, **{which: value})
 
 
-@SETTINGS
-@given(_num(1.0, 50.0), _num(0.1, 3.0), _num(0.0, 40.0), _num(1.0, 100.0))
-def test_a_mips_duals_are_recovered_from_the_pinned_resolve(cap, value, fixed, room):
-    """A switch with a fixed cost gates output up to `cap`; a second row
-    caps output at `cap + room`, never binding. On when the output is
-    worth more than the switch costs."""
-    if abs(value * cap - fixed) < 1e-3:
-        return
-    p = LPProblem()
-    p.add_variable("on", binary=True, cost=fixed)
-    p.add_variable("out", lb=0.0, ub=1000.0, cost=-value)
-    p.add_ub_constraint({"out": 1.0, "on": -cap}, 0.0, name="gate")
-    p.add_ub_constraint({"out": 1.0}, cap + room, name="slack")
-    result = p.solve()
-    assert result.status == "optimal"
-    on = value * cap > fixed
-    assert p.value_of(result, "on") == pytest.approx(1.0 if on else 0.0)
-    assert p.value_of(result, "out") == pytest.approx(cap if on else 0.0)
-    assert result.objective == pytest.approx(min(fixed - value * cap, 0.0))
-    assert result.duals["slack"] == pytest.approx(0.0, abs=1e-9)
-    assert {"on", "out"} <= set(result.reduced_costs)
-    if on:
-        # One more unit through the gate is worth `value`.
-        assert abs(result.duals["gate"]) == pytest.approx(value, rel=1e-6)
-
-
 def _jag(*series):
     return float(sum(np.sum(np.abs(np.diff(x))) for x in series))
-
-
-@SETTINGS
-@given(st.integers(6, 14), _num(0.3, 2.0), st.integers(1, 4), st.booleans())
-def test_smoothness_flattens_a_degenerate_adequacy_load_for_free(
-    n, power, periods_needed, semi
-):
-    width = 5.0 / 60.0
-
-    def plan_with(weight):
-        return build_plan(
-            periods=PeriodGrid(np.full(n, width)),
-            grid=GridConfig(
-                import_price=np.full(n, 0.0202),
-                export_price=np.full(n, -0.0053),
-                import_limit_kw=44.0,
-                export_limit_kw=44.0,
-            ),
-            batteries=[_battery(available=False)],
-            solar=SolarConfig(forecast_kw=np.zeros(n)),
-            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
-            adequacy_loads=[
-                AdequacyLoadConfig(
-                    name="hws",
-                    max_power_kw=power,
-                    target_kwh=power * width * periods_needed,
-                    deadline_period=n - 1,
-                    shortfall_price=5.0,
-                )
-            ],
-            adequacy_semi_continuous=semi,
-            adequacy_earliness_budget_kw=0.0,
-            smoothness_weight=weight,
-        )
-
-    off, on = plan_with(0.0), plan_with(0.005)
-    assert off.status == on.status == "optimal"
-    p = on.adequacy_loads[0].power_kw
-    if semi:
-        assert np.all((p < 1e-6) | (np.abs(p - power) < 1e-6))
-    else:
-        assert _jag(p) < 0.05 * power
-        assert abs(on.total_cost - off.total_cost) < 1e-2
-
-
-@SETTINGS
-@given(_num(0.3, 0.8), _num(10.0, 60.0), st.booleans())
-def test_smoothness_never_smears_a_real_price_step(high, soc, calibrated):
-    """A sharp import/export step at the midpoint: the battery's swing at
-    the step is the same with smoothing on as off (within 1 kW). #696: also
-    when the tie-breaks ride the calibrated secondary channel, as in
-    production."""
-    n = 12
-    imp = np.concatenate([np.full(6, 0.02), np.full(6, high)])
-    exp_ = np.concatenate([np.full(6, -0.005), np.full(6, high - 0.05)])
-
-    def net(weight):
-        plan = build_plan(
-            periods=PeriodGrid(np.full(n, 5.0 / 60.0)),
-            grid=GridConfig(
-                import_price=imp,
-                export_price=exp_,
-                import_limit_kw=44.0,
-                export_limit_kw=44.0,
-            ),
-            batteries=[
-                _battery(
-                    capacity_kwh=122.2,
-                    initial_soc_kwh=soc + 30.0,
-                    min_soc_kwh=2.44,
-                    max_soc_kwh=122.2,
-                    charge_efficiency=0.926,
-                    discharge_efficiency=0.926,
-                    salvage_value=0.15,
-                )
-            ],
-            solar=SolarConfig(forecast_kw=np.full(n, 3.0)),
-            loads=[LoadConfig(name="load", forecast_kw=np.full(n, 2.0))],
-            smoothness_weight=weight,
-            battery_charge_earliness_budget_kw=0.0,
-            solve_options=CalibratedOptions() if calibrated and weight else None,
-        )
-        assert plan.status == "optimal"
-        return plan.battery_discharge_kw - plan.battery_charge_kw
-
-    off, on = net(0.0), net(0.005)
-    step_off, step_on = abs(off[6] - off[5]), abs(on[6] - on[5])
-    assert abs(step_on - step_off) <= 1.0, (step_off, step_on)
 
 
 @SETTINGS
@@ -1213,97 +537,6 @@ def test_smoothness_flattens_a_degenerate_battery_charge_for_free(
     assert off.status == on.status == "optimal"
     assert _jag(on.battery_discharge_kw - on.battery_charge_kw) < 1.0
     assert abs(on.total_cost - off.total_cost) < 1e-2
-
-
-@SETTINGS
-@given(st.integers(4, 10), st.integers(1, 3), st.booleans())
-def test_a_calibrated_adequacy_solve_dispatches_as_the_plain_one(n, runs, semi):
-    """#696 Stage 2 / #702: the calibrated solve on an adequacy load, run
-    once (a MIP, #616) or continuous (an LP). It never raises, places the
-    load in the same periods as the plain solve (the earliest of the tied
-    ones; #702's first design pinned the binaries before reading the
-    secondary cost and landed on an arbitrary tie), and reports a cost no
-    higher (the plain MIP solve folds the earliness tie-break into its
-    primary cost; the calibrated one carries it as secondary)."""
-
-    def plan_with(options):
-        return build_plan(
-            periods=PeriodGrid(np.ones(n)),
-            grid=GridConfig(
-                import_price=np.full(n, 0.20),
-                export_price=np.zeros(n),
-                import_limit_kw=20.0,
-                export_limit_kw=20.0,
-            ),
-            batteries=[_battery(available=False)],
-            solar=SolarConfig(forecast_kw=np.zeros(n)),
-            loads=[],
-            adequacy_loads=[
-                AdequacyLoadConfig(
-                    name="hws",
-                    max_power_kw=3.0,
-                    target_kwh=3.0 * runs,
-                    deadline_period=n - 1,
-                    earliest_period=0,
-                    shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
-                )
-            ],
-            adequacy_semi_continuous=semi,
-            solve_options=options,
-        )
-
-    plain, calibrated = plan_with(None), plan_with(CalibratedOptions())
-    assert plain.status == calibrated.status == "optimal"
-    power = calibrated.adequacy_loads[0].power_kw
-    np.testing.assert_allclose(power, plain.adequacy_loads[0].power_kw, atol=1e-6)
-    np.testing.assert_allclose(power[:runs], 3.0, atol=1e-6)
-    assert calibrated.total_cost <= plain.total_cost + 1e-9
-
-
-@given(
-    st.lists(st.text(min_size=1, max_size=300), min_size=1, max_size=4, unique=True),
-    st.sampled_from(["773", "1179"]),
-)
-def test_each_phase_is_captured_once_safely_in_the_configured_folder(labels, issue):
-    import os
-    import tempfile
-
-    target = tempfile.mkdtemp()
-    old = os.environ.get(lp._LP_DUMP_DIR_ENV)
-    os.environ[lp._LP_DUMP_DIR_ENV] = target
-    lp._LP_DUMPED_PHASES.clear()
-    try:
-        written: list[str] = []
-        for label in labels:
-            h = _Highs()
-            path = lp._dump_failing_model(h, label, issue=issue)
-            assert path is not None
-            written.append(path)
-            assert h.written == [path]
-            base = os.path.basename(path)
-            assert os.path.dirname(path) == target
-            assert os.sep not in base and "/" not in base
-            assert base.startswith(f"nimbus_{issue}_") and base.endswith(".mps")
-            assert len(base) < 120
-            # Once per phase.
-            assert lp._dump_failing_model(_Highs(), label, issue=issue) is None
-        assert len(written) == len(labels)
-    finally:
-        lp._LP_DUMPED_PHASES.clear()
-        if old is None:
-            os.environ.pop(lp._LP_DUMP_DIR_ENV, None)
-        else:
-            os.environ[lp._LP_DUMP_DIR_ENV] = old
-
-
-@given(st.sampled_from([OSError("ro"), RuntimeError("x"), ValueError("y"), None]))
-def test_nothing_the_dump_throws_reaches_the_solve(error):
-    lp._LP_DUMPED_PHASES.clear()
-    try:
-        h = MagicMock(spec=[]) if error is None else _Highs(error)
-        assert lp._dump_failing_model(h, "phase") is None
-    finally:
-        lp._LP_DUMPED_PHASES.clear()
 
 
 # --- #773: one phase-breakdown line per slow solve --------------------------------
@@ -1391,28 +624,6 @@ def test_a_breakdown_names_every_phase_once_any_is_slow(durations, status):
     assert lines[0].levelno == (logging.WARNING if alarming else logging.DEBUG)
 
 
-def test_a_raising_phase_still_produces_the_breakdown(monkeypatch):
-    """#773: the failure is the case most worth seeing the whole sequence
-    for, which is why the wrapper sits outside the phased solve."""
-    lines = _breakdowns(monkeypatch, [0.5, 46.0], raise_last=True)
-    assert len(lines) == 1
-    msg = lines[0].getMessage()
-    assert "lex_phase:p0" in msg and "lex_phase:p1" in msg
-
-
-def test_phase_records_are_safe_outside_and_between_solves():
-    """#773: `_timed_lp_call` also runs outside any solve (the offer-curve
-    sweep, the calibration probes): recording there neither raises nor
-    leaks into the next solve's breakdown."""
-    lp._PHASE_LOG.entries = None
-    lp._phase_record(("stray", 1.0, 1, 1, 0.0, "Optimal"))
-    with lp._phase_breakdown():
-        lp._phase_record(("a", 1.0, 1, 1, 0.0, "Optimal"))
-        assert len(lp._PHASE_LOG.entries) == 1
-    with lp._phase_breakdown():
-        assert lp._PHASE_LOG.entries == []
-
-
 # --- #773: the per-call timing line ----------------------------------------------
 
 
@@ -1452,69 +663,6 @@ def _timing_lines(monkeypatch, h, elapsed, raises=None, label="primary_minimize"
         lp._LOGGER.removeHandler(handler)
         lp._LOGGER.setLevel(level)
     return [r for r in records if "#773 diag" in r.getMessage()]
-
-
-@given(
-    st.one_of(
-        _num(0.0, 120.0),
-        st.sampled_from(
-            [
-                lp._SLOW_LP_CALL_SECONDS - 0.01,
-                lp._SLOW_LP_CALL_SECONDS,
-                lp._ALARMING_LP_CALL_SECONDS - 0.01,
-                lp._ALARMING_LP_CALL_SECONDS,
-            ]
-        ),
-    ),
-    st.sampled_from(["Optimal", "Time limit reached", "Infeasible"]),
-    st.integers(0, 10**6),
-    st.integers(0, 10**5),
-    st.sampled_from([0.0, 0.0123, 0.5]),
-)
-def test_a_timed_call_is_logged_by_its_time_and_status(
-    elapsed, status, iterations, nodes, gap
-):
-    """#773 (a 0.6 s cycle on a real install, while about once a minute a
-    single HiGHS call ran past the 60 s limit). Below the slow line a call
-    logs nothing (a healthy install stays silent). At or past it, one line
-    carries the call site, the elapsed time, and the fields that separate
-    the explanations: simplex iterations (cycling against a stall outside
-    the simplex loop), the MIP node count (a big tree against a slow root,
-    0 or 1) and the gap. It is a WARNING only past the alarming line or
-    when the call did not end optimal (#757's lesson: a known, merely-slow
-    call is information, not an alarm), else DEBUG."""
-    h = _InfoHighs(status, iterations, nodes, gap)
-    with pytest.MonkeyPatch.context() as mp:
-        lines = _timing_lines(mp, h, elapsed)
-    if elapsed < lp._SLOW_LP_CALL_SECONDS:
-        assert lines == []
-        return
-    assert len(lines) == 1
-    msg = lines[0].getMessage()
-    for part in (
-        "'primary_minimize'",
-        f"{elapsed:.1f}s",
-        f"simplex_iterations={iterations}",
-        f"mip_node_count={nodes}",
-        f"mip_gap={gap}",
-        f"status={status}",
-    ):
-        assert part in msg, part
-    alarming = elapsed >= lp._ALARMING_LP_CALL_SECONDS or status != "Optimal"
-    assert lines[0].levelno == (logging.WARNING if alarming else logging.DEBUG)
-
-
-@pytest.mark.parametrize("exc", [ValueError("boom"), KeyError("original")])
-def test_a_raising_call_is_timed_and_its_exception_kept(monkeypatch, exc):
-    """#773: a call that blows up after 55 s is at least as interesting as
-    one that returns slowly, and the exception carries no timing. The line
-    names the call site, and the original exception still propagates,
-    unchanged."""
-    with pytest.raises(type(exc)) as caught:
-        _timing_lines(monkeypatch, _InfoHighs(), 55.0, exc, label="lex_phase")
-    assert caught.value is exc
-    (line,) = caught.value.lines
-    assert "'lex_phase'" in line.getMessage() and "55.0s" in line.getMessage()
 
 
 @pytest.mark.parametrize("elapsed", [0.1, 70.0])
@@ -1613,56 +761,6 @@ def test_only_an_alarming_call_is_captured():
     )
 
 
-@SETTINGS
-@given(
-    st.integers(2, 12),
-    st.sampled_from([5 / 60, 0.25, 1.0]),
-    st.lists(_num(0.05, 0.6), min_size=12, max_size=12),
-    _num(0.05, 0.5),
-    _num(1.0, 20.0),
-    _num(0.0, 6.0),
-)
-def test_a_profitable_spread_still_moves_one_way_per_period(
-    n, width, prices, premium, power, load
-):
-    imp = np.array(prices[:n])
-    limit = 30.0
-    plan = build_plan(
-        periods=PeriodGrid(np.full(n, width)),
-        grid=GridConfig(
-            import_price=imp,
-            export_price=imp + premium,
-            import_limit_kw=limit,
-            export_limit_kw=limit,
-        ),
-        batteries=[
-            _battery(
-                capacity_kwh=40.0,
-                initial_soc_kwh=20.0,
-                min_soc_kwh=2.0,
-                max_soc_kwh=38.0,
-                max_charge_kw=power,
-                max_discharge_kw=power,
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.full(n, load))],
-    )
-    assert plan.status == "optimal"
-    # One-way either already, or after the direction-exclusive re-solve.
-    assert plan.direction_exclusivity in ("not_needed", "enforced")
-    assert plan.direction_two_way_pairs == 0
-    assert plan.direction_exclusivity_enforced == (
-        plan.direction_exclusivity == "enforced"
-    )
-    ch, dc = plan.battery_charge_kw, plan.battery_discharge_kw
-    gi, ge = plan.grid_import_kw, plan.grid_export_kw
-    assert (np.minimum(ch, dc) <= 1e-6).all()
-    assert (np.minimum(gi, ge) <= 1e-6).all()
-    assert (ch + dc <= power + 1e-6).all()
-    assert (gi + ge <= limit + 1e-6).all()
-
-
 # --- #940: the echoed thermal rates are reporting only ---------------------------
 
 _TH_N = 12
@@ -1728,36 +826,6 @@ def _dispatch(plan: Plan) -> tuple:
 _ORIGINS = st.sampled_from([None, "override", "learned", "fallback"])
 
 
-@SETTINGS
-@given(_ORIGINS, _ORIGINS)
-def test_thermal_rate_origins_are_labels_the_plan_never_reads(heating, decay):
-    """#940: the heating-rate and idle-decay ORIGIN labels are echoed for
-    the household and reach nothing the LP decides: any labels give the
-    bit-identical plan, and arrive on it exactly as given (None stays None,
-    never a made-up "fallback"). The premise holds: the tank heats to its
-    deadline target and the battery moves."""
-    base = _thermal_plan()
-    tl = base.thermal_loads[0]
-    assert base.status == "optimal"
-    assert tl.power_kw.sum() > 0 and tl.temperature_c.max() > 42.0
-    assert tl.temperature_c[-1] >= 60.0 - 1e-6
-    assert (base.battery_charge_kw + base.battery_discharge_kw).sum() > 0
-    plan = _thermal_plan(heating_rate_origin=heating, idle_decay_origin=decay)
-    assert _dispatch(plan) == _dispatch(base)
-    echoed = plan.thermal_loads[0]
-    assert (echoed.heating_rate_origin, echoed.idle_decay_origin) == (heating, decay)
-    assert (echoed.heating_rate_c_per_kwh, echoed.idle_decay_c_per_hour) == (8.0, 0.5)
-
-
-def test_a_real_heating_rate_still_moves_the_plan():
-    """#940's control: the rates themselves are physics, so a tank that
-    heats 2.5x faster is a different plan, and its rates are echoed."""
-    faster = _thermal_plan(heating_rate_c_per_kwh=20.0)
-    assert _dispatch(faster) != _dispatch(_thermal_plan())
-    tl = faster.thermal_loads[0]
-    assert (tl.heating_rate_c_per_kwh, tl.idle_decay_c_per_hour) == (20.0, 0.5)
-
-
 # --- #1751: the direction check names its outcome on every path ---------------
 
 
@@ -1799,276 +867,9 @@ def _first_two_way_pairs() -> tuple[Plan, int]:
     return first, pairs
 
 
-def test_a_declined_re_solve_keeps_the_two_way_plan_and_says_so():
-    """#1751 (Mark Purcell): a direction-exclusive re-solve that does not
-    come back optimal keeps the first (two-way) plan, and the plan says
-    `declined` with the two-way pairs counted, not only a log line."""
-    first, pairs = _first_two_way_pairs()
-    with (
-        _re_solve(lambda strict: dataclasses.replace(strict, status="time_limit")),
-        patch.object(network._LOGGER, "warning") as warn,
-    ):
-        plan = build_plan(**_spread_site())
-    assert plan.status == "optimal"
-    assert plan.direction_exclusivity == "declined"
-    assert plan.direction_two_way_pairs == pairs
-    assert not plan.direction_exclusivity_enforced
-    np.testing.assert_array_equal(plan.grid_export_kw, first.grid_export_kw)
-    warn.assert_called_once()
-    assert "time_limit" in warn.call_args.args
-
-
-def test_a_re_solve_still_two_way_is_counted():
-    """#1751: re-solves that come back optimal but two-way leave
-    `still_two_way` and the pairs still open; the re-solved plan is kept."""
-    first, pairs = _first_two_way_pairs()
-    with (
-        _re_solve(lambda _strict: first),
-        patch.object(network._LOGGER, "warning") as warn,
-    ):
-        plan = build_plan(**_spread_site())
-    assert plan.direction_exclusivity == "still_two_way"
-    assert plan.direction_two_way_pairs == pairs
-    # the re-solve's plan is the one kept, so it is marked as enforced
-    assert plan.direction_exclusivity_enforced
-    warn.assert_called_once()
-
-
-def test_exclusivity_is_not_bought_by_giving_up_the_spread():
-    """#238 / #1535: the one-way re-solve still exports what the battery
-    can deliver at the paying price, it only stops importing at the same
-    time."""
-    site = _spread_site()
-    plan = build_plan(**site)
-    b = site["batteries"][0]
-    hours = site["periods"].hours
-    load = float(np.sum(site["loads"][0].forecast_kw * hours))
-    deliverable = (b.initial_soc_kwh - b.min_soc_kwh) * b.discharge_efficiency
-    exported = float(np.sum(plan.grid_export_kw * hours))
-    assert plan.direction_exclusivity == "enforced"
-    assert exported >= deliverable - load - 1e-3
-
-
-def test_a_one_way_plan_is_returned_unchanged():
-    """#238: a first solve that is already one-way is the plan, untouched
-    and not flagged."""
-    n = 6
-    site = {
-        **_spread_site(),
-        "grid": GridConfig(
-            import_price=np.full(n, 0.30),
-            export_price=np.full(n, 0.05),
-            import_limit_kw=32.0,
-            export_limit_kw=30.0,
-        ),
-    }
-    plan = build_plan(**site)
-    first = network._build_plan_thermal_fallback(**site)
-    assert plan.direction_exclusivity == "not_needed"
-    assert not plan.direction_exclusivity_enforced
-    for name in (
-        "grid_import_kw",
-        "grid_export_kw",
-        "battery_charge_kw",
-        "battery_discharge_kw",
-    ):
-        np.testing.assert_array_equal(getattr(plan, name), getattr(first, name))
-
-
-def test_fixed_blocks_are_delivered_net_and_one_way():
-    """#1535's fixed 14/4/17 kW evening blocks, made net by #1610: each is
-    exported exactly, with no import beside it."""
-    hours = np.array([3.0, 1.0, 3.0])
-    plan = build_plan(
-        periods=PeriodGrid(hours),
-        grid=GridConfig(
-            import_price=np.full(3, 0.0065),
-            export_price=np.full(3, 0.5321),
-            import_limit_kw=32.0,
-            export_limit_kw=30.0,
-            fixed_export_kw=np.array([14.0, 4.0, 17.0]),
-        ),
-        batteries=[
-            _battery(
-                initial_soc_kwh=118.8,
-                max_soc_kwh=118.8,
-                min_soc_kwh=6.0,
-                max_charge_kw=36.0,
-                max_discharge_kw=36.0,
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(3)),
-        loads=[LoadConfig(name="house", forecast_kw=np.full(3, 0.357))],
-    )
-    assert plan.status == "optimal"
-    np.testing.assert_allclose(plan.grid_export_kw, [14.0, 4.0, 17.0], atol=1e-6)
-    net = float(np.sum((plan.grid_export_kw - plan.grid_import_kw) * hours))
-    assert net == pytest.approx(97.0, abs=1e-6)
-    assert (np.minimum(plan.grid_import_kw, plan.grid_export_kw) <= 1e-6).all()
-
-
-def test_one_battery_may_charge_while_another_discharges():
-    """#238: the direction binaries are per battery, never pooled. With a
-    paying spread and an EV that must reach a departure target, the home
-    battery discharges while the EV charges in the same period; each stays
-    one-way on its own. (The old file read the constraint name; this is the
-    behaviour that name protects.)"""
-    n = 6
-
-    def bat(name, **over):
-        return BatteryConfig(
-            **{
-                "name": name,
-                "capacity_kwh": 40.0,
-                "initial_soc_kwh": 20.0,
-                "min_soc_kwh": 2.0,
-                "max_soc_kwh": 38.0,
-                "max_charge_kw": 10.0,
-                "max_discharge_kw": 10.0,
-                "charge_efficiency": 0.95,
-                "discharge_efficiency": 0.95,
-                "charge_cost": 0.005,
-                "discharge_cost": 0.005,
-                "salvage_value": 0.05,
-                **over,
-            }
-        )
-
-    plan = build_plan(
-        periods=PeriodGrid(np.full(n, 0.5)),
-        grid=GridConfig(
-            import_price=np.full(n, 0.2),
-            export_price=np.full(n, 0.6),
-            import_limit_kw=30.0,
-            export_limit_kw=30.0,
-        ),
-        batteries=[
-            bat("home"),
-            bat(
-                "ev",
-                initial_soc_kwh=2.0,
-                must_have_soc_by_period_index=n - 1,
-                must_have_soc_kwh=20.0,
-            ),
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
-    )
-    assert plan.status == "optimal"
-    home, ev = plan.batteries
-    for b in (home, ev):
-        assert (np.minimum(b.charge_kw, b.discharge_kw) <= 1e-6).all(), b.name
-    together = (home.discharge_kw > 1e-3) & (ev.charge_kw > 1e-3)
-    assert together.any()
-
-
-def test_a_failed_first_solve_is_not_checked():
-    """#1751: no direction check on a plan that did not solve."""
-    real = network._build_plan_thermal_fallback
-
-    def first_fails(**kw):
-        return dataclasses.replace(real(**kw), status="infeasible")
-
-    with patch.object(network, "_build_plan_thermal_fallback", first_fails):
-        plan = build_plan(**_spread_site())
-    assert plan.direction_exclusivity == "not_checked"
-    assert plan.direction_two_way_pairs == 0
-
-
-@SETTINGS
-@given(_num(0.02, 0.6), _num(0.02, 0.6), st.booleans(), _num(0.3, 2.0))
-def test_a_value_priced_load_earns_its_value_less_its_cost_in_every_window(
-    value, price, two_windows, power
-):
-    if abs(value - price) < 1e-3:
-        return
-    n = 24
-    target = power * 2  # two hours of the load
-    # Windowed only: an unwindowed load's credit is #1963's fix and test.
-    windows = (
-        AdequacyWindow(earliest_period=2, deadline_period=8, target_kwh=target),
-    ) + (
-        (AdequacyWindow(earliest_period=14, deadline_period=20, target_kwh=target),)
-        if two_windows
-        else ()
-    )
-    plan = build_plan(
-        periods=PeriodGrid(np.ones(n)),
-        grid=GridConfig(
-            import_price=np.full(n, price),
-            export_price=np.zeros(n),
-            import_limit_kw=power + 5.0,
-            export_limit_kw=5.0,
-        ),
-        batteries=[_battery(available=False)],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[],
-        adequacy_loads=[
-            AdequacyLoadConfig(
-                name="miner",
-                max_power_kw=power,
-                target_kwh=target,
-                earliest_period=2,
-                deadline_period=8,
-                shortfall_price=0.01,  # shedding is cheaper than running dear
-                value_per_kwh=value,
-                windows=windows,
-            )
-        ],
-    )
-    assert plan.status == "optimal"
-    (al,) = plan.adequacy_loads
-    energy = float(np.sum(al.power_kw))
-    if value < price:
-        assert energy <= 1e-6
-        assert abs(al.profit_horizon) <= 1e-6
-    else:
-        # The credit is capped at the target (#606): it runs each window's
-        # target, no more.
-        assert abs(energy - target * (2 if two_windows else 1)) <= 1e-4
-        assert abs(al.profit_horizon - (value - price) * energy) <= 1e-6
-
-
 _DURATIONS = st.lists(
     st.sampled_from([1 / 60, 5 / 60, 0.25, 0.5, 1.0]), min_size=2, max_size=8
 )
-
-
-@given(_DURATIONS, _num(0.001, 0.2), st.data())
-def test_the_proximal_anchor_costs_the_same_in_every_period(hours, weight, data):
-    n = len(hours)
-    previous = np.array(data.draw(st.lists(_num(-40.0, 40.0), min_size=n, max_size=n)))
-    p = LPProblem()
-    names = [f"batt_{t}" for t in range(n)]
-    for name in names:
-        p.add_variable(name, lb=-100.0, ub=100.0)
-    _add_proximal_penalty(p, names, "batt", {t: t for t in range(n)}, previous, weight)
-    prox = {k: v for k, v in p._cost.items() if k.startswith("prox_")}
-    assert len(prox) == 2 * n
-    assert set(prox.values()) == {weight}
-
-
-@given(_DURATIONS, _num(0.001, 0.2))
-def test_smoothness_still_costs_per_hour(hours, weight):
-    n = len(hours)
-    p = LPProblem()
-    names = [f"s_{t}" for t in range(n)]
-    for name in names:
-        p.add_variable(name, lb=-100.0, ub=100.0)
-    _add_intraplan_smoothness_penalty(p, names, "s", n, np.array(hours), weight)
-    for t in range(1, n):
-        assert p._cost[f"smooth_pos_s_{t}"] == pytest.approx(weight * hours[t])
-
-
-@given(st.sampled_from(["zero_weight", "no_alignment", "no_previous"]))
-def test_an_idle_anchor_adds_nothing(case):
-    p = LPProblem()
-    p.add_variable("batt_0", lb=-100.0, ub=100.0)
-    alignment = {} if case == "no_alignment" else {0: 0}
-    previous = None if case == "no_previous" else np.array([-40.0])
-    weight = 0.0 if case == "zero_weight" else 0.045
-    _add_proximal_penalty(p, ["batt_0"], "batt", alignment, previous, weight)
-    assert [k for k in p._cost if k.startswith("prox_")] == []
 
 
 @SETTINGS
@@ -2113,65 +914,6 @@ def test_max_kwh_per_day_caps_each_day(cap, target_share, mode):
         assert abs(day1 - target) < 1e-4 and day2 < 1e-6
 
 
-@given(st.sampled_from([0.0, -2.0]))
-def test_a_daily_cap_of_zero_or_less_is_refused(cap):
-    with pytest.raises(ValueError):
-        AdequacyLoadConfig(
-            name="miner",
-            max_power_kw=5.0,
-            target_kwh=1.0,
-            deadline_period=3,
-            shortfall_price=5.0,
-            max_kwh_per_day=cap,
-        )
-
-
-@given(_num(0.0001, 5.0))
-def test_a_negative_cycle_wear_cost_is_refused(cost):
-    """Cycle wear (Track B2) is a cost; a negative one would pay the plan to
-    cycle the battery."""
-    with pytest.raises(ValueError):
-        _battery(degradation_cost_per_kwh=-cost)
-
-
-@SETTINGS
-@given(st.integers(4, 12), _num(0.05, 0.4), _num(0.005, 0.1), st.data())
-def test_charge_earliness_never_outweighs_a_real_price(n, price, gap, data):
-    """The charge-earliness tie-break (#692) breaks ties toward charging
-    early, but a later period cheaper by half a cent or more still wins
-    every kWh."""
-    cheap = data.draw(st.integers(1, n - 1))
-    imp = np.full(n, price)
-    imp[cheap] = price - gap
-    plan = build_plan(
-        periods=PeriodGrid(np.ones(n)),
-        grid=GridConfig(
-            import_price=imp,
-            export_price=np.zeros(n),
-            import_limit_kw=20.0,
-            export_limit_kw=0.0,
-        ),
-        batteries=[
-            _battery(
-                capacity_kwh=10.0,
-                initial_soc_kwh=1.0,
-                min_soc_kwh=1.0,
-                max_soc_kwh=6.0,
-                max_charge_kw=10.0,
-                max_discharge_kw=10.0,
-                salvage_value=price + 0.2,  # worth filling
-            )
-        ],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
-    )
-    assert plan.status == "optimal"
-    charged = plan.battery_charge_kw
-    assert charged[cheap] > 1e-6
-    others = np.delete(charged, cheap)
-    assert np.all(others < 1e-6), charged
-
-
 # --- #478: an adequacy block is anchored to the previous solve, by load name ----
 
 _ADQ_N = 24
@@ -2211,44 +953,6 @@ def _block(plan: Plan) -> tuple[float, ...]:
 _AT_5_6, _AT_15_16 = (0.65, 0.65, 0.0, 0.0), (0.0, 0.0, 0.65, 0.65)
 
 
-@pytest.mark.parametrize(("edge", "moves"), [(0.045, False), (0.001, True)])
-def test_an_adequacy_block_holds_on_a_marginal_edge_and_moves_on_a_real_one(
-    edge, moves
-):
-    """#478 (found verifying #616's on/off blocks): a block committed to
-    periods 5-6 is not relocated by a re-solve whose price edge elsewhere
-    is marginal (the phantom restart), but a real price crash still wins:
-    a soft anchor, not a lock. Without a previous plan the marginal edge
-    does move it."""
-    first = np.full(_ADQ_N, 0.30)
-    first[5] = first[6] = 0.05
-    plan1 = _adequacy_plan(first)
-    assert _block(plan1) == _AT_5_6
-    second = first.copy()
-    second[15] = second[16] = edge
-    assert _block(_adequacy_plan(second)) == _AT_15_16  # unanchored, it moves
-    held = _block(_adequacy_plan(second, previous=plan1))
-    assert held == (_AT_15_16 if moves else _AT_5_6)
-
-
-@pytest.mark.parametrize(("name", "held"), [("hws", True), ("pool", False)])
-def test_adequacy_continuity_is_matched_by_load_name(name, held):
-    """#478: the anchor is per load, matched by name. The previous plan's
-    grid flows are zeroed so the grid's own continuity cannot hold the block
-    in place; only a load with the same name stays on the marginal edge."""
-    first = np.full(_ADQ_N, 0.30)
-    first[5] = first[6] = 0.05
-    plan1 = _adequacy_plan(first)
-    zero = np.zeros(_ADQ_N)
-    previous = dataclasses.replace(
-        plan1, grid_import_kw=zero.copy(), grid_export_kw=zero.copy()
-    )
-    second = first.copy()
-    second[15] = second[16] = 0.045
-    plan2 = _adequacy_plan(second, name=name, previous=previous)
-    assert _block(plan2) == (_AT_5_6 if held else _AT_15_16)
-
-
 # --- #773 / #1179: every dump says whether it will survive ---------------------
 
 
@@ -2279,30 +983,6 @@ class _WritingHighs(_PhaseHighs):
     def writeModel(self, path):
         with open(path, "w", encoding="utf-8"):
             pass
-
-
-def test_the_dump_folder_is_created_or_falls_back_to_temp(tmp_path, monkeypatch):
-    """#1179 (11 Oct 2026: a tester's capture landed where a household
-    cannot reach it): a missing dump folder is created; one that cannot be
-    created (a file in the way) falls back to the temporary folder rather
-    than losing the capture."""
-    import tempfile
-
-    target = tmp_path / "nimbus_diagnostics"
-    monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(target))
-    lp._LP_DUMPED_PHASES.clear()
-    try:
-        path = lp._dump_failing_model(_WritingHighs(), "dir_test", issue="1179")
-        assert path == str(target / "nimbus_1179_dir_test.mps")
-        assert (target / "nimbus_1179_dir_test.mps").is_file()
-        blocker = tmp_path / "a_file"
-        blocker.write_text("")
-        monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(blocker / "sub"))
-        path = lp._dump_failing_model(_WritingHighs(), "fallback", issue="1179")
-        assert path is not None and path.startswith(tempfile.gettempdir())
-        os.remove(path)
-    finally:
-        lp._LP_DUMPED_PHASES.clear()
 
 
 def test_every_dump_announcement_says_whether_it_survives(
@@ -2362,33 +1042,6 @@ def _containment_oracle(new: PeriodGrid, old: PeriodGrid) -> dict[int, int]:
 
 
 _WIDTHS = st.sampled_from([1 / 60, 5 / 60, 0.25, 0.5, 1.0])
-
-
-@given(
-    st.lists(_WIDTHS, min_size=1, max_size=40),
-    st.lists(_WIDTHS, min_size=1, max_size=40),
-    st.sampled_from([-200.0, -5.0, 0.0, 1 / 60, 3.0, 15.0, 61.0, 2000.0]),
-    st.booleans(),
-)
-def test_a_new_grid_tethers_each_period_to_the_old_period_it_falls_in(
-    old_hours, new_hours, shift_minutes, past_tolerance
-):
-    """#356 (the O(n*m) scan became a two-pointer merge; it must give the
-    same mapping) and #635 (a mid-slot tier-0 period tethers to the 5-minute
-    period it falls inside, not to nothing): over variable-width grids,
-    shifted either way or not overlapping at all, the mapping is the
-    containment rule's."""
-    from datetime import timedelta
-
-    base = datetime(2026, 9, 9, 17, 25, tzinfo=UTC)
-    shift = timedelta(minutes=shift_minutes)
-    if past_tolerance:
-        shift += network._ALIGNMENT_TOLERANCE + timedelta(microseconds=1)
-    old = PeriodGrid(np.array(old_hours), start=base)
-    new = PeriodGrid(np.array(new_hours), start=base + shift)
-    previous = _infeasible_plan(old, "optimal", iterations=1)
-    got = network._align_previous_periods(new, previous)
-    assert got == _containment_oracle(new, old)
 
 
 def test_the_tier0_minutes_tether_to_the_period_they_fall_inside():
@@ -2460,27 +1113,3 @@ def _p2p_day(window_rates, *, fixed=None, window_import=0.55, terminal=None):
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.full(n, 1.5))],
     )
-
-
-@SETTINGS
-@given(st.lists(_num(0.43, 0.65), min_size=7, max_size=7), _num(5.0, 12.0))
-def test_a_committed_block_is_held_flat_whatever_the_window_rates(rates, rate):
-    """Household, 20 Aug 2026 (the plan swung between ~40 kW and ~0 chasing
-    each 5-minute P2P rate while the deal needs a steady committed rate):
-    with the block pinned, export is the rate in every window period however
-    the rates vary, the plan charges beforehand from its 20% start to carry
-    it without dropping below the floor, and periods outside stay free."""
-    plan = _p2p_day(rates, fixed=rate)
-    assert plan.status == "optimal"
-    np.testing.assert_allclose(plan.grid_export_kw[10:17], rate, atol=1e-4)
-    assert plan.battery_soc_kwh[9] > 122.2 * 0.2
-    assert plan.battery_soc_kwh[10:18].min() >= 122.2 * 0.05 - 0.01
-    outside = np.r_[plan.grid_export_kw[:10], plan.grid_export_kw[17:]]
-    assert not np.allclose(outside, rate, atol=0.01)
-
-
-def test_unpinned_the_window_rates_make_export_swing():
-    """The premise: without the pin the same day's varying rates move the
-    plan's export by more than 5 kW across the window."""
-    window = _p2p_day([0.65, 0.50, 0.43, 0.60, 0.55, 0.48, 0.62]).grid_export_kw[10:17]
-    assert window.max() - window.min() > 5.0

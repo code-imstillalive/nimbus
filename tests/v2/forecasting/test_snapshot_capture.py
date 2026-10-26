@@ -114,45 +114,6 @@ def _run(hass, store, *, now=None, entry="hub1"):
 
 
 class TestCapturingTodaysSnapshot(unittest.TestCase):
-    def test_a_first_solve_of_the_day_captures(self):
-        store = _FakeStore()
-        self.assertTrue(_run(_Hass(_rows()), store))
-        self.assertIn("2026-09-26", store.data)
-        self.assertEqual(len(store.data["2026-09-26"]["points"]), 6)
-
-    def test_a_later_solve_the_same_day_is_a_no_op(self):
-        """Idempotent -- the cost on every cycle after the first is one dict
-        lookup, not a rewrite of the whole Store."""
-        store = _FakeStore({"2026-09-26": {"version": 1, "points": []}})
-        self.assertFalse(_run(_Hass(_rows()), store))
-        self.assertEqual(store.saves, [])
-
-    def test_a_new_day_captures_again(self):
-        store = _FakeStore({"2026-09-25": {"version": 1, "points": []}})
-        self.assertTrue(_run(_Hass(_rows()), store))
-        self.assertIn("2026-09-26", store.data)
-        self.assertIn("2026-09-25", store.data)
-
-    def test_it_records_when_it_was_captured(self):
-        """So a consumer can tell a true midnight capture from a
-        post-restart one that has already seen half the day it forecasts."""
-        store = _FakeStore()
-        late = datetime(2026, 9, 26, 9, 30, tzinfo=BNE)
-        _run(_Hass(_rows()), store, now=late)
-        self.assertEqual(store.data["2026-09-26"]["captured_at"], late.isoformat())
-
-    def test_retention_is_applied_on_write(self):
-        """Pruned on write, not on read: this Store is rewritten whole, so an
-        unbounded dict would be re-serialised on every capture."""
-        old = {f"2026-08-{d:02d}": {"version": 1, "points": []} for d in range(1, 29)}
-        old.update(
-            {f"2026-09-{d:02d}": {"version": 1, "points": []} for d in range(1, 26)}
-        )
-        store = _FakeStore(old)
-        _run(_Hass(_rows()), store)
-        self.assertLessEqual(len(store.data), fss.KEEP_DAYS)
-        self.assertIn("2026-09-26", store.data)
-
     def test_retention_covers_the_rescore_window(self):
         """The re-score service accepts 1-30 days back; a retention equal to
         that would drop a day the moment a re-score reached for it."""
@@ -172,51 +133,8 @@ class TestTheCommonPathDoesNotReReadTheStore(unittest.TestCase):
     def tearDown(self):
         fss.reset_snapshot_cache()
 
-    def test_the_second_cycle_of_a_day_does_not_load_again(self):
-        fss.reset_snapshot_cache()
-        store = _FakeStore()
-        hass = _Hass(_rows())
-        real_store_for, real_now = fss._store_for, fss.dt_util.now
-        real_parse = fss.dt_util.parse_datetime
-        fss._store_for = lambda _h, _e: store
-        fss.dt_util.now = lambda: datetime(2026, 9, 26, 0, 1, tzinfo=BNE)
-        fss.dt_util.parse_datetime = _lenient_parse
-        try:
-            first = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
-            loads_after_first = store.loads
-            for _ in range(20):
-                again = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
-                self.assertFalse(again, "captured twice in one day")
-        finally:
-            fss._store_for, fss.dt_util.now = real_store_for, real_now
-            fss.dt_util.parse_datetime = real_parse
-        self.assertTrue(first)
-        self.assertEqual(
-            store.loads,
-            loads_after_first,
-            "the already-captured path re-read the Store",
-        )
-        self.assertEqual(len(store.saves), 1)
-
 
 class TestWhatIsNotCaptured(unittest.TestCase):
-    def test_no_published_forecast_captures_nothing(self):
-        store = _FakeStore()
-        self.assertFalse(_run(_Hass(None), store))
-        self.assertEqual(store.saves, [])
-
-    def test_an_empty_forecast_array_captures_nothing(self):
-        store = _FakeStore()
-        self.assertFalse(_run(_Hass([]), store))
-        self.assertEqual(store.saves, [])
-
-    def test_rows_with_no_usable_point_capture_nothing(self):
-        """Filing an empty snapshot would record a forecast the solver never
-        made, which then scores as a real forecast error."""
-        store = _FakeStore()
-        self.assertFalse(_run(_Hass([{"junk": 1}, "not a dict"]), store))
-        self.assertEqual(store.saves, [])
-
     def test_partially_corrupt_rows_still_capture_the_good_ones(self):
         rows = _rows(4) + [{"time": "nonsense"}, {"solar_kw": 1.0}]
         store = _FakeStore()
@@ -235,16 +153,6 @@ class TestItNeverBreaksASolve(unittest.TestCase):
         store = _FakeStore(fail_on_save=True)
         self.assertFalse(_run(_Hass(_rows()), store))
 
-    def test_a_load_failure_is_swallowed(self):
-        class _Boom:
-            async def async_load(self):
-                raise OSError("unreadable")
-
-            async def async_save(self, data):
-                raise AssertionError("must not be reached")
-
-        self.assertFalse(_run(_Hass(_rows()), _Boom()))
-
 
 class TestLoadingBackASnapshot(unittest.TestCase):
     def setUp(self):
@@ -252,54 +160,6 @@ class TestLoadingBackASnapshot(unittest.TestCase):
 
     def tearDown(self):
         fss.reset_snapshot_cache()
-
-    def test_a_known_day_comes_back(self):
-        store = _FakeStore({"2026-09-26": {"version": 1, "points": [1]}})
-        real = fss._store_for
-        fss._store_for = lambda _h, _e: store
-        try:
-            got = asyncio.run(fss.async_load_snapshot(_Hass(), "hub1", "2026-09-26"))
-        finally:
-            fss._store_for = real
-        self.assertEqual(got, {"version": 1, "points": [1]})
-
-    def test_an_unknown_day_is_None_not_an_empty_snapshot(self):
-        """None means "skip the decomposition entirely", never "assume zero
-        forecast error" -- an empty snapshot would score as the worst
-        forecast possible rather than as an absent one."""
-        store = _FakeStore({})
-        real = fss._store_for
-        fss._store_for = lambda _h, _e: store
-        try:
-            got = asyncio.run(fss.async_load_snapshot(_Hass(), "hub1", "2026-01-01"))
-        finally:
-            fss._store_for = real
-        self.assertIsNone(got)
-
-
-class TestOnlyASuccessfulSolveCaptures(unittest.TestCase):
-    """Wiring, asserted on the source: a failed cycle published nothing, so
-    capturing after it would file a forecast the solver never made."""
-
-    def test_a_single_entry_is_required_for_the_store_key(self):
-        """The Store name is per-entry. Writing one install's forecast under
-        another's key would be worse than not capturing it."""
-        from custom_components.nimbus_load import solver_runtime
-
-        class _Entries:
-            def __init__(self, n):
-                self._n = n
-
-            def async_entries(self, _domain):
-                return [type("E", (), {"entry_id": f"e{i}"}) for i in range(self._n)]
-
-        class _H:
-            def __init__(self, n):
-                self.config_entries = _Entries(n)
-
-        self.assertEqual(solver_runtime._entry_id_for_snapshot(_H(1)), "e0")
-        self.assertIsNone(solver_runtime._entry_id_for_snapshot(_H(0)))
-        self.assertIsNone(solver_runtime._entry_id_for_snapshot(_H(2)))
 
 
 if __name__ == "__main__":

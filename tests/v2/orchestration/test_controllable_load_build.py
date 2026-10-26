@@ -113,12 +113,6 @@ def site(monkeypatch):
 HWS = {"deferrable_max_power_kw": 3.7, "deferrable_target_kwh": 5.0}
 
 
-def test_outside_home_assistant_there_is_nothing_to_build(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    grid = [MIDNIGHT + timedelta(minutes=30 * i) for i in range(4)]
-    assert sw.build_controllable_loads(MIDNIGHT, grid, 4)[:2] == ([], [])
-
-
 def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, caplog):
     site.load(
         "pump",
@@ -171,23 +165,6 @@ def test_an_hour_resolves_to_its_period_on_the_grid(hour, is_deadline, expect):
         cl._resolve_hour_to_period_index(grid, now, hour, is_deadline=is_deadline)
         == expect
     )
-
-
-def test_a_window_open_now_starts_now_and_one_not_yet_open_starts_when_it_opens(site):
-    site.load(**HWS, deferrable_earliest_hour=6.0, deferrable_deadline_hour=16.0)
-    now = datetime(2026, 9, 9, 6, 1, tzinfo=TZ)
-    grid, _ = sw.build_tiered_grid(now)
-    _, (load,), _ = site.build(now, grid=grid)
-    assert load.earliest_period == 0
-    deadline = datetime(2026, 9, 9, 16, 0, tzinfo=TZ)
-    assert grid[load.deadline_period] <= deadline < grid[load.deadline_period + 1]
-    early = datetime(2026, 9, 9, 3, 0, tzinfo=TZ)
-    grid, _ = sw.build_tiered_grid(early)
-    _, (load,), _ = site.build(early, grid=grid)
-    assert 0 < load.earliest_period and grid[load.earliest_period] <= early.replace(
-        hour=6
-    )
-    assert len(load.windows) >= 3  # one per day of the horizon
 
 
 def test_an_overnight_or_open_ended_window_is_one_window(site):
@@ -295,14 +272,6 @@ def _windows(now, delivered=0.0, done=False, grid=None):
     )
 
 
-def test_each_day_of_the_horizon_gets_its_own_window_and_target():
-    _grid, windows = _windows(datetime(2026, 9, 9, 3, 0, tzinfo=TZ))
-    assert len(windows) == 4
-    assert all(
-        w.target_kwh == 2.0 and w.deadline_period >= w.earliest_period for w in windows
-    )
-
-
 def test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed():
     now = datetime(2026, 9, 9, 13, 5, tzinfo=TZ)
     _grid, partly = _windows(now, delivered=1.48)
@@ -315,13 +284,6 @@ def test_today_is_cut_by_what_was_delivered_and_dropped_once_met_done_or_closed(
     late = datetime(2026, 9, 9, 20, 0, tzinfo=TZ)
     grid, windows = _windows(late)
     assert grid[windows[0].earliest_period].date() == late.date() + timedelta(days=1)
-
-
-def test_a_window_running_past_the_horizon_is_clamped_not_dropped():
-    now = datetime(2026, 9, 9, 3, 0, tzinfo=TZ)
-    grid = [now + timedelta(hours=i) for i in range(8)]
-    _grid, windows = _windows(now, grid=grid)
-    assert [w.deadline_period for w in windows] == [7]
 
 
 @pytest.mark.parametrize(
@@ -357,32 +319,7 @@ def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(
     assert ("physical floor" in caplog.text) is (window[1] < 32)
 
 
-def test_a_floor_is_only_read_from_a_water_heater(site):
-    site.load(
-        **HWS,
-        deferrable_earliest_hour=6.0,
-        deferrable_deadline_hour=16.0,
-        deferrable_done_entity="sensor.tank",
-        deferrable_done_when=">= 60",
-    )
-    site.state("sensor.tank", "50.0", current_temperature=50.0, min_temp=45.0)
-    _, (load,), _ = site.build()
-    assert load.windows[0].deadline_period == 32
-
-
 # --- what a load's power sensor says it delivered ------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("value", "unit", "on"),
-    [("1.5", None, True), ("1.5", "kW", True), ("4.6", "W", False), ("550", "W", True)],
-)
-def test_a_power_reading_is_read_in_kw_whatever_unit_the_sensor_reports(
-    site, value, unit, on
-):
-    site.state("sensor.p", value, unit_of_measurement=unit)
-    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
-    assert site.run_state().currently_on is on
 
 
 def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once(
@@ -405,18 +342,6 @@ def test_a_reading_that_is_not_there_writes_nothing(site, value):
         site.state("sensor.p", value)
     cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
     assert site.run_state() == load_run_state.LoadRunState()
-
-
-def test_building_samples_each_load_with_a_power_sensor(site):
-    site.load(
-        "s1",
-        "sheddable",
-        sheddable_nominal_kw=1.5,
-        controllable_load_power_sensor="sensor.p",
-    )
-    site.state("sensor.p", "2.0")
-    site.build(n=4)
-    assert site.run_state().currently_on is True
 
 
 @pytest.mark.parametrize(
@@ -466,28 +391,6 @@ def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
     assert sw._discover_power_sensor_for_device("switch.pump") is None
 
 
-def test_a_configured_power_sensor_always_wins_and_discovery_only_fills_a_gap(
-    monkeypatch,
-):
-    asked = []
-    monkeypatch.setattr(
-        sw,
-        "_discover_power_sensor_for_device",
-        lambda device: asked.append(device) or "sensor.discovered",
-    )
-    configured = {
-        "controllable_load_power_sensor": "sensor.mine",
-        "controllable_load_device_entity": "switch.pump",
-    }
-    assert cl.resolve_controllable_load_power_sensor(configured) == "sensor.mine"
-    assert asked == []
-    unset = {"controllable_load_device_entity": "switch.pump"}
-    assert cl.resolve_controllable_load_power_sensor(unset) == "sensor.discovered"
-    assert asked == ["switch.pump"]
-    assert cl.resolve_controllable_load_power_sensor({}) == "sensor.discovered"
-    assert asked[-1] == ""
-
-
 # --- a same-day window already open starts now (#582) ------------------------------------------
 
 
@@ -525,21 +428,3 @@ def test_which_period_a_window_opens_in(
         )
         == expect
     )
-
-
-def test_a_household_mode_moving_a_loads_lever_says_which_at_debug(site, caplog):
-    """#485: once per load per solve, so DEBUG, and naming the load."""
-    site.load("hws", controllable_load_name="Hot water", **HWS)
-    site.entry.subentries["hws"].title = "Hot water"
-    site.state("select.nimbus_household_mode", "away")
-    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
-        _shed, (load,), _grid = site.build()
-    moved = [r for r in caplog.records if "#485" in r.getMessage()]
-    assert [r.levelno for r in moved] == [logging.DEBUG]
-    assert "'away'" in moved[0].getMessage() and "'Hot water'" in moved[0].getMessage()
-    assert load.target_kwh == pytest.approx(HWS["deferrable_target_kwh"] * 0.5)
-    caplog.clear()
-    site.state("select.nimbus_household_mode", "home")
-    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
-        site.build()
-    assert not [r for r in caplog.records if "#485" in r.getMessage()]

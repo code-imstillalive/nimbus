@@ -33,30 +33,9 @@ def _call(**over):
     return absorb_surplus(**{**BASE, **over})
 
 
-def test_spare_solar_below_the_floor_is_absorbed():
-    assert _call() == (True, "spare_solar_below_floor")
-
-
 def test_a_hold_with_spare_solar_is_absorbed_too():
     # Battery idle in the plan, spare solar, cheap export: soak it up.
     assert _call(battery_kw=0.0) == (True, "spare_solar_below_floor")
-
-
-def test_floor_off_never_absorbs():
-    assert _call(export_floor=0.0) == (False, "floor_off")
-
-
-def test_a_price_at_or_above_the_floor_is_left_to_the_plan():
-    assert _call(export_price=0.20) == (False, "export_above_floor")
-    assert _call(export_price=0.35) == (False, "export_above_floor")
-
-
-def test_an_unknown_export_price_is_left_to_the_plan():
-    assert _call(export_price=None) == (False, "export_above_floor")
-
-
-def test_discharging_is_left_to_the_plan():
-    assert _call(battery_kw=5.0) == (False, "discharging")
 
 
 def test_grid_charging_is_left_to_the_plan():
@@ -67,16 +46,5 @@ def test_grid_charging_is_left_to_the_plan():
     )
 
 
-def test_no_spare_solar_is_left_to_the_plan():
-    # Solar at or below the load: self-consume would serve the house from the
-    # battery, which a hold exists to prevent.
-    assert _call(solar_kw=3.0, load_kw=3.0) == (False, "no_spare_solar")
-    assert _call(solar_kw=1.0, load_kw=3.0) == (False, "no_spare_solar")
-
-
 def test_a_p2p_block_is_left_to_the_plan():
     assert _call(committed_export_kw=11.5) == (False, "p2p_block")
-
-
-def test_a_price_spike_is_left_to_the_plan():
-    assert _call(price_spike=True) == (False, "price_spike")

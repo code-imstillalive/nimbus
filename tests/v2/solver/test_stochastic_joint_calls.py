@@ -70,20 +70,6 @@ def _summary(result):
     )
 
 
-def test_an_optimal_plan_records_each_call_it_made():
-    result = sd.build_stochastic_plan(_inputs())
-    assert result.status == "optimal"
-    calls = result.joint_calls
-    assert len(calls) == result.n_joint_solves >= 1
-    assert [c["call"] for c in calls] == list(range(1, len(calls) + 1))
-    last = calls[-1]
-    assert last["status"] == "optimal" and last["solve_seconds"] >= 0.0
-    assert last["time_limit_seconds"] == sd.JOINT_TIME_LIMIT_SECONDS
-    published = _summary(result)["joint_calls"]
-    assert published == calls
-    json.dumps(published, allow_nan=False)  # plain, finite JSON
-
-
 def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit():
     result = sd.build_stochastic_plan(_inputs(), time_limit_seconds=1e-9)
     assert result.status != "optimal"

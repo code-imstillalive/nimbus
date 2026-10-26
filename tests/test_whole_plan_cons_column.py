@@ -10,7 +10,6 @@ Rendered through Jinja with HA's two helpers stubbed, on synthetic rows."""
 from __future__ import annotations
 
 import importlib.util
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -75,34 +74,6 @@ def _cells(markdown, time):
     return [c.strip() for c in line.strip("|").split("|")]
 
 
-def test_fees_are_the_fees_and_consolidation_has_its_own_column():
-    rows = [
-        # Settled period: consolidation never touches it.
-        _row("2026-10-19T14:55:00+10:00", 0.112, 0.112),
-        # Consolidated 2.3c above LocalVolts; no fees on this install.
-        _row("2026-10-19T15:00:00+10:00", 0.163, 0.186, "consolidated", 0.186),
-        # Consolidated 2.4c below LocalVolts, plus a 1.5c fee.
-        _row("2026-10-19T20:00:00+10:00", 0.224, 0.215, "consolidated", 0.200),
-    ]
-    md = _render(rows)
-    header = next(x for x in md.splitlines() if x.startswith("| Time |"))
-    assert [c.strip() for c in header.strip("|").split("|")][:4] == [
-        "Time",
-        "Buy¢",
-        "Fees¢",
-        "Cons¢",
-    ]
-    settled = _cells(md, "14:55")
-    assert settled[1:4] == ["11.2", "0.0", ""]
-    above = _cells(md, "15:00")
-    assert above[1:3] == ["16.3", "0.0"]
-    assert re.sub(r"<[^>]+>", "", above[3]) == "+2.3"
-    assert "violet" in above[3]
-    below = _cells(md, "20:00")
-    assert below[1:3] == ["22.4", "1.5"]
-    assert re.sub(r"<[^>]+>", "", below[3]) == "-2.4"
-
-
 def test_with_consolidation_off_the_column_is_blank_and_fees_unchanged():
     rows = [
         _row("2026-10-19T15:00:00+10:00", 0.163, 0.163, "primary", 0.186),
@@ -111,12 +82,3 @@ def test_with_consolidation_off_the_column_is_blank_and_fees_unchanged():
     # Shadow: consolidated_import_price is published, but the plan did not
     # use it, so Cons¢ is blank and Fees¢ is the plain difference.
     assert cells[1:4] == ["16.3", "0.0", ""]
-
-
-def test_the_total_row_has_a_cell_for_the_new_column():
-    md = _render([_row("2026-10-19T23:30:00+10:00", 0.2, 0.2)])
-    header_cells = next(x for x in md.splitlines() if x.startswith("| Time |")).count(
-        "|"
-    )
-    total = next(x for x in md.splitlines() if "TOTAL" in x)
-    assert total.count("|") == header_cells

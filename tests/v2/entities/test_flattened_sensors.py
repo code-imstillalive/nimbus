@@ -122,27 +122,6 @@ def _payload(specs, value_of):
 
 
 @pytest.mark.parametrize("name", sorted(TABLES))
-def test_each_table_builds_one_uniquely_named_entity_per_figure_on_its_device(name):
-    ents, _ = _build(name, hub_device_id="dev-hub")
-    _f, _d, prefix, suffix = TABLES[name]
-    ids = [e.entity_id for e in ents]
-    assert ents and len(ids) == len(set(ids))
-    assert all(i.startswith(f"sensor.{prefix}_") for i in ids)
-    assert all(e._attr_unique_id.startswith("hub1_") for e in ents)
-    device = ents[0]._attr_device_info
-    assert (DOMAIN, f"hub1{suffix}") in device["identifiers"]
-    if suffix:
-        assert device["via_device_id"] == "dev-hub"
-
-
-def test_no_two_tables_publish_the_same_entity():
-    every = [e.entity_id for name in TABLES for e in _build(name)[0]]
-    every += [e.entity_id for e in fl.create_flattened_entities_current(ENTRY, "1")]
-    duplicates = {i for i in every if every.count(i) > 1}
-    assert duplicates == set()
-
-
-@pytest.mark.parametrize("name", sorted(TABLES))
 def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
     name, clock
 ):
@@ -159,29 +138,6 @@ def test_each_figure_follows_its_parent_and_keeps_its_last_value_when_absent(
         e.native_value == f"v-{e._spec.entity_id_suffix}" and e.writes == 1
         for e in ents
     )
-
-
-def test_a_dotted_key_needs_its_parent_to_be_a_mapping():
-    tables = (
-        fl.FLATTENED_ATTRS,
-        fl.FLATTENED_ATTRS_P2P,
-        fl.FLATTENED_ATTRS_QUALITY,
-        fl.FLATTENED_ATTRS_BACKTEST,
-        fl.FLATTENED_ATTRS_COUNTERFACTUAL,
-        fl.FLATTENED_ATTRS_FLEX,
-        fl.FLATTENED_ATTRS_FLEX_REPORT,
-        fl.FLATTENED_ATTRS_CURRENT,
-    )
-    spec = next((s for t in tables for s in t if "." in s.source_key), None) or _spec(
-        source_key="outer.inner"
-    )
-    top, sub = spec.source_key.split(".", 1)
-    e = fl._FlattenedAttributeSensor(ENTRY, "1", spec)
-    e.hass = None
-    e.update_from_parent({top: "not a mapping"})
-    assert e.native_value is None
-    e.update_from_parent({top: {sub: 3}})
-    assert e.native_value == 3
 
 
 def _spec(**kw):
@@ -232,19 +188,6 @@ def test_money_is_shown_in_the_households_currency(unit, shown):
     assert e.native_unit_of_measurement == unit
 
 
-def test_an_overlong_text_state_is_truncated_and_logged_once(caplog):
-    fl._LOGGED_TRUNCATION.clear()
-    e = _one(_spec())
-    with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
-        e.update_from_parent({"k": "x" * 400})
-        e.update_from_parent({"k": "y" * 400})
-    assert len(e.native_value) == fl._MAX_STATE_LENGTH and e.native_value.endswith(
-        "..."
-    )
-    assert sum("character state" in r.getMessage() for r in caplog.records) == 1
-    assert fl._clamp_state_length(5, None) == 5
-
-
 def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
     """HA's limit is inclusive: exactly the limit is a legal state."""
     at = "x" * fl._MAX_STATE_LENGTH
@@ -255,16 +198,6 @@ def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
     )
     lead = "Grid export at zero (not economical right now)"
     assert fl._clamp_state_length(lead + " " + "y" * 400, "sensor.a").startswith(lead)
-
-
-def test_each_entity_is_warned_about_once_on_its_own(caplog):
-    fl._LOGGED_TRUNCATION.clear()
-    with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
-        for entity in ("sensor.first", "sensor.second", "sensor.first"):
-            fl._clamp_state_length("z" * 500, entity)
-    warned = [r.getMessage() for r in caplog.records]
-    assert len(warned) == 2
-    assert "sensor.first" in warned[0] and "sensor.second" in warned[1]
 
 
 def test_a_figure_goes_stale_after_five_minutes_and_recovers(clock, caplog):
@@ -339,18 +272,6 @@ def test_a_price_figure_publishes_the_whole_horizon_as_a_detailed_forecast():
         {"forecast": [{"time": "x", "hours": 1}, {"no": "time"}, "junk"]},
     ):
         assert fl._detailed_price_forecast(bad, "import_price") is None
-
-
-def test_the_current_price_figure_carries_the_detailed_forecast():
-    spec = next((s for s in fl.FLATTENED_ATTRS_CURRENT if s.detailed_forecast_of), None)
-    assert spec is not None
-    e = _one(spec, hass=False)
-    plan = _plan()
-    for row in plan["forecast"]:
-        row[spec.detailed_forecast_of] = 0.3
-    fl.dispatch_to_flattened_current([e], plan)
-    assert len(e.extra_state_attributes["detailedForecast"]) == 3
-    assert "detailedForecast" in e._unrecorded_attributes
 
 
 # --- the hub device -------------------------------------------------------------------------

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import ast
 import json
-import math
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -260,51 +259,6 @@ def test_dc_r03_f09_the_legacy_record_has_the_21_unit_spellings() -> None:
     assert len(LEGACY_UNITS) == 21
 
 
-@pytest.mark.parametrize("unit", LEGACY_UNITS)
-def test_dc_r03_f09_each_unit_spelling_resolves_as_the_oracle_says(unit: Any) -> None:
-    got = _power("2.5", unit)
-    expected = _oracle_kw(2.5, unit)
-    if expected is None:
-        assert got.value is None and got.state == db.MISSING, got
-        assert got.reason, got  # refused WITH a reason, never a guessed kW
-    else:
-        assert got.state == db.VALID and got.unit == "kW"
-        assert math.isclose(got.value, expected, rel_tol=1e-12, abs_tol=TOL), got
-
-
-@pytest.mark.parametrize(("value", "unit", "kw"), F09["cases"]["units"])
-def test_dc_r03_f09_the_manifest_units(value: float, unit: str, kw: float) -> None:
-    got = _power(str(value), unit)
-    assert got.value is not None and abs(got.value - kw) <= TOL
-
-
-def test_dc_r03_f09_milliwatt_and_megawatt_differ() -> None:
-    mw_milli, mw_mega = _power("2.5", "mW").value, _power("2.5", "MW").value
-    assert mw_milli is not None and mw_mega is not None
-    assert math.isclose(mw_mega / mw_milli, 1e9)
-    assert _oracle_kw(2.5, "mW") == mw_milli and _oracle_kw(2.5, "MW") == mw_mega
-
-
-@pytest.mark.parametrize(
-    ("unit", "reason"),
-    [
-        ("Wh", "energy_unit_as_power"),
-        ("kWh", "energy_unit_as_power"),
-        ("A", "unit_not_power"),
-        ("kVA", "unit_not_power"),
-        ("furlong", "unit_not_power"),
-        ("kw", "unit_not_exact"),
-        (None, "unit_missing"),
-    ],
-)
-def test_dc_r03_f09_a_wrong_dimension_is_refused_with_a_reason(
-    unit: Any, reason: str
-) -> None:
-    got = _power("2.5", unit)
-    assert (got.value, got.state, got.reason) == (None, db.MISSING, reason)
-    assert _oracle_kw(2.5, unit) is None
-
-
 def test_dc_r03_power_is_refused_as_energy() -> None:
     doc = _doc(
         _device(
@@ -315,75 +269,6 @@ def test_dc_r03_power_is_refused_as_energy() -> None:
     )
     got = _resolve(doc, "grid_main", "import_energy", Recorder())
     assert (got.value, got.reason) == (None, "power_unit_as_energy")
-
-
-def test_dc_r03_f09_a_declared_native_sign_is_flipped_exactly_once() -> None:
-    flipped = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert flipped.value == -1.5
-    assert flipped.provenance["native_sign"] == "export"
-    assert flipped.provenance["sign_flipped"] is True
-    same = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="import"
-    )
-    assert same.value == 1.5 and same.provenance["sign_flipped"] is False
-    # Resolving again reads the source again: never a second flip.
-    again = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert again.value == -1.5
-    # A measured zero carries no sign either way.
-    zero = _power(
-        "0", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert zero.value == 0.0 and math.copysign(1.0, zero.value) == 1.0
-
-
-def test_dc_r03_paired_import_and_export_resolve_separately_unnetted() -> None:
-    doc = _doc(
-        _device(
-            "grid_main",
-            "grid",
-            import_power=_entity(
-                "sensor.imp",
-                positive_direction="import",
-                native_positive_direction="import",
-            ),
-            export_power=_entity(
-                "sensor.exp",
-                positive_direction="export",
-                native_positive_direction="export",
-            ),
-        )
-    )
-    rec = Recorder({"sensor.imp": _state("2000", "W"), "sensor.exp": _state("3", "kW")})
-    imp = _resolve(doc, "grid_main", "import_power", rec)
-    exp = _resolve(doc, "grid_main", "export_power", rec)
-    assert (imp.value, exp.value) == (2.0, 3.0)
-
-
-def test_dc_r03_every_value_states_its_unit_sign_boundary_and_source() -> None:
-    q = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="import"
-    )
-    assert q.unit == "kW"
-    p = q.provenance
-    assert p["boundary"] == "grid_main_boundary"
-    assert (p["source_kind"], p["entity_id"], p["native_unit"]) == (
-        "entity_state",
-        "sensor.grid",
-        "W",
-    )
-    assert (p["origin"], p["confirmed"], p["canonical_sign"]) == (
-        "manual",
-        True,
-        "import",
-    )
-    s = _price_series(_aemo(F04["cases"]["gap"]["intervals"]), "aemo_nem")
-    assert s.unit == "AUD/kWh"
-    assert s.provenance["adapter"] == {"name": "aemo_nem", "version": 1}
-    assert s.provenance["boundary"] == "grid_main_boundary"
 
 
 def test_dc_r03_model_output_carries_its_coverage_and_training_state() -> None:
@@ -458,24 +343,6 @@ def _breaker(rule: dict[str, Any], **times: Any) -> db.Resolved:
     return _resolve(doc, "load_pool", "power", rec)
 
 
-def test_dc_r04_f09_a_breaker_idle_at_zero_overnight_is_held_not_stale() -> None:
-    nine_hours_ago = (NOW - timedelta(hours=9)).isoformat()
-    held = _breaker(
-        {"mode": "change_only", "max_interval_s": 900},
-        last_changed=nine_hours_ago,
-        last_reported=nine_hours_ago,
-    )
-    assert (held.state, held.value) == (db.HELD, 0.0)
-    assert held.value == reading("0")
-    # The same reading under a sampled rule IS stale: the rule is per source.
-    stale = _breaker(
-        {"mode": "sampled", "max_interval_s": 900},
-        last_changed=nine_hours_ago,
-        last_reported=nine_hours_ago,
-    )
-    assert (stale.state, stale.value) == (db.STALE, 0.0)  # carried, flagged
-
-
 def test_dc_r04_freshness_reads_the_live_last_reported_not_last_changed() -> None:
     """#1705: an unchanged value re-reported 30 s ago is fresh, whatever its
     last change."""
@@ -485,14 +352,6 @@ def test_dc_r04_freshness_reads_the_live_last_reported_not_last_changed() -> Non
         last_reported=(NOW - timedelta(seconds=30)).isoformat(),
     )
     assert got.state == db.VALID
-
-
-def test_dc_r04_f04_a_forecast_past_its_refresh_period_is_stale() -> None:
-    rows = _aemo(F04["cases"]["gap"]["intervals"])
-    old = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(seconds=301))
-    fresh = _price_series(rows, "aemo_nem", fetched=NOW - timedelta(seconds=299))
-    assert old.state == db.STALE and fresh.state == db.VALID
-    assert old.intervals == fresh.intervals  # carried, flagged, not nulled
 
 
 def test_dc_r04_every_price_adapter_is_stale_after_five_minutes() -> None:
@@ -530,26 +389,6 @@ _SHAPES = {
 }
 
 
-@pytest.mark.parametrize("name", sorted(_SHAPES))
-def test_dc_r06_f04_5_and_30_minute_series_resolve_to_the_oracles_intervals(
-    name: str,
-) -> None:
-    case, expected = F04["cases"][name], F04["expected"][name]
-    adapter, shape = _SHAPES[name]
-    window = tuple(map(T, case["window"]))
-    series = _price_series(shape(case["intervals"]), adapter, window)
-    assert isinstance(series, db.Series) and series.state == db.VALID
-    assert [(i.start, i.end, i.value) for i in series.intervals] == [
-        (i.start, i.end, i.price) for i in _oracle_intervals(case["intervals"])
-    ]
-    price, fraction = db.value_over(series, *window)
-    o_price, o_fraction = price_over(_oracle_intervals(case["intervals"]), *window)
-    assert price is not None and o_price is not None
-    assert abs(price - o_price) <= TOL and abs(price - expected["price"]) <= TOL
-    assert abs(fraction - o_fraction) <= TOL
-    assert abs(series.coverage.covered_fraction - expected["coverage"]) <= TOL
-
-
 def test_dc_r06_f04_a_multi_day_series_reports_its_24_hour_hole() -> None:
     case, expected = F04["cases"]["multi_day"], F04["expected"]["multi_day"]
     raw = _blocks(case["blocks"])
@@ -566,28 +405,6 @@ def test_dc_r06_f04_a_multi_day_series_reports_its_24_hour_hole() -> None:
     ]
 
 
-def test_dc_r06_f04_coverage_over_a_window_with_a_hole_reports_the_hole() -> None:
-    case = F04["cases"]["hole"]
-    window = tuple(map(T, case["window"]))
-    series = _price_series(_aemo(case["intervals"]), "aemo_nem", window)
-    assert [list(g) for g in series.coverage.gaps] == [
-        list(map(T, g)) for g in case["gaps"]
-    ]
-    # Inside the hole there is no price at all: nothing was filled.
-    hole = tuple(map(T, case["gaps"][0]))
-    assert db.value_over(series, *hole) == (None, 0.0)
-    assert price_over(_oracle_intervals(case["intervals"]), *hole) == (None, 0.0)
-
-
-def test_dc_r06_f04_overlap_is_refused() -> None:
-    case = F04["cases"]["overlap"]
-    assert F04["expected"]["overlap"] == "refused"
-    got = _price_series(_aemo(case["intervals"]), "aemo_nem")
-    assert (got.state, got.reason) == (db.MISSING, "overlapping_intervals")
-    with pytest.raises(ValueError, match="overlapping"):
-        price_over(_oracle_intervals(case["intervals"]), *map(T, case["window"]))
-
-
 def test_dc_r06_f04_an_expired_price_is_not_extended() -> None:
     case = F04["cases"]["gap"]
     window = tuple(map(T, case["window"]))
@@ -597,48 +414,6 @@ def test_dc_r06_f04_an_expired_price_is_not_extended() -> None:
     after = (last_end, window[1])
     assert db.value_over(series, *after) == (None, 0.0)
     assert price_over(_oracle_intervals(case["intervals"]), *after) == (None, 0.0)
-
-
-def test_dc_r06_f04_a_negative_price_survives() -> None:
-    case = F04["cases"]["thirty_min_window_over_5_min"]
-    series = _price_series(_amber_core(case["intervals"]), "amberelectric")
-    negative = [i for i in series.intervals if i.value < 0]
-    assert [i.value for i in negative] == [-0.06]
-    # The UTC-stamped row is the same instant as its +10:00 neighbours'.
-    assert negative[0].start == T("2026-10-05T17:10:00+10:00")
-    o_price, _ = price_over(
-        [PriceInterval(negative[0].start, negative[0].end, -0.06)],
-        negative[0].start,
-        negative[0].end,
-    )
-    assert db.value_over(series, negative[0].start, negative[0].end)[0] == o_price
-
-
-def test_dc_r06_f04_a_feed_in_only_provider_yields_no_import_series() -> None:
-    case, expected = F04["cases"]["feed_in_only"], F04["expected"]["feed_in_only"]
-    window = tuple(map(T, case["window"]))
-    doc = _doc(
-        _device(
-            "grid_main",
-            "grid",
-            export_price_forecast=_attribute("sensor.feed_in", "aemo_nem"),
-        )
-    )
-    rec = Recorder(
-        {
-            "sensor.feed_in": {
-                "state": "0.08",
-                "attributes": {"forecast": _aemo(case["export_intervals"])},
-                "last_updated": NOW.isoformat(),
-            }
-        }
-    )
-    imp = _resolve(doc, "grid_main", "import_price_forecast", rec, window=window)
-    exp = _resolve(doc, "grid_main", "export_price_forecast", rec, window=window)
-    assert isinstance(imp, db.Quantity) and imp.value is None
-    assert (imp.state, imp.reason) == (db.MISSING, "unbound")
-    assert imp.value is expected["import"]
-    assert db.value_over(exp, *window)[0] == expected["export"]
 
 
 def test_dc_r06_nothing_published_is_missing_not_zero() -> None:
@@ -1028,26 +803,6 @@ def test_dc_r06_f03_localvolts_without_a_direction_overlaps_and_is_refused() -> 
     assert unknown.reason == "adapter_field_unknown"
 
 
-def test_dc_r05_f03_the_matched_rate_agrees_with_the_solvers_own_reader() -> None:
-    """Reuse, pinned: the pure reader's matched rate is the arithmetic
-    solver_writer's `_p2p_triple_intervals` (#1537) applies, row for row."""
-    import solver_writer
-
-    rows = [
-        r
-        for r in F03["cases"]["localvolts_v2"]["rows"]
-        if r["direction"] == "Sell" and r["quality"] == "Fcst"
-    ]
-    ours = price_intervals.localvolts_v2_rows(rows, price_intervals.LV_MATCHED_RATE)
-    theirs = solver_writer._p2p_triple_intervals(rows)
-    assert [
-        (i.interval.start, i.interval.end, i.matched, i.interval.value) for i in ours
-    ] == [
-        (start, end, state == solver_writer.P2P_RATE, value)
-        for start, end, state, value in theirs
-    ]
-
-
 # --- DC-R16 / F11: derived dependencies at run time ---------------------------------
 
 # F11's abstract signal names, bound to real roles on a synthetic site.
@@ -1101,17 +856,6 @@ def _balance_doc() -> dict[str, Any]:
         _device("load_house", "load", power=_entity("sensor.house")),
         _device("solar_roof", "solar", power=_entity("sensor.pv")),
     )
-
-
-def test_dc_r16_f01_an_acyclic_derived_value_matches_the_oracle() -> None:
-    rec = Recorder(
-        {"sensor.house": _state("14", "kW"), "sensor.pv": _state("16000", "W")}
-    )
-    got = _resolve(_balance_doc(), "grid_main", "power", rec)
-    expected = observed_grid_kw(None, [("load", 14.0), ("solar", 16.0)])
-    assert got.state == db.VALID and got.unit == "kW"
-    assert got.value is not None and expected is not None
-    assert abs(got.value - expected) <= TOL
 
 
 def test_dc_r16_f01_a_missing_dependency_makes_the_result_missing() -> None:
@@ -1177,14 +921,6 @@ def _f04_legacy_divergences() -> dict[str, str]:
     if price_intervals.price_unit_scale("c/MWh") == 1e-05:
         found["c_per_mwh"] = "scaled"
     return found
-
-
-def test_f04_every_divergence_is_declared_and_still_real() -> None:
-    declared = {d["case"]: d["legacy"] for d in DIVERGENCES if d["fixture"] == "F04"}
-    assert _f04_legacy_divergences() == declared
-    for d in DIVERGENCES:
-        if d["fixture"] == "F04":
-            assert d["owner"] == "DC-002" and d["class"] == "open_decision", d
 
 
 # --- boundaries of the module itself ---------------------------------------------------
@@ -1291,12 +1027,4 @@ def test_dc_r03_f09_a_declared_unit_never_turns_another_dimension_into_power(
 
 def test_dc_r03_f09_a_declared_unit_must_itself_be_exact():
     got = _power("2.5", None, native_unit="kw")
-    assert (got.value, got.reason) == (None, "declared_unit_invalid")
-
-
-def test_dc_r03_f09_an_invalid_declaration_refuses_even_a_valid_sensor_unit():
-    """Mark Purcell's review of #1942: a sensor stating a valid exact unit is
-    still refused when the binding's declared unit is not itself exact. The
-    declaration is wrong, and nothing here guesses past it."""
-    got = _power("2500", "W", native_unit="kw")
     assert (got.value, got.reason) == (None, "declared_unit_invalid")

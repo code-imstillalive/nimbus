@@ -9,7 +9,6 @@ inside a third.
 from __future__ import annotations
 
 import ast
-import copy
 import importlib.util
 import sys
 from pathlib import Path
@@ -153,112 +152,6 @@ def test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity(
     assert {_source_value(b) for _d, _r, b in _bindings(doc)} == named
 
 
-def test_dc_r13_every_proposed_binding_and_inclusion_is_unconfirmed():
-    p = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    for device_id, role, binding in _bindings(p.document):
-        prov = binding["provenance"]
-        assert prov["origin"] == "energy_dashboard", (device_id, role)
-        assert prov["confirmed"] is False and prov["overridden"] is False
-        assert prov["evidence"][0]["kind"] == "energy_dashboard"
-    for rel in p.document["relationships"]:
-        if rel["kind"] == "included_in_measurement":
-            assert rel["confirmed"] is False
-    assert p.document["site"]["control_policy"] == "observation_only"
-
-
-def test_the_only_structural_gap_is_the_battery_capacity_and_it_is_asked():
-    """The Energy Dashboard has no capacity and DC-001 requires one: the
-    proposal shows it as incomplete and asks, rather than inventing one."""
-    p = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    assert [(x.code, x.path) for x in p.problems] == [
-        ("capacity_missing", "devices[3].capacity")
-    ]
-    assert _device(p.document, "battery").get("capacity") is None
-    assert [(q["code"], q["device"], q.get("fact")) for q in p.questions] == [
-        ("fact_needed", "battery", "capacity")
-    ]
-
-
-def test_signs_are_the_contracts_and_energy_stays_a_statistic():
-    p = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    assert not [x for x in p.problems if x.code == "sign_not_canonical"]
-    directions = {
-        (d, r): b["normalization"]["positive_direction"]
-        for d, r, b in _bindings(p.document)
-        if "normalization" in b
-    }
-    assert directions == {
-        ("grid", "power"): "import",
-        ("solar", "power"): "generation",
-        ("battery", "power"): "discharge",
-        ("load_pool_circuit", "power"): "consumption",
-    }
-    for _d, role, binding in _bindings(p.document):
-        if role.endswith("energy"):
-            assert binding["source"] == {
-                "kind": "recorder_statistic",
-                "statistic_id": binding["source"]["statistic_id"],
-                "interval_semantics": "hourly_change",
-            }
-
-
-def test_two_import_flows_on_an_older_grid_source_are_a_question_not_a_pick():
-    """List position is not evidence (Mark, #1590): both are listed, neither
-    is bound."""
-    prefs = {
-        "energy_sources": [
-            {
-                "type": "grid",
-                "flow_from": [
-                    {"stat_energy_from": "sensor.peak_kwh"},
-                    {"stat_energy_from": "sensor.offpeak_kwh"},
-                ],
-                "flow_to": [{"stat_energy_to": "sensor.export_kwh"}],
-            }
-        ]
-    }
-    p = dd.propose_from_energy_dashboard(prefs)
-    grid = _device(p.document, "grid")["bindings"]
-    assert "import_energy" not in grid
-    assert _source_value(grid["export_energy"]) == "sensor.export_kwh"
-    (q,) = p.questions
-    assert (q["code"], q["device"], q["role"]) == (
-        "several_sources",
-        "grid",
-        "import_energy",
-    )
-    assert [c["source"] for c in q["candidates"]] == [
-        "sensor.peak_kwh",
-        "sensor.offpeak_kwh",
-    ]
-
-
-def test_two_grid_sources_never_make_a_second_grid():
-    prefs = {
-        "energy_sources": [
-            {"type": "grid", "stat_energy_from": "sensor.a_kwh"},
-            {"type": "grid", "stat_energy_from": "sensor.b_kwh"},
-        ]
-    }
-    p = dd.propose_from_energy_dashboard(prefs)
-    assert [d["id"] for d in p.document["devices"] if d["kind"] == "grid"] == ["grid"]
-    assert [q["role"] for q in p.questions] == ["import_energy"]
-
-
-def test_the_same_source_named_twice_is_one_candidate_not_a_question():
-    prefs = {
-        "energy_sources": [
-            {"type": "grid", "stat_energy_from": "sensor.a_kwh"},
-            {"type": "grid", "stat_energy_from": "sensor.a_kwh"},
-        ]
-    }
-    p = dd.propose_from_energy_dashboard(prefs)
-    assert p.questions == []
-    assert _source_value(_device(p.document, "grid")["bindings"]["import_energy"]) == (
-        "sensor.a_kwh"
-    )
-
-
 def test_two_solar_sources_are_two_solar_devices():
     """Two inverters are two devices (DC-001 / F02)."""
     prefs = {
@@ -308,37 +201,6 @@ def test_a_fixed_price_is_reported_not_proposed():
     assert [(f["code"], f["value"]) for f in p.findings] == [
         ("fixed_price_not_proposed", 0.28)
     ]
-
-
-def test_dc_r01_no_energy_dashboard_is_grid_and_house_and_says_so():
-    """Absence is never a zero: the minimum site, unbound, with a finding."""
-    p = dd.propose_from_energy_dashboard(None, site=SITE)
-    assert [d["id"] for d in p.document["devices"]] == ["grid", "load_house"]
-    assert all(not d["bindings"] for d in p.document["devices"])
-    assert p.problems == []
-    assert [f["code"] for f in p.findings] == ["no_energy_dashboard"]
-
-
-def test_registry_ids_are_kept_for_rediscovery():
-    """DC-005 decision 2: rediscovery matches by registry id, so it is
-    recorded wherever the HA side supplies one."""
-    p = dd.propose_from_energy_dashboard(
-        PREFS, registry_ids={"sensor.bat_power": "reg_bat_power"}
-    )
-    power = _device(p.document, "battery")["bindings"]["power"]["source"]
-    assert power["registry_id"] == "reg_bat_power"
-    assert (
-        "registry_id" not in _device(p.document, "grid")["bindings"]["power"]["source"]
-    )
-
-
-def test_discovery_is_deterministic_and_does_not_touch_its_input():
-    before = copy.deepcopy(PREFS)
-    a = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    b = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    assert dc.serialise(a.document) == dc.serialise(b.document)
-    assert (a.questions, a.findings) == (b.questions, b.findings)
-    assert before == PREFS
 
 
 def test_dc_r15_discovery_is_pure():

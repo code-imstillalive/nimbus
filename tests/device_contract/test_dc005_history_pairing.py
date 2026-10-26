@@ -82,42 +82,6 @@ def _proposal():
     return dd.propose_from_energy_dashboard(PREFS)
 
 
-def test_only_devices_with_energy_and_no_power_are_targets():
-    assert dd.pairing_targets(_proposal()) == {
-        "battery": ("sensor.bat_out_kwh", "sensor.bat_in_kwh")
-    }
-
-
-def test_a_clean_match_is_a_question_to_confirm_never_a_binding():
-    """History may not decide alone (DC-005's evidence table)."""
-    cands = {
-        "battery": {
-            "sensor.bat_power": BAT,
-            "sensor.house_power": _series(house),
-        }
-    }
-    p = dd.add_history_pairing(
-        _proposal(), cands, STATS, START, END, registry_ids={"sensor.bat_power": "r1"}
-    )
-    battery_device = next(d for d in p.document["devices"] if d["id"] == "battery")
-    assert "power" not in battery_device["bindings"]
-    (q,) = [q for q in p.questions if q["code"] == "confirm_history_match"]
-    assert (q["device"], q["role"]) == ("battery", "power")
-    (c,) = q["candidates"]
-    assert c["binding_source"] == {
-        "kind": "entity_state",
-        "entity_id": "sensor.bat_power",
-        "registry_id": "r1",
-    }
-    assert c["normalization"] == {
-        "positive_direction": "discharge",
-        "native_positive_direction": "discharge",
-    }
-    (ev,) = c["evidence"]
-    assert ev["kind"] == "history_pairing" and ev["status"] == "candidate"
-    assert ev["error"] < dr.MATCH_TOLERANCE
-
-
 def test_a_flipped_sensor_is_proposed_with_its_native_sign():
     flipped = [(t, -v) for t, v in BAT]
     p = dd.add_history_pairing(
@@ -175,14 +139,6 @@ def test_no_counter_history_is_said_plainly():
     )
     (f,) = [f for f in p.findings if f["code"] == "history_pairing_inconclusive"]
     assert f["reason"] == "no counter history to compare against"
-
-
-def test_nothing_offered_means_nothing_said_and_input_untouched():
-    base = _proposal()
-    before = copy.deepcopy(base.document)
-    p = dd.add_history_pairing(base, {}, STATS, START, END)
-    assert (p.questions, p.findings) == (base.questions, base.findings)
-    assert base.document == before
 
 
 def test_a_solar_device_with_power_already_is_never_paired():

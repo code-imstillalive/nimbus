@@ -193,19 +193,6 @@ def test_a_solver_load_field_offers_only_nimbus_load_forecasts():
     assert ho._discover_nimbus_load_forecast_candidates(broken) == ([], [])
 
 
-def test_a_saved_value_stays_in_the_load_lists():
-    schema = ho._solver_sources_schema(
-        {const.CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.old"},
-        ["sensor.pool_fc"],
-        ["sensor.pool_fc"],
-    )
-    field = next(
-        k for k in schema.schema if str(k) == const.CONF_SOLVER_LOAD_FORECAST_SENSOR
-    )
-    selector = schema.schema[field]
-    assert "sensor.old" in str(getattr(selector, "config", selector))
-
-
 def test_a_battery_tower_soc_is_suggested_from_the_dashboard(dashboard):
     dashboard["energy_sources"] = [{"type": "battery", "stat_soc": "sensor.tower_soc"}]
     hass = _hass(

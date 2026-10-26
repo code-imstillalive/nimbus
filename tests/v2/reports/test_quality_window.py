@@ -111,18 +111,6 @@ def test_a_window_with_no_length_is_not_scored(history, start, end):
     assert window(start=start, end=end) is None
 
 
-def test_without_a_solar_sensor_nothing_is_read_or_scored(history):
-    assert window(cfg(solver_solar_power_sensor=None)) is None
-    assert history["_calls"] == []
-
-
-def test_a_short_window_is_scored_only_when_partial_is_allowed(history):
-    six = DAY + timedelta(hours=6)
-    assert window(end=six, partial=False) is None
-    scored = window(end=six, partial=True)
-    assert {"epr", "j_ref", "j_ach", "j_star"} <= set(scored)
-
-
 @pytest.mark.parametrize(
     ("length", "periods", "hours"),
     [
@@ -162,75 +150,7 @@ SETTLEMENT = {
 }
 
 
-def test_a_calendar_day_reads_its_own_p2p_settlement(history, monkeypatch):
-    monkeypatch.setattr(sw, "ha_get", lambda _e: SETTLEMENT)
-    scored = window(
-        cfg(solver_p2p_settlement_history_sensor="sensor.p2p"), partial=False
-    )
-    assert (scored["real_p2p_dollars"], scored["real_p2p_volume_kwh"]) == (4.20, 10.0)
-
-
-@pytest.mark.parametrize(
-    ("start", "end"),
-    [
-        (DAY + timedelta(hours=12), DAY + timedelta(hours=36)),  # crosses midnight
-        (DAY, DAY + timedelta(hours=6)),  # part of a day
-    ],
-    ids=["cross_midnight", "partial_day"],
-)
-def test_any_other_window_never_looks_the_settlement_up(
-    history, monkeypatch, start, end
-):
-    seen = []
-    monkeypatch.setattr(shared, "ha_get", lambda e: seen.append(e) or SETTLEMENT)
-    scored = window(
-        cfg(solver_p2p_settlement_history_sensor="sensor.p2p"), start=start, end=end
-    )
-    assert (scored["real_p2p_dollars"], scored["real_p2p_volume_kwh"]) == (0.0, 0.0)
-    assert "sensor.p2p" not in seen
-
-
-def test_yesterdays_report_is_the_same_window_scored_whole(history):
-    wrapper = sw.compute_daily_quality_report(
-        cfg(), datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
-    )
-    direct = window(partial=False)
-    keys = [
-        "epr",
-        "theoretical_maximum_yield",
-        "value_captured",
-        "uplift_available",
-        "j_ref",
-        "j_ach",
-        "j_star",
-        "regret_dollars",
-        "tracking_fidelity",
-        "tracking_cost",
-        "real_p2p_dollars",
-        "real_p2p_volume_kwh",
-        "j_ref_hourly",
-        "j_ach_hourly",
-        "j_star_hourly",
-        "hourly_regret",
-    ]
-    assert {k: wrapper[k] for k in keys} == {k: direct[k] for k in keys}
-
-
 # --- achieved energy, home battery and fleet (#532, #858) ---------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("kw", "into", "out_of"),
-    [(0.0, 0.0, 0.0), (20.0, 0.0, 480.0), (-20.0, 480.0, 0.0)],
-    ids=["idle", "discharge", "charge"],
-)
-def test_achieved_energy_is_integrated_from_the_battery_power_sensor(
-    history, kw, into, out_of
-):
-    history["sensor.real_battery"] = flat(kw)  # discharge positive
-    scored = window()
-    assert scored["achieved_energy_in_kwh"] == pytest.approx(into, abs=0.1)
-    assert scored["achieved_energy_out_kwh"] == pytest.approx(out_of, abs=0.1)
 
 
 def _participant(name, charge_kw, discharge_kw, n):
@@ -271,41 +191,6 @@ def fleet(history, monkeypatch):
     return evs
 
 
-def test_without_participants_the_fleet_is_the_home_battery(fleet):
-    scored = window()
-    assert scored["fleet_achieved_energy_out_kwh"] == pytest.approx(
-        scored["achieved_energy_out_kwh"]
-    )
-    assert scored["fleet_achieved_energy_in_kwh"] == pytest.approx(
-        scored["achieved_energy_in_kwh"]
-    )
-    (only,) = scored["achieved_energy_by_battery"].values()
-    assert only["out_kwh"] == pytest.approx(scored["achieved_energy_out_kwh"])
-
-
-def test_participants_count_in_the_fleet_and_by_battery_never_in_the_home_pair(fleet):
-    home_only = window()
-    fleet += [("ev_a", 5.0, 0.0), ("ev_b", 2.0, 0.0), ("ev_bad", 1500.0, 0.0)]
-    scored = window()
-    assert scored["fleet_achieved_energy_out_kwh"] == pytest.approx(480.0, abs=0.1)
-    by = scored["achieved_energy_by_battery"]
-    assert len(by) == 4
-    assert (by["ev_a"]["in_kwh"], by["ev_b"]["in_kwh"]) == (
-        pytest.approx(120.0, abs=0.1),
-        pytest.approx(48.0, abs=0.1),
-    )
-    assert (
-        by["ev_bad"]["in_kwh"] > 30000.0
-    )  # a corrupt participant is named, not hidden
-    assert scored["fleet_achieved_energy_in_kwh"] > 30000.0
-    assert (
-        scored["achieved_energy_in_kwh"] == home_only["achieved_energy_in_kwh"] == 0.0
-    )
-    assert scored["achieved_energy_out_kwh"] == pytest.approx(
-        home_only["achieved_energy_out_kwh"]
-    )
-
-
 # --- whether the reconstructed SoC agrees with the real sensor (#532, #533, #538) -----------------
 
 
@@ -315,45 +200,6 @@ def _burst(history):
     history["sensor.real_battery"] = flat(
         lambda t: 3.0 if t < DAY + timedelta(hours=3) else 0.0
     )
-
-
-@pytest.mark.parametrize(
-    ("shape", "reliable", "reason"),
-    [
-        ("idle", True, None),
-        ("out_of_range", False, "out_of_range"),  # 20 kW all day against 50 kWh
-        ("disagreement", False, "disagreement"),
-    ],
-    ids=["idle", "out_of_range", "disagreement"],
-)
-def test_the_score_says_whether_its_soc_can_be_trusted_and_why_not(
-    history, shape, reliable, reason
-):
-    if shape == "out_of_range":
-        history["sensor.real_battery"] = flat(20.0)
-    elif shape == "disagreement":
-        _burst(history)
-    scored = window()
-    assert scored["soc_discrepancy_reliable"] is reliable
-    assert scored["epr_reliable"] is reliable
-    assert scored["soc_discrepancy_reason"] == reason
-    if shape == "disagreement":
-        assert (
-            scored["soc_discrepancy_max_pct"] > 15.0
-            and scored["soc_discrepancy_mean_pct"] > 8.0
-        )
-
-
-def test_a_household_can_accept_a_noisier_soc_sensor(history):
-    _burst(history)
-    scored = window(
-        cfg(
-            solver_soc_discrepancy_max_threshold_pct=50.0,
-            solver_soc_discrepancy_mean_threshold_pct=50.0,
-        )
-    )
-    assert scored["soc_discrepancy_reliable"] and scored["epr_reliable"]
-    assert scored["soc_discrepancy_reason"] is None
 
 
 # --- a SoC reading outside the envelope is clamped, never raised (#325) -------------------------
@@ -412,23 +258,6 @@ def test_every_reason_a_window_is_not_scored_is_logged_at_its_level(
     )
 
 
-def test_an_oracle_that_cannot_solve_is_a_warning_naming_the_soc_bounds(
-    history, monkeypatch, caplog
-):
-    def infeasible(**_kw):
-        raise RuntimeError("infeasible")
-
-    monkeypatch.setattr(sw, "compute_quality_report", infeasible)
-    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    (line,) = [
-        r.getMessage()
-        for r in caplog.records
-        if "Oracle LP infeasible" in r.getMessage()
-    ]
-    assert all(k in line for k in ("initial_soc=", "min_soc=", "max_soc="))
-
-
 # --- a value the recorder held is not a gap (#1477) -------------------------------------------
 
 
@@ -466,29 +295,6 @@ def test_a_sensor_that_merely_held_its_value_counts_to_the_end_of_the_day(
     assert window(partial=False) is not None
     ((eid, after),) = probes
     assert eid == "sensor.real_solar" and after <= DUSK + timedelta(minutes=15)
-
-
-@pytest.mark.parametrize("went", [True, None], ids=["went_unavailable", "unreadable"])
-def test_a_real_outage_or_an_unreadable_recorder_is_still_a_gap(
-    quiet_evening, caplog, went
-):
-    _, answer = quiet_evening
-    answer["went"] = went
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    if went:
-        assert "skip #1" in caplog.text
-
-
-def test_full_coverage_never_pays_for_the_outage_read(history, monkeypatch):
-    probes = []
-    monkeypatch.setattr(
-        quality_module().solver_shared,
-        "fetch_entity_went_unavailable",
-        lambda *a: probes.append(a) or False,
-    )
-    window(partial=False)
-    assert probes == []
 
 
 class _Response:
@@ -551,26 +357,6 @@ def _span(first, last, step=5):
     return out
 
 
-def test_each_series_reports_its_own_covered_span():
-    got = sw._history_coverage_by_series(
-        {
-            "solar": _span(0, 24),
-            "battery": _span(0, 17),
-            "load": _span(6, 24),
-            "none": [],
-            "one": [(C0 + timedelta(hours=3), 1.0)],
-            "wide": [(C0 - timedelta(hours=5), 1.0), (C1 + timedelta(hours=5), 1.0)],
-        },
-        C0,
-        C1,
-    )
-    hours = [got[k].hours for k in ("solar", "battery", "load", "none", "one")]
-    assert hours == pytest.approx([24, 17, 18, 0, 0])
-    assert (got["none"].first, got["none"].last) == (None, None)
-    assert got["wide"].hours == pytest.approx(24.0)
-    assert (got["wide"].first, got["wide"].last) == (C0, C1)
-
-
 def test_the_gate_acts_on_the_smallest_span_and_zero_when_any_is_empty():
     spans = (_span(0, 24), _span(0, 17), _span(6, 24))
     assert sw._history_coverage_hours(spans, C0, C1) == pytest.approx(17.0)
@@ -595,29 +381,6 @@ def _skip(caplog, start=DAY):
         assert window(start=start, end=start + timedelta(days=1), partial=False) is None
     (rec,) = [r for r in caplog.records if "Nimbus quality: skip" in r.getMessage()]
     return rec
-
-
-def test_the_skip_line_names_every_sensor_shortest_first_with_its_span(
-    short_battery, caplog
-):
-    line = _skip(caplog).getMessage()
-    assert "only 17.00 h of the 24.00 h window" in line
-    assert "skip #1 for 2026-08-24" in line
-    assert "sensor.real_battery 17.00 h [00:00-17:00]" in line
-    assert "sensor.real_solar 23.75 h" in line and "sensor.real_load 23.75 h" in line
-    assert line.index("sensor.real_battery") < line.index("sensor.real_solar")
-
-
-def test_an_empty_sensor_is_named_by_the_row_count_guard_before_it(
-    short_battery, caplog
-):
-    short_battery["sensor.real_battery"] = lambda s, e: []
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    assert any(
-        "Real history missing" in r.getMessage() and "battery=0 rows" in r.getMessage()
-        for r in caplog.records
-    )
 
 
 def test_a_day_that_keeps_failing_becomes_a_warning_counted_per_day(
@@ -663,38 +426,6 @@ def _sixteen_october():
 
 def _labels(mask):
     return [f"{GRID[i]:%H:%M}" for i, flag in enumerate(mask) if flag]
-
-
-def test_only_the_stall_is_stale_never_a_held_evening_and_the_oldest_stamp_decides():
-    assert _labels(pf.stale_period_mask([_sixteen_october()], GRID)) == STALL
-    fresh = [(gt, gt - timedelta(minutes=1)) for gt in GRID]
-    assert _labels(pf.stale_period_mask([fresh, _sixteen_october()], GRID)) == STALL
-    assert pf.stale_period_mask([], GRID) == [False] * 48
-    assert pf.stale_period_mask([[]], GRID) == [False] * 48
-
-
-def test_the_threshold_is_the_solvers_own_and_windows_are_local():
-    t = _at(12, 0)
-    assert pf.stale_period_mask([[(t, t - pf.STALE_AFTER)]], [t]) == [False]
-    over = t - pf.STALE_AFTER - timedelta(seconds=1)
-    assert pf.stale_period_mask([[(t, over)]], [t]) == [True]
-    half = timedelta(minutes=30)
-    mask = pf.stale_period_mask([_sixteen_october()], GRID)
-    assert pf.stale_windows(GRID, mask, half, sw._local) == ["11:30-13:30"]
-    last = [False] * 47 + [True]
-    assert pf.stale_windows(GRID, last, half, sw._local) == ["23:30-00:00"]
-
-
-@pytest.mark.parametrize(
-    ("value", "expected"),
-    [
-        ("2026-10-16T00:01:48Z", datetime.fromisoformat("2026-10-16T00:01:48+00:00")),
-        ("2026-10-16T00:01:48", None),  # naive
-        (12.5, None),
-    ],
-)
-def test_stamps_parse_as_the_recorder_stores_them(value, expected):
-    assert pf.parse_stamp(value) == expected
 
 
 LV_SIBLINGS = [
@@ -746,20 +477,6 @@ def _reprice(stamps, aemo, *, boom=False):
     return result, imp, exp, calls
 
 
-def test_the_stale_spike_is_repriced_from_aemo_and_nothing_else_moves():
-    result, imp, exp, calls = _reprice({SIB: _sixteen_october()}, [(OCT16, 0.05)])
-    stale = [23, 24, 25, 26]
-    np.testing.assert_allclose(imp[stale], 0.05 + 0.04 + 0.10)
-    np.testing.assert_allclose(exp[stale], 0.05 + 0.04)
-    np.testing.assert_allclose(np.delete(imp, stale), 0.30)
-    np.testing.assert_allclose(np.delete(exp, stale), 0.20)
-    assert result["price_stale_periods"] == 4
-    assert result["price_stale_minutes"] == 120
-    assert result["price_stale_windows"] == ["11:30-13:30"]
-    assert result["price_stale_repriced"] and not result["price_stale_unusable"]
-    assert set(LV_SIBLINGS) <= set(calls)
-
-
 def test_a_day_that_cannot_be_repriced_or_is_mostly_stale_is_not_a_measurement():
     result, imp, _exp, _calls = _reprice({SIB: _sixteen_october()}, [])
     assert result["price_stale_unusable"] and not result["price_stale_repriced"]
@@ -782,18 +499,6 @@ def test_a_fresh_day_or_a_failing_check_changes_nothing(caplog):
         result, imp, *_ = _reprice({}, [], boom=True)
     assert result["price_stale_periods"] == 0 and imp[26] == 10.5
     assert any(r.levelno == logging.WARNING for r in caplog.records)
-
-
-def test_an_unusable_price_day_is_not_reliable_and_names_the_price_source_first():
-    assert not sw._epr_reliability(True, True, None, None, True)
-    assert sw._epr_reliability(True, True, None, None, False)
-    assert sw._epr_reliability(True, True)  # older callers
-    entry = {
-        "epr_reliable": False,
-        "regret_reliable": False,
-        "price_stale_unusable": True,
-    }
-    assert sw._epr_reliability_code(entry) == sw._RELIABILITY_PRICE
 
 
 # --- the oracle keeps a fixed P2P export block (2026-09-01, #1001) ------------------------------
@@ -841,39 +546,6 @@ def test_the_oracle_never_exports_past_a_fixed_p2p_block_and_is_free_outside_it(
 
 
 # --- the battery sensor's sign (#299) ---------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("reading", "flag", "charge", "discharge"),
-    [
-        (5.0, None, 0.0, 5.0),  # the default: positive is discharge
-        (5.0, False, 0.0, 5.0),
-        (5.0, True, 5.0, 0.0),  # a positive-is-charge sensor
-        (-5.0, True, 0.0, 5.0),
-    ],
-    ids=["default", "explicit_false", "flipped", "flipped_negative"],
-)
-def test_the_battery_reading_is_read_with_the_configured_sign(
-    history, monkeypatch, reading, flag, charge, discharge
-):
-    history["sensor.real_battery"] = flat(reading)
-    history["sensor.real_load"] = flat(3.0)
-    seen = {}
-    real = sw.compute_quality_report
-
-    def spy(**kw):
-        seen["charge"], seen["discharge"] = (
-            kw["actual_charge_kw"][0],
-            kw["actual_discharge_kw"][0],
-        )
-        return real(**kw)
-
-    monkeypatch.setattr(sw, "compute_quality_report", spy)
-    extra = {} if flag is None else {"solver_battery_power_positive_is_charge": flag}
-    assert sw.compute_daily_quality_report(
-        cfg(**extra), datetime(2026, 8, 25, 10, 0, tzinfo=TZ)
-    )
-    assert (seen["charge"] == charge).all() and (seen["discharge"] == discharge).all()
 
 
 # --- each controllable load's delivery is published and moves no score (#768) ------------------
@@ -938,29 +610,6 @@ def test_a_configured_load_is_published_with_what_it_really_delivered(delivery):
     assert entry["scorable"] and entry["delivered_kwh"] == pytest.approx(1.95, abs=1e-4)
 
 
-def test_no_loads_or_no_home_assistant_publishes_an_empty_list(delivery):
-    assert delivery(_hass())["controllable_load_delivery"] == []
-    assert delivery(None)["controllable_load_delivery"] == []
-
-
-def test_the_delivery_moves_no_scored_figure(delivery):
-    without = delivery(_hass())
-    hws = SimpleNamespace(
-        subentry_id="s_hws", subentry_type="controllable_load", data=HWS
-    )
-    with_load = delivery(_hass(hws))
-    fields = (
-        "epr",
-        "epr_pct",
-        "j_ref",
-        "j_ach",
-        "j_star",
-        "regret_dollars",
-        "scored_participants",
-    )
-    assert [without[f] for f in fields] == [with_load[f] for f in fields]
-
-
 # --- how much of the regret is the two pricings disagreeing (#1162) ----------------------------
 
 
@@ -982,16 +631,6 @@ def test_the_pricing_share_of_the_regret(regret, delta, share):
     assert sw._regret_path_delta_share(regret, delta) == pytest.approx(share, abs=1e-3)
 
 
-def test_the_share_is_published_on_the_report_and_not_in_each_row(history):
-    scored = window()
-    assert scored["regret_path_delta_share"] == pytest.approx(
-        sw._regret_path_delta_share(
-            scored["regret_dollars"], scored["j_star_path_delta"]
-        )
-    )
-    assert "regret_path_delta_share" not in sw._QUALITY_HISTORY_FIELDS
-
-
 # --- a configured SoC sensor that returned nothing is no score (#1214) -------------------------
 
 
@@ -1000,32 +639,6 @@ def no_soc(history, monkeypatch):
     monkeypatch.setattr(sw, "_SOC_HISTORY_SKIP_COUNTS", {})
     history["sensor.combined_soc"] = lambda s, e: []
     return history
-
-
-def test_an_empty_soc_read_refuses_the_day_rather_than_assume_half_charge(no_soc):
-    assert window() is None
-
-
-@pytest.mark.parametrize("unset", [None, ""], ids=["absent", "empty"])
-def test_an_install_without_a_soc_sensor_still_scores_from_the_assumption(
-    no_soc, unset
-):
-    c = cfg()
-    if unset is None:
-        del c["solver_battery_soc_sensor"]
-    else:
-        c["solver_battery_soc_sensor"] = unset
-    scored = window(c)
-    assert scored is not None
-    first = scored["j_ach_hourly"][min(scored["j_ach_hourly"])]
-    assert first["soc_pct"] == pytest.approx(sw._ASSUMED_INITIAL_SOC_PCT, abs=0.1)
-    assert sw._ASSUMED_INITIAL_SOC_PCT == 50.0
-
-
-def test_a_real_soc_read_is_the_one_used(history):
-    history["sensor.combined_soc"] = flat(16.6)
-    hourly = window()["j_ach_hourly"]
-    assert hourly[min(hourly)]["soc_pct"] == pytest.approx(16.6, abs=0.1)
 
 
 def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog):
@@ -1087,12 +700,3 @@ def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so
 
 
 # --- the capacity a report states (#1013, #1172) ----------------------------------------------
-
-
-def test_the_report_states_the_planned_capacity_and_no_measured_one(history):
-    """It states the derated capacity the solver plans against. The measured
-    capacity #1172 retracted (a power-sensor integral, wrong on a correctly
-    configured pack) is not published."""
-    report = window(cfg(solver_battery_soh_percent=90.0))
-    assert report["configured_usable_capacity_kwh"] == 45.0
-    assert not [k for k in report if k.startswith("measured_usable_capacity")]

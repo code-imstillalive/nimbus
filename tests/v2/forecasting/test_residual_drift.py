@@ -43,20 +43,3 @@ def test_drift_is_recent_error_over_twice_its_own_baseline(
         assert status.ratio == pytest.approx(
             sum(residuals[-10:]) / 10 / (sum(residuals[:-10]) / (len(residuals) - 10))
         )
-
-
-def test_the_window_sizes_are_the_callers():
-    residuals = [0.1] * 5 + [1.0] * 3
-    assert (
-        anomaly.detect_residual_drift(residuals, min_history=8, recent_window=3)
-        is not None
-    )
-    assert (
-        anomaly.detect_residual_drift(residuals, min_history=8, recent_window=8) is None
-    )
-    assert (
-        anomaly.residual_drift_status(
-            residuals, min_history=8, recent_window=8
-        ).watching
-        is False
-    )

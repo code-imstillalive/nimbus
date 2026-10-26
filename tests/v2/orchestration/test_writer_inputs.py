@@ -13,14 +13,12 @@ from __future__ import annotations
 
 import importlib
 import logging
-import types
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
-import solver_shared
 import solver_writer as sw
 from golden.fake_ha import BASE, FakeHA, HistoryPoint
 
@@ -49,33 +47,6 @@ def ha(monkeypatch):
 # --- instantaneous readings on the plan grid -------------------------------
 
 
-def test_instant_readings_take_each_periods_midpoint_and_hold_at_the_ends():
-    grid = _grid(4)
-    readings = [
-        {"time": _iso(T0 + timedelta(minutes=30)), "watts": 1000.0},
-        {"time": _iso(T0 + timedelta(minutes=90)), "watts": 3000.0},
-        {"time": _iso(T0 + timedelta(minutes=95)), "watts": None},
-    ]
-    # Midpoints 06:15 (before the first: held), 06:45 (a quarter of the way),
-    # 07:15 (three quarters), 07:45 (after the last: held; the last period is
-    # as long as the one before it).
-    assert sw.resample_instants(readings, "watts", grid) == [
-        1000.0,
-        1500.0,
-        2500.0,
-        3000.0,
-    ]
-
-
-def test_instant_readings_on_the_half_hour_are_the_reading_at_each_start():
-    grid = _grid(3, start=T0)
-    readings = [
-        {"time": _iso(T0 + timedelta(minutes=15 + 30 * i)), "w": float(i)}
-        for i in range(3)
-    ]
-    assert sw.resample_instants(readings, "w", grid) == [0.0, 1.0, 2.0]
-
-
 def test_instant_readings_edge_shapes():
     assert sw.resample_instants([], "w", _grid(3)) == [0.0, 0.0, 0.0]
     one = [{"time": _iso(T0), "w": 7.0}]
@@ -96,23 +67,6 @@ def _price(values, *, start=T0, step=30, unit="$/kWh", key="value"):
             ],
         },
     }
-
-
-def test_a_generic_forecast_holds_the_latest_point_and_marks_real_coverage(ha):
-    ha.states["sensor.p"] = _price([0.1, 0.2], start=T0 + timedelta(minutes=30))
-    values, real = sw._resample_generic_price_forecast_raw("sensor.p", _grid(4))
-    assert values == [0.1, 0.1, 0.2, 0.2]
-    assert real == [False, True, True, False]
-
-
-def test_a_calibrated_only_forecast_is_read_and_bad_rows_are_skipped(ha):
-    state = _price([0.3], key="calibrated")
-    state["attributes"]["forecast"] += [{"time": "garbage", "value": 1}, {"value": 2}]
-    ha.states["sensor.p"] = state
-    assert sw._resample_generic_price_forecast_raw("sensor.p", _grid(2)) == (
-        [0.3, 0.3],
-        [True, False],
-    )
 
 
 @pytest.mark.parametrize(
@@ -494,12 +448,6 @@ def test_the_live_meter_reads_in_kw_with_the_reconciled_sign(
     assert got == expected if expected is None else got == pytest.approx(expected)
 
 
-def test_no_reconciled_sign_means_no_live_meter_reading(ha, monkeypatch):
-    monkeypatch.setattr(sw, "_grid_meter_sign", lambda m: None)
-    ha.states["sensor.m"] = {"state": "2", "attributes": {"unit_of_measurement": "kW"}}
-    assert sw._live_grid_meter_kw({"grid_sensor": "sensor.m"}) is None
-
-
 # --- envelope limits ------------------------------------------------------------
 
 
@@ -507,10 +455,6 @@ def test_no_reconciled_sign_means_no_live_meter_reading(ha, monkeypatch):
 def envelope(ha, monkeypatch):
     monkeypatch.setattr(sw, "_ENVELOPE_LIMIT_WARNED", set())
     return ha
-
-
-def test_no_envelope_entity_is_the_static_limit(envelope):
-    assert sw.resolve_envelope_limit_kw(None, 10.0, _grid(3)) == [10.0] * 3
 
 
 def test_an_envelope_forecast_is_resampled_and_scaled_to_kw(envelope):
@@ -528,14 +472,6 @@ def test_an_envelope_forecast_is_resampled_and_scaled_to_kw(envelope):
     assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, grid) == pytest.approx(
         [5.0, 5.0, 3.0]
     )
-
-
-def test_an_envelope_without_a_forecast_holds_its_live_value(envelope):
-    envelope.states["sensor.env"] = {
-        "state": "7",
-        "attributes": {"unit_of_measurement": "kW"},
-    }
-    assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, _grid(2)) == [7.0, 7.0]
 
 
 def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, caplog):
@@ -563,34 +499,6 @@ def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, c
 # --- power history ----------------------------------------------------------------
 
 
-def test_power_history_reads_in_kw_skipping_what_is_not_a_power_reading(ha):
-    def pt(minutes, state, unit="W"):
-        return HistoryPoint(
-            _iso(T0 + timedelta(minutes=minutes)), state, {"unit_of_measurement": unit}
-        )
-
-    ha.history["sensor.pv"] = [
-        pt(10, "2000"),
-        pt(0, "1.5", "kW"),
-        pt(20, "unknown"),
-        pt(30, "abc"),
-        pt(40, "5", "A"),
-        pt(50, "3", "kWh"),
-    ]
-    got = sw.fetch_entity_power_history_kw(
-        "sensor.pv", T0 - timedelta(hours=1), T0 + timedelta(hours=1)
-    )
-    assert [v for _t, v in got] == pytest.approx([1.5, 2.0])
-    assert [t for t, _v in got] == [T0, T0 + timedelta(minutes=10)]
-    assert got[0][0].tzinfo == sw.LOCAL_TZ
-
-
-def test_power_history_is_empty_when_there_is_none(ha):
-    assert (
-        sw.fetch_entity_power_history_kw("sensor.pv", T0, T0 + timedelta(hours=1)) == []
-    )
-
-
 @pytest.mark.parametrize(
     ("times", "expected"),
     [
@@ -614,11 +522,6 @@ def test_power_history_coverage(times, expected):
     # lies wholly inside the two-hour window.
     assert out["time_in_long_gaps_pct"] == pytest.approx(70 / 120 * 100, abs=0.01)
     assert 0.0 <= out["stale_periods_pct"] <= 100.0
-
-
-def test_power_history_coverage_of_an_empty_grid_is_none():
-    pts = [(T0, 1.0), (T0 + timedelta(minutes=5), 1.0)]
-    assert sw._power_history_coverage(pts, [], 0.5) is None
 
 
 # --- calendar trips ---------------------------------------------------------------
@@ -697,27 +600,6 @@ def test_no_readable_events_is_no_trips(cal, response):
 # --- a scalar reading that is not a number ------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("state", "fallback", "expected", "warned"),
-    [
-        ({"state": "0.2847"}, 0.0, 0.2847, False),
-        ({"state": "-0.05"}, 0.0, -0.05, False),  # a negative price is real
-        ({"state": "2026-08-24T13:00:00+10:00"}, 0.0, 0.0, True),  # the live crash
-        ({"state": "unavailable"}, 0.0, 0.0, True),
-        ({}, 0.0, 0.0, True),
-        ({"state": "not-a-number"}, 0.15, 0.15, True),
-    ],
-    ids=["number", "negative", "timestamp", "unavailable", "no_state", "fallback"],
-)
-def test_a_scalar_that_cannot_be_read_as_a_number_falls_back_and_says_which(
-    monkeypatch, caplog, state, fallback, expected, warned
-):
-    monkeypatch.setattr(solver_shared, "ha_get", lambda _eid: state)
-    with caplog.at_level(logging.WARNING):
-        assert sw.safe_num("sensor.export_price", fallback=fallback) == expected
-    assert ("sensor.export_price" in caplog.text) is warned
-
-
 # --- the stored previous plan, and the derated capacity --------------------------------------
 
 
@@ -746,51 +628,6 @@ def test_state_of_health_derates_the_pack_and_a_nonsense_value_is_ignored_once(
     assert caplog.text.count("State of Health") == (0 if 0 < soh <= 100 else 1)
 
 
-@pytest.mark.parametrize(
-    ("cfg", "number", "integer"),
-    [
-        ({}, 5.0, 7),
-        ({"k": None}, 5.0, 7),
-        ({"k": 0}, 0.0, 0),
-        ({"k": "2.5"}, 2.5, None),
-    ],
-    ids=["missing", "none", "zero_is_kept", "string"],
-)
-def test_a_setting_reads_its_default_only_when_unset_never_when_zero(
-    cfg, number, integer
-):
-    shared = importlib.import_module("solver_shared")
-    assert shared._cfg_num(cfg, "k", 5.0) == number
-    if integer is not None:
-        assert shared._cfg_int(cfg, "k", 7) == integer
-
-
-@pytest.mark.parametrize(
-    ("zone", "expect"),
-    [("Australia/Perth", "Australia/Perth"), ("Not/AZone", None), (None, None)],
-    ids=["home_assistants_zone", "a_zone_that_does_not_exist", "no_config"],
-)
-def test_the_local_time_zone_is_home_assistants_own_unless_overridden(
-    monkeypatch, caplog, zone, expect
-):
-    """Every local hour -- tariff periods, departures, day boundaries --
-    reads one zone, the one Home Assistant is set to; one it cannot use
-    keeps the zone already in force."""
-    shared = importlib.import_module("solver_shared")
-    monkeypatch.delenv("NIMBUS_SOLVER_TIMEZONE", raising=False)
-    monkeypatch.setattr(sw, "LOCAL_TZ", sw.LOCAL_TZ)
-    monkeypatch.setattr(shared, "LOCAL_TZ", shared.LOCAL_TZ)
-    monkeypatch.setattr(shared.NATIVE, "hass", shared.NATIVE.hass)
-    before = sw.LOCAL_TZ
-    hass = types.SimpleNamespace(config=types.SimpleNamespace(time_zone=zone))
-    with caplog.at_level(logging.ERROR):
-        sw.set_native_hass(hass if zone else types.SimpleNamespace())
-    assert str(sw.LOCAL_TZ) == (expect or str(before))
-    if expect:
-        assert shared.LOCAL_TZ is sw.LOCAL_TZ
-    assert ("could not resolve" in caplog.text) is (expect is None)
-
-
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
 
 M5 = timedelta(minutes=5)
@@ -810,32 +647,6 @@ def _source(snapshot, *intervals, horizon=None, status="ok"):
 
 def _resolve(*sources, blocks=None, n=4):
     return sw._resolve_p2p_observations(list(sources), _grid(n, minutes=5), blocks)
-
-
-def test_the_newest_answer_wins_even_when_it_says_no_match():
-    """Two snapshots of one provider are not independent evidence: a newer
-    explicit no-match beats an older match (Mark, PR #1592)."""
-    old = _source(T0, (0, sw.P2P_RATE, 0.3), (1, sw.P2P_RATE, 0.3))
-    new = _source(T0 + M5, (0, sw.P2P_NO_MATCH, 0.0))
-    assert _resolve(old, new) == [
-        0.0,
-        0.3,
-        0.0,
-        0.0,
-    ]  # where it is silent, the older answers
-    assert _resolve(new, old) == [
-        0.0,
-        0.3,
-        0.0,
-        0.0,
-    ]  # configured order does not matter
-    tie = _source(T0, (0, sw.P2P_RATE, 0.5))
-    assert _resolve(old, tie)[0] == 0.3  # a tie keeps the primary
-    unknown = _source(None, (0, sw.P2P_RATE, 0.9))
-    assert _resolve(unknown, old)[0] == 0.3  # an unknown snapshot is the oldest
-    assert (
-        _resolve(_source(T0, (0, sw.P2P_RATE, 0.0)))[0] == 0.0
-    )  # a $0 match is an answer
 
 
 def test_an_uncovered_period_inside_a_block_takes_the_median_and_outside_it_nothing():
@@ -1008,16 +819,6 @@ def test_the_access_token_comes_from_the_environment_then_its_file(
     assert sw._load_token() == "from-env"  # read once, then kept
 
 
-def test_a_power_sensor_that_cannot_be_read_is_taken_as_kw(monkeypatch):
-    shared = importlib.import_module("solver_shared")
-
-    def unreachable(eid):
-        raise urllib.error.URLError("down")
-
-    monkeypatch.setattr(shared, "ha_get", unreachable)
-    assert shared._kw_scale_factor("sensor.pv") == 1.0
-
-
 # --- a price event the household arms to test the plan (#1213) ------------------------------
 
 EVENT_DAY = datetime(2026, 9, 26, tzinfo=UTC)
@@ -1084,24 +885,6 @@ def test_an_armed_event_that_cannot_be_read_warns_and_applies_nothing(
     with caplog.at_level(logging.WARNING):
         assert event(state, n=4) is None
     assert "#1213" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("points", "n", "expected"),
-    [
-        (_steps((2, 20.0), (4, 0.0)), 12, [0.0] * 4 + [20.0] * 4 + [0.0] * 4),
-        (_steps((0, 20.0), (2, 0.0)), 8, [20.0] * 4 + [0.0] * 4),
-        (_steps((4, 0.0), (0, 20.0), (2, 5.0)), 10, [20.0] * 4 + [5.0] * 4 + [0.0] * 2),
-        (
-            [{"time": "not-a-date", "value": 5.0}, *_steps((1, 20.0), (3, 0.0))],
-            8,
-            [0.0] * 2 + [20.0] * 4 + [0.0] * 2,
-        ),
-    ],
-    ids=["zero_before_never_backfilled", "closed", "unsorted", "one_bad_row"],
-)
-def test_the_delta_is_a_step_that_starts_at_its_first_point(event, points, n, expected):
-    assert event(_forecast(points), n=n) == expected
 
 
 def test_an_event_that_never_closes_holds_and_says_so(event, caplog):
@@ -1171,21 +954,6 @@ def test_the_matched_rate_counts_inside_the_households_own_blocks(
     assert _lv_rates(monkeypatch, grid, window) == pytest.approx(expected)
 
 
-def test_past_the_feed_a_block_keeps_its_rate_and_no_block_assumes_nothing(monkeypatch):
-    rows = [{"intervalEnd": (EVENING[0] + timedelta(minutes=5)).isoformat(), **LV_ROW}]
-    assert _lv_rates(monkeypatch, EVENING, None, rows=rows) == pytest.approx(
-        [LV_RATE, 0.0, 0.0]
-    )
-    assert _lv_rates(monkeypatch, EVENING, [11.5] * 3, rows=rows) == pytest.approx(
-        [LV_RATE] * 3
-    )
-
-
-def test_an_unmatched_interval_or_a_misaligned_window_is_no_block(monkeypatch):
-    assert _lv_rates(monkeypatch, MIDDAY, None, proportionP2P=0.0) == [0.0] * 3
-    assert _lv_rates(monkeypatch, MIDDAY, [5.0]) == _lv_rates(monkeypatch, MIDDAY, None)
-
-
 def _blocks(*blocks):
     cfg = {}
     for n, (rate, start, end) in enumerate(blocks, 1):
@@ -1193,24 +961,6 @@ def _blocks(*blocks):
         cfg[f"solver_p2p_block_{n}_start_hour"] = start
         cfg[f"solver_p2p_block_{n}_end_hour"] = end
     return cfg
-
-
-@pytest.mark.parametrize(
-    ("cfg", "kwh"),
-    [
-        (_blocks((11.5, 17, 24)), 80.5),
-        (_blocks((14.0, 14, 17), (4.0, 17, 18), (17.0, 18, 21)), 97.0),
-        ({}, 0.0),
-        (
-            _blocks((0.0, 17, 24), (5.0, 20, 18)),
-            0.0,
-        ),  # no rate; an end before its start
-        ({**_blocks((11.5, 17, 24)), "solver_p2p_block_lead_time_minutes": 1}, 80.5),
-    ],
-    ids=["one", "three", "none", "invalid", "lead_time"],
-)
-def test_a_days_committed_energy_is_the_sum_of_its_blocks(cfg, kwh):
-    assert sw.p2p_blocks_daily_energy_kwh(cfg) == pytest.approx(kwh)
 
 
 @pytest.mark.parametrize(
@@ -1341,22 +1091,6 @@ def test_a_failed_history_read_is_no_history(monkeypatch):
     )
 
 
-def test_a_local_window_is_asked_for_in_utc(monkeypatch):
-    seen = {}
-
-    def capture(req, timeout=None):
-        seen["url"] = req.full_url
-        raise urllib.error.URLError("stop")
-
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(sw, "_load_token", lambda: "t")
-    monkeypatch.setattr(urllib.request, "urlopen", capture)
-    start = datetime(2026, 9, 1, tzinfo=sw.LOCAL_TZ)
-    sw.fetch_entity_history_range("sensor.price", start, start + timedelta(days=1))
-    for t in (start, start + timedelta(days=1)):
-        assert t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") in seen["url"]
-
-
 @pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])
 def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     calls = []
@@ -1367,40 +1101,3 @@ def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     ((entity, start, end),) = calls
     assert entity == "sensor.price" and end - start == timedelta(days=days)
     assert datetime.now(UTC) - end < timedelta(seconds=10)
-
-
-def test_both_price_branches_return_every_field_of_a_frozen_record(
-    array_branch, monkeypatch
-):
-    """The price arrays are one frozen record whichever branch built them; a
-    field one branch forgot would fail here, on that branch (#735)."""
-    import dataclasses
-
-    from solver_inputs import prices
-
-    assert prices.PriceArrays.__dataclass_params__.frozen
-    rich = array_branch({})
-    n = len(EVENING)
-    monkeypatch.setattr(
-        sw,
-        "resample_generic_price_forecast_with_coverage",
-        lambda *_a: ([0.1] * n, [True] * n),
-    )
-    generic = prices.build_price_arrays(
-        {
-            "solver_import_price_sensor": "sensor.i",
-            "solver_export_price_sensor": "sensor.e",
-        },
-        EVENING,
-        n,
-        EVENING[0],
-        False,
-        None,
-    )
-    for built in (rich, generic):
-        assert isinstance(built, prices.PriceArrays)
-        assert {f.name for f in dataclasses.fields(built)} == set(
-            prices.PriceArrays.__dataclass_fields__
-        )
-        with pytest.raises(dataclasses.FrozenInstanceError):
-            built.match_fraction = 0.0

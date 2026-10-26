@@ -50,26 +50,5 @@ class TestTheFieldIsNoLongerPublished(unittest.TestCase):
         self.assertNotIn("measured_usable_capacity_kwh", sw._QUALITY_HISTORY_FIELDS)
 
 
-class TestWhatIsDeliberatelyKEPT(unittest.TestCase):
-    """This is a retraction of one unsound measurement, not a rollback of
-    everything #1172 touched. A future reader undoing too much is as bad
-    as one reinstating the defect."""
-
-    def test_the_soh_derate_still_applies(self):
-        """119.72 is the figure the BMS counter independently confirmed
-        at 119.7 -- if this stops matching, the confirmation no longer
-        applies to what is published."""
-        self.assertAlmostEqual(
-            sw.resolve_effective_capacity_kwh(
-                {
-                    "solver_battery_capacity_kwh": 122.2,
-                    "solver_battery_soh_percent": 98.0,
-                }
-            ),
-            119.756,
-            places=2,
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

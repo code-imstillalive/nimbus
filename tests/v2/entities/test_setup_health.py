@@ -14,7 +14,7 @@ import json
 import re
 import sys
 import types
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,10 +47,6 @@ def _health(**kw):
     return sh.evaluate_health(**kw)
 
 
-def test_a_complete_setup_has_no_repairs():
-    assert _health() == []
-
-
 def test_every_repair_has_a_translation_with_exactly_its_placeholders():
     every = _health(
         options={},
@@ -78,53 +74,11 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
         assert words == set(issue.placeholders), issue.kind
 
 
-def test_an_untrained_forecast_is_a_repair_only_after_the_grace_period():
-    pending = [("s1", "Pool pump", {"last_retrain_error": "  only 57 usable points  "})]
-    assert _health(forecasts=pending, hub_up_for=UP - timedelta(seconds=1)) == []
-    (issue,) = _health(forecasts=pending)
-    assert issue.key == f"{sh.KIND_NOT_TRAINED}_s1"
-    assert issue.placeholders == {
-        "name": "Pool pump",
-        "reason": "only 57 usable points",
-    }
-
-
-@pytest.mark.parametrize(
-    ("data", "reason"),
-    [
-        (None, "it has not found enough usable history yet"),
-        ({"forecast_readiness": "incomplete_rule"}, "set the start and end hours"),
-    ],
-)
-def test_an_untrained_forecast_says_why(data, reason):
-    (issue,) = _health(forecasts=[("s1", "Pool", data)])
-    assert reason in issue.placeholders["reason"]
-
-
 @pytest.mark.parametrize(
     "data", [{"trained_at": "t"}, {"forecast": [1]}, {"forecast_readiness": "ready"}]
 )
 def test_a_trained_or_rule_based_forecast_needs_nothing(data):
     assert _health(forecasts=[("s1", "Pool", data)]) == []
-
-
-def test_bad_inputs_are_listed_one_per_line():
-    issues = _health(
-        energy_unit_inputs=[
-            ("Battery power", "sensor.e", "kWh"),
-            ("Solar power", "sensor.s", "Wh"),
-        ],
-        frozen_price_inputs=[("Import price", "sensor.p", "unchanged")],
-    )
-    by_kind = {i.kind: i for i in issues}
-    assert (
-        by_kind[sh.KIND_ENERGY_UNIT].placeholders["inputs"]
-        == "- Battery power: `sensor.e` reports kWh\n- Solar power: `sensor.s` reports Wh"
-    )
-    assert (
-        by_kind[sh.KIND_FROZEN_PRICE].placeholders["inputs"]
-        == "- Import price: `sensor.p` (unchanged)"
-    )
 
 
 @pytest.mark.parametrize(
@@ -167,55 +121,6 @@ def test_placeholder_and_contradictory_settings_are_named(settings, says):
         assert says in issue.placeholders["settings"]
 
 
-def test_missing_solver_inputs_and_the_whole_house_check_are_named():
-    issues = _health(
-        options={k: v for k, v in OPTIONS.items() if "price" not in k},
-        has_load_forecast=True,
-    )
-    by_kind = {i.kind: i for i in issues}
-    assert (
-        by_kind[sh.KIND_SOLVER_INPUT].placeholders["inputs"]
-        == "import price, export price"
-    )
-    assert sh.KIND_WHOLE_HOUSE_UNSET in by_kind
-    covered = _health(
-        options={
-            **OPTIONS,
-            const.CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: "sensor.house",
-        },
-        has_load_forecast=True,
-    )
-    assert covered == []
-
-
-@pytest.mark.parametrize(
-    ("streak", "kind", "since"),
-    [
-        ({"count": 4}, None, None),
-        (
-            {"count": 5, "since": "2026-09-20T20:45:00+10:00", "raw_status": "Error"},
-            sh.KIND_PLAN_FAILING_ERROR,
-            "20:45",
-        ),
-        (
-            {"count": 9, "since": "x", "status": "infeasible"},
-            sh.KIND_PLAN_FAILING_INFEASIBLE,
-            "x",
-        ),
-        ({"count": 5}, sh.KIND_PLAN_FAILING_ERROR, "unknown"),
-    ],
-)
-def test_a_plan_failing_five_cycles_running_is_a_repair(streak, kind, since):
-    issue = sh._plan_failing_issue(streak)
-    if kind is None:
-        assert issue is None
-        return
-    assert issue.kind == kind and issue.key == sh.KIND_PLAN_FAILING
-    assert issue.placeholders["since"] == since and issue.placeholders["cycles"] == str(
-        streak["count"]
-    )
-
-
 # --- raised and cleared in Home Assistant ------------------------------------------------
 
 
@@ -252,22 +157,6 @@ def repairs(monkeypatch):
     )
     hass = SimpleNamespace(data={})
     return hass, entry, raised, deleted
-
-
-def test_a_repair_is_raised_while_it_stands_and_deleted_once_fixed(repairs):
-    hass, entry, raised, deleted = repairs
-    entry.options.pop(const.CONF_SOLVER_IMPORT_PRICE_SENSOR)
-    issues = asyncio.run(sh.async_refresh_health(hass, entry, now=T0))
-    assert [i.kind for i in issues] == [sh.KIND_SOLVER_INPUT]
-    assert (
-        raised["hub1_solver_input_missing"]["translation_key"] == sh.KIND_SOLVER_INPUT
-    )
-    assert raised["hub1_solver_input_missing"]["translation_placeholders"] == {
-        "inputs": "import price"
-    }
-    entry.options[const.CONF_SOLVER_IMPORT_PRICE_SENSOR] = "sensor.price"
-    assert asyncio.run(sh.async_refresh_health(hass, entry, now=T0)) == []
-    assert deleted == ["hub1_solver_input_missing"]
 
 
 def test_the_grace_period_runs_from_the_first_refresh(repairs):

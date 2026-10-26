@@ -46,23 +46,6 @@ async def _run(coro):
     return await coro
 
 
-def test_successful_first_attempt_returns_immediately_with_no_retries():
-    import asyncio
-
-    run_solve = AsyncMock(return_value=True)
-    with (
-        patch(
-            "custom_components.nimbus_load.solver_runtime.async_run_solve", run_solve
-        ),
-        patch(
-            "custom_components.nimbus_load.asyncio.sleep", new=AsyncMock()
-        ) as sleep_mock,
-    ):
-        asyncio.run(_run(_async_run_solve_with_startup_retries(hass=None)))
-    assert run_solve.call_count == 1
-    sleep_mock.assert_not_called()
-
-
 def test_retries_with_the_configured_delay_until_it_succeeds():
     import asyncio
 

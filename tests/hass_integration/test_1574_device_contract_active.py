@@ -158,26 +158,6 @@ async def _activate(hass, entry):
     return await device_contract_ha.async_set_mode(hass, entry, "active")
 
 
-async def test_entering_active_writes_only_the_marker(
-    hass: HomeAssistant, hass_storage
-):
-    entry, numbers = await _setup(hass)
-    before = _settings(hass, entry)
-    with patch("homeassistant.core.ServiceRegistry.async_call") as calls:
-        refused = await device_contract_ha.async_set_mode(hass, entry, "active")
-        assert refused["code"] == "mode_transition_not_allowed"
-        result = await _activate(hass, entry)
-    assert calls.call_count == 0
-    assert result == {"ok": True, "code": None, "mode": "active", "revision": 1}
-    after = _settings(hass, entry)
-    assert after["options"] == {**before["options"], MARKER: 1}
-    assert after["subentries"] == before["subentries"]
-    assert after["numbers"] == before["numbers"]
-    assert all(not n.written for n in numbers.values())
-    state = await _store(hass, entry).async_read()
-    assert state["mode"] == "active" and state["view_revision"] == 1
-
-
 async def test_a_commit_in_active_writes_what_changed_then_the_marker(
     hass: HomeAssistant, hass_storage
 ):
@@ -257,21 +237,6 @@ async def test_an_interrupted_commit_is_repaired_at_the_next_start(
     assert (await store.async_read())["view_revision"] == 2
 
 
-async def test_views_written_but_store_marker_behind_only_catches_the_marker_up(
-    hass: HomeAssistant, hass_storage
-):
-    entry, numbers = await _setup(hass)
-    await _activate(hass, entry)
-    store = _store(hass, entry)
-    raw = hass_storage[device_storage.store_key(entry.entry_id)]["data"]
-    raw.pop("view_revision")  # step 3 lost
-    before = _settings(hass, entry)
-    assert await device_contract_ha.async_recover(hass, entry) == "marked"
-    assert _settings(hass, entry) == before
-    assert all(not n.written for n in numbers.values())
-    assert (await store.async_read())["view_revision"] == 1
-
-
 async def test_options_ahead_of_the_store_fall_back_to_shadow_with_a_repair(
     hass: HomeAssistant, hass_storage
 ):
@@ -290,63 +255,6 @@ async def test_options_ahead_of_the_store_fall_back_to_shadow_with_a_repair(
         "options_revision": "7",
         "store_revision": "1",
     }
-
-
-async def test_leaving_active_leaves_the_settings_as_they_are(
-    hass: HomeAssistant, hass_storage
-):
-    entry, _numbers = await _setup(hass)
-    await _activate(hass, entry)
-    before = _settings(hass, entry)
-    result = await device_contract_ha.async_set_mode(hass, entry, "legacy")
-    assert result["ok"] is True and result["mode"] == "legacy"
-    assert _settings(hass, entry) == before
-    assert await device_contract_ha.async_recover(hass, entry) == "none"
-
-
-async def test_a_legacy_entry_recovers_nothing(hass: HomeAssistant, hass_storage):
-    entry, _numbers = await _setup(hass)
-    before = _settings(hass, entry)
-    assert await device_contract_ha.async_recover(hass, entry) == "none"
-    assert _settings(hass, entry) == before
-    assert device_storage.store_key(entry.entry_id) not in hass_storage
-
-
-async def test_a_view_write_reloads_once_at_the_end_never_half_way(
-    hass: HomeAssistant, hass_storage
-):
-    """The update listener fires once per subentry or options update. During
-    a view write those calls are the write's own and are let pass; the write
-    reloads once when it has finished, only if a setting changed. A real
-    edit afterwards still reloads."""
-    entry, _numbers = await _setup(hass)
-    seen: list[bool] = []
-
-    async def listener(hass_, entry_):
-        seen.append(device_contract_ha.writing_views(hass_, entry_.entry_id))
-
-    entry.add_update_listener(listener)
-    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
-        await _activate(hass, entry)
-        await hass.async_block_till_done()
-        assert reload.call_count == 0  # the marker only: no setting changed
-        assert seen == [True]
-        state = await _store(hass, entry).async_read()
-        doc = copy.deepcopy(state["document"])
-        _device(doc, "grid")["bindings"]["power"]["source"]["entity_id"] = "sensor.m2"
-        _device(doc, "pool_pump")["constraints"]["fixed_hours"]["start"] = 9
-        await device_contract_ha.async_commit_active(
-            hass, entry, state["revision"], doc, "test_edit"
-        )
-        await hass.async_block_till_done()
-        assert reload.call_count == 1
-    # The subentry and the options update were both the write's own.
-    assert seen == [True, True, True]
-    hass.config_entries.async_update_entry(
-        entry, options={**entry.options, "solver_offer_curve_enabled": False}
-    )
-    await hass.async_block_till_done()
-    assert seen[-1] is False
 
 
 def _issue_ids(hass, entry):

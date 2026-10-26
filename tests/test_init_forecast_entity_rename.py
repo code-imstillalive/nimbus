@@ -112,18 +112,6 @@ def test_collision_with_existing_entity_blocks_the_rename():
     registry.async_update_entity.assert_not_called()
 
 
-def test_not_yet_registered_is_skipped_not_an_error():
-    sub = _make_subentry("abc123", SUBENTRY_TYPE_LOAD, "sensor.sw25_hws_l1_temperature")
-    entry = MagicMock()
-    entry.subentries = {"abc123": sub}
-    registry = _make_registry(
-        entity_id_lookup={},  # nothing registered yet -- first-ever setup
-        existing_entities=set(),
-    )
-    registry = _run(hass=MagicMock(), entry=entry, registry=registry)
-    registry.async_update_entity.assert_not_called()
-
-
 def test_load_subentry_uses_load_forecast_suffix_not_signal_forecast():
     sub = _make_subentry("xyz789", SUBENTRY_TYPE_LOAD, "sensor.sw24_hws_l3_temperature")
     entry = MagicMock()

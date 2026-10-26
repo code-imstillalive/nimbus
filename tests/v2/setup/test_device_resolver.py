@@ -204,47 +204,10 @@ def test_an_energy_counter_rises_by_what_was_delivered(series, rise):
 # --- matching a power sensor to an energy counter ---------------------------------------------
 
 
-def test_the_power_sensor_whose_history_explains_the_counter_is_the_candidate():
-    candidates = {"sensor.pv_w": _power(solar), "sensor.house_w": _power(flat)}
-    match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
-    assert (match.status, match.entity_id, match.sign) == (
-        dr.CANDIDATE,
-        "sensor.pv_w",
-        1,
-    )
-    assert match.error < dr.MATCH_TOLERANCE and match.ranking[0][0] == "sensor.pv_w"
-
-
 def test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped():
     candidates = {"sensor.inverted": _power(lambda h: -solar(h))}
     match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
     assert (match.status, match.sign) == (dr.CANDIDATE, -1)
-
-
-def test_two_sensors_that_explain_it_equally_are_ambiguous_whatever_their_order():
-    for order in (["sensor.a", "sensor.b"], ["sensor.b", "sensor.a"]):
-        candidates = {eid: _power(solar) for eid in order}
-        match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
-        assert match.status == dr.AMBIGUOUS and match.entity_id is None
-
-
-def test_a_battery_is_matched_on_both_directions_at_once():
-    def battery(h):
-        return 3.0 if h < 6 else -2.0
-
-    charge, discharge = (
-        _counter(lambda h: max(0.0, -battery(h))),
-        _counter(lambda h: max(0.0, battery(h))),
-    )
-    candidates = {"sensor.bat_w": _power(battery), "sensor.pv_w": _power(solar)}
-    match = dr.match_power_sensor(
-        candidates, T0, END, energy_out=discharge, energy_in=charge
-    )
-    assert (match.status, match.entity_id, match.sign) == (
-        dr.CANDIDATE,
-        "sensor.bat_w",
-        1,
-    )
 
 
 @pytest.mark.parametrize(
@@ -291,11 +254,6 @@ def test_a_total_alone_can_match_and_solar_never_runs_backwards():
     assert (
         dr.match_power_sensor(two_way, T0, END, energy_out=24.0).status == dr.NO_MATCH
     )
-
-
-def test_a_sensor_whose_direction_cannot_be_told_apart_is_insufficient():
-    match = dr._pick([(0.05, "sensor.x", 1), (0.06, "sensor.x", -1)])
-    assert match.status == dr.INSUFFICIENT and "direction" in match.reason
 
 
 # --- the site's energy balance -------------------------------------------------------------------

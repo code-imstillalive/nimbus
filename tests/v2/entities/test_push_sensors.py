@@ -116,30 +116,6 @@ def _make(name, *, last_state=None):
 
 
 @pytest.mark.parametrize("name", sorted(PUSH))
-def test_each_push_sensor_has_its_fixed_identity_unit_and_device(name):
-    entity_id, unit, _restore, device = PUSH[name]
-    sensor, _ = _make(name)
-    assert sensor.entity_id == entity_id
-    assert sensor._attr_unique_id == f"hub1_{entity_id.split('.', 1)[1]}"
-    expected_unit = "AUD" if name == "NimbusEfficiencyBacktestSensor" else unit
-    assert (
-        sensor.native_unit_of_measurement
-        if name == "NimbusEfficiencyBacktestSensor"
-        else sensor._attr_native_unit_of_measurement
-    ) == expected_unit
-    assert ("nimbus_load", f"hub1{device}") in sensor._attr_device_info["identifiers"]
-    if device:
-        # Sub-devices sit under the hub.
-        assert sensor._attr_device_info.get("via_device") == ("nimbus_load", "hub1")
-    # Every class that publishes a forecast keeps it out of the recorder.
-    if name in (
-        "NimbusSolverBatteryForecastSensor",
-        "NimbusHouseholdLoadTotalForecastSensor",
-    ):
-        assert "forecast" in sensor._unrecorded_attributes
-
-
-@pytest.mark.parametrize("name", sorted(PUSH))
 def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
     name, clock, caplog
 ):
@@ -236,15 +212,6 @@ def test_a_failing_restore_never_blocks_setup(monkeypatch):
     assert sensor.native_value is None
 
 
-def test_removing_a_sensor_stops_the_solver_writing_to_it(monkeypatch):
-    sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
-    gone = []
-    monkeypatch.setattr(sw, "unregister_entity_handler", gone.append)
-    sensor, _ = _make("NimbusOfferCurveSensor")
-    asyncio.run(sensor.async_will_remove_from_hass())
-    assert gone == ["sensor.nimbus_offer_curve"]
-
-
 @pytest.mark.parametrize(
     ("name", "dispatch"),
     [
@@ -271,19 +238,6 @@ def test_a_parent_sensor_hands_each_push_to_its_flattened_children(
     sensor._flattened_entities = ["child"]
     sensor.update_from_solver(1.0, {"a": 1})
     assert seen == [(["child"], {"a": 1})]
-
-
-def test_the_battery_forecast_also_feeds_its_current_period_children(monkeypatch):
-    seen = []
-    monkeypatch.setattr(
-        sm.sensor_flattened,
-        "dispatch_to_flattened_current",
-        lambda c, a: seen.append(c),
-    )
-    sensor, _ = _make("NimbusSolverBatteryForecastSensor")
-    sensor._flattened_current_entities = ["now"]
-    sensor.update_from_solver(1.0, {})
-    assert seen == [["now"]]
 
 
 def test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder():

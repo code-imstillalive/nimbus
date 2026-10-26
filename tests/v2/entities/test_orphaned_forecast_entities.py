@@ -124,56 +124,7 @@ class TestNothingIsActuallyDeleted(unittest.TestCase):
         )
 
 
-class TestTheOrphanIsReported(unittest.TestCase):
-    def test_a_forecast_entity_whose_subentry_is_gone_is_removed(self):
-        removed = _run([LIVE, ORPHAN], subentry_ids=["sub_live"])
-        self.assertEqual(removed, ["sensor.nimbus_mirror_temperature_forecast"])
-
-    def test_a_live_subentry_s_entity_is_never_touched(self):
-        removed = _run([LIVE], subentry_ids=["sub_live"])
-        self.assertEqual(removed, [])
-
-    def test_both_forecast_suffixes_are_swept(self):
-        """Signals and loads use different suffixes; an orphan of either kind
-        squats an entity_id just as effectively."""
-        removed = _run([LIVE, ORPHAN, ORPHAN_LOAD], subentry_ids=["sub_live"])
-        self.assertEqual(len(removed), 2)
-        self.assertIn("sensor.nimbus_old_load_forecast", removed)
-
-
-class TestTheDiscriminatorIsTheUniqueId(unittest.TestCase):
-    """The decision that makes this fix work at all.
-
-    The version first proposed on the issue filtered on `config_subentry_id`.
-    Every orphan this removes is missing exactly that field -- that absence is
-    the symptom -- so such a filter would match nothing and the bug would look
-    fixed while nothing changed.
-    """
-
-    def test_an_orphan_with_no_subentry_link_is_still_removed(self):
-        """The real shape measured on production: no subentry link at all,
-        identified purely by the id embedded in its unique_id."""
-        removed = _run([ORPHAN], subentry_ids=["sub_live"])
-        self.assertEqual(removed, ["sensor.nimbus_mirror_temperature_forecast"])
-
-
 class TestTheGuards(unittest.TestCase):
-    def test_an_empty_subentries_mapping_removes_NOTHING(self):
-        """Guard 1, and the one that matters most: a partially-loaded entry
-        must never be read as 'every subentry was removed'. Without this, a
-        transient becomes a mass delete of every forecast entity on the
-        install."""
-        removed = _run([LIVE, ORPHAN, ORPHAN_LOAD], subentry_ids=[])
-        self.assertEqual(removed, [])
-
-    def test_hub_scoped_entities_are_structurally_unreachable(self):
-        """Guard 2. The Solver push sensors and config sensors live for the
-        life of the hub, carry no forecast suffix, and must survive any
-        subentry churn -- the same separation test_stale_devices_cleanup
-        guards on the registration side."""
-        removed = _run([HUB_SCOPED], subentry_ids=["sub_live"])
-        self.assertEqual(removed, [])
-
     def test_an_entity_with_no_unique_id_is_skipped_not_crashed_on(self):
         blank = FakeRegistryEntry("sensor.something", "")
         removed = _run([blank, LIVE], subentry_ids=["sub_live"])

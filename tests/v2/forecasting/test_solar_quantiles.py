@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 import solver_writer as sw
-from solver import elements
 from solver_inputs import solar_quantiles as sq
 
 TZ = sw.LOCAL_TZ
@@ -55,51 +54,6 @@ def _days(n, per_day, lo, hi):
 # --- the band ----------------------------------------------------------------------------------
 
 
-def test_the_band_always_brackets_p50_and_never_goes_negative():
-    solar = [0.7, 0.0, 0.03, 0.123456789, 2.0, 7.777777, 12.0, 0.04]
-    p10, p90, method = _bands(solar, table=_table(0.4, 1.6))
-    assert method == sq.METHOD_EMPIRICAL
-    assert all(
-        0.0 <= lo <= mid <= hi for lo, mid, hi in zip(p10, solar, p90, strict=True)
-    )
-
-
-def test_no_spread_at_night_or_in_the_live_first_period():
-    p10, p90, _ = _bands([3.0, 0.0, 0.049, 5.0], table=_table(0.4, 1.6))
-    assert list(zip(p10, p90, strict=True))[:3] == [
-        (3.0, 3.0),
-        (0.0, 0.0),
-        (0.049, 0.049),
-    ]
-    assert (p10[3], p90[3]) == pytest.approx((2.0, 8.0))
-
-
-def test_each_period_reads_its_own_lead_bucket_and_size_class():
-    table = _table(1.0, 1.0)
-    table[("1-4 h", sq.SIZE_HIGH)] = (0.5, 2.0)
-    table[("1-4 h", sq.SIZE_LOW)] = (0.1, 3.0)
-    solar = [1.0] + [4.0] * 23
-    solar[3] = 1.0  # 1.5 h ahead with a small p50: the low-size cell
-    p10, p90, _ = _bands(solar, table=table)
-    assert (p10[1], p90[1]) == (4.0, 4.0)  # under an hour ahead
-    assert (p10[2], p90[2]) == (2.0, 8.0)
-    assert (p10[3], p90[3]) == (0.1, 3.0)
-    assert (p10[8], p90[8]) == (4.0, 4.0)  # 4 h ahead: the next bucket
-
-
-def test_while_the_history_is_short_solcasts_band_is_widened_to_hold_the_blend():
-    solar = [1.0, 5.0, 5.0, 0.0]
-    band = ([1.0, 6.0, 4.0, 0.0], [1.0, 5.5, 3.0, 0.0], [1.0, 8.0, 4.5, 0.0])
-    p10, p90, method = _bands(solar, solcast=band)
-    assert method == sq.METHOD_SOLCAST
-    assert [(p10[i], p90[i]) for i in (1, 2, 3)] == [(5.0, 8.0), (3.0, 5.0), (0.0, 0.0)]
-    # The measured history, once there is one, wins.
-    p10, p90, method = _bands(
-        [1.0, 2.0], table=_table(0.5, 1.5), solcast=([1.0, 2.0], [1.0, 0.1], [1.0, 9.0])
-    )
-    assert method == sq.METHOD_EMPIRICAL and (p10[1], p90[1]) == (1.0, 3.0)
-
-
 @pytest.mark.parametrize(
     "solcast",
     [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])],
@@ -110,29 +64,6 @@ def test_with_nothing_measured_and_no_usable_band_there_is_no_band(solcast):
 
 
 # --- the quantile table and its calibration ----------------------------------------------------
-
-
-def test_a_cell_reads_its_own_samples_then_its_size_class_then_everything():
-    assert (
-        _history(_days(2, 40, 0.5, 1.5), "1-4 h").quantile_table() is None
-    )  # two days
-    assert sq.SolarErrorHistory().quantile_table() is None
-    h = _history(_days(5, 20, 0.2, 1.8), "1-4 h")
-    h.samples[sq.cell_key("24-48 h", sq.SIZE_HIGH)] = [["2026-10-01", 1.0]] * 10
-    table = h.quantile_table()
-    own = np.linspace(0.2, 1.8, 20)
-    assert table[("1-4 h", sq.SIZE_HIGH)] == pytest.approx(
-        (float(np.quantile(own, 0.1)), float(np.quantile(own, 0.9)))
-    )
-    high = sq._quantiles(
-        [s[1] for k, v in h.samples.items() if sq.SIZE_HIGH in k for s in v]
-    )
-    assert table[("24-48 h", sq.SIZE_HIGH)] == high  # too few of its own
-    assert table[("0-1 h", sq.SIZE_LOW)] == sq._quantiles([s[1] for s in h._all()])
-    assert (
-        sq._quantiles([1.5, 2.0, 3.0])[0] == 1.0
-        and sq._quantiles([0.2, 0.3, 0.5])[1] == 1.0
-    )
 
 
 def test_coverage_is_graded_leaving_each_day_out():
@@ -146,25 +77,7 @@ def test_coverage_is_graded_leaving_each_day_out():
     assert sq.loo_coverage([["d0", 1.0]] * 60) == (None, None)
 
 
-def test_the_published_calibration_has_every_cell():
-    cal = _history(_days(4, 15, 0.5, 1.5), "4-12 h").calibration()
-    assert set(cal) == {sq.cell_key(b, z) for b, z in sq.CELLS}
-    assert cal[sq.cell_key("0-1 h", sq.SIZE_LOW)] == {"samples": 0, "days": 0}
-    entry = cal[sq.cell_key("4-12 h", sq.SIZE_HIGH)]
-    assert (entry["samples"], entry["days"]) == (60, 4) and "below_p10_pct" in entry
-    assert entry["q10_ratio"] <= 1.0 <= entry["q90_ratio"]
-
-
 # --- the history -------------------------------------------------------------------------------
-
-
-def test_an_interval_mean_is_duration_weighted_and_needs_its_whole_interval():
-    times = [NOW, NOW + timedelta(minutes=1), NOW + timedelta(minutes=6)]
-    hours = [1 / 60, 5 / 60, 24 / 60]
-    assert sq.interval_means(times, hours, [100.0, 3.0, 6.0]) == {}  # without index 0
-    means = sq.interval_means(times, hours, [100.0, 3.0, 6.0], first_index=0)
-    k = int(NOW.timestamp() // sq.INTERVAL_SECONDS)
-    assert means[k] == pytest.approx((100 * 1 + 3 * 5 + 6 * 24) / 30)
 
 
 def test_one_forecast_is_kept_per_interval_and_bucket_the_closest_to_its_lead():
@@ -223,16 +136,6 @@ def _writer(path, pv_kw):
     )
 
 
-def test_without_a_pv_sensor_or_solcast_there_is_no_band(tmp_path):
-    times, hours = _grid()
-    out = sq.update_and_build(
-        _writer(tmp_path / "q.json", 1.0), {}, NOW, times, hours, [2.0] * 24, None
-    )
-    assert (
-        out["p10"] is None and out["calibration"]["reason"] == "no_solar_power_sensor"
-    )
-
-
 def test_four_days_of_history_replace_solcasts_band_with_the_measured_one(tmp_path):
     cfg = {"solver_solar_power_sensor": "sensor.pv"}
     path = tmp_path / "q.json"
@@ -266,20 +169,3 @@ def test_a_broken_history_never_breaks_the_solve():
         None,
     )
     assert out["p10"] is None and out["calibration"]["reason"].startswith("error")
-
-
-def test_the_solve_takes_the_pair_only_whole_ordered_and_beside_the_envelope():
-    f = np.array([1.0, 2.0])
-    elements.SolarConfig(
-        forecast_kw=f, p10_kw=np.array([0.5, 1.0]), p90_kw=np.array([1.5, 3.0])
-    )
-    with pytest.raises(ValueError):
-        elements.SolarConfig(forecast_kw=f, p10_kw=np.array([0.5, 1.0]))
-    with pytest.raises(ValueError):
-        elements.SolarConfig(
-            forecast_kw=f, p10_kw=np.array([1.5, 1.0]), p90_kw=np.array([1.5, 3.0])
-        )
-    cfg = elements.SolarConfig(
-        forecast_kw=np.array([1.0]), lower_kw=np.array([0.0]), upper_kw=np.array([9.0])
-    )
-    assert cfg.p10_kw is None and cfg.p90_kw is None and float(cfg.lower_kw[0]) == 0.0

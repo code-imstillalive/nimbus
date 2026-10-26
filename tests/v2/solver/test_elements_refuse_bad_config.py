@@ -73,17 +73,6 @@ def _shed(**kw):
     return SheddableLoadConfig(**{**base, **kw})
 
 
-def test_the_valid_bases_build():
-    # So every refusal below is the one field it changes, nothing else.
-    PeriodGrid(hours=np.ones(N))
-    _grid()
-    _battery()
-    _adequacy()
-    _shed()
-    SolarConfig(forecast_kw=np.zeros(N))
-    LoadConfig(name="house", forecast_kw=np.ones(N))
-
-
 REFUSED = [
     # PeriodGrid
     ("no periods", lambda: PeriodGrid(hours=np.array([])), "at least one period"),

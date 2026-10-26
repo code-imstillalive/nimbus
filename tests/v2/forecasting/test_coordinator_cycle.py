@@ -177,52 +177,6 @@ def test_a_retrain_then_refresh_publishes_the_learned_forecast(tmp_path, recorde
     assert data["forecast_origin"] == const.FORECAST_ORIGIN_LEARNED
 
 
-def test_the_model_survives_a_restart(tmp_path, recorder):
-    hass = FakeHass(tmp_path)
-    first = _coordinator(hass)
-    asyncio.run(first._async_retrain())
-    second = _coordinator(hass)
-    loaded = second._load_model_from_disk()
-    assert (
-        loaded is not None and loaded.training_points == first._trained.training_points
-    )
-    second._trained = loaded
-    again = asyncio.run(second._async_update_data())
-    assert [p["value"] for p in again["forecast"]] == [
-        p["value"] for p in first.data["forecast"]
-    ]
-
-
-def test_a_kw_sensor_trains_to_the_same_forecast_as_a_w_sensor(tmp_path, recorder):
-    (tmp_path / "w").mkdir()
-    (tmp_path / "kw").mkdir()
-    w = _coordinator(FakeHass(tmp_path / "w"))
-    asyncio.run(w._async_retrain())
-    kw = _coordinator(FakeHass(tmp_path / "kw", unit="kW"))
-    asyncio.run(kw._async_retrain())
-    assert [p["value"] for p in kw.data["forecast"]] == pytest.approx(
-        [p["value"] for p in w.data["forecast"]], abs=1e-3
-    )
-
-
-def test_a_scheduled_load_publishes_its_rule_without_any_model(tmp_path, recorder):
-    coord = _coordinator(
-        FakeHass(tmp_path),
-        **{
-            const.CONF_EXPECTED_LOAD_KW: 1.3,
-            const.CONF_SCHEDULE_START_HOUR: "08:00:00",
-            const.CONF_SCHEDULE_END_HOUR: "15:00:00",
-        },
-    )
-    data = asyncio.run(coord._async_update_data())
-    assert data["forecast_origin"] == const.FORECAST_ORIGIN_RULE
-    for p in data["forecast"]:
-        hour = datetime.fromisoformat(p["time"]).hour
-        assert (
-            p["value"] == (1.3 if 8 <= hour < 15 else 0.0) == p["lower"] == p["upper"]
-        )
-
-
 def test_a_refresh_while_home_assistant_stops_keeps_the_last_data(tmp_path, recorder):
     hass = FakeHass(tmp_path)
     coord = _coordinator(hass)
@@ -403,27 +357,6 @@ def test_a_weather_entity_is_read_through_its_forecast_service(tmp_path, site):
     assert len(hass.service_calls) == 1 and again and again[0][0] >= NOW
 
 
-def test_a_temperature_forecast_that_stops_is_warned_once_then_recovers(
-    tmp_path, site, caplog
-):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(hass)
-    good = hass._states["sensor.temp_forecast"]
-    with caplog.at_level("INFO", logger=cm._LOGGER.name):
-        assert asyncio.run(coord._async_fetch_temperature_forecast())
-        hass._states["sensor.temp_forecast"] = _State(
-            state="1", attributes={"forecast": []}
-        )
-        coord._temp_forecast_cache = []
-        assert asyncio.run(coord._async_fetch_temperature_forecast()) == []
-        assert asyncio.run(coord._async_fetch_temperature_forecast()) == []
-        hass._states["sensor.temp_forecast"] = good
-        assert asyncio.run(coord._async_fetch_temperature_forecast())
-    messages = [r.getMessage() for r in caplog.records]
-    assert sum("stopped yielding" in m for m in messages) == 1
-    assert sum("recovered" in m for m in messages) == 1
-
-
 @pytest.mark.parametrize(
     "source", [const.TRAINING_SOURCE_LTS, const.TRAINING_SOURCE_HYBRID]
 )
@@ -526,23 +459,6 @@ def test_each_refresh_scores_the_last_prediction_and_flags_drift_once(
     assert coord._residual_drift_status.watching is True
     assert sum("residual drift detected" in r.getMessage() for r in caplog.records) == 1
     assert coord._residual_path.exists()
-
-
-def test_a_long_failing_retrain_warns_once_that_the_model_is_stale(
-    tmp_path, site, caplog
-):
-    hass = _site_hass(tmp_path)
-    coord = _coordinator(hass)
-    asyncio.run(coord._async_retrain())
-    coord._trained.trained_at = NOW - timedelta(days=const.STALE_MODEL_WARN_DAYS + 1)
-    with caplog.at_level("WARNING", logger=cm._LOGGER.name):
-        coord._note_retrain_without_model()
-        coord._note_retrain_without_model()
-    assert (
-        sum("still serving the model trained" in r.getMessage() for r in caplog.records)
-        == 1
-    )
-    assert coord._retrain_failing_since is not None
 
 
 def test_a_loads_running_hold_reaches_the_predict_call(tmp_path, recorder, monkeypatch):

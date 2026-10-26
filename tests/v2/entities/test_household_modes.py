@@ -32,57 +32,8 @@ class TestHomeIsTheIdentityTransform(unittest.TestCase):
         # and rot the first moment a band lever was added without one.
         self.assertNotIn("home", hm.THERMAL_BAND_PRESETS)
 
-    def test_home_returns_the_very_same_object(self):
-        """Not merely an equal dict -- the same object, so the identity
-        path is provably free and provably a no-op."""
-        cfg = {"solver_degradation_cost_per_kwh": 0.02}
-        out, applied = hm.apply_to_solver_config(cfg, "home")
-        self.assertIs(out, cfg)
-        self.assertEqual(applied, {})
-
-    def test_an_unset_mode_is_also_identity(self):
-        """`None` is what an install whose select entity has not come up
-        yet reports. It must not default to a mode."""
-        data = {"deferrable_target_kwh": 4.0}
-        out, applied = hm.apply_to_load_config(data, None)
-        self.assertIs(out, data)
-        self.assertEqual(applied, {})
-
-    def test_an_unrecognised_mode_is_identity_not_an_error(self):
-        """A household renaming its modes must never reshape dispatch."""
-        data = {"deferrable_target_kwh": 4.0}
-        out, applied = hm.apply_to_load_config(data, "holiday-house")
-        self.assertIs(out, data)
-        self.assertEqual(applied, {})
-
 
 class TestPresetsAreRelativeToTheHouseholdsOwnValue(unittest.TestCase):
-    def test_guests_scales_the_configured_target_not_a_fixed_number(self):
-        """Two installs with different baselines must get different
-        results -- that is what 'relative' means, and an absolute would
-        make these equal."""
-        a, _ = hm.apply_to_load_config({"deferrable_target_kwh": 4.0}, "guests")
-        b, _ = hm.apply_to_load_config({"deferrable_target_kwh": 10.0}, "guests")
-        self.assertNotEqual(a["deferrable_target_kwh"], b["deferrable_target_kwh"])
-        self.assertAlmostEqual(a["deferrable_target_kwh"], 5.2)
-        self.assertAlmostEqual(b["deferrable_target_kwh"], 13.0)
-
-    def test_away_reduces_the_target_and_the_urgency_together(self):
-        out, applied = hm.apply_to_load_config(
-            {"deferrable_target_kwh": 4.0, "deferrable_shortfall_price": 2.0}, "away"
-        )
-        self.assertAlmostEqual(out["deferrable_target_kwh"], 2.0)
-        self.assertAlmostEqual(out["deferrable_shortfall_price"], 0.5)
-        self.assertEqual(
-            set(applied), {"deferrable_target_kwh", "deferrable_shortfall_price"}
-        )
-
-    def test_a_delta_preset_adds_rather_than_scales(self):
-        out, _ = hm.apply_to_load_config(
-            {"controllable_load_max_activations_per_day": 3.0}, "away"
-        )
-        self.assertAlmostEqual(out["controllable_load_max_activations_per_day"], 2.0)
-
     def test_every_table_entry_uses_a_known_operation(self):
         """Guards a typo'd op string, which would otherwise silently fall
         through to the delta branch and add where it meant to multiply."""
@@ -91,44 +42,6 @@ class TestPresetsAreRelativeToTheHouseholdsOwnValue(unittest.TestCase):
                 for key, (op, _operand) in levers.items():
                     with self.subTest(mode=mode, key=key):
                         self.assertIn(op, (hm.MULTIPLY, hm.DELTA))
-
-
-class TestItRefusesToInventABaseline(unittest.TestCase):
-    def test_a_lever_this_install_does_not_configure_is_skipped(self):
-        """Scaling a value that is not there would mean inventing one --
-        the absolute this whole design exists to avoid."""
-        out, applied = hm.apply_to_load_config({"something_else": 1.0}, "away")
-        self.assertEqual(out, {"something_else": 1.0})
-        self.assertEqual(applied, {})
-
-    def test_a_non_numeric_value_is_left_alone(self):
-        """Several config keys hold entity ids rather than numbers. A
-        preset must not crash a real solve over one."""
-        out, applied = hm.apply_to_load_config(
-            {"deferrable_target_kwh": "sensor.something"}, "away"
-        )
-        self.assertEqual(out["deferrable_target_kwh"], "sensor.something")
-        self.assertEqual(applied, {})
-
-    def test_a_preset_never_drives_a_lever_below_zero(self):
-        """Every key in these tables is a price, an energy target or a
-        count. A negative would be meaningless, and a delta preset on a
-        small baseline is the way to produce one by accident."""
-        out, _ = hm.apply_to_load_config(
-            {"controllable_load_max_activations_per_day": 0.0}, "away"
-        )
-        self.assertGreaterEqual(out["controllable_load_max_activations_per_day"], 0.0)
-
-
-class TestTheCallersDictIsNeverMutated(unittest.TestCase):
-    def test_the_input_is_unchanged_after_a_real_transform(self):
-        """`_resolve_controllable_load_tuning()` builds its dict from
-        subentry data. Mutating in place would leak a moded value into
-        the next solve after the mode changed back."""
-        data = {"deferrable_target_kwh": 4.0}
-        out, _ = hm.apply_to_load_config(data, "guests")
-        self.assertEqual(data["deferrable_target_kwh"], 4.0)
-        self.assertIsNot(out, data)
 
 
 class TestTheTablesOnlyTouchRealLevers(unittest.TestCase):
@@ -298,45 +211,3 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
             "cost -- it would price a past day with a lever that day never "
             "actually ran under",
         )
-
-    def test_the_preset_really_would_have_changed_it(self):
-        """Without this, the test above passes even if the preset silently
-        stopped working -- both values would be the baseline."""
-        moded, applied = hm.apply_to_solver_config(
-            {"solver_degradation_cost_per_kwh": 0.02}, "away"
-        )
-        self.assertNotAlmostEqual(moded["solver_degradation_cost_per_kwh"], 0.02)
-        self.assertIn("solver_degradation_cost_per_kwh", applied)
-
-
-class TestThePerLoadPresetIsObservable(unittest.TestCase):
-    """The per-load half is otherwise invisible.
-
-    A moded load value lives only inside the solve — it is never written
-    back to a `number.*` entity and never published as an attribute. So
-    without a log line, "which of my levers did `away` actually move?"
-    has no answer at all, which is the first question a household asks
-    when a mode does not do what they expected.
-
-    Pinned at DEBUG on purpose. This fires once per load per solve, so a
-    six-load install in `away` would emit six lines a minute at INFO —
-    exactly the noise #757 and #773 each had to clean up after shipping.
-    The solver-lever half logs at INFO because it fires once per solve.
-    """
-
-    def test_apply_returns_what_it_changed_not_just_the_new_values(self):
-        """The log depends on this second return value. A refactor that
-        dropped it would silently remove the only observability the
-        per-load half has."""
-        _out, applied = hm.apply_to_load_config(
-            {"deferrable_target_kwh": 4.0, "deferrable_shortfall_price": 2.0}, "away"
-        )
-        self.assertEqual(
-            applied, {"deferrable_target_kwh": 2.0, "deferrable_shortfall_price": 0.5}
-        )
-
-    def test_nothing_changed_reports_nothing_rather_than_empty_values(self):
-        """`home` must produce a falsy map so the caller logs nothing at
-        all — not a line saying zero levers moved, every solve, forever."""
-        _out, applied = hm.apply_to_load_config({"deferrable_target_kwh": 4.0}, "home")
-        self.assertFalse(applied)

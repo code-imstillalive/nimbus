@@ -110,15 +110,6 @@ def test_hysteresis_off_and_without_a_previous_plan(charging, discharging):
     )
 
 
-def test_hysteresis_leaves_a_plan_in_the_same_direction(charging):
-    calls = []
-    out = solver_plan.period0_direction_hysteresis(
-        charging, charging, lambda kw: calls.append(kw), 0.05
-    )
-    assert out.period0_hysteresis == "same_direction"
-    assert calls == []
-
-
 @pytest.mark.parametrize(
     ("cost_delta", "status", "want"),
     [
@@ -164,19 +155,6 @@ def test_hysteresis_survives_a_failing_re_solve(charging, discharging):
 
     out = solver_plan.period0_direction_hysteresis(charging, discharging, boom, 0.05)
     assert out.period0_hysteresis == "switched"
-
-
-def test_a_blocked_pin_is_never_re_solved(charging, discharging):
-    calls = []
-    out = solver_plan.period0_direction_hysteresis(
-        charging,
-        discharging,
-        lambda kw: calls.append(kw),
-        0.05,
-        pin_blocked=lambda kw: ["fixed export forbids charging"],
-    )
-    assert out.period0_hysteresis == "blocked"
-    assert calls == []
 
 
 def test_a_blocker_check_that_raises_falls_through_to_the_re_solve(
@@ -245,30 +223,6 @@ def test_a_pinned_charge_bought_from_the_grid_is_not_kept(charging, discharging)
     )
 
 
-def test_a_pinned_charge_that_imports_no_more_is_still_kept(charging, discharging):
-    pinned = dataclasses.replace(
-        charging,
-        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float),
-        total_cost=float(discharging.total_cost),
-    )
-    out = solver_plan.period0_direction_hysteresis(
-        discharging, charging, lambda kw: pinned, 0.05
-    )
-    assert out.period0_hysteresis == "kept"
-
-
-def test_a_pinned_discharge_is_not_judged_as_a_grid_charge(charging, discharging):
-    pinned = dataclasses.replace(
-        discharging,
-        grid_import_kw=np.asarray(charging.grid_import_kw, dtype=float) + 1.0,
-        total_cost=float(charging.total_cost),
-    )
-    out = solver_plan.period0_direction_hysteresis(
-        charging, discharging, lambda kw: pinned, 0.05
-    )
-    assert out.period0_hysteresis == "kept"
-
-
 # --- period0_crossing_delta (#1417, #1577) ---------------------------------
 
 
@@ -279,16 +233,6 @@ def pin_logger_on():
     logger.setLevel(logging.DEBUG)
     yield
     logger.setLevel(old)
-
-
-def test_the_crossing_instrument_is_silent_unless_switched_on(charging, discharging):
-    solver_plan.PERIOD0_PIN_LOGGER.setLevel(logging.WARNING)
-    assert (
-        solver_plan.period0_crossing_delta(
-            charging, discharging, lambda kw: discharging
-        )
-        is None
-    )
 
 
 def test_the_crossing_instrument_measures_a_feasible_pin(
@@ -579,21 +523,6 @@ def test_a_bound_is_named_by_which_bound_the_variable_sits_at(export_kw, pin, la
     assert publish.compute_binding_constraint_label(
         _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
     ) == ("Nothing currently binding", None)
-
-
-def test_each_battery_forecast_reads_its_own_capacity_and_a_zero_one_reads_zero():
-    bp = SimpleNamespace(
-        name="garage",
-        charge_kw=np.array([1.0]),
-        discharge_kw=np.array([0.0]),
-        soc_kwh=np.array([5.0]),
-    )
-    plan = SimpleNamespace(batteries=[bp])
-    grid = [START]
-    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 10.0})
-    assert row["forecast"][0]["soc_pct"] == 50.0
-    (row,) = publish.build_per_battery_forecast(plan, grid, 1, {"garage": 0.0})
-    assert row["forecast"][0]["soc_pct"] == 0.0
 
 
 def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):

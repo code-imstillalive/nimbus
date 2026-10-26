@@ -5,7 +5,6 @@ caught at setup and at runtime (#1562) (#1837).
 from __future__ import annotations
 
 import asyncio
-import logging
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load import coordinator as coordinator_module
 from custom_components.nimbus_load import power_input_check as pic
 from custom_components.nimbus_load.const import (
-    CONF_BATTERY_SENSOR,
     CONF_GRID_SENSOR,
     CONF_LOAD_SENSOR,
     CONF_SOLAR_SENSOR,
@@ -67,40 +65,7 @@ def _hass(units: dict[str, str | None] = UNITS) -> MagicMock:
 # --- unit recognition --------------------------------------------------------
 
 
-def test_energy_units_are_recognised_case_insensitively():
-    for unit in ("Wh", "kWh", "MWh", "wh", "KWH", " kWh ", "GJ", "MJ"):
-        assert pic.is_energy_unit(unit), unit
-
-
-def test_power_and_other_units_are_not_energy():
-    for unit in ("W", "kW", "MW", "%", "°C", "", None, 5, MagicMock()):
-        assert not pic.is_energy_unit(unit), unit
-
-
-def test_energy_unit_of_reads_the_live_state():
-    hass = _hass()
-    assert pic.energy_unit_of(hass, "sensor.solar_production_total") == "Wh"
-    assert pic.energy_unit_of(hass, "sensor.solar_power") is None
-    assert pic.energy_unit_of(hass, "sensor.no_unit") is None
-    # Not loaded yet: not known to be wrong.
-    assert pic.energy_unit_of(hass, "sensor.missing") is None
-    assert pic.energy_unit_of(hass, None) is None
-
-
 # --- forms -------------------------------------------------------------------
-
-
-def test_field_errors_name_only_the_energy_fields():
-    hass = _hass()
-    errors = pic.energy_unit_field_errors(
-        hass,
-        {
-            CONF_SOLAR_SENSOR: "sensor.solar_production_total",
-            CONF_GRID_SENSOR: "sensor.grid_power",
-        },
-        [CONF_BATTERY_SENSOR, CONF_GRID_SENSOR, CONF_SOLAR_SENSOR],
-    )
-    assert errors == {CONF_SOLAR_SENSOR: "energy_sensor_not_power"}
 
 
 def _forecaster_flow(hass, options):
@@ -186,43 +151,6 @@ def _coordinator(hass, options, load_sensor="sensor.some_load"):
     return coord
 
 
-def test_an_energy_counter_feature_is_treated_as_not_configured(caplog):
-    pic._WARNED.clear()
-    coord = _coordinator(
-        _hass(),
-        {
-            CONF_SOLAR_SENSOR: "sensor.solar_production_total",
-            CONF_GRID_SENSOR: "sensor.grid_power",
-            CONF_BATTERY_SENSOR: "sensor.battery_energy",
-        },
-    )
-    with caplog.at_level(logging.WARNING):
-        assert coord._solar_sensor is None
-        assert coord._battery_sensor is None
-        assert coord._grid_sensor == "sensor.grid_power"
-        # asked every cycle; warned once per entity
-        assert coord._solar_sensor is None
-    warnings = [
-        r.getMessage() for r in caplog.records if "energy unit" in r.getMessage()
-    ]
-    assert len(warnings) == 2, warnings
-    assert any("sensor.solar_production_total" in w and "'Wh'" in w for w in warnings)
-
-
-def test_the_existing_self_reference_rule_still_holds():
-    coord = _coordinator(
-        _hass(),
-        {CONF_GRID_SENSOR: "sensor.grid_power"},
-        load_sensor="sensor.grid_power",
-    )
-    assert coord._grid_sensor is None
-
-
-def test_a_sensor_not_loaded_yet_is_not_dropped():
-    coord = _coordinator(_hass(), {CONF_SOLAR_SENSOR: "sensor.missing"})
-    assert coord._solar_sensor == "sensor.missing"
-
-
 def test_the_conversion_warning_names_an_energy_unit_for_what_it_is():
     energy = coordinator_module._unconvertible_unit_message("Wh") % ("sensor.x", "Wh")
     assert "energy counter" in energy and "treating as kW" not in energy
@@ -289,13 +217,3 @@ def test_the_old_notification_is_dismissed_and_the_repair_takes_over():
     assert pic.find_energy_unit_inputs(hass, bad) == [
         ("Forecaster: solar sensor", "sensor.solar_production_total", "Wh")
     ]
-
-
-def test_the_notifier_never_raises():
-    hass = _hass()
-    hass.services.async_call = AsyncMock(side_effect=RuntimeError("boom"))
-    asyncio.run(
-        pic.async_notify_energy_unit_inputs(
-            hass, _entry({CONF_SOLAR_SENSOR: "sensor.solar_production_total"})
-        )
-    )

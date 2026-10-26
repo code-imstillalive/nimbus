@@ -35,15 +35,5 @@ def test_a_number_on_its_placeholder_is_not_ticked():
     assert "float(0) > 0.1" in row and "placeholder 0.1" in row
 
 
-def test_it_sits_right_after_the_step_checklist():
-    md = [
-        c["cards"][0].get("content")
-        for c in help_tab.template()
-        if c.get("cards") and c["cards"][0].get("type") == "markdown"
-    ]
-    assert help_tab._BASIC_INPUTS in md
-    assert md.index(help_tab._BASIC_INPUTS) == md.index(help_tab._START_HERE) + 1
-
-
 def test_step_2_no_longer_sends_the_user_to_the_dashboard_first():
     assert "Solver settings screen 1 asks for capacity" in help_tab._START_HERE

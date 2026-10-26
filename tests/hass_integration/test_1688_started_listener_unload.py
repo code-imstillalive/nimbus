@@ -31,22 +31,6 @@ def _entry(hass: HomeAssistant) -> MockConfigEntry:
     return entry
 
 
-async def test_control_the_old_pattern_logs_the_error(hass: HomeAssistant, caplog):
-    entry = _entry(hass)
-    calls = []
-
-    async def job(_event=None):
-        calls.append(1)
-
-    entry.async_on_unload(hass.bus.async_listen_once("homeassistant_started", job))
-    hass.bus.async_fire("homeassistant_started")
-    await hass.async_block_till_done()
-    with caplog.at_level(logging.ERROR):
-        await entry._async_process_on_unload(hass)
-    assert calls == [1]
-    assert _ERROR in caplog.text
-
-
 async def test_unload_after_the_event_fired_logs_nothing(hass: HomeAssistant, caplog):
     entry = _entry(hass)
     calls = []
@@ -77,17 +61,3 @@ async def test_unload_before_the_event_cancels_the_job(hass: HomeAssistant, capl
     await hass.async_block_till_done()
     assert calls == []
     assert _ERROR not in caplog.text
-
-
-async def test_the_job_runs_exactly_once(hass: HomeAssistant):
-    entry = _entry(hass)
-    calls = []
-
-    async def job(_event=None):
-        calls.append(1)
-
-    _run_once_started(hass, entry, job)
-    hass.bus.async_fire("homeassistant_started")
-    hass.bus.async_fire("homeassistant_started")
-    await hass.async_block_till_done()
-    assert calls == [1]

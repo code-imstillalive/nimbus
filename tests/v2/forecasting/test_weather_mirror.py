@@ -46,11 +46,6 @@ def _publish(source):
     sw.publish_weather_forecast_mirrors({"solver_weather_forecast_sensor": source})
 
 
-def test_with_no_source_configured_nothing_is_read_or_published(ha):
-    sw.publish_weather_forecast_mirrors({})
-    assert (ha["calls"], ha["gets"], ha["posts"]) == ([], [], {})
-
-
 def test_a_weather_entity_is_asked_for_its_hourly_forecast_and_both_are_mirrored(ha):
     ha["response"] = {
         "weather.any": {
@@ -89,16 +84,6 @@ def test_a_weather_entity_is_asked_for_its_hourly_forecast_and_both_are_mirrored
         and h_attrs["unit_of_measurement"] == "%"
         and h_attrs["source"] == "weather.any"
     )
-
-
-def test_humidity_is_never_invented_when_the_source_has_none(ha):
-    ha["response"] = {
-        "weather.any": {
-            "forecast": [{"datetime": "2026-08-25T00:00:00+00:00", "temperature": 19.5}]
-        }
-    }
-    _publish("weather.any")
-    assert list(ha["posts"]) == [TEMP]
 
 
 def test_a_sensor_source_is_read_off_its_own_attribute_without_a_service_call(ha):

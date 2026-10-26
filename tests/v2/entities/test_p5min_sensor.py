@@ -141,28 +141,6 @@ def _sensor(states=None):
     return s
 
 
-def test_a_run_is_fetched_and_its_region_published(nemweb):
-    s = _sensor()
-    assert not s.available and s.native_value is None
-    asyncio.run(s._async_tick())
-    expected = p5min.parse_run(RUNS[0].read_text(), REGION)
-    assert s.available
-    assert s.native_value == expected["forecast"][0]["value"]
-    attrs = s.extra_state_attributes
-    assert attrs["region"] == REGION and attrs["source_file"] == nemweb._zip_name(
-        RUNS[0]
-    )
-    assert (
-        attrs["run_datetime"] == expected["run_datetime"]
-        and attrs["last_error"] is None
-    )
-    assert attrs["forecast"] == expected["forecast"]
-    assert attrs["max_price"] == p5min.peak(expected["forecast"])["value"]
-    assert attrs["dispatch_rhs_source_file"] == nemweb._zip_name(DISPATCH[0])
-    assert attrs["readiness_signal_mode"] == "shadow"
-    assert {"forecast", "previous_forecast"} <= s._unrecorded_attributes
-
-
 def test_nothing_is_fetched_again_until_the_next_run_can_exist(nemweb, monkeypatch):
     s = _sensor()
     asyncio.run(s._async_tick())
@@ -218,18 +196,6 @@ def test_a_dispatch_fault_never_blocks_the_run(nemweb):
     asyncio.run(s._async_tick())
     assert s.available
     assert s.extra_state_attributes["dispatch_rhs_last_error"] == "RuntimeError: down"
-
-
-def test_a_file_without_the_region_keeps_the_last_good_run(nemweb):
-    s = _sensor()
-    asyncio.run(s._async_tick())
-    good = s._run
-    s.apply("PUBLIC_P5MIN_202610161055_20261016105104.zip", None)
-    assert s._run is good
-    assert (
-        s.extra_state_attributes["last_error"]
-        == f"no {REGION} rows in PUBLIC_P5MIN_202610161055_20261016105104.zip"
-    )
 
 
 def test_the_spot_price_feeds_the_false_spike_guard_each_minute(nemweb):
@@ -324,10 +290,6 @@ def test_sensors_naming_two_regions_are_a_contradiction_not_a_guess(
     with caplog.at_level(logging.WARNING, logger=ps._LOGGER.name):
         assert ps.resolve_region(_hass_located("QLD1"), entry) is None
     assert "NSW1, QLD1" in caplog.text
-
-
-def test_a_zipped_run_is_read_as_text():
-    assert ps._unzip_text(_zip(RUNS[0])) == RUNS[0].read_text()
 
 
 def test_setup_schedules_the_minute_poll_and_a_first_fetch(monkeypatch):

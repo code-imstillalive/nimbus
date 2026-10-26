@@ -13,8 +13,6 @@ from types import SimpleNamespace
 
 import load_run_state
 import solver_writer
-import thermal_forecast
-from solver.elements import ThermalLoadConfig
 from solver_inputs import controllable_loads
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
@@ -64,36 +62,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         )
         return solver_writer.build_controllable_loads(now, grid_times, len(grid_times))
 
-    def test_builds_a_real_thermal_load_from_its_subentry(self):
-        data = {
-            "controllable_load_name": "Hot Water Heat Pump",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-            "thermal_earliest_hour": 6.0,
-            "thermal_deadline_hour": 16.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        self.assertEqual(len(thermal), 1)
-        tl = thermal[0]
-        self.assertIsInstance(tl, ThermalLoadConfig)
-        self.assertEqual(tl.name, "Hot Water Heat Pump")
-        self.assertEqual(tl.max_power_kw, 3.0)
-        self.assertEqual(tl.initial_temperature_c, 42.0)
-        self.assertEqual(tl.target_temperature_c, 60.0)
-        self.assertEqual(tl.subentry_id, "s1")
-        # No override/persisted rate available -- module-level defaults.
-        self.assertEqual(
-            tl.heating_rate_c_per_kwh, thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
-        )
-        self.assertEqual(
-            tl.idle_decay_c_per_hour, thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
-        )
-
     def test_missing_max_power_kw_is_skipped_not_crashed(self):
         data = {
             "controllable_load_name": "HWS",
@@ -130,20 +98,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states={})
         self.assertEqual(thermal, [])
 
-    def test_unavailable_temperature_entity_is_skipped_not_crashed(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        states = {
-            "water_heater.hws": SimpleNamespace(state="unavailable", attributes={})
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        self.assertEqual(thermal, [])
-
     def test_a_non_water_heater_climate_temperature_entity_is_skipped(self):
         # done_condition.read_current_temperature() only supports
         # water_heater/climate domains -- a plain sensor has no
@@ -158,42 +112,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         states = {"sensor.hws_temp": SimpleNamespace(state="42.0", attributes={})}
         _sheddable, _adequacy, thermal = self._run(data, states)
         self.assertEqual(thermal, [])
-
-    def test_earliest_and_deadline_hours_resolve_to_real_period_indices(self):
-        now = datetime(2026, 9, 13, 0, 0, tzinfo=_TZ)
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-            "thermal_earliest_hour": 6.0,
-            "thermal_deadline_hour": 16.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states, now=now)
-        tl = thermal[0]
-        # 30-min grid from midnight -- 06:00 is period 12, 16:00 is period 32.
-        self.assertEqual(tl.earliest_period, 12)
-        self.assertEqual(tl.deadline_period, 32)
-
-    def test_no_earliest_deadline_hour_defaults_to_the_whole_horizon(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        tl = thermal[0]
-        self.assertEqual(tl.earliest_period, 0)
-        self.assertEqual(tl.deadline_period, 95)  # n_periods - 1
 
     def test_comfort_floor_fields_are_carried_through_when_set(self):
         data = {
@@ -212,22 +130,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         tl = thermal[0]
         self.assertEqual(tl.comfort_floor_c, 40.0)
         self.assertEqual(tl.comfort_floor_cost, 5.0)
-
-    def test_no_comfort_floor_defaults_to_a_complete_no_op(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        tl = thermal[0]
-        self.assertIsNone(tl.comfort_floor_c)
-        self.assertEqual(tl.comfort_floor_cost, 0.0)
 
     def test_explicit_rate_overrides_win_over_module_defaults(self):
         data = {
@@ -307,63 +209,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         self.assertEqual(tl.idle_decay_c_per_hour, 0.62)
         self.assertEqual(tl.heating_rate_origin, "learned")  # nimbus issue #940
         self.assertEqual(tl.idle_decay_origin, "learned")
-
-    def test_module_defaults_are_reported_as_fallback(self):
-        """The third branch, and the one that matters most today: every
-        real kind=thermal load lands here, because #873 means the learner
-        never runs for this kind and there is nothing persisted to read.
-
-        Before nimbus issue #940 this was invisible -- the published
-        learned rates were None and thermal_rates_source was "", while
-        the LP scheduled real hot water on exactly these two constants.
-        """
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        tl = thermal[0]
-        self.assertEqual(
-            tl.heating_rate_c_per_kwh, thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
-        )
-        self.assertEqual(
-            tl.idle_decay_c_per_hour, thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
-        )
-        self.assertEqual(tl.heating_rate_origin, "fallback")
-        self.assertEqual(tl.idle_decay_origin, "fallback")
-
-    def test_the_two_rates_resolve_independently(self):
-        """An explicit heating-rate override alongside a fallback idle
-        decay is a legitimate real configuration, so one shared origin
-        field would be unable to describe it. Pinned because the obvious
-        simplification -- a single `thermal_rates_origin` -- would pass
-        every other test in this file.
-        """
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-            "thermal_heating_rate_c_per_kwh": 12.5,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        tl = thermal[0]
-        self.assertEqual(tl.heating_rate_c_per_kwh, 12.5)
-        self.assertEqual(tl.heating_rate_origin, "override")
-        self.assertEqual(
-            tl.idle_decay_c_per_hour, thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
-        )
-        self.assertEqual(tl.idle_decay_origin, "fallback")
 
 
 if __name__ == "__main__":

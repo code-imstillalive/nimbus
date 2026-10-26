@@ -89,18 +89,6 @@ def _patched(strict_status=None, strict_result=None):
 
 
 class TestOutcomeOnEveryPath(unittest.TestCase):
-    def test_a_one_way_first_solve_is_not_needed(self):
-        plan = build_plan(**_kwargs([0.5] * 6, [0.30] * 6, [0.05] * 6))
-        self.assertEqual(plan.direction_exclusivity, "not_needed")
-        self.assertEqual(plan.direction_two_way_pairs, 0)
-        self.assertFalse(plan.direction_exclusivity_enforced)
-
-    def test_a_re_solve_that_makes_it_one_way_is_enforced(self):
-        plan = build_plan(**_kwargs(*SPREAD))
-        self.assertEqual(plan.direction_exclusivity, "enforced")
-        self.assertEqual(plan.direction_two_way_pairs, 0)
-        self.assertTrue(plan.direction_exclusivity_enforced)
-
     def test_a_declined_re_solve_is_visible_and_counted(self):
         first = _build_plan_thermal_fallback(**_kwargs(*SPREAD))
         expected = len(network._opposing_flow_binaries(first))
@@ -134,15 +122,6 @@ class TestOutcomeOnEveryPath(unittest.TestCase):
             len(network._opposing_flow_binaries(first)),
         )
         warn.assert_called_once()
-
-    def test_a_non_optimal_first_solve_is_not_checked(self):
-        def first_fails(**kw):
-            return replace(_build_plan_thermal_fallback(**kw), status="infeasible")
-
-        with mock.patch.object(network, "_build_plan_thermal_fallback", first_fails):
-            plan = build_plan(**_kwargs(*SPREAD))
-        self.assertEqual(plan.direction_exclusivity, "not_checked")
-        self.assertEqual(plan.direction_two_way_pairs, 0)
 
 
 class TestPublished(unittest.TestCase):

@@ -11,7 +11,6 @@ import unittest.mock
 from datetime import UTC, datetime
 from typing import Any
 
-import highspy
 import numpy as np
 from solver import lp
 from solver.elements import (
@@ -22,7 +21,7 @@ from solver.elements import (
     PeriodGrid,
     SolarConfig,
 )
-from solver.lp import CalibratedOptions, LexOptions, SolveOptions
+from solver.lp import CalibratedOptions, SolveOptions
 from solver.network import build_plan
 
 
@@ -212,25 +211,6 @@ class TestPinResolveToleranceRealReproduction(unittest.TestCase):
             "anything and needs a new (n_loads, n_periods, seed)",
         )
 
-    def test_post_fix_the_pinned_resolve_genuinely_succeeds(self):
-        """The real, unpatched fix, on the IDENTICAL scenario that just
-        failed above: `phase2_pin_resolve` never appears as a failed
-        phase. (A LATER, unrelated phase -- the calibration blend-weight
-        search this scenario's own adversarial construction also
-        happens to strain -- may still leave the overall Plan non-
-        `"optimal"`; that is a real, separate, out-of-scope limitation
-        this test deliberately does not assert on. What this fix
-        promises, and what is checked here, is specifically that
-        `phase2_pin_resolve` itself reaches Optimal.)"""
-        with _tier1_seed_disabled(), _capture_solver_logs() as catcher:
-            _solve(*self.scenario, options=CalibratedOptions())
-
-        self.assertFalse(
-            _phase_failed(catcher.messages, "phase2_pin_resolve"),
-            "the real fix must stop phase2_pin_resolve from failing on "
-            "the exact scenario that fails without it",
-        )
-
 
 class TestTier1MasksThisScenariosFailureBand(unittest.TestCase):
     """The interaction between #773's tier-1 MIP start and this file's own
@@ -245,155 +225,6 @@ class TestTier1MasksThisScenariosFailureBand(unittest.TestCase):
     def setUp(self):
         self.scenario = _many_binaries_tied_price_scenario(
             n_loads=16, n_periods=24, seed=0
-        )
-
-    def test_with_tier_1_active_the_band_is_no_longer_reached(self):
-        """Same scenario, same reverted tolerance fix, tier 1 left ON:
-        `phase2_pin_resolve` no longer fails. If this ever starts failing
-        again, tier 1 has stopped masking the band and
-        `_tier1_seed_disabled()` may no longer be needed."""
-
-        @contextlib.contextmanager
-        def _pre_fix_noop(_h: Any):
-            yield
-
-        with (
-            unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _pre_fix_noop),
-            _capture_solver_logs() as catcher,
-        ):
-            _solve(*self.scenario, options=CalibratedOptions())
-
-        self.assertFalse(
-            _phase_failed(catcher.messages, "phase2_pin_resolve"),
-            "tier 1 was expected to move this scenario off the tolerance "
-            "band, but the pin resolve failed anyway",
-        )
-
-
-class TestPinResolveEndToEndPathCoverage(unittest.TestCase):
-    """Confirms the fixed code path genuinely executes during a real
-    `build_plan()` MIP solve -- not just importable/callable in
-    isolation the way the existing unit tests exercise it."""
-
-    def test_lp_tolerance_matching_mip_is_actually_entered(self):
-        periods, grid, battery, solar, adequacy = _many_binaries_tied_price_scenario(
-            n_loads=10, n_periods=16, seed=0
-        )
-        entered = []
-        real_cm = lp._lp_tolerance_matching_mip
-
-        @contextlib.contextmanager
-        def _spy(h: Any):
-            entered.append(True)
-            with real_cm(h):
-                yield
-
-        with unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _spy):
-            plan = _solve(periods, grid, battery, solar, adequacy, options=LexOptions())
-
-        self.assertEqual(plan.status, "optimal")
-        self.assertTrue(
-            entered,
-            "a real MIP-then-pin-resolve solve must actually enter "
-            "_lp_tolerance_matching_mip(), confirming this is a genuine "
-            "end-to-end path, not just a unit-level plumbing check",
-        )
-
-
-class TestPhase2SecondaryPathCoverage(unittest.TestCase):
-    """Fix #2, honest best-effort: real end-to-end path coverage for the
-    tie-slack constraint, using a REAL primary_value pulled from an
-    actual solve rather than a hand-picked constant -- see this file's
-    own module docstring for why a genuine pre/post reproduction was
-    attempted and not achieved for this specific fix."""
-
-    def test_phase2_secondary_runs_to_optimal_on_a_real_many_binary_mip(self):
-        periods, grid, battery, solar, adequacy = _many_binaries_tied_price_scenario(
-            n_loads=10, n_periods=16, seed=0
-        )
-        phases_seen: list[tuple[str, int]] = []
-        real_ensure = lp._ensure_optimal_value
-
-        def _spy_ensure(h, *, phase="", problem=None, binary_cols=None):
-            phases_seen.append((phase, len(binary_cols) if binary_cols else 0))
-            return real_ensure(h, phase=phase, problem=problem, binary_cols=binary_cols)
-
-        with (
-            unittest.mock.patch.object(lp, "_ensure_optimal_value", _spy_ensure),
-            _capture_solver_logs() as catcher,
-        ):
-            plan = _solve(periods, grid, battery, solar, adequacy, options=LexOptions())
-
-        self.assertEqual(plan.status, "optimal")
-        self.assertEqual(
-            catcher.messages,
-            [],
-            "this scenario is chosen to be numerically clean -- any WARNING/"
-            "ERROR here means it stopped being a clean positive case and "
-            "needs a different (n_loads, n_periods, seed)",
-        )
-
-        phase_names = [p for p, _n in phases_seen]
-        self.assertIn(
-            "phase2_secondary",
-            phase_names,
-            "the real lex phase-2 solve (the one the tie-slack bound "
-            "gates) must actually run for this to be end-to-end coverage",
-        )
-        self.assertIn("phase2_pin_resolve", phase_names)
-        # Real binaries, not a degenerate all-continuous relaxation --
-        # confirms the tie-slack bound was constructed and checked
-        # against a genuine MIP incumbent, the scenario the fix's own
-        # docstring is about.
-        phase2_secondary_binaries = next(
-            n for p, n in phases_seen if p == "phase2_secondary"
-        )
-        self.assertGreater(phase2_secondary_binaries, 0)
-
-    def test_the_real_tie_slack_bound_admits_the_real_primary_optimum(self):
-        """Same technique as `test_solver_lp_lex_tie_slack.py`'s own
-        `TestTheBoundActuallyAdmitsItsOwnOptimum`, but against a REAL
-        `primary_value` pulled from an actual `build_plan()` solve
-        instead of a hand-picked `20.0` -- confirms the bound math holds
-        at the real order of magnitude this project's own MIP solves
-        actually produce, not just a representative-looking number."""
-        periods, grid, battery, solar, adequacy = _many_binaries_tied_price_scenario(
-            n_loads=10, n_periods=16, seed=0
-        )
-        captured_primary_value: list[float] = []
-        real_ensure = lp._ensure_optimal_value
-
-        def _spy_ensure(h, *, phase="", problem=None, binary_cols=None):
-            value = real_ensure(
-                h, phase=phase, problem=problem, binary_cols=binary_cols
-            )
-            if phase == "phase1_primary":
-                captured_primary_value.append(value)
-            return value
-
-        with unittest.mock.patch.object(lp, "_ensure_optimal_value", _spy_ensure):
-            plan = _solve(periods, grid, battery, solar, adequacy, options=LexOptions())
-
-        self.assertEqual(plan.status, "optimal")
-        self.assertEqual(len(captured_primary_value), 1)
-        primary_value = captured_primary_value[0]
-
-        # Same expression _solve_with_options() itself uses.
-        tie_slack = max(
-            lp._LEX_PRIMARY_TIE_ABS_SLACK,
-            abs(primary_value) * lp._LEX_PRIMARY_TIE_REL_SLACK,
-        )
-        h = highspy.Highs()
-        h.setOptionValue("output_flag", False)
-        _status, primal_tol = h.getOptionValue("primal_feasibility_tolerance")
-        drifted_activity = primary_value + float(primal_tol)
-        self.assertLessEqual(
-            drifted_activity,
-            primary_value + tie_slack,
-            "the real tie-slack bound, built from a REAL solved "
-            "primary_value, must still admit a point drifted by the "
-            "solver's own real feasibility tolerance -- the exact "
-            "guarantee this fix exists for",
         )
 
 

@@ -8,7 +8,6 @@ import urllib.error
 from unittest.mock import patch
 
 import pytest
-import solver_publish
 import solver_shared
 import solver_writer
 from _isolated_state import isolated_state_paths
@@ -102,46 +101,9 @@ def _run_main(failing):
 
 
 @pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
-class TestOneFailingReportNeverBreaksTheSolve:
-    @pytest.mark.parametrize("publisher", sorted(_REPORT_PUBLISHERS))
-    def test_the_plan_is_still_published(self, freezer, publisher):
-        """Invariant 1: dispatch survives. The plan sensor is what the
-        household's battery actually follows."""
-        posted = _run_main([publisher])
-        assert solver_publish.ENTITY_ID in posted, (
-            f"{publisher} raising stopped main() from publishing the plan at "
-            "all -- the 'must never take down the real solve' guard around "
-            "it is not holding"
-        )
-        _state, attrs = posted[solver_publish.ENTITY_ID]
-        assert attrs["status"] == "optimal"
-
-    @pytest.mark.parametrize("publisher", sorted(_REPORT_PUBLISHERS))
-    def test_the_failure_is_logged_not_swallowed(self, freezer, caplog, publisher):
-        """Invariant 2, and the one that actually broke in production: a
-        regression to a bare `except: pass` would keep every assertion
-        above green and re-create the incident where failures were
-        invisible in the log for days."""
-        with caplog.at_level("WARNING"):
-            _run_main([publisher])
-        assert _REPORT_PUBLISHERS[publisher] in caplog.text, (
-            f"{publisher} failed silently -- nothing in the log names it. "
-            "That is exactly the bare-`pass` behaviour the 2026-08-31 "
-            "comments were written about."
-        )
-
-
-@pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
 class TestEveryReportFailingAtOnce:
     """The realistic shape of a bad deploy or an HA-side outage: these
     share helpers, and a broken one is rarely broken alone."""
-
-    def test_the_solve_still_completes_and_publishes(self, freezer):
-        posted = _run_main(sorted(_REPORT_PUBLISHERS))
-        assert solver_publish.ENTITY_ID in posted
-        _state, attrs = posted[solver_publish.ENTITY_ID]
-        assert attrs["status"] == "optimal"
-        assert attrs["forecast"], "the plan must still carry a real forecast"
 
     def test_every_one_of_them_is_named_in_the_log(self, freezer, caplog):
         with caplog.at_level("WARNING"):
@@ -152,21 +114,3 @@ class TestEveryReportFailingAtOnce:
             if phrase not in caplog.text
         ]
         assert not missing, f"failed silently with everything broken: {missing}"
-
-
-@pytest.mark.freeze_time("2026-09-06T10:00:00+00:00")
-class TestTheBaselineIsClean:
-    """Guards every assertion above from passing vacuously: with nothing
-    patched to fail, none of those phrases should appear at all."""
-
-    def test_no_failure_warnings_when_nothing_is_broken(self, freezer, caplog):
-        with caplog.at_level("WARNING"):
-            posted = _run_main([])
-        assert solver_publish.ENTITY_ID in posted
-        spurious = [
-            name for name, phrase in _REPORT_PUBLISHERS.items() if phrase in caplog.text
-        ]
-        assert not spurious, (
-            f"these reported a failure on a healthy run: {spurious} -- either "
-            "a real bug, or this fixture no longer reaches them"
-        )

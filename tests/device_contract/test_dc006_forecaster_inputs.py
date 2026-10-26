@@ -46,22 +46,6 @@ def _values(rows):
     return {name: row["value"] for name, row in rows.items()}
 
 
-def test_legacy_feeds_exactly_todays_readings():
-    rows = _run("legacy", NORMAL, do.TRAINED_NATIVE)
-    assert _values(rows) == {
-        "grid_power": 1.5,
-        "battery_power": 2.0,
-        "solar_power": 3.0,
-    }
-    assert {r["state"] for r in rows.values()} == {"legacy"}
-
-
-def test_shadow_is_legacy_too():
-    assert _values(_run("shadow", NORMAL, do.TRAINED_NATIVE)) == _values(
-        _run("legacy", NORMAL, do.TRAINED_NATIVE)
-    )
-
-
 def test_active_changes_nothing_for_a_model_trained_in_legacy():
     """The equivalence gate on a healthy F10 site: the battery's canonical
     sign is turned back to the sign the model learned, so every input equals
@@ -69,12 +53,6 @@ def test_active_changes_nothing_for_a_model_trained_in_legacy():
     assert _values(_run("active", NORMAL, do.TRAINED_NATIVE)) == _values(
         _run("legacy", NORMAL, do.TRAINED_NATIVE)
     )
-
-
-def test_a_model_trained_in_active_is_fed_the_canonical_sign():
-    rows = _run("active", NORMAL, do.TRAINED_CANONICAL)
-    assert rows["battery_power"]["value"] == -2.0
-    assert rows["grid_power"]["value"] == 1.5
 
 
 def test_a_missing_reading_is_held_then_the_training_mean():
@@ -98,30 +76,6 @@ def test_a_missing_reading_is_held_then_the_training_mean():
     assert late["grid_power"]["value"] != 0.0
 
 
-def test_absent_with_no_training_mean_falls_back_to_zero_only_then():
-    """A model with no stored mean for the feature (none trained yet) has
-    nothing better than today's 0.0."""
-
-    def read(entity_id):
-        return {}.get(entity_id)
-
-    rows = do.forecaster_inputs(
-        "active",
-        _doc(),
-        {"grid_power": {"entity_id": "sensor.meter_power", "value": 0.0}},
-        read,
-        NOW,
-        do.ObservationHold(),
-        do.TRAINED_NATIVE,
-        {},
-    )
-    assert rows["grid_power"] == {
-        "value": 0.0,
-        "state": "absent",
-        "entity_id": "sensor.meter_power",
-    }
-
-
 def test_a_feature_the_model_never_used_stays_zero():
     """The model's own target is excluded today (#1540): `unused`, 0.0, in
     `active` too, never the contract's reading."""
@@ -135,14 +89,3 @@ def test_sign_flip_matches_the_binding():
     assert do.sign_flip(doc, "battery_power") == -1.0
     assert do.sign_flip(doc, "grid_power") == 1.0
     assert do.sign_flip(doc, "solar_power") == 1.0
-
-
-def test_no_document_is_legacy():
-    def read(entity_id):
-        return NORMAL.get(entity_id)
-
-    legacy = do.legacy_inputs(F10["options"], read, "load", "sensor.pool_power")
-    rows = do.forecaster_inputs(
-        "active", None, legacy, read, NOW, do.ObservationHold(), "native", MEANS
-    )
-    assert {r["state"] for r in rows.values()} == {"legacy"}

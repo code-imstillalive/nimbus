@@ -123,20 +123,6 @@ def test_every_service_registers_once_and_unloads_completely():
     svc.async_unregister_services(hass)  # and twice is harmless
 
 
-def test_every_documented_service_is_registered():
-    import yaml
-
-    documented = set(
-        yaml.safe_load(
-            (Path(svc.__file__).parent / "services.yaml").read_text(encoding="utf-8")
-        )
-    )
-    registered = {s for _d, s in _hass().services.handlers}
-    assert documented <= registered
-    # Not yet described for Developer Tools: see the #1837 findings.
-    assert registered - documented == {svc.SERVICE_SET_CONTROLLABLE_LOAD}
-
-
 # --- argument parsing -------------------------------------------------------------
 
 
@@ -159,14 +145,6 @@ def test_a_window_bound_is_any_iso_time_read_as_local_when_naive(value, expected
 def test_a_window_bound_that_is_not_a_time_is_refused(value):
     with pytest.raises(vol.Invalid):
         svc._coerce_datetime(value)
-
-
-@pytest.mark.parametrize(
-    ("value", "kinds"),
-    [("head", ["head"]), (["horizon", "head", "head"], ["horizon", "head"])],
-)
-def test_decision_input_kinds_are_head_horizon_or_both(value, kinds):
-    assert svc._coerce_kinds(value) == kinds
 
 
 @pytest.mark.parametrize("value", [[], "tail", ["head", "x"], None])

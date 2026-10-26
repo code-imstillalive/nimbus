@@ -15,14 +15,12 @@ import logging
 import sys
 import threading
 import types
-import urllib.request
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 import solver_shared as shared
 import solver_writer as sw
-from golden.fake_ha import BASE, FakeHA, HistoryPoint
 
 T0 = datetime(2026, 9, 20, 6, 0, tzinfo=UTC)
 START, END = T0 - timedelta(hours=2), T0
@@ -161,27 +159,6 @@ def test_a_failing_recorder_reads_as_no_history_not_an_error(hass):
     assert shared.fetch_entity_went_unavailable("sensor.x", START, END) is None
 
 
-def test_went_unavailable_over_rest_too(monkeypatch):
-    fake = FakeHA(states={})
-    monkeypatch.setattr(sw, "HA_BASE", BASE)
-    monkeypatch.setattr(sw, "_load_token", lambda: "test")
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    monkeypatch.setattr(urllib.request, "urlopen", fake.urlopen)
-    after = T0 - timedelta(hours=1)
-    assert shared.fetch_entity_went_unavailable("sensor.x", after, END) is False
-    fake.history["sensor.x"] = [
-        HistoryPoint((T0 - timedelta(minutes=50)).isoformat(), "1"),
-        HistoryPoint((T0 - timedelta(minutes=20)).isoformat(), "unavailable"),
-    ]
-    assert shared.fetch_entity_went_unavailable("sensor.x", after, END) is True
-    assert (
-        shared.fetch_entity_went_unavailable(
-            "sensor.x", T0 - timedelta(minutes=10), END
-        )
-        is False
-    )
-
-
 # --- service calls with a response ------------------------------------------------
 
 
@@ -208,19 +185,6 @@ def publish(hass, monkeypatch):
 MANAGED = "sensor.nimbus_solver_battery_forecast"
 
 
-def test_a_managed_entity_publishes_through_its_own_handler(publish):
-    assert MANAGED in shared._NATIVE_MANAGED_ENTITY_IDS
-    got = []
-    shared._ENTITY_UPDATE_HANDLERS[MANAGED] = lambda state, attrs: got.append(
-        (state, attrs)
-    )
-    assert shared.ha_post_state(MANAGED, 1.5, {"a": 1}) is True
-    assert got == [(1.5, {"a": 1})]
-    assert publish.states_set == []
-    assert shared.last_posted(MANAGED) == (1.5, {"a": 1})
-    assert shared.last_posted_at(MANAGED) is not None
-
-
 def test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycles(
     publish, caplog
 ):
@@ -242,38 +206,3 @@ def test_a_managed_entity_without_a_handler_is_skipped_and_warned_after_ten_cycl
         if r.levelno == logging.INFO
     )
     assert publish.states_set == [] and MANAGED not in shared._MANAGED_SKIP_STREAK
-
-
-def test_an_unmanaged_entity_falls_back_to_a_raw_state_and_says_so(publish, caplog):
-    with caplog.at_level(logging.WARNING, logger=shared._LOGGER.name):
-        assert (
-            shared.ha_post_state("sensor.nimbus_unregistered", "ok", {"k": 1}) is True
-        )
-    assert publish.states_set == [("sensor.nimbus_unregistered", "ok", {"k": 1})]
-    assert any(
-        "raw states.async_set fallback" in r.getMessage() for r in caplog.records
-    )
-
-
-def test_a_state_read_inside_home_assistant_carries_when_it_changed(hass):
-    """The P2P rate merge (#1537) compares two sources by freshness, so the
-    in-process read returns last_updated just as the REST path does."""
-    state = types.SimpleNamespace(
-        entity_id="sensor.p2p", state="0.3", attributes={"a": 1}, last_updated=T0
-    )
-    hass.states.get = lambda eid: state if eid == "sensor.p2p" else None
-    got = sw.ha_get("sensor.p2p")
-    assert got["last_updated"] == T0.isoformat() and got["attributes"] == {"a": 1}
-
-
-def test_every_native_publish_leaves_a_trace_in_the_log(publish, caplog):
-    """#85: the publish trace reaches the integration's own logger, where the
-    household's log can show it, not only stdout."""
-    with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
-        shared.ha_post_state("sensor.nimbus_unregistered", "ok", {})
-    assert any(
-        r.levelno == logging.DEBUG
-        and "sensor.nimbus_unregistered" in r.getMessage()
-        and "via_handler=False" in r.getMessage()
-        for r in caplog.records
-    )

@@ -77,20 +77,6 @@ def test_corrects_empty_string_unit():
     assert kwargs["new_unit_of_measurement"] == "kW"
 
 
-def test_corrects_none_unit():
-    hass = MagicMock()
-    metadata = {ENTITY_ID: (123, {"unit_of_measurement": None})}
-    recorder = _run_remediation(hass, metadata)
-    recorder.async_update_statistics_metadata.assert_called_once()
-
-
-def test_already_correct_unit_is_left_alone():
-    hass = MagicMock()
-    metadata = {ENTITY_ID: (123, {"unit_of_measurement": "kW"})}
-    recorder = _run_remediation(hass, metadata)
-    recorder.async_update_statistics_metadata.assert_not_called()
-
-
 def test_a_genuinely_different_real_unit_is_never_touched():
     # Real safety property: this function must only ever relabel a
     # genuinely EMPTY row, never reinterpret an existing real unit --

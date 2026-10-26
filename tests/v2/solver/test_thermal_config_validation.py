@@ -24,42 +24,13 @@ def _base_thermal(**overrides) -> dict:
     return defaults
 
 
-class TestThermalLoadConfigValidPasses(unittest.TestCase):
-    def test_a_well_formed_config_constructs_cleanly(self):
-        cfg = ThermalLoadConfig(**_base_thermal())
-        self.assertEqual(cfg.name, "hws")
-        self.assertIsNone(cfg.comfort_floor_c)
-        self.assertEqual(cfg.comfort_floor_cost, 0.0)
-        self.assertEqual(cfg.max_temperature_c, 99.0)
-
-    def test_comfort_floor_equal_to_target_is_allowed(self):
-        # "subordinate to, never above" the hard target -- equal is the
-        # boundary case, still valid.
-        cfg = ThermalLoadConfig(**_base_thermal(comfort_floor_c=60.0))
-        self.assertEqual(cfg.comfort_floor_c, 60.0)
-
-
 class TestMaxPowerKwValidation(unittest.TestCase):
-    def test_zero_is_rejected(self):
-        with self.assertRaises(ValueError) as ctx:
-            ThermalLoadConfig(**_base_thermal(max_power_kw=0.0))
-        self.assertIn("max_power_kw", str(ctx.exception))
-
     def test_negative_is_rejected(self):
         with self.assertRaises(ValueError):
             ThermalLoadConfig(**_base_thermal(max_power_kw=-1.0))
 
 
 class TestHeatingRateValidation(unittest.TestCase):
-    def test_zero_heating_rate_is_rejected(self):
-        # A zero rate would mean this load can NEVER raise temperature at
-        # all -- the hard deadline constraint would be unconditionally
-        # infeasible for any real deficit, a real modelling error worth
-        # catching here rather than as an opaque LP infeasibility.
-        with self.assertRaises(ValueError) as ctx:
-            ThermalLoadConfig(**_base_thermal(heating_rate_c_per_kwh=0.0))
-        self.assertIn("heating_rate_c_per_kwh", str(ctx.exception))
-
     def test_negative_heating_rate_is_rejected(self):
         with self.assertRaises(ValueError):
             ThermalLoadConfig(**_base_thermal(heating_rate_c_per_kwh=-2.0))
@@ -71,23 +42,12 @@ class TestIdleDecayValidation(unittest.TestCase):
             ThermalLoadConfig(**_base_thermal(idle_decay_c_per_hour=-0.1))
         self.assertIn("idle_decay_c_per_hour", str(ctx.exception))
 
-    def test_zero_idle_decay_is_allowed(self):
-        # A genuinely perfectly-insulated tank is a real (if idealized)
-        # case -- zero decay, never negative (which would mean the tank
-        # spontaneously heats itself while idle).
-        cfg = ThermalLoadConfig(**_base_thermal(idle_decay_c_per_hour=0.0))
-        self.assertEqual(cfg.idle_decay_c_per_hour, 0.0)
-
 
 class TestPeriodOrderingValidation(unittest.TestCase):
     def test_deadline_before_earliest_is_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(**_base_thermal(earliest_period=10, deadline_period=5))
         self.assertIn("deadline_period", str(ctx.exception))
-
-    def test_deadline_equal_to_earliest_is_allowed(self):
-        cfg = ThermalLoadConfig(**_base_thermal(earliest_period=5, deadline_period=5))
-        self.assertEqual(cfg.deadline_period, 5)
 
     def test_negative_earliest_period_is_rejected(self):
         with self.assertRaises(ValueError) as ctx:

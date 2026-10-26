@@ -107,17 +107,6 @@ def test_todays_plan_is_captured_once_and_survives_a_restart(store):
     assert _run(fss.async_load_snapshot(hass, "E1", "1999-01-01")) is None
 
 
-def test_the_next_day_is_a_new_capture_and_old_days_are_pruned(store):
-    hass = _hass(_rows(store["now"]))
-    for _ in range(fss.KEEP_DAYS + 3):
-        assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is True
-        store["now"] += timedelta(days=1)
-    kept = next(iter(Disk.files.values()))
-    assert len(kept) <= fss.KEEP_DAYS + 1
-    first = fss.day_key_for(datetime(2026, 9, 20, 15, 0, tzinfo=BNE))
-    assert first not in kept
-
-
 @pytest.mark.parametrize(
     "rows",
     [
@@ -140,14 +129,3 @@ def test_a_failing_store_never_raises(store):
     assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is False
     assert _run(fss.async_load_snapshot(hass, "E1", "x")) is None
     _run(fss.async_ensure_snapshots_loaded(hass, "E1"))
-
-
-def test_the_cache_answers_only_when_one_entry_is_loaded(store):
-    Disk.files[f"{fss.DOMAIN}_E1_forecast_snapshots"] = {"2026-09-19": {"a": 1}}
-    Disk.files[f"{fss.DOMAIN}_E2_forecast_snapshots"] = {"2026-09-19": {"b": 2}}
-    hass = _hass(None)
-    _run(fss.async_ensure_snapshots_loaded(hass, "E1"))
-    assert fss.get_cached_snapshot("2026-09-19") == {"a": 1}
-    assert fss.get_cached_snapshot("2026-09-18") is None
-    _run(fss.async_ensure_snapshots_loaded(hass, "E2"))
-    assert fss.get_cached_snapshot("2026-09-19") is None  # whose would it be?

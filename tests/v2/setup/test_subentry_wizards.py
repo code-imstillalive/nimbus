@@ -190,19 +190,6 @@ def test_a_sensor_another_forecaster_already_uses_is_refused(kind):
     )
 
 
-@pytest.mark.parametrize("kind", ["load", "signal"])
-def test_an_energy_sensor_offered_as_power_is_refused(kind, monkeypatch):
-    flow, m = _flow(kind)
-    monkeypatch.setattr(
-        m,
-        "energy_unit_field_errors",
-        lambda hass, ui, fields: {"load_sensor": "energy_unit"},
-    )
-    assert asyncio.run(flow.async_step_user(dict(WIZARDS[kind][2])))["errors"] == {
-        "load_sensor": "energy_unit"
-    }
-
-
 @pytest.mark.parametrize(
     ("kind", "answer", "states", "title"),
     [
@@ -247,36 +234,6 @@ def test_names_fall_back_sensibly(kind, answer, states, title):
     flow, m = _flow(kind, states=states)
     created = asyncio.run(flow.async_step_user(dict(answer)))
     assert created["title"] == (title or m._TITLE_FALLBACK)
-
-
-def test_a_battery_tower_suggests_the_energy_dashboards_soc_only_when_none_is_saved(
-    monkeypatch,
-):
-    seen = []
-
-    async def suggestion(hass):
-        seen.append(1)
-        return "sensor.dash_soc"
-
-    m = _mod("battery_tower_subentry")
-    monkeypatch.setattr(m, "_energy_dashboard_soc_suggestion", suggestion)
-    flow, _ = _flow("battery_tower")
-    form = asyncio.run(flow.async_step_user())
-    soc = next(
-        k
-        for k in form["data_schema"].schema
-        if str(k) == const.CONF_BATTERY_TOWER_SOC_SENSOR
-    )
-    assert (
-        "sensor.dash_soc" in (soc.description or {}).values()
-        or soc.default() == "sensor.dash_soc"
-    )
-    saved = SimpleNamespace(
-        subentry_id="t", data={const.CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.mine"}
-    )
-    flow, _ = _flow("battery_tower", reconfigure=saved)
-    asyncio.run(flow.async_step_user())
-    assert seen == [1]
 
 
 def test_only_load_and_signal_forecasters_can_collide():

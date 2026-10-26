@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import urllib.request
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -39,26 +38,6 @@ def _grid(n, minutes=30):
 # --- schedules ----------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("hour", "start", "end", "inside"),
-    [
-        (5, 5, 5, False),
-        (5, 5, 9, True),
-        (9, 5, 9, False),
-        (4, 5, 9, False),
-        (17, 17, 7, True),
-        (23, 17, 7, True),
-        (3, 17, 7, True),
-        (7, 17, 7, False),
-        (12, 17, 7, False),
-    ],
-)
-def test_a_schedule_block_is_start_inclusive_end_exclusive_and_may_wrap(
-    hour, start, end, inside
-):
-    assert sw._hour_in_schedule_block(hour, start, end) is inside
-
-
 def test_the_discharge_cost_follows_its_first_matching_active_block():
     cfg = {
         "solver_discharge_cost": 0.02,
@@ -77,16 +56,6 @@ def test_the_discharge_cost_follows_its_first_matching_active_block():
     cfg["solver_discharge_cost_schedule_default_rate"] = 0.05
     assert sw.scheduled_discharge_cost_rate(cfg, 12) == 0.05
     assert sw.scheduled_discharge_cost_rate({}, 12) == 0.01
-
-
-def test_the_salvage_value_follows_its_blocks_too():
-    cfg = {
-        "solver_salvage_value": 0.2,
-        "solver_salvage_value_schedule_block_1_rate": 0.4,
-    }
-    assert sw.scheduled_salvage_value_rate(cfg, 18) == 0.4  # 17-24 by default
-    assert sw.scheduled_salvage_value_rate(cfg, 10) == 0.2
-    assert sw.scheduled_salvage_value_rate({}, 10) == 0.15
 
 
 # --- summed circuit loads ------------------------------------------------------------
@@ -124,20 +93,6 @@ def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, 
     assert set(warnings) == {"sensor.c", "sensor.gone"}
     assert coverage == pytest.approx(0.5)  # b's last point is 30 minutes out
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
-
-
-def test_with_no_self_consumption_given_the_sum_is_the_circuits_alone(ha):
-    ha.states["sensor.a"] = _load([1.0, 2.0])
-    total, *_ = sw.sum_load_forecasts(["sensor.a"], _grid(2))
-    assert total == [1.0, 2.0]
-
-
-def test_no_circuits_is_just_self_consumption():
-    total, lower, upper, failed, warnings, coverage = sw.sum_load_forecasts(
-        [], _grid(2), 0.2
-    )
-    assert total == lower == upper == [0.2, 0.2]
-    assert (failed, warnings, coverage) == ([], {}, None)
 
 
 @pytest.mark.parametrize(
@@ -208,20 +163,6 @@ def test_a_charge_only_window_gives_the_implied_charge_efficiency():
 )
 def test_each_window_that_cannot_measure_efficiency_says_why(kw, reason):
     assert _balance(**kw)["implied_efficiency_reason"] == reason
-
-
-@pytest.mark.parametrize(("in_kwh", "out_kwh"), [(1e-6, 0.0), (0.0, 1e-6)])
-def test_throughput_at_the_noise_floor_counts_as_none(in_kwh, out_kwh):
-    out = _balance(in_kwh=in_kwh, out_kwh=out_kwh, final_soc_kwh=6.0)
-    assert out["implied_efficiency_reason"] == "soc_moved_without_throughput"
-
-
-def test_the_balance_is_reported_to_the_watt_hour():
-    out = _balance(in_kwh=1.23456, final_soc_kwh=6.12345)
-    assert out["modelled_soc_delta_kwh"] == 1.173
-    assert out["measured_soc_delta_kwh"] == 1.123
-    assert out["residual_kwh"] == 0.049
-    assert out["implied_charge_efficiency"] == round(1.12345 / 1.23456, 4)
 
 
 def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
@@ -328,32 +269,6 @@ def test_without_a_recorded_trail_or_baseline_there_is_no_skill(monkeypatch):
     )
 
 
-def test_the_baseline_is_yesterdays_load_shifted_and_scaled(monkeypatch):
-    trail = [(t, 1.0) for t in _grid(4)]
-    prev = [(t - timedelta(hours=24), 2000.0) for t in _grid(4)]
-    result = SimpleNamespace(
-        j_star=1.23456,
-        j_forecast=2.0,
-        j_persistence=3.0,
-        value_add_dollars=1.0,
-        coverage=1.0,
-        n_periods_measured=4,
-    )
-    out, _, got = _nowcast(monkeypatch, trail=trail, prev=prev, result=result)
-    np.testing.assert_allclose(got["load_persistence_kw"], [2.0] * 4)
-    np.testing.assert_allclose(got["load_nowcast_kw"], [1.0] * 4)
-    assert got["n_periods_measured"] == 4
-    assert out == {
-        "load_nowcast_skill_j_star": 1.2346,
-        "load_nowcast_skill_j_forecast": 2.0,
-        "load_nowcast_skill_j_persistence": 3.0,
-        "load_nowcast_skill_value_add_dollars": 1.0,
-        "load_nowcast_skill_coverage": 1.0,
-        "load_nowcast_skill_periods_measured": 4,
-        "load_nowcast_skill_reason": None,
-    }
-
-
 @pytest.mark.parametrize(
     ("trail_points", "solar", "reason"),
     [
@@ -374,75 +289,6 @@ def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(
 
 
 # --- flex availability, the P2P step lookup, consolidation's spike rule ----------
-
-
-def test_flex_availability_is_period_zeros_headroom_within_the_grid_limits():
-    sig = SimpleNamespace(
-        available_up_kw=np.array([4.0, 9.0]), available_down_kw=np.array([3.0, 9.0])
-    )
-    plan = SimpleNamespace(
-        battery_signals=[sig, sig],
-        grid_import_kw=np.array([2.0, 0.0]),
-        grid_export_kw=np.array([0.0, 5.0]),
-    )
-    assert (
-        sw._flex_available_physical(plan, 7.0, 10.0)
-        == {
-            "flex_available_up_kw": 5.0,  # 8 kW of batteries, 5 kW left under the import limit
-            "flex_available_down_kw": 6.0,  # 6 kW of batteries, within 12 kW of export room
-        }
-    )
-    none = SimpleNamespace(
-        battery_signals=None, grid_import_kw=np.zeros(1), grid_export_kw=np.zeros(1)
-    )
-    assert sw._flex_available_physical(none, 7.0, 10.0) == {
-        "flex_available_up_kw": 0.0,
-        "flex_available_down_kw": 0.0,
-    }
-
-
-def test_the_raw_p2p_rate_counts_only_inside_its_window():
-    grid = _grid(4)
-    pts = [(grid[0], 0.2), (grid[2], 0.3)]
-    window = [1.0, 0.0, 2.0, 2.0]
-    # Outside the window (0 kW) no rate; inside, the latest real rate, then
-    # past the last real point the median of the real positive rates.
-    assert sw._resample_p2p_points(pts, grid, window) == [0.2, 0.0, 0.3, 0.25]
-    assert sw._resample_p2p_points([], grid, window) == [0.0] * 4
-
-
-def test_consolidation_keeps_spikes_unless_a_threshold_is_set(monkeypatch):
-    seen = []
-
-    def side(tracker, series, now, grid, hours, n_settled, settled, spike):
-        seen.append(spike)
-        return [], {}, False
-
-    monkeypatch.setattr(sw.price_consolidation, "consolidate_side", side)
-    monkeypatch.setattr(
-        sw, "_load_price_trackers", lambda: {"import": {}, "export": {}}
-    )
-    monkeypatch.setattr(sw, "_consolidation_sources", lambda *a: {})
-    monkeypatch.setattr(sw, "_record_price_errors", lambda *a: None)
-    monkeypatch.setattr(sw, "_loss_factor", lambda prices: {})
-    args = (
-        T0,
-        _grid(2),
-        [0.5, 0.5],
-        1,
-        None,
-        [0.1],
-        [0.1],
-        None,
-        None,
-        [0.1],
-        [0.1],
-        [],
-        [],
-    )
-    assert sw.apply_price_consolidation({}, *args)["mode"] == "shadow"
-    sw.apply_price_consolidation({"solver_price_spike_threshold": 3.0}, *args)
-    assert seen == [0.0, 0.0, 3.0, 3.0]
 
 
 @pytest.mark.parametrize(

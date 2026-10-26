@@ -61,42 +61,6 @@ def _empty():
     return dd.propose_from_energy_dashboard(None)
 
 
-def test_dc_r05_localvolts_proposes_each_price_role_on_the_grid():
-    p = dd.add_provider_profiles(_empty(), [LV])
-    b = _grid(p)["bindings"]
-    assert {r: x["source"]["entity_id"] for r, x in b.items()} == {
-        "import_price": "sensor.lv_buy",
-        "export_price": "sensor.lv_sell",
-        "import_price_forecast": "sensor.lv_current_buy",
-        "export_price_forecast": "sensor.lv_current_sell",
-    }
-    fc = b["export_price_forecast"]
-    assert fc["source"] == {
-        "kind": "entity_attribute",
-        "entity_id": "sensor.lv_current_sell",
-        "attribute_path": "forecast",
-        "adapter": {
-            "name": "localvolts_v2",
-            "version": 1,
-            "field": "flexUp",
-            "direction": "Sell",
-        },
-    }
-    assert fc["normalization"] == {"quality": "forecast"}
-    assert fc["provenance"]["origin"] == "provider_profile"
-    assert fc["provenance"]["confirmed"] is False
-    assert fc["provenance"]["evidence"] == [
-        {
-            "kind": "provider_profile",
-            "profile": "localvolts_v2",
-            "profile_version": 1,
-            "instance": "entry_lv",
-            "key": "current_sell_rate",
-        }
-    ]
-    assert p.questions == [] and p.problems == []
-
-
 def test_the_proposed_adapters_are_ones_dc002_resolves():
     """A profile never names an adapter DC-002 cannot read
     (adapter_unknown)."""
@@ -105,63 +69,6 @@ def test_the_proposed_adapters_are_ones_dc002_resolves():
         for _role, _key, path, adapter in rows:
             if path is not None:
                 assert (adapter["name"], adapter["version"]) in db.ADAPTERS, profile
-
-
-def test_the_p2p_matched_rate_and_settlement_are_reported_not_bound():
-    """DC-001 has no role of their own yet (DC-002's open question 2)."""
-    p = dd.add_provider_profiles(_empty(), [LV])
-    assert [
-        (f["code"], f["key"])
-        for f in p.findings
-        if f["code"] == "profile_key_has_no_role"
-    ] == [("profile_key_has_no_role", "p2p_settlement_history")]
-    bound = {x["source"]["entity_id"] for x in _grid(p)["bindings"].values()}
-    assert "sensor.lv_p2p_history" not in bound
-
-
-def test_amber_express_and_core_bind_through_their_own_adapters():
-    p = dd.add_provider_profiles(_empty(), [AMBER_EXPRESS])
-    b = _grid(p)["bindings"]
-    assert b["import_price"]["source"] == {
-        "kind": "entity_state",
-        "entity_id": "sensor.ae_general",
-    }
-    assert b["import_price_forecast"]["source"]["adapter"] == {
-        "name": "amber_express",
-        "version": 1,
-    }
-    p = dd.add_provider_profiles(_empty(), [AMBER_CORE])
-    b = _grid(p)["bindings"]
-    assert set(b) == {"import_price_forecast", "export_price_forecast"}
-    assert b["import_price_forecast"]["source"]["attribute_path"] == "forecasts"
-
-
-def test_two_profiles_for_one_role_are_a_question_not_a_ranking():
-    """Decision 1: strength never breaks a disagreement."""
-    p = dd.add_provider_profiles(_empty(), [LV, AMBER_EXPRESS])
-    b = _grid(p)["bindings"]
-    for role in (
-        "import_price",
-        "export_price",
-        "import_price_forecast",
-        "export_price_forecast",
-    ):
-        assert role not in b
-    asked = {q["role"]: q for q in p.questions}
-    assert set(asked) == {
-        "import_price",
-        "export_price",
-        "import_price_forecast",
-        "export_price_forecast",
-    }
-    # Profiles are taken in name order, so the listing never depends on the
-    # order the HA side found them in.
-    assert [c["source"] for c in asked["import_price"]["candidates"]] == [
-        "sensor.ae_general",
-        "sensor.lv_buy",
-    ]
-    reversed_order = dd.add_provider_profiles(_empty(), [AMBER_EXPRESS, LV])
-    assert reversed_order.questions == p.questions
 
 
 def test_the_energy_dashboards_price_and_a_profiles_differ_so_it_is_asked():

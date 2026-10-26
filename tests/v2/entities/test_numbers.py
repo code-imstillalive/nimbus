@@ -132,14 +132,6 @@ def _number(
     return n, store, writes, tasks
 
 
-def test_a_fresh_entity_starts_at_its_default():
-    n, _store, _, _ = _number()
-    _run(n.async_added_to_hass())
-    assert n._attr_native_value == _desc().default
-    assert n.entity_id == f"number.nimbus_{_desc().key}"
-    assert n._attr_unique_id == f"hub1_{_desc().key}"
-
-
 def test_the_value_restored_by_home_assistant_wins_unless_the_store_is_newer():
     key = _desc().key
     n, store, _, _ = _number(

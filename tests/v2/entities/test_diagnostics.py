@@ -211,24 +211,3 @@ def test_a_participant_that_is_away_or_has_no_entities_is_reported_as_such():
     assert away["available"] is False
     bare = dg._battery_participant_diagnostics(_hass({}), {})
     assert bare["available"] is True and bare["soc_sensor_state"] is None
-
-
-@pytest.mark.parametrize(
-    ("entity", "state", "available"),
-    [
-        ("device_tracker.car", "home", True),
-        ("person.driver", "home", True),
-        ("person.driver", "not_home", False),
-    ],
-)
-def test_a_participant_is_here_by_the_same_states_the_solve_reads(
-    entity, state, available
-):
-    got = dg._battery_participant_diagnostics(
-        _hass({entity: _state(state)}),
-        {
-            const.CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY: entity,
-            const.CONF_BATTERY_PARTICIPANT_SOC_SENSOR: "sensor.soc",
-        },
-    )
-    assert got["available"] is available

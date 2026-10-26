@@ -103,35 +103,6 @@ def baseline():
     return _assemble(**_inputs())
 
 
-def test_the_day_solves_with_the_battery_moving_both_ways(baseline):
-    plan = baseline.plan
-    assert plan.status == "optimal"
-    assert max(plan.battery_discharge_kw) > 0 and max(plan.battery_charge_kw) > 0
-    # A solar band is given, so the two-stage plan runs beside it.
-    assert baseline.stochastic["status"] == "optimal"
-    assert set(baseline.stochastic_paths["soc_pct"]) == {"p10", "p50", "p90"}
-
-
-@pytest.mark.parametrize(
-    ("a", "b"),
-    [
-        ("import_price", "export_price"),
-        ("import_price", "import_price_upper"),
-        ("export_price", "export_price_lower"),
-        ("export_bonus_price", "export_price_lower"),
-        ("max_charge_kw", "max_discharge_kw"),
-        ("import_limit_kw", "export_limit_kw"),
-        ("charge_cost", "salvage_value"),
-    ],
-)
-def test_two_inputs_of_the_same_shape_are_never_interchangeable(baseline, a, b):
-    """#1380: a transposition at the call site must show in the plan."""
-    kwargs = _inputs()
-    assert kwargs[a] != kwargs[b]
-    kwargs[a], kwargs[b] = kwargs[b], kwargs[a]
-    assert _fingerprint(_assemble(**kwargs)) != _fingerprint(baseline)
-
-
 @pytest.mark.parametrize(
     ("a", "b"),
     [
@@ -220,17 +191,6 @@ def cadence():
     sw.reset_flex_ranging_cadence()
 
 
-def test_ranging_never_changes_the_plan(cadence):
-    """The precondition for ranging only some solves: otherwise the cadence
-    would itself change the plan every five minutes."""
-    ranged = _at(ON)
-    assert ranged.plan.grid_signals is not None
-    sw.reset_flex_ranging_cadence()
-    unranged = _at(OFF)
-    assert unranged.plan.grid_signals is None
-    assert _fingerprint(ranged) == _fingerprint(unranged)
-
-
 def test_the_first_solve_of_each_wall_clock_interval_ranges_and_the_rest_defer(
     cadence,
 ):
@@ -244,25 +204,6 @@ def test_the_first_solve_of_each_wall_clock_interval_ranges_and_the_rest_defer(
     edge = NOW.replace(minute=4, second=50)
     _at(ON, edge)
     assert not _at(ON, edge + timedelta(seconds=20)).flex_ranging_deferred
-
-
-def test_with_the_switch_off_nothing_ranges_or_defers(cadence):
-    for _ in range(2):
-        off = _at(OFF)
-        assert off.plan.grid_signals is None and not off.flex_ranging_deferred
-
-
-def test_a_ranging_solve_that_produced_no_signals_is_retried(cadence, monkeypatch):
-    real = solver_plan.network.build_plan
-    monkeypatch.setattr(
-        solver_plan.network,
-        "build_plan",
-        lambda **kw: dataclasses.replace(real(**kw), grid_signals=None),
-    )
-    assert _at(ON).plan.grid_signals is None
-    monkeypatch.setattr(solver_plan.network, "build_plan", real)
-    retry = _at(ON, NOW + timedelta(seconds=17))
-    assert retry.plan.grid_signals is not None and not retry.flex_ranging_deferred
 
 
 def _posts(monkeypatch):

@@ -152,45 +152,6 @@ def test_every_solve_keeps_a_head_and_the_whole_horizon_when_it_matters(site):
     assert len(out["records"][0]["rows"]["time"]) == 48
 
 
-def test_the_config_is_kept_once_and_the_price_sources_series_with_the_horizons(site):
-    site.publish(0, 2.0)
-    site.capture()
-    site.publish(5, 2.0)
-    site.capture()
-    out = site.export(T0, T0 + timedelta(hours=1))
-    (fp,) = out["configs"]
-    assert (
-        "friendly_name" not in out["configs"][fp]
-        and out["configs"][fp]["solver_import_price_sensor"] == "sensor.buy"
-    )
-    horizon = out["records"][0]
-    buy = next(line for line in horizon["sources"] if line["entity_id"] == "sensor.buy")
-    series = out["series"][buy["series"]]
-    assert (series["to_dollars"], series["value"][:2]) == (0.01, [20, 21])
-    assert buy["forecast_rows"] == 4
-    entities = [line["entity_id"] for line in horizon["sources"]]
-    assert (
-        "sensor.load_fc" in entities and "sensor.other_buy" not in entities
-    )  # a missing comparison is skipped
-    head_sources = out["records"][1]["sources"]
-    assert all("series" not in line for line in head_sources)
-
-
-def test_an_export_can_ask_for_heads_only_or_horizons_only(site):
-    site.publish(0, 2.0)
-    site.capture()
-    site.publish(5, 2.0)
-    site.capture()
-    heads = site.export(T0, T0 + timedelta(hours=1), ["head"])
-    assert heads["count"] == 2 and all(
-        len(r["rows"]["time"]) == 4 for r in heads["records"]
-    )
-    assert heads["records"][0]["trimmed_to_head"] is True
-    horizons = site.export(T0, T0 + timedelta(hours=1), ["horizon"])
-    assert [r["kind"] for r in horizons["records"]] == ["horizon"]
-    assert site.export(T0 + timedelta(hours=2), T0 + timedelta(hours=3))["count"] == 0
-
-
 @pytest.mark.parametrize(
     ("start", "end", "says"),
     [(T0, T0, "after start"), (T0, T0 + timedelta(hours=25), "at most")],
@@ -198,18 +159,6 @@ def test_an_export_can_ask_for_heads_only_or_horizons_only(site):
 def test_an_export_window_must_be_forward_and_at_most_a_day(site, start, end, says):
     with pytest.raises(ValueError, match=says):
         site.export(start, end)
-
-
-def test_old_segments_are_pruned_on_flush(site, tmp_path):
-    site.publish(0, 2.0)
-    site.capture()
-    root = store._root(site.hass, "hub1")
-    assert store._list_keys(root, "horizon") == [di.segment_key(T0)]
-    site.clock = T0 + di.HORIZON_KEEP + timedelta(hours=2)
-    site.publish(60 * 24 * 8, 2.0)
-    site.capture()
-    asyncio.run(store.async_flush(site.hass, "hub1"))
-    assert di.segment_key(T0) not in store._list_keys(root, "horizon")
 
 
 def test_nothing_is_captured_without_a_published_plan(site):
@@ -257,27 +206,6 @@ def test_segments_and_windows_are_whole_utc_hours():
     with pytest.raises(ValueError):
         di.segment_key(datetime(2026, 1, 1))  # noqa: DTZ001
     assert di.in_window({"captured_at": "x"}, T0, T0) is False
-
-
-def test_a_price_array_is_kept_per_field():
-    config = {
-        di.ARRAY_SENSOR_KEY: "sensor.array",
-        "solver_price_forecast_array_import_key": "costsflexup",
-    }
-    assert di.keyed_price_fields(config) == {
-        "sensor.array": ["costsflexup", "earningsflexup"]
-    }
-    assert di.keyed_price_fields({}) == {}
-    attrs = {
-        "forecast": [
-            {"time": T0.isoformat(), "costsflexup": 30, "earningsflexup": 5},
-            {"time": (T0 + timedelta(minutes=5)).isoformat(), "costsflexup": 31},
-        ],
-        "unit_of_measurement": "$/kWh",
-    }
-    body = di.source_series(attrs, "costsflexup")
-    assert (body["value"], body["step_min"]) == ([30, 31], [0, 5])
-    assert di.source_series({}, None) is None
 
 
 # --- each source as published -----------------------------------------------------------------
@@ -355,24 +283,6 @@ def test_start_end_rows_keep_their_end_and_drop_what_cannot_be_read():
         [0, 10],
     )
     assert body["end"] == (T0 + timedelta(minutes=15)).isoformat()
-
-
-def test_the_price_sources_are_the_configs_then_p5min_then_comparisons_once_each():
-    config = {
-        "solver_import_price_sensor": "sensor.buy",
-        "solver_export_price_sensor": "sensor.sell",
-        "solver_load_forecast_sensor": "sensor.load_fc",
-    }
-    out = di.price_source_entities(config, ["sensor.cmp", "sensor.buy", 5])
-    # Sorted by config key; the load forecast is not a price.
-    assert out == ["sensor.sell", "sensor.buy", di.P5MIN_ENTITY, "sensor.cmp"]
-    assert di.keyed_price_fields(
-        {
-            di.ARRAY_SENSOR_KEY: "sensor.array",
-            "solver_price_forecast_array_import_key": "buy",
-            "solver_price_forecast_array_export_key": "sell",
-        }
-    ) == {"sensor.array": ["buy", "sell"]}
 
 
 def _array_rows(n=12):

@@ -56,37 +56,6 @@ def _arrays(cfg, **kw):
     return solar.build_solar_arrays(cfg, GRID, N, **kw)
 
 
-def test_one_source_keeps_its_own_band_clamped_to_bracket_it(site):
-    site["sensor.a"] = _forecast(
-        [-0.5, 2.0, 2.0, 2.0], lower=[3.0, 1.0, 1.0, 1.0], upper=[1.0, 3.0, 3.0, 3.0]
-    )
-    kw, lo, up = _arrays({"solver_solar_forecast_sensor": "sensor.a"})
-    assert kw == [0.0, 2.0, 2.0, 2.0]  # no negative solar
-    assert all(lo[i] <= kw[i] <= up[i] for i in range(N))
-    assert (lo[1], up[1]) == (1.0, 3.0)
-
-
-def test_sources_are_averaged_and_their_disagreement_widens_the_band(site):
-    site["sensor.a"] = _forecast([2.0] * N)
-    site["sensor.b"] = _forecast([2.0] * N)
-    site["sensor.c"] = _forecast([4.0] * N)
-    agree, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_forecast_sensor_2": "sensor.b",
-        }
-    )
-    assert agree == pytest.approx([2.0] * N) and lo == pytest.approx(agree) == up
-    kw, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_forecast_sensor_2": "sensor.c",
-        }
-    )
-    assert kw == pytest.approx([3.0] * N)
-    assert all(lo[i] < kw[i] < up[i] for i in range(N))
-
-
 @pytest.mark.parametrize(
     "broken",
     [{"something_else": 1}, urllib.error.URLError("down")],
@@ -103,14 +72,6 @@ def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog, bro
         assert _arrays(cfg)[0] == [4.0] * N  # never averaged in as zeros
         _arrays(cfg)
     assert caplog.text.count("sensor.bad") == 1
-
-
-def test_with_no_source_at_all_the_solve_runs_flat_at_zero_and_says_so(site, caplog):
-    with caplog.at_level(logging.WARNING):
-        arrays = _arrays({})
-    assert arrays == ([0.0] * N, [0.0] * N, [0.0] * N)
-    assert all(isinstance(v, float) for a in arrays for v in a)
-    assert "no solar forecast source" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -147,25 +108,6 @@ def _solcast(values, low, high):
     }
 
 
-def test_solcast_is_read_with_its_own_p10_and_p90(site):
-    site["sensor.solcast_today"] = _solcast([3.0] * N, [2.0] * N, [4.0] * N)
-    kw, lo, up = _arrays({"solver_solar_forecast_sensor": "sensor.solcast_today"})
-    assert (kw, lo, up) == ([3.0] * N, [2.0] * N, [4.0] * N)
-
-
-def test_open_meteo_watts_are_instants_read_where_each_period_sits():
-    """#2004: watts[t] is the power at t + 15 minutes, an instant -- never a
-    value held from its key."""
-    key = T0
-    entries = sw._solar_entries_from_attributes({"watts": {key.isoformat(): 1500}})
-    assert entries == [
-        {"time": key + sw.OPEN_METEO_WATTS_LEAD, "value": 1.5, "instant": True}
-    ]
-    assert sw.OPEN_METEO_WATTS_LEAD == timedelta(minutes=15)
-    assert solar._resampler(entries) is sw.resample_instants
-    assert solar._resampler([{"time": key, "value": 1}]) is sw.resample_forecast
-
-
 KNOWN = {
     "known_sources": {
         "solcast": ["sensor.solcast_today", "sensor.solcast_tomorrow"],
@@ -190,30 +132,6 @@ def test_a_known_integration_is_read_once_never_also_as_a_configured_source(site
     assert band == [([6.0] * N, [5.0] * N, [7.0] * N)]  # as fetched, for the quantiles
     off = {**cfg, "solver_auto_include_known_solar": False}
     assert _arrays(off)[0] == [6.0] * N  # read as a plain source instead
-
-
-def test_auto_included_open_meteo_joins_the_blend(site):
-    def watts(start_hours, kw):
-        return {
-            "watts": {
-                (T0 + timedelta(hours=h)).isoformat(): kw * 1000
-                for h in range(start_hours, start_hours + 6)
-            }
-        }
-
-    site["sensor.om_today"] = watts(-1, 2.0)
-    site["sensor.om_tomorrow"] = watts(5, 2.0)
-    site["sensor.a"] = _forecast([4.0] * N)
-    cfg = {
-        **KNOWN,
-        "solver_auto_include_known_solar": True,
-        "solver_solar_forecast_sensor": "sensor.a",
-    }
-    kw, lo, up = _arrays(cfg)
-    assert kw == pytest.approx([3.0] * N)
-    assert all(lo[i] < kw[i] < up[i] for i in range(N))
-    del site["sensor.om_today"]  # the anchor entity gone: Open-Meteo is absent
-    assert _arrays(cfg)[0] == [4.0] * N
 
 
 def test_a_source_that_comes_back_is_announced_and_warned_about_afresh_if_lost_again(

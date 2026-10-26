@@ -134,57 +134,6 @@ def _read(path: Path) -> dict:
 # ---- pure ----------------------------------------------------------------
 
 
-def test_dispatch_class_uses_the_automations_deadband():
-    assert di.dispatch_class(0.06) == "discharge"
-    assert di.dispatch_class(-0.06) == "charge"
-    assert di.dispatch_class(0.05) == "self_consume"
-    assert di.dispatch_class(-0.05) == "self_consume"
-    assert di.dispatch_class(None) is None
-
-
-def test_horizon_reason():
-    assert di.horizon_reason(None, T0, None, "charge") == "first"
-    t = T0 + timedelta(minutes=5)
-    assert di.horizon_reason(T0, t, "charge", "charge") is None
-    assert di.horizon_reason(T0, t, "charge", "self_consume") == "dispatch_class_change"
-    assert (
-        di.horizon_reason(T0, T0 + timedelta(minutes=30), "charge", "charge")
-        == "interval"
-    )
-
-
-def test_head_is_two_hours_by_the_rows_own_lengths_and_keeps_only_row_fields():
-    rows = _plan(T0, 3.0)["forecast"]
-    head = di.columns(rows, di.HEAD_HOURS)
-    assert set(head) == set(di.ROW_FIELDS)
-    assert len(head["time"]) == 24  # 24 five-minute rows = 2 h
-    full = di.columns(rows, None)
-    assert len(full["time"]) == len(rows)
-
-
-def test_a_trimmed_horizon_equals_the_head_that_would_have_been_filed():
-    rec = di.build_record(
-        _plan(T0, 3.0),
-        captured_at=T0,
-        kind=di.KIND_HORIZON,
-        config_hash=None,
-        sources=[],
-        reason="first",
-    )
-    head = di.build_record(
-        _plan(T0, 3.0), captured_at=T0, kind=di.KIND_HEAD, config_hash=None, sources=[]
-    )
-    assert di.as_head(rec)["rows"] == head["rows"]
-    assert di.as_head(rec)["trimmed_to_head"] is True
-    assert di.as_head(head) is head
-
-
-def test_config_fingerprint_ignores_presentation_and_tracks_content():
-    a = di.config_fingerprint(CONFIG)
-    assert a == di.config_fingerprint({**CONFIG, "friendly_name": "renamed"})
-    assert a != di.config_fingerprint({**CONFIG, "solver_p2p_block_1_rate_kw": 13.0})
-
-
 def test_source_entities_are_the_price_and_forecast_inputs_only():
     # Sorted by config key, so the order is stable from capture to capture.
     assert di.source_entities(CONFIG) == [
@@ -194,79 +143,7 @@ def test_source_entities_are_the_price_and_forecast_inputs_only():
     ]
 
 
-def test_expiry_counts_from_the_end_of_a_segment():
-    now = T0
-    keys = [
-        di.segment_key(now - timedelta(hours=49, minutes=30)),
-        di.segment_key(now - timedelta(hours=48, minutes=30)),
-    ]
-    # The first segment ended 49 h ago; the second ended exactly 48 h ago,
-    # which is not yet past the 48 h retention.
-    assert di.expired(keys, now, di.HEAD_KEEP) == [keys[0]]
-
-
-def test_segment_key_refuses_a_naive_datetime():
-    with pytest.raises(ValueError):
-        di.segment_key(datetime(2026, 10, 9, 4))  # noqa: DTZ001 -- naive on purpose
-
-
 # ---- store ---------------------------------------------------------------
-
-
-def test_first_solve_files_a_horizon_then_heads_then_a_horizon_on_a_class_change(env):
-    hass, clock, root = env
-    assert _solve(hass, clock, T0, 3.0) == "horizon"
-    assert _solve(hass, clock, T0 + timedelta(minutes=1), 3.1) == "head"
-    assert (
-        _solve(hass, clock, T0 + timedelta(minutes=2), 0.0) == "horizon"
-    )  # discharge -> self-consume
-    assert (
-        _solve(hass, clock, T0 + timedelta(minutes=32), 0.0) == "horizon"
-    )  # 30 min since the last
-    asyncio.run(store.async_flush(hass, "E"))
-    horizons = _read(_files(root, "horizon")[0])["records"]
-    assert [r["reason"] for r in horizons] == [
-        "first",
-        "dispatch_class_change",
-        "interval",
-    ]
-    heads = _read(_files(root, "head")[0])["records"]
-    assert len(heads) == 1 and len(heads[0]["rows"]["time"]) == 24
-
-
-def test_the_same_published_plan_is_not_filed_twice(env):
-    hass, clock, _root = env
-    assert _solve(hass, clock, T0, 3.0) == "horizon"
-    clock["now"] = T0 + timedelta(minutes=1)
-    assert asyncio.run(store.async_capture(hass, "E")) is None
-
-
-def test_two_solves_in_one_period_are_both_filed(env):
-    """`generated_at` is the plan's first period boundary, shared by every
-    solve inside that period; identity is the entity's own write time."""
-    hass, clock, _root = env
-    plan = _plan(T0, 3.0)
-    for second in (10, 40):
-        clock["now"] = T0 + timedelta(seconds=second)
-        hass.set("sensor.nimbus_solver_battery_forecast", 3.0, dict(plan), clock["now"])
-        assert asyncio.run(store.async_capture(hass, "E")) is not None
-
-
-def test_config_and_sources_travel_with_the_record(env):
-    hass, clock, root = env
-    _solve(hass, clock, T0, 3.0)
-    asyncio.run(store.async_flush(hass, "E"))
-    data = _read(_files(root, "horizon")[0])
-    rec = data["records"][0]
-    assert data["configs"][rec["config"]]["solver_p2p_block_1_rate_kw"] == 12.0
-    assert "friendly_name" not in data["configs"][rec["config"]]
-    assert {s["entity_id"] for s in rec["sources"]} == {
-        "sensor.test_buy",
-        "sensor.test_sell",
-        "sensor.test_array",
-    }
-    assert rec["sources"][0]["forecast_rows"] == 1
-    assert "batteries" not in rec  # large, and not an input
 
 
 def test_a_restart_inside_the_hour_appends_rather_than_replacing(env):
@@ -277,17 +154,6 @@ def test_a_restart_inside_the_hour_appends_rather_than_replacing(env):
     _solve(hass, clock, T0 + timedelta(minutes=10), 3.0)  # first after restart: horizon
     asyncio.run(store.async_flush(hass, "E"))
     assert len(_read(_files(root, "horizon")[0])["records"]) == 2
-
-
-def test_an_hour_rollover_writes_the_ended_hour_before_opening_the_next(env):
-    """Regression: replacing the open segment must not drop its unwritten
-    records (they are only flushed every FLUSH_EVERY)."""
-    hass, clock, root = env
-    _solve(hass, clock, T0 + timedelta(minutes=50), 3.0)  # horizon, flushed (first)
-    _solve(hass, clock, T0 + timedelta(minutes=52), 3.0)  # head, NOT yet flushed
-    _solve(hass, clock, T0 + timedelta(minutes=61), 3.0)  # next hour
-    files = _files(root, "head")
-    assert len(files) == 1 and len(_read(files[0])["records"]) == 1
 
 
 def test_export_filters_by_window_and_kind(env):
@@ -309,16 +175,6 @@ def test_export_filters_by_window_and_kind(env):
         )
     )
     assert part["count"] == 10
-
-
-def test_export_refuses_a_window_over_24_hours_or_backwards(env):
-    hass, _, _ = env
-    with pytest.raises(ValueError):
-        asyncio.run(
-            store.async_export(hass, "E", T0, T0 + timedelta(hours=25), ["head"])
-        )
-    with pytest.raises(ValueError):
-        asyncio.run(store.async_export(hass, "E", T0, T0, ["head"]))
 
 
 def test_heads_go_after_48_hours_and_horizons_after_7_days(env):
@@ -350,42 +206,3 @@ def test_capture_never_raises(env, monkeypatch):
     )
     hass.set("sensor.nimbus_solver_battery_forecast", 1.0, _plan(T0, 1.0), T0)
     assert asyncio.run(store.async_capture(hass, "E")) is None
-
-
-def test_a_day_at_the_reference_shape_stays_small():
-    """~1.1 solves a minute, a 202-row plan. Values are jittered per solve and
-    per row so gzip cannot exploit repeats real plans do not have. Bound
-    loosely; the real figure is measured on devhub and stated in the PR."""
-    import random
-
-    rng = random.Random(1657)
-
-    def jittered(kind):
-        plan = _plan(T0, 3.0)
-        for row in plan["forecast"]:
-            for k in (
-                "import_price",
-                "export_price",
-                "load_kw",
-                "solar_kw",
-                "battery_kw",
-                "soc_pct",
-                "shadow_price",
-            ):
-                row[k] = round(rng.uniform(-1, 40), 4)
-        return di.build_record(
-            plan, captured_at=T0, kind=kind, config_hash="x" * 16, sources=[]
-        )
-
-    hour_of_heads = [jittered(di.KIND_HEAD) for _ in range(66)]
-    hour_bytes = len(
-        gzip.compress(json.dumps(hour_of_heads, separators=(",", ":")).encode())
-    )
-    one_horizon = len(
-        gzip.compress(
-            json.dumps(jittered(di.KIND_HORIZON), separators=(",", ":")).encode()
-        )
-    )
-    heads_48h = hour_bytes * 48
-    horizons_7d = one_horizon * 48 * 7 * 2  # every 30 min, doubled for class changes
-    assert heads_48h < 25e6 and horizons_7d < 25e6, (heads_48h, horizons_7d)

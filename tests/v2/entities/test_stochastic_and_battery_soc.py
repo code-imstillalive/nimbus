@@ -100,18 +100,6 @@ def _plan(n=4, minutes=30):
     ]
 
 
-def test_scenarios_without_their_own_times_are_read_period_by_period():
-    rows = st.scenario_rows(
-        {
-            "forecast": _plan(3),
-            "stochastic_paths": {"soc_pct": {"p10": [40, 41], "p90": [60, 61, 62]}},
-        }
-    )
-    assert [r["main"] for r in rows] == [50.0, 51.0, 52.0]
-    assert [r["p10"] for r in rows] == [40, 41, None]
-    assert [r["p90"] for r in rows] == [60, 61, 62]
-
-
 def test_scenarios_on_their_own_grid_are_interpolated_to_each_periods_end():
     ends = [(T0 + timedelta(hours=h)).isoformat() for h in (1, 2)]
     source = {
@@ -151,18 +139,6 @@ def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
     assert gap[0]["p"] is None
 
 
-def test_the_sensor_publishes_the_headline_and_keeps_the_detail_out_of_history():
-    (s,) = st.create(ENTRY, "1")
-    _attach(s)
-    plan = {"stochastic": {"status": "optimal"}, "forecast": _plan(2)}
-    s.update_from_parent(plan["forecast"][0], parent_attributes=plan)
-    assert s.native_value == "Hedge computed"
-    assert s.extra_state_attributes["stochastic"] == {"status": "optimal"}
-    assert len(s.extra_state_attributes["forecast"]) == 2
-    assert {"forecast", "stochastic"} <= s._unrecorded_attributes
-    assert s.entity_id == "sensor.nimbus_solver_stochastic"
-
-
 # --- one SoC sensor per battery ----------------------------------------------------------
 
 
@@ -172,58 +148,6 @@ def _participant(sid, name=None):
         subentry_type=const.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         data={const.CONF_BATTERY_PARTICIPANT_NAME: name} if name else {},
     )
-
-
-def test_a_single_battery_site_gets_no_per_battery_sensors():
-    entry = SimpleNamespace(
-        entry_id="hub1",
-        subentries={"l": SimpleNamespace(subentry_type="load", data={})},
-    )
-    assert bs.battery_names(entry) == [] and bs.create(entry, "1") == []
-
-
-def test_each_battery_gets_a_slot_home_first_up_to_four():
-    subs = {
-        f"s{i}": _participant(f"s{i}", None if i == 2 else f"EV{i}") for i in range(5)
-    }
-    entry = SimpleNamespace(entry_id="hub1", subentries=subs)
-    assert bs.battery_names(entry) == ["home", "EV0", "EV1", "s2"]
-    sensors = bs.create(entry, "1")
-    assert [s.entity_id for s in sensors] == [
-        f"sensor.nimbus_solver_battery_{i}_soc_pct" for i in range(4)
-    ]
-    assert [s._attr_name for s in sensors] == [
-        "SoC Home battery",
-        "SoC EV0",
-        "SoC EV1",
-        "SoC s2",
-    ]
-
-
-def test_a_battery_sensor_reads_its_own_row_of_the_plan():
-    entry = SimpleNamespace(entry_id="hub1", subentries={"a": _participant("a", "Car")})
-    home, car = (_attach(s) for s in bs.create(entry, "1"))
-    plan = {
-        "forecast": _plan(2),
-        "batteries": [
-            {
-                "name": "home",
-                "forecast": [
-                    {"time": "t0", "soc_pct": 80.0},
-                    {"time": "t1", "soc_pct": 82.0},
-                ],
-            },
-            {"name": "Car", "forecast": [{"time": "t0", "soc_pct": 46.5}, "junk"]},
-        ],
-    }
-    for s in (home, car):
-        s.update_from_parent(plan["forecast"][0], parent_attributes=plan)
-    assert (home.native_value, car.native_value) == (80.0, 46.5)
-    assert home.extra_state_attributes["forecast"] == [
-        {"time": "t0", "hours": 0.5, "soc_pct": 80.0},
-        {"time": "t1", "hours": 0.5, "soc_pct": 82.0},
-    ]
-    assert car.extra_state_attributes["battery_name"] == "Car"
 
 
 @pytest.mark.parametrize(

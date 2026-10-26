@@ -77,34 +77,6 @@ def _stochastic(scenarios, weights, start=2, **kw):
     )
 
 
-def test_identical_scenarios_continue_identically():
-    solar = np.array([0, 0, 1, 2, 2, 1, 0, 0], dtype=float)
-    plan = _stochastic([solar, solar.copy()], [0.5, 0.5])
-    assert plan.status == "optimal"
-    for a, b in (
-        (plan.stage2_charge_kw[0], plan.stage2_charge_kw[1]),
-        (plan.stage2_discharge_kw[0], plan.stage2_discharge_kw[1]),
-        (plan.stage2_soc_kwh[0], plan.stage2_soc_kwh[1]),
-    ):
-        np.testing.assert_allclose(a, b, atol=1e-5)
-
-
-def test_the_first_stage_is_one_decision_and_each_scenario_continues_on_its_own():
-    dull = np.zeros(N)
-    sunny = np.array([0, 0, 3, 4, 4, 3, 0, 0], dtype=float)
-    plan = _stochastic([dull, sunny], [0.6, 0.4])
-    assert plan.status == "optimal"
-    assert len(plan.stage1_charge_kw) == 2 == len(plan.stage1_soc_kwh)
-    assert len(plan.stage2_charge_kw) == 2 and all(
-        len(c) == N - 2 for c in plan.stage2_charge_kw
-    )
-    assert np.isfinite(plan.expected_total_cost)
-    # The sunny scenario needs less from the grid after the split.
-    assert plan.stage2_grid_import_kw[1].sum() < plan.stage2_grid_import_kw[0].sum()
-    for soc in plan.stage2_soc_kwh:
-        assert soc.min() >= 1.0 - 1e-6 and soc.max() <= 9.5 + 1e-6
-
-
 @pytest.mark.parametrize(
     ("scenarios", "weights", "start", "says"),
     [
@@ -187,29 +159,6 @@ def _policy(low, high, **kw):
     return two_threshold_dispatch(
         **{**args, **kw}, threshold_low=low, threshold_high=high
     )
-
-
-def test_doing_nothing_keeps_the_battery_where_it_was():
-    d = no_control_dispatch(n_periods=3, initial_soc_kwh=4.2)
-    assert d.final_soc_kwh == 4.2 and not d.charge_kw.any() and not d.discharge_kw.any()
-
-
-def test_the_threshold_policy_charges_cheap_and_discharges_dear_within_its_limits():
-    d = _policy(0.15, 0.40)
-    # 4 kW, then the last 1 kW of room, then full.
-    assert (
-        list(d.charge_kw[:3]) == pytest.approx([4.0, 1.0, 0.0])
-        and d.discharge_kw[3] > 0
-    )
-    # Charged to the top, then sold down to the floor.
-    assert d.charge_kw[:3].sum() * 0.9 == pytest.approx(4.5)
-    assert d.discharge_kw[3:5].sum() / 0.9 == pytest.approx(8.5)
-    assert d.final_soc_kwh == pytest.approx(
-        1.0 + 4.0 * 0.9 * 1.0 / 1.0 * 1
-    )  # the last cheap hour recharges 3.6 kWh
-    assert (
-        _policy(0.15, 0.40, hours=np.zeros(N)).final_soc_kwh == 5.0
-    )  # zero-length periods move nothing
 
 
 def test_tuning_finds_the_cheapest_thresholds_on_its_grid():

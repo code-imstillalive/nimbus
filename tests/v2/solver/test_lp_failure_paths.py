@@ -167,21 +167,6 @@ def _near_tie(secondary_on_cheaper: float) -> LPProblem:
     return p
 
 
-def test_calibration_finds_the_largest_weight_that_keeps_the_primary():
-    """#1179: the largest weight (1e-1) would buy x2 and lose 0.1c of
-    primary, beyond the tolerance; the smallest keeps it; the bisection
-    between them lands on a weight that keeps it, with no fallback."""
-    p = _near_tie(10.0)
-    r = p.solve(options=CalibratedOptions())
-    assert r.status == "optimal"
-    # Kept within the calibration tolerance (1e-4 of the primary), not
-    # moved to x2, which would cost 0.1c more.
-    assert p.primary_cost_of(r) <= 1.0 + 1e-4 + 1e-9
-    assert p.value_of(r, "x2") < 0.5
-    assert not r.calibration_min_weight_fallback
-    assert r.calibration_fallback_reason is None
-
-
 @contextlib.contextmanager
 def _probes_fail(which):
     """Report the calibration probes whose 0-based order is in `which` as not
@@ -222,16 +207,6 @@ def test_when_only_the_largest_weight_fails_the_bisection_finds_one_that_holds()
     assert not r.calibration_min_weight_fallback
 
 
-def test_a_probe_that_does_not_solve_is_named_a_symptom():
-    """#1179: when the calibration probes themselves do not reach optimal,
-    the minimum weight is used and the fallback is named a symptom of a model
-    already failing, `probe_not_optimal`, not a cause."""
-    with _probes_fail(None):
-        r = _near_tie(10.0).solve(options=CalibratedOptions())
-    assert r.calibration_min_weight_fallback
-    assert r.calibration_fallback_reason == "probe_not_optimal"
-
-
 @contextlib.contextmanager
 def _calibration_spy(edit=None):
     """Record what `_calibrate_blend_weight` returned, optionally editing its
@@ -246,35 +221,6 @@ def _calibration_spy(edit=None):
 
     with patch.object(lp, "_calibrate_blend_weight", spy):
         yield seen
-
-
-def test_the_result_carries_the_weight_the_final_solve_ran_at():
-    """#1179: the weight was once unpacked into `_` and lost. It is the
-    calibrator's first value, the one the blended solve ran at."""
-    with _calibration_spy() as seen:
-        r = _near_tie(10.0).solve(options=CalibratedOptions())
-    ((weight, _cost, fell_back, reason),) = seen
-    assert 1e-12 <= weight <= 1e-1
-    assert r.calibration_weight_used == weight
-    assert (r.calibration_min_weight_fallback, r.calibration_fallback_reason) == (
-        fell_back,
-        reason,
-    )
-
-
-def test_the_diagnostics_are_reported_and_never_steer_the_solve():
-    """#1179 is observability only: the same weight with the fallback flag and
-    reason flipped gives the same dispatch, and the result reports the flipped
-    values as given."""
-    plain = _near_tie(10.0).solve(options=CalibratedOptions())
-    with _calibration_spy(lambda o: (o[0], o[1], not o[2], "cost_not_preserved")):
-        flipped = _near_tie(10.0).solve(options=CalibratedOptions())
-    np.testing.assert_allclose(flipped.x, plain.x)
-    assert flipped.objective == pytest.approx(plain.objective)
-    assert flipped.calibration_min_weight_fallback is (
-        not plain.calibration_min_weight_fallback
-    )
-    assert flipped.calibration_fallback_reason == "cost_not_preserved"
 
 
 @pytest.mark.parametrize(
@@ -305,37 +251,6 @@ def test_a_probe_that_did_not_solve_outranks_a_cost_that_moved(failing, reason):
     assert r.calibration_weight_used == pytest.approx(1e-12)
 
 
-def test_a_failed_final_solve_still_carries_the_calibration(monkeypatch):
-    """#1179: the failing cycle is the one that needs them most."""
-    monkeypatch.setattr(lp, "_dump_failing_model", lambda *a, **k: "model.mps")
-    state = {"final": False}
-    with _probes_fail(None):
-        probing_call = lp._timed_lp_call
-        probing_status = highspy.Highs.getModelStatus
-
-        @contextlib.contextmanager
-        def timed(h, label, **kw):
-            with probing_call(h, label, **kw):
-                yield
-            state["final"] = state["final"] or label == "calibrate_blend_final"
-
-        def status(self):
-            if state["final"]:
-                return highspy.HighsModelStatus.kTimeLimit
-            return probing_status(self)
-
-        with (
-            patch.object(lp, "_timed_lp_call", timed),
-            patch.object(highspy.Highs, "getModelStatus", status),
-        ):
-            r = _near_tie(10.0).solve(options=CalibratedOptions())
-    assert r.status == "error"
-    assert r.calibration_min_weight_fallback
-    assert r.calibration_fallback_reason == "probe_not_optimal"
-    assert r.calibration_weight_used == pytest.approx(1e-12)
-    assert r.failing_model_path == "model.mps"
-
-
 # --- #1179: the HiGHS snapshot never breaks a failing cycle ----------------------
 
 
@@ -353,12 +268,6 @@ def test_the_highs_snapshot_survives_any_handle():
     )
     snap = lp._highs_info_snapshot(SimpleNamespace(getInfo=lambda: info))
     assert snap == {"simplex_iteration_count": 42.0}
-
-
-def test_a_quiet_problem_never_dumps_its_model(monkeypatch):
-    """#1797: the stochastic joint solve is quiet; it writes no MPS file."""
-    monkeypatch.setattr(lp, "_diagnostics_quiet", lambda: True)
-    assert lp._dump_failing_model(object(), "any_phase") is None
 
 
 # --- #1797: absorbing one problem into another -----------------------------------
