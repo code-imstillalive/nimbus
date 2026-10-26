@@ -68,9 +68,9 @@ def sensor(monkeypatch):
 # --- what is real coverage ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("attrs", "grid", "real"),
-    [
+def test_coverage_is_real_only_inside_a_published_interval(sensor):
+    # test_coverage_is_real_only_inside_a_published_interval
+    for attrs, grid, real in [
         (  # in AEMO's hole; then at its final END
             {"forecast": AEMO},
             ["2026-10-07T12:00:00+10:00", "2026-10-08T04:00:00+10:00"],
@@ -118,24 +118,11 @@ def sensor(monkeypatch):
             ["2026-10-06T13:15:00+10:00", "2026-10-06T13:20:00+10:00"],
             [True, False],
         ),
-    ],
-    ids=[
-        "aemo",
-        "pd7day",
-        "pd7day_seam",
-        "amber_core",
-        "amber_express",
-        "express_wrong_key",
-        "time_value",
-    ],
-)
-def test_coverage_is_real_only_inside_a_published_interval(sensor, attrs, grid, real):
-    assert sensor([t(g) for g in grid], **attrs)[1] == real
+    ]:
+        assert sensor([t(g) for g in grid], **attrs)[1] == real
 
-
-@pytest.mark.parametrize(
-    "attrs",
-    [
+    # test_no_usable_price_is_no_forecast_never_a_filled_one
+    for attrs in [
         {"forecast": [dict(PD7_TARIFF["pd7_import"][0], value=None)]},
         {
             "forecast": [
@@ -148,11 +135,8 @@ def test_coverage_is_real_only_inside_a_published_interval(sensor, attrs, grid, 
         },
         {"forecasts": []},
         {"forecasts": [{"time": "x"}]},
-    ],
-    ids=["pd7day_null", "aemo_null", "empty", "unreadable"],
-)
-def test_no_usable_price_is_no_forecast_never_a_filled_one(sensor, attrs):
-    assert sensor([t("2026-10-06T12:40:00+10:00")], **attrs) is None
+    ]:
+        assert sensor([t("2026-10-06T12:40:00+10:00")], **attrs) is None
 
 
 # --- the regional forecast past the retail feed --------------------------------------------------
@@ -235,16 +219,29 @@ def openadr(monkeypatch):
     return read
 
 
-@pytest.mark.parametrize(
-    "response",
-    [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}],
-    ids=["failed", "another_entity"],
-)
-def test_no_answer_for_this_entity_is_no_forecast(openadr, response):
-    rows = _ADR["openadr_import"]["selected_native_rows"]
-    if response:
-        response["sensor.other"]["forecast"] = rows
-    assert openadr(["2026-10-06T13:12:00+10:00"], rows, response=response) is None
+def test_no_answer_for_this_entity_is_no_forecast(openadr, spot_store, monkeypatch):
+    # test_no_answer_for_this_entity_is_no_forecast
+    for response in [{}, {"sensor.other": {"payload_type": "PRICE", "forecast": []}}]:
+        rows = _ADR["openadr_import"]["selected_native_rows"]
+        if response:
+            response["sensor.other"]["forecast"] = rows
+        assert openadr(["2026-10-06T13:12:00+10:00"], rows, response=response) is None
+
+    # test_the_first_sensor_with_amber_rows_is_the_one_read
+    with monkeypatch.context() as mp:
+        states = {
+            "sensor.lv_buy": {"state": "0.2", "attributes": {"forecast": []}},
+            "sensor.amber_feed_in": _amber(_spot_row(0.1074139)),
+        }
+        mp.setattr(sw, "ha_get", lambda e: states[e])
+        assert (
+            len(
+                sw.collect_amber_spot(
+                    ["sensor.lv_buy", None, "sensor.amber_feed_in"], SPOT_NOW
+                )
+            )
+            == 1
+        )
 
 
 # --- Amber's own spot, from the same poll as its retail price (#1698) ---------------------------
@@ -277,22 +274,6 @@ def spot_store(tmp_path, monkeypatch):
     return path
 
 
-def test_the_first_sensor_with_amber_rows_is_the_one_read(spot_store, monkeypatch):
-    states = {
-        "sensor.lv_buy": {"state": "0.2", "attributes": {"forecast": []}},
-        "sensor.amber_feed_in": _amber(_spot_row(0.1074139)),
-    }
-    monkeypatch.setattr(sw, "ha_get", lambda e: states[e])
-    assert (
-        len(
-            sw.collect_amber_spot(
-                ["sensor.lv_buy", None, "sensor.amber_feed_in"], SPOT_NOW
-            )
-        )
-        == 1
-    )
-
-
 def test_without_amber_or_with_a_failed_read_nothing_is_collected(
     spot_store, monkeypatch
 ):
@@ -308,45 +289,43 @@ def test_without_amber_or_with_a_failed_read_nothing_is_collected(
 
 
 def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
-    old = int((SPOT_END - timedelta(days=6)).timestamp()) // 300
-    spot_store.write_text(json.dumps({str(old): 0.05}))
-    monkeypatch.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
-    out = sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
-    assert old not in out and len(out) == 1
+    # test_a_spot_older_than_five_days_is_dropped
+    with monkeypatch.context() as mp:
+        old = int((SPOT_END - timedelta(days=6)).timestamp()) // 300
+        spot_store.write_text(json.dumps({str(old): 0.05}))
+        mp.setattr(sw, "ha_get", lambda _e: _amber(_spot_row(0.11)))
+        out = sw.collect_amber_spot(["sensor.amber_general"], SPOT_NOW)
+        assert old not in out and len(out) == 1
 
-
-MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local
-RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
-BUCKET = 19 * 12 + 1
-
-
-def test_the_markup_uses_the_same_poll_spot_over_a_late_regional_post(monkeypatch):
-    late = [(MARKUP_START + timedelta(seconds=60), 0.1357)]  # the previous interval's
-    monkeypatch.setattr(sw, "fetch_price_history", lambda *_a, **_k: late)
-    same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.1697)}
-    regional = sw.compute_5min_offset(RETAIL, regional_spot_sensor="sensor.aemo")
-    assert regional[BUCKET] == pytest.approx(0.40 - 0.1357)
-    assert sw.compute_5min_offset(
-        RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale=same
-    )[BUCKET] == pytest.approx(0.40 - 0.1697)
-    assert (
-        sw.compute_5min_offset(
-            RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale={}
+    # test_the_markup_uses_the_same_poll_spot_over_a_late_regional_post
+    with monkeypatch.context() as mp:
+        late = [
+            (MARKUP_START + timedelta(seconds=60), 0.1357)
+        ]  # the previous interval's
+        mp.setattr(sw, "fetch_price_history", lambda *_a, **_k: late)
+        same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.1697)}
+        regional = sw.compute_5min_offset(RETAIL, regional_spot_sensor="sensor.aemo")
+        assert regional[BUCKET] == pytest.approx(0.40 - 0.1357)
+        assert sw.compute_5min_offset(
+            RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale=same
+        )[BUCKET] == pytest.approx(0.40 - 0.1697)
+        assert (
+            sw.compute_5min_offset(
+                RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale={}
+            )
+            == regional
         )
-        == regional
-    )
 
+    # test_an_amber_only_install_needs_no_regional_sensor
+    with monkeypatch.context() as mp:
+        mp.setattr(sw, "fetch_price_history", lambda *_a, **_k: [])
+        same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.15)}
+        assert sw.compute_5min_offset(RETAIL, same_poll_wholesale=same) == {
+            BUCKET: pytest.approx(0.25)
+        }
+        assert sw.compute_5min_offset(RETAIL) == {}
 
-def test_an_amber_only_install_needs_no_regional_sensor(monkeypatch):
-    monkeypatch.setattr(sw, "fetch_price_history", lambda *_a, **_k: [])
-    same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.15)}
-    assert sw.compute_5min_offset(RETAIL, same_poll_wholesale=same) == {
-        BUCKET: pytest.approx(0.25)
-    }
-    assert sw.compute_5min_offset(RETAIL) == {}
-
-
-def test_no_usable_spot_in_progress_is_none():
+    # test_no_usable_spot_in_progress_is_none
     for rows in [
         None,
         [],
@@ -359,24 +338,28 @@ def test_no_usable_spot_in_progress_is_none():
 
         assert pi.amber_spot_in_progress(rows, SPOT_NOW) is None
 
+    # test_a_rows_price_is_value_then_calibrated_never_raw
+    with monkeypatch.context() as mp:
+        for row, expected in [
+            (
+                {"value": 0.20, "calibrated": 0.99},
+                [0.20],
+            ),  # value first, as it always was
+            (
+                {"raw_value": 8.999, "calibrated": 0.105355},
+                [0.105355],
+            ),  # never raw_value
+            ({"spike_credible": True}, None),
+        ]:
+            with mp.context() as mp:
+                rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
+                mp.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})  # noqa: B023
+                grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
+                assert (
+                    sw.resample_generic_price_forecast("sensor.price", grid) == expected
+                )
 
-@pytest.mark.parametrize(
-    ("row", "expected"),
-    [
-        ({"value": 0.20, "calibrated": 0.99}, [0.20]),  # value first, as it always was
-        ({"raw_value": 8.999, "calibrated": 0.105355}, [0.105355]),  # never raw_value
-        ({"spike_credible": True}, None),
-    ],
-    ids=["value_over_calibrated", "calibrated_not_raw", "neither"],
-)
-def test_a_rows_price_is_value_then_calibrated_never_raw(monkeypatch, row, expected):
-    rows = [{"time": "2026-08-25T12:00:00+00:00", **row}]
-    monkeypatch.setattr(sw, "ha_get", lambda _e: {"attributes": {"forecast": rows}})
-    grid = [datetime(2026, 8, 25, 12, 0, tzinfo=UTC)]
-    assert sw.resample_generic_price_forecast("sensor.price", grid) == expected
-
-
-def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one():
+    # test_amber_rows_that_cannot_be_read_are_skipped_one_by_one
     import price_intervals as pi
 
     good = _core("amber_import_action")[0]
@@ -390,10 +373,16 @@ def test_amber_rows_that_cannot_be_read_are_skipped_one_by_one():
     (only,) = pi.amber_core_intervals(rows)
     assert only.value == good["per_kwh"]
 
+    # test_a_price_historys_unit_that_cannot_be_read_scales_by_one
+    with monkeypatch.context() as mp:
 
-def test_a_price_historys_unit_that_cannot_be_read_scales_by_one(monkeypatch):
-    def down(_e):
-        raise OSError("down")
+        def down(_e):
+            raise OSError("down")
 
-    monkeypatch.setattr(sw, "ha_get", down)
-    assert sw.price_unit_scale_of_history("sensor.price") == 1.0
+        mp.setattr(sw, "ha_get", down)
+        assert sw.price_unit_scale_of_history("sensor.price") == 1.0
+
+
+MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local
+RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
+BUCKET = 19 * 12 + 1

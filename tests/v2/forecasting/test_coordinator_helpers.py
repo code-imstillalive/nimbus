@@ -48,6 +48,7 @@ def _make_bare_coordinator() -> NimbusCoordinator:
 
 def test_parse_time_to_hour_bare_float_is_already_a_decimal_hour():
     # test_parse_time_to_hour_bare_float_is_already_a_decimal_hour
+    # test_parse_time_to_hour_bare_float_is_already_a_decimal_hour
     # The real 2026-08-15 live crash this guards against: a load
     # reconfigured under the old NumberSelector-based flow still has a
     # raw float (e.g. 8.0) sitting in its subentry data, and calling
@@ -92,20 +93,7 @@ def test_parse_time_to_hour_bare_float_is_already_a_decimal_hour():
     coord.hass.states.get.return_value = MagicMock(state="unavailable")
     assert coord._current_humidity() == DEFAULT_FALLBACK_HUMIDITY_PCT
 
-
-# -- _nearest_temp (interpolated) --------------------------------------------
-
-
-# -- _step_lookup (NOT interpolated -- boolean/curtailment-style signals) ---
-
-
-# -- _current_humidity (bound method, real graceful-degradation logic) ------
-
-
-# -- _current_measured_power (bound method, real 2026-08-15 unit-mismatch bug) --
-
-
-def test_current_measured_power_unparseable_state_returns_zero_not_raises():
+    # test_current_measured_power_unparseable_state_returns_zero_not_raises
     # test_current_measured_power_unparseable_state_returns_zero_not_raises
     coord = _make_bare_coordinator()
     coord.hass = MagicMock()
@@ -138,6 +126,18 @@ def test_current_measured_power_unparseable_state_returns_zero_not_raises():
         state="42", attributes={"unit_of_measurement": "furlongs"}
     )
     assert coord._current_measured_power("sensor.weird") == 42.0
+
+
+# -- _nearest_temp (interpolated) --------------------------------------------
+
+
+# -- _step_lookup (NOT interpolated -- boolean/curtailment-style signals) ---
+
+
+# -- _current_humidity (bound method, real graceful-degradation logic) ------
+
+
+# -- _current_measured_power (bound method, real 2026-08-15 unit-mismatch bug) --
 
 
 # -- _seasonal_anchor (nimbus issue #360, finding 7, Mark Purcell) -----------

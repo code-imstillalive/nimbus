@@ -14,6 +14,7 @@ import dataclasses
 
 import numpy as np
 import pytest
+from solver import lp as _solver_lp
 from solver.elements import (
     AdequacyLoadConfig,
     AdequacyWindow,
@@ -478,10 +479,28 @@ REFUSED += [
 
 
 def test_a_config_the_lp_would_read_wrong_is_refused():
+    # test_a_config_the_lp_would_read_wrong_is_refused
+    _solver_lp._lex_calibration_failed_until = 0.0
     for case, build, says in REFUSED:
         with pytest.raises(ValueError) as err:
             build()
         assert says in str(err.value), f"{case}: {err.value}"
+
+    # test_a_config_the_lp_could_exploit_is_refused_as_degenerate
+    _solver_lp._lex_calibration_failed_until = 0.0
+    for case, build in DEGENERATE:
+        # DegenerateConfigError, not only a ValueError: the config is well formed
+        # but hands the LP a free trade (a wash trade, or skipping to a richer
+        # segment) the plan would take.
+        with pytest.raises(DegenerateConfigError):
+            build()
+
+    # test_index_sets_given_as_lists_are_kept_as_frozensets
+    _solver_lp._lex_calibration_failed_until = 0.0
+    b = _battery(charge_by_period_indices=[2, 1], stale_history_period_indices=[0])
+    assert b.charge_by_period_indices == frozenset({1, 2})
+    assert b.stale_history_period_indices == frozenset({0})
+    assert isinstance(dataclasses.replace(b).charge_by_period_indices, frozenset)
 
 
 DEGENERATE = [
@@ -500,19 +519,3 @@ DEGENERATE = [
         lambda: _battery(charge_power_curve=[(1.0, 1.0), (5.0, 1.5), (9.0, 5.0)]),
     ),
 ]
-
-
-def test_a_config_the_lp_could_exploit_is_refused_as_degenerate():
-    for case, build in DEGENERATE:
-        # DegenerateConfigError, not only a ValueError: the config is well formed
-        # but hands the LP a free trade (a wash trade, or skipping to a richer
-        # segment) the plan would take.
-        with pytest.raises(DegenerateConfigError):
-            build()
-
-
-def test_index_sets_given_as_lists_are_kept_as_frozensets():
-    b = _battery(charge_by_period_indices=[2, 1], stale_history_period_indices=[0])
-    assert b.charge_by_period_indices == frozenset({1, 2})
-    assert b.stale_history_period_indices == frozenset({0})
-    assert isinstance(dataclasses.replace(b).charge_by_period_indices, frozenset)

@@ -13,6 +13,7 @@ import time
 
 import pytest
 from solver import cycle_lock
+from solver import lp as _solver_lp
 
 
 @pytest.fixture
@@ -54,6 +55,8 @@ def _pid_in(path):
 
 
 def test_a_second_thread_is_refused_until_the_first_releases(lock_path):
+    # test_a_second_thread_is_refused_until_the_first_releases
+    _solver_lp._lex_calibration_failed_until = 0.0
     assert cycle_lock.acquire_lock(lock_path)
     assert _pid_in(lock_path) == str(os.getpid())
     assert not _on_another_thread(lock_path)
@@ -65,8 +68,8 @@ def test_a_second_thread_is_refused_until_the_first_releases(lock_path):
         assert cycle_lock.acquire_lock(lock_path)
         cycle_lock.release_lock(lock_path)
 
-
-def test_exactly_one_of_many_simultaneous_threads_wins(lock_path):
+    # test_exactly_one_of_many_simultaneous_threads_wins
+    _solver_lp._lex_calibration_failed_until = 0.0
     start = threading.Barrier(12)
     wins = []
 

@@ -75,20 +75,16 @@ def report(c=None, start=DAY, end=END):
     return sw._compute_flex_report_for_window(c or cfg(), start, end)
 
 
-@pytest.mark.parametrize(
-    ("c", "end"),
-    [
+def test_a_day_that_cannot_be_reported_is_none(day):
+    # test_a_day_that_cannot_be_reported_is_none
+    for c, end in [
         (cfg(solver_solar_power_sensor=None), END),
         (None, DAY + timedelta(hours=6)),
         (None, DAY),
-    ],
-    ids=["no_solar_sensor", "short", "empty"],
-)
-def test_a_day_that_cannot_be_reported_is_none(day, c, end):
-    assert report(c, end=end) is None
+    ]:
+        assert report(c, end=end) is None
 
-
-def test_no_base_history_is_no_report(day):
+    # test_no_base_history_is_no_report
     for entity in ("sensor.real_solar", "sensor.real_load", "sensor.real_battery"):
         day[entity] = None
     assert report() is None

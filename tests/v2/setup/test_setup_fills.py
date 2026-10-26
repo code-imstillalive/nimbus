@@ -67,7 +67,10 @@ def _plan(options, sensors=SENSORS):
     return sb.plan_setup_fills(options, sensors.get)
 
 
-def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors():
+def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors(
+    repairs, monkeypatch
+):
+    # test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors
     # test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors
     plan = _plan(
         {
@@ -115,6 +118,106 @@ def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors(
             CROSS, "sensor.house_power", "it reports 'kWh', an energy total, not power"
         )
     ]
+
+    # test_each_offer_is_a_fixable_repair_showing_the_live_reading_and_the_sign
+    raised, _ = repairs
+    hass = Hass(
+        {
+            const.CONF_BATTERY_SENSOR: "sensor.battery_w",
+            const.CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
+        }
+    )
+    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
+    issue = raised[f"hub1_{sb.FIX_FLOW_KIND}_{BATTERY}"]
+    assert (
+        issue["is_fixable"] is True
+        and issue["translation_key"] == "setup_fill_battery_power"
+    )
+    assert issue["translation_placeholders"]["reading"] == "1200 W"
+    assert (
+        "**positive** value as **charging**"
+        in issue["translation_placeholders"]["sign"]
+    )
+    assert issue["data"] == {
+        "kind": sb.FIX_FLOW_KIND,
+        "entry_id": "hub1",
+        "target": BATTERY,
+        "sensor": "sensor.battery_w",
+    }
+
+    # test_a_missing_sensor_gets_half_an_hour_to_appear_before_it_is_reported
+    raised, deleted = repairs
+    hass = Hass({const.CONF_SOLAR_SENSOR: "sensor.later"})
+    blocked = f"hub1_{sb.KIND_BLOCKED}_{SOLAR}"
+    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
+    assert blocked not in raised
+    asyncio.run(
+        sb.async_refresh_setup_fills(hass, hass.entry, now=T0 + sb.MISSING_GRACE)
+    )
+    assert raised[blocked]["translation_placeholders"]["reason"] == sb.MISSING
+    SENSORS["sensor.later"] = ("kW", {})
+    try:
+        asyncio.run(
+            sb.async_refresh_setup_fills(
+                hass, hass.entry, now=T0 + sb.MISSING_GRACE + timedelta(minutes=1)
+            )
+        )
+    finally:
+        del SENSORS["sensor.later"]
+    assert blocked in deleted  # it appeared: the refusal goes, the offer comes
+    assert f"hub1_{sb.FIX_FLOW_KIND}_{SOLAR}" in raised
+
+    # test_a_wrong_kind_of_sensor_is_reported_at_once
+    raised, _ = repairs
+    hass = Hass({const.CONF_SOLAR_SENSOR: "sensor.solar_kwh"})
+    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
+    issue = raised[f"hub1_{sb.KIND_BLOCKED}_{SOLAR}"]
+    assert (
+        issue["is_fixable"] is False
+        and "energy total" in issue["translation_placeholders"]["reason"]
+    )
+
+    # test_confirming_fills_the_field_once_and_rechecks_first
+    hass = Hass({const.CONF_BATTERY_SENSOR: "sensor.battery_w"})
+    assert (
+        asyncio.run(sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.other"))
+        is False
+    )  # not what was offered
+    assert (
+        asyncio.run(
+            sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.battery_w")
+        )
+        is True
+    )
+    (options,) = hass.updated
+    assert options[BATTERY] == "sensor.battery_w"
+    assert options[sb.CONF_SETUP_BUILDER_DONE] == [f"option:{BATTERY}"]
+    # Now set: a second click changes nothing.
+    assert (
+        asyncio.run(
+            sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.battery_w")
+        )
+        is False
+    )
+    assert asyncio.run(sb.async_confirm_setup_fill(hass, "gone", BATTERY, "x")) is False
+    assert (
+        asyncio.run(sb.async_confirm_setup_fill(hass, "hub1", "not_a_fill", "x"))
+        is False
+    )
+
+    # test_a_broken_refresh_never_breaks_setup
+    with monkeypatch.context() as mp:
+
+        def boom(*a):
+            raise RuntimeError("x")
+
+        mp.setattr(sb, "plan_setup_fills", boom)
+        hass = Hass({})
+        assert asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0)).empty
+
+    # test_the_sign_note_names_the_setting_in_force
+    assert "**discharging**" in sb._sign_note({})
+    assert sb._reading("sensor.nowhere", Hass({})) == "no reading"
 
 
 # --- as Repairs ----------------------------------------------------------------------
@@ -164,107 +267,3 @@ def repairs(monkeypatch):
         sys.modules["homeassistant.helpers"], "issue_registry", ir, raising=False
     )
     return raised, deleted
-
-
-def test_each_offer_is_a_fixable_repair_showing_the_live_reading_and_the_sign(repairs):
-    raised, _ = repairs
-    hass = Hass(
-        {
-            const.CONF_BATTERY_SENSOR: "sensor.battery_w",
-            const.CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
-        }
-    )
-    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
-    issue = raised[f"hub1_{sb.FIX_FLOW_KIND}_{BATTERY}"]
-    assert (
-        issue["is_fixable"] is True
-        and issue["translation_key"] == "setup_fill_battery_power"
-    )
-    assert issue["translation_placeholders"]["reading"] == "1200 W"
-    assert (
-        "**positive** value as **charging**"
-        in issue["translation_placeholders"]["sign"]
-    )
-    assert issue["data"] == {
-        "kind": sb.FIX_FLOW_KIND,
-        "entry_id": "hub1",
-        "target": BATTERY,
-        "sensor": "sensor.battery_w",
-    }
-
-
-def test_a_missing_sensor_gets_half_an_hour_to_appear_before_it_is_reported(repairs):
-    raised, deleted = repairs
-    hass = Hass({const.CONF_SOLAR_SENSOR: "sensor.later"})
-    blocked = f"hub1_{sb.KIND_BLOCKED}_{SOLAR}"
-    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
-    assert blocked not in raised
-    asyncio.run(
-        sb.async_refresh_setup_fills(hass, hass.entry, now=T0 + sb.MISSING_GRACE)
-    )
-    assert raised[blocked]["translation_placeholders"]["reason"] == sb.MISSING
-    SENSORS["sensor.later"] = ("kW", {})
-    try:
-        asyncio.run(
-            sb.async_refresh_setup_fills(
-                hass, hass.entry, now=T0 + sb.MISSING_GRACE + timedelta(minutes=1)
-            )
-        )
-    finally:
-        del SENSORS["sensor.later"]
-    assert blocked in deleted  # it appeared: the refusal goes, the offer comes
-    assert f"hub1_{sb.FIX_FLOW_KIND}_{SOLAR}" in raised
-
-
-def test_a_wrong_kind_of_sensor_is_reported_at_once(repairs):
-    raised, _ = repairs
-    hass = Hass({const.CONF_SOLAR_SENSOR: "sensor.solar_kwh"})
-    asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0))
-    issue = raised[f"hub1_{sb.KIND_BLOCKED}_{SOLAR}"]
-    assert (
-        issue["is_fixable"] is False
-        and "energy total" in issue["translation_placeholders"]["reason"]
-    )
-
-
-def test_confirming_fills_the_field_once_and_rechecks_first():
-    hass = Hass({const.CONF_BATTERY_SENSOR: "sensor.battery_w"})
-    assert (
-        asyncio.run(sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.other"))
-        is False
-    )  # not what was offered
-    assert (
-        asyncio.run(
-            sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.battery_w")
-        )
-        is True
-    )
-    (options,) = hass.updated
-    assert options[BATTERY] == "sensor.battery_w"
-    assert options[sb.CONF_SETUP_BUILDER_DONE] == [f"option:{BATTERY}"]
-    # Now set: a second click changes nothing.
-    assert (
-        asyncio.run(
-            sb.async_confirm_setup_fill(hass, "hub1", BATTERY, "sensor.battery_w")
-        )
-        is False
-    )
-    assert asyncio.run(sb.async_confirm_setup_fill(hass, "gone", BATTERY, "x")) is False
-    assert (
-        asyncio.run(sb.async_confirm_setup_fill(hass, "hub1", "not_a_fill", "x"))
-        is False
-    )
-
-
-def test_a_broken_refresh_never_breaks_setup(repairs, monkeypatch):
-    def boom(*a):
-        raise RuntimeError("x")
-
-    monkeypatch.setattr(sb, "plan_setup_fills", boom)
-    hass = Hass({})
-    assert asyncio.run(sb.async_refresh_setup_fills(hass, hass.entry, now=T0)).empty
-
-
-def test_the_sign_note_names_the_setting_in_force():
-    assert "**discharging**" in sb._sign_note({})
-    assert sb._reading("sensor.nowhere", Hass({})) == "no reading"

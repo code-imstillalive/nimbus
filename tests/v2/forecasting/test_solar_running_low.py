@@ -129,25 +129,26 @@ def _build(install, site, now, grid, cfg=None):
 # --- what it compares against ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("minimum", "reason", "active"),
-    [(None, "below_minimum", False), (1.5, "judged", True)],
-)
-def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(
-    install, minimum, reason, active
-):
-    def at(t):
-        return {6.5: 1.9, 7.0: 3.0}.get(t.hour + t.minute / 60, 0.0)
+def test_it_does_not_judge_while_either_forecast_is_under_the_minimum(install):
+    for minimum, reason, active in [
+        (None, "below_minimum", False),
+        (1.5, "judged", True),
+    ]:
 
-    now = TODAY.replace(hour=7, minute=5)
-    site = Site(_day(TODAY, at, lambda t: 0.5), history=_held(now, 0))
-    cfg = (
-        _cfg() if minimum is None else _cfg(solver_solar_running_low_min_p50_kw=minimum)
-    )
-    r = _judge(install, site, now, cfg)
-    assert (r["reason"], r["active"]) == (reason, active)
-    if minimum is None:
-        assert site.history_calls == 0  # not even read
+        def at(t):
+            return {6.5: 1.9, 7.0: 3.0}.get(t.hour + t.minute / 60, 0.0)
+
+        now = TODAY.replace(hour=7, minute=5)
+        site = Site(_day(TODAY, at, lambda t: 0.5), history=_held(now, 0))
+        cfg = (
+            _cfg()
+            if minimum is None
+            else _cfg(solver_solar_running_low_min_p50_kw=minimum)
+        )
+        r = _judge(install, site, now, cfg)
+        assert (r["reason"], r["active"]) == (reason, active)
+        if minimum is None:
+            assert site.history_calls == 0  # not even read
 
 
 # --- on, off, and held -------------------------------------------------------------------------
@@ -184,37 +185,25 @@ def test_16_october_late_start_does_not_trip_it_but_would_without_confirmation(i
 # --- inert, off, and a recorder that is behind -------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("history", "cfg_over", "reason"),
-    [
+def test_without_what_it_needs_it_is_off_even_if_it_was_on(install):
+    # test_without_what_it_needs_it_is_off_even_if_it_was_on
+    for history, cfg_over, reason in [
         ([], {}, "no_history"),
         (RuntimeError("recorder down"), {}, "no_history"),
         (None, {"solver_solar_running_low_min_p50_kw": 0}, "off"),
         (None, {"solver_solar_power_sensor": None}, "no_solar_power_sensor"),
-    ],
-    ids=["no_history", "history_raises", "minimum_zero", "no_pv_sensor"],
-)
-def test_without_what_it_needs_it_is_off_even_if_it_was_on(
-    install, history, cfg_over, reason
-):
-    today = _day(TODAY, *FLAT)
-    now = TODAY.replace(hour=10)
-    assert _judge(install, Site(today, history=_held(now, 500)), now)["active"]
-    later = now + timedelta(minutes=5)
-    site = Site(today, history=_held(later, 0) if history is None else history)
-    r = _judge(install, site, later, _cfg(**cfg_over))
-    assert (r["reason"], r["active"]) == (reason, False)
-    if reason == "off":
-        assert site.history_calls == 0
+    ]:
+        today = _day(TODAY, *FLAT)
+        now = TODAY.replace(hour=10)
+        assert _judge(install, Site(today, history=_held(now, 500)), now)["active"]
+        later = now + timedelta(minutes=5)
+        site = Site(today, history=_held(later, 0) if history is None else history)
+        r = _judge(install, site, later, _cfg(**cfg_over))
+        assert (r["reason"], r["active"]) == (reason, False)
+        if reason == "off":
+            assert site.history_calls == 0
 
-
-def _ramp():
-    return _day(TODAY, _daylight(5.0), _daylight(2.0))
-
-
-def test_a_locked_recorder_is_not_judged_even_if_it_was_on(install):
-    """A backup locks the recorder: the history read returns the last
-    state before the lock, held to now, while the panels ramp up."""
+    # test_a_locked_recorder_is_not_judged_even_if_it_was_on: A backup locks the recorder: the history read returns the last
     now = TODAY.replace(hour=8, minute=30)
     early = now - timedelta(hours=1)
     assert _judge(install, Site(_ramp(), history=_held(early, 1000)), early)["active"]
@@ -235,8 +224,7 @@ def test_a_locked_recorder_is_not_judged_even_if_it_was_on(install):
         "active"
     ]  # without the live check
 
-
-def test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behind():
+    # test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behind
     assert srl.RECORDER_BEHIND_AFTER == timedelta(minutes=5)
     hist = [(TODAY.replace(hour=10), 1.0)]
     on_edge = Site(_ramp(), live_changed=TODAY.replace(hour=10, minute=5))
@@ -251,86 +239,28 @@ def test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behi
 
     assert srl.recorder_behind_by(Gone(), SENSOR, hist) is None
 
+    # test_each_member_is_lowered_by_its_own_path_and_the_ratio_is_floored
+    for history_w, scale in [(2000, 0.5), (400, 0.3)]:
+        site, now, grid, cfg = _blend_site(history_w)
+        (kw, lo, _up), pub = _build(install, site, now, grid, cfg)
+        assert pub["active"] and pub["reference_source"] == "solcast"
+        assert (
+            pub["members_p10"],
+            pub["members_lower_bound"],
+            pub["members_ratio_scaled"],
+        ) == (1, 1, 1)
+        assert pub["ratio_scale_used"] == scale
+        assert kw[1] == pytest.approx((3.5 + 6.0 * scale + 1.5) / 3) and lo[1] <= kw[1]
+        assert kw[2] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # tomorrow untouched
 
-# --- what it does to the forecast --------------------------------------------------------------
-
-
-def _blend_site(history_w):
-    """Solcast (p50 4, p10 1.5), Open-Meteo at 6 kW with no band, and a
-    generic forecast at 5 kW with a lower bound of 3.5."""
-    now = TODAY.replace(hour=10, minute=3)
-    site = Site(
-        _day(TODAY, *FLAT), _day(TOMORROW, *FLAT), history=_held(now, history_w)
-    )
-    hours = [TODAY + timedelta(hours=h) for h in range(48)]
-    site.states["sensor.om_today"] = {"watts": {t.isoformat(): 6000.0 for t in hours}}
-    site.states["sensor.own"] = {
-        "forecast": [
-            {"time": t.isoformat(), "value": 5.0, "lower": 3.5, "upper": 6.5}
-            for t in hours
-        ]
-    }
-    cfg = _cfg(
-        solver_solar_forecast_sensor="sensor.own",
-        known_sources={**KNOWN, "open_meteo": ["sensor.om_today"]},
-    )
-    return site, now, [now, TODAY.replace(hour=11), TOMORROW.replace(hour=11)], cfg
-
-
-@pytest.mark.parametrize(
-    ("history_w", "scale"), [(2000, 0.5), (400, 0.3)], ids=["half", "floored"]
-)
-def test_each_member_is_lowered_by_its_own_path_and_the_ratio_is_floored(
-    install, history_w, scale
-):
-    site, now, grid, cfg = _blend_site(history_w)
-    (kw, lo, _up), pub = _build(install, site, now, grid, cfg)
-    assert pub["active"] and pub["reference_source"] == "solcast"
-    assert (
-        pub["members_p10"],
-        pub["members_lower_bound"],
-        pub["members_ratio_scaled"],
-    ) == (1, 1, 1)
-    assert pub["ratio_scale_used"] == scale
-    assert kw[1] == pytest.approx((3.5 + 6.0 * scale + 1.5) / 3) and lo[1] <= kw[1]
-    assert kw[2] == pytest.approx((5.0 + 6.0 + 4.0) / 3)  # tomorrow untouched
-
-
-def test_solcast_without_p10_is_scaled_never_zeroed(install):
-    """A missing pv_estimate10 reads as 0.0; taken as a lower bound it
-    would zero the rest of today."""
+    # test_solcast_without_p10_is_scaled_never_zeroed: A missing pv_estimate10 reads as 0.0; taken as a lower bound it
     now = TODAY.replace(hour=10, minute=3)
     site = Site(_day(TODAY, _daylight(4.0)), history=_held(now, 2000))
     (kw, lo, _up), pub = _build(install, site, now, [now, TODAY.replace(hour=11)])
     assert pub["active"] and pub["members_ratio_scaled"] == 1
     assert kw[1] == pytest.approx(2.0) and lo[1] <= kw[1]
 
-
-# --- without Solcast, the blend is its own reference -------------------------------------------
-
-
-def _own(value, history_w, now):
-    site = Site(history=_held(now, history_w))
-    hours = [TODAY + timedelta(hours=h) for h in range(48)]
-    site.states = {
-        "sensor.own": {
-            "forecast": [
-                {"time": t.isoformat(), "value": value(t), "lower": 0.6 * value(t)}
-                for t in hours
-            ]
-        }
-    }
-    return site
-
-
-OWN = {
-    "solver_solar_forecast_sensor": "sensor.own",
-    "solver_solar_power_sensor": SENSOR,
-    "solver_solar_running_low_confirm_minutes": 0,
-}
-
-
-def test_without_solcast_the_first_solve_waits_then_judges_from_memory(install):
+    # test_without_solcast_the_first_solve_waits_then_judges_from_memory
     first = TODAY.replace(hour=10)
     _arrays, pub = _build(
         install,
@@ -365,6 +295,59 @@ def test_without_solcast_the_first_solve_waits_then_judges_from_memory(install):
         ]
         == "no_reference"
     )
+
+
+def _ramp():
+    return _day(TODAY, _daylight(5.0), _daylight(2.0))
+
+
+# --- what it does to the forecast --------------------------------------------------------------
+
+
+def _blend_site(history_w):
+    """Solcast (p50 4, p10 1.5), Open-Meteo at 6 kW with no band, and a
+    generic forecast at 5 kW with a lower bound of 3.5."""
+    now = TODAY.replace(hour=10, minute=3)
+    site = Site(
+        _day(TODAY, *FLAT), _day(TOMORROW, *FLAT), history=_held(now, history_w)
+    )
+    hours = [TODAY + timedelta(hours=h) for h in range(48)]
+    site.states["sensor.om_today"] = {"watts": {t.isoformat(): 6000.0 for t in hours}}
+    site.states["sensor.own"] = {
+        "forecast": [
+            {"time": t.isoformat(), "value": 5.0, "lower": 3.5, "upper": 6.5}
+            for t in hours
+        ]
+    }
+    cfg = _cfg(
+        solver_solar_forecast_sensor="sensor.own",
+        known_sources={**KNOWN, "open_meteo": ["sensor.om_today"]},
+    )
+    return site, now, [now, TODAY.replace(hour=11), TOMORROW.replace(hour=11)], cfg
+
+
+# --- without Solcast, the blend is its own reference -------------------------------------------
+
+
+def _own(value, history_w, now):
+    site = Site(history=_held(now, history_w))
+    hours = [TODAY + timedelta(hours=h) for h in range(48)]
+    site.states = {
+        "sensor.own": {
+            "forecast": [
+                {"time": t.isoformat(), "value": value(t), "lower": 0.6 * value(t)}
+                for t in hours
+            ]
+        }
+    }
+    return site
+
+
+OWN = {
+    "solver_solar_forecast_sensor": "sensor.own",
+    "solver_solar_power_sensor": SENSOR,
+    "solver_solar_running_low_confirm_minutes": 0,
+}
 
 
 # --- what is published --------------------------------------------------------------------------

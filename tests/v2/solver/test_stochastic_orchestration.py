@@ -23,6 +23,7 @@ import solver_shared
 import solver_writer
 import test_main_golden_output_guardrail as guardrail
 from _isolated_state import isolated_state_paths
+from solver import lp as _solver_lp
 from solver import network
 from solver import stochastic_dispatch as sd
 from solver.elements import (
@@ -215,54 +216,58 @@ def test_a_main_plan_that_used_half_the_shadow_budget_skips_the_shadow(
     assert f"took {seconds:.1f} s of the 30 s shadow budget" in warning.getMessage()
 
 
-@pytest.mark.parametrize(
-    ("budget", "seconds", "runs"),
-    [(None, 4.9, True), (None, 5.0, False), (None, 9.2, False), (40.0, 19.9, True)],
-)
-def test_a_main_plan_that_used_half_the_drive_budget_skips_the_drive(
-    budget, seconds, runs, caplog
-):
+def test_a_main_plan_that_used_half_the_drive_budget_skips_the_drive(caplog):
     """#2047: drive mode gets the shadow's backstop against its own budget
     (10 s by default, or the configured one). The skipped cycle publishes the
     main plan with a named reason, logs once, and leaves the backoff alone:
     the next fast cycle drives at once."""
-    kw, det, stoch = _det_and_stoch()
-    cfg = {"solver_stochastic_dispatch": True}
-    if budget is not None:
-        cfg["solver_stochastic_drive_budget_seconds"] = budget
-    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
-        for minute in (0, 6):
-            published, summary = solver_plan.run_stochastic_dispatch(
+    for budget, seconds, runs in [
+        (None, 4.9, True),
+        (None, 5.0, False),
+        (None, 9.2, False),
+        (40.0, 19.9, True),
+    ]:
+        _solver_lp._lex_calibration_failed_until = 0.0
+        assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+        solver_plan.reset_stochastic_state()
+        caplog.clear()
+        kw, det, stoch = _det_and_stoch()
+        cfg = {"solver_stochastic_dispatch": True}
+        if budget is not None:
+            cfg["solver_stochastic_drive_budget_seconds"] = budget
+        with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
+            for minute in (0, 6):
+                published, summary = solver_plan.run_stochastic_dispatch(
+                    cfg,
+                    now=T0 + timedelta(minutes=minute),
+                    plan=det,
+                    build_kwargs=kw,
+                    deterministic_seconds=seconds,
+                )
+            assert spy.call_count == (2 if runs else 0)
+            if runs:
+                assert published is not det
+                continue
+            assert published is det
+            assert summary["mode"] == "drive"
+            assert summary["status"] == "skipped"
+            assert summary["fallback_reason"] == "deterministic_too_slow"
+            assert summary["deterministic_solve_seconds"] == seconds
+            (warning,) = [
+                r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
+            ]
+            assert f"took {seconds:.1f} s of the 10 s drive budget" in (
+                warning.getMessage()
+            )
+            published, _ = solver_plan.run_stochastic_dispatch(
                 cfg,
-                now=T0 + timedelta(minutes=minute),
+                now=T0 + timedelta(minutes=7),
                 plan=det,
                 build_kwargs=kw,
-                deterministic_seconds=seconds,
+                deterministic_seconds=0.5,
             )
-        assert spy.call_count == (2 if runs else 0)
-        if runs:
+            assert spy.call_count == 1
             assert published is not det
-            return
-        assert published is det
-        assert summary["mode"] == "drive"
-        assert summary["status"] == "skipped"
-        assert summary["fallback_reason"] == "deterministic_too_slow"
-        assert summary["deterministic_solve_seconds"] == seconds
-        (warning,) = [
-            r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
-        ]
-        assert f"took {seconds:.1f} s of the 10 s drive budget" in (
-            warning.getMessage()
-        )
-        published, _ = solver_plan.run_stochastic_dispatch(
-            cfg,
-            now=T0 + timedelta(minutes=7),
-            plan=det,
-            build_kwargs=kw,
-            deterministic_seconds=0.5,
-        )
-        assert spy.call_count == 1
-        assert published is not det
 
 
 @pytest.mark.parametrize(
@@ -305,7 +310,12 @@ def _drive(kw, det, seconds):
     )
 
 
-def test_drive_exceptions_back_off_and_log_once(caplog):
+def test_drive_exceptions_back_off_and_log_once(caplog, monkeypatch):
+    # test_drive_exceptions_back_off_and_log_once
+    _solver_lp._lex_calibration_failed_until = 0.0
+    assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+    solver_plan.reset_stochastic_state()
+    caplog.clear()
     kw, det, _ = _det_and_stoch()
     with patch.object(
         sd, "build_stochastic_plan", side_effect=RuntimeError("boom")
@@ -318,34 +328,37 @@ def test_drive_exceptions_back_off_and_log_once(caplog):
         assert spy.call_count == 2
     assert caplog.text.count("boom") == 1
 
+    # test_a_shadow_job_finishing_after_a_switch_to_drive_is_dropped
+    _solver_lp._lex_calibration_failed_until = 0.0
+    assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+    solver_plan.reset_stochastic_state()
+    with monkeypatch.context() as mp:
+        import threading
 
-def test_a_shadow_job_finishing_after_a_switch_to_drive_is_dropped(monkeypatch):
-    import threading
+        mp.setattr(solver_plan, "STOCHASTIC_SHADOW_IN_BACKGROUND", True)
+        kw, det, stoch = _det_and_stoch()
+        release = threading.Event()
 
-    monkeypatch.setattr(solver_plan, "STOCHASTIC_SHADOW_IN_BACKGROUND", True)
-    kw, det, stoch = _det_and_stoch()
-    release = threading.Event()
+        def _slow(*_a, **_k):
+            assert release.wait(10)
+            return stoch
 
-    def _slow(*_a, **_k):
-        assert release.wait(10)
-        return stoch
-
-    with patch.object(sd, "build_stochastic_plan", side_effect=_slow):
-        solver_plan.run_stochastic_dispatch(
-            {}, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
-        )
-    with patch.object(
-        sd,
-        "build_stochastic_plan",
-        return_value=dataclasses.replace(stoch, plan=None, status="error"),
-    ):
-        _, driven = _drive(kw, det, 15)
-    release.set()
-    assert solver_plan.wait_for_stochastic_shadow(timeout=10)
-    assert solver_plan._STOCHASTIC_STATE["mode"] == "drive"
-    # The late shadow job was dropped: the state holds drive's own summary.
-    assert solver_plan._STOCHASTIC_STATE["summary"]["mode"] == "drive"
-    assert driven["mode"] == "drive"
+        with patch.object(sd, "build_stochastic_plan", side_effect=_slow):
+            solver_plan.run_stochastic_dispatch(
+                {}, now=T0, plan=det, build_kwargs=kw, deterministic_seconds=0.5
+            )
+        with patch.object(
+            sd,
+            "build_stochastic_plan",
+            return_value=dataclasses.replace(stoch, plan=None, status="error"),
+        ):
+            _, driven = _drive(kw, det, 15)
+        release.set()
+        assert solver_plan.wait_for_stochastic_shadow(timeout=10)
+        assert solver_plan._STOCHASTIC_STATE["mode"] == "drive"
+        # The late shadow job was dropped: the state holds drive's own summary.
+        assert solver_plan._STOCHASTIC_STATE["summary"]["mode"] == "drive"
+        assert driven["mode"] == "drive"
 
 
 # -- the real main() ----------------------------------------------------------
@@ -498,11 +511,11 @@ def _mip_inputs() -> dict:
 
 
 def test_a_joint_solve_that_hits_its_time_limit_logs_no_error(caplog):
-    """devhub, 16 Oct 2026: the joint shadow MIP (4,128 binaries) hit the time
-    limit inside the calibrated objective's phase 2 and solver/lp.py logged
-    its #773 diagnostic at ERROR. The joint solve is single-phase now, its
-    lp.py diagnostics are quiet, and the timeout is reported once by
-    run_stochastic_dispatch() as a WARNING carrying its fallback_reason."""
+    # test_a_joint_solve_that_hits_its_time_limit_logs_no_error: devhub, 16 Oct 2026: the joint shadow MIP (4,128 binaries) hit the time
+    _solver_lp._lex_calibration_failed_until = 0.0
+    assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+    solver_plan.reset_stochastic_state()
+    caplog.clear()
     import logging
 
     from solver import lp
@@ -560,34 +573,10 @@ def test_a_joint_solve_that_hits_its_time_limit_logs_no_error(caplog):
     assert set(lp._LP_DUMPED_PHASES) == dumps_before
     assert lp._lex_calibration_failed_until == cooldown_before
 
-
-# -- #1807: calibrated p10 / p90 before the envelope ---------------------------
-
-
-def _calibrated_solar_type():
-    """SolarConfig with #1807's p10_kw / p90_kw: the real one once #1809 is
-    merged, a test subclass carrying the same two fields before that."""
-    if any(f.name == "p10_kw" for f in dataclasses.fields(SolarConfig)):
-        return SolarConfig
-
-    @dataclasses.dataclass(frozen=True)
-    class _Calibrated(SolarConfig):
-        p10_kw: np.ndarray | None = None
-        p90_kw: np.ndarray | None = None
-
-    return _Calibrated
-
-
-# -- the joint solve's shadow prices are the expected marginal (audit #1) -----
-
-
-# -- budget, thermal retry, logging, lp.py side effects ----------------------
-
-
-def test_a_joint_solver_error_is_not_retried_with_thermal_relaxed():
-    """A joint timeout used to trigger network.py's thermal relax-and-retry,
-    spending the budget again and publishing a plan without the thermal
-    guarantee. A solver error on the hook path now returns as it is."""
+    # test_a_joint_solver_error_is_not_retried_with_thermal_relaxed: A joint timeout used to trigger network.py's thermal relax-and-retry,
+    _solver_lp._lex_calibration_failed_until = 0.0
+    assert solver_plan.wait_for_stochastic_shadow(timeout=60)
+    solver_plan.reset_stochastic_state()
     from solver.elements import ThermalLoadConfig
     from solver.lp import LPResult
 
@@ -615,3 +604,26 @@ def test_a_joint_solver_error_is_not_retried_with_thermal_relaxed():
     assert plan.status == "error"
     assert calls == [True]
     assert not plan.thermal_guarantee_relaxed
+
+
+# -- #1807: calibrated p10 / p90 before the envelope ---------------------------
+
+
+def _calibrated_solar_type():
+    """SolarConfig with #1807's p10_kw / p90_kw: the real one once #1809 is
+    merged, a test subclass carrying the same two fields before that."""
+    if any(f.name == "p10_kw" for f in dataclasses.fields(SolarConfig)):
+        return SolarConfig
+
+    @dataclasses.dataclass(frozen=True)
+    class _Calibrated(SolarConfig):
+        p10_kw: np.ndarray | None = None
+        p90_kw: np.ndarray | None = None
+
+    return _Calibrated
+
+
+# -- the joint solve's shadow prices are the expected marginal (audit #1) -----
+
+
+# -- budget, thermal retry, logging, lp.py side effects ----------------------

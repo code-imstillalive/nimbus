@@ -134,8 +134,13 @@ def _coordinator(hass, **data):
     return coord
 
 
-def test_a_retrain_then_refresh_publishes_the_learned_forecast(tmp_path, recorder):
-    hass = FakeHass(tmp_path)
+def test_a_retrain_then_refresh_publishes_the_learned_forecast(
+    tmp_path, recorder, site, monkeypatch, caplog
+):
+    # test_a_retrain_then_refresh_publishes_the_learned_forecast
+    tmp_0 = tmp_path / "test_a_retrain_then_refresh_publishes_the_learned_forecast"
+    tmp_0.mkdir()
+    hass = FakeHass(tmp_0)
     coord = _coordinator(hass)
     before = asyncio.run(coord._async_update_data())
     assert (
@@ -176,13 +181,219 @@ def test_a_retrain_then_refresh_publishes_the_learned_forecast(tmp_path, recorde
     assert max(p["value"] for p in forecast) < 5.0
     assert data["forecast_origin"] == const.FORECAST_ORIGIN_LEARNED
 
-
-def test_a_refresh_while_home_assistant_stops_keeps_the_last_data(tmp_path, recorder):
-    hass = FakeHass(tmp_path)
+    # test_a_refresh_while_home_assistant_stops_keeps_the_last_data
+    tmp_1 = tmp_path / "test_a_refresh_while_home_assistant_stops_keeps_the_last_data"
+    tmp_1.mkdir()
+    hass = FakeHass(tmp_1)
     coord = _coordinator(hass)
     coord.data = {"sentinel": True}
     hass.is_stopping = True
     assert asyncio.run(coord._async_update_data()) == {"sentinel": True}
+
+    # test_every_site_input_is_read_in_kw_and_trained_on
+    tmp_2 = tmp_path / "test_every_site_input_is_read_in_kw_and_trained_on"
+    tmp_2.mkdir()
+    hass = _site_hass(tmp_2)
+    coord = _site_coordinator(hass)
+    asyncio.run(coord._async_retrain())
+    assert coord._last_retrain_error is None
+    read = {r[0] for r in hass.history_reads}
+    assert read >= {
+        LOAD,
+        "sensor.outside_temp",
+        "sensor.outside_humidity",
+        "switch.curtail",
+        "sensor.battery_power",
+        "sensor.grid_power",
+        "sensor.solar_power",
+    }
+    x = coord._trained.x_train
+    for feature in ("temp_c", "curtailment", "battery_kw", "solar_kw"):
+        assert x[:, cm.FEATURE_NAMES.index(feature)].std() > 0, feature
+    # Live readings are in kW whatever the sensor's unit.
+    assert coord._current_measured_power("sensor.battery_power") == pytest.approx(0.5)
+    assert coord._current_measured_power("sensor.missing") == 0.0
+    assert coord._current_humidity() == 60.0
+    assert coord.data["forecast"]
+
+    # test_an_energy_sensor_is_never_a_power_feature_and_the_load_never_its_own
+    tmp_3 = (
+        tmp_path
+        / "test_an_energy_sensor_is_never_a_power_feature_and_the_load_never_its_own"
+    )
+    tmp_3.mkdir()
+    hass = _site_hass(tmp_3)
+    coord = _site_coordinator(
+        hass,
+        **{
+            const.CONF_BATTERY_SENSOR: "sensor.battery_energy",
+            const.CONF_HUMIDITY_SENSOR: LOAD,
+        },
+    )
+    assert coord._battery_sensor is None  # kWh: energy, not power (#1562)
+    assert coord._humidity_sensor is None  # the load itself (#1540)
+    assert coord._grid_sensor == "sensor.grid_power"
+
+    # test_a_weather_entity_is_read_through_its_forecast_service
+    tmp_4 = tmp_path / "test_a_weather_entity_is_read_through_its_forecast_service"
+    tmp_4.mkdir()
+    hass = _site_hass(tmp_4)
+    coord = _site_coordinator(
+        hass, **{const.CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"}
+    )
+    got = asyncio.run(coord._async_fetch_temperature_forecast())
+    assert len(got) == 100 and got[0][1] == 20.0
+    assert hass.service_calls == [
+        ("weather", "get_forecasts", {"entity_id": "weather.home"})
+    ]
+    hass._states["weather.home"] = _State(state="unavailable", attributes={})
+    # Unavailable after a restart: no call, and the last good forecast is kept.
+    again = asyncio.run(coord._async_fetch_temperature_forecast())
+    assert len(hass.service_calls) == 1 and again and again[0][0] >= NOW
+
+    # test_long_term_statistics_train_the_older_days
+    tmp_5 = tmp_path / "test_long_term_statistics_train_the_older_days"
+    tmp_5.mkdir()
+    for source in [const.TRAINING_SOURCE_LTS, const.TRAINING_SOURCE_HYBRID]:
+        hass = _site_hass(tmp_5)
+        coord = _site_coordinator(
+            hass,
+            **{const.CONF_TRAINING_SOURCE: source, const.CONF_HYBRID_RECENT_DAYS: 5},
+        )
+        asyncio.run(coord._async_retrain())
+        assert coord._last_retrain_error is None and coord._trained is not None
+        lts = [r for r in hass.lts_reads if r[0] == LOAD]
+        assert lts, "the load was read from long-term statistics"
+        start = NOW - timedelta(days=21)
+        if source == const.TRAINING_SOURCE_HYBRID:
+            # Statistics for the older days, the recorder for the last five.
+            assert lts[0][2] == NOW - timedelta(days=5)
+            assert any(
+                r[0] == LOAD and r[1] == NOW - timedelta(days=5)
+                for r in hass.history_reads
+            )
+            assert coord._change_only_from(start, NOW) == NOW - timedelta(days=5)
+        else:
+            assert coord._change_only_from(start, NOW) is None
+
+    # test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain
+    tmp_6 = (
+        tmp_path / "test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain"
+    )
+    tmp_6.mkdir()
+    with monkeypatch.context() as mp:
+        hass = _site_hass(tmp_6)
+        first = _coordinator(hass)
+        asyncio.run(first._async_retrain())
+        first._residuals = [0.1, 0.2]
+        first._save_residuals_to_disk()
+        tracked, created, unloads = [], [], []
+
+        def track(hass_, cb, **kw):
+            tracked.append(kw)
+            return lambda: tracked.append("off")
+
+        mp.setattr(cm, "async_track_time_change", track)
+        hass.async_create_task = lambda coro: created.append(coro) or coro.close()
+        second = _coordinator(hass)
+        second.entry.async_on_unload = unloads.append
+        asyncio.run(second.async_setup())
+        assert second._trained is not None and second._residuals == [0.1, 0.2]
+        assert tracked == [
+            {
+                "hour": second._retrain_hour,
+                "minute": second._retrain_minute,
+                "second": 0,
+            }
+        ]
+        assert created == []  # a current model needs no retrain at startup
+        unloads[0]()
+        assert tracked[-1] == "off"
+
+    # test_a_damaged_or_foreign_model_file_is_discarded_and_retrained
+    tmp_7 = tmp_path / "test_a_damaged_or_foreign_model_file_is_discarded_and_retrained"
+    tmp_7.mkdir()
+    with monkeypatch.context() as mp:
+        for damage in ["garbage", "features", "newer"]:
+            with mp.context() as mp:
+                hass = _site_hass(tmp_7)
+                coord = _coordinator(hass)
+                asyncio.run(coord._async_retrain())
+                trained = coord._trained
+                if damage == "garbage":
+                    coord._model_path.write_bytes(b"not a pickle")
+                elif damage == "features":
+                    trained.x_mean = trained.x_mean[:-1]
+                    coord._save_model_to_disk(trained)
+                else:
+                    trained.schema_version = cm.TRAINED_MODEL_SCHEMA_VERSION + 1
+                    coord._save_model_to_disk(trained)
+                coord._residual_path.write_text('["x"]', encoding="utf-8")
+                created = []
+                mp.setattr(cm, "async_track_time_change", lambda *a, **k: lambda: None)
+                hass.async_create_task = lambda coro: (
+                    created.append(coro) or coro.close()  # noqa: B023
+                )
+                again = _coordinator(hass)
+                again.entry.async_on_unload = lambda cb: None
+                asyncio.run(again.async_setup())
+                assert again._trained is None and again._residuals == []
+                assert len(created) == 1  # retrain now, not at tonight's hour
+
+    # test_each_refresh_scores_the_last_prediction_and_flags_drift_once
+    caplog.clear()
+    tmp_8 = (
+        tmp_path / "test_each_refresh_scores_the_last_prediction_and_flags_drift_once"
+    )
+    tmp_8.mkdir()
+    with monkeypatch.context() as mp:
+        hass = _site_hass(tmp_8)
+        coord = _coordinator(hass)
+        asyncio.run(coord._async_retrain())
+        coord._residuals = [0.1] * 20
+        clock = {"now": NOW}
+        mp.setattr(cm.dt_util, "utcnow", lambda: clock["now"])
+        # The house runs well over its forecast from here on.
+        mp.setattr(sys.modules[__name__], "_house_kw", lambda t: 7.5)
+        with caplog.at_level("WARNING", logger=cm._LOGGER.name):
+            for _ in range(12):
+                clock["now"] += timedelta(minutes=15)
+                asyncio.run(coord._async_update_data())
+        # The retrain's own refresh left a prediction, so every refresh scores one.
+        assert len(coord._residuals) == 20 + 12
+        assert coord._residual_drift_status.watching is True
+        assert (
+            sum("residual drift detected" in r.getMessage() for r in caplog.records)
+            == 1
+        )
+        assert coord._residual_path.exists()
+
+    # test_a_loads_running_hold_reaches_the_predict_call: #1703: the subentry's threshold and hold length are what predict() runs with.
+    tmp_9 = tmp_path / "test_a_loads_running_hold_reaches_the_predict_call"
+    tmp_9.mkdir()
+    with monkeypatch.context() as mp:
+        hass = FakeHass(tmp_9)
+        coord = _coordinator(
+            hass,
+            **{const.CONF_RUNNING_THRESHOLD_KW: 1.0, const.CONF_RUN_HOLD_HOURS: 2.0},
+        )
+        asyncio.run(coord._async_retrain())
+        seen = []
+        real = cm.predict
+
+        def spy(*args, **kwargs):
+            seen.append((args, kwargs))
+            return real(*args, **kwargs)
+
+        mp.setattr(cm, "predict", spy)
+        asyncio.run(coord._async_update_data())
+        assert seen
+        for args, kwargs in seen:
+            threshold = kwargs.get(
+                "running_threshold_kw", args[15] if len(args) > 15 else None
+            )
+            hold = kwargs.get("run_hold_hours", args[16] if len(args) > 16 else None)
+            assert (threshold, hold) == (1.0, 2.0)
 
 
 # --- a whole site's inputs ------------------------------------------------------
@@ -300,187 +511,4 @@ def _site_coordinator(hass, **options):
     return coord
 
 
-def test_every_site_input_is_read_in_kw_and_trained_on(tmp_path, site):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(hass)
-    asyncio.run(coord._async_retrain())
-    assert coord._last_retrain_error is None
-    read = {r[0] for r in hass.history_reads}
-    assert read >= {
-        LOAD,
-        "sensor.outside_temp",
-        "sensor.outside_humidity",
-        "switch.curtail",
-        "sensor.battery_power",
-        "sensor.grid_power",
-        "sensor.solar_power",
-    }
-    x = coord._trained.x_train
-    for feature in ("temp_c", "curtailment", "battery_kw", "solar_kw"):
-        assert x[:, cm.FEATURE_NAMES.index(feature)].std() > 0, feature
-    # Live readings are in kW whatever the sensor's unit.
-    assert coord._current_measured_power("sensor.battery_power") == pytest.approx(0.5)
-    assert coord._current_measured_power("sensor.missing") == 0.0
-    assert coord._current_humidity() == 60.0
-    assert coord.data["forecast"]
-
-
-def test_an_energy_sensor_is_never_a_power_feature_and_the_load_never_its_own(
-    tmp_path, site
-):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(
-        hass,
-        **{
-            const.CONF_BATTERY_SENSOR: "sensor.battery_energy",
-            const.CONF_HUMIDITY_SENSOR: LOAD,
-        },
-    )
-    assert coord._battery_sensor is None  # kWh: energy, not power (#1562)
-    assert coord._humidity_sensor is None  # the load itself (#1540)
-    assert coord._grid_sensor == "sensor.grid_power"
-
-
-def test_a_weather_entity_is_read_through_its_forecast_service(tmp_path, site):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(
-        hass, **{const.CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"}
-    )
-    got = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert len(got) == 100 and got[0][1] == 20.0
-    assert hass.service_calls == [
-        ("weather", "get_forecasts", {"entity_id": "weather.home"})
-    ]
-    hass._states["weather.home"] = _State(state="unavailable", attributes={})
-    # Unavailable after a restart: no call, and the last good forecast is kept.
-    again = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert len(hass.service_calls) == 1 and again and again[0][0] >= NOW
-
-
-@pytest.mark.parametrize(
-    "source", [const.TRAINING_SOURCE_LTS, const.TRAINING_SOURCE_HYBRID]
-)
-def test_long_term_statistics_train_the_older_days(tmp_path, site, source):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(
-        hass, **{const.CONF_TRAINING_SOURCE: source, const.CONF_HYBRID_RECENT_DAYS: 5}
-    )
-    asyncio.run(coord._async_retrain())
-    assert coord._last_retrain_error is None and coord._trained is not None
-    lts = [r for r in hass.lts_reads if r[0] == LOAD]
-    assert lts, "the load was read from long-term statistics"
-    start = NOW - timedelta(days=21)
-    if source == const.TRAINING_SOURCE_HYBRID:
-        # Statistics for the older days, the recorder for the last five.
-        assert lts[0][2] == NOW - timedelta(days=5)
-        assert any(
-            r[0] == LOAD and r[1] == NOW - timedelta(days=5) for r in hass.history_reads
-        )
-        assert coord._change_only_from(start, NOW) == NOW - timedelta(days=5)
-    else:
-        assert coord._change_only_from(start, NOW) is None
-
-
 # --- what is kept across restarts ------------------------------------------------
-
-
-def test_setup_loads_what_was_kept_and_schedules_the_nightly_retrain(
-    tmp_path, site, monkeypatch
-):
-    hass = _site_hass(tmp_path)
-    first = _coordinator(hass)
-    asyncio.run(first._async_retrain())
-    first._residuals = [0.1, 0.2]
-    first._save_residuals_to_disk()
-    tracked, created, unloads = [], [], []
-
-    def track(hass_, cb, **kw):
-        tracked.append(kw)
-        return lambda: tracked.append("off")
-
-    monkeypatch.setattr(cm, "async_track_time_change", track)
-    hass.async_create_task = lambda coro: created.append(coro) or coro.close()
-    second = _coordinator(hass)
-    second.entry.async_on_unload = unloads.append
-    asyncio.run(second.async_setup())
-    assert second._trained is not None and second._residuals == [0.1, 0.2]
-    assert tracked == [
-        {"hour": second._retrain_hour, "minute": second._retrain_minute, "second": 0}
-    ]
-    assert created == []  # a current model needs no retrain at startup
-    unloads[0]()
-    assert tracked[-1] == "off"
-
-
-@pytest.mark.parametrize("damage", ["garbage", "features", "newer"])
-def test_a_damaged_or_foreign_model_file_is_discarded_and_retrained(
-    tmp_path, site, monkeypatch, damage
-):
-    hass = _site_hass(tmp_path)
-    coord = _coordinator(hass)
-    asyncio.run(coord._async_retrain())
-    trained = coord._trained
-    if damage == "garbage":
-        coord._model_path.write_bytes(b"not a pickle")
-    elif damage == "features":
-        trained.x_mean = trained.x_mean[:-1]
-        coord._save_model_to_disk(trained)
-    else:
-        trained.schema_version = cm.TRAINED_MODEL_SCHEMA_VERSION + 1
-        coord._save_model_to_disk(trained)
-    coord._residual_path.write_text('["x"]', encoding="utf-8")
-    created = []
-    monkeypatch.setattr(cm, "async_track_time_change", lambda *a, **k: lambda: None)
-    hass.async_create_task = lambda coro: created.append(coro) or coro.close()
-    again = _coordinator(hass)
-    again.entry.async_on_unload = lambda cb: None
-    asyncio.run(again.async_setup())
-    assert again._trained is None and again._residuals == []
-    assert len(created) == 1  # retrain now, not at tonight's hour
-
-
-def test_each_refresh_scores_the_last_prediction_and_flags_drift_once(
-    tmp_path, site, monkeypatch, caplog
-):
-    hass = _site_hass(tmp_path)
-    coord = _coordinator(hass)
-    asyncio.run(coord._async_retrain())
-    coord._residuals = [0.1] * 20
-    clock = {"now": NOW}
-    monkeypatch.setattr(cm.dt_util, "utcnow", lambda: clock["now"])
-    # The house runs well over its forecast from here on.
-    monkeypatch.setattr(sys.modules[__name__], "_house_kw", lambda t: 7.5)
-    with caplog.at_level("WARNING", logger=cm._LOGGER.name):
-        for _ in range(12):
-            clock["now"] += timedelta(minutes=15)
-            asyncio.run(coord._async_update_data())
-    # The retrain's own refresh left a prediction, so every refresh scores one.
-    assert len(coord._residuals) == 20 + 12
-    assert coord._residual_drift_status.watching is True
-    assert sum("residual drift detected" in r.getMessage() for r in caplog.records) == 1
-    assert coord._residual_path.exists()
-
-
-def test_a_loads_running_hold_reaches_the_predict_call(tmp_path, recorder, monkeypatch):
-    """#1703: the subentry's threshold and hold length are what predict() runs with."""
-    hass = FakeHass(tmp_path)
-    coord = _coordinator(
-        hass, **{const.CONF_RUNNING_THRESHOLD_KW: 1.0, const.CONF_RUN_HOLD_HOURS: 2.0}
-    )
-    asyncio.run(coord._async_retrain())
-    seen = []
-    real = cm.predict
-
-    def spy(*args, **kwargs):
-        seen.append((args, kwargs))
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(cm, "predict", spy)
-    asyncio.run(coord._async_update_data())
-    assert seen
-    for args, kwargs in seen:
-        threshold = kwargs.get(
-            "running_threshold_kw", args[15] if len(args) > 15 else None
-        )
-        hold = kwargs.get("run_hold_hours", args[16] if len(args) > 16 else None)
-        assert (threshold, hold) == (1.0, 2.0)

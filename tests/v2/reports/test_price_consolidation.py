@@ -32,7 +32,8 @@ NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 # --- consolidate() ------------------------------------------------------------------------------
 
 
-def test_the_spread_is_the_raw_range_and_no_source_is_none():
+def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
+    # test_the_spread_is_the_raw_range_and_no_source_is_none
     # test_the_spread_is_the_raw_range_and_no_source_is_none
     _v, spread, _m = pc.consolidate(
         {"a": [1.0, 1.0], "b": [3.0, 2.0], "c": [10.0, None]}
@@ -97,6 +98,39 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none():
     assert raw == [0.30, 0.77, 0.77, 0.77]
     assert lab_i == ["primary", "fallback", "fallback", "fallback"]
 
+    # test_a_failure_returns_none_and_touches_nothing
+    with monkeypatch.context() as mp:
+
+        def boom(*_a, **_k):
+            raise RuntimeError("boom")
+
+        mp.setattr(pc, "consolidate", boom)
+        result, raw, *_ = _apply(True, aemo=[0.9] * 5)
+        assert result is None and raw == [0.30] * 5
+
+    # test_the_trackers_persist_across_a_restart
+    grid = [NOW + timedelta(minutes=5 * (i + 1)) for i in range(3)]
+    p = SimpleNamespace(
+        import_real_mask=[True] * 3,
+        export_real_mask=[True] * 3,
+        aemo_import_series=None,
+        aemo_export_series=None,
+    )
+    with isolated_state_paths(sw):
+        for now in (
+            NOW,
+            grid[0] + timedelta(seconds=10),
+            grid[1] + timedelta(seconds=10),
+        ):
+            sw.apply_price_consolidation(
+                {}, now, grid, [5 / 60] * 3, 0, p, [0.30] * 3, [0.05] * 3,
+                0.31, 0.05, [0.30] * 3, [0.05] * 3, ["primary"] * 3, ["primary"] * 3,
+            )  # fmt: skip
+        sw._PRICE_CONSOLIDATION_CACHE = None  # a restart
+        trackers = sw._load_price_trackers()
+    assert trackers["import"].samples["primary"]["0-5 min"] == 1
+    assert trackers["import"].mae["primary"]["0-5 min"] == pytest.approx(0.01)
+
 
 # --- each source's running error ----------------------------------------------------------------
 
@@ -152,39 +186,6 @@ def _apply(live, aemo=None, n_settled=2, masks=None, imp=None, labels=None):
             lab_e,
         )
     return result, raw, exp, lab_i, lab_e
-
-
-def test_a_failure_returns_none_and_touches_nothing(monkeypatch):
-    def boom(*_a, **_k):
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(pc, "consolidate", boom)
-    result, raw, *_ = _apply(True, aemo=[0.9] * 5)
-    assert result is None and raw == [0.30] * 5
-
-
-def test_the_trackers_persist_across_a_restart():
-    grid = [NOW + timedelta(minutes=5 * (i + 1)) for i in range(3)]
-    p = SimpleNamespace(
-        import_real_mask=[True] * 3,
-        export_real_mask=[True] * 3,
-        aemo_import_series=None,
-        aemo_export_series=None,
-    )
-    with isolated_state_paths(sw):
-        for now in (
-            NOW,
-            grid[0] + timedelta(seconds=10),
-            grid[1] + timedelta(seconds=10),
-        ):
-            sw.apply_price_consolidation(
-                {}, now, grid, [5 / 60] * 3, 0, p, [0.30] * 3, [0.05] * 3,
-                0.31, 0.05, [0.30] * 3, [0.05] * 3, ["primary"] * 3, ["primary"] * 3,
-            )  # fmt: skip
-        sw._PRICE_CONSOLIDATION_CACHE = None  # a restart
-        trackers = sw._load_price_trackers()
-    assert trackers["import"].samples["primary"]["0-5 min"] == 1
-    assert trackers["import"].mae["primary"]["0-5 min"] == pytest.approx(0.01)
 
 
 # --- the real main() ----------------------------------------------------------------------------

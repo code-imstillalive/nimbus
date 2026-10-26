@@ -54,7 +54,8 @@ def _days(n, per_day, lo, hi):
 # --- the band ----------------------------------------------------------------------------------
 
 
-def test_with_nothing_measured_and_no_usable_band_there_is_no_band():
+def test_with_nothing_measured_and_no_usable_band_there_is_no_band(tmp_path):
+    # test_with_nothing_measured_and_no_usable_band_there_is_no_band
     # test_with_nothing_measured_and_no_usable_band_there_is_no_band
     for solcast in [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])]:
         assert _bands([1.0, 2.0], solcast=solcast) == (None, None, None)
@@ -108,6 +109,44 @@ def test_with_nothing_measured_and_no_usable_band_there_is_no_band():
     assert (back.samples, back.pending) == (h.samples, h.pending)
     assert sq.SolarErrorHistory.from_dict({"samples": 3}).samples == {}
 
+    # test_four_days_of_history_replace_solcasts_band_with_the_measured_one
+    tmp_1 = (
+        tmp_path
+        / "test_four_days_of_history_replace_solcasts_band_with_the_measured_one"
+    )
+    tmp_1.mkdir()
+    cfg = {"solver_solar_power_sensor": "sensor.pv"}
+    path = tmp_1 / "q.json"
+    writer = _writer(path, 3.0)  # always 3 kW against a 4 kW forecast
+    times, hours = _grid(3)
+    band = ([1.0, 4.0, 4.0], [1.0, 2.0, 2.5], [1.0, 6.0, 5.0])
+    early = sq.update_and_build(writer, cfg, NOW, times, hours, [1.0, 4.0, 4.0], band)
+    assert early["calibration"]["method"] == sq.METHOD_SOLCAST
+    assert (early["p10"], early["p90"]) == ([1.0, 2.0, 2.5], [1.0, 6.0, 5.0])
+    day = NOW
+    for _ in range(4 * 24 * 2):  # four days of half-hourly solves
+        times = [day + timedelta(hours=0.5 * i) for i in range(24)]
+        out = sq.update_and_build(writer, cfg, day, times, [0.5] * 24, [4.0] * 24, None)
+        day += timedelta(minutes=30)
+    assert out["calibration"]["method"] == sq.METHOD_EMPIRICAL
+    assert (out["p10"][3], out["p90"][3]) == pytest.approx(
+        (3.0, 4.0)
+    )  # q90 held at 1.0
+    saved = sq.SolarErrorHistory.from_dict(json.loads(path.read_text(encoding="utf-8")))
+    assert saved.samples
+
+    # test_a_broken_history_never_breaks_the_solve
+    out = sq.update_and_build(
+        types.SimpleNamespace(_SOLAR_QUANTILES_CACHE="not a history"),
+        {"solver_solar_power_sensor": "x"},
+        NOW,
+        [],
+        [],
+        [],
+        None,
+    )
+    assert out["p10"] is None and out["calibration"]["reason"].startswith("error")
+
 
 # --- the quantile table and its calibration ----------------------------------------------------
 
@@ -127,38 +166,3 @@ def _writer(path, pv_kw):
         resample_history_mean=lambda _h, starts, _hours: [pv_kw for _ in starts],
         _kw_scale_factor=lambda _s: 1.0,
     )
-
-
-def test_four_days_of_history_replace_solcasts_band_with_the_measured_one(tmp_path):
-    cfg = {"solver_solar_power_sensor": "sensor.pv"}
-    path = tmp_path / "q.json"
-    writer = _writer(path, 3.0)  # always 3 kW against a 4 kW forecast
-    times, hours = _grid(3)
-    band = ([1.0, 4.0, 4.0], [1.0, 2.0, 2.5], [1.0, 6.0, 5.0])
-    early = sq.update_and_build(writer, cfg, NOW, times, hours, [1.0, 4.0, 4.0], band)
-    assert early["calibration"]["method"] == sq.METHOD_SOLCAST
-    assert (early["p10"], early["p90"]) == ([1.0, 2.0, 2.5], [1.0, 6.0, 5.0])
-    day = NOW
-    for _ in range(4 * 24 * 2):  # four days of half-hourly solves
-        times = [day + timedelta(hours=0.5 * i) for i in range(24)]
-        out = sq.update_and_build(writer, cfg, day, times, [0.5] * 24, [4.0] * 24, None)
-        day += timedelta(minutes=30)
-    assert out["calibration"]["method"] == sq.METHOD_EMPIRICAL
-    assert (out["p10"][3], out["p90"][3]) == pytest.approx(
-        (3.0, 4.0)
-    )  # q90 held at 1.0
-    saved = sq.SolarErrorHistory.from_dict(json.loads(path.read_text(encoding="utf-8")))
-    assert saved.samples
-
-
-def test_a_broken_history_never_breaks_the_solve():
-    out = sq.update_and_build(
-        types.SimpleNamespace(_SOLAR_QUANTILES_CACHE="not a history"),
-        {"solver_solar_power_sensor": "x"},
-        NOW,
-        [],
-        [],
-        [],
-        None,
-    )
-    assert out["p10"] is None and out["calibration"]["reason"].startswith("error")

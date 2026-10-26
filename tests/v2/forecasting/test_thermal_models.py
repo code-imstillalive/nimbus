@@ -98,6 +98,7 @@ def _project(power_kw, ambient_c=None, loss=None):
 
 
 def test_the_two_models_differ_only_by_the_idle_fraction_of_each_period(lp):
+    # test_the_two_models_differ_only_by_the_idle_fraction_of_each_period
     power = np.asarray(lp.power_kw, dtype=float)
     on = power > 0.05
     assert on.any(), "the LP must heat, or the comparison compares nothing"
@@ -112,15 +113,12 @@ def test_the_two_models_differ_only_by_the_idle_fraction_of_each_period(lp):
     for t in full:  # a full-power period adds nothing to the gap
         assert gap[t] == pytest.approx(gap[t - 1] if t else 0.0, abs=1e-6)
 
-
-def test_the_gap_is_smaller_than_the_model_897_replaced(lp):
-    """The LP used to lose a full period's decay while heating too."""
+    # test_the_gap_is_smaller_than_the_model_897_replaced: The LP used to lose a full period's decay while heating too.
     power = np.asarray(lp.power_kw, dtype=float)
     gap = _project(power)[-1] - float(lp.temperature_c[-1])
     assert 0.0 <= gap < DECAY * HOURS * float(np.sum(power > 0.05))
 
-
-def test_the_ambient_covariate_moves_the_projection_and_not_the_lp(lp):
+    # test_the_ambient_covariate_moves_the_projection_and_not_the_lp
     power = np.asarray(lp.power_kw, dtype=float)
     flat = _project(power)
     ambient = _project(power, ambient_c=20.0, loss=0.02)

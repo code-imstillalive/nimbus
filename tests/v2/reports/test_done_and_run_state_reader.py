@@ -28,7 +28,8 @@ lrc = importlib.import_module(
 lrs = importlib.import_module("custom_components.nimbus_load.load_run_state")
 
 
-def test_a_done_condition_is_an_operator_and_a_threshold():
+def test_a_done_condition_is_an_operator_and_a_threshold(reader):
+    # test_a_done_condition_is_an_operator_and_a_threshold
     # test_a_done_condition_is_an_operator_and_a_threshold
     for expr, temp, done in [
         (">= 60", 60.0, True),
@@ -81,6 +82,21 @@ def test_a_done_condition_is_an_operator_and_a_threshold():
         assert dc.read_current_temperature(hass, entity) == temp
         assert dc.read_current_temperature(hass, "water_heater.none") is None
 
+    # test_every_load_reads_its_own_state_and_an_unknown_load_reads_fresh
+    coord, disk = reader
+    assert coord.get("hw") == lrs.LoadRunState()  # before the first refresh
+    disk.data = {
+        "hw": {"commanded_state": True, "delivered_today_kwh": 1.5},
+        "bad": {"delivered_today_kwh": "lots"},
+    }
+    coord.data = asyncio.run(coord._async_update_data())
+    assert (
+        coord.get("hw").commanded_state is True
+        and coord.get("hw").delivered_today_kwh == 1.5
+    )
+    assert coord.get("bad") == lrs.LoadRunState()
+    assert coord.get("other") == lrs.LoadRunState()
+
 
 # --- the run-state reader ---------------------------------------------------------------
 
@@ -103,22 +119,6 @@ def reader(monkeypatch):
         SimpleNamespace(), SimpleNamespace(entry_id="hub1")
     )
     return coord, disk
-
-
-def test_every_load_reads_its_own_state_and_an_unknown_load_reads_fresh(reader):
-    coord, disk = reader
-    assert coord.get("hw") == lrs.LoadRunState()  # before the first refresh
-    disk.data = {
-        "hw": {"commanded_state": True, "delivered_today_kwh": 1.5},
-        "bad": {"delivered_today_kwh": "lots"},
-    }
-    coord.data = asyncio.run(coord._async_update_data())
-    assert (
-        coord.get("hw").commanded_state is True
-        and coord.get("hw").delivered_today_kwh == 1.5
-    )
-    assert coord.get("bad") == lrs.LoadRunState()
-    assert coord.get("other") == lrs.LoadRunState()
 
 
 @pytest.mark.parametrize("disk_state", [None, "broken"])

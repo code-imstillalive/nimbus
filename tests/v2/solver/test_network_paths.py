@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from solver import lp as _solver_lp
 from solver import network
 from solver.elements import (
     AdequacyLoadConfig,
@@ -194,9 +195,8 @@ def test_a_shared_circuit_never_carries_more_than_its_cap(n, powers, share):
 
 
 def test_a_circuit_naming_an_unknown_load_is_refused_by_name():
-    """A circuit member that is not a configured adequacy load is a caller
-    mistake: refused, naming the missing load. No circuits at all, None or
-    an empty list, is the same plan."""
+    # test_a_circuit_naming_an_unknown_load_is_refused_by_name: A circuit member that is not a configured adequacy load is a caller
+    _solver_lp._lex_calibration_failed_until = 0.0
     circuit = [
         SharedCircuitConfig(
             name="c", member_names=("hws_l1", "hws_l3"), max_combined_power_kw=3.7
@@ -211,6 +211,33 @@ def test_a_circuit_naming_an_unknown_load_is_refused_by_name():
         a.adequacy_loads[0].power_kw, b.adequacy_loads[0].power_kw
     )
     assert a.total_cost == b.total_cost
+
+    # test_a_spike_override_keeps_the_floor_on_the_free_part: Mark Purcell, #1924: at period 0 under a spike override the P2P
+    _solver_lp._lex_calibration_failed_until = 0.0
+    fixed = np.full(_FLOOR_N, np.nan)
+    fixed[0] = 2.0
+    fixed[6:9] = 2.0
+    exp = np.array([0.10] + [0.09] * 3 + [0.06] * 2 + [0.10] * 3 + [0.30] * 3)
+    plan = build_plan(
+        periods=PeriodGrid(_FLOOR_H),
+        grid=GridConfig(
+            import_price=np.array([0.16] * 4 + [0.084] * 2 + [0.40] * 6),
+            export_price=exp,
+            import_limit_kw=60.0,
+            export_limit_kw=40.0,
+            fixed_export_kw=fixed,
+            export_floor_price=0.15,
+        ),
+        batteries=[_floor_battery(15.0, spike_override_discharge_kw=10.0)],
+        solar=SolarConfig(forecast_kw=np.zeros(_FLOOR_N)),
+        loads=[LoadConfig(name="house", forecast_kw=np.full(_FLOOR_N, 3.0))],
+    )
+    assert plan.status == "optimal"
+    assert float(plan.grid_export_kw[0]) > 2.0 + 1e-6
+    rates = network.export_floor_penalty_rates(plan.effective_export_price, 0.15)
+    expected = float(rates[0] * plan.grid_export_kw[0] * _FLOOR_H[0])
+    assert expected > 0
+    assert plan.export_floor_penalty_cost == pytest.approx(expected, rel=1e-6)
 
 
 def _tank_plan(n=24, **coupling):
@@ -313,37 +340,6 @@ def _floor_plan(floor, *, soc, surplus, morning_export, fixed=None, capacity=15.
         solar=SolarConfig(forecast_kw=np.array([3.0 + surplus] * 4 + [0.0] * 8)),
         loads=[LoadConfig(name="house", forecast_kw=np.full(n, 3.0))],
     )
-
-
-def test_a_spike_override_keeps_the_floor_on_the_free_part():
-    """Mark Purcell, #1924: at period 0 under a spike override the P2P
-    commitment is a floor, not a pin, and export above it is free. The
-    export floor stays live on that free part; on later committed periods
-    it does not."""
-    fixed = np.full(_FLOOR_N, np.nan)
-    fixed[0] = 2.0
-    fixed[6:9] = 2.0
-    exp = np.array([0.10] + [0.09] * 3 + [0.06] * 2 + [0.10] * 3 + [0.30] * 3)
-    plan = build_plan(
-        periods=PeriodGrid(_FLOOR_H),
-        grid=GridConfig(
-            import_price=np.array([0.16] * 4 + [0.084] * 2 + [0.40] * 6),
-            export_price=exp,
-            import_limit_kw=60.0,
-            export_limit_kw=40.0,
-            fixed_export_kw=fixed,
-            export_floor_price=0.15,
-        ),
-        batteries=[_floor_battery(15.0, spike_override_discharge_kw=10.0)],
-        solar=SolarConfig(forecast_kw=np.zeros(_FLOOR_N)),
-        loads=[LoadConfig(name="house", forecast_kw=np.full(_FLOOR_N, 3.0))],
-    )
-    assert plan.status == "optimal"
-    assert float(plan.grid_export_kw[0]) > 2.0 + 1e-6
-    rates = network.export_floor_penalty_rates(plan.effective_export_price, 0.15)
-    expected = float(rates[0] * plan.grid_export_kw[0] * _FLOOR_H[0])
-    assert expected > 0
-    assert plan.export_floor_penalty_cost == pytest.approx(expected, rel=1e-6)
 
 
 # --- #467: the per-period away mask ----------------------------------------------
@@ -689,8 +685,8 @@ def test_the_rate_limit_holds_each_battery_to_its_own_previous_value(
 
 
 def test_a_plan_needs_named_batteries_each_once():
-    """#467 stage 1: at least one battery, and each name once (the name is
-    what the rate limit and every reader match on)."""
+    # test_a_plan_needs_named_batteries_each_once: #467 stage 1: at least one battery, and each name once (the name is
+    _solver_lp._lex_calibration_failed_until = 0.0
     for names, says in [([], "at least one"), (["home", "home"], "unique names")]:
         with pytest.raises(ValueError, match=says):
             build_plan(
@@ -705,13 +701,8 @@ def test_a_plan_needs_named_batteries_each_once():
                 solar=SolarConfig(forecast_kw=np.zeros(2)),
             )
 
-
-# --- #563 items 2-3, #779: availability, the away prefix, the shared charger ------
-
-
-def test_a_departure_past_the_plan_changes_nothing():
-    """#563 item 3: a departure deadline beyond this solve's horizon is not
-    this solve's to meet, so the plan is the plan without it."""
+    # test_a_departure_past_the_plan_changes_nothing: #563 item 3: a departure deadline beyond this solve's horizon is not
+    _solver_lp._lex_calibration_failed_until = 0.0
     base = _swing_plan(_car())
     later = _swing_plan(
         _car(must_have_soc_by_period_index=_SWING_N + 5, must_have_soc_kwh=39.0)
@@ -720,6 +711,68 @@ def test_a_departure_past_the_plan_changes_nothing():
         later.batteries[0].soc_kwh, base.batteries[0].soc_kwh, atol=1e-6
     )
     assert later.total_cost == pytest.approx(base.total_cost, abs=1e-6)
+
+    # test_only_a_shared_charger_with_a_ceiling_gets_the_binary: Independent batteries may still charge and discharge at once; that is
+    _solver_lp._lex_calibration_failed_until = 0.0
+    for groups in [
+        ({}, {}),  # two independent batteries
+        ({"shared_charger_group": "g", "shared_charger_max_kw": 7.0}, {}),  # one member
+        ({"shared_charger_group": "g"}, {"shared_charger_group": "g"}),  # no ceiling
+    ]:
+        batteries = [_small("a", **groups[0]), _small("c", **groups[1])]
+        assert network._shared_charger_groups(batteries) == {}
+        plan = _paid_to_import(*batteries)
+        assert not any(
+            n.startswith("charger_dir_")
+            for n in network._opposing_flow_binaries(plan, batteries)
+        )
+
+    # test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve: #1981 (#492's flag): an adequacy period outside its window has a
+    _solver_lp._lex_calibration_failed_until = 0.0
+    for neighbour in [False, True]:
+        for price in [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)]:
+            _solver_lp._lex_calibration_failed_until = 0.0
+            n = len(price)
+            plan = build_plan(
+                periods=PeriodGrid(np.ones(n)),
+                grid=GridConfig(
+                    import_price=np.asarray(price),
+                    export_price=np.zeros(n),
+                    import_limit_kw=20.0,
+                    export_limit_kw=20.0,
+                ),
+                batteries=[_idle_battery()],
+                solar=SolarConfig(forecast_kw=np.zeros(n)),
+                loads=[],
+                sheddable_loads=[
+                    SheddableLoadConfig(
+                        name="pool", forecast_kw=np.ones(n), shed_cost=0.3
+                    )
+                ]
+                if neighbour
+                else None,
+                adequacy_loads=[
+                    AdequacyLoadConfig(
+                        name="hws",
+                        max_power_kw=3.0,
+                        target_kwh=1.0,
+                        deadline_period=0,
+                        earliest_period=0,
+                        shortfall_price=5.0,
+                    )
+                ],
+                adequacy_semi_continuous=False,
+                compute_signals=True,
+            )
+            assert plan.status == "optimal"
+            sig = plan.load_signals[-1]
+            assert sig.name == "hws"
+            for t in range(1, n):
+                assert sig.degenerate[t], t
+                assert sig.band_min_kw[t] == sig.band_max_kw[t] == pytest.approx(0.0)
+
+
+# --- #563 items 2-3, #779: availability, the away prefix, the shared charger ------
 
 
 def _paid_to_import(*batteries, import_price=-1.0, export_price=-2.0):
@@ -754,66 +807,3 @@ def _small(name, **kw):
         salvage_value=0.0,
         **kw,
     )
-
-
-def test_only_a_shared_charger_with_a_ceiling_gets_the_binary():
-    """Independent batteries may still charge and discharge at once; that is
-    real. A one-member group has its own battery binary, and a group with no
-    declared ceiling has no cap row to share."""
-    for groups in [
-        ({}, {}),  # two independent batteries
-        ({"shared_charger_group": "g", "shared_charger_max_kw": 7.0}, {}),  # one member
-        ({"shared_charger_group": "g"}, {"shared_charger_group": "g"}),  # no ceiling
-    ]:
-        batteries = [_small("a", **groups[0]), _small("c", **groups[1])]
-        assert network._shared_charger_groups(batteries) == {}
-        plan = _paid_to_import(*batteries)
-        assert not any(
-            n.startswith("charger_dir_")
-            for n in network._opposing_flow_binaries(plan, batteries)
-        )
-
-
-@pytest.mark.parametrize("neighbour", [False, True])
-@pytest.mark.parametrize("price", [(0.2, 0.2, 0.2), (0.5, 0.25, 0.4)])
-def test_a_shut_period_is_degenerate_whatever_else_is_in_the_solve(price, neighbour):
-    """#1981 (#492's flag): an adequacy period outside its window has a
-    ceiling of 0, so its band is zero width and it is degenerate. The flag
-    used to follow HiGHS's unclamped ranging instead, and a sheddable load
-    in the same solve was enough to turn it off."""
-    n = len(price)
-    plan = build_plan(
-        periods=PeriodGrid(np.ones(n)),
-        grid=GridConfig(
-            import_price=np.asarray(price),
-            export_price=np.zeros(n),
-            import_limit_kw=20.0,
-            export_limit_kw=20.0,
-        ),
-        batteries=[_idle_battery()],
-        solar=SolarConfig(forecast_kw=np.zeros(n)),
-        loads=[],
-        sheddable_loads=[
-            SheddableLoadConfig(name="pool", forecast_kw=np.ones(n), shed_cost=0.3)
-        ]
-        if neighbour
-        else None,
-        adequacy_loads=[
-            AdequacyLoadConfig(
-                name="hws",
-                max_power_kw=3.0,
-                target_kwh=1.0,
-                deadline_period=0,
-                earliest_period=0,
-                shortfall_price=5.0,
-            )
-        ],
-        adequacy_semi_continuous=False,
-        compute_signals=True,
-    )
-    assert plan.status == "optimal"
-    sig = plan.load_signals[-1]
-    assert sig.name == "hws"
-    for t in range(1, n):
-        assert sig.degenerate[t], t
-        assert sig.band_min_kw[t] == sig.band_max_kw[t] == pytest.approx(0.0)

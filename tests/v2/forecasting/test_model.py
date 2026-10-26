@@ -79,7 +79,9 @@ def _tomorrow(trained, fn, **kw):
     return stamps, result
 
 
-def test_no_history_or_too_little_is_no_model(caplog):
+def test_no_history_or_too_little_is_no_model(caplog, house):
+    # test_no_history_or_too_little_is_no_model
+    caplog.clear()
     with caplog.at_level(logging.WARNING, logger=model._LOGGER.name):
         none = model.train_model(
             load_events=[],
@@ -108,6 +110,45 @@ def test_no_history_or_too_little_is_no_model(caplog):
     assert any(m.startswith("sensor.empty: ") for m in messages)
     assert any(m.startswith("sensor.young: ") for m in messages)
 
+    # test_a_short_dip_below_the_threshold_still_counts_as_running
+    # Below for 7 minutes: inside the 10-minute grace.
+    values = _hold(house, [(15, 3.0), (8, 0.2)], run_hold_hours=1.0)
+    assert values[0] == 3.0
+    # Below for exactly the grace: it has stopped.
+    assert _hold(house, [(15, 3.0), (5, 0.2)], run_hold_hours=1.0) == [0.0] * 16
+    stopped = _hold(house, [(30, 3.0), (0, 0.2)], run_hold_hours=1.0)
+    assert stopped == [0.0] * 16
+
+    # test_a_load_never_above_its_threshold_forecasts_nothing_unless_learned_when_off
+    assert _hold(house, [(15, 0.3), (0, 0.2)]) == [0.0] * 16
+    learned = _hold(house, [(15, 0.3), (0, 0.2)], learned_when_off=True)
+    assert any(v > 0.0 for v in learned)
+    running = _hold(house, [(0, 3.0)], run_hold_hours=1.0, learned_when_off=True)
+    assert running[:4] == [3.0] * 4 and any(v > 0.0 for v in running[4:])
+
+    # test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such
+    caplog.clear()
+    trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
+    assert line.startswith("probe: Recursive validation unavailable (")
+    assert "no OBSERVED actual" in line and "which more history will not change" in line
+    assert "origin(s) available" in line and "Too few origins" not in line
+    assert line.endswith(
+        f"falling back to one-step selection -> using {trained.model_type}"
+    )
+
+    # test_selection_validates_4_h_and_the_diagnostic_reaches_a_day_at_a_bounded_cost
+    minutes = 15  # the forecaster's resample step
+    assert model.RECURSIVE_VALIDATION_HORIZON_STEPS * minutes / 60 == 4.0
+    horizons = model.RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS
+    assert max(horizons) * minutes / 60 >= 24.0
+    assert all(h > model.RECURSIVE_VALIDATION_HORIZON_STEPS for h in horizons)
+    assert model.RECURSIVE_VALIDATION_DIAGNOSTIC_MAX_ORIGINS * sum(horizons) <= 2000
+
+    # test_the_model_is_chosen_by_the_selection_metric_never_the_diagnostic
+    chosen = min(house.validation_recursive_mae, key=house.validation_recursive_mae.get)
+    assert house.model_type == chosen
+    assert house.validation_recursive_mae_by_horizon  # measured, and only measured
+
 
 # --- a burst load's running hold (#1703) ------------------------------------------------
 
@@ -126,26 +167,6 @@ def _hold(house, readings, **kw):
         **kw,
     )
     return out.values
-
-
-def test_a_short_dip_below_the_threshold_still_counts_as_running(house):
-    # Below for 7 minutes: inside the 10-minute grace.
-    values = _hold(house, [(15, 3.0), (8, 0.2)], run_hold_hours=1.0)
-    assert values[0] == 3.0
-    # Below for exactly the grace: it has stopped.
-    assert _hold(house, [(15, 3.0), (5, 0.2)], run_hold_hours=1.0) == [0.0] * 16
-    stopped = _hold(house, [(30, 3.0), (0, 0.2)], run_hold_hours=1.0)
-    assert stopped == [0.0] * 16
-
-
-def test_a_load_never_above_its_threshold_forecasts_nothing_unless_learned_when_off(
-    house,
-):
-    assert _hold(house, [(15, 0.3), (0, 0.2)]) == [0.0] * 16
-    learned = _hold(house, [(15, 0.3), (0, 0.2)], learned_when_off=True)
-    assert any(v > 0.0 for v in learned)
-    running = _hold(house, [(0, 3.0)], run_hold_hours=1.0, learned_when_off=True)
-    assert running[:4] == [3.0] * 4 and any(v > 0.0 for v in running[4:])
 
 
 # --- the seasonal anchor and the smoothing ---------------------------------------------------
@@ -194,29 +215,4 @@ def _selection_log(caplog, events, **kw):
     return trained, line
 
 
-def test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such(caplog):
-    trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
-    assert line.startswith("probe: Recursive validation unavailable (")
-    assert "no OBSERVED actual" in line and "which more history will not change" in line
-    assert "origin(s) available" in line and "Too few origins" not in line
-    assert line.endswith(
-        f"falling back to one-step selection -> using {trained.model_type}"
-    )
-
-
 # --- the horizon curve: selection at 4 h, a diagnostic out to a day (#937) --------------------
-
-
-def test_selection_validates_4_h_and_the_diagnostic_reaches_a_day_at_a_bounded_cost():
-    minutes = 15  # the forecaster's resample step
-    assert model.RECURSIVE_VALIDATION_HORIZON_STEPS * minutes / 60 == 4.0
-    horizons = model.RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS
-    assert max(horizons) * minutes / 60 >= 24.0
-    assert all(h > model.RECURSIVE_VALIDATION_HORIZON_STEPS for h in horizons)
-    assert model.RECURSIVE_VALIDATION_DIAGNOSTIC_MAX_ORIGINS * sum(horizons) <= 2000
-
-
-def test_the_model_is_chosen_by_the_selection_metric_never_the_diagnostic(house):
-    chosen = min(house.validation_recursive_mae, key=house.validation_recursive_mae.get)
-    assert house.model_type == chosen
-    assert house.validation_recursive_mae_by_horizon  # measured, and only measured

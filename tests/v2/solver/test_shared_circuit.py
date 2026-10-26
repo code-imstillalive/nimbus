@@ -7,6 +7,7 @@ from __future__ import annotations
 import unittest
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver.elements import (
     DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     AdequacyLoadConfig,
@@ -44,18 +45,22 @@ def _base_battery(**overrides) -> BatteryConfig:
 
 class TestSharedCircuitConfigValidation(unittest.TestCase):
     def test_single_member_rejected(self):
+        # test_single_member_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError):
             SharedCircuitConfig(
                 name="c", member_names=("a",), max_combined_power_kw=3.7
             )
 
-    def test_duplicate_member_rejected(self):
+        # test_duplicate_member_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError):
             SharedCircuitConfig(
                 name="c", member_names=("a", "a"), max_combined_power_kw=3.7
             )
 
-    def test_non_positive_cap_rejected(self):
+        # test_non_positive_cap_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError):
             SharedCircuitConfig(
                 name="c", member_names=("a", "b"), max_combined_power_kw=0.0

@@ -225,11 +225,12 @@ def test_an_unreadable_soc_holds_the_last_reading_never_the_floor(car, caplog):
     assert "car" not in eb._SOC_UNREADABLE_WARNED  # waking ends the spell
 
 
-@pytest.mark.parametrize("soc", ["unavailable", None], ids=["unavailable", "missing"])
-def test_with_nothing_to_hold_the_car_sits_out(car, caplog, soc):
-    with caplog.at_level(logging.WARNING):
-        assert car(soc) == []
-    assert soc is None or "leaving it out" in caplog.text
+def test_with_nothing_to_hold_the_car_sits_out(car, caplog):
+    for soc in ["unavailable", None]:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            assert car(soc) == []
+        assert soc is None or "leaving it out" in caplog.text
 
 
 # --- a participant that can never move is built, and said once (#1067) ------------------------
@@ -256,19 +257,16 @@ def test_a_participant_with_no_power_limits_is_built_and_warned_about_once(
     assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
 
 
-@pytest.mark.parametrize(
-    "limits",
-    [
+def test_a_one_directional_participant_is_not_warned_about(site, caplog, monkeypatch):
+    for limits in [
         {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
         {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
-    ],
-)
-def test_a_one_directional_participant_is_not_warned_about(
-    site, caplog, monkeypatch, limits
-):
-    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-    site.add("ev", {**EV, **limits})
-    site.state("sensor.ev_soc", "55.0")
-    with caplog.at_level(logging.WARNING):
-        assert len(eb.build_extra_batteries()) == 1
-    assert "#1067" not in caplog.text
+    ]:
+        caplog.clear()
+        with monkeypatch.context() as mp:
+            mp.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
+            site.add("ev", {**EV, **limits})
+            site.state("sensor.ev_soc", "55.0")
+            with caplog.at_level(logging.WARNING):
+                assert len(eb.build_extra_batteries()) == 1
+            assert "#1067" not in caplog.text

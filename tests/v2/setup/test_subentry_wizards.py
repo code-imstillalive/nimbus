@@ -142,6 +142,7 @@ def quiet_checks(monkeypatch):
 
 
 def test_each_wizard_creates_its_part_with_a_sensible_name():
+    # test_each_wizard_creates_its_part_with_a_sensible_name
     for kind in sorted(WIZARDS):
         flow, _m = _flow(kind)
         form = asyncio.run(flow.async_step_user())
@@ -150,8 +151,7 @@ def test_each_wizard_creates_its_part_with_a_sensible_name():
         created = asyncio.run(flow.async_step_user(dict(answer)))
         assert created == {"type": "create_entry", "title": title, "data": answer}
 
-
-def test_reconfigure_opens_with_what_was_saved_and_updates_in_place():
+    # test_reconfigure_opens_with_what_was_saved_and_updates_in_place
     for kind in sorted(WIZARDS):
         answer = WIZARDS[kind][2]
         saved = SimpleNamespace(subentry_id="s1", data=dict(answer), subentry_type=kind)
@@ -173,8 +173,7 @@ def test_reconfigure_opens_with_what_was_saved_and_updates_in_place():
         updated = asyncio.run(flow.async_step_reconfigure(dict(answer)))
         assert updated["type"] == "update_and_abort"
 
-
-def test_a_sensor_another_forecaster_already_uses_is_refused():
+    # test_a_sensor_another_forecaster_already_uses_is_refused
     for kind in ["load", "signal"]:
         other = SimpleNamespace(
             subentry_id="other",
@@ -191,8 +190,7 @@ def test_a_sensor_another_forecaster_already_uses_is_refused():
             == "update_and_abort"
         )
 
-
-def test_names_fall_back_sensibly():
+    # test_names_fall_back_sensibly
     for kind, answer, states, title in [
         ("load", {const.CONF_LOAD_SENSOR: "sensor.unnamed"}, {}, "sensor.unnamed"),
         (
@@ -234,8 +232,7 @@ def test_names_fall_back_sensibly():
         created = asyncio.run(flow.async_step_user(dict(answer)))
         assert created["title"] == (title or m._TITLE_FALLBACK)
 
-
-def test_only_load_and_signal_forecasters_can_collide():
+    # test_only_load_and_signal_forecasters_can_collide
     subs = {
         "a": SimpleNamespace(
             subentry_id="a",
@@ -260,8 +257,7 @@ def test_only_load_and_signal_forecasters_can_collide():
     )
     assert flows.find_subentry_sharing_source_sensor(entry, "sensor.q") is None
 
-
-def test_a_participant_can_be_here_by_any_kind_of_entity_and_listed_states():
+    # test_a_participant_can_be_here_by_any_kind_of_entity_and_listed_states
     availability = importlib.import_module("custom_components.nimbus_load.availability")
     schema = _mod("battery_participant_subentry")._schema({})
     fields = {str(k): k for k in schema.schema}

@@ -52,6 +52,7 @@ def _flows(raw: list[dict]) -> list[Flow]:
 
 def test_manifest_is_f02_and_names_its_requirements():
     # test_manifest_is_f02_and_names_its_requirements
+    # test_manifest_is_f02_and_names_its_requirements
     assert F02["identity"]["fixture"] == "F02"
     assert set(F02["identity"]["requirements"]) == {"DC-R02", "DC-R03", "DC-R09"}
     assert F02["comparison"]["absolute_tolerance"] == TOL
@@ -103,8 +104,7 @@ def test_manifest_is_f02_and_names_its_requirements():
     with pytest.raises(ValueError, match="no reading"):
         within(limit, [Member("ev_a", "battery", -20.0)])
 
-
-def test_strings_inside_their_total_count_once():
+    # test_strings_inside_their_total_count_once
     # test_strings_inside_their_total_count_once
     flows = _flows(CASES["string_and_total"])
     assert abs(site_grid_kw(flows) - EXP["string_and_total_grid_kw"]) <= TOL

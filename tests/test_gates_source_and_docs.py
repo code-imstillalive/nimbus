@@ -1451,7 +1451,10 @@ class TestTheDetectorItself(unittest.TestCase):
 
 
 def test_the_section_detector_sees_a_fully_qualified_import(tmp_path):
-    path = tmp_path / "flow.py"
+    # test_the_section_detector_sees_a_fully_qualified_import
+    tmp_0 = tmp_path / "test_the_section_detector_sees_a_fully_qualified_import"
+    tmp_0.mkdir()
+    path = tmp_0 / "flow.py"
     path.write_text(
         "import homeassistant.data_entry_flow\n\n\n"
         "def foo():\n"
@@ -1460,15 +1463,7 @@ def test_the_section_detector_sees_a_fully_qualified_import(tmp_path):
     )
     assert _imports_section(path)
 
-
-# --- test_1213_the_price_event_is_wired -------------------------------------------------------
-# #1213: the price event field's description states the close-your-window
-# requirement, the one mistake that turns a test into a lasting distortion,
-# in both string files. Asserted on two load-bearing phrases, and never on a
-# brace pair, which hassfest reads as a placeholder and rejects.
-
-
-def test_1213_both_string_files_describe_the_price_event_field():
+    # test_1213_both_string_files_describe_the_price_event_field
     # test_1213_both_string_files_describe_the_price_event_field
     base = _REPO_ROOT / "custom_components" / "nimbus_load"
     for name in ("strings.json", "translations/en.json"):
@@ -1544,6 +1539,13 @@ def test_1213_both_string_files_describe_the_price_event_field():
     assert '_QUALITY_HISTORY_VERSION_FIELD = "v"' in src
     stamp = src.index("day_entry[_QUALITY_HISTORY_VERSION_FIELD] = _version")
     assert stamp < src.index("quality_history[day_key] = day_entry")
+
+
+# --- test_1213_the_price_event_is_wired -------------------------------------------------------
+# #1213: the price event field's description states the close-your-window
+# requirement, the one mistake that turns a test into a lasting distortion,
+# in both string files. Asserted on two load-bearing phrases, and never on a
+# brace pair, which hassfest reads as a placeholder and rejects.
 
 
 # --- test_1179_the_diagnostics_steer_nothing --------------------------------------------------

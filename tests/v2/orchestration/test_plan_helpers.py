@@ -149,17 +149,17 @@ def test_hysteresis_keeps_the_previous_direction_only_within_the_margin(
         )
 
 
-def test_hysteresis_survives_a_failing_re_solve(charging, discharging):
+def test_hysteresis_survives_a_failing_re_solve(
+    charging, discharging, pin_logger_on, monkeypatch
+):
+    # test_hysteresis_survives_a_failing_re_solve
     def boom(kw):
         raise RuntimeError("re-solve failed")
 
     out = solver_plan.period0_direction_hysteresis(charging, discharging, boom, 0.05)
     assert out.period0_hysteresis == "switched"
 
-
-def test_a_blocker_check_that_raises_falls_through_to_the_re_solve(
-    charging, discharging
-):
+    # test_a_blocker_check_that_raises_falls_through_to_the_re_solve
     def bad(kw):
         raise ValueError("cannot tell")
 
@@ -175,8 +175,7 @@ def test_a_blocker_check_that_raises_falls_through_to_the_re_solve(
     )
     assert out.period0_hysteresis == "kept"
 
-
-def test_the_export_floor_refuses_a_pin_that_sells_more_below_it(charging, discharging):
+    # test_the_export_floor_refuses_a_pin_that_sells_more_below_it
     cheap = dataclasses.replace(
         charging,
         effective_export_price=np.full(len(charging.grid_export_kw), 0.02),
@@ -204,8 +203,7 @@ def test_the_export_floor_refuses_a_pin_that_sells_more_below_it(charging, disch
         == "kept"
     )
 
-
-def test_a_pinned_charge_bought_from_the_grid_is_not_kept(charging, discharging):
+    # test_a_pinned_charge_bought_from_the_grid_is_not_kept
     # nimbus #2066, 26 Oct 07:23: cloud took solar from 1.15 to 0.06 kW and
     # the kept solar charge became a charge from the grid at 15.1 c, for a
     # $0.0002 saving in mode changes.
@@ -222,22 +220,7 @@ def test_a_pinned_charge_bought_from_the_grid_is_not_kept(charging, discharging)
         solver_plan._period0_net_kw(discharging)
     )
 
-
-# --- period0_crossing_delta (#1417, #1577) ---------------------------------
-
-
-@pytest.fixture
-def pin_logger_on():
-    logger = solver_plan.PERIOD0_PIN_LOGGER
-    old = logger.level
-    logger.setLevel(logging.DEBUG)
-    yield
-    logger.setLevel(old)
-
-
-def test_the_crossing_instrument_measures_a_feasible_pin(
-    pin_logger_on, charging, discharging
-):
+    # test_the_crossing_instrument_measures_a_feasible_pin
     pinned = _pinned(discharging, cost_delta=0.25)
     rec = solver_plan.period0_crossing_delta(
         charging,
@@ -261,8 +244,7 @@ def test_the_crossing_instrument_measures_a_feasible_pin(
     assert rec["pinned_participant"] == "home"
     assert rec["inputs"] == {"import_price": 0.0123, "solar_kw": None}
 
-
-def test_an_infeasible_pin_names_what_blocked_it(pin_logger_on, charging, discharging):
+    # test_an_infeasible_pin_names_what_blocked_it
     infeasible = _pinned(discharging, status="infeasible")
     rec = solver_plan.period0_crossing_delta(
         charging,
@@ -285,10 +267,7 @@ def test_an_infeasible_pin_names_what_blocked_it(pin_logger_on, charging, discha
     )
     assert rec["pinned_blockers"] is None
 
-
-def test_no_crossing_no_previous_or_a_failing_re_solve_measures_nothing(
-    pin_logger_on, charging, discharging
-):
+    # test_no_crossing_no_previous_or_a_failing_re_solve_measures_nothing
     assert (
         solver_plan.period0_crossing_delta(charging, charging, lambda kw: charging)
         is None
@@ -302,27 +281,7 @@ def test_no_crossing_no_previous_or_a_failing_re_solve_measures_nothing(
 
     assert solver_plan.period0_crossing_delta(charging, discharging, boom) is None
 
-
-# --- reserve_window_indices (#1654) ----------------------------------------
-
-
-def _grid(n, start_local_hour):
-    start = datetime(
-        2026,
-        9,
-        20,
-        int(start_local_hour) - 10
-        if start_local_hour >= 10
-        else int(start_local_hour) + 14,
-        0,
-        tzinfo=UTC,
-    )
-    if start_local_hour < 10:
-        start -= timedelta(days=1)
-    return [start + timedelta(hours=i) for i in range(n)]
-
-
-def test_a_reserve_window_is_the_local_hours_inside_it():
+    # test_a_reserve_window_is_the_local_hours_inside_it
     # test_a_reserve_window_is_the_local_hours_inside_it
     times = _grid(24, 0)  # local 00:00 .. 23:00
     assert solver_plan.reserve_window_indices(times, 2.0, 2.0) is None
@@ -465,6 +424,46 @@ def test_a_reserve_window_is_the_local_hours_inside_it():
             _bound_plan(export_kw, 0.0), 5.0, 10.0, 4.0, 4.0, 0.5
         ) == ("Nothing currently binding", None)
 
+    # test_a_previous_plan_that_cannot_be_aligned_has_no_anchor
+    with monkeypatch.context() as mp:
+
+        def misaligned(periods, previous):
+            raise ValueError("no period starts")
+
+        mp.setattr(solver_plan.network, "_align_previous_periods", misaligned)
+        assert solver_plan._anchor_target_kw(charging, charging) == (None, None)
+
+
+# --- period0_crossing_delta (#1417, #1577) ---------------------------------
+
+
+@pytest.fixture
+def pin_logger_on():
+    logger = solver_plan.PERIOD0_PIN_LOGGER
+    old = logger.level
+    logger.setLevel(logging.DEBUG)
+    yield
+    logger.setLevel(old)
+
+
+# --- reserve_window_indices (#1654) ----------------------------------------
+
+
+def _grid(n, start_local_hour):
+    start = datetime(
+        2026,
+        9,
+        20,
+        int(start_local_hour) - 10
+        if start_local_hour >= 10
+        else int(start_local_hour) + 14,
+        0,
+        tzinfo=UTC,
+    )
+    if start_local_hour < 10:
+        start -= timedelta(days=1)
+    return [start + timedelta(hours=i) for i in range(n)]
+
 
 # --- spike_export_ceiling / spike_night_block_floor (#694, 11-12 Oct) ------
 
@@ -513,11 +512,3 @@ def _bound_plan(export_kw, reduced_cost=0.5):
         battery_charge_kw=zeros,
         battery_discharge_kw=zeros,
     )
-
-
-def test_a_previous_plan_that_cannot_be_aligned_has_no_anchor(charging, monkeypatch):
-    def misaligned(periods, previous):
-        raise ValueError("no period starts")
-
-    monkeypatch.setattr(solver_plan.network, "_align_previous_periods", misaligned)
-    assert solver_plan._anchor_target_kw(charging, charging) == (None, None)

@@ -46,7 +46,8 @@ def _run(coro):
 # --- the table ---------------------------------------------------------------------
 
 
-def test_every_solver_setting_starts_inside_its_own_range():
+def test_every_solver_setting_starts_inside_its_own_range(monkeypatch):
+    # test_every_solver_setting_starts_inside_its_own_range
     # test_every_solver_setting_starts_inside_its_own_range
     for desc in nm._DESCRIPTIONS:
         assert desc.min_value <= desc.default <= desc.max_value
@@ -127,6 +128,100 @@ def test_every_solver_setting_starts_inside_its_own_range():
     _run(other.async_added_to_hass())
     assert other._attr_native_value == 2.0 and marker in store2.store.data
 
+    # test_a_change_is_stored_and_tells_the_device_contract
+    with monkeypatch.context() as mp:
+        n, store, writes, tasks = _number()
+        dc = importlib.import_module("custom_components.nimbus_load.device_contract_ha")
+        seen = []
+
+        async def changed(hass, entry, key, value):
+            seen.append((key, value))
+
+        mp.setattr(dc, "async_number_changed", changed)
+        _run(n.async_set_native_value(6.0))
+        assert writes == [6.0] and store.store.data[_desc().key]["value"] == 6.0
+        assert len(tasks) == 1
+
+    # test_the_debounce_change_reconfigures_the_price_watcher
+    with monkeypatch.context() as mp:
+        pkg = importlib.import_module("custom_components.nimbus_load")
+        calls = []
+        mp.setattr(
+            pkg,
+            "_configure_price_watcher",
+            lambda hass, entry: calls.append(entry.entry_id),
+        )
+        n, _, _, _ = _number(key=const.CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S)
+        _run(n.async_set_native_value(30.0))
+        assert calls == ["hub1"]
+
+    # test_a_money_setting_is_shown_in_the_households_currency
+    for unit, currency, shown in [
+        (nm._CURRENCY_PER_KWH, "AUD", "AUD/kWh"),
+        (nm._CURRENCY_PER_DAY, "AUD", "AUD/day"),
+        (nm._CURRENCY, "AUD", "AUD"),
+        (nm._CURRENCY_PER_KWH, "", None),
+        ("kW", "AUD", "kW"),
+    ]:
+        n, _, _, _ = _number()
+        n._desc = SimpleNamespace(unit=unit)
+        n.hass.config.currency = currency
+        assert n.native_unit_of_measurement == shown
+        n.hass = None
+        assert n.native_unit_of_measurement == unit
+
+    # test_setup_adds_every_solver_setting_and_each_loads_own_for_its_kind
+    with monkeypatch.context() as mp:
+        added = []
+        mp.setattr(
+            nm,
+            "async_get_integration",
+            lambda hass, domain: _done(SimpleNamespace(version="0.94.485")),
+        )
+        mp.setattr(
+            nm.sensor_flattened, "resolve_hub_device_id", lambda hass, entry: None
+        )
+        mp.setattr(nm, "Store", lambda hass, version, key: MemoryStore())
+        kind = nm._CONTROLLABLE_LOAD_DESCRIPTIONS[0].kinds[0]
+        entry = SimpleNamespace(
+            entry_id="hub1",
+            options={},
+            subentries={
+                "load1": _load_sub(kind),
+                "other": SimpleNamespace(subentry_type="load"),
+            },
+        )
+        _run(
+            nm.async_setup_entry(
+                None, entry, lambda ents, **kw: added.append((ents, kw))
+            )
+        )
+        hub, *loads = added
+        assert len(hub[0]) == len(nm._DESCRIPTIONS)
+        assert len(loads) == 1 and loads[0][1] == {"config_subentry_id": "load1"}
+        expected = [d for d in nm._CONTROLLABLE_LOAD_DESCRIPTIONS if kind in d.kinds]
+        assert [e._desc.key for e in loads[0][0]] == [d.key for d in expected]
+        first = loads[0][0][0]
+        assert first.entity_id == f"number.nimbus_hot_water_{expected[0].key}"
+        assert first._attr_unique_id == f"load1_{expected[0].key}"
+
+    # test_a_loads_setting_restores_and_stores_under_its_own_key
+    store = nm._SharedNumberStore(store=MemoryStore({}))
+    desc = nm._CONTROLLABLE_LOAD_DESCRIPTIONS[0]
+    sub = _load_sub(desc.kinds[0])
+    sub.data[desc.key] = desc.max_value
+    entry = SimpleNamespace(entry_id="hub1", options={})
+    n = nm.NimbusControllableLoadNumber(entry, sub, desc, "0.94.485", store)
+    n.async_get_last_number_data = lambda: _async(None)
+    n.async_get_last_state = lambda: _async(None)
+    written = []
+    n.async_write_ha_state = lambda: written.append(n._attr_native_value)
+    _run(n.async_added_to_hass())
+    assert n._attr_native_value == desc.max_value  # seeded from the load's wizard value
+    _run(n.async_set_native_value(desc.min_value))
+    assert store.store.data[f"load1_{desc.key}"]["value"] == desc.min_value
+    assert written == [desc.min_value]
+
 
 # --- the shared store ----------------------------------------------------------------
 
@@ -167,49 +262,6 @@ def _number(
     return n, store, writes, tasks
 
 
-def test_a_change_is_stored_and_tells_the_device_contract(monkeypatch):
-    n, store, writes, tasks = _number()
-    dc = importlib.import_module("custom_components.nimbus_load.device_contract_ha")
-    seen = []
-
-    async def changed(hass, entry, key, value):
-        seen.append((key, value))
-
-    monkeypatch.setattr(dc, "async_number_changed", changed)
-    _run(n.async_set_native_value(6.0))
-    assert writes == [6.0] and store.store.data[_desc().key]["value"] == 6.0
-    assert len(tasks) == 1
-
-
-def test_the_debounce_change_reconfigures_the_price_watcher(monkeypatch):
-    pkg = importlib.import_module("custom_components.nimbus_load")
-    calls = []
-    monkeypatch.setattr(
-        pkg,
-        "_configure_price_watcher",
-        lambda hass, entry: calls.append(entry.entry_id),
-    )
-    n, _, _, _ = _number(key=const.CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S)
-    _run(n.async_set_native_value(30.0))
-    assert calls == ["hub1"]
-
-
-def test_a_money_setting_is_shown_in_the_households_currency():
-    for unit, currency, shown in [
-        (nm._CURRENCY_PER_KWH, "AUD", "AUD/kWh"),
-        (nm._CURRENCY_PER_DAY, "AUD", "AUD/day"),
-        (nm._CURRENCY, "AUD", "AUD"),
-        (nm._CURRENCY_PER_KWH, "", None),
-        ("kW", "AUD", "kW"),
-    ]:
-        n, _, _, _ = _number()
-        n._desc = SimpleNamespace(unit=unit)
-        n.hass.config.currency = currency
-        assert n.native_unit_of_measurement == shown
-        n.hass = None
-        assert n.native_unit_of_measurement == unit
-
-
 # --- per-load settings and setup ------------------------------------------------------
 
 
@@ -222,58 +274,9 @@ def _load_sub(kind):
     )
 
 
-def test_setup_adds_every_solver_setting_and_each_loads_own_for_its_kind(monkeypatch):
-    added = []
-    monkeypatch.setattr(
-        nm,
-        "async_get_integration",
-        lambda hass, domain: _done(SimpleNamespace(version="0.94.485")),
-    )
-    monkeypatch.setattr(
-        nm.sensor_flattened, "resolve_hub_device_id", lambda hass, entry: None
-    )
-    monkeypatch.setattr(nm, "Store", lambda hass, version, key: MemoryStore())
-    kind = nm._CONTROLLABLE_LOAD_DESCRIPTIONS[0].kinds[0]
-    entry = SimpleNamespace(
-        entry_id="hub1",
-        options={},
-        subentries={
-            "load1": _load_sub(kind),
-            "other": SimpleNamespace(subentry_type="load"),
-        },
-    )
-    _run(nm.async_setup_entry(None, entry, lambda ents, **kw: added.append((ents, kw))))
-    hub, *loads = added
-    assert len(hub[0]) == len(nm._DESCRIPTIONS)
-    assert len(loads) == 1 and loads[0][1] == {"config_subentry_id": "load1"}
-    expected = [d for d in nm._CONTROLLABLE_LOAD_DESCRIPTIONS if kind in d.kinds]
-    assert [e._desc.key for e in loads[0][0]] == [d.key for d in expected]
-    first = loads[0][0][0]
-    assert first.entity_id == f"number.nimbus_hot_water_{expected[0].key}"
-    assert first._attr_unique_id == f"load1_{expected[0].key}"
-
-
 async def _async(value):
     return value
 
 
 def _done(value):
     return _async(value)
-
-
-def test_a_loads_setting_restores_and_stores_under_its_own_key():
-    store = nm._SharedNumberStore(store=MemoryStore({}))
-    desc = nm._CONTROLLABLE_LOAD_DESCRIPTIONS[0]
-    sub = _load_sub(desc.kinds[0])
-    sub.data[desc.key] = desc.max_value
-    entry = SimpleNamespace(entry_id="hub1", options={})
-    n = nm.NimbusControllableLoadNumber(entry, sub, desc, "0.94.485", store)
-    n.async_get_last_number_data = lambda: _async(None)
-    n.async_get_last_state = lambda: _async(None)
-    written = []
-    n.async_write_ha_state = lambda: written.append(n._attr_native_value)
-    _run(n.async_added_to_hass())
-    assert n._attr_native_value == desc.max_value  # seeded from the load's wizard value
-    _run(n.async_set_native_value(desc.min_value))
-    assert store.store.data[f"load1_{desc.key}"]["value"] == desc.min_value
-    assert written == [desc.min_value]

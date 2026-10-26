@@ -158,24 +158,25 @@ def test_auto_include_starts_on_when_solcast_is_installed(monkeypatch, solcast, 
 def test_switching_stores_the_value_and_solve_on_price_change_rewires_the_watcher(
     monkeypatch,
 ):
-    pkg = importlib.import_module("custom_components.nimbus_load")
-    rewired = []
-    monkeypatch.setattr(
-        pkg,
-        "_configure_price_watcher",
-        lambda hass, entry: rewired.append(entry.entry_id),
-    )
-    s, shared = _switch()
-    _run(s.async_turn_on())
-    _run(s.async_turn_off())
-    assert s.writes == [True, False] and shared.store.data[s._key]["value"] is False
-    assert rewired == []
-    w, _ = _switch(const.CONF_SOLVE_ON_PRICE_CHANGE)
-    _run(w.async_turn_on())
-    assert rewired == ["hub1"]
+    # test_switching_stores_the_value_and_solve_on_price_change_rewires_the_watcher
+    with monkeypatch.context() as mp:
+        pkg = importlib.import_module("custom_components.nimbus_load")
+        rewired = []
+        mp.setattr(
+            pkg,
+            "_configure_price_watcher",
+            lambda hass, entry: rewired.append(entry.entry_id),
+        )
+        s, shared = _switch()
+        _run(s.async_turn_on())
+        _run(s.async_turn_off())
+        assert s.writes == [True, False] and shared.store.data[s._key]["value"] is False
+        assert rewired == []
+        w, _ = _switch(const.CONF_SOLVE_ON_PRICE_CHANGE)
+        _run(w.async_turn_on())
+        assert rewired == ["hub1"]
 
-
-def test_a_corrupt_switch_store_reads_as_empty():
+    # test_a_corrupt_switch_store_reads_as_empty
     # test_a_corrupt_switch_store_reads_as_empty
     shared = swm._SharedSwitchStore(store=MemoryStore(broken=True))
     assert _run(shared._async_read_entry("k")) is None
@@ -224,6 +225,35 @@ def test_a_corrupt_switch_store_reads_as_empty():
     _run(t.async_set_value(time(5, 30)))
     assert t.writes == [time(5, 30)] and t._own_store.data[key]["value"] == 5.5
 
+    # test_setup_replaces_the_old_number_entities_with_times
+    with monkeypatch.context() as mp:
+        removed, added = [], []
+        old_ids = {
+            f"hub1_{key}": f"number.nimbus_{key}" for key, _ in tm.TIME_SETTINGS[:2]
+        }
+        registry = SimpleNamespace(
+            async_get_entity_id=lambda domain, platform, uid: old_ids.get(uid),
+            async_remove=removed.append,
+        )
+        mp.setattr(tm.er, "async_get", lambda hass: registry)
+        mp.setattr(
+            tm,
+            "async_get_integration",
+            lambda hass, d: _value(SimpleNamespace(version="1")),
+        )
+        mp.setattr(tm, "Store", lambda *a: MemoryStore())
+        _run(
+            tm.async_setup_entry(
+                None, SimpleNamespace(entry_id="hub1", options={}), added.extend
+            )
+        )
+        assert removed == list(old_ids.values())
+        assert [t.entity_id for t in added] == [
+            f"time.nimbus_{k}" for k, _ in tm.TIME_SETTINGS
+        ]
+        p2p = [t for t in added if t._key.startswith("solver_p2p_")]
+        assert p2p and all(t._attr_device_info["name"] == "Nimbus P2P" for t in p2p)
+
 
 # --- times of day -----------------------------------------------------------------------
 
@@ -242,30 +272,3 @@ def _time(key=None, *, last=None, own=None, number=None, options=None):
     t.writes = []
     t.async_write_ha_state = lambda: t.writes.append(t._attr_native_value)
     return t, key
-
-
-def test_setup_replaces_the_old_number_entities_with_times(monkeypatch):
-    removed, added = [], []
-    old_ids = {f"hub1_{key}": f"number.nimbus_{key}" for key, _ in tm.TIME_SETTINGS[:2]}
-    registry = SimpleNamespace(
-        async_get_entity_id=lambda domain, platform, uid: old_ids.get(uid),
-        async_remove=removed.append,
-    )
-    monkeypatch.setattr(tm.er, "async_get", lambda hass: registry)
-    monkeypatch.setattr(
-        tm,
-        "async_get_integration",
-        lambda hass, d: _value(SimpleNamespace(version="1")),
-    )
-    monkeypatch.setattr(tm, "Store", lambda *a: MemoryStore())
-    _run(
-        tm.async_setup_entry(
-            None, SimpleNamespace(entry_id="hub1", options={}), added.extend
-        )
-    )
-    assert removed == list(old_ids.values())
-    assert [t.entity_id for t in added] == [
-        f"time.nimbus_{k}" for k, _ in tm.TIME_SETTINGS
-    ]
-    p2p = [t for t in added if t._key.startswith("solver_p2p_")]
-    assert p2p and all(t._attr_device_info["name"] == "Nimbus P2P" for t in p2p)

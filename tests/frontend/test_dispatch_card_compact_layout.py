@@ -162,9 +162,8 @@ def _container_body_rules(container_rule):
 # --------------------------------------------------------------------------- #
 
 
-def test_wide_default_pill_visible_and_dot_hidden(top_rules):
-    """At the default (wide) container width, the pill share bar shows and
-    the split dot is hidden -- Raf's v0.94.157/.158 rendering."""
+def test_wide_default_pill_visible_and_dot_hidden(top_rules, compact_rules):
+    # test_wide_default_pill_visible_and_dot_hidden: At the default (wide) container width, the pill share bar shows and
     wide = _find_rule(top_rules, lambda s: s == ".src-wide")
     assert wide is not None, ".src-wide default rule missing"
     d = _decls(wide)
@@ -178,10 +177,7 @@ def test_wide_default_pill_visible_and_dot_hidden(top_rules):
         ".src-compact should default to display: none on wide cards"
     )
 
-
-def test_wide_default_now_tag_wide_visible_compact_hidden(top_rules):
-    """At the default (wide) container width, the inline lowercase 'now'
-    tag renders and the compact 'NOW' badge is hidden."""
+    # test_wide_default_now_tag_wide_visible_compact_hidden: At the default (wide) container width, the inline lowercase 'now'
     wide = _find_rule(top_rules, lambda s: s == ".time-nowtag-wide")
     assert wide is not None, ".time-nowtag-wide default rule missing"
     assert _decls(wide).get("display") == "inline"
@@ -190,19 +186,12 @@ def test_wide_default_now_tag_wide_visible_compact_hidden(top_rules):
     assert compact is not None, ".time-nowtag-compact default rule missing"
     assert _decls(compact).get("display") == "none"
 
-
-def test_wide_default_header_spans_inline(top_rules):
-    """Wide-card default: .hdr-name and .hdr-unit sit inline so column
-    headers read as one token (e.g. 'BUY \u00a2', 'LOAD kW'). Compact
-    stacks them below."""
+    # test_wide_default_header_spans_inline: Wide-card default: .hdr-name and .hdr-unit sit inline so column
     r = _find_rule(top_rules, lambda s: s == ".hdr-name, .hdr-unit")
     assert r is not None, "default rule for .hdr-name, .hdr-unit missing"
     assert _decls(r).get("display") == "inline"
 
-
-def test_source_dot_class_defined(top_rules):
-    """The 9px split dot itself must exist as a class so the source cell's
-    compact span has something to render."""
+    # test_source_dot_class_defined: The 9px split dot itself must exist as a class so the source cell's
     dot = _find_rule(top_rules, lambda s: s == ".source-dot")
     assert dot is not None, ".source-dot class missing"
     d = _decls(dot)
@@ -225,25 +214,7 @@ def test_source_dot_class_defined(top_rules):
     assert _decls(seg_a).get("background") == "#ffb340"
     assert _decls(seg_b).get("background") == "#4fa3ff"
 
-
-# --------------------------------------------------------------------------- #
-# Compact @container block                                                    #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture(scope="module")
-def compact_container(top_rules):
-    # Household, 19 Oct 2026: the compact query reads the card (:host), not
-    # .ftable-wrap, so the table's grid track can size to the table.
-    return _find_container(top_rules, "(max-width: 530px)")
-
-
-@pytest.fixture(scope="module")
-def compact_rules(compact_container):
-    return _container_body_rules(compact_container)
-
-
-def test_compact_container_exists_exactly_once(top_rules):
+    # test_compact_container_exists_exactly_once
     matches = [
         r
         for r in top_rules
@@ -255,10 +226,7 @@ def test_compact_container_exists_exactly_once(top_rules):
         f"expected exactly one compact (max-width) @container rule, found {len(matches)}"
     )
 
-
-def test_compact_table_layout_auto_and_full_width(compact_rules):
-    """Inside the compact block, the table switches to auto layout at
-    100% width so the browser sizes columns to their content."""
+    # test_compact_table_layout_auto_and_full_width: Inside the compact block, the table switches to auto layout at
     r = _find_rule(compact_rules, lambda s: s == "table.ftable")
     assert r is not None, "table.ftable rule missing from compact @container"
     d = _decls(r)
@@ -274,9 +242,7 @@ def test_compact_table_layout_auto_and_full_width(compact_rules):
         f"got width {d.get('width')!r}"
     )
 
-
-def test_compact_time_col_is_exactly_5ch(compact_rules):
-    """TIME becomes exactly 5 characters (HH:MM or the NOW badge)."""
+    # test_compact_time_col_is_exactly_5ch: TIME becomes exactly 5 characters (HH:MM or the NOW badge).
     r = _find_rule(
         compact_rules,
         lambda s: "th.time-col" in s and "td.time-col" in s,
@@ -289,10 +255,7 @@ def test_compact_time_col_is_exactly_5ch(compact_rules):
     assert d.get("min-width") == "5ch"
     assert d.get("max-width") == "5ch"
 
-
-def test_compact_header_spans_stack_as_blocks(compact_rules):
-    """Inside the compact block, the two header spans render as blocks so
-    'Buy' and '\u00a2' stack vertically (matching the 2026-09-07 sample)."""
+    # test_compact_header_spans_stack_as_blocks: Inside the compact block, the two header spans render as blocks so
     name = _find_rule(compact_rules, lambda s: s == "table.ftable thead th .hdr-name")
     unit = _find_rule(compact_rules, lambda s: s == "table.ftable thead th .hdr-unit")
     assert name is not None, "compact block must set .hdr-name to block"
@@ -300,11 +263,7 @@ def test_compact_header_spans_stack_as_blocks(compact_rules):
     assert _decls(name).get("display") == "block"
     assert _decls(unit).get("display") == "block"
 
-
-def test_compact_now_row_shows_now_tag_not_clock(compact_rules):
-    """On the now row inside the compact block, the clock text is hidden
-    and the compact NOW badge renders (top row is always the current
-    period, so the clock value would be redundant)."""
+    # test_compact_now_row_shows_now_tag_not_clock: On the now row inside the compact block, the clock text is hidden
     clock_hidden = _find_rule(
         compact_rules,
         lambda s: "tr.now-row" in s and "time-clock" in s,
@@ -323,48 +282,19 @@ def test_compact_now_row_shows_now_tag_not_clock(compact_rules):
     )
     assert _decls(tag_shown).get("display") == "inline"
 
-
-# --------------------------------------------------------------------------- #
-# Compact column drops                                                        #
-# --------------------------------------------------------------------------- #
-
-
-def _assert_column_hidden(compact_rules, col_class: str) -> None:
-    r = _find_rule(
-        compact_rules,
-        lambda s: f"th.{col_class}" in s and f"td.{col_class}" in s,
-    )
-    assert r is not None, f"compact block must hide .{col_class} column"
-    assert _decls(r).get("display") == "none"
-
-
-def test_compact_hides_source_column(compact_rules):
-    """Compact block hides the SOURCE column (share pill / dot) entirely."""
+    # test_compact_hides_source_column: Compact block hides the SOURCE column (share pill / dot) entirely.
     _assert_column_hidden(compact_rules, "col-source")
 
-
-def test_compact_hides_fees_column(compact_rules):
-    """Compact block hides the FEES column entirely."""
+    # test_compact_hides_fees_column: Compact block hides the FEES column entirely.
     _assert_column_hidden(compact_rules, "col-fees")
 
-
-def test_compact_hides_p2p_column(compact_rules):
-    """Compact block hides the P2P column entirely."""
+    # test_compact_hides_p2p_column: Compact block hides the P2P column entirely.
     _assert_column_hidden(compact_rules, "col-p2p")
 
-
-def test_compact_hides_net_column(compact_rules):
-    """Compact block hides the NET$ column entirely."""
+    # test_compact_hides_net_column: Compact block hides the NET$ column entirely.
     _assert_column_hidden(compact_rules, "col-net")
 
-
-# --------------------------------------------------------------------------- #
-# Compact colouring: buy red, sell green, grid trader-convention              #
-# --------------------------------------------------------------------------- #
-
-
-def test_compact_buy_color_is_red(compact_rules):
-    """Buy data cell and header are red in compact (matches sample)."""
+    # test_compact_buy_color_is_red: Buy data cell and header are red in compact (matches sample).
     for selector in ("table.ftable td.buy-color", "table.ftable th.buy-color"):
         r = _find_rule(compact_rules, lambda s, sel=selector: s == sel)
         assert r is not None, f"compact block missing rule for {selector}"
@@ -372,9 +302,7 @@ def test_compact_buy_color_is_red(compact_rules):
             f"{selector} should be red (#e04a3f), got {_decls(r).get('color')!r}"
         )
 
-
-def test_compact_sell_color_is_green(compact_rules):
-    """Sell data cell and header are green in compact (matches sample)."""
+    # test_compact_sell_color_is_green: Sell data cell and header are green in compact (matches sample).
     for selector in ("table.ftable td.sell-color", "table.ftable th.sell-color"):
         r = _find_rule(compact_rules, lambda s, sel=selector: s == sel)
         assert r is not None, f"compact block missing rule for {selector}"
@@ -382,11 +310,7 @@ def test_compact_sell_color_is_green(compact_rules):
             f"{selector} should be green (#3ddc84), got {_decls(r).get('color')!r}"
         )
 
-
-def test_compact_grid_pos_green_neg_red(compact_rules):
-    """Trader-convention grid colour in compact: positive (import) green,
-    negative (export) red. Overrides the wide-format solver-perspective
-    inline colour via !important."""
+    # test_compact_grid_pos_green_neg_red: Trader-convention grid colour in compact: positive (import) green,
     pos = _find_rule(
         compact_rules,
         lambda s: s == "table.ftable td.col-grid.grid-pos",
@@ -407,6 +331,42 @@ def test_compact_grid_pos_green_neg_red(compact_rules):
     assert neg_color.startswith("#e04a3f"), (
         f"grid-neg should be red (#e04a3f...), got {neg_color!r}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Compact @container block                                                    #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="module")
+def compact_container(top_rules):
+    # Household, 19 Oct 2026: the compact query reads the card (:host), not
+    # .ftable-wrap, so the table's grid track can size to the table.
+    return _find_container(top_rules, "(max-width: 530px)")
+
+
+@pytest.fixture(scope="module")
+def compact_rules(compact_container):
+    return _container_body_rules(compact_container)
+
+
+# --------------------------------------------------------------------------- #
+# Compact column drops                                                        #
+# --------------------------------------------------------------------------- #
+
+
+def _assert_column_hidden(compact_rules, col_class: str) -> None:
+    r = _find_rule(
+        compact_rules,
+        lambda s: f"th.{col_class}" in s and f"td.{col_class}" in s,
+    )
+    assert r is not None, f"compact block must hide .{col_class} column"
+    assert _decls(r).get("display") == "none"
+
+
+# --------------------------------------------------------------------------- #
+# Compact colouring: buy red, sell green, grid trader-convention              #
+# --------------------------------------------------------------------------- #
 
 
 # --------------------------------------------------------------------------- #

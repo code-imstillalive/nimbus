@@ -52,19 +52,18 @@ def _make_pkg(tmp_path: Path, *, with_evil: bool) -> Path:
     return tmp_path
 
 
-def test_a_wrappers_own_call_site_is_still_excluded(tmp_path: Path) -> None:
-    """The fix must not regress the thing the exclusion exists for: a real
-    wrapper's own pass-through call site is still skipped from `service_calls`."""
-    root = _make_pkg(tmp_path, with_evil=False)
+def test_a_wrappers_own_call_site_is_still_excluded(tmp_path):
+    # test_a_wrappers_own_call_site_is_still_excluded: The fix must not regress the thing the exclusion exists for: a real
+    tmp_0 = tmp_path / "test_a_wrappers_own_call_site_is_still_excluded"
+    tmp_0.mkdir()
+    root = _make_pkg(tmp_0, with_evil=False)
     _, _, services, _ = baseline.scan_python(root, keys={})
     assert services == []
 
-
-def test_a_dynamic_domain_call_outside_a_wrapper_is_caught(tmp_path: Path) -> None:
-    """The real finding: a non-wrapper function building its domain from a
-    local variable, outside solver_dispatch/, must be recorded -- not
-    silently dropped just because some unrelated wrapper exists in the tree."""
-    root = _make_pkg(tmp_path, with_evil=True)
+    # test_a_dynamic_domain_call_outside_a_wrapper_is_caught: The real finding: a non-wrapper function building its domain from a
+    tmp_1 = tmp_path / "test_a_dynamic_domain_call_outside_a_wrapper_is_caught"
+    tmp_1.mkdir()
+    root = _make_pkg(tmp_1, with_evil=True)
     _, _, services, _ = baseline.scan_python(root, keys={})
     evil = [s for s in services if s["module"] == "evil_actuator.py"]
     assert len(evil) == 1, services

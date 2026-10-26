@@ -115,134 +115,128 @@ def _make(name, *, last_state=None):
     return sensor, writes
 
 
-@pytest.mark.parametrize("name", sorted(PUSH))
 def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
-    name, clock, caplog
+    clock, caplog, monkeypatch
 ):
-    sensor, writes = _make(name)
-    assert (
-        sensor.available and sensor.native_value is None
-    )  # nothing yet is not "stale"
-    sensor.update_from_solver(1.5, {"forecast": [1], "k": 2})
-    assert writes == [1.5]
-    assert sensor.extra_state_attributes == {
-        "forecast": [1],
-        "k": 2,
-        "nimbus_version": "0.94.485",
-    }
-    with caplog.at_level(logging.INFO, logger=sm._LOGGER.name):
-        clock.now += sensor._STALE_AFTER_SECONDS - 1
-        sensor._async_recheck_availability(None)
-        assert sensor.available and len(writes) == 1  # no change, no write
-        clock.now += 1
-        sensor._async_recheck_availability(None)
-        sensor._async_recheck_availability(None)
-        assert not sensor.available and len(writes) == 2
-        sensor.update_from_solver(2.0, {"nimbus_version": "solver's own"})
-        sensor._async_recheck_availability(None)
-    assert sensor.available and writes[-1] == 2.0
-    assert sensor.extra_state_attributes == {"nimbus_version": "solver's own"}
-    messages = [(r.levelno, r.getMessage()) for r in caplog.records]
-    assert (
-        sum(
-            lvl == logging.WARNING and "not received a fresh Solver plan" in m
-            for lvl, m in messages
+    # test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes
+    caplog.clear()
+    for name in sorted(PUSH):
+        caplog.clear()
+        sensor, writes = _make(name)
+        assert (
+            sensor.available and sensor.native_value is None
+        )  # nothing yet is not "stale"
+        sensor.update_from_solver(1.5, {"forecast": [1], "k": 2})
+        assert writes == [1.5]
+        assert sensor.extra_state_attributes == {
+            "forecast": [1],
+            "k": 2,
+            "nimbus_version": "0.94.485",
+        }
+        with caplog.at_level(logging.INFO, logger=sm._LOGGER.name):
+            clock.now += sensor._STALE_AFTER_SECONDS - 1
+            sensor._async_recheck_availability(None)
+            assert sensor.available and len(writes) == 1  # no change, no write
+            clock.now += 1
+            sensor._async_recheck_availability(None)
+            sensor._async_recheck_availability(None)
+            assert not sensor.available and len(writes) == 2
+            sensor.update_from_solver(2.0, {"nimbus_version": "solver's own"})
+            sensor._async_recheck_availability(None)
+        assert sensor.available and writes[-1] == 2.0
+        assert sensor.extra_state_attributes == {"nimbus_version": "solver's own"}
+        messages = [(r.levelno, r.getMessage()) for r in caplog.records]
+        assert (
+            sum(
+                lvl == logging.WARNING and "not received a fresh Solver plan" in m
+                for lvl, m in messages
+            )
+            == 1
         )
-        == 1
-    )
-    assert (
-        sum(lvl == logging.INFO and "available again" in m for lvl, m in messages) == 1
-    )
+        assert (
+            sum(lvl == logging.INFO and "available again" in m for lvl, m in messages)
+            == 1
+        )
 
+    # test_only_the_daily_reports_restore_their_last_value_after_a_restart
+    with monkeypatch.context() as mp:
+        for name in sorted(PUSH):
+            with mp.context() as mp:
+                _entity_id, _unit, restore, _device = PUSH[name]
+                ticks = []
+                mp.setattr(
+                    sm,
+                    "async_track_time_interval",
+                    lambda hass, cb, every: ticks.append(every) or (lambda: None),  # noqa: B023
+                )
+                last = SimpleNamespace(
+                    state="42.5",
+                    attributes={
+                        "unit_of_measurement": "%",
+                        "friendly_name": "x",
+                        "history": {"d": 1},
+                    },
+                )
+                sensor, _ = _make(name, last_state=last)
+                asyncio.run(sensor.async_added_to_hass())
+                if restore:
+                    assert sensor.native_value == 42.5
+                    assert sensor._attrs == {"history": {"d": 1}}
+                else:
+                    assert sensor.native_value is None
+                assert ticks == [sm.timedelta(seconds=sensor._STALE_AFTER_SECONDS / 5)]
+                assert len(sensor._on_remove_callbacks) == 1
 
-@pytest.mark.parametrize("name", sorted(PUSH))
-def test_only_the_daily_reports_restore_their_last_value_after_a_restart(
-    name, monkeypatch
-):
-    _entity_id, _unit, restore, _device = PUSH[name]
-    ticks = []
-    monkeypatch.setattr(
-        sm,
-        "async_track_time_interval",
-        lambda hass, cb, every: ticks.append(every) or (lambda: None),
-    )
-    last = SimpleNamespace(
-        state="42.5",
-        attributes={
-            "unit_of_measurement": "%",
-            "friendly_name": "x",
-            "history": {"d": 1},
-        },
-    )
-    sensor, _ = _make(name, last_state=last)
-    asyncio.run(sensor.async_added_to_hass())
-    if restore:
-        assert sensor.native_value == 42.5
-        assert sensor._attrs == {"history": {"d": 1}}
-    else:
+    # test_a_restore_with_nothing_usable_leaves_the_sensor_empty
+    with monkeypatch.context() as mp:
+        for state in [
+            None,
+            SimpleNamespace(state="unavailable", attributes={}),
+            SimpleNamespace(state="n/a", attributes={}),
+        ]:
+            with mp.context() as mp:
+                mp.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
+                sensor, _ = _make("NimbusSolverQualityReportSensor", last_state=state)
+                asyncio.run(sensor.async_added_to_hass())
+                assert sensor.native_value is None and sensor._attrs == {}
+
+    # test_a_failing_restore_never_blocks_setup
+    with monkeypatch.context() as mp:
+        mp.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
+        sensor, _ = _make("NimbusFlexReportSensor")
+
+        async def broken():
+            raise RuntimeError("store unreadable")
+
+        sensor.async_get_last_state = broken
+        asyncio.run(sensor.async_added_to_hass())
         assert sensor.native_value is None
-    assert ticks == [sm.timedelta(seconds=sensor._STALE_AFTER_SECONDS / 5)]
-    assert len(sensor._on_remove_callbacks) == 1
 
+    # test_a_parent_sensor_hands_each_push_to_its_flattened_children
+    with monkeypatch.context() as mp:
+        for name, dispatch in [
+            ("NimbusSolverQualityReportSensor", "dispatch_to_flattened_quality"),
+            ("NimbusFlexSignalsSensor", "dispatch_to_flattened_flex"),
+            ("NimbusFlexReportSensor", "dispatch_to_flattened_flex_report"),
+            ("NimbusEfficiencyBacktestSensor", "dispatch_to_flattened_backtest"),
+            ("NimbusCounterfactualSocSensor", "dispatch_to_flattened_counterfactual"),
+            ("NimbusSolverBatteryForecastSensor", "dispatch_to_flattened"),
+        ]:
+            with mp.context() as mp:
+                seen = []
+                mp.setattr(
+                    sm.sensor_flattened,
+                    dispatch,
+                    lambda children, attrs: seen.append((children, attrs)),  # noqa: B023
+                )
+                sensor, _ = _make(name)
+                sensor.update_from_solver(1.0, {"a": 1})
+                assert seen == []  # no children yet: nothing to hand on
+                sensor._flattened_entities = ["child"]
+                sensor.update_from_solver(1.0, {"a": 1})
+                assert seen == [(["child"], {"a": 1})]
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        None,
-        SimpleNamespace(state="unavailable", attributes={}),
-        SimpleNamespace(state="n/a", attributes={}),
-    ],
-)
-def test_a_restore_with_nothing_usable_leaves_the_sensor_empty(state, monkeypatch):
-    monkeypatch.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
-    sensor, _ = _make("NimbusSolverQualityReportSensor", last_state=state)
-    asyncio.run(sensor.async_added_to_hass())
-    assert sensor.native_value is None and sensor._attrs == {}
-
-
-def test_a_failing_restore_never_blocks_setup(monkeypatch):
-    monkeypatch.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
-    sensor, _ = _make("NimbusFlexReportSensor")
-
-    async def broken():
-        raise RuntimeError("store unreadable")
-
-    sensor.async_get_last_state = broken
-    asyncio.run(sensor.async_added_to_hass())
-    assert sensor.native_value is None
-
-
-@pytest.mark.parametrize(
-    ("name", "dispatch"),
-    [
-        ("NimbusSolverQualityReportSensor", "dispatch_to_flattened_quality"),
-        ("NimbusFlexSignalsSensor", "dispatch_to_flattened_flex"),
-        ("NimbusFlexReportSensor", "dispatch_to_flattened_flex_report"),
-        ("NimbusEfficiencyBacktestSensor", "dispatch_to_flattened_backtest"),
-        ("NimbusCounterfactualSocSensor", "dispatch_to_flattened_counterfactual"),
-        ("NimbusSolverBatteryForecastSensor", "dispatch_to_flattened"),
-    ],
-)
-def test_a_parent_sensor_hands_each_push_to_its_flattened_children(
-    name, dispatch, monkeypatch
-):
-    seen = []
-    monkeypatch.setattr(
-        sm.sensor_flattened,
-        dispatch,
-        lambda children, attrs: seen.append((children, attrs)),
-    )
-    sensor, _ = _make(name)
-    sensor.update_from_solver(1.0, {"a": 1})
-    assert seen == []  # no children yet: nothing to hand on
-    sensor._flattened_entities = ["child"]
-    sensor.update_from_solver(1.0, {"a": 1})
-    assert seen == [(["child"], {"a": 1})]
-
-
-def test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder():
-    """The recorder drops a state's whole attribute dict past 16 KB, and a
-    field recomputed every poll writes a fresh row every poll (#362)."""
+    # test_the_reports_keep_their_oversized_or_churning_fields_out_of_the_recorder: The recorder drops a state's whole attribute dict past 16 KB, and a
     assert sm.NimbusSolverQualityReportSensor._unrecorded_attributes == frozenset(
         {
             "j_ref_hourly",

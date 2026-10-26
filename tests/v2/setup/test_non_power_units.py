@@ -33,6 +33,8 @@ def _ha_get(entity_id):
 
 
 def test_optional_power_inputs_with_a_non_power_unit_become_not_configured(caplog):
+    # test_optional_power_inputs_with_a_non_power_unit_become_not_configured
+    caplog.clear()
     pic._WARNED_REFUSED.clear()
     cfg = {
         "solver_solar_power_sensor": "sensor.pv_amps",
@@ -57,8 +59,7 @@ def test_optional_power_inputs_with_a_non_power_unit_become_not_configured(caplo
     messages = " ".join(r.getMessage() for r in caplog.records)
     assert "sensor.pv_amps" in messages and "ignored" in messages
 
-
-def test_an_unreadable_unit_leaves_the_setting_alone():
+    # test_an_unreadable_unit_leaves_the_setting_alone
     def _raise(_e):
         raise OSError("down")
 

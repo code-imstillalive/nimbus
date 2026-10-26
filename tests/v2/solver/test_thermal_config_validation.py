@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import unittest
 
+from solver import lp as _solver_lp
 from solver.elements import ThermalLoadConfig
 
 
@@ -45,11 +46,14 @@ class TestIdleDecayValidation(unittest.TestCase):
 
 class TestPeriodOrderingValidation(unittest.TestCase):
     def test_deadline_before_earliest_is_rejected(self):
+        # test_deadline_before_earliest_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(**_base_thermal(earliest_period=10, deadline_period=5))
         self.assertIn("deadline_period", str(ctx.exception))
 
-    def test_negative_earliest_period_is_rejected(self):
+        # test_negative_earliest_period_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(**_base_thermal(earliest_period=-1, deadline_period=5))
         self.assertIn("earliest_period", str(ctx.exception))
@@ -57,18 +61,22 @@ class TestPeriodOrderingValidation(unittest.TestCase):
 
 class TestTemperatureBoundsValidation(unittest.TestCase):
     def test_zero_max_temperature_is_rejected(self):
+        # test_zero_max_temperature_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(**_base_thermal(max_temperature_c=0.0))
         self.assertIn("max_temperature_c", str(ctx.exception))
 
-    def test_target_above_max_temperature_is_rejected(self):
+        # test_target_above_max_temperature_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(
                 **_base_thermal(target_temperature_c=100.0, max_temperature_c=99.0)
             )
         self.assertIn("target_temperature_c", str(ctx.exception))
 
-    def test_negative_initial_temperature_is_rejected(self):
+        # test_negative_initial_temperature_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(**_base_thermal(initial_temperature_c=-1.0))
         self.assertIn("initial_temperature_c", str(ctx.exception))
@@ -76,6 +84,8 @@ class TestTemperatureBoundsValidation(unittest.TestCase):
 
 class TestComfortFloorValidation(unittest.TestCase):
     def test_comfort_floor_above_target_is_rejected(self):
+        # test_comfort_floor_above_target_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         # The comfort floor is tier 3, subordinate to the hard target
         # (tier 1) -- it must never ask for more than the real guarantee
         # itself demands.
@@ -85,11 +95,13 @@ class TestComfortFloorValidation(unittest.TestCase):
             )
         self.assertIn("comfort_floor_c", str(ctx.exception))
 
-    def test_negative_comfort_floor_is_rejected(self):
+        # test_negative_comfort_floor_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError):
             ThermalLoadConfig(**_base_thermal(comfort_floor_c=-1.0))
 
-    def test_negative_comfort_floor_cost_is_rejected(self):
+        # test_negative_comfort_floor_cost_is_rejected
+        _solver_lp._lex_calibration_failed_until = 0.0
         with self.assertRaises(ValueError) as ctx:
             ThermalLoadConfig(
                 **_base_thermal(comfort_floor_c=40.0, comfort_floor_cost=-1.0)

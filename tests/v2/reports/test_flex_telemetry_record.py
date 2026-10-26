@@ -71,12 +71,25 @@ class TestTheBaseRecordValidates:
 
 class TestAFieldWithNoNimbusSourceIsNull:
     def test_a_null_solar_shadow_still_validates(self):
+        # test_a_null_solar_shadow_still_validates
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         build = _build(shadow_solar_forecast_price=None)
         assert build.record is not None
         assert build.record["shadow_solar_forecast_price"] is None
         _validate(build.record)
 
-    def test_build_record_has_no_load_forecast_price_parameter(self):
+        # test_build_record_has_no_load_forecast_price_parameter
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         # The absence is the guard: taking it as an argument would invite
         # a caller to pass shadow_energy_price for it.
         import inspect
@@ -87,13 +100,26 @@ class TestAFieldWithNoNimbusSourceIsNull:
 
 class TestClampingIsReportedRatherThanSilent:
     def test_a_price_below_the_floor_is_clamped_and_named(self):
+        # test_a_price_below_the_floor_is_clamped_and_named
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         build = _build(price_export_seen=-9.0)
         assert build.record is not None
         assert build.record["price_export_seen"] == flex_telemetry.PRICE_MIN
         assert "price_export_seen" in build.clamped_fields
         _validate(build.record)
 
-    def test_a_nan_in_a_non_nullable_price_refuses_the_record(self):
+        # test_a_nan_in_a_non_nullable_price_refuses_the_record
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         # json.dumps emits NaN as a bare literal that is not valid JSON at
         # all, so a record carrying one would be rejected downstream rather
         # than here. Refused with a reason instead.
@@ -104,6 +130,13 @@ class TestClampingIsReportedRatherThanSilent:
 
 class TestTheSchemasOwnRangesAreEnforced:
     def test_a_negative_solar_is_clamped_to_zero(self):
+        # test_a_negative_solar_is_clamped_to_zero
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         # A real solar CT can read slightly negative at night; the schema
         # says `minimum: 0`.
         build = _build(solar_kw=-0.004)
@@ -111,7 +144,13 @@ class TestTheSchemasOwnRangesAreEnforced:
         assert build.record["solar_kw"] == 0.0
         _validate(build.record)
 
-    def test_a_bad_postcode_prefix_refuses(self):
+        # test_a_bad_postcode_prefix_refuses
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         for bad in (None, "", "12", "1234", "abc", "12a"):
             build = _build(postcode_prefix=bad)
             assert build.record is None, bad
@@ -137,10 +176,23 @@ class TestAssets:
         return flex_telemetry.build_asset(**kwargs), clamped
 
     def test_a_participant_name_is_slugified(self):
+        # test_a_participant_name_is_slugified
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         asset, _ = self._asset(name="Tesla Model 3P")
         assert asset["asset_id"] == "tesla_model_3p"
 
-    def test_an_asset_price_clamp_reaches_the_records_own_clamped_list(self):
+        # test_an_asset_price_clamp_reaches_the_records_own_clamped_list
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         asset, clamped = self._asset(shadow_power_balance_price=99.0)
         build = _build(assets=[asset], clamped_in=clamped)
         assert build.record is not None
@@ -289,12 +341,25 @@ class TestThePublishedSensor:
         return posted
 
     def test_it_posts_the_documented_entity_id(self):
+        # test_it_posts_the_documented_entity_id
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         posted = self._publish()
         assert len(posted) == 1
         assert posted[0][0] == "sensor.nimbus_flex_telemetry"
         assert posted[0][0] == solver_writer.FLEX_TELEMETRY_ENTITY_ID
 
-    def test_a_build_failure_never_takes_the_solve_down(self):
+        # test_a_build_failure_never_takes_the_solve_down
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_POST"
+        ].clear()
+        solver_writer.publish_flex_telemetry_record.__globals__[
+            "_LAST_FLEX_TELEMETRY_NO_RECORD"
+        ].clear()
         posted: list[tuple] = []
         with (
             patch.object(

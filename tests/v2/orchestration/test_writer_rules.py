@@ -38,7 +38,10 @@ def _grid(n, minutes=30):
 # --- schedules ----------------------------------------------------------------------
 
 
-def test_the_discharge_cost_follows_its_first_matching_active_block():
+def test_the_discharge_cost_follows_its_first_matching_active_block(
+    ha, caplog, monkeypatch
+):
+    # test_the_discharge_cost_follows_its_first_matching_active_block
     cfg = {
         "solver_discharge_cost": 0.02,
         "solver_discharge_cost_schedule_block_1_rate": 0.10,  # 17-07 by default
@@ -57,24 +60,8 @@ def test_the_discharge_cost_follows_its_first_matching_active_block():
     assert sw.scheduled_discharge_cost_rate(cfg, 12) == 0.05
     assert sw.scheduled_discharge_cost_rate({}, 12) == 0.01
 
-
-# --- summed circuit loads ------------------------------------------------------------
-
-
-def _load(values, *, unit="kW", lower=None, upper=None):
-    fc = []
-    for i, v in enumerate(values):
-        p = {"time": (T0 + timedelta(minutes=30 * i)).isoformat(), "value": v}
-        if lower is not None:
-            p["lower"], p["upper"] = lower[i], upper[i]
-        fc.append(p)
-    return {
-        "state": str(values[0]),
-        "attributes": {"unit_of_measurement": unit, "forecast": fc},
-    }
-
-
-def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, caplog):
+    # test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage
+    caplog.clear()
     ha.states["sensor.a"] = _load(
         [1.0, 2.0, 3.0], lower=[0.5, 1.5, 2.5], upper=[1.5, 2.5, 3.5]
     )
@@ -94,8 +81,7 @@ def test_circuits_sum_with_bands_self_consumption_and_the_shortest_coverage(ha, 
     assert coverage == pytest.approx(0.5)  # b's last point is 30 minutes out
     assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 2
 
-
-def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused():
+    # test_a_mostly_zero_sum_with_a_failed_circuit_is_refused
     # test_a_mostly_zero_sum_with_a_failed_circuit_is_refused
     for total, failed, refused in [
         ([0.0] * 10, [], False),  # nothing failed: a quiet house is believed
@@ -180,6 +166,67 @@ def test_a_mostly_zero_sum_with_a_failed_circuit_is_refused():
             attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
         assert sw._keep_published_quality_score(attrs, T0) is keep
 
+    # test_without_a_recorded_trail_or_baseline_there_is_no_skill
+    with monkeypatch.context() as mp:
+        out, reads, _ = _nowcast(mp, trail=[], prev=[], result=None)
+        assert out["load_nowcast_skill_reason"] == "no_forecast_trail"
+        assert all(
+            out[k] is None
+            for k in sw._NOWCAST_SKILL_KEYS
+            if k != "load_nowcast_skill_reason"
+        )
+        trail = [(t, 1.0) for t in _grid(4)]
+        out, reads, _ = _nowcast(mp, trail=trail, prev=[], result=None)
+        assert out["load_nowcast_skill_reason"] == "no_persistence_baseline"
+        # The baseline is the same window a day earlier.
+        assert reads[1] == (
+            "sensor.house",
+            T0 - timedelta(hours=24),
+            T0 + timedelta(hours=2) - timedelta(hours=24),
+        )
+
+    # test_a_skill_that_cannot_be_computed_says_which_input_stopped_it
+    with monkeypatch.context() as mp:
+        for trail_points, solar, reason in [
+            (4, np.zeros(3), "input_length_mismatch"),
+            (1, None, "coverage_below_threshold"),
+            (4, None, "scenario_solve_failed"),
+        ]:
+            with mp.context() as mp:
+                trail = [(t, 1.0) for t in _grid(4)[:trail_points]]
+                prev = [(t - timedelta(hours=24), 1.0) for t in _grid(4)]
+                out, _, _ = _nowcast(
+                    mp, trail=trail, prev=prev, result=None, solar=solar
+                )
+                assert out["load_nowcast_skill_reason"] == reason
+                assert out["load_nowcast_skill_periods_measured"] == trail_points
+                assert out["load_nowcast_skill_coverage"] == round(trail_points / 4, 3)
+
+    # test_only_a_day_back_where_it_began_is_a_closed_loop
+    for in_kwh, out_kwh, soc_delta, closed in [
+        (108.136, 113.328, -0.240, True),  # back where it began, more out than in
+        (0.0, 79.044, -84.667, False),  # an evening's discharge
+        (92.971, 0.0, 100.954, False),  # a day's charge
+        (0.0, 0.0, 6.096, False),  # no throughput: nothing to compare
+    ]:
+        assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed
+
+
+# --- summed circuit loads ------------------------------------------------------------
+
+
+def _load(values, *, unit="kW", lower=None, upper=None):
+    fc = []
+    for i, v in enumerate(values):
+        p = {"time": (T0 + timedelta(minutes=30 * i)).isoformat(), "value": v}
+        if lower is not None:
+            p["lower"], p["upper"] = lower[i], upper[i]
+        fc.append(p)
+    return {
+        "state": str(values[0]),
+        "attributes": {"unit_of_measurement": unit, "forecast": fc},
+    }
+
 
 # --- per-battery energy balance --------------------------------------------------------
 
@@ -236,52 +283,4 @@ def _nowcast(monkeypatch, *, trail, prev, result, n=4, solar=None):
     return out, reads, got
 
 
-def test_without_a_recorded_trail_or_baseline_there_is_no_skill(monkeypatch):
-    out, reads, _ = _nowcast(monkeypatch, trail=[], prev=[], result=None)
-    assert out["load_nowcast_skill_reason"] == "no_forecast_trail"
-    assert all(
-        out[k] is None
-        for k in sw._NOWCAST_SKILL_KEYS
-        if k != "load_nowcast_skill_reason"
-    )
-    trail = [(t, 1.0) for t in _grid(4)]
-    out, reads, _ = _nowcast(monkeypatch, trail=trail, prev=[], result=None)
-    assert out["load_nowcast_skill_reason"] == "no_persistence_baseline"
-    # The baseline is the same window a day earlier.
-    assert reads[1] == (
-        "sensor.house",
-        T0 - timedelta(hours=24),
-        T0 + timedelta(hours=2) - timedelta(hours=24),
-    )
-
-
-@pytest.mark.parametrize(
-    ("trail_points", "solar", "reason"),
-    [
-        (4, np.zeros(3), "input_length_mismatch"),
-        (1, None, "coverage_below_threshold"),
-        (4, None, "scenario_solve_failed"),
-    ],
-)
-def test_a_skill_that_cannot_be_computed_says_which_input_stopped_it(
-    monkeypatch, trail_points, solar, reason
-):
-    trail = [(t, 1.0) for t in _grid(4)[:trail_points]]
-    prev = [(t - timedelta(hours=24), 1.0) for t in _grid(4)]
-    out, _, _ = _nowcast(monkeypatch, trail=trail, prev=prev, result=None, solar=solar)
-    assert out["load_nowcast_skill_reason"] == reason
-    assert out["load_nowcast_skill_periods_measured"] == trail_points
-    assert out["load_nowcast_skill_coverage"] == round(trail_points / 4, 3)
-
-
 # --- flex availability, the P2P step lookup, consolidation's spike rule ----------
-
-
-def test_only_a_day_back_where_it_began_is_a_closed_loop():
-    for in_kwh, out_kwh, soc_delta, closed in [
-        (108.136, 113.328, -0.240, True),  # back where it began, more out than in
-        (0.0, 79.044, -84.667, False),  # an evening's discharge
-        (92.971, 0.0, 100.954, False),  # a day's charge
-        (0.0, 0.0, 6.096, False),  # no throughput: nothing to compare
-    ]:
-        assert sw._is_closed_soc_loop(in_kwh, out_kwh, soc_delta) is closed

@@ -12,6 +12,7 @@ import unittest
 from datetime import UTC, datetime
 
 import numpy as np
+from solver import lp as _solver_lp
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
@@ -59,11 +60,14 @@ class TestTheFieldsExistAndDefaultHonestly(unittest.TestCase):
     said" -- never "we looked and found nothing"."""
 
     def test_lpresult_carries_both(self):
+        # test_lpresult_carries_both
+        _solver_lp._lex_calibration_failed_until = 0.0
         r = lp_mod.LPResult(status="optimal")
         self.assertEqual(r.highs_info, {})
         self.assertIsNone(r.failing_model_path)
 
-    def test_plan_mirrors_both(self):
+        # test_plan_mirrors_both
+        _solver_lp._lex_calibration_failed_until = 0.0
         f = {x.name: x for x in dataclasses.fields(net_mod.Plan)}
         for name in ("highs_info", "failing_model_path"):
             self.assertIn(name, f, f"Plan must mirror LPResult.{name}")
@@ -114,6 +118,8 @@ class TestTheFailureLineNamesEverything(unittest.TestCase):
         self.template = str(self.call.args[0].value)
 
     def test_it_reports_the_iteration_count(self):
+        # test_it_reports_the_iteration_count
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn(
             "plan.iterations",
             self.arg_src,
@@ -122,35 +128,34 @@ class TestTheFailureLineNamesEverything(unittest.TestCase):
         )
         self.assertIn("simplex_iterations=", self.template)
 
-    def test_it_reports_the_highs_snapshot(self):
+        # test_it_reports_the_highs_snapshot
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertTrue(
             any("format_highs_info(plan.highs_info)" in a for a in self.arg_src),
             f"HiGHS's own numbers are missing from the failure line: {self.arg_src}",
         )
 
-    def test_it_reports_where_the_model_went(self):
+        # test_it_reports_where_the_model_went
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertTrue(
             any("failing_model_path" in a for a in self.arg_src),
             "the failure line must say whether the offending model was "
             "captured, and where",
         )
 
-    def test_it_still_reports_the_weight_and_the_status(self):
-        """The regression half: #1229/#1260/#1291 must not be lost."""
+        # test_it_still_reports_the_weight_and_the_status: The regression half: #1229/#1260/#1291 must not be lost.
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn("plan.raw_status or 'unknown reason'", self.arg_src)
         self.assertIn("calibration_note", self.arg_src)
         self.assertIn("nimbus issue #1179", self.template)
 
-    def test_the_elapsed_time_keeps_enough_resolution_to_show_the_signature(self):
-        """0.1s against 1.16s IS the signature; `%.1f` is at the edge of its
-        own resolution there."""
+        # test_the_elapsed_time_keeps_enough_resolution_to_show_the_signature: 0.1s against 1.16s IS the signature; `%.1f` is at the edge of its
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn("%.3fs", self.template)
         self.assertNotIn("%.1fs", self.template)
 
-    def test_the_perishability_note_is_only_emitted_when_a_file_exists(self):
-        """#773 learned this the hard way (see `_dump_location_note()`'s own
-        docstring): announcing a dump without saying it is temporary loses
-        the artefact. Announcing one that was never written is worse."""
+        # test_the_perishability_note_is_only_emitted_when_a_file_exists: #773 learned this the hard way (see `_dump_location_note()`'s own
+        _solver_lp._lex_calibration_failed_until = 0.0
         func = _publish_plan_node()
         notes = [
             n
@@ -223,6 +228,8 @@ class TestTheHealthyCycleBaseRateIsPublished(unittest.TestCase):
         }
 
     def test_all_three_calibration_fields_are_published(self):
+        # test_all_three_calibration_fields_are_published
+        _solver_lp._lex_calibration_failed_until = 0.0
         for name in (
             "calibration_min_weight_fallback",
             "calibration_fallback_reason",
@@ -237,19 +244,13 @@ class TestTheHealthyCycleBaseRateIsPublished(unittest.TestCase):
             )
             self.assertEqual(self.pairs[name], f"plan.{name}")
 
-    def test_the_healthy_iteration_count_is_published(self):
-        """Measured while building this: a small LP solves optimally at
-        `simplex_iteration_count == 0`, because presolve finishes it. So a
-        failing cycle's 0 is only a rejection relative to what THIS
-        install's healthy cycles cost."""
+        # test_the_healthy_iteration_count_is_published: Measured while building this: a small LP solves optimally at
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn("simplex_iterations", self.keys)
         self.assertEqual(self.pairs["simplex_iterations"], "plan.iterations")
 
-    def test_the_cycle_counters_are_published(self):
-        """nimbus #1360: a failed cycle publishes nothing and its warning is
-        lost at the next restart, and since the one-minute cadence a
-        missing history row no longer means a missing solve. The counters
-        carried on every healthy row are what make an episode readable."""
+        # test_the_cycle_counters_are_published: nimbus #1360: a failed cycle publishes nothing and its warning is
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertEqual(
             self.pairs["solves_attempted"], "_CYCLE_COUNTS['solves_attempted']"
         )
@@ -257,9 +258,8 @@ class TestTheHealthyCycleBaseRateIsPublished(unittest.TestCase):
             self.pairs["solver_failures"], "_CYCLE_COUNTS['solver_failures']"
         )
 
-    def test_the_key_name_matches_the_one_the_failure_line_prints(self):
-        """Read side by side, so no translation step stands between the
-        failing value and its baseline."""
+        # test_the_key_name_matches_the_one_the_failure_line_prints: Read side by side, so no translation step stands between the
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertIn("simplex_iterations=", str(_failure_warning_call().args[0].value))
         self.assertIn("simplex_iterations", self.keys)
 

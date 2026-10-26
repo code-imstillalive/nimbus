@@ -97,15 +97,11 @@ def test_a_sensor_source_is_read_off_its_own_attribute_without_a_service_call(ha
     assert ha["posts"][TEMP][0] == 18.0
 
 
-@pytest.mark.parametrize(
-    ("source", "response", "state"),
-    [
+def test_a_failed_read_publishes_nothing(ha):
+    for source, response, state in [
         ("weather.any", None, None),
         ("sensor.gone", None, urllib.error.URLError("not found")),
-    ],
-    ids=["service_failed", "sensor_missing"],
-)
-def test_a_failed_read_publishes_nothing(ha, source, response, state):
-    ha["response"], ha["state"] = response, state
-    _publish(source)
-    assert ha["posts"] == {}
+    ]:
+        ha["response"], ha["state"] = response, state
+        _publish(source)
+        assert ha["posts"] == {}

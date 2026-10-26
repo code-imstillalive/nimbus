@@ -7,6 +7,8 @@ import sys
 import unittest
 from pathlib import Path
 
+from solver import lp as _solver_lp
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
 
@@ -47,6 +49,8 @@ def _helper_body_source(name: str) -> str:
 
 class TestGridSignalsCarriesIt(unittest.TestCase):
     def test_both_directions_have_the_field(self):
+        # test_both_directions_have_the_field
+        _solver_lp._lex_calibration_failed_until = 0.0
         fields = network_mod.GridSignals.__dataclass_fields__
         for name in (
             "grid_import_headroom_unranged",
@@ -55,13 +59,8 @@ class TestGridSignalsCarriesIt(unittest.TestCase):
             with self.subTest(field=name):
                 self.assertIn(name, fields)
 
-    def test_the_flag_asks_only_whether_ranging_answered(self):
-        """The one-line body is the whole point: `bound_headroom(var) is None`.
-
-        Anything richer -- reading `h.degenerate`, comparing `h.up` to a
-        tolerance -- either duplicates what the published figure already says or
-        reintroduces the either-side bug this rework exists to undo.
-        """
+        # test_the_flag_asks_only_whether_ranging_answered: The one-line body is the whole point: `bound_headroom(var) is None`.
+        _solver_lp._lex_calibration_failed_until = 0.0
         src = _helper_body_source("_headroom_is_unranged")
         self.assertIn("bound_headroom(var) is None", src)
         self.assertNotIn("degenerate", src)
@@ -72,6 +71,8 @@ class TestItReachesThePublishedSensor(unittest.TestCase):
     added a field to `LPResult` and nothing outside `lp.py` ever read it."""
 
     def test_both_flags_are_published(self):
+        # test_both_flags_are_published
+        _solver_lp._lex_calibration_failed_until = 0.0
         for key in (
             '"grid_import_headroom_unranged"',
             '"grid_export_headroom_unranged"',
@@ -79,11 +80,8 @@ class TestItReachesThePublishedSensor(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, _WRITER_SRC)
 
-    def test_they_are_published_as_bools_not_floats(self):
-        """Every neighbouring headroom attribute goes through `round(float(...))`.
-        Doing that here would publish 0.0/1.0 and reintroduce exactly the
-        ambiguity this fixes -- a consumer cannot tell a 0.0 flag from a 0.0
-        headroom at a glance."""
+        # test_they_are_published_as_bools_not_floats: Every neighbouring headroom attribute goes through `round(float(...))`.
+        _solver_lp._lex_calibration_failed_until = 0.0
         import re
 
         for key in (

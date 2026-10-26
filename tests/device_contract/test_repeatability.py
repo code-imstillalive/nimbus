@@ -95,7 +95,8 @@ def _outcomes(node_ids: list[str], cwd: Path = ROOT) -> dict[str, str]:
     return outcomes
 
 
-def test_three_fresh_runs_and_a_reversed_one_agree() -> None:
+def test_three_fresh_runs_and_a_reversed_one_agree(tmp_path):
+    # test_three_fresh_runs_and_a_reversed_one_agree
     ids = _node_ids()
     runs = [_outcomes(ids) for _ in range(3)]
     runs.append(_outcomes(list(reversed(ids))))
@@ -110,11 +111,10 @@ def test_three_fresh_runs_and_a_reversed_one_agree() -> None:
             f"{ {k: (first.get(k), run.get(k)) for k in set(first) | set(run) if first.get(k) != run.get(k)} }"
         )
 
-
-def test_negative_control_an_order_dependent_test_is_caught(tmp_path: Path) -> None:
-    """A pair that passes only when run in file order must differ when
-    reversed, or the gate above could never fail."""
-    mod = tmp_path / "test_order_dependent.py"
+    # test_negative_control_an_order_dependent_test_is_caught: A pair that passes only when run in file order must differ when
+    tmp_1 = tmp_path / "test_negative_control_an_order_dependent_test_is_caught"
+    tmp_1.mkdir()
+    mod = tmp_1 / "test_order_dependent.py"
     mod.write_text(
         "STATE = []\n\ndef test_a_sets():\n    STATE.append(1)\n\n"
         "def test_b_needs_a():\n    assert STATE\n",
@@ -124,7 +124,7 @@ def test_negative_control_an_order_dependent_test_is_caught(tmp_path: Path) -> N
     # the temp folder made the child list that folder while collecting, and a
     # golden scenario's directory deleted mid-listing failed collection.
     ids = [f"{mod.name}::test_a_sets", f"{mod.name}::test_b_needs_a"]
-    forward = _outcomes(ids, cwd=tmp_path)
-    reverse = _outcomes(list(reversed(ids)), cwd=tmp_path)
+    forward = _outcomes(ids, cwd=tmp_1)
+    reverse = _outcomes(list(reversed(ids)), cwd=tmp_1)
     assert set(forward.values()) == {"PASSED"}
     assert forward != reverse

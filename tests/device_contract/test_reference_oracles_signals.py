@@ -48,6 +48,7 @@ def _rows(raw: list) -> list[Row]:
 
 def test_f04_price_over_a_window():
     # test_f04_price_over_a_window
+    # test_f04_price_over_a_window
     for name in [
         "thirty_min_window_over_5_min",
         "gap",
@@ -121,22 +122,7 @@ def test_f04_price_over_a_window():
     )
     assert price_with_fees(None, case["fees"], False) is expected["missing_direction"]
 
-
-def _blocks(raw: list) -> list[PriceInterval]:
-    """F04 `multi_day`: `[first start, minutes, count, price]` blocks."""
-    out = []
-    for first, minutes, count, price in raw:
-        start = T(first)
-        for k in range(count):
-            a = start + timedelta(minutes=minutes * k)
-            out.append(PriceInterval(a, a + timedelta(minutes=minutes), price))
-    return out
-
-
-# F09: units, samples, counters -----------------------------------------
-
-
-def test_f09_power_units():
+    # test_f09_power_units
     # test_f09_power_units
     for value, unit, kw in F09["cases"]["units"]:
         got = power_kw(value, unit)
@@ -188,11 +174,7 @@ def test_f09_power_units():
     )
     assert declared_rating_kw(5.0, case["history_kw"]) == 5.0
 
-
-# F03: provider responses in their published shapes ----------------------
-
-
-def test_f03_a_providers_published_intervals_price_the_window():
+    # test_f03_a_providers_published_intervals_price_the_window
     # test_f03_a_providers_published_intervals_price_the_window
     for name in ["amber_get_forecasts", "openadr_get_forecast"]:
         case, expected = F03["cases"][name], F03["expected"][name]
@@ -232,3 +214,20 @@ def test_f03_a_providers_published_intervals_price_the_window():
         if tag == "matched"
     )
     assert abs(revenue - expected["block_matched_revenue"]) <= TOL
+
+
+def _blocks(raw: list) -> list[PriceInterval]:
+    """F04 `multi_day`: `[first start, minutes, count, price]` blocks."""
+    out = []
+    for first, minutes, count, price in raw:
+        start = T(first)
+        for k in range(count):
+            a = start + timedelta(minutes=minutes * k)
+            out.append(PriceInterval(a, a + timedelta(minutes=minutes), price))
+    return out
+
+
+# F09: units, samples, counters -----------------------------------------
+
+
+# F03: provider responses in their published shapes ----------------------

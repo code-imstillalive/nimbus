@@ -131,7 +131,8 @@ def _localvolts(w, *, entry="e1"):
 # --- recognising each provider ------------------------------------------------------------
 
 
-def test_localvolts_v2_is_recognised_from_its_registry_entries(world):
+def test_localvolts_v2_is_recognised_from_its_registry_entries(world, monkeypatch):
+    # test_localvolts_v2_is_recognised_from_its_registry_entries
     profile = _localvolts(world)
     world.add(
         pa.LV_V2_DOMAIN,
@@ -141,8 +142,7 @@ def test_localvolts_v2_is_recognised_from_its_registry_entries(world):
     )
     assert pa.detect_localvolts_v2_profile(world.hass()) == profile
 
-
-def test_two_localvolts_sites_or_none_loaded_is_no_proposal(world):
+    # test_two_localvolts_sites_or_none_loaded_is_no_proposal
     _localvolts(world, entry="a")
     _localvolts(world, entry="b")
     assert pa.detect_localvolts_v2_profile(world.hass()) == {}
@@ -150,10 +150,8 @@ def test_two_localvolts_sites_or_none_loaded_is_no_proposal(world):
     other.add(pa.LV_V2_DOMAIN, "sensor.x", "x", loaded=False)
     assert pa.detect_localvolts_v2_profile(other.hass()) == {}
 
-
-@pytest.mark.parametrize(
-    ("domain", "uids", "expected"),
-    [
+    # test_each_retail_provider_is_proposed_only_for_a_single_site
+    for domain, uids, expected in [
         (
             pi.AMBER_EXPRESS_DOMAIN,
             {
@@ -192,48 +190,42 @@ def test_two_localvolts_sites_or_none_loaded_is_no_proposal(world):
             {IMPORT: "sensor.pd7_buy", EXPORT: "sensor.pd7_sell"},
         ),
         (pi.PD7DAY_DOMAIN, {"qld1_tariff": "sensor.a", "nsw1_tariff": "sensor.b"}, {}),
-    ],
-)
-def test_each_retail_provider_is_proposed_only_for_a_single_site(
-    world, domain, uids, expected
-):
-    for uid, eid in uids.items():
-        world.add(domain, eid, uid)
-    detect = {
-        pi.AMBER_EXPRESS_DOMAIN: pa.detect_amber_express_profile,
-        pi.AMBER_CORE_DOMAIN: pa.detect_amber_core_profile,
-        pi.PD7DAY_DOMAIN: pa.detect_pd7day_tariff_pair,
-    }[domain]
-    assert detect(world.hass()) == expected
+    ]:
+        for uid, eid in uids.items():
+            world.add(domain, eid, uid)
+        detect = {
+            pi.AMBER_EXPRESS_DOMAIN: pa.detect_amber_express_profile,
+            pi.AMBER_CORE_DOMAIN: pa.detect_amber_core_profile,
+            pi.PD7DAY_DOMAIN: pa.detect_pd7day_tariff_pair,
+        }[domain]
+        assert detect(world.hass()) == expected
 
-
-def test_a_regional_forecast_prefers_pd7day_and_picks_the_home_region_among_several(
-    world, monkeypatch
-):
-    world.add(
-        pi.AEMO_NEM_DOMAIN, "sensor.aemo_qld", f"x_qld1_{pi.AEMO_NEM_FORECAST_KEY}"
-    )
-    assert pa.detect_regional_spot_forecast(world.hass()) == (
-        {SPOT: "sensor.aemo_qld"},
-        "AEMO NEM Data",
-    )
-    world.add(pi.PD7DAY_DOMAIN, "sensor.pd7_qld", "nem_pd7day_qld1_forecast")
-    world.add(pi.PD7DAY_DOMAIN, "sensor.pd7_nsw", "nem_pd7day_nsw1_forecast")
-    # Two PD7DAY regions and no home region: not PD7DAY, so AEMO.
-    assert pa.detect_regional_spot_forecast(world.hass()) == (
-        {SPOT: "sensor.aemo_qld"},
-        "AEMO NEM Data",
-    )
-    assert pa.detect_pd7day_forecast(world.hass()) == {}
-    monkeypatch.setattr(
-        pa.sensor_discovery,
-        "resolve_geocoded_region_and_prefix",
-        lambda states: ("NSW1", "200"),
-    )
-    assert pa.detect_regional_spot_forecast(world.hass()) == (
-        {SPOT: "sensor.pd7_nsw"},
-        "NEM PD7DAY",
-    )
+    # test_a_regional_forecast_prefers_pd7day_and_picks_the_home_region_among_several
+    with monkeypatch.context() as mp:
+        world.add(
+            pi.AEMO_NEM_DOMAIN, "sensor.aemo_qld", f"x_qld1_{pi.AEMO_NEM_FORECAST_KEY}"
+        )
+        assert pa.detect_regional_spot_forecast(world.hass()) == (
+            {SPOT: "sensor.aemo_qld"},
+            "AEMO NEM Data",
+        )
+        world.add(pi.PD7DAY_DOMAIN, "sensor.pd7_qld", "nem_pd7day_qld1_forecast")
+        world.add(pi.PD7DAY_DOMAIN, "sensor.pd7_nsw", "nem_pd7day_nsw1_forecast")
+        # Two PD7DAY regions and no home region: not PD7DAY, so AEMO.
+        assert pa.detect_regional_spot_forecast(world.hass()) == (
+            {SPOT: "sensor.aemo_qld"},
+            "AEMO NEM Data",
+        )
+        assert pa.detect_pd7day_forecast(world.hass()) == {}
+        mp.setattr(
+            pa.sensor_discovery,
+            "resolve_geocoded_region_and_prefix",
+            lambda states: ("NSW1", "200"),
+        )
+        assert pa.detect_regional_spot_forecast(world.hass()) == (
+            {SPOT: "sensor.pd7_nsw"},
+            "NEM PD7DAY",
+        )
 
 
 # --- proposals: suggested, never applied without a yes ------------------------------------
@@ -304,6 +296,7 @@ def test_with_a_price_array_set_a_regional_forecast_is_proposed_too(world):
 
 
 def test_fees_on_top_of_a_price_that_already_includes_them_are_flagged(world):
+    # test_fees_on_top_of_a_price_that_already_includes_them_are_flagged
     lv = _localvolts(world)
     fee = pa._FEE_RATE_KEYS[0]
     assert pa.detect_fees_doubled(world.hass(), {IMPORT: lv[IMPORT], fee: 0.05}) == (
@@ -329,8 +322,7 @@ def test_fees_on_top_of_a_price_that_already_includes_them_are_flagged(world):
     assert pa.detect_fees_on_pd7day_tariff(world.hass(), {IMPORT: tariff}) is None
     assert pa.detect_fees_on_pd7day_tariff(world.hass(), {}) is None
 
-
-def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(world):
+    # test_a_nem_price_without_a_regional_forecast_is_pointed_at_one
     assert (
         pa.detect_missing_regional_forecast(
             world.hass(), {IMPORT: "sensor.house_price"}
@@ -358,19 +350,18 @@ def test_a_nem_price_without_a_regional_forecast_is_pointed_at_one(world):
     )
     assert found[0] == "Nimbus found `sensor.aemo_qld` (AEMO NEM Data)."
 
-
-def _notices(world, options):
-    asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
-    return {nid: msg for service, nid, msg in world.calls if service == "create"}
-
-
-def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
+    # test_once_its_fields_are_chosen_a_provider_is_not_reported_again
     profile = _localvolts(world)
     _first, *rest = profile
     partly = _notices(world, {f: profile[f] for f in rest})
     assert f"1 of Nimbus's {len(pa.LV_V2_PROFILE)}" in partly[pa.NOTIFY_DETECTED_ID]
     world.calls.clear()
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
+
+
+def _notices(world, options):
+    asyncio.run(pa.async_notify_pricing_setup(world.hass(), options))
+    return {nid: msg for service, nid, msg in world.calls if service == "create"}
 
 
 @pytest.mark.parametrize(
@@ -400,7 +391,8 @@ def test_each_detected_provider_has_its_own_notice(world, domain, uids, notice):
     )
 
 
-def test_a_matched_rate_without_a_price_array_is_called_out(world):
+def test_a_matched_rate_without_a_price_array_is_called_out(world, caplog, monkeypatch):
+    # test_a_matched_rate_without_a_price_array_is_called_out
     notices = _notices(
         world, {const.CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "sensor.rate"}
     )
@@ -412,8 +404,7 @@ def test_a_matched_rate_without_a_price_array_is_called_out(world):
     assert "`sensor.aemo_qld`" in notices[pa.NOTIFY_AEMO_DETECTED_ID]
     assert ("dismiss", pa.NOTIFY_FEES_DOUBLED_ID, "") in world.calls
 
-
-def test_a_failing_notification_never_breaks_setup(world):
+    # test_a_failing_notification_never_breaks_setup
     hass = world.hass()
 
     async def broken(*a, **kw):
@@ -422,8 +413,7 @@ def test_a_failing_notification_never_breaks_setup(world):
     hass.services.async_call = broken
     asyncio.run(pa.async_notify_pricing_setup(hass, {IMPORT: "sensor.gone"}))
 
-
-def test_a_matched_rate_without_an_array_names_localvolts_own_array(world):
+    # test_a_matched_rate_without_an_array_names_localvolts_own_array
     profile = _localvolts(world)
     notices = _notices(
         world, {const.CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: "sensor.rate"}
@@ -431,19 +421,17 @@ def test_a_matched_rate_without_an_array_names_localvolts_own_array(world):
     array = profile[const.CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR]
     assert f"`{array}`" in notices[pa.NOTIFY_P2P_TRAP_ID]
 
+    # test_fees_on_top_of_flex_up_are_warned_about_in_the_log
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        mp.setattr(pa, "detect_fees_doubled", lambda *a, **k: ("sensor.lv", "0.05"))
+        import logging
 
-def test_fees_on_top_of_flex_up_are_warned_about_in_the_log(world, caplog, monkeypatch):
-    monkeypatch.setattr(
-        pa, "detect_fees_doubled", lambda *a, **k: ("sensor.lv", "0.05")
-    )
-    import logging
+        with caplog.at_level(logging.WARNING):
+            _notices(world, {})
+        assert "counted twice" in caplog.text and "0.05" in caplog.text
 
-    with caplog.at_level(logging.WARNING):
-        _notices(world, {})
-    assert "counted twice" in caplog.text and "0.05" in caplog.text
-
-
-def test_a_second_provider_brings_its_export_price_too():
+    # test_a_second_provider_brings_its_export_price_too
     filled = {}
     out = pa._extra_source_proposals(
         filled,
@@ -454,8 +442,7 @@ def test_a_second_provider_brings_its_export_price_too():
         (const.CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_sell"),
     ]
 
-
-def test_a_price_sensor_named_for_a_nem_retailer_counts_as_nem(world):
+    # test_a_price_sensor_named_for_a_nem_retailer_counts_as_nem
     world.add(pa.LV_V2_DOMAIN, "sensor.my_buy", "lv-e1_buy_flex_up")
     hass = world.hass()
     assert pa._is_nem_price(hass, "sensor.my_buy")  # by its integration

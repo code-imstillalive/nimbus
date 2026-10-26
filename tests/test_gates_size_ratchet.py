@@ -46,8 +46,11 @@ def _run(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProces
 # ---------------------------------------------------------------------------
 
 
-def test_single_tree_mode_fails_on_a_70_line_function(tmp_path: Path) -> None:
-    bad = tmp_path / "bad_module.py"
+def test_single_tree_mode_fails_on_a_70_line_function(tmp_path, toy_repo):
+    # test_single_tree_mode_fails_on_a_70_line_function
+    tmp_0 = tmp_path / "test_single_tree_mode_fails_on_a_70_line_function"
+    tmp_0.mkdir()
+    bad = tmp_0 / "bad_module.py"
     # `_fn` emits `def` + body_lines + `return` = body_lines + 2 total lines.
     bad.write_text(_fn("does_too_much", 68))  # 70 lines total
 
@@ -57,24 +60,38 @@ def test_single_tree_mode_fails_on_a_70_line_function(tmp_path: Path) -> None:
     assert "70" in proc.stdout
     assert "FAIL" in proc.stdout
 
-
-def test_single_tree_mode_passes_on_a_50_line_function(tmp_path: Path) -> None:
-    good = tmp_path / "good_module.py"
+    # test_single_tree_mode_passes_on_a_50_line_function
+    tmp_1 = tmp_path / "test_single_tree_mode_passes_on_a_50_line_function"
+    tmp_1.mkdir()
+    good = tmp_1 / "good_module.py"
     good.write_text(_fn("does_one_thing", 48))  # 50 lines total, under 60
 
     proc = _run(["--baseline-count", "0", str(good)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PASS" in proc.stdout
 
-
-def test_single_tree_mode_respects_a_nonzero_baseline(tmp_path: Path) -> None:
-    """One over-limit function against baseline 1 passes; against baseline 0
-    it fails -- the count comparison, not just "any violation", is exercised."""
-    mod = tmp_path / "one_big.py"
+    # test_single_tree_mode_respects_a_nonzero_baseline: One over-limit function against baseline 1 passes; against baseline 0
+    tmp_2 = tmp_path / "test_single_tree_mode_respects_a_nonzero_baseline"
+    tmp_2.mkdir()
+    mod = tmp_2 / "one_big.py"
     mod.write_text(_fn("big", 69))
 
     assert _run(["--baseline-count", "1", str(mod)]).returncode == 0
     assert _run(["--baseline-count", "0", str(mod)]).returncode == 1
+
+    # test_ratchet_mode_fails_when_a_function_grows_past_the_limit
+    mod = toy_repo / "pkg" / "mod.py"
+    mod.parent.mkdir(parents=True)
+    mod.write_text(_fn("worker", 48))  # 50 lines, under 60
+    _commit(toy_repo, "base: worker under the limit")
+
+    mod.write_text(_fn("worker", 69))  # grown to 71 lines, over the limit
+    _commit(toy_repo, "head: worker grown past the limit")
+
+    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "new_over_threshold" in proc.stdout
+    assert "worker" in proc.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -145,23 +162,6 @@ repo, args = sys.argv[1], sys.argv[2:]
 size_ratchet.REPO = __import__("pathlib").Path(repo)
 sys.exit(size_ratchet.main(args))
 """
-
-
-def test_ratchet_mode_fails_when_a_function_grows_past_the_limit(
-    toy_repo: Path,
-) -> None:
-    mod = toy_repo / "pkg" / "mod.py"
-    mod.parent.mkdir(parents=True)
-    mod.write_text(_fn("worker", 48))  # 50 lines, under 60
-    _commit(toy_repo, "base: worker under the limit")
-
-    mod.write_text(_fn("worker", 69))  # grown to 71 lines, over the limit
-    _commit(toy_repo, "head: worker grown past the limit")
-
-    proc = _run_ratchet(toy_repo, "HEAD~1", "HEAD", "pkg")
-    assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "new_over_threshold" in proc.stdout
-    assert "worker" in proc.stdout
 
 
 def test_ratchet_mode_fails_when_the_over_limit_count_rises(toy_repo: Path) -> None:

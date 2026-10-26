@@ -177,6 +177,7 @@ def test_an_hour_ahead_prediction_is_graded_into_a_ratio(
 
 
 def test_a_small_forecast_is_dropped_not_graded(state):
+    # test_a_small_forecast_is_dropped_not_graded
     dawn = datetime(2026, 8, 25, 6, 0, tzinfo=BRISBANE)
     _ratio(dawn, forecast_kw=1.0)  # under the 5 kW floor
     calls = state.readings["calls"]
@@ -188,29 +189,27 @@ def test_a_small_forecast_is_dropped_not_graded(state):
     )
     assert state.readings["calls"] == calls
 
-
-@pytest.mark.parametrize(
-    ("ratios", "kept"),
-    [
+    # test_impossible_or_stale_ratios_are_dropped
+    for ratios, kept in [
         ([("now", 1121.05), ("now", 0.9)], 0.9),  # a unit mix-up's ratio is dropped
         ([("stale", 0.5), ("fresh", 0.9)], 0.9),  # the window rolls
-    ],
-)
-def test_impossible_or_stale_ratios_are_dropped(state, ratios, kept):
-    when = {
-        "now": NOON,
-        "stale": NOON - timedelta(hours=sw.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
-        "fresh": NOON - timedelta(minutes=10),
-    }
-    state.write(
-        {
-            "pending": [],
-            "ratios": [{"time": when[k].isoformat(), "ratio": r} for k, r in ratios],
+    ]:
+        when = {
+            "now": NOON,
+            "stale": NOON - timedelta(hours=sw.SOLAR_DELIVERY_ROLLING_WINDOW_HOURS + 1),
+            "fresh": NOON - timedelta(minutes=10),
         }
-    )
-    result = _ratio(NOON)
-    assert result["solar_delivery_sample_count"] == 1
-    assert result["solar_delivery_ratio"] == pytest.approx(kept, abs=1e-3)
+        state.write(
+            {
+                "pending": [],
+                "ratios": [
+                    {"time": when[k].isoformat(), "ratio": r} for k, r in ratios
+                ],
+            }
+        )
+        result = _ratio(NOON)
+        assert result["solar_delivery_sample_count"] == 1
+        assert result["solar_delivery_ratio"] == pytest.approx(kept, abs=1e-3)
 
 
 # --- one state file, two measurements ---------------------------------------------------------

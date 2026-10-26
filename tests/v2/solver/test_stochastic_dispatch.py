@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 
 import numpy as np
 import pytest
+from solver import lp as _solver_lp
 from solver import stochastic_dispatch as sd
 from solver.elements import (
     BatteryConfig,
@@ -71,7 +72,9 @@ def solved():
 # --- the band, the stages ---------------------------------------------------------------------
 
 
-def test_stage_1_is_every_period_that_ends_in_the_first_half_hour():
+def test_stage_1_is_every_period_that_ends_in_the_first_half_hour(solved):
+    # test_stage_1_is_every_period_that_ends_in_the_first_half_hour
+    _solver_lp._lex_calibration_failed_until = 0.0
     for hours, k in [
         ([1 / 60] * 3 + [5 / 60] * 10 + [0.5] * 4, 8),  # the tiered grid: to minute 28
         ([0.5] * 4, 1),
@@ -80,8 +83,8 @@ def test_stage_1_is_every_period_that_ends_in_the_first_half_hour():
     ]:
         assert sd.stage1_period_count(np.array(hours)) == k
 
-
-def test_a_calibrated_band_is_preferred_and_no_band_or_no_spread_is_no_scenarios():
+    # test_a_calibrated_band_is_preferred_and_no_band_or_no_spread_is_no_scenarios
+    _solver_lp._lex_calibration_failed_until = 0.0
     f = np.array([1.0, 2.0, 3.0])
     calibrated = SolarConfig(
         forecast_kw=f,
@@ -99,17 +102,14 @@ def test_a_calibrated_band_is_preferred_and_no_band_or_no_spread_is_no_scenarios
     result = sd.build_stochastic_plan(_inputs(flat, n=3))
     assert (result.status, result.plan) == ("no_band", None)
 
-
-def test_scenario_weights_must_be_three_positive_and_sum_to_one():
+    # test_scenario_weights_must_be_three_positive_and_sum_to_one
+    _solver_lp._lex_calibration_failed_until = 0.0
     for weights in [(0.5, 0.5), (0.2, 0.2, 0.2), (0.0, 0.5, 0.5)]:
         with pytest.raises(ValueError, match="weights"):
             sd.build_stochastic_plan(_inputs(), weights=weights)
 
-
-# --- the joint solve ---------------------------------------------------------------------------
-
-
-def test_the_expected_cost_is_the_weighted_sum_and_more_sun_never_costs_more(solved):
+    # test_the_expected_cost_is_the_weighted_sum_and_more_sun_never_costs_more
+    _solver_lp._lex_calibration_failed_until = 0.0
     costs = solved.scenario_costs
     assert solved.expected_cost == pytest.approx(
         sum(
@@ -119,11 +119,8 @@ def test_the_expected_cost_is_the_weighted_sum_and_more_sun_never_costs_more(sol
     )
     assert costs["p90"] <= costs["p50"] + 1e-6 <= costs["p10"] + 2e-6
 
-
-def test_holding_the_deterministic_first_decision_never_beats_the_stochastic_plan(
-    solved,
-):
-    """The value of the stochastic solution is never negative."""
+    # test_holding_the_deterministic_first_decision_never_beats_the_stochastic_plan: The value of the stochastic solution is never negative.
+    _solver_lp._lex_calibration_failed_until = 0.0
     deterministic = build_plan(**_inputs())
     fixed = sd.fixed_stage1_from_plan(deterministic, solved.k)
     assert set(fixed) == {"battery_charge_home_0", "battery_discharge_home_0"}
@@ -134,11 +131,8 @@ def test_holding_the_deterministic_first_decision_never_beats_the_stochastic_pla
         sd.net_battery_kw(deterministic), abs=1e-6
     )
 
-
-# --- what is published -------------------------------------------------------------------------
-
-
-def test_grid_money_is_what_the_bill_would_say():
+    # test_grid_money_is_what_the_bill_would_say
+    _solver_lp._lex_calibration_failed_until = 0.0
     grid = GridConfig(
         import_price=np.array([0.3, 0.3]),
         export_price=np.array([0.1, 0.1]),
@@ -155,6 +149,12 @@ def test_grid_money_is_what_the_bill_would_say():
     assert money == pytest.approx(0.5 * 0.3 * 2.0 - 0.5 * 0.1 * 4.0)
     failed = dataclasses.replace(build_plan(**_inputs()), status="infeasible")
     assert sd.plan_grid_money(failed, grid, np.array([0.5])) is None
+
+
+# --- the joint solve ---------------------------------------------------------------------------
+
+
+# --- what is published -------------------------------------------------------------------------
 
 
 def _hedge():

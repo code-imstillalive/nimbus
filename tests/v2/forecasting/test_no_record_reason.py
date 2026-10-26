@@ -66,11 +66,11 @@ def _publish():
     )
 
 
-def test_the_entity_is_managed_so_its_early_posts_are_dropped():
+def test_the_entity_is_managed_so_its_early_posts_are_dropped(native):
+    # test_the_entity_is_managed_so_its_early_posts_are_dropped
     assert ENTITY in solver_shared._NATIVE_MANAGED_ENTITY_IDS
 
-
-def test_ha_post_state_says_whether_it_delivered(native):
+    # test_ha_post_state_says_whether_it_delivered
     assert solver_writer.ha_post_state(ENTITY, "x", {}) is False
     solver_writer.register_entity_handler(ENTITY, lambda s, a: None)
     assert solver_writer.ha_post_state(ENTITY, "x", {}) is True

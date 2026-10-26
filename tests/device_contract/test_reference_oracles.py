@@ -51,6 +51,7 @@ def _flows(**overrides: float) -> list[Flow]:
 
 def test_manifest_numbers_are_the_specs():
     # test_manifest_numbers_are_the_specs
+    # test_manifest_numbers_are_the_specs
     kw = {f["name"]: f["kw"] for f in F07["data_semantics"]["flows"]}
     assert kw == {"pv": 16.0, "house": 14.0, "ev_ac": -10.0, "ev_dc": -2.0, "bess": 0.0}
     assert F07["comparison"]["absolute_tolerance"] == TOL
@@ -112,22 +113,7 @@ def test_manifest_numbers_are_the_specs():
     assert abs(whole - v["expected"]["invalid_connected_all_interval_grid_kwh"]) <= TOL
     assert abs(whole - site_grid_kwh(segs)) > TOL
 
-
-# F07 variants (DC-000 §F07: partial-interval connection, two vehicles on one
-# charger, trip and reconnection) ------------------------------------------
-
-VARIANTS = F07["variants"]
-
-
-def _as_flows(raw: list[dict]) -> tuple[Flow, ...]:
-    return tuple(Flow(f["name"], f["role"], f["kw"], f.get("included_in")) for f in raw)
-
-
-def _segments(raw: list[dict]) -> list[Segment]:
-    return [Segment(s["hours"], _as_flows(s["flows"])) for s in raw]
-
-
-def test_partial_connection_matches_the_interval_mean():
+    # test_partial_connection_matches_the_interval_mean
     # test_partial_connection_matches_the_interval_mean: The site balance is linear, so the time-weighted segments equal the
     segs = _segments(VARIANTS["partial_interval_connection"]["segments"])
     assert abs(site_grid_kwh(segs) - site_grid_kw(_flows())) <= TOL
@@ -175,6 +161,20 @@ def test_partial_connection_matches_the_interval_mean():
     held = site_grid_kwh([Segment(s.hours, segs[0].flows) for s in segs])
     assert abs(held - exp["invalid_setpoint_held_while_away_grid_kwh"]) <= TOL
     assert abs(held - grid) > TOL
+
+
+# F07 variants (DC-000 §F07: partial-interval connection, two vehicles on one
+# charger, trip and reconnection) ------------------------------------------
+
+VARIANTS = F07["variants"]
+
+
+def _as_flows(raw: list[dict]) -> tuple[Flow, ...]:
+    return tuple(Flow(f["name"], f["role"], f["kw"], f.get("included_in")) for f in raw)
+
+
+def _segments(raw: list[dict]) -> list[Segment]:
+    return [Segment(s["hours"], _as_flows(s["flows"])) for s in raw]
 
 
 def _members(flows: tuple[Flow, ...], names: list[str]) -> list[Member]:

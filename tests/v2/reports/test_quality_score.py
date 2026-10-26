@@ -140,6 +140,7 @@ def _widen(grid, export_kw):
 
 def test_without_a_commitment_the_grid_is_returned_untouched():
     # test_without_a_commitment_the_grid_is_returned_untouched
+    # test_without_a_commitment_the_grid_is_returned_untouched
     for grid in (_grid(), _grid(pin=np.full(N, np.nan))):
         assert _widen(grid, 5.0) is grid
 
@@ -215,6 +216,163 @@ def test_without_a_commitment_the_grid_is_returned_untouched():
     solar[9:16] = 30.0
     r = _explained(_jstar_report(grid=_grid(imp=imp, exp=exp), solar=solar))
     assert abs(r.j_star_path_delta_unexplained) < 0.01
+
+    # test_a_flat_day_is_never_both_perfect_and_flagged
+    for delta in [0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411]:
+        for sign in [1.0, -1.0]:
+            r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
+            degenerate = r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
+            assert not (degenerate and r.denominator_reason is not None)
+
+    # test_each_unreliable_condition_warns_from_its_own_set
+    # test_each_unreliable_condition_warns_from_its_own_set
+    sets = {
+        id(sw._QUALITY_REPORT_UNRELIABLE_WARNED),
+        id(sw._QUALITY_REPORT_NEGATIVE_REGRET_WARNED),
+        id(sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED),
+    }
+    assert len(sets) == 3
+
+    # test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only
+    for members, expected in [
+        (
+            [
+                ("a", "g", 25.0, [5, 5, 5, 0, 0, 0]),
+                ("b", "g", 25.0, [5, 5, 0, 0, 0, 0]),
+            ],
+            [25.0, 25.0],
+        ),
+        (
+            [
+                ("a", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
+                ("b", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
+            ],
+            [25.0, 25.0],
+        ),
+        (
+            [
+                ("a", "g", 25.0, [15, 15, 0, 0, 0, 0]),
+                ("b", "g", 25.0, [14, 12, 0, 0, 0, 0]),
+            ],
+            [29.0, 29.0],
+        ),
+        (
+            [
+                ("a", "g", 5.0, [10, 10, 10, 10, 0, 0]),
+                ("b", "g", 5.0, [10, 10, 10, 10, 0, 0]),
+            ],
+            [20.0, 20.0],
+        ),
+        (
+            [("a", "g", 10.0, [15, 0, 0, 0, 0, 0])],
+            [10.0],
+        ),  # a group of one is a per-battery limit
+        ([("home", None, None, [99] * 6)], [None]),
+        ([("a", "g", None, [9] * 6), ("b", "g", None, [9] * 6)], [None, None]),
+        (
+            [
+                ("a", "g", 10.0, [12] * 6),
+                ("b", "g", 10.0, [1] * 6),
+                ("c", "s", 10.0, [30] * 6),
+                ("d", "s", 10.0, [1] * 6),
+            ],
+            [13.0, 13.0, 31.0, 31.0],
+        ),
+        ([], []),
+    ]:
+        assert _caps(members) == expected
+
+    # test_no_controllable_loads_scores_exactly_as_before
+    omitted = _cl_report()
+    for other in (_cl_report(None), _cl_report(OracleControllableLoads())):
+        assert [getattr(other, k) for k in SCALARS] == [
+            getattr(omitted, k) for k in SCALARS
+        ]
+    assert (
+        omitted.oracle_controllable_loads_scored,
+        omitted.oracle_controllable_loads_skipped,
+    ) == ((), ())
+    assert omitted.oracle_controllable_loads_unsubtracted_kwh == 0.0
+
+    # test_the_bundle_cannot_be_built_inconsistently
+    with pytest.raises(ValueError, match="double-count"):
+        OracleControllableLoads(adequacy=(_dishwasher(4.0),))
+    with pytest.raises(ValueError, match="never give it back"):
+        OracleControllableLoads(delivered_kwh_by_period=_ran((18, 19), 2.0))
+    ok = _bundle(skipped=(("tank", "kind=thermal"),))
+    assert len(ok.adequacy) == 1 and ok.skipped == (("tank", "kind=thermal"),)
+
+    # test_a_sheddable_load_is_accepted_too
+    profile = np.zeros(N)
+    profile[12:16] = 1.5
+    pool = SheddableLoadConfig(name="pool", forecast_kw=profile, shed_cost=0.45)
+    r = _cl_report(
+        OracleControllableLoads(
+            sheddable=(pool,), delivered_kwh_by_period=profile * HOURS
+        )
+    )
+    assert r.oracle_controllable_loads_scored == ("pool",)
+
+    # test_energy_the_house_never_drew_is_published_not_absorbed: 12 kWh claimed across two 2 kW hours: only 4 can be removed.
+    r = _cl_report(_bundle(kwh=6.0))
+    assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
+
+    # test_each_hours_values_are_published_for_an_outside_check
+    (row,) = _stats(55.0, 50.0)["soc_discrepancy_hourly"]
+    expected = {
+        "hour": H0.isoformat(),
+        "real_pct": 55.0,
+        "ach_pct": 50.0,
+        "gap_pct": 5.0,
+        "out_of_range": False,
+        "boundary_exempted": False,
+    }
+    assert {k: row[k] for k in expected} == expected
+    over = _stats(60.0, 327.67)["soc_discrepancy_hourly"][0]
+    assert over["out_of_range"] and over["gap_pct"] == 40.0
+    edge = _stats(0.0, -9.0)["soc_discrepancy_hourly"][0]
+    assert edge["out_of_range"] and edge["boundary_exempted"]
+    h1 = H0 + timedelta(hours=1)
+    two = sw._soc_discrepancy_stats(
+        [([(H0, 55.0), (h1, 40.0)], 100.0)],
+        {H0.isoformat(): {"soc_pct": 50.0}, h1.isoformat(): {"soc_pct": 20.0}},
+    )["soc_discrepancy_hourly"]
+    assert {r["hour"]: r["gap_pct"] for r in two} == {
+        H0.isoformat(): 5.0,
+        h1.isoformat(): 20.0,
+    }
+    assert sw._soc_discrepancy_stats([], {})["soc_discrepancy_hourly"] is None
+    assert _stats(55.0, None)["soc_discrepancy_hourly"] is None
+
+    # test_beating_the_oracle_below_its_own_floor_is_named_and_measured_in_kwh
+    s = _feasibility(DRIFTED, -0.73)
+    assert (s["regret_reliable"], s["achieved_within_lp_soc_bounds"]) == (False, False)
+    assert s["epr_reason"] == "oracle_beaten_achieved_outside_lp_soc_bounds"
+    assert s["achieved_soc_min_pct"] == pytest.approx(0.5)
+    assert s["achieved_below_floor_kwh"] == pytest.approx(1.5)
+    assert s["achieved_above_ceiling_kwh"] == 0.0
+    # A 0-100 % check would have passed the same day: the floor is the LP's.
+    assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
+
+    # test_without_a_trajectory_the_regret_verdict_still_stands
+    s = sw._achieved_feasibility_stats(
+        {}, -0.5, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
+    )
+    assert (s["regret_reliable"], s["epr_reason"]) == (False, "oracle_beaten")
+    assert (
+        s["achieved_within_lp_soc_bounds"] is None
+        and s["achieved_below_floor_kwh"] is None
+    )
+    assert (
+        _feasibility([10.0, 20.0], -0.5, capacity=0.0)["achieved_soc_min_pct"] is None
+    )
+    rows = {"a": {"soc_pct": 10.0}, "b": {"battery_kw": 1.0}}
+    assert (
+        sw._achieved_feasibility_stats(
+            rows, 1.0, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
+        )["achieved_soc_min_pct"]
+        == 10.0
+    )
 
 
 # --- end to end: achieved never beats the oracle ---------------------------------------------
@@ -404,145 +562,6 @@ def _plan(gi, ge, curt):
 J_REF, J_ACH, J_STAR, J_STAR_EVAL = 5.4897, 8.9872, 6.9308, 4.4419  # 17 Sep
 
 
-@pytest.mark.parametrize("delta", [0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411])
-@pytest.mark.parametrize("sign", [1.0, -1.0])
-def test_a_flat_day_is_never_both_perfect_and_flagged(delta, sign):
-    r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
-    degenerate = r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
-    assert not (degenerate and r.denominator_reason is not None)
-
-
-def test_each_unreliable_condition_warns_from_its_own_set():
-    # test_each_unreliable_condition_warns_from_its_own_set
-    sets = {
-        id(sw._QUALITY_REPORT_UNRELIABLE_WARNED),
-        id(sw._QUALITY_REPORT_NEGATIVE_REGRET_WARNED),
-        id(sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED),
-    }
-    assert len(sets) == 3
-
-    # test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only
-    for members, expected in [
-        (
-            [
-                ("a", "g", 25.0, [5, 5, 5, 0, 0, 0]),
-                ("b", "g", 25.0, [5, 5, 0, 0, 0, 0]),
-            ],
-            [25.0, 25.0],
-        ),
-        (
-            [
-                ("a", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
-                ("b", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
-            ],
-            [25.0, 25.0],
-        ),
-        (
-            [
-                ("a", "g", 25.0, [15, 15, 0, 0, 0, 0]),
-                ("b", "g", 25.0, [14, 12, 0, 0, 0, 0]),
-            ],
-            [29.0, 29.0],
-        ),
-        (
-            [
-                ("a", "g", 5.0, [10, 10, 10, 10, 0, 0]),
-                ("b", "g", 5.0, [10, 10, 10, 10, 0, 0]),
-            ],
-            [20.0, 20.0],
-        ),
-        (
-            [("a", "g", 10.0, [15, 0, 0, 0, 0, 0])],
-            [10.0],
-        ),  # a group of one is a per-battery limit
-        ([("home", None, None, [99] * 6)], [None]),
-        ([("a", "g", None, [9] * 6), ("b", "g", None, [9] * 6)], [None, None]),
-        (
-            [
-                ("a", "g", 10.0, [12] * 6),
-                ("b", "g", 10.0, [1] * 6),
-                ("c", "s", 10.0, [30] * 6),
-                ("d", "s", 10.0, [1] * 6),
-            ],
-            [13.0, 13.0, 31.0, 31.0],
-        ),
-        ([], []),
-    ]:
-        assert _caps(members) == expected
-
-    # test_no_controllable_loads_scores_exactly_as_before
-    omitted = _cl_report()
-    for other in (_cl_report(None), _cl_report(OracleControllableLoads())):
-        assert [getattr(other, k) for k in SCALARS] == [
-            getattr(omitted, k) for k in SCALARS
-        ]
-    assert (
-        omitted.oracle_controllable_loads_scored,
-        omitted.oracle_controllable_loads_skipped,
-    ) == ((), ())
-    assert omitted.oracle_controllable_loads_unsubtracted_kwh == 0.0
-
-    # test_the_bundle_cannot_be_built_inconsistently
-    with pytest.raises(ValueError, match="double-count"):
-        OracleControllableLoads(adequacy=(_dishwasher(4.0),))
-    with pytest.raises(ValueError, match="never give it back"):
-        OracleControllableLoads(delivered_kwh_by_period=_ran((18, 19), 2.0))
-    ok = _bundle(skipped=(("tank", "kind=thermal"),))
-    assert len(ok.adequacy) == 1 and ok.skipped == (("tank", "kind=thermal"),)
-
-    # test_a_sheddable_load_is_accepted_too
-    profile = np.zeros(N)
-    profile[12:16] = 1.5
-    pool = SheddableLoadConfig(name="pool", forecast_kw=profile, shed_cost=0.45)
-    r = _cl_report(
-        OracleControllableLoads(
-            sheddable=(pool,), delivered_kwh_by_period=profile * HOURS
-        )
-    )
-    assert r.oracle_controllable_loads_scored == ("pool",)
-
-    # test_energy_the_house_never_drew_is_published_not_absorbed: 12 kWh claimed across two 2 kW hours: only 4 can be removed.
-    r = _cl_report(_bundle(kwh=6.0))
-    assert r.oracle_controllable_loads_unsubtracted_kwh == pytest.approx(8.0, abs=1e-4)
-
-    # test_each_hours_values_are_published_for_an_outside_check
-    (row,) = _stats(55.0, 50.0)["soc_discrepancy_hourly"]
-    expected = {
-        "hour": H0.isoformat(),
-        "real_pct": 55.0,
-        "ach_pct": 50.0,
-        "gap_pct": 5.0,
-        "out_of_range": False,
-        "boundary_exempted": False,
-    }
-    assert {k: row[k] for k in expected} == expected
-    over = _stats(60.0, 327.67)["soc_discrepancy_hourly"][0]
-    assert over["out_of_range"] and over["gap_pct"] == 40.0
-    edge = _stats(0.0, -9.0)["soc_discrepancy_hourly"][0]
-    assert edge["out_of_range"] and edge["boundary_exempted"]
-    h1 = H0 + timedelta(hours=1)
-    two = sw._soc_discrepancy_stats(
-        [([(H0, 55.0), (h1, 40.0)], 100.0)],
-        {H0.isoformat(): {"soc_pct": 50.0}, h1.isoformat(): {"soc_pct": 20.0}},
-    )["soc_discrepancy_hourly"]
-    assert {r["hour"]: r["gap_pct"] for r in two} == {
-        H0.isoformat(): 5.0,
-        h1.isoformat(): 20.0,
-    }
-    assert sw._soc_discrepancy_stats([], {})["soc_discrepancy_hourly"] is None
-    assert _stats(55.0, None)["soc_discrepancy_hourly"] is None
-
-    # test_beating_the_oracle_below_its_own_floor_is_named_and_measured_in_kwh
-    s = _feasibility(DRIFTED, -0.73)
-    assert (s["regret_reliable"], s["achieved_within_lp_soc_bounds"]) == (False, False)
-    assert s["epr_reason"] == "oracle_beaten_achieved_outside_lp_soc_bounds"
-    assert s["achieved_soc_min_pct"] == pytest.approx(0.5)
-    assert s["achieved_below_floor_kwh"] == pytest.approx(1.5)
-    assert s["achieved_above_ceiling_kwh"] == 0.0
-    # A 0-100 % check would have passed the same day: the floor is the LP's.
-    assert _feasibility(DRIFTED, -0.73, min_pct=0.0)["achieved_within_lp_soc_bounds"]
-
-
 # --- a shared charger's cap reaches the oracle, as wide as the day and no wider (#1109) --------
 
 
@@ -672,24 +691,3 @@ def _feasibility(soc_pcts, regret, min_pct=2.0, max_pct=100.0, capacity=100.0):
 
 
 DRIFTED = [16.0, 12.0, 5.0, 4.0, 10.0, 40.0, 80.0, 60.0, 30.0, 0.5]  # ends below 2 %
-
-
-def test_without_a_trajectory_the_regret_verdict_still_stands():
-    s = sw._achieved_feasibility_stats(
-        {}, -0.5, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
-    )
-    assert (s["regret_reliable"], s["epr_reason"]) == (False, "oracle_beaten")
-    assert (
-        s["achieved_within_lp_soc_bounds"] is None
-        and s["achieved_below_floor_kwh"] is None
-    )
-    assert (
-        _feasibility([10.0, 20.0], -0.5, capacity=0.0)["achieved_soc_min_pct"] is None
-    )
-    rows = {"a": {"soc_pct": 10.0}, "b": {"battery_kw": 1.0}}
-    assert (
-        sw._achieved_feasibility_stats(
-            rows, 1.0, min_pct=2.0, max_pct=100.0, capacity_kwh=100.0
-        )["achieved_soc_min_pct"]
-        == 10.0
-    )

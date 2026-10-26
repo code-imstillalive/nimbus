@@ -39,7 +39,8 @@ def _pt(i, value, **extra):
     }
 
 
-def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
+def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_path):
+    # test_a_canonical_forecast_is_read_in_kw_with_its_bands
     # test_a_canonical_forecast_is_read_in_kw_with_its_bands
     attrs = {
         "unit_of_measurement": "W",
@@ -102,53 +103,51 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands():
         assert points is None and bands is False
         assert says in error
 
-
-# --- the misconfiguration notification -----------------------------------------
-
-
-def test_the_load_forecast_error_notifies_once_per_error_then_clears(
-    ha, monkeypatch, tmp_path
-):
-    marker = tmp_path / "notified.txt"
-    monkeypatch.setattr(sw, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", str(marker))
-    sw._notify_load_forecast_error_once("first problem")
-    sw._notify_load_forecast_error_once("first problem")
-    sw._notify_load_forecast_error_once(
-        "same problem, new words", error_key="first problem"
+    # test_the_load_forecast_error_notifies_once_per_error_then_clears
+    tmp_1 = (
+        tmp_path / "test_the_load_forecast_error_notifies_once_per_error_then_clears"
     )
-    assert len(ha.service_calls) == 1
-    call = ha.service_calls[0]
-    assert (call["domain"], call["service"]) == ("persistent_notification", "create")
-    assert call["data"]["notification_id"] == "nimbus_solver_load_forecast_error"
-    assert call["data"]["message"].startswith("first problem\n\n")
-    sw._notify_load_forecast_error_once("second problem")
-    assert len(ha.service_calls) == 2 and marker.read_text() == "second problem"
-    sw._clear_load_forecast_error_notification_if_needed()
-    assert ha.service_calls[-1]["service"] == "dismiss" and not marker.exists()
-    sw._clear_load_forecast_error_notification_if_needed()
-    assert len(ha.service_calls) == 3  # nothing left to dismiss
+    tmp_1.mkdir()
+    with monkeypatch.context() as mp:
+        marker = tmp_1 / "notified.txt"
+        mp.setattr(sw, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", str(marker))
+        sw._notify_load_forecast_error_once("first problem")
+        sw._notify_load_forecast_error_once("first problem")
+        sw._notify_load_forecast_error_once(
+            "same problem, new words", error_key="first problem"
+        )
+        assert len(ha.service_calls) == 1
+        call = ha.service_calls[0]
+        assert (call["domain"], call["service"]) == (
+            "persistent_notification",
+            "create",
+        )
+        assert call["data"]["notification_id"] == "nimbus_solver_load_forecast_error"
+        assert call["data"]["message"].startswith("first problem\n\n")
+        sw._notify_load_forecast_error_once("second problem")
+        assert len(ha.service_calls) == 2 and marker.read_text() == "second problem"
+        sw._clear_load_forecast_error_notification_if_needed()
+        assert ha.service_calls[-1]["service"] == "dismiss" and not marker.exists()
+        sw._clear_load_forecast_error_notification_if_needed()
+        assert len(ha.service_calls) == 3  # nothing left to dismiss
 
+    # test_a_failing_notification_never_fails_the_solve
+    tmp_2 = tmp_path / "test_a_failing_notification_never_fails_the_solve"
+    tmp_2.mkdir()
+    with monkeypatch.context() as mp:
+        mp.setattr(sw, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", str(tmp_2 / "no" / "dir"))
 
-def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        sw, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", str(tmp_path / "no" / "dir")
-    )
+        def boom(*_a):
+            raise OSError("down")
 
-    def boom(*_a):
-        raise OSError("down")
+        mp.setattr(sw, "ha_call_service", boom)
+        sw._notify_load_forecast_error_once("x")
+        (tmp_2 / "no").mkdir()
+        (tmp_2 / "no" / "dir").write_text("old")
+        sw._clear_load_forecast_error_notification_if_needed()
+        assert (tmp_2 / "no" / "dir").exists()
 
-    monkeypatch.setattr(sw, "ha_call_service", boom)
-    sw._notify_load_forecast_error_once("x")
-    (tmp_path / "no").mkdir()
-    (tmp_path / "no" / "dir").write_text("old")
-    sw._clear_load_forecast_error_notification_if_needed()
-    assert (tmp_path / "no" / "dir").exists()
-
-
-# --- how far a day's score can be trusted -----------------------------------------
-
-
-def test_a_score_is_reliable_only_when_every_part_is():
+    # test_a_score_is_reliable_only_when_every_part_is
     # test_a_score_is_reliable_only_when_every_part_is
     for kwargs, out in [
         ({"soc": True, "regret": True}, True),
@@ -209,6 +208,44 @@ def test_a_score_is_reliable_only_when_every_part_is():
     ]:
         assert sw._epr_reliability_code(entry) == code
 
+    # test_the_oldest_provisional_day_whose_settlement_has_landed_is_rescored
+    with monkeypatch.context() as mp:
+        rescored = []
+        mp.setattr(
+            sw,
+            "rescore_quality_history",
+            lambda cfg, now, back, only_dates: (
+                rescored.append((back, only_dates)) or {"ok": 1}
+            ),
+        )
+        ha.states[sw.QUALITY_ENTITY_ID] = _quality(
+            {
+                "2026-09-24": {"p": 1},  # the latest day: still being scored
+                "2026-09-23": {"p": 1},
+                "2026-09-22": {"p": 1},
+                "2026-09-21": {"x": 1},  # final
+                "2026-08-01": {"p": 1},  # too old to re-score
+                "garbage": {"p": 1},
+                "2026-09-20": "not a row",
+            }
+        )
+        ha.states["sensor.settled"] = {
+            "state": "1",
+            "attributes": {
+                "history": {"2026-09-22": {}, "2026-09-23": {}, "2026-08-01": {}}
+            },
+        }
+        out = sw.repair_provisional_quality_history(CFG, NOW)
+        # One per cycle, oldest first.
+        assert out == {"repaired": [{"date": "2026-09-22", "summary": {"ok": 1}}]}
+        assert rescored == [(3, {"2026-09-22"})]
+
+
+# --- the misconfiguration notification -----------------------------------------
+
+
+# --- how far a day's score can be trusted -----------------------------------------
+
 
 # --- re-scoring a day scored before its settlement landed -------------------------
 
@@ -218,40 +255,6 @@ CFG = {"solver_p2p_settlement_history_sensor": "sensor.settled"}
 
 def _quality(history, latest="2026-09-24"):
     return {"state": "1", "attributes": {"history": history, "latest_date": latest}}
-
-
-def test_the_oldest_provisional_day_whose_settlement_has_landed_is_rescored(
-    ha, monkeypatch
-):
-    rescored = []
-    monkeypatch.setattr(
-        sw,
-        "rescore_quality_history",
-        lambda cfg, now, back, only_dates: (
-            rescored.append((back, only_dates)) or {"ok": 1}
-        ),
-    )
-    ha.states[sw.QUALITY_ENTITY_ID] = _quality(
-        {
-            "2026-09-24": {"p": 1},  # the latest day: still being scored
-            "2026-09-23": {"p": 1},
-            "2026-09-22": {"p": 1},
-            "2026-09-21": {"x": 1},  # final
-            "2026-08-01": {"p": 1},  # too old to re-score
-            "garbage": {"p": 1},
-            "2026-09-20": "not a row",
-        }
-    )
-    ha.states["sensor.settled"] = {
-        "state": "1",
-        "attributes": {
-            "history": {"2026-09-22": {}, "2026-09-23": {}, "2026-08-01": {}}
-        },
-    }
-    out = sw.repair_provisional_quality_history(CFG, NOW)
-    # One per cycle, oldest first.
-    assert out == {"repaired": [{"date": "2026-09-22", "summary": {"ok": 1}}]}
-    assert rescored == [(3, {"2026-09-22"})]
 
 
 @pytest.mark.parametrize(

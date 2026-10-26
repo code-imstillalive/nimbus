@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import numpy as np
+from solver import lp as _solver_lp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from _ha_stubs import install_ha_stubs
@@ -30,10 +31,13 @@ class TestTheFlagExistsAndDefaultsHonestly(unittest.TestCase):
     """Property 1."""
 
     def test_lpresult_defaults_to_false_not_none(self):
+        # test_lpresult_defaults_to_false_not_none
+        _solver_lp._lex_calibration_failed_until = 0.0
         r = lp_mod.LPResult(status="error")
         self.assertIs(getattr(r, FIELD, None), False)
 
-    def test_plan_defaults_to_false_not_none(self):
+        # test_plan_defaults_to_false_not_none
+        _solver_lp._lex_calibration_failed_until = 0.0
         f = {x.name: x for x in dataclasses.fields(net_mod.Plan)}
         self.assertIn(FIELD, f, "Plan must mirror LPResult's own field")
         self.assertIs(f[FIELD].default, False)
@@ -43,8 +47,31 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
     """Property 2 -- parsed, not eyeballed."""
 
     def test_calibrate_reports_three_values(self):
+        # test_calibrate_reports_three_values
+        _solver_lp._lex_calibration_failed_until = 0.0
         ann = str(inspect.signature(lp_mod._calibrate_blend_weight).return_annotation)
         self.assertIn("bool", ann)
+
+        # test_every_solve_with_options_return_carries_all_three_diagnostics: 5, not 4, since #1179's third half: the flag, the reason, AND the
+        _solver_lp._lex_calibration_failed_until = 0.0
+        arities = self._return_arities(lp_mod._solve_with_options)
+        self.assertTrue(arities, "no returns found -- test is not testing anything")
+        self.assertEqual(
+            set(arities),
+            {5},
+            f"every return must carry the flag, the reason AND the weight; "
+            f"got {arities}",
+        )
+
+        # test_every_calibrate_return_carries_both_diagnostics: The one CI caught and these tests originally did not.
+        _solver_lp._lex_calibration_failed_until = 0.0
+        arities = self._return_arities(lp_mod._calibrate_blend_weight)
+        self.assertTrue(arities, "no returns found -- test is not testing anything")
+        self.assertEqual(
+            set(arities),
+            {4},
+            f"every outer return must carry the flag AND the reason; got {arities}",
+        )
 
     def _return_arities(self, fn_obj) -> list[int]:
         """Arity of every `return <tuple>` in a function's OWN body.
@@ -65,47 +92,6 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
             for n in ast.walk(tree)
             if isinstance(n, ast.Return) and n.value is not None and n not in nested
         ]
-
-    def test_every_solve_with_options_return_carries_all_three_diagnostics(self):
-        """5, not 4, since #1179's third half: the flag, the reason, AND the
-        blend weight actually used.
-
-        This assertion is the reason the weight change was safe to make. It
-        failed the moment the caller was widened to unpack five while two
-        early-exit returns still yielded four -- the non-calibrated path and
-        the lex-restore path, neither of which runs a calibration. Both now
-        return None for the weight, matching the two sibling fields' own
-        "no calibration ran" posture.
-
-        A signature change nobody propagated is not a fix -- exactly how the
-        early-exit return in `_calibrate_blend_weight` was missed the first
-        time (see the test below).
-        """
-        arities = self._return_arities(lp_mod._solve_with_options)
-        self.assertTrue(arities, "no returns found -- test is not testing anything")
-        self.assertEqual(
-            set(arities),
-            {5},
-            f"every return must carry the flag, the reason AND the weight; "
-            f"got {arities}",
-        )
-
-    def test_every_calibrate_return_carries_both_diagnostics(self):
-        """The one CI caught and these tests originally did not.
-
-        `_calibrate_blend_weight` has TWO outer returns: the main path,
-        and an early exit for "no primary cost to distort" which picks a
-        safe default weight instead of calibrating. Only the first was
-        updated, and mypy found the second -- so the arity check now
-        covers this function too, not just its caller.
-        """
-        arities = self._return_arities(lp_mod._calibrate_blend_weight)
-        self.assertTrue(arities, "no returns found -- test is not testing anything")
-        self.assertEqual(
-            set(arities),
-            {4},
-            f"every outer return must carry the flag AND the reason; got {arities}",
-        )
 
 
 class TestAFailingPlanCarriesIt(unittest.TestCase):
@@ -135,6 +121,8 @@ class TestTheFailureLogSaysWhich(unittest.TestCase):
         return src[max(0, i - 3000) : i + 1400]
 
     def test_the_warning_reports_the_fallback(self):
+        # test_the_warning_reports_the_fallback
+        _solver_lp._lex_calibration_failed_until = 0.0
         window = self._window()
         self.assertIn("#1179", window, "the warning must cite the issue")
         self.assertIn(
@@ -144,9 +132,8 @@ class TestTheFailureLogSaysWhich(unittest.TestCase):
         )
         self.assertIn("minimum weight", window)
 
-    def test_it_distinguishes_both_outcomes(self):
-        """A line that only speaks up on fallback cannot be told apart
-        from a line that failed to fire at all."""
+        # test_it_distinguishes_both_outcomes: A line that only speaks up on fallback cannot be told apart
+        _solver_lp._lex_calibration_failed_until = 0.0
         window = self._window()
         self.assertIn("FELL BACK", window)
         self.assertIn("no minimum-weight fallback", window)

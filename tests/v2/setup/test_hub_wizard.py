@@ -131,7 +131,8 @@ SOURCES = {
 }
 
 
-def test_the_solver_pages_save_once_at_the_end_with_every_answer(world):
+def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypatch):
+    # test_the_solver_pages_save_once_at_the_end_with_every_answer
     hass = Hass()
     flow = _flow(
         {"other": 1, "solver_import_price_sensor_2": "sensor.old_secondary"}, hass
@@ -166,10 +167,7 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world):
         {"notification_id": "nimbus_setup_incomplete"},
     ) in hass.calls
 
-
-def test_battery_and_grid_sizes_typed_in_the_wizard_are_written_to_their_live_numbers(
-    world,
-):
+    # test_battery_and_grid_sizes_typed_in_the_wizard_are_written_to_their_live_numbers
     hass = Hass()
     for key in (
         const.CONF_SOLVER_BATTERY_CAPACITY_KWH,
@@ -204,31 +202,27 @@ def test_battery_and_grid_sizes_typed_in_the_wizard_are_written_to_their_live_nu
     )  # left empty
     assert not any(k.startswith(ln.PREFIX) for k in saved["data"])
 
-
-def test_a_frozen_price_keeps_the_grid_page_open_with_the_reason(world, monkeypatch):
-    monkeypatch.setattr(
-        ho,
-        "frozen_price_field_errors",
-        lambda hass, data, fields: {
+    # test_a_frozen_price_keeps_the_grid_page_open_with_the_reason
+    with monkeypatch.context() as mp:
+        mp.setattr(
+            ho,
+            "frozen_price_field_errors",
+            lambda hass, data, fields: {
+                "solver_import_price_sensor": "frozen_price",
+                "solver_price_forecast_array_sensor": "frozen_price",
+            },
+        )
+        flow = _flow()
+        _run(flow.async_step_solver_battery(dict(BATTERY)))
+        again = _run(flow.async_step_solver_grid(dict(GRID)))
+        assert again["step_id"] == "solver_grid"
+        # A field on the page gets its own error; one that is not, the page's.
+        assert again["errors"] == {
             "solver_import_price_sensor": "frozen_price",
-            "solver_price_forecast_array_sensor": "frozen_price",
-        },
-    )
-    flow = _flow()
-    _run(flow.async_step_solver_battery(dict(BATTERY)))
-    again = _run(flow.async_step_solver_grid(dict(GRID)))
-    assert again["step_id"] == "solver_grid"
-    # A field on the page gets its own error; one that is not, the page's.
-    assert again["errors"] == {
-        "solver_import_price_sensor": "frozen_price",
-        "base": "frozen_price",
-    }
+            "base": "frozen_price",
+        }
 
-
-# --- the forecaster and switchboard pages --------------------------------------------
-
-
-def test_the_switchboard_page_saves_its_own_fields_only(world):
+    # test_the_switchboard_page_saves_its_own_fields_only
     world.suggestions["switchboard"] = {
         "switchboard_import_price_sensor": "sensor.dash_buy"
     }
@@ -248,8 +242,7 @@ def test_the_switchboard_page_saves_its_own_fields_only(world):
     assert set(saved["data"]) == {"other", *ho._SWITCHBOARD_SCHEMA_KEYS}
     assert saved["data"]["switchboard_import_price_sensor"] == "sensor.buy"
 
-
-def test_the_forecast_horizon_is_never_shorter_than_the_solvers():
+    # test_the_forecast_horizon_is_never_shorter_than_the_solvers
     for value, hours in [
         (48, const.MIN_FORECAST_HORIZON_HOURS),
         (200, 200),
@@ -257,46 +250,50 @@ def test_the_forecast_horizon_is_never_shorter_than_the_solvers():
     ]:
         assert ho._at_least_solver_horizon(value) == hours
 
+    # test_pricing_suggestions_are_applied_only_when_confirmed_and_announced
+    with monkeypatch.context() as mp:
+        suggestion = {
+            "label": "Import price",
+            "field": "solver_import_price_sensor",
+            "proposed": "sensor.amber",
+            "source": "Amber",
+        }
+        world.suggestions["pricing"] = [suggestion]
+        mp.setattr(
+            ho,
+            "apply_pricing_suggestions",
+            lambda options, suggestions: (
+                {**options, "solver_import_price_sensor": "sensor.amber"},
+                list(suggestions),
+            ),
+        )
+        hass = Hass()
+        flow = _flow({"other": 1}, hass)
+        shown = []
+        flow.async_show_form = lambda **kw: shown.append(kw) or {"type": "form", **kw}
+        form = _run(flow.async_step_pricing_suggestions())
+        assert (
+            "(empty) -> `sensor.amber` (from Amber)"
+            in shown[0]["description_placeholders"]["suggestions"]
+        )
+        assert hass.calls == []
+        saved = _run(flow.async_step_pricing_suggestions({}))
+        assert saved["data"] == {
+            "other": 1,
+            "solver_import_price_sensor": "sensor.amber",
+        }
+        ((_domain, service, data),) = hass.calls
+        assert (
+            service == "create"
+            and "Import price: (empty) -> `sensor.amber`" in data["message"]
+        )
+        assert form["type"] == "form"
+
+
+# --- the forecaster and switchboard pages --------------------------------------------
+
 
 # --- confirmed pricing suggestions ------------------------------------------------------
-
-
-def test_pricing_suggestions_are_applied_only_when_confirmed_and_announced(
-    world, monkeypatch
-):
-    suggestion = {
-        "label": "Import price",
-        "field": "solver_import_price_sensor",
-        "proposed": "sensor.amber",
-        "source": "Amber",
-    }
-    world.suggestions["pricing"] = [suggestion]
-    monkeypatch.setattr(
-        ho,
-        "apply_pricing_suggestions",
-        lambda options, suggestions: (
-            {**options, "solver_import_price_sensor": "sensor.amber"},
-            list(suggestions),
-        ),
-    )
-    hass = Hass()
-    flow = _flow({"other": 1}, hass)
-    shown = []
-    flow.async_show_form = lambda **kw: shown.append(kw) or {"type": "form", **kw}
-    form = _run(flow.async_step_pricing_suggestions())
-    assert (
-        "(empty) -> `sensor.amber` (from Amber)"
-        in shown[0]["description_placeholders"]["suggestions"]
-    )
-    assert hass.calls == []
-    saved = _run(flow.async_step_pricing_suggestions({}))
-    assert saved["data"] == {"other": 1, "solver_import_price_sensor": "sensor.amber"}
-    ((_domain, service, data),) = hass.calls
-    assert (
-        service == "create"
-        and "Import price: (empty) -> `sensor.amber`" in data["message"]
-    )
-    assert form["type"] == "form"
 
 
 def test_with_no_suggestions_left_the_page_closes(world):
@@ -311,7 +308,8 @@ def test_with_no_suggestions_left_the_page_closes(world):
 # --- the advanced section ------------------------------------------------------------------
 
 
-def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save():
+def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save(world):
+    # test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save
     schema = vol.Schema(
         {vol.Required("a"): str, vol.Optional("b"): str, vol.Optional("c"): str}
     )
@@ -325,11 +323,7 @@ def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save():
         vol.Schema({vol.Required("a"): str})
     ).schema.keys() == {"a"}
 
-
-# --- live numbers ---------------------------------------------------------------------------
-
-
-def test_live_number_fields_show_the_current_value_but_never_the_placeholder(world):
+    # test_live_number_fields_show_the_current_value_but_never_the_placeholder
     hass = Hass(
         {
             "number.cap": SimpleNamespace(state="13.5"),
@@ -351,6 +345,9 @@ def test_live_number_fields_show_the_current_value_but_never_the_placeholder(wor
         ln.schema_fields(hass, None, "solver_battery") == {}
         and ln.schema_fields(hass, "hub1", "nope") == {}
     )
+
+
+# --- live numbers ---------------------------------------------------------------------------
 
 
 def _default_of(form, key):

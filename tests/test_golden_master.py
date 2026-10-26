@@ -45,7 +45,6 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import pytest
 from golden import harness, scenarios
 
 SNAPSHOTS = Path(__file__).parent / "golden" / "snapshots"
@@ -144,26 +143,26 @@ def _first_difference(a: Any, b: Any, path: str = "$") -> str | None:
     return None if a == b else f"{path}: {a!r:.200} != {b!r:.200}"
 
 
-@pytest.mark.parametrize("name", scenarios.names())
-def test_golden_master(name: str) -> None:
-    record = harness.run_isolated(name)
-    got = comparable(record)
-    path = SNAPSHOTS / f"{name}.json"
-    if os.environ.get("GOLDEN_UPDATE") == "1":
-        SNAPSHOTS.mkdir(parents=True, exist_ok=True)
-        fresh = _dump(got)
-        # Content-addressed: leave the file alone when nothing it records
-        # moved, so a regeneration run for one real reason does not hand the
-        # reviewer thirteen unrelated touched files (#1359).
-        if not path.exists() or path.read_bytes() != fresh:
-            path.write_bytes(fresh)
-        return
-    assert path.exists(), f"no snapshot for {name}; run with GOLDEN_UPDATE=1"
-    want = json.loads(path.read_bytes())
-    diff = _first_difference(want, got)
-    assert diff is None, (
-        _version_note(record) + f"golden master {name} changed at {diff}"
-    )
+def test_golden_master():
+    for name in scenarios.names():
+        record = harness.run_isolated(name)
+        got = comparable(record)
+        path = SNAPSHOTS / f"{name}.json"
+        if os.environ.get("GOLDEN_UPDATE") == "1":
+            SNAPSHOTS.mkdir(parents=True, exist_ok=True)
+            fresh = _dump(got)
+            # Content-addressed: leave the file alone when nothing it records
+            # moved, so a regeneration run for one real reason does not hand the
+            # reviewer thirteen unrelated touched files (#1359).
+            if not path.exists() or path.read_bytes() != fresh:
+                path.write_bytes(fresh)
+            continue
+        assert path.exists(), f"no snapshot for {name}; run with GOLDEN_UPDATE=1"
+        want = json.loads(path.read_bytes())
+        diff = _first_difference(want, got)
+        assert diff is None, (
+            _version_note(record) + f"golden master {name} changed at {diff}"
+        )
 
 
 def _version_note(record: dict) -> str:

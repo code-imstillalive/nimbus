@@ -105,6 +105,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp, network
+from solver import lp as _solver_lp
 from solver.elements import (
     AdequacyLoadConfig,
     BatteryConfig,
@@ -351,11 +352,21 @@ def test_the_ranging_sweep_reports_each_steps_exact_interval(
 
 
 def test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable():
+    # test_the_ranging_sweep_refuses_without_a_basis_or_a_known_variable
+    _solver_lp._lex_calibration_failed_until = 0.0
     p = _arbitrage(0.3, 0.05, 2.0, 6.0)
     with pytest.raises(ValueError, match="keep_basis"):
         p.solve().sweep_cost_with_ranging("imp", [0.3])
     with pytest.raises(KeyError):
         p.solve(keep_basis=True).sweep_cost_with_ranging("nope", [0.3])
+
+    # test_highs_accepts_a_mip_point_looser_than_an_lp_one: The premise, read from the installed solver: if these ever agree,
+    _solver_lp._lex_calibration_failed_until = 0.0
+    h = highspy.Highs()
+    h.setOptionValue("output_flag", False)
+    _s, lp_tol = h.getOptionValue("primal_feasibility_tolerance")
+    _s, mip_tol = h.getOptionValue("mip_feasibility_tolerance")
+    assert mip_tol > lp_tol
 
 
 def _previous(dispatched: float, planned: float, start: datetime) -> Plan:
@@ -434,16 +445,6 @@ class _Options:
         if self.fail_set_after is not None and self.sets > self.fail_set_after:
             raise RuntimeError("no options")
         self.opts[name] = value
-
-
-def test_highs_accepts_a_mip_point_looser_than_an_lp_one():
-    """The premise, read from the installed solver: if these ever agree,
-    the widening is no longer needed."""
-    h = highspy.Highs()
-    h.setOptionValue("output_flag", False)
-    _s, lp_tol = h.getOptionValue("primal_feasibility_tolerance")
-    _s, mip_tol = h.getOptionValue("mip_feasibility_tolerance")
-    assert mip_tol > lp_tol
 
 
 @given(st.floats(1e-10, 1e-3), st.floats(1e-10, 1e-3), st.booleans())
@@ -665,18 +666,64 @@ def _timing_lines(monkeypatch, h, elapsed, raises=None, label="primary_minimize"
     return [r for r in records if "#773 diag" in r.getMessage()]
 
 
-@pytest.mark.parametrize("elapsed", [0.1, 70.0])
-def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch, elapsed):
-    """#773: the reads are best-effort, so a diagnostic is never why a solve
-    cycle dies; a slow call still logs its elapsed time and call site, the
-    unread fields as None."""
-    lines = _timing_lines(monkeypatch, _BrokenInfoHighs(), elapsed)
-    if elapsed < lp._SLOW_LP_CALL_SECONDS:
-        assert lines == []
-        return
-    (line,) = lines
-    assert "70.0s" in line.getMessage()
-    assert "simplex_iterations=None" in line.getMessage()
+def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
+    # test_an_unreadable_info_struct_never_fails_the_call: #773: the reads are best-effort, so a diagnostic is never why a solve
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        for elapsed in [0.1, 70.0]:
+            _solver_lp._lex_calibration_failed_until = 0.0
+            with mp.context() as mp:
+                lines = _timing_lines(mp, _BrokenInfoHighs(), elapsed)
+                if elapsed < lp._SLOW_LP_CALL_SECONDS:
+                    assert lines == []
+                    continue
+                (line,) = lines
+                assert "70.0s" in line.getMessage()
+                assert "simplex_iterations=None" in line.getMessage()
+
+    # test_every_highs_solve_in_lp_is_timed: #773: the helper can be right while a new call site skips it. Every
+    _solver_lp._lex_calibration_failed_until = 0.0
+    tree = _lp_tree()
+    assert _untimed_solves(tree) == []
+    attrs = {
+        n.func.attr
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "h"
+        and n.func.attr in ("run", "minimize")
+    }
+    assert attrs == {"run", "minimize"}
+    untimed = ast.parse("def f(h):\n    h.run()\n")
+    assert _untimed_solves(untimed) == ["h.run() at line 2"]
+    timed = ast.parse(
+        "def f(h):\n    with _timed_lp_call(h, 'x'):\n        h.minimize()\n"
+    )
+    assert _untimed_solves(timed) == []
+
+    # test_no_call_site_reports_a_hardcoded_problem_size: #773 review: `primary_minimize` was first wired with `n_binary=0`, a
+    _solver_lp._lex_calibration_failed_until = 0.0
+    offenders = [
+        f"{kw.arg}={kw.value.value!r} at line {node.lineno}"
+        for node in ast.walk(_lp_tree())
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_timed_lp_call"
+        for kw in node.keywords
+        if kw.arg in ("n_vars", "n_binary")
+        and isinstance(kw.value, ast.Constant)
+        and kw.value.value is not None
+    ]
+    assert offenders == []
+
+    # test_only_an_alarming_call_is_captured: Captured at the alarming threshold, below the per-call limit (so a
+    _solver_lp._lex_calibration_failed_until = 0.0
+    assert (
+        lp._SLOW_LP_CALL_SECONDS
+        < lp._ALARMING_LP_CALL_SECONDS
+        < lp.DEFAULT_TIME_LIMIT_SECONDS
+    )
 
 
 def _lp_tree():
@@ -704,61 +751,6 @@ def _untimed_solves(tree) -> list[str]:
         and node.func.value.id == "h"
         and id(node) not in timed
     ]
-
-
-def test_every_highs_solve_in_lp_is_timed():
-    """#773: the helper can be right while a new call site skips it. Every
-    `h.run()` and `h.minimize()` in lp.py sits inside `_timed_lp_call` (the
-    options=None `minimize` was the one #773's own investigation found
-    missing), both kinds exist, and the detector fires on an untimed call
-    and not on a timed one."""
-    tree = _lp_tree()
-    assert _untimed_solves(tree) == []
-    attrs = {
-        n.func.attr
-        for n in ast.walk(tree)
-        if isinstance(n, ast.Call)
-        and isinstance(n.func, ast.Attribute)
-        and isinstance(n.func.value, ast.Name)
-        and n.func.value.id == "h"
-        and n.func.attr in ("run", "minimize")
-    }
-    assert attrs == {"run", "minimize"}
-    untimed = ast.parse("def f(h):\n    h.run()\n")
-    assert _untimed_solves(untimed) == ["h.run() at line 2"]
-    timed = ast.parse(
-        "def f(h):\n    with _timed_lp_call(h, 'x'):\n        h.minimize()\n"
-    )
-    assert _untimed_solves(timed) == []
-
-
-def test_no_call_site_reports_a_hardcoded_problem_size():
-    """#773 review: `primary_minimize` was first wired with `n_binary=0`, a
-    lie whenever the options=None path solves a MIP. A size is read from
-    the problem or left None ("not known"), never a literal ("measured,
-    and it is this")."""
-    offenders = [
-        f"{kw.arg}={kw.value.value!r} at line {node.lineno}"
-        for node in ast.walk(_lp_tree())
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_timed_lp_call"
-        for kw in node.keywords
-        if kw.arg in ("n_vars", "n_binary")
-        and isinstance(kw.value, ast.Constant)
-        and kw.value.value is not None
-    ]
-    assert offenders == []
-
-
-def test_only_an_alarming_call_is_captured():
-    """Captured at the alarming threshold, below the per-call limit (so a
-    call that hits the limit is captured) and above merely slow."""
-    assert (
-        lp._SLOW_LP_CALL_SECONDS
-        < lp._ALARMING_LP_CALL_SECONDS
-        < lp.DEFAULT_TIME_LIMIT_SECONDS
-    )
 
 
 # --- #940: the echoed thermal rates are reporting only ---------------------------
@@ -956,65 +948,88 @@ _AT_5_6, _AT_15_16 = (0.65, 0.65, 0.0, 0.0), (0.0, 0.0, 0.65, 0.65)
 # --- #773 / #1179: every dump says whether it will survive ---------------------
 
 
-@pytest.mark.parametrize("configured", [None, "/data/nimbus_dumps"])
-def test_the_dump_note_says_whether_the_file_survives(configured, monkeypatch):
-    """#773 (18 Sep 2026: the first real capture landed in a container's
-    /tmp and was gone at the next restart): with no dump folder set, the
-    note says the file is TEMPORARY, will not survive, to copy it NOW, and
-    names the setting that makes it persistent; with one set, it says the
-    file persists and raises no alarm. The public alias (#1179, used by the
-    writer) only delegates."""
-    if configured is None:
-        monkeypatch.delenv(lp._LP_DUMP_DIR_ENV, raising=False)
-    else:
-        monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, configured)
-    note = lp._dump_location_note()
-    assert lp.dump_location_note() == note
-    if configured is None:
-        for word in ("TEMPORARY", "will not survive", "NOW", "persistent"):
-            assert word in note, word
-        assert lp._LP_DUMP_DIR_ENV in note
-    else:
-        assert "persists" in note
-        assert "TEMPORARY" not in note and "will not survive" not in note
+def test_the_dump_note_says_whether_the_file_survives(monkeypatch, tmp_path, caplog):
+    # test_the_dump_note_says_whether_the_file_survives: #773 (18 Sep 2026: the first real capture landed in a container's
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        for configured in [None, "/data/nimbus_dumps"]:
+            _solver_lp._lex_calibration_failed_until = 0.0
+            with mp.context() as mp:
+                if configured is None:
+                    mp.delenv(lp._LP_DUMP_DIR_ENV, raising=False)
+                else:
+                    mp.setenv(lp._LP_DUMP_DIR_ENV, configured)
+                note = lp._dump_location_note()
+                assert lp.dump_location_note() == note
+                if configured is None:
+                    for word in ("TEMPORARY", "will not survive", "NOW", "persistent"):
+                        assert word in note, word
+                    assert lp._LP_DUMP_DIR_ENV in note
+                else:
+                    assert "persists" in note
+                    assert "TEMPORARY" not in note and "will not survive" not in note
+
+    # test_every_dump_announcement_says_whether_it_survives: #773: both dump paths, the alarming slow call and the failed phase,
+    _solver_lp._lex_calibration_failed_until = 0.0
+    caplog.clear()
+    tmp_1 = tmp_path / "test_every_dump_announcement_says_whether_it_survives"
+    tmp_1.mkdir()
+    with monkeypatch.context() as mp:
+        mp.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_1))
+        mp.setattr(lp, "_lex_calibration_failed_until", 0.0)
+        mp.setattr(lp, "UNKNOWN_RETRIES", {"attempted": 0, "recovered": 0})
+        lp._LP_DUMPED_PHASES.clear()
+        note = lp._dump_location_note()
+        try:
+            with caplog.at_level(logging.WARNING, logger=lp._LOGGER.name):
+                mp.setattr(lp.time, "monotonic", _clock([46.0]))
+                with lp._timed_lp_call(_WritingHighs(), "slow_phase"):
+                    pass
+                mp.undo()
+                mp.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_1))
+                mp.setattr(lp, "_lex_calibration_failed_until", 0.0)
+                with patch.object(highspy.Highs, "getModelStatus", _unknown(False)):
+                    _two_objective_lp().solve(options=LexOptions())
+        finally:
+            lp._LP_DUMPED_PHASES.clear()
+        announced = [
+            r.getMessage() for r in caplog.records if "wrote the" in r.getMessage()
+        ]
+        assert any("slow model" in m for m in announced)
+        assert any("failing model" in m for m in announced)
+        for message in announced:
+            assert message.endswith(note), message
+
+    # test_the_tier0_minutes_tether_to_the_period_they_fall_inside: #635's captured plans: 1-minute periods 17:26-17:29 tether to the
+    _solver_lp._lex_calibration_failed_until = 0.0
+    old = PeriodGrid(np.full(4, 5 / 60), start=datetime(2026, 9, 9, 17, 25, tzinfo=UTC))
+    new = PeriodGrid(
+        np.array([1 / 60] * 4 + [5 / 60]),
+        start=datetime(2026, 9, 9, 17, 26, tzinfo=UTC),
+    )
+    previous = _infeasible_plan(old, "optimal", iterations=1)
+    assert network._align_previous_periods(new, previous) == {
+        0: 0,
+        1: 0,
+        2: 0,
+        3: 0,
+        4: 1,
+    }
+    failed = _infeasible_plan(old, "infeasible", iterations=0)
+    assert network._align_previous_periods(new, failed) == {}
+    floating = PeriodGrid(np.full(4, 0.25), start=None)
+    assert (
+        network._align_previous_periods(
+            floating, _infeasible_plan(floating, "optimal", iterations=1)
+        )
+        == {}
+    )
 
 
 class _WritingHighs(_PhaseHighs):
     def writeModel(self, path):
         with open(path, "w", encoding="utf-8"):
             pass
-
-
-def test_every_dump_announcement_says_whether_it_survives(
-    tmp_path, monkeypatch, caplog
-):
-    """#773: both dump paths, the alarming slow call and the failed phase,
-    announce the file with the survival note, so no capture is announced
-    without saying whether it will still be there."""
-    monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_path))
-    monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
-    monkeypatch.setattr(lp, "UNKNOWN_RETRIES", {"attempted": 0, "recovered": 0})
-    lp._LP_DUMPED_PHASES.clear()
-    note = lp._dump_location_note()
-    try:
-        with caplog.at_level(logging.WARNING, logger=lp._LOGGER.name):
-            monkeypatch.setattr(lp.time, "monotonic", _clock([46.0]))
-            with lp._timed_lp_call(_WritingHighs(), "slow_phase"):
-                pass
-            monkeypatch.undo()
-            monkeypatch.setenv(lp._LP_DUMP_DIR_ENV, str(tmp_path))
-            monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
-            with patch.object(highspy.Highs, "getModelStatus", _unknown(False)):
-                _two_objective_lp().solve(options=LexOptions())
-    finally:
-        lp._LP_DUMPED_PHASES.clear()
-    announced = [
-        r.getMessage() for r in caplog.records if "wrote the" in r.getMessage()
-    ]
-    assert any("slow model" in m for m in announced)
-    assert any("failing model" in m for m in announced)
-    for message in announced:
-        assert message.endswith(note), message
 
 
 # --- #356 / #635: aligning a new grid to the previous plan's --------------------
@@ -1042,34 +1057,6 @@ def _containment_oracle(new: PeriodGrid, old: PeriodGrid) -> dict[int, int]:
 
 
 _WIDTHS = st.sampled_from([1 / 60, 5 / 60, 0.25, 0.5, 1.0])
-
-
-def test_the_tier0_minutes_tether_to_the_period_they_fall_inside():
-    """#635's captured plans: 1-minute periods 17:26-17:29 tether to the
-    17:25 five-minute period, 17:30 to 17:30's; and a plan that did not
-    solve, or grids without a calendar anchor, give no tether at all."""
-    old = PeriodGrid(np.full(4, 5 / 60), start=datetime(2026, 9, 9, 17, 25, tzinfo=UTC))
-    new = PeriodGrid(
-        np.array([1 / 60] * 4 + [5 / 60]),
-        start=datetime(2026, 9, 9, 17, 26, tzinfo=UTC),
-    )
-    previous = _infeasible_plan(old, "optimal", iterations=1)
-    assert network._align_previous_periods(new, previous) == {
-        0: 0,
-        1: 0,
-        2: 0,
-        3: 0,
-        4: 1,
-    }
-    failed = _infeasible_plan(old, "infeasible", iterations=0)
-    assert network._align_previous_periods(new, failed) == {}
-    floating = PeriodGrid(np.full(4, 0.25), start=None)
-    assert (
-        network._align_previous_periods(
-            floating, _infeasible_plan(floating, "optimal", iterations=1)
-        )
-        == {}
-    )
 
 
 # --- household 20/22 Aug 2026: a committed P2P block is held flat --------------

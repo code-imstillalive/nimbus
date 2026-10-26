@@ -20,6 +20,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
+from solver import lp as _solver_lp
 from solver.lp import BlendedOptions, CalibratedOptions, LexOptions, LPProblem
 from test_plan_invariants import SETTINGS, _num
 
@@ -213,8 +214,8 @@ def test_ranging_not_asked_for_is_never_computed(spec):
 
 
 def test_ranging_on_the_probe_lp_matches_the_hand_worked_values():
-    """#489's research probe, every number checkable by hand:
-    min 0.30 imp + 0.05 exp, imp - exp + solar = 2, solar <= 6."""
+    # test_ranging_on_the_probe_lp_matches_the_hand_worked_values: #489's research probe, every number checkable by hand:
+    _solver_lp._lex_calibration_failed_until = 0.0
     p = LPProblem()
     p.add_variable("imp", cost=0.30)
     p.add_variable("exp", cost=0.05)
@@ -240,19 +241,8 @@ def test_ranging_on_the_probe_lp_matches_the_hand_worked_values():
     room = r.rhs_headroom("balance")
     assert (room.down, room.up) == (pytest.approx(2.0), pytest.approx(4.0))
 
-
-def _counting(calls, real):
-    def tracking(self):
-        calls.append(None)
-        return real(self)
-
-    return tracking
-
-
-def test_ranging_on_a_pinned_or_failed_solve():
-    """#490 with #238: a MIP's ranging is the pinned LP's (valid, every
-    column); a zero-width column is degenerate headroom; an infeasible
-    solve reports ranging invalid with nothing in it, or None if unasked."""
+    # test_ranging_on_a_pinned_or_failed_solve: #490 with #238: a MIP's ranging is the pinned LP's (valid, every
+    _solver_lp._lex_calibration_failed_until = 0.0
     p = LPProblem()
     y = p.add_variable("y", binary=True)
     x = p.add_variable("x", ub=10.0, cost=-1.0)
@@ -278,6 +268,14 @@ def test_ranging_on_a_pinned_or_failed_solve():
     assert r.status == "infeasible" and r.ranging_valid is False
     assert r.col_bound_up == {} and r.row_bound_up == {}
     assert infeasible().solve().ranging_valid is None
+
+
+def _counting(calls, real):
+    def tracking(self):
+        calls.append(None)
+        return real(self)
+
+    return tracking
 
 
 @SETTINGS
@@ -532,40 +530,39 @@ def test_a_binary_choice_is_primary_first_then_secondary(primary, data, kind):
         assert r.duals["total"] == pytest.approx(1.0, abs=1e-4)
 
 
-@pytest.mark.parametrize("options", [LexOptions(), CalibratedOptions()])
-def test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so(options, monkeypatch):
-    """#773 (a phase failing to reach optimal on two real installs, root
-    cause unknown): the failure used to escape `build_plan` uncaught. Now
-    the plan is the plain options=None solve, exactly, and a #773 WARNING
-    says so."""
-    monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
+def test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so(monkeypatch):
+    # test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so: #773 (a phase failing to reach optimal on two real installs, root
+    _solver_lp._lex_calibration_failed_until = 0.0
+    with monkeypatch.context() as mp:
+        for options in [LexOptions(), CalibratedOptions()]:
+            _solver_lp._lex_calibration_failed_until = 0.0
+            with mp.context() as mp:
+                mp.setattr(lp, "_lex_calibration_failed_until", 0.0)
 
-    def fails(*_a, **_k):
-        raise ValueError("an internal lex/calibration phase failed")
+                def fails(*_a, **_k):
+                    raise ValueError("an internal lex/calibration phase failed")
 
-    monkeypatch.setattr(lp, "_solve_with_options", fails)
-    p = LPProblem()
-    p.add_variable("x1", ub=10.0, cost=1.0)
-    p.add_variable("x2", ub=10.0, cost=1.0)
-    p.set_secondary_cost("x2", -1.0)
-    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
-    records: list[logging.LogRecord] = []
-    handler = logging.Handler(logging.WARNING)
-    handler.emit = records.append
-    lp._LOGGER.addHandler(handler)
-    try:
-        r = p.solve(options=options)
-    finally:
-        lp._LOGGER.removeHandler(handler)
-        lp._lex_calibration_failed_until = 0.0
-    assert r.status == "optimal"
-    assert r.objective == pytest.approx(p.solve().objective)
-    assert any("#773" in rec.getMessage() for rec in records)
+                mp.setattr(lp, "_solve_with_options", fails)
+                p = LPProblem()
+                p.add_variable("x1", ub=10.0, cost=1.0)
+                p.add_variable("x2", ub=10.0, cost=1.0)
+                p.set_secondary_cost("x2", -1.0)
+                p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
+                records: list[logging.LogRecord] = []
+                handler = logging.Handler(logging.WARNING)
+                handler.emit = records.append
+                lp._LOGGER.addHandler(handler)
+                try:
+                    r = p.solve(options=options)
+                finally:
+                    lp._LOGGER.removeHandler(handler)
+                    lp._lex_calibration_failed_until = 0.0
+                assert r.status == "optimal"
+                assert r.objective == pytest.approx(p.solve().objective)
+                assert any("#773" in rec.getMessage() for rec in records)
 
-
-def test_with_no_primary_cost_the_secondary_alone_picks_the_point():
-    """Nimbus's choice, unlike HAEO's (which raises): an all-zero primary is
-    a legitimate tie-break-only problem, and the secondary picks the point."""
+    # test_with_no_primary_cost_the_secondary_alone_picks_the_point: Nimbus's choice, unlike HAEO's (which raises): an all-zero primary is
+    _solver_lp._lex_calibration_failed_until = 0.0
     p = LPProblem()
     p.add_variable("x1", ub=10.0)
     p.add_variable("x2", ub=10.0)

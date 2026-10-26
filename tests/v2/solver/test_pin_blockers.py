@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 
 import numpy as np
+from solver import lp as _solver_lp
 from solver import pin_blockers
 from solver.elements import (
     BatteryConfig,
@@ -79,8 +80,8 @@ def _blamed(site, pin, batteries=None):
 
 
 def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
-    """Sound (a feasible pin is never blamed) and, on these sites, complete
-    (an infeasible one is always explained)."""
+    # test_the_solver_rejects_a_pin_exactly_when_something_is_named: Sound (a feasible pin is never blamed) and, on these sites, complete
+    _solver_lp._lex_calibration_failed_until = 0.0
     for site in [
         _site(),
         _site(soc=4.5),
@@ -96,23 +97,8 @@ def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
             assert (_blamed(site, pin) == []) is optimal, pin
         assert feasible >= 3
 
-
-def _with_ev(site, *, group_kw=None, ev_kw=None):
-    home = site["batteries"][0]
-    ev = dataclasses.replace(home, name="ev")
-    if ev_kw is not None:
-        ev = dataclasses.replace(ev, max_charge_kw=ev_kw, max_discharge_kw=ev_kw)
-    if group_kw is not None:
-        home, ev = (
-            dataclasses.replace(
-                b, shared_charger_group="g", shared_charger_max_kw=group_kw
-            )
-            for b in (home, ev)
-        )
-    return [home, ev]
-
-
-def test_a_shared_charger_is_checked_and_the_other_batterys_limits_never_blamed():
+    # test_a_shared_charger_is_checked_and_the_other_batterys_limits_never_blamed
+    _solver_lp._lex_calibration_failed_until = 0.0
     site = _site()
     shared = _with_ev(site, group_kw=6.0)
     assert _status(site, -8.0, shared) == "infeasible"
@@ -126,8 +112,8 @@ def test_a_shared_charger_is_checked_and_the_other_batterys_limits_never_blamed(
             optimal = _status(site, pin, batteries) == "optimal"
             assert (_blamed(site, pin, batteries) == []) is optimal, pin
 
-
-def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_still_sound():
+    # test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_still_sound
+    _solver_lp._lex_calibration_failed_until = 0.0
     site = _site(soc=4.5)
     site["loads"] = [
         LoadConfig(
@@ -143,3 +129,18 @@ def test_without_the_solves_risk_aversion_a_banded_load_is_read_loosely_and_stil
             assert _blamed(site, pin) == [], pin
         else:
             assert _blamed(site, pin), pin
+
+
+def _with_ev(site, *, group_kw=None, ev_kw=None):
+    home = site["batteries"][0]
+    ev = dataclasses.replace(home, name="ev")
+    if ev_kw is not None:
+        ev = dataclasses.replace(ev, max_charge_kw=ev_kw, max_discharge_kw=ev_kw)
+    if group_kw is not None:
+        home, ev = (
+            dataclasses.replace(
+                b, shared_charger_group="g", shared_charger_max_kw=group_kw
+            )
+            for b in (home, ev)
+        )
+    return [home, ev]

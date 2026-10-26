@@ -35,7 +35,8 @@ def _check(dispatch_prefix: str, p5_prefix: str, peak_mwh: float | None) -> dict
     )
 
 
-def test_16_oct_clears_on_the_run_aemo_corrected():
+def test_16_oct_clears_on_the_run_aemo_corrected(caplog):
+    # test_16_oct_clears_on_the_run_aemo_corrected
     # test_16_oct_clears_on_the_run_aemo_corrected
     r = _check("PUBLIC_DISPATCHIS_202610161050", "PUBLIC_P5MIN_202610161055", 23200.0)
     assert r["rhs_suspect"] is False and r["flag"] is False
@@ -65,10 +66,8 @@ def test_16_oct_clears_on_the_run_aemo_corrected():
     )
     assert dr.latest_file_name("nothing here") is None
 
-
-def test_the_p5min_sensor_publishes_the_check_and_logs_once(caplog) -> None:
-    """The real sensor path: apply() with the 15 Oct pair publishes the
-    attribute and logs one WARNING when the evidence appears."""
+    # test_the_p5min_sensor_publishes_the_check_and_logs_once: The real sensor path: apply() with the 15 Oct pair publishes the
+    caplog.clear()
     import logging
     import sys
     from unittest.mock import MagicMock
@@ -104,22 +103,7 @@ def test_the_p5min_sensor_publishes_the_check_and_logs_once(caplog) -> None:
     warnings = [r for r in caplog.records if "#1778 (diagnostic)" in r.getMessage()]
     assert len(warnings) == 1 and warnings[0].levelno == logging.WARNING
 
-
-# --- malformed and partial NEMWeb text (#1837: the paths no fixture reaches) --------
-
-_PRICE_HEADER = "I,DISPATCH,PRICE,5,SETTLEMENTDATE,RUNNO,REGIONID,INTERVENTION,RRP"
-_CON_HEADER = (
-    "I,DISPATCH,CONSTRAINT,5,SETTLEMENTDATE,RUNNO,CONSTRAINTID,INTERVENTION,"
-    "RHS,MARGINALVALUE,VIOLATIONDEGREE"
-)
-_QLD_PRICE = "D,DISPATCH,PRICE,5,2026/10/15 16:10:00,1,QLD1,0,103.5"
-
-
-def _csv(*lines: str) -> str:
-    return "\n".join(lines)
-
-
-def test_unreadable_numbers_and_times_are_none_not_errors():
+    # test_unreadable_numbers_and_times_are_none_not_errors
     # test_unreadable_numbers_and_times_are_none_not_errors
     assert dr._float("n/a") is None
     assert dr._float("") is None
@@ -147,3 +131,17 @@ def test_unreadable_numbers_and_times_are_none_not_errors():
 
     # test_a_p5min_run_with_no_constraint_rows_has_none
     assert dr.first_interval_constraints(_PRICE_HEADER) == {}
+
+
+# --- malformed and partial NEMWeb text (#1837: the paths no fixture reaches) --------
+
+_PRICE_HEADER = "I,DISPATCH,PRICE,5,SETTLEMENTDATE,RUNNO,REGIONID,INTERVENTION,RRP"
+_CON_HEADER = (
+    "I,DISPATCH,CONSTRAINT,5,SETTLEMENTDATE,RUNNO,CONSTRAINTID,INTERVENTION,"
+    "RHS,MARGINALVALUE,VIOLATIONDEGREE"
+)
+_QLD_PRICE = "D,DISPATCH,PRICE,5,2026/10/15 16:10:00,1,QLD1,0,103.5"
+
+
+def _csv(*lines: str) -> str:
+    return "\n".join(lines)

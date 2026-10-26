@@ -79,7 +79,8 @@ def _mode(*, restored=None, stored=None):
 OTHER = next(m for m in const.HOUSEHOLD_MODES if m != const.DEFAULT_HOUSEHOLD_MODE)
 
 
-def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
+def test_a_select_comes_back_from_its_store_then_its_state_then_the_default(pricing):
+    # test_a_select_comes_back_from_its_store_then_its_state_then_the_default
     # test_a_select_comes_back_from_its_store_then_its_state_then_the_default
     for restored, stored, current in [
         (None, None, const.DEFAULT_HOUSEHOLD_MODE),
@@ -123,6 +124,11 @@ def test_a_select_comes_back_from_its_store_then_its_state_then_the_default():
     _run(shared.async_write("k", "x"))
     assert shared.store.data["k"]["value"] == "x"
 
+    # test_choosing_a_detected_source_applies_its_profile
+    s, _, updated = pricing
+    _run(s.async_select_option("Amber"))
+    assert updated == [{"label": "Amber"}]
+
 
 # --- the pricing source -------------------------------------------------------------
 
@@ -151,12 +157,6 @@ def pricing(monkeypatch):
     entry = SimpleNamespace(entry_id="hub1", options={})
     s = _entity(sel.NimbusPricingSourceSelect(hass, entry, "1"), hass)
     return s, world, updated
-
-
-def test_choosing_a_detected_source_applies_its_profile(pricing):
-    s, _, updated = pricing
-    _run(s.async_select_option("Amber"))
-    assert updated == [{"label": "Amber"}]
 
 
 def test_a_source_with_problems_or_no_longer_detected_changes_nothing(pricing):

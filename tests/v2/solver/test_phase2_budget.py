@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 import pytest
 from solver import lp
+from solver import lp as _solver_lp
 from solver.lp import LexOptions, LPProblem
 
 
@@ -70,6 +71,9 @@ def _points(p: LPProblem, phase1: str, found: str | None):
 
 
 def test_a_spent_budget_keeps_the_cost_and_the_continuous_tie_break(caplog):
+    # test_a_spent_budget_keeps_the_cost_and_the_continuous_tie_break
+    _solver_lp._lex_calibration_failed_until = 0.0
+    caplog.clear()
     reference = _switch_and_tie()
     full = reference.solve(options=LexOptions())
     p = _switch_and_tie()
@@ -84,29 +88,14 @@ def test_a_spent_budget_keeps_the_cost_and_the_continuous_tie_break(caplog):
     assert not [rec for rec in caplog.records if rec.levelno >= logging.ERROR]
     assert any("used its" in rec.getMessage() for rec in caplog.records)
 
-
-class _Handle:
-    def __init__(self, status):
-        self._status = status
-
-    def getModelStatus(self):
-        return self._status
-
-    def modelStatusToString(self, status):
-        return "Time limit reached"
-
-
-def test_a_spent_budget_is_labelled_and_a_real_timeout_is_not():
+    # test_a_spent_budget_is_labelled_and_a_real_timeout_is_not
+    _solver_lp._lex_calibration_failed_until = 0.0
     timed_out = _Handle(lp.highspy.HighsModelStatus.kTimeLimit)
     assert lp._status_label(timed_out, budgeted=True) == lp._BUDGET_SPENT
     assert lp._status_label(timed_out, budgeted=False) == "Time limit reached"
 
-
-def test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set():
-    """Mark Purcell's review of #2010: HiGHS can raise a bare Exception,
-    which neither phase-2 handler catches. Whatever happens to the solve,
-    the per-thread budget flag must be clear afterwards, or a later solve on
-    the same reused executor thread would read itself as budgeted."""
+    # test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set: Mark Purcell's review of #2010: HiGHS can raise a bare Exception,
+    _solver_lp._lex_calibration_failed_until = 0.0
     real = lp._ensure_optimal_value
 
     def boom(h, *, phase="", problem=None, binary_cols=None):
@@ -121,3 +110,14 @@ def test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set():
     ):
         _switch_and_tie().solve(options=LexOptions())
     assert not lp._phase2_budgeted()
+
+
+class _Handle:
+    def __init__(self, status):
+        self._status = status
+
+    def getModelStatus(self):
+        return self._status
+
+    def modelStatusToString(self, status):
+        return "Time limit reached"

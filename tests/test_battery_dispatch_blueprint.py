@@ -221,6 +221,7 @@ FALLBACK = ["fallback_actions", "input_text.set_value=FALLBACK"]
 
 def test_disarming_runs_the_fallback_whatever_the_plan_says():
     # test_disarming_runs_the_fallback_whatever_the_plan_says
+    # test_disarming_runs_the_fallback_whatever_the_plan_says
     ran, _ = run("disarmed", plan="-4.0", armed=False, helper="CHG")
     assert ran == FALLBACK
 
@@ -272,8 +273,7 @@ def test_disarming_runs_the_fallback_whatever_the_plan_says():
     ran, _ = run("tick", plan="0.0", helper="SC", now=on_the_ten)
     assert ran == ["self_consume_actions"]
 
-
-def test_resend_off_still_resends_at_start():
+    # test_resend_off_still_resends_at_start
     # test_resend_off_still_resends_at_start
     on_the_ten = NOW.replace(minute=20, second=0)
     ran, _ = run(
@@ -350,11 +350,10 @@ def test_resend_off_still_resends_at_start():
     )
     assert ctx["want"] == "DIS"
 
-
-SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
-
-
-def test_overlapping_triggers_queue_and_an_overflow_is_logged():
+    # test_overlapping_triggers_queue_and_an_overflow_is_logged
     bp = _blueprint()
     assert bp["mode"] == "queued"
     assert bp["max_exceeded"] == "warning"
+
+
+SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"

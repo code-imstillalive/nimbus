@@ -42,6 +42,7 @@ def _card() -> str:
 
 def test_card_is_registered_with_a_matching_tag():
     # test_card_is_registered_with_a_matching_tag
+    # test_card_is_registered_with_a_matching_tag
     frontend_py = (PKG / "frontend.py").read_text(encoding="utf-8")
     assert (
         '_CardAsset("nimbus-forecast-card.js", "nimbus-forecast-card")' in frontend_py
@@ -119,17 +120,7 @@ def test_card_is_registered_with_a_matching_tag():
     soc = soc[: soc.index("}")]
     assert 'unit: "%"' in soc
 
-
-def _py_hash_color(entity_id: str) -> str:
-    """The generator script's own _hash_color_for(), verbatim in logic."""
-    h = 0
-    for ch in entity_id:
-        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
-    r, g, b = colorsys.hls_to_rgb((h % 360) / 360.0, 0.55, 0.55)
-    return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
-
-
-def test_sizes_itself_full_width_in_a_sections_view():
+    # test_sizes_itself_full_width_in_a_sections_view
     # test_sizes_itself_full_width_in_a_sections_view: Without getGridOptions() a sections view gives the card a small
     src = _card()
     body = src[src.index("getGridOptions()") :]
@@ -164,3 +155,12 @@ def test_sizes_itself_full_width_in_a_sections_view():
         / "docs/real-world-integration/files/lovelace_build_merged_forecast_chart.py"
     ).read_text(encoding="utf-8")
     assert script.count('"curve": "stepline"') == script.count('(history)",')
+
+
+def _py_hash_color(entity_id: str) -> str:
+    """The generator script's own _hash_color_for(), verbatim in logic."""
+    h = 0
+    for ch in entity_id:
+        h = (h * 31 + ord(ch)) & 0xFFFFFFFF
+    r, g, b = colorsys.hls_to_rgb((h % 360) / 360.0, 0.55, 0.55)
+    return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"

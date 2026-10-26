@@ -98,7 +98,8 @@ def _states(rows):
     )
 
 
-def test_training_fetch_marks_unavailable_and_unknown_as_gaps():
+def test_training_fetch_marks_unavailable_and_unknown_as_gaps(caplog):
+    # test_training_fetch_marks_unavailable_and_unknown_as_gaps
     # test_training_fetch_marks_unavailable_and_unknown_as_gaps
     coord = _bare()
     t = START
@@ -130,8 +131,8 @@ def test_training_fetch_marks_unavailable_and_unknown_as_gaps():
     assert [t for t, _ in ev] == [START, down, down + timedelta(hours=4)]
     assert math.isnan(ev[1][1])
 
-
-def test_a_failing_retrain_flags_a_stale_model_once(caplog):
+    # test_a_failing_retrain_flags_a_stale_model_once
+    caplog.clear()
     coord = _bare()
     coord._trained = MagicMock()
     coord._trained.trained_at = datetime.now(UTC) - timedelta(
@@ -147,8 +148,8 @@ def test_a_failing_retrain_flags_a_stale_model_once(caplog):
     assert "CB-PW HEATER Power" in stale[0].getMessage()
     assert coord._retrain_failing_since is not None
 
-
-def test_a_recent_model_is_not_flagged(caplog):
+    # test_a_recent_model_is_not_flagged
+    caplog.clear()
     coord = _bare()
     coord._trained = MagicMock()
     coord._trained.trained_at = datetime.now(UTC) - timedelta(days=1)
@@ -157,8 +158,7 @@ def test_a_recent_model_is_not_flagged(caplog):
     assert not [r for r in caplog.records if "still serving" in r.getMessage()]
     assert coord._retrain_failing_since is not None
 
-
-def test_model_age_helper():
+    # test_model_age_helper
     age = coordinator_module._model_age_days(datetime.now(UTC) - timedelta(days=3))
     assert age is not None and 2.99 < age < 3.01
     assert coordinator_module._model_age_days(None) is None

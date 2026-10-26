@@ -142,23 +142,24 @@ def _sensor(states=None):
 
 
 def test_nothing_is_fetched_again_until_the_next_run_can_exist(nemweb, monkeypatch):
-    s = _sensor()
-    asyncio.run(s._async_tick())
-    run = datetime.fromisoformat(s._run["run_datetime"])
-    assert not s.due(run + timedelta(minutes=1)) and s.due(run + ps._NEXT_RUN_DUE)
-    fetched = len(nemweb.gets)
+    # test_nothing_is_fetched_again_until_the_next_run_can_exist
+    with monkeypatch.context() as mp:
+        s = _sensor()
+        asyncio.run(s._async_tick())
+        run = datetime.fromisoformat(s._run["run_datetime"])
+        assert not s.due(run + timedelta(minutes=1)) and s.due(run + ps._NEXT_RUN_DUE)
+        fetched = len(nemweb.gets)
 
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return run + timedelta(seconds=30)
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return run + timedelta(seconds=30)
 
-    monkeypatch.setattr(ps, "datetime", Clock)
-    asyncio.run(s._async_tick())
-    assert len(nemweb.gets) == fetched
+        mp.setattr(ps, "datetime", Clock)
+        asyncio.run(s._async_tick())
+        assert len(nemweb.gets) == fetched
 
-
-def test_the_same_file_listed_again_is_not_downloaded_again(nemweb):
+    # test_the_same_file_listed_again_is_not_downloaded_again
     s = _sensor()
     asyncio.run(s._async_tick())
     s._run["run_datetime"] = "2000-01-01T00:00:00+10:00"  # due again
@@ -166,8 +167,7 @@ def test_the_same_file_listed_again_is_not_downloaded_again(nemweb):
     asyncio.run(s._async_tick())
     assert sum(u.endswith(".zip") for u in nemweb.gets) == downloads
 
-
-def test_a_new_run_keeps_the_previous_one_for_comparison(nemweb):
+    # test_a_new_run_keeps_the_previous_one_for_comparison
     s = _sensor()
     s.due = lambda now: True
     asyncio.run(s._async_tick())
@@ -178,8 +178,7 @@ def test_a_new_run_keeps_the_previous_one_for_comparison(nemweb):
     assert s.extra_state_attributes["previous_run_datetime"] == first
     assert s.extra_state_attributes["previous_forecast"]
 
-
-def test_a_network_fault_is_recorded_and_the_last_run_kept(nemweb):
+    # test_a_network_fault_is_recorded_and_the_last_run_kept
     s = _sensor()
     asyncio.run(s._async_tick())
     good = s.native_value
@@ -199,6 +198,7 @@ def test_a_dispatch_fault_never_blocks_the_run(nemweb):
 
 
 def test_the_spot_price_feeds_the_false_spike_guard_each_minute(nemweb):
+    # test_the_spot_price_feeds_the_false_spike_guard_each_minute
     states = {
         "sensor.qld_price": SimpleNamespace(
             state="0.12",
@@ -220,8 +220,7 @@ def test_the_spot_price_feeds_the_false_spike_guard_each_minute(nemweb):
     s.check_dispatch(datetime(2026, 10, 16, 0, 53, tzinfo=UTC))
     assert len(s._guard.compared) == 1
 
-
-def test_the_threshold_number_is_read_live():
+    # test_the_threshold_number_is_read_live
     s = _sensor(
         {
             f"number.nimbus_{const.CONF_SOLVER_P5MIN_FALSE_SPIKE_THRESHOLD_MWH}": SimpleNamespace(
@@ -276,32 +275,35 @@ def test_the_region_is_the_configured_sensors_else_the_geocoded_location(
 def test_sensors_naming_two_regions_are_a_contradiction_not_a_guess(
     monkeypatch, caplog
 ):
-    monkeypatch.setattr(
-        ps.sensor_discovery,
-        "resolve_geocoded_region_and_prefix",
-        lambda states: ("QLD1", "410"),
-    )
-    entry = _entry(
-        **{
-            const.CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "sensor.aemo_nem_qld1_forecast",
-            const.CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: "sensor.aemo_nem_nsw1_price",
-        }
-    )
-    with caplog.at_level(logging.WARNING, logger=ps._LOGGER.name):
-        assert ps.resolve_region(_hass_located("QLD1"), entry) is None
-    assert "NSW1, QLD1" in caplog.text
+    # test_sensors_naming_two_regions_are_a_contradiction_not_a_guess
+    caplog.clear()
+    with monkeypatch.context() as mp:
+        mp.setattr(
+            ps.sensor_discovery,
+            "resolve_geocoded_region_and_prefix",
+            lambda states: ("QLD1", "410"),
+        )
+        entry = _entry(
+            **{
+                const.CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: "sensor.aemo_nem_qld1_forecast",
+                const.CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: "sensor.aemo_nem_nsw1_price",
+            }
+        )
+        with caplog.at_level(logging.WARNING, logger=ps._LOGGER.name):
+            assert ps.resolve_region(_hass_located("QLD1"), entry) is None
+        assert "NSW1, QLD1" in caplog.text
 
-
-def test_setup_schedules_the_minute_poll_and_a_first_fetch(monkeypatch):
-    s = _sensor()
-    polls, tasks = [], []
-    monkeypatch.setattr(
-        ps,
-        "async_track_time_interval",
-        lambda hass, cb, every: polls.append(every) or (lambda: None),
-    )
-    s.hass.async_create_background_task = lambda coro, name: (
-        tasks.append(name) or coro.close()
-    )
-    asyncio.run(s.async_added_to_hass())
-    assert polls == [ps.POLL] and tasks == ["nimbus_p5min_first_fetch"]
+    # test_setup_schedules_the_minute_poll_and_a_first_fetch
+    with monkeypatch.context() as mp:
+        s = _sensor()
+        polls, tasks = [], []
+        mp.setattr(
+            ps,
+            "async_track_time_interval",
+            lambda hass, cb, every: polls.append(every) or (lambda: None),
+        )
+        s.hass.async_create_background_task = lambda coro, name: (
+            tasks.append(name) or coro.close()
+        )
+        asyncio.run(s.async_added_to_hass())
+        assert polls == [ps.POLL] and tasks == ["nimbus_p5min_first_fetch"]

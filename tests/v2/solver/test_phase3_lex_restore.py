@@ -11,6 +11,7 @@ import unittest
 import unittest.mock
 
 from solver import lp
+from solver import lp as _solver_lp
 from solver.lp import CalibratedOptions, LexOptions
 
 _PINNED_RESOLVE_CALL_SITES = 3
@@ -122,6 +123,8 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
     """
 
     def test_neutralising_only_the_phase3_call_site_brings_it_back(self):
+        # test_neutralising_only_the_phase3_call_site_brings_it_back
+        _solver_lp._lex_calibration_failed_until = 0.0
         original = lp._lp_tolerance_matching_mip
         calls = {"n": 0}
 
@@ -162,11 +165,8 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
             "reproducing scenario is found, so do not simply delete it.",
         )
 
-    def test_the_patch_target_is_the_name_the_call_sites_resolve(self):
-        """The monkeypatch above only works while both call sites look
-        the helper up as a module global at call time. If either is ever
-        rebound to a local alias, the reverse test would silently stop
-        neutralising anything and start passing vacuously."""
+        # test_the_patch_target_is_the_name_the_call_sites_resolve: The monkeypatch above only works while both call sites look
+        _solver_lp._lex_calibration_failed_until = 0.0
         source = lp.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = f.read()
@@ -176,11 +176,8 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
         )
         self.assertNotIn("_tolerance_cm = _lp_tolerance_matching_mip", text)
 
-    def test_the_helper_is_restored_afterwards(self):
-        """The neutralisation above is a monkeypatch on a module global;
-        if its restore ever regressed, every later test in the process
-        would run without the fix and this file would start passing for
-        the wrong reason."""
+        # test_the_helper_is_restored_afterwards: The neutralisation above is a monkeypatch on a module global;
+        _solver_lp._lex_calibration_failed_until = 0.0
         self.assertTrue(hasattr(lp._lp_tolerance_matching_mip, "__wrapped__"))
 
 

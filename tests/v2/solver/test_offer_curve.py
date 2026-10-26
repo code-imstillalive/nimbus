@@ -18,6 +18,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from solver import lp
+from solver import lp as _solver_lp
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -285,34 +286,62 @@ def _banded_plan(n, solar, start, aversion, imp0=None, exp0=None, curve=True):
     )
 
 
-@pytest.mark.parametrize(
-    "direction, raw, bound", [("up", 0.30, 0.60), ("down", 0.10, 0.02)]
-)
-@pytest.mark.parametrize("aversion", [0.0, 0.25, 0.9, 1.0])
-def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted(
-    direction, raw, bound, aversion
-):
-    """#1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
-    period 0 wherever an inverse exists; at an aversion of 1, inside the
-    band, every raw price adjusts to the bound, and the plan's own is kept."""
-    from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
+def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted():
+    # test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted: #1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
+    _solver_lp._lex_calibration_failed_until = 0.0
+    for direction, raw, bound in [("up", 0.30, 0.60), ("down", 0.10, 0.02)]:
+        for aversion in [0.0, 0.25, 0.9, 1.0]:
+            _solver_lp._lex_calibration_failed_until = 0.0
+            from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
 
-    band = np.array([bound])
-    for r in np.linspace(-0.5, 1.5, 41):
-        adjusted = float(
-            _risk_adjusted_one_sided(
-                np.array([r]), band, aversion, direction=direction
-            )[0]
-        )
-        back = _raw_price_for_adjusted(
-            adjusted, raw, band, aversion, direction=direction
-        )
-        # At the bound itself (to float noise) every raw price ties.
-        inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
-        if aversion >= 1.0 and inside:
-            assert back == raw
-        else:
-            assert back == pytest.approx(r, abs=1e-12)
+            band = np.array([bound])
+            for r in np.linspace(-0.5, 1.5, 41):
+                adjusted = float(
+                    _risk_adjusted_one_sided(
+                        np.array([r]), band, aversion, direction=direction
+                    )[0]
+                )
+                back = _raw_price_for_adjusted(
+                    adjusted, raw, band, aversion, direction=direction
+                )
+                # At the bound itself (to float noise) every raw price ties.
+                inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
+                if aversion >= 1.0 and inside:
+                    assert back == raw
+                else:
+                    assert back == pytest.approx(r, abs=1e-12)
+
+    # test_no_interval_claims_more_than_the_price_coupled_solve_holds: #1990: a walked plateau whose ranging reaches the domain's end, and
+    _solver_lp._lex_calibration_failed_until = 0.0
+    from solver.network import (
+        _OFFER_CURVE_DOMAIN_MAX,
+        _offer_curve_ranging_walk,
+    )
+
+    curve, ranging = _offer_curve_ranging_walk(
+        _PricedFake(),
+        "imp",
+        retail=0.30,
+        hours0=1.0,
+        negated=False,
+        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
+    )
+    kws = [kw for _p, kw in curve]
+    assert kws[0] == 7.0 and 6.0 in kws
+    for (price, kw), interval in zip(curve, ranging, strict=True):
+        lower = max(interval[0], _OFFER_CURVE_DOMAIN_MIN)
+        upper = min(interval[1], _OFFER_CURVE_DOMAIN_MAX)
+        for end in (lower, upper):
+            inside = price + 0.999 * (end - price)
+            assert _PricedFake.truth(inside) == kw, (price, kw, interval)
+
+    # test_a_non_finite_cost_is_refused_before_highs_sees_it: #2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
+    _solver_lp._lex_calibration_failed_until = 0.0
+    p = lp.LPProblem()
+    x = p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
+    result = p.solve(keep_basis=True)
+    with pytest.raises(ValueError, match="non-finite cost"):
+        result.sweep_costs_with_ranging(x, [{x: float("nan")}])
 
 
 class _FakeRangingResult:
@@ -361,33 +390,6 @@ class _PricedFake:
         return 7.0 if price < 0.05 else 6.0
 
 
-def test_no_interval_claims_more_than_the_price_coupled_solve_holds():
-    """#1990: a walked plateau whose ranging reaches the domain's end, and
-    the retail point's two ends, are each checked against the solve at
-    that price, not taken from the ranging."""
-    from solver.network import (
-        _OFFER_CURVE_DOMAIN_MAX,
-        _offer_curve_ranging_walk,
-    )
-
-    curve, ranging = _offer_curve_ranging_walk(
-        _PricedFake(),
-        "imp",
-        retail=0.30,
-        hours0=1.0,
-        negated=False,
-        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
-    )
-    kws = [kw for _p, kw in curve]
-    assert kws[0] == 7.0 and 6.0 in kws
-    for (price, kw), interval in zip(curve, ranging, strict=True):
-        lower = max(interval[0], _OFFER_CURVE_DOMAIN_MIN)
-        upper = min(interval[1], _OFFER_CURVE_DOMAIN_MAX)
-        for end in (lower, upper):
-            inside = price + 0.999 * (end - price)
-            assert _PricedFake.truth(inside) == kw, (price, kw, interval)
-
-
 class _UnboundedFake:
     """An LP whose ranging is unbounded both ways, as HiGHS reports it
     (`-inf`, `inf`), recording every price the walk asks it to solve at."""
@@ -405,16 +407,6 @@ class _UnboundedFake:
                 value=1.0, cost_dn=_record(-np.inf), cost_up=_record(np.inf)
             )
         ]
-
-
-def test_a_non_finite_cost_is_refused_before_highs_sees_it():
-    """#2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
-    time and iteration limits, so the sweep refuses one outright."""
-    p = lp.LPProblem()
-    x = p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
-    result = p.solve(keep_basis=True)
-    with pytest.raises(ValueError, match="non-finite cost"):
-        result.sweep_costs_with_ranging(x, [{x: float("nan")}])
 
 
 class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
@@ -546,34 +538,34 @@ def _shared_charger_plan(imp0=None, curve=True, prices=_PAID_ALL_DAY):
 
 # The site's 12 direction pairs: 3 grid, 6 battery, 3 shared charger. A
 # budget of 12 buys one exact fallback: its targeted and its every-pair round.
-@pytest.mark.parametrize(
-    ("budget", "most"), [(0, 0), (12, 2), (None, None)], ids=["spent", "one", "default"]
-)
-def test_the_curves_exact_work_is_bounded(budget, most, monkeypatch):
+def test_the_curves_exact_work_is_bounded(monkeypatch):
     """#2031 (Mark Purcell): past its budget of direction pairs, a point keeps
     the best one-way plan its search found instead of an exact MIP, so a
     large site's curve cannot run on (#2010's bounded secondary work)."""
-    import copy as copy_mod
+    for budget, most in [(0, 0), (12, 2), (None, None)]:
+        _solver_lp._lex_calibration_failed_until = 0.0
+        with monkeypatch.context() as mp:
+            import copy as copy_mod
 
-    from solver import lp, network
+            from solver import lp, network
 
-    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    if budget is not None:
-        monkeypatch.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
-    copies = []
-    real = copy_mod.deepcopy
+            mp.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
+            if budget is not None:
+                mp.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
+            copies = []
+            real = copy_mod.deepcopy
 
-    def deepcopy(obj, *a, **k):
-        if isinstance(obj, lp.LPProblem):
-            copies.append(obj)
-        return real(obj, *a, **k)
+            def deepcopy(obj, *a, **k):
+                if isinstance(obj, lp.LPProblem):
+                    copies.append(obj)  # noqa: B023
+                return real(obj, *a, **k)  # noqa: B023
 
-    monkeypatch.setattr(network.copy, "deepcopy", deepcopy)
-    plan = _shared_charger_plan()
-    assert plan.status == "optimal"
-    assert plan.offer_curve_import
-    if most is None:
-        assert len(copies) > 2  # unbounded by the tests above
-    else:
-        assert len(copies) <= most
-        assert (len(copies) > 0) == (most > 0)
+            mp.setattr(network.copy, "deepcopy", deepcopy)
+            plan = _shared_charger_plan()
+            assert plan.status == "optimal"
+            assert plan.offer_curve_import
+            if most is None:
+                assert len(copies) > 2  # unbounded by the tests above
+            else:
+                assert len(copies) <= most
+                assert (len(copies) > 0) == (most > 0)

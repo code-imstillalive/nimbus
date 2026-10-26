@@ -150,17 +150,17 @@ CASES = {
 }
 
 
-@pytest.mark.parametrize("grid", [GRID, FINE], ids=["30-minute", "5-minute"])
-@pytest.mark.parametrize("case", list(CASES))
-def test_the_contract_reads_what_today_reads(case, grid):
-    options, auto_include = CASES[case]
-    _same(
-        _legacy(options, auto_include, STATES, grid),
-        _contract(options, auto_include, STATES, grid),
-    )
+def test_the_contract_reads_what_today_reads():
+    # test_the_contract_reads_what_today_reads
+    for grid in [GRID, FINE]:
+        for case in list(CASES):
+            options, auto_include = CASES[case]
+            _same(
+                _legacy(options, auto_include, STATES, grid),
+                _contract(options, auto_include, STATES, grid),
+            )
 
-
-def test_open_meteo_is_placed_where_the_solver_places_it():
+    # test_open_meteo_is_placed_where_the_solver_places_it
     # test_open_meteo_is_placed_where_the_solver_places_it: #2004's offset lives in two places; they must agree.
     assert dfc.OPEN_METEO_WATTS_LEAD == solver_writer.OPEN_METEO_WATTS_LEAD
 
