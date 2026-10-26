@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Device setup: a configured solar forecast is read in any of the three shapes** (DC-006 slice 3, part 1, #1574). Through the device contract, a configured solar forecast sensor is read in whichever shape it publishes: Nimbus's `forecast`, Solcast's `detailedForecast` or Open-Meteo's `watts`, as the Solver already reads it. The member says which shape read it. The Solver's own reading is unchanged.
+
 ## [0.94.491] - 2026-10-26
 
 **At dawn, a charge the sun can cover no longer buys from the grid.**

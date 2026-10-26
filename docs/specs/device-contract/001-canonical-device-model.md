@@ -104,7 +104,7 @@ Source variants, from #1574, each with its required fields:
 | `source.kind` | required | optional |
 |---|---|---|
 | `entity_state` | `entity_id` | `registry_id`, `config_entry_id` |
-| `entity_attribute` | `entity_id`, `attribute_path`, `adapter` (name + version) | `registry_id`, `continued_by` (entity_ids whose rows continue the same series, e.g. Solcast's tomorrow; the first entity is the anchor) |
+| `entity_attribute` | `entity_id`, `attribute_path`, `adapter` (name + version) | `registry_id`, `continued_by` (entity_ids whose rows continue the same series, e.g. Solcast's tomorrow; the first entity is the anchor), `also_adapters` (adapters, name + version, tried in order when `adapter` finds no rows; the member names the one that read them) |
 | `action_response` | `action`, `target`, `response_path`, `adapter` (name + version) | `parameters` |
 | `recorder_statistic` | `statistic_id`, `interval_semantics` | |
 | `constant` | `value`, `unit` | |
