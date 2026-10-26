@@ -141,6 +141,7 @@ def test_each_kind_of_energy_source_is_read_with_its_own_fields():
         "d",
     ) == ["sensor.a"]
 
+    # --- integrating history --------------------------------------------------------------------
     # test_power_integrates_into_the_energy_it_delivered_split_by_direction
     series = [
         (T0, 2.0),
@@ -277,9 +278,6 @@ def test_each_kind_of_energy_source_is_read_with_its_own_fields():
         load, sol, bat, [g + 7.0 * ((i % 5) - 2) for i, g in enumerate(grid)]
     )
     assert v.explanation in ("unexplained", dr.AMBIGUOUS) and not v.ok
-
-
-# --- integrating history --------------------------------------------------------------------
 
 
 # --- matching a power sensor to an energy counter ---------------------------------------------

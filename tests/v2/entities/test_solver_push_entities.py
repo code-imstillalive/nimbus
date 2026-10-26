@@ -41,9 +41,6 @@ def _construct(cls):
     return instance, entry
 
 
-# --- class-attribute properties -------------------------------------------
-
-
 def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # test_battery_forecast_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusSolverBatteryForecastSensor
@@ -110,6 +107,7 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
         }  # #1797, #1786
     )
 
+    # --- class-attribute properties -------------------------------------------
     # test_quality_report_has_required_sensor_entity_class_attributes
     cls = sensor.NimbusSolverQualityReportSensor
     assert cls._attr_has_entity_name is True
@@ -250,18 +248,6 @@ def _clean_dispatch_state():
 # 14. Each flattened child's own update_from_parent extracts the correct
 #     slice of the parent payload and reports it as native_value.
 # ===========================================================================
-
-
-# --- class-attribute properties -------------------------------------------
-
-
-# --- __init__ preserves entity identity + sub-device DeviceInfo -----------
-
-
-# --- update_from_solver + fan-out -----------------------------------------
-
-
-# --- flattened children have correct sub-device DeviceInfo ---------------
 
 
 # --- _resolve_hub_device_id (nimbus issue #335 follow-up, 2026-09-03) ------

@@ -294,6 +294,9 @@ def test_wide_default_pill_visible_and_dot_hidden(top_rules, compact_rules):
     # test_compact_hides_net_column: Compact block hides the NET$ column entirely.
     _assert_column_hidden(compact_rules, "col-net")
 
+    # --------------------------------------------------------------------------- #
+    # Compact colouring: buy red, sell green, grid trader-convention              #
+    # --------------------------------------------------------------------------- #
     # test_compact_buy_color_is_red: Buy data cell and header are red in compact (matches sample).
     for selector in ("table.ftable td.buy-color", "table.ftable th.buy-color"):
         r = _find_rule(compact_rules, lambda s, sel=selector: s == sel)
@@ -362,11 +365,6 @@ def _assert_column_hidden(compact_rules, col_class: str) -> None:
     )
     assert r is not None, f"compact block must hide .{col_class} column"
     assert _decls(r).get("display") == "none"
-
-
-# --------------------------------------------------------------------------- #
-# Compact colouring: buy red, sell green, grid trader-convention              #
-# --------------------------------------------------------------------------- #
 
 
 # --------------------------------------------------------------------------- #

@@ -123,6 +123,7 @@ def test_every_service_registers_once_and_unloads_completely(monkeypatch):
     assert hass.services.handlers == {}
     svc.async_unregister_services(hass)  # and twice is harmless
 
+    # --- argument parsing -------------------------------------------------------------
     # test_a_window_bound_is_any_iso_time_read_as_local_when_naive
     for value, expected in [
         ("2026-09-20T10:00:00+10:00", datetime(2026, 9, 20, 0, 0, tzinfo=UTC)),
@@ -173,9 +174,6 @@ def test_every_service_registers_once_and_unloads_completely(monkeypatch):
             )
         assert a.retrained == 1  # nothing ran when any name was wrong
         _call(_hass(), svc.SERVICE_RETRAIN)  # no forecasters yet: nothing to do
-
-
-# --- argument parsing -------------------------------------------------------------
 
 
 # --- retrain and solve now -----------------------------------------------------------

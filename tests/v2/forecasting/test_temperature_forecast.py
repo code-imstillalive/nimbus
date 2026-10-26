@@ -128,6 +128,7 @@ def test_weather_domain_entity_not_in_response_returns_empty(caplog):
     assert len(warnings) == 1
     assert "stopped yielding" in warnings[0].getMessage()
 
+    # -- #269 mitigation A: cache the last-good forecast across ticks -------------
     # test_cache_hit_rescues_a_transient_failure: Populate the cache with a successful fetch, then make the SAME
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"})
@@ -152,6 +153,3 @@ def test_weather_domain_entity_not_in_response_returns_empty(caplog):
 
 
 # -- #269 mitigation B: warn on state-change, not just the first-ever tick ---
-
-
-# -- #269 mitigation A: cache the last-good forecast across ticks -------------

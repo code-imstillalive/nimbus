@@ -50,6 +50,9 @@ def test_should_poll_is_false():
     instance.update_from_solver(2.5, {"forecast": []})
     assert instance.available is True
 
+    # --- issue #82: both hass.add_job()/async_track_time_interval targets  ----
+    # --- must genuinely be event-loop-safe (@callback), not just "work"    ----
+    # --- under a stub that doesn't model real HA's thread-dispatch logic.  ----
     # test_update_from_solver_is_marked_hass_callback: Real, live-breaking regression (issue #82, found on Mark Purcell's
     assert (
         getattr(
@@ -99,8 +102,3 @@ def test_should_poll_is_false():
 
 
 # --- async_added_to_hass: the real self-driven re-check registration ------
-
-
-# --- issue #82: both hass.add_job()/async_track_time_interval targets  ----
-# --- must genuinely be event-loop-safe (@callback), not just "work"    ----
-# --- under a stub that doesn't model real HA's thread-dispatch logic.  ----

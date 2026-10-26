@@ -138,6 +138,7 @@ def test_the_discharge_cost_follows_its_first_matching_active_block(
     assert out["residual_pct_of_capacity"] is None
     assert out["implied_discharge_efficiency"] == round(1.0 / (9.5 - 7.0), 4)
 
+    # --- whether a provisional score stands -------------------------------------------------
     # test_a_provisional_score_is_redone_hourly_until_its_settlement_lands
     for attrs, age_minutes, keep in [
         ({"real_p2p_settlement_status": "settled"}, 600, True),
@@ -243,9 +244,6 @@ def _balance(**kw):
         "discharge_efficiency": 0.95,
     }
     return sw.battery_energy_balance(**{**base, **kw})
-
-
-# --- whether a provisional score stands -------------------------------------------------
 
 
 # --- the load-nowcast skill ---------------------------------------------------------------

@@ -103,6 +103,7 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         assert points is None and bands is False
         assert says in error
 
+    # --- the misconfiguration notification -----------------------------------------
     # test_the_load_forecast_error_notifies_once_per_error_then_clears
     tmp_1 = (
         tmp_path / "test_the_load_forecast_error_notifies_once_per_error_then_clears"
@@ -239,9 +240,6 @@ def test_a_canonical_forecast_is_read_in_kw_with_its_bands(ha, monkeypatch, tmp_
         # One per cycle, oldest first.
         assert out == {"repaired": [{"date": "2026-09-22", "summary": {"ok": 1}}]}
         assert rescored == [(3, {"2026-09-22"})]
-
-
-# --- the misconfiguration notification -----------------------------------------
 
 
 # --- how far a day's score can be trusted -----------------------------------------

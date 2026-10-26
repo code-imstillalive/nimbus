@@ -91,6 +91,7 @@ def test_a_badly_formed_problem_is_refused_before_solving():
         with pytest.raises(ValueError, match=says):
             _stochastic(scenarios, weights, start)
 
+    # --- the inverter modes a plan implies ---------------------------------------------------------
     # test_each_period_maps_to_the_inverters_own_mode_and_transitions_are_listed
     _solver_lp._lex_calibration_failed_until = 0.0
     det = build_plan(
@@ -171,9 +172,6 @@ def test_a_badly_formed_problem_is_refused_before_solving():
             evaluate_fn=cost,
             n_grid=1,
         )
-
-
-# --- the inverter modes a plan implies ---------------------------------------------------------
 
 
 # --- what Nimbus is scored against ---------------------------------------------------------------

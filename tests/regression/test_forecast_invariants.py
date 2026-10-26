@@ -45,6 +45,9 @@ def test_raw_01_forecast_exposes_price_raw_attributes(
     for key in ("load_kw", "solar_kw"):
         assert key in forecast[0], f"forecast[0] missing {key!r}"
 
+    # ─────────────────────────────────────────────────────────────
+    # PRICE-* — source-sensor pass-through (#217 item 1, #216)
+    # ─────────────────────────────────────────────────────────────
     # test_price_01_export_price_raw_matches_amber_express_source: PRICE-01: within Amber Express feed-in's real coverage window,
     fi_map = {
         datetime.fromisoformat(f["time"]): f["value"]
@@ -169,6 +172,9 @@ def test_raw_01_forecast_exposes_price_raw_attributes(
         f"{_nem_block_start(forecast[0]['time'])}):\n  " + "\n  ".join(failures)
     )
 
+    # ─────────────────────────────────────────────────────────────
+    # LP-* — LP output invariants (#217 item 1)
+    # ─────────────────────────────────────────────────────────────
     # test_lp_01_soc_bounds_respected: LP-01: All forecast[i].soc_pct within [min_soc_pct, max_soc_pct].
     lo = float(solver_config["solver_battery_min_soc_percent"])
     hi = float(solver_config["solver_battery_max_soc_percent"])
@@ -214,11 +220,6 @@ def test_raw_01_forecast_exposes_price_raw_attributes(
         f"energy balance not closed: e_via_soc={e_via_soc:.2f} kWh, "
         f"e_via_kw={e_via_kw:.2f} kWh, rel_err={rel_err:.3f}"
     )
-
-
-# ─────────────────────────────────────────────────────────────
-# PRICE-* — source-sensor pass-through (#217 item 1, #216)
-# ─────────────────────────────────────────────────────────────
 
 
 # ─────────────────────────────────────────────────────────────
@@ -321,8 +322,3 @@ def _rows_in_current_nem_block(forecast: list[dict]) -> list[dict]:
         elif t >= block_end:
             break
     return rows
-
-
-# ─────────────────────────────────────────────────────────────
-# LP-* — LP output invariants (#217 item 1)
-# ─────────────────────────────────────────────────────────────

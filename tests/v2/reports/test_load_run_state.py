@@ -83,6 +83,7 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     )
     assert lrs.remaining_kwh(target_kwh=5.0, delivered_today_kwh=6.0) == 0.0
 
+    # --- activation and reaffirm limits -----------------------------------------------------------------
     # test_activations_are_counted_per_day_against_the_limit
     s = lrs.LoadRunState()
     assert lrs.activation_allowed(s, max_activations_per_day=None, day_key=DAY)
@@ -124,6 +125,7 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     assert (s.reaffirms_today, s.last_reaffirm_at) == (2, 6.0)
     assert lrs.record_reaffirm(s, now_ts=7.0, day_key="2026-09-21").reaffirms_today == 1
 
+    # --- why a load is or is not running -------------------------------------------------------------------
     # test_the_status_reason_says_running_deferred_or_not_scheduled
     times = [T0 + timedelta(minutes=30 * i) for i in range(4)]
     reason = lambda kw, price, lo=0, hi=3: lrs.compute_load_status_reason(
@@ -271,9 +273,6 @@ def _cmd(state, minutes, on, hysteresis=600):
     )
 
 
-# --- activation and reaffirm limits -----------------------------------------------------------------
-
-
 def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
     return replace(
         lrs.LoadRunState(),
@@ -283,9 +282,6 @@ def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
         off_since=now - seconds_ago,
         **kw,
     )
-
-
-# --- why a load is or is not running -------------------------------------------------------------------
 
 
 # --- the schedule view ---------------------------------------------------------------------------------

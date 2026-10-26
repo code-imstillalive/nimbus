@@ -136,6 +136,7 @@ def test_no_history_or_too_little_is_no_model(caplog, house):
         f"falling back to one-step selection -> using {trained.model_type}"
     )
 
+    # --- the horizon curve: selection at 4 h, a diagnostic out to a day (#937) --------------------
     # test_selection_validates_4_h_and_the_diagnostic_reaches_a_day_at_a_bounded_cost
     minutes = 15  # the forecaster's resample step
     assert model.RECURSIVE_VALIDATION_HORIZON_STEPS * minutes / 60 == 4.0
@@ -213,6 +214,3 @@ def _selection_log(caplog, events, **kw):
         or "Recursive validation unavailable" in r.getMessage()
     ]
     return trained, line
-
-
-# --- the horizon curve: selection at 4 h, a diagnostic out to a day (#937) --------------------

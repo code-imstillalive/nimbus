@@ -106,6 +106,15 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
         {"notification_id": "nimbus_setup_incomplete"},
     )
 
+    # nimbus issue #554: entity_energy_price on a grid source's own flow_from/
+    # flow_to entries -- a live price ENTITY the household configured against
+    # that flow (HA's schema also allows a fixed number instead, which has
+    # nothing to suggest, see test below). Safe to disambiguate import vs
+    # export the same way the energy-sensor suggestions above already are:
+    # the Energy Dashboard's own flow_from/flow_to structure does it, not a
+    # guess by elimination among every monetary sensor -- a genuinely
+    # different, safer case than _forecaster_settings_suggestions()'s own
+    # deliberate price-sensor exclusion elsewhere in this file.
     # test_suggests_import_and_export_price_sensors_from_grid_flows
     import asyncio
     from unittest.mock import AsyncMock, patch
@@ -295,17 +304,6 @@ def _hass_with_states(states: dict):
     hass = MagicMock()
     hass.states.get = lambda eid: states.get(eid)
     return hass
-
-
-# nimbus issue #554: entity_energy_price on a grid source's own flow_from/
-# flow_to entries -- a live price ENTITY the household configured against
-# that flow (HA's schema also allows a fixed number instead, which has
-# nothing to suggest, see test below). Safe to disambiguate import vs
-# export the same way the energy-sensor suggestions above already are:
-# the Energy Dashboard's own flow_from/flow_to structure does it, not a
-# guess by elimination among every monetary sensor -- a genuinely
-# different, safer case than _forecaster_settings_suggestions()'s own
-# deliberate price-sensor exclusion elsewhere in this file.
 
 
 # -- _discover_nimbus_load_forecast_candidates (2026-08-24, "Group A") ----

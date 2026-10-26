@@ -161,6 +161,7 @@ def test_the_counterfactual_splits_the_round_trip_efficiency(ha, monkeypatch):
             for kw in built
         )
 
+    # --- the efficiency backtest ------------------------------------------------------------------
     # test_the_backtest_needs_its_sensors
     for missing in [
         {"solver_solar_power_sensor": None},
@@ -170,9 +171,6 @@ def test_the_counterfactual_splits_the_round_trip_efficiency(ha, monkeypatch):
         assert sw.compute_efficiency_backtest_report(cfg(**missing), NOW) is None
         ha["series"]["sensor.real_solar"] = lambda s, e: []
         assert sw.compute_efficiency_backtest_report(cfg(), NOW) is None
-
-
-# --- the efficiency backtest ------------------------------------------------------------------
 
 
 # --- publishing once, re-pushing after (#289, #292) -------------------------------------------
@@ -817,6 +815,7 @@ def test_a_named_rescore_solves_only_the_day_named(monkeypatch, ha, caplog):
                     sw.rescore_quality_history({}, now, 10, only_dates=only)
                 assert seen == scored
 
+    # --- a day whose EPR denominator is unusable warns once (#1089) ------------------------------
     # test_an_unusable_denominator_is_warned_about_once_for_the_day
     caplog.clear()
     with monkeypatch.context() as mp:
@@ -847,6 +846,3 @@ def test_a_named_rescore_solves_only_the_day_named(monkeypatch, ha, caplog):
     row = sw._carry_forward_quality_history(prior, "2026-09-12", entry)["2026-09-12"]
     assert row[field] == -0.5224
     assert not {k for k in row if k.startswith("forecast_regret_")}
-
-
-# --- a day whose EPR denominator is unusable warns once (#1089) ------------------------------

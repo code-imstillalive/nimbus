@@ -45,6 +45,23 @@ Nothing removed one before; at 192 files the default is still to keep them. A pi
 
 Measuring 1 needs a coverage-context run of the whole suite, which is much heavier than CI. `scripts/coverage_by_risk.py` (below) runs exactly that.
 
+## Merged and folded tests
+
+#1837 cut the suite to about 1,000 tests by putting several old tests into one, without deleting any check. Two shapes:
+
+- **Merged:** one test runs several former tests one after another. Each part starts with a comment naming the test it was, such as `# test_wrong_device_class_is_never_suggested`.
+- **Folded:** a former parametrized test loops over its cases.
+
+The scripts that made these changes are in `scripts/test_cuts/`.
+
+What this costs when a test fails:
+
+1. **The first real failure stops the rest.** In a merged test, the parts after a failing one never run, so CI shows one failure where there may be several. After fixing it, rerun: a later part may fail too. A failure inside `pytest.raises` is not one of these, since it is expected.
+2. **The failure carries the merged test's name**, which is the first part's. To find the part that failed, take the line number in the traceback and look up to the nearest `# test_...` comment.
+3. **A folded test doesn't say which case failed.** Rerun with `-l` to see the loop's values.
+
+When a merged part keeps causing confusion, split it back out into its own test. The count staying near 1,000 matters, not 1,000 exactly, and a test that is clearly missing may be added.
+
 ## Coverage by risk
 
 #1837's first question: which parts of Nimbus are tested because they carry risk, against tested because a bug once landed there. `scripts/coverage_by_risk.py` answers it as a measurement:

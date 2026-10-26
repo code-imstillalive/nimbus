@@ -250,6 +250,7 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
     ]:
         assert ho._at_least_solver_horizon(value) == hours
 
+    # --- confirmed pricing suggestions ------------------------------------------------------
     # test_pricing_suggestions_are_applied_only_when_confirmed_and_announced
     with monkeypatch.context() as mp:
         suggestion = {
@@ -293,9 +294,6 @@ def test_the_solver_pages_save_once_at_the_end_with_every_answer(world, monkeypa
 # --- the forecaster and switchboard pages --------------------------------------------
 
 
-# --- confirmed pricing suggestions ------------------------------------------------------
-
-
 def test_with_no_suggestions_left_the_page_closes(world):
     flow = _flow()
     flow.async_abort = lambda reason: {"type": "abort", "reason": reason}
@@ -323,6 +321,7 @@ def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save(world
         vol.Schema({vol.Required("a"): str})
     ).schema.keys() == {"a"}
 
+    # --- live numbers ---------------------------------------------------------------------------
     # test_live_number_fields_show_the_current_value_but_never_the_placeholder
     hass = Hass(
         {
@@ -345,9 +344,6 @@ def test_optional_fields_fold_into_one_advanced_section_and_unfold_on_save(world
         ln.schema_fields(hass, None, "solver_battery") == {}
         and ln.schema_fields(hass, "hub1", "nope") == {}
     )
-
-
-# --- live numbers ---------------------------------------------------------------------------
 
 
 def _default_of(form, key):
