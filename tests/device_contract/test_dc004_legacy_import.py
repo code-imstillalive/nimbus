@@ -159,3 +159,66 @@ def test_every_subentry_is_mapped_or_kept_never_dropped():
     # test_the_module_makes_no_home_assistant_import
     text = Path(di.__file__).read_text(encoding="utf-8")
     assert "homeassistant" not in text
+
+
+def test_the_solar_forecast_imports_as_the_members_the_solver_reads():
+    """DC-006 slice 3 (#1574): the Solar `generation_forecast` binding is
+    the Solver's own member list (`device_forecasts.legacy_solar_binding`),
+    read through forecast adapters, and each configured member goes back to
+    its own settings key; an auto-included integration belongs to none."""
+    known = {"solcast": ["sensor.sc_today", "sensor.sc_tomorrow"], "open_meteo": []}
+
+    # One configured sensor: one source, the binding's own provenance.
+    res = di.import_legacy(_snapshot())
+    binding = _device(res.document, "solar")["bindings"]["generation_forecast"]
+    assert binding["source"]["kind"] == "entity_attribute"
+    assert binding["source"]["entity_id"] == "sensor.pv_forecast"
+    assert binding["source"]["adapter"] == {"name": "nimbus_forecast", "version": 1}
+    assert [a["name"] for a in binding["source"]["also_adapters"]] == [
+        "solcast",
+        "open_meteo_solar",
+    ]
+    assert binding["provenance"]["source_path"] == (
+        "options.solver_solar_forecast_sensor"
+    )
+    assert res.problems == []
+    view = di.legacy_view(res.document)
+    assert view["options"]["solver_solar_forecast_sensor"] == "sensor.pv_forecast"
+
+    # Two configured sensors and auto-include: three members, mean.
+    snap = _snapshot()
+    snap["options"] = {
+        **snap["options"],
+        "solver_solar_forecast_sensor_3": "sensor.pv_forecast_b",
+        "solver_auto_include_known_solar": True,
+    }
+    snap["known_sources"] = known
+    res = di.import_legacy(snap)
+    binding = _device(res.document, "solar")["bindings"]["generation_forecast"]
+    assert binding["combine"] == "mean"
+    members = binding["sources"]
+    assert [m["entity_id"] for m in members] == [
+        "sensor.pv_forecast",
+        "sensor.sc_today",
+        "sensor.pv_forecast_b",
+    ]
+    assert [(m.get("provenance") or {}).get("source_path") for m in members] == [
+        "options.solver_solar_forecast_sensor",
+        None,
+        "options.solver_solar_forecast_sensor_3",
+    ]
+    assert res.problems == []
+    view = di.legacy_view(res.document)
+    assert view["options"]["solver_solar_forecast_sensor"] == "sensor.pv_forecast"
+    assert view["options"]["solver_solar_forecast_sensor_3"] == "sensor.pv_forecast_b"
+    assert "solver_solar_forecast_sensor_2" not in view["options"]
+    # The settings already are the view: nothing drifts after an import.
+    assert di.drift(res.document, snap) == []
+    assert "options.solver_solar_forecast_sensor_3" in di.owned_keys(snap)
+
+    # A changed sensor 3 is drift on that key alone.
+    moved = {**snap, "options": {**snap["options"]}}
+    moved["options"]["solver_solar_forecast_sensor_3"] = "sensor.other"
+    assert [(d["key"], d["current"]) for d in di.drift(res.document, moved)] == [
+        ("solver_solar_forecast_sensor_3", "sensor.other")
+    ]

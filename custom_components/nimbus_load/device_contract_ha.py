@@ -44,11 +44,13 @@ from homeassistant.util import dt as dt_util
 from . import (
     device_bindings,
     device_discovery,
+    device_forecasts,
     device_import,
     device_readiness,
     device_resolver,
     device_storage,
     device_units,
+    known_sources,
 )
 from .const import DOMAIN
 
@@ -113,7 +115,36 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
             "timezone": hass.config.time_zone,
             "currency": hass.config.currency,
         },
+        # Solcast and Open-Meteo as the registry finds them: the solar
+        # forecast binding's auto-included members (DC-006 slice 3).
+        "known_sources": _known_sources(hass),
     }
+
+
+async def async_active_solar_forecast(hass: Any, entry: Any) -> dict[str, Any] | None:
+    """The committed document's Solar `generation_forecast` binding while the
+    device setup is `active`, for the Solver to read through the contract
+    (DC-006 slice 3); None in every other mode, or when the binding is not
+    one the forecast adapters can read, so the Solver reads as today."""
+    state = await _store(hass, entry).async_read()
+    document = state.get("document")
+    if state.get("mode") != "active" or document is None:
+        return None
+    for device in document.get("devices") or ():
+        if device.get("kind") != "solar":
+            continue
+        binding = (device.get("bindings") or {}).get("generation_forecast")
+        if device_forecasts.readable(binding):
+            return binding
+    return None
+
+
+def _known_sources(hass: Any) -> dict[str, Any]:
+    try:
+        return known_sources.resolve(hass)
+    except Exception:  # a lookup failure leaves them out
+        _LOGGER.debug("Nimbus: known_sources lookup failed", exc_info=True)
+        return dict(known_sources.EMPTY)
 
 
 def _preview_response(pv: device_import.Preview) -> dict[str, Any]:
@@ -809,9 +840,10 @@ async def _async_validate(
     the live state (DC-005 "a source switch is validated")."""
     devices = {d["id"]: d for d in document.get("devices") or []}
     stats = {
-        devices[d]["bindings"][r]["source"].get("statistic_id")
+        (devices[d]["bindings"][r].get("source") or {}).get("statistic_id")
         for d, r in changed
-        if devices[d]["bindings"][r]["source"].get("kind") == "recorder_statistic"
+        if (devices[d]["bindings"][r].get("source") or {}).get("kind")
+        == "recorder_statistic"
     }
     rows = await _async_statistics(hass, {s for s in stats if s})
     readers = device_bindings.Readers(

@@ -2554,6 +2554,20 @@ class NimbusSolverConfigSensor(SensorEntity):
         same required-keys check, same cadence, same log content and
         level, purely relocated.
         """
+        # DC-006 slice 3: while the device setup is `active`, the Solver
+        # reads its solar forecast through the committed document's binding.
+        try:
+            from . import device_contract_ha
+
+            self._solar_forecast_binding = (
+                await device_contract_ha.async_active_solar_forecast(
+                    self.hass, self._entry
+                )
+            )
+        except Exception:  # never block the Solver's config on the setup
+            _LOGGER.debug("Device setup unreadable; legacy solar", exc_info=True)
+            self._solar_forecast_binding = None
+
         unresolved = self._unresolved_required_keys()
         new_state = "configured" if not unresolved else "unconfigured"
 
@@ -2636,6 +2650,11 @@ class NimbusSolverConfigSensor(SensorEntity):
         except Exception:
             _LOGGER.debug("Nimbus: known_sources lookup failed", exc_info=True)
             attrs["known_sources"] = known_sources.EMPTY
+        # DC-006 slice 3: the solar forecast binding the Solver reads through
+        # the device contract; None (today's reading) unless `active`.
+        attrs["device_contract_solar_forecast"] = getattr(
+            self, "_solar_forecast_binding", None
+        )
         return attrs
 
     def _resolve_geocoded_region_and_prefix(self):

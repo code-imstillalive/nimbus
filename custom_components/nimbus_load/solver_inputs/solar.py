@@ -37,6 +37,11 @@ try:
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver_inputs import solar_running_low  # type: ignore[no-redef]
 
+try:
+    from .. import device_forecasts
+except ImportError:  # pragma: no cover - standalone/cron path
+    import device_forecasts  # type: ignore[no-redef]
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -231,6 +236,152 @@ def _fetch_solcast_solar_raw(
     return value, lower, upper
 
 
+def _add_legacy_members(
+    cfg: dict,
+    grid_times: list[datetime],
+    n_periods: int,
+    _add_member,
+) -> None:
+    """Today's solar members, read from the Solver's settings: every install
+    whose device setup is not `active`."""
+    sw = _solver_writer()
+
+    # nimbus issue #546 (Mark Purcell, real regression the same day
+    # #542/#543 shipped): whether auto-include is on, computed once up
+    # front -- a configured source that resolves to a known Open-Meteo/
+    # Solcast entity is skipped as a STANDALONE member whenever the
+    # matching auto-include fetch is going to run anyway, so that
+    # integration is represented exactly once, by its own full-coverage
+    # multi-entity read, never by a second, narrower read of one of its
+    # own entities. See _is_known_solar_integration_entity()'s own
+    # docstring for the real regression the previous (entity-level
+    # skip_entities) dedup caused.
+    auto_include_known_solar = bool(cfg.get("solver_auto_include_known_solar"))
+
+    def _skip_as_standalone_source(entity_id: str) -> bool:
+        return auto_include_known_solar and sw._is_known_solar_integration_entity(
+            entity_id, cfg
+        )
+
+    # Source 1: whatever's configured via the Solver settings wizard
+    # (this household: Nimbus's own self-trained model).
+    configured_entity = cfg.get("solver_solar_forecast_sensor")
+    if configured_entity and not _skip_as_standalone_source(configured_entity):
+        _add_member(
+            _fetch_solar_source_safe(configured_entity, grid_times, n_periods),
+            configured_entity in sw.known_solcast_entities(cfg),
+        )
+
+    # Known real integrations (Open-Meteo, Solcast) -- ONLY included if
+    # switch.nimbus_solver_auto_include_known_solar is explicitly ON
+    # (2026-08-22, direct household correction: this used to run
+    # unconditionally, dressed up as "auto-detect", entirely outside the
+    # 3 solar_forecast_sensor_1/2/3 config fields -- "then what is the
+    # purposed of having 3 inputs since it forces user ot autodetect...
+    # that feels wrong". Default is False (see Nimbus's own const.py
+    # comment on CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR) -- a fresh
+    # install gets exactly what's configured in sources 1/2/3, nothing
+    # more, unless this switch is explicitly turned on.
+    if auto_include_known_solar:
+        for fetcher, is_solcast in (
+            (lambda: _fetch_open_meteo_solar_raw(grid_times, cfg), False),
+            (lambda: _fetch_solcast_solar_raw(grid_times, n_periods, cfg), True),
+        ):
+            result = fetcher()
+            _add_member(result, is_solcast)
+
+    # Optional generic ADDITIONAL sources (solver_solar_forecast_
+    # sensor_2/_3) -- for any OTHER solar forecast integration this
+    # writer doesn't already know how to auto-detect (portability for
+    # a different household's own install), or a second pointer at the
+    # same known integration if wanted. Blank (the default) contributes
+    # nothing, same guarantee as every other optional field.
+    for entity_id in (
+        cfg.get("solver_solar_forecast_sensor_2"),
+        cfg.get("solver_solar_forecast_sensor_3"),
+    ):
+        if not entity_id or _skip_as_standalone_source(entity_id):
+            continue
+        _add_member(
+            _fetch_solar_source_safe(entity_id, grid_times, n_periods),
+            entity_id in sw.known_solcast_entities(cfg),
+        )
+
+
+#: A member's contract reason as #543's warning names it.
+_DROP_REASON = {"shape_not_recognized": "shape not recognized"}
+_DROP_DETAIL = {
+    "unavailable": "the entity could not be read",
+    "shape_not_recognized": "no forecast/detailedForecast/watts attribute",
+    "malformed": "a row could not be read",
+    "adapter_unknown": "the binding names no known forecast adapter",
+}
+
+
+def _add_contract_members(
+    binding: dict,
+    cfg: dict,
+    grid_times: list[datetime],
+    _add_member,
+) -> None:
+    """Each member of the document's solar forecast binding, read through
+    the device contract (`device_forecasts.resolve_member`). A configured
+    sensor is warned about by name when it drops, as today (#543); Solcast
+    or Open-Meteo read across all of its own entities is not."""
+    sw = _solver_writer()
+    known_solcast = sw.known_solcast_entities(cfg)
+    integrations = (known_solcast, sw.known_open_meteo_entities(cfg))
+    sources = binding.get("sources") or [binding["source"]]
+    read = _attributes_reader()
+    for source in sources:
+        member = device_forecasts.resolve_member(
+            source,
+            read,
+            grid_times,
+            sw.resample_forecast,
+            resample_instants=sw.resample_instants,
+        )
+        ids = list(member.entity_ids)
+        if ids and ids not in integrations:
+            if member.state == "ok":
+                sw._note_solar_source_recovered(ids[0])
+            else:
+                reason = member.reason or ""
+                sw._warn_solar_source_dropped_once(
+                    ids[0],
+                    _DROP_REASON.get(reason, reason),
+                    _DROP_DETAIL.get(reason, ""),
+                )
+        if member.state != "ok":
+            continue
+        _add_member(
+            (list(member.value), list(member.lower), list(member.upper)),
+            any(e in known_solcast for e in ids),
+        )
+
+
+def _attributes_reader():
+    """An entity's attributes from Home Assistant, or None when it cannot be
+    read (#543's "unavailable"). Each entity is fetched once per solve: a
+    member may try several adapters on it."""
+    sw = _solver_writer()
+    seen: dict[str, dict | None] = {}
+
+    def read(entity_id: str) -> dict | None:
+        if entity_id not in seen:
+            try:
+                seen[entity_id] = sw.ha_get(entity_id)["attributes"]
+            except (
+                urllib.error.HTTPError,
+                urllib.error.URLError,
+                json.JSONDecodeError,
+            ):
+                seen[entity_id] = None
+        return seen[entity_id]
+
+    return read
+
+
 def build_solar_arrays(
     cfg: dict,
     grid_times: list[datetime],
@@ -335,66 +486,14 @@ def build_solar_arrays(
         solar_uppers.append(np.array(up))
         solar_is_solcast.append(is_solcast)
 
-    # nimbus issue #546 (Mark Purcell, real regression the same day
-    # #542/#543 shipped): whether auto-include is on, computed once up
-    # front -- a configured source that resolves to a known Open-Meteo/
-    # Solcast entity is skipped as a STANDALONE member whenever the
-    # matching auto-include fetch is going to run anyway, so that
-    # integration is represented exactly once, by its own full-coverage
-    # multi-entity read, never by a second, narrower read of one of its
-    # own entities. See _is_known_solar_integration_entity()'s own
-    # docstring for the real regression the previous (entity-level
-    # skip_entities) dedup caused.
-    auto_include_known_solar = bool(cfg.get("solver_auto_include_known_solar"))
-
-    def _skip_as_standalone_source(entity_id: str) -> bool:
-        return auto_include_known_solar and sw._is_known_solar_integration_entity(
-            entity_id, cfg
-        )
-
-    # Source 1: whatever's configured via the Solver settings wizard
-    # (this household: Nimbus's own self-trained model).
-    configured_entity = cfg.get("solver_solar_forecast_sensor")
-    if configured_entity and not _skip_as_standalone_source(configured_entity):
-        _add_member(
-            _fetch_solar_source_safe(configured_entity, grid_times, n_periods),
-            configured_entity in sw.known_solcast_entities(cfg),
-        )
-
-    # Known real integrations (Open-Meteo, Solcast) -- ONLY included if
-    # switch.nimbus_solver_auto_include_known_solar is explicitly ON
-    # (2026-08-22, direct household correction: this used to run
-    # unconditionally, dressed up as "auto-detect", entirely outside the
-    # 3 solar_forecast_sensor_1/2/3 config fields -- "then what is the
-    # purposed of having 3 inputs since it forces user ot autodetect...
-    # that feels wrong". Default is False (see Nimbus's own const.py
-    # comment on CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR) -- a fresh
-    # install gets exactly what's configured in sources 1/2/3, nothing
-    # more, unless this switch is explicitly turned on.
-    if auto_include_known_solar:
-        for fetcher, is_solcast in (
-            (lambda: _fetch_open_meteo_solar_raw(grid_times, cfg), False),
-            (lambda: _fetch_solcast_solar_raw(grid_times, n_periods, cfg), True),
-        ):
-            result = fetcher()
-            _add_member(result, is_solcast)
-
-    # Optional generic ADDITIONAL sources (solver_solar_forecast_
-    # sensor_2/_3) -- for any OTHER solar forecast integration this
-    # writer doesn't already know how to auto-detect (portability for
-    # a different household's own install), or a second pointer at the
-    # same known integration if wanted. Blank (the default) contributes
-    # nothing, same guarantee as every other optional field.
-    for entity_id in (
-        cfg.get("solver_solar_forecast_sensor_2"),
-        cfg.get("solver_solar_forecast_sensor_3"),
-    ):
-        if not entity_id or _skip_as_standalone_source(entity_id):
-            continue
-        _add_member(
-            _fetch_solar_source_safe(entity_id, grid_times, n_periods),
-            entity_id in sw.known_solcast_entities(cfg),
-        )
+    binding = cfg.get("device_contract_solar_forecast")
+    if device_forecasts.readable(binding):
+        # DC-006 slice 3 (#1574): the device setup is `active`, so every
+        # member is read through the committed document's binding. A member
+        # that does not resolve is dropped, never zero-filled (above).
+        _add_contract_members(binding, cfg, grid_times, _add_member)
+    else:
+        _add_legacy_members(cfg, grid_times, n_periods, _add_member)
 
     _apply_running_low_gate(
         cfg,

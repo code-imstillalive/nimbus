@@ -1283,6 +1283,12 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         "_fetch_open_meteo_solar_raw",
         "_fetch_solcast_solar_raw",
         "_solver_writer",
+        # DC-006 slice 3 (#1574): today's member reading split out of
+        # build_solar_arrays() unchanged (_add_legacy_members), beside the
+        # device contract's reading of an `active` document's binding.
+        "_add_legacy_members",
+        "_add_contract_members",
+        "_attributes_reader",
         # #735 stage 2 -- solver_inputs/load.py. build_load_arrays() is
         # the extracted block; the docs copy still has the identical
         # logic inline in its own main(), so nothing is missing from

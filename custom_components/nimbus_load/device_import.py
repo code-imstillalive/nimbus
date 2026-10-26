@@ -42,8 +42,10 @@ from typing import Any
 
 try:
     from . import device_contract as dc
+    from . import device_forecasts
 except ImportError:  # pragma: no cover - loaded as a top-level module in tests
     import device_contract as dc  # type: ignore[no-redef]
+    import device_forecasts  # type: ignore[no-redef]
 
 #: number.py starts a hardware number at this placeholder: "not set".
 PLACEHOLDER = 0.1
@@ -57,7 +59,6 @@ _ROLE_SOURCES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("battery", "soc", ("solver_battery_soc_sensor",)),
     ("battery", "power", ("solver_battery_power_sensor", "battery_sensor")),
     ("solar", "power", ("solver_solar_power_sensor", "solar_sensor")),
-    ("solar", "generation_forecast", ("solver_solar_forecast_sensor",)),
     ("load", "power", ("solver_whole_house_cross_check_sensor",)),
     ("load", "demand_forecast", ("solver_load_forecast_sensor",)),
 )
@@ -126,6 +127,59 @@ def _binding(entity_id: str, path: str, confirmed: bool) -> dict[str, Any]:
     }
 
 
+#: The Solver's solar forecast settings, in member order (DC-006 slice 3).
+_SOLAR_FORECAST_KEYS = (
+    "solver_solar_forecast_sensor",
+    "solver_solar_forecast_sensor_2",
+    "solver_solar_forecast_sensor_3",
+)
+
+
+def _solar_forecast_binding(
+    options: dict[str, Any], snapshot: dict[str, Any], confirmed: set[str]
+) -> dict[str, Any] | None:
+    """The Solar `generation_forecast` binding the Solver reads today
+    (`device_forecasts.legacy_solar_binding`): every configured sensor, and
+    Open-Meteo and Solcast under auto-include. A configured member carries
+    the provenance of its settings key, so a view writes each back to its
+    own key; an auto-included member belongs to no key."""
+    auto = bool(options.get("solver_auto_include_known_solar"))
+    known = snapshot.get("known_sources") or {}
+    binding = device_forecasts.legacy_solar_binding(options, auto, known)
+    if binding is None:
+        return None
+    by_entity = {
+        options[k]: k for k in reversed(_SOLAR_FORECAST_KEYS) if _text(options.get(k))
+    }
+    members = binding.get("sources") or [binding["source"]]
+    paths = []
+    for source in members:
+        key = None
+        if not source.get("continued_by"):
+            key = by_entity.get(source["entity_id"])
+        if key is not None:
+            source["provenance"] = {
+                "origin": "legacy_import",
+                "source_path": f"options.{key}",
+                "confirmed": key in confirmed,
+                **({"confirmed_by": "setup_builder"} if key in confirmed else {}),
+            }
+            paths.append(f"options.{key}")
+    if "source" in binding:
+        # One member: its provenance is the binding's, as for any binding.
+        binding["provenance"] = binding["source"].pop(
+            "provenance", {"origin": "legacy_import", "confirmed": False}
+        )
+        return binding
+    binding["provenance"] = {
+        "origin": "legacy_import",
+        "member_source_paths": paths,
+        "confirmed": bool(paths)
+        and all(p.split(".", 1)[1] in confirmed for p in paths),
+    }
+    return binding
+
+
 def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
     """Today's hub-level settings as a DC-001 document (module docstring)."""
     options = dict(snapshot.get("options") or {})
@@ -161,6 +215,10 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
                 # exactly those and never fills one that was empty.
                 binding["provenance"]["also_source_paths"] = [p for p, _v in found[1:]]
             bindings[device][role] = binding
+
+    solar_forecast = _solar_forecast_binding(options, snapshot, confirmed_keys)
+    if solar_forecast is not None:
+        bindings["solar"]["generation_forecast"] = solar_forecast
 
     # Battery sign: Solver's own declaration (Forecaster declares none).
     battery_power = bindings["battery"].get("power")
@@ -561,6 +619,11 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
             for path in paths:
                 if path:
                     _write(view, path, entity)
+            # A forecast binding's members each go back to their own key.
+            for source in _member_sources(binding):
+                path = (source.get("provenance") or {}).get("source_path")
+                if path:
+                    _write(view, path, source.get("entity_id"))
             native = (binding.get("normalization") or {}).get(
                 "native_positive_direction"
             )
@@ -604,6 +667,15 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
             sub["controllable_load_device_entity"] = control.get("entity_id")
     view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
     return view
+
+
+def _member_sources(binding: dict[str, Any]) -> list[dict[str, Any]]:
+    """The sources of a binding that carry their own provenance: a
+    `sources` list's members, or a forecast binding's single source."""
+    sources = binding.get("sources")
+    if sources is None:
+        sources = [binding.get("source") or {}]
+    return [s for s in sources if isinstance(s, dict) and s.get("provenance")]
 
 
 def view_writes(view: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -841,6 +913,7 @@ def owned_keys(snapshot: dict[str, Any]) -> list[str]:
     """Every key path a view may write for this snapshot. Keys outside it
     (tunables, unmapped subentries) are never touched."""
     paths = {f"options.{k}" for _d, _r, keys in _ROLE_SOURCES for k in keys}
+    paths |= {f"options.{k}" for k in _SOLAR_FORECAST_KEYS}
     paths.add("options.solver_battery_power_positive_is_charge")
     paths |= {f"numbers.{k}" for _d, _c, k in _CONSTRAINTS}
     paths.add("numbers.solver_battery_capacity_kwh")

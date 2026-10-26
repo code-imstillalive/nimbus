@@ -266,6 +266,51 @@ def test_the_contract_reads_what_today_reads():
     )
 
 
+def _active(options, auto_include, states, grid=GRID):
+    """`build_solar_arrays` with the device setup `active`: the config
+    sensor publishes the document's binding and the Solver reads it."""
+    binding = dfc.legacy_solar_binding(options, auto_include, KNOWN)
+    return _legacy(
+        {**options, "device_contract_solar_forecast": binding},
+        auto_include,
+        states,
+        grid,
+    )
+
+
+def test_in_active_the_solver_reads_through_the_contract():
+    """DC-006 acceptance: in `active` the Solver reads the document's binding
+    and gets what it reads in `legacy`, case by case; the one approved
+    change is a malformed integration row, which drops that member."""
+    for grid in [GRID, FINE]:
+        for case in list(CASES):
+            options, auto_include = CASES[case]
+            got = _active(options, auto_include, STATES, grid)
+            want = _legacy(options, auto_include, STATES, grid)
+            for a, b in zip(got, want, strict=True):
+                assert list(a) == pytest.approx(list(b), abs=1e-12), case
+
+    # A configured sensor that is gone: dropped in both, and with nothing
+    # left the Solver's flat 0.0 kW stays (DC-R04 stays the contract's).
+    options = {"solver_solar_forecast_sensor": "sensor.gone"}
+    assert _active(options, False, STATES)[0] == [0.0] * len(GRID)
+
+    # Adopted on #1574: a malformed Open-Meteo row drops Open-Meteo instead
+    # of raising out of the solar build.
+    states = {**STATES, "sensor.om_tomorrow": {"watts": {"not a time": 1000.0}}}
+    _same(_active({}, True, states), _contract({}, True, states))
+
+    # A document imported before slice 3 binds the sensor as `entity_state`:
+    # not readable by the forecast adapters, so the Solver reads as today.
+    old = {
+        "source": {"kind": "entity_state", "entity_id": "sensor.nimbus_solar_forecast"}
+    }
+    assert not dfc.readable(old)
+    options = {"solver_solar_forecast_sensor": "sensor.nimbus_solar_forecast"}
+    cfg = {**options, "device_contract_solar_forecast": old}
+    assert _legacy(cfg, False, STATES) == _legacy(options, False, STATES)
+
+
 # --- the binding itself (DC-001) --------------------------------------------------
 
 
