@@ -2,7 +2,8 @@
 # that main's suite misses.
 name: Diag mutation gap
 on:
-  workflow_dispatch:
+  push:
+    branches: [diag/mutation-gap]
 permissions:
   contents: read
 jobs:
