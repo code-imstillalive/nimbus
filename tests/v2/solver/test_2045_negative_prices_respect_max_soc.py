@@ -88,10 +88,17 @@ def test_the_penalty_is_sized_on_magnitude():
     )
 
 
+def test_no_price_at_all_is_the_floor():
+    """Empty price arrays and no other rate: the floor, not a TypeError."""
+    assert soft_soc_penalty([], []) == pytest.approx(
+        0.01 * DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
+    )
+
+
 _price = st.floats(-2.0, 2.0, allow_nan=False).map(lambda v: round(v, 3))
 
 
-@settings(max_examples=60, deadline=None)
+@settings(max_examples=60, deadline=None, derandomize=True)
 @given(st.lists(st.tuples(_price, _price), min_size=2, max_size=6))
 def test_no_price_pays_enough_to_overfill(prices):
     """Starting inside the range, no mix of signed prices makes the plan

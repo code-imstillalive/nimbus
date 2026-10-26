@@ -446,7 +446,9 @@ def soft_soc_penalty(
     the 0.01 floor won, and a 0.10 $/kWh penalty lost to being paid 1 $/kWh
     to import -- both batteries filled to capacity past max_soc_kwh. A
     negative price pays as much per kWh as a positive one costs, so it has
-    to be dominated the same way.
+    to be dominated the same way. With no price at all (no periods, no
+    other rate) the floor is the answer, not a TypeError (Mark Purcell's
+    review of #2054).
     """
     rates = [
         float(np.max(np.abs(np.asarray(a, dtype=np.float64))))
@@ -454,7 +456,7 @@ def soft_soc_penalty(
         if len(a)
     ]
     rates += [abs(float(r)) for r in other_rates]
-    return DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(*rates, 0.01)
+    return DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max([*rates, 0.01])
 
 
 # How close two periods' own real start times need to be to count as
@@ -5214,7 +5216,7 @@ def _build_plan_once(
         # 3 kW now at -0.54 where a fresh solve waits to be paid -1.00), so
         # it is checked by the exact MIP, which frees them, within the same
         # budget as every other exact solve.
-        plan_held_binaries = any(p._binary)
+        plan_held_binaries = p.is_mip
 
         def _point_value(var: str, costs: Callable[[float], dict[str, float]]):
             def value(price: float, step: SweepRangingStep) -> tuple[float, bool]:
