@@ -227,6 +227,48 @@ def test_the_export_floor_refuses_a_pin_that_sells_more_below_it(charging, disch
     )
 
 
+def test_a_pinned_charge_bought_from_the_grid_is_not_kept(charging, discharging):
+    # nimbus #2066, 26 Oct 07:23: cloud took solar from 1.15 to 0.06 kW and
+    # the kept solar charge became a charge from the grid at 15.1 c, for a
+    # $0.0002 saving in mode changes.
+    pinned = dataclasses.replace(
+        charging,
+        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float) + 1.0,
+        total_cost=float(discharging.total_cost),
+    )
+    out = solver_plan.period0_direction_hysteresis(
+        discharging, charging, lambda kw: pinned, 0.05
+    )
+    assert out.period0_hysteresis == "grid_charge"
+    assert solver_plan._period0_net_kw(out) == pytest.approx(
+        solver_plan._period0_net_kw(discharging)
+    )
+
+
+def test_a_pinned_charge_that_imports_no_more_is_still_kept(charging, discharging):
+    pinned = dataclasses.replace(
+        charging,
+        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float),
+        total_cost=float(discharging.total_cost),
+    )
+    out = solver_plan.period0_direction_hysteresis(
+        discharging, charging, lambda kw: pinned, 0.05
+    )
+    assert out.period0_hysteresis == "kept"
+
+
+def test_a_pinned_discharge_is_not_judged_as_a_grid_charge(charging, discharging):
+    pinned = dataclasses.replace(
+        discharging,
+        grid_import_kw=np.asarray(charging.grid_import_kw, dtype=float) + 1.0,
+        total_cost=float(charging.total_cost),
+    )
+    out = solver_plan.period0_direction_hysteresis(
+        charging, discharging, lambda kw: pinned, 0.05
+    )
+    assert out.period0_hysteresis == "kept"
+
+
 # --- period0_crossing_delta (#1417, #1577) ---------------------------------
 
 

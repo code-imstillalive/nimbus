@@ -183,6 +183,7 @@ def run(
     helper_age_s: float = 3600,
     now: datetime = NOW,
     attrs: dict | None = None,
+    extra: dict[str, str] | None = None,
     **inputs: Any,
 ) -> tuple[list[str], dict[str, Any]]:
     """Fire `trigger`; return the actions that ran and the variables."""
@@ -204,6 +205,8 @@ def run(
     }
     if helper is not None:
         states[MODE] = _State(helper, {}, now - timedelta(seconds=helper_age_s))
+    for entity, state in (extra or {}).items():
+        states[entity] = _State(state, {}, now)
     r = _Run(states, values, now)
     r.ctx["trigger"] = {"id": trigger}
     for name, value in bp["variables"].items():
@@ -317,6 +320,52 @@ def test_a_price_spike_skips_the_dwell():
 def test_absorb_surplus_uses_self_consume():
     ran, _ = run("plan", plan="-2.0", helper="CHG", attrs={"absorb_surplus": True})
     assert ran == ["self_consume_actions", "input_text.set_value=SC"]
+
+
+SOLAR = "sensor.nimbus_solver_current_dispatch_solar_charge"
+
+
+def test_a_solar_only_charge_self_consumes_instead_of_forcing_it():
+    # nimbus #2066, 26 Oct: a forced 0.8 kW charge with 0.2 kW of sun was
+    # bought from the grid. Self-Consume charges only from the sun there is.
+    ran, ctx = run(
+        "plan",
+        plan="-0.8",
+        helper="CHG",
+        solar_charge_sensor=SOLAR,
+        extra={SOLAR: "True"},
+    )
+    assert ctx["want"] == "SC"
+    assert ran == ["self_consume_actions", "input_text.set_value=SC"]
+
+
+def test_a_grid_charge_is_still_forced():
+    ran, ctx = run(
+        "plan",
+        plan="-0.8",
+        helper="SC",
+        solar_charge_sensor=SOLAR,
+        extra={SOLAR: "False"},
+    )
+    assert ctx["want"] == "CHG"
+    assert ran[0] == "charge_actions"
+
+
+def test_without_the_solar_signal_every_charge_is_forced():
+    _, ctx = run("plan", plan="-0.8", helper="SC", extra={SOLAR: "True"})
+    assert ctx["want"] == "CHG"
+
+
+def test_the_solar_signal_never_turns_a_discharge_into_self_consume():
+    _, ctx = run(
+        "plan",
+        plan="2.0",
+        helper="SC",
+        helper_age_s=3600,
+        solar_charge_sensor=SOLAR,
+        extra={SOLAR: "True"},
+    )
+    assert ctx["want"] == "DIS"
 
 
 def test_overlapping_triggers_queue_and_an_overflow_is_logged():

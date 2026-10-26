@@ -1224,6 +1224,31 @@ def _dispatch_hold(
     return abs(grid_import_kw - grid_export_kw) > DISPATCH_HOLD_GRID_KW
 
 
+# nimbus #2066: the solar-charge flag's own thresholds, separate from the
+# hold ones above so retuning either leaves the other alone (Mark Purcell's
+# review of #2067). Same 0.05 kW deadband today.
+DISPATCH_SOLAR_CHARGE_BATTERY_KW = 0.05
+DISPATCH_SOLAR_CHARGE_GRID_KW = 0.05
+
+
+def _dispatch_solar_charge(
+    battery_kw: float, grid_to_battery_kw: float, grid_export_kw: float
+) -> bool:
+    """True when the plan charges the battery from solar alone and sells
+    nothing: a dispatcher should self-consume, which charges from whatever
+    surplus there really is, rather than force a charge at the plan's kW,
+    which takes its power from the grid when the sun falls short of the
+    forecast (nimbus #2066, reference household 26 Oct 2026: 07:02-07:12, a
+    forced 0.8-0.9 kW charge with 0.2-0.4 kW of sun, all of it imported at
+    16.8 c). When the plan also exports, the forced charge stays: self-
+    consume would put that export into the battery instead."""
+    if battery_kw >= -DISPATCH_SOLAR_CHARGE_BATTERY_KW:
+        return False
+    if grid_to_battery_kw > DISPATCH_SOLAR_CHARGE_BATTERY_KW:
+        return False
+    return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
+
+
 # Household, 20 Oct 2026: a kW below which a planned flow counts as none, for
 # absorb_surplus below (the dispatch deadband's own order of magnitude).
 ABSORB_SURPLUS_TOL_KW = 0.05
@@ -2460,6 +2485,14 @@ def publish_plan(
             "dispatch_hold": _dispatch_hold(
                 float(net_battery[i]),
                 float(corrected_grid_import[i]),
+                float(plan.grid_export_kw[i]),
+            ),
+            # nimbus #2066: a charge the plan takes from solar alone, for a
+            # dispatcher to self-consume rather than force (see
+            # _dispatch_solar_charge()).
+            "dispatch_solar_charge": _dispatch_solar_charge(
+                float(net_battery[i]),
+                float(flow_decomp[i]["grid_to_battery"]) if flow_decomp else 0.0,
                 float(plan.grid_export_kw[i]),
             ),
             "dispatch_source_a_label": dispatch_breakdown[i][1],

@@ -968,6 +968,20 @@ def _sells_below_floor_instead(plan, pinned, export_floor: float) -> bool:
     return price0 < export_floor and extra > _EXPORT_FLOOR_TOL_KW
 
 
+def _charges_from_grid_instead(plan, pinned) -> bool:
+    """True when keeping `pinned` would charge the battery in period 0 and
+    import more there than the free `plan` does: the kept charge would be
+    bought from the grid. Never raises."""
+    try:
+        pinned_kw = _period0_net_kw(pinned)
+        extra = float(pinned.grid_import_kw[0]) - float(plan.grid_import_kw[0])
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return False
+    if pinned_kw is None:
+        return False
+    return pinned_kw < -DISPATCH_DEADBAND_KW and extra > DISPATCH_DEADBAND_KW
+
+
 def period0_direction_hysteresis(
     plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None, export_floor=0.0
 ):
@@ -1000,6 +1014,14 @@ def period0_direction_hysteresis(
     short: on 20 Oct period 0 was one minute, so holding the battery idle
     while 6.5 kW of solar was exported cost under a cent, and the margin
     kept it idle solve after solve. Published as `export_floor`.
+
+    Nor is a pinned CHARGE kept when it imports more in period 0 than the
+    free plan (nimbus #2066, reference household 26 Oct 2026). At 07:23
+    solar fell from 1.15 kW to 0.06 kW under cloud; the previous plan's
+    0.2 kW solar charge, kept for $0.0002, became a 0.17 kW charge from the
+    grid at 15.1 c while the forecast sun two hours ahead cost 6.5 c. A
+    pin exists to stop the inverter chattering, not to buy energy the free
+    plan would not buy. Published as `grid_charge`.
     """
     if margin <= 0:
         return dataclasses.replace(plan, period0_hysteresis="off")
@@ -1044,6 +1066,12 @@ def period0_direction_hysteresis(
         return dataclasses.replace(
             plan,
             period0_hysteresis="export_floor",
+            period0_hysteresis_delta=round(delta, 4),
+        )
+    if _charges_from_grid_instead(plan, pinned):
+        return dataclasses.replace(
+            plan,
+            period0_hysteresis="grid_charge",
             period0_hysteresis_delta=round(delta, 4),
         )
     if delta <= margin:

@@ -2473,6 +2473,18 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=None,
     ),
+    FlattenedAttrSpec(
+        # nimbus #2066: period 0's "charge from solar only" flag, for a
+        # dispatcher to self-consume rather than force the charge.
+        source_key="dispatch_solar_charge",
+        name="Solver Current Dispatch Solar Charge",
+        entity_id_suffix="current_dispatch_solar_charge",
+        entity_category=None,
+        device_class=None,
+        state_class=None,  # string state (True/False)
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
     # --- Grid flows (primary) -----------------------------------------------
     FlattenedAttrSpec(
         source_key="grid_import_kw",
