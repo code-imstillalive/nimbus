@@ -298,6 +298,22 @@ def pin_only_lines(executed: list[int], contexts_by_line: dict[int, set[str]]) -
     )
 
 
+def pin_only_by_test(
+    executed: list[int], contexts_by_line: dict[int, set[str]]
+) -> dict[str, list[int]]:
+    """The pin-only lines, by the issue-pin test file that reaches them: the
+    lines a designed test has to reach before that module's pin-only share
+    falls."""
+    out: dict[str, set[int]] = {}
+    for line in executed:
+        ctxs = contexts_by_line.get(line)
+        if not ctxs or {test_kind(c) for c in ctxs} != {"pin"}:
+            continue
+        for c in ctxs:
+            out.setdefault(c.split("::", 1)[0], set()).add(line)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
 def measure(workers: int) -> tuple[dict, int, list[str]]:
     import coverage
 
@@ -361,6 +377,9 @@ def measure(workers: int) -> tuple[dict, int, list[str]]:
                 "pin_only_lines": pin_only,
                 "missing_lines": f.get("missing_lines", []),
                 "missing_branches": f.get("missing_branches", []),
+                "missing_pin_only_by_test": pin_only_by_test(
+                    f["executed_lines"], by_module.get(_key(path), {})
+                ),
             }
     return result, len(golden), contexts
 
@@ -378,6 +397,7 @@ def gaps(r: dict, measured: dict) -> dict:
             "flags": row["flags"],
             "missing_lines": m.get("missing_lines", []),
             "missing_branches": m.get("missing_branches", []),
+            "pin_only_by_test": m.get("missing_pin_only_by_test", {}),
         }
     return out
 

@@ -69,5 +69,21 @@ def test_gaps_list_only_the_flagged_modules_missed_lines():
             "flags": ["lines < 90%"],
             "missing_lines": [12, 13],
             "missing_branches": [[11, 12], [40, -38]],
+            "pin_only_by_test": {},
         }
+    }
+
+
+def test_pin_only_lines_are_named_by_the_pin_that_reaches_them():
+    ctx = {
+        3: {"tests/test_1703_run_hold.py::test_a|run"},
+        4: {
+            "tests/test_1703_run_hold.py::test_a|run",
+            "tests/test_1801_x.py::test_b|run",
+        },
+        5: {"tests/test_1703_run_hold.py::test_a|run", "tests/v2/test_y.py::t|run"},
+    }
+    assert cbr.pin_only_by_test([3, 4, 5, 6], ctx) == {
+        "tests/test_1703_run_hold.py": [3, 4],
+        "tests/test_1801_x.py": [4],
     }
