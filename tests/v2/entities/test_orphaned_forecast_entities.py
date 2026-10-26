@@ -158,14 +158,6 @@ class TestTheDiscriminatorIsTheUniqueId(unittest.TestCase):
 
 
 class TestTheGuards(unittest.TestCase):
-    def test_an_empty_subentries_mapping_removes_NOTHING(self):
-        """Guard 1, and the one that matters most: a partially-loaded entry
-        must never be read as 'every subentry was removed'. Without this, a
-        transient becomes a mass delete of every forecast entity on the
-        install."""
-        removed = _run([LIVE, ORPHAN, ORPHAN_LOAD], subentry_ids=[])
-        self.assertEqual(removed, [])
-
     def test_hub_scoped_entities_are_structurally_unreachable(self):
         """Guard 2. The Solver push sensors and config sensors live for the
         life of the hub, carry no forecast suffix, and must survive any

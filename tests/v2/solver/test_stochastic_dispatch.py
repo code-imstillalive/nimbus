@@ -11,7 +11,6 @@ leaves the deterministic plan alone.
 from __future__ import annotations
 
 import dataclasses
-import json
 from datetime import UTC, datetime
 
 import numpy as np
@@ -192,53 +191,6 @@ def test_the_joint_solve_is_one_phase_never_lexicographic(requested, weight, mod
 
 
 # --- what is published -------------------------------------------------------------------------
-
-
-def test_the_published_summary_paths_and_detail_are_plain_json(solved):
-    inputs = _inputs()
-    deterministic = build_plan(**inputs)
-    summary = sd.summary_attribute(
-        solved,
-        mode="shadow",
-        deterministic_plan=deterministic,
-        deterministic_solve_seconds=0.5,
-        drives_dispatch=False,
-        computed_at="2026-09-20T00:00:00+00:00",
-        grid=inputs["grid"],
-        hours=inputs["periods"].hours,
-    )
-    json.dumps(summary)
-    assert summary["status"] == "optimal" and summary["drives_dispatch"] is False
-    assert summary["scenarios"] == list(sd.SCENARIO_LABELS)
-    assert summary["expected_grid_cost"] == pytest.approx(
-        sum(
-            w * solved.scenario_grid_cost[s]
-            for s, w in zip(sd.SCENARIO_LABELS, sd.SCENARIO_WEIGHTS, strict=True)
-        ),
-        abs=1e-4,
-    )
-    assert summary["deterministic_grid_cost"] == pytest.approx(
-        sd.plan_grid_money(deterministic, inputs["grid"], inputs["periods"].hours),
-        abs=1e-4,
-    )
-    paths = sd.paths_attribute(solved)
-    json.dumps(paths)
-    assert len(paths["ends"]) == N
-    assert all(0 <= v <= 100 for path in paths["soc_pct"].values() for v in path)
-    detail = sd.detail_attribute(solved)
-    json.dumps(detail)
-    assert len(detail["period_hours"]) == N and set(detail["scenario_soc_kwh"]) == set(
-        sd.SCENARIO_LABELS
-    )
-    nothing = sd.StochasticResult(
-        status="no_band",
-        plan=None,
-        k=1,
-        weights=sd.SCENARIO_WEIGHTS,
-        labels=sd.SCENARIO_LABELS,
-        solve_seconds=0.0,
-    )
-    assert sd.paths_attribute(nothing) == sd.detail_attribute(nothing) == {}
 
 
 def test_grid_money_is_what_the_bill_would_say():

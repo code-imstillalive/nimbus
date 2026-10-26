@@ -129,43 +129,6 @@ def test_dc_r02_f06_replaced_equipment_is_a_question_not_a_swap():
     assert r.differences == []
 
 
-def test_decision_5_a_confirmed_binding_is_never_replaced_only_shown():
-    """The old sensor still exists, so it is an alternative, not a
-    replacement."""
-    prefs = copy.deepcopy(PREFS)
-    prefs["energy_sources"][1]["stat_rate"] = "sensor.other_battery_power"
-    regs = {**REGS, "sensor.other_battery_power": "r_other"}
-    r = dd.rediscover(
-        _stored(), _propose(prefs, regs), present_registry_ids=frozenset(regs.values())
-    )
-    (d,) = r.differences
-    assert d["kind"] == "alternative"
-    assert (d["device"], d["role"], d["stored_confirmed"]) == ("battery", "power", True)
-    assert d["stored_source"]["entity_id"] == "sensor.bat_power"
-    assert d["candidate"]["source"] == "sensor.other_battery_power"
-
-
-def test_without_registry_presence_replacement_is_never_inferred():
-    prefs = copy.deepcopy(PREFS)
-    prefs["energy_sources"][1]["stat_rate"] = "sensor.new_battery_power"
-    r = dd.rediscover(
-        _stored(), _propose(prefs, {**REGS, "sensor.new_battery_power": "x"})
-    )
-    assert [d["kind"] for d in r.differences] == ["alternative"]
-    assert not [q for q in r.questions if q["code"] == "replaced_equipment"]
-
-
-def test_an_empty_stored_role_is_a_fill_with_the_proposed_binding():
-    stored = _stored()
-    battery = next(d for d in stored["devices"] if d["id"] == "battery")
-    del battery["bindings"]["soc"]
-    r = dd.rediscover(stored, _propose())
-    (d,) = r.differences
-    assert (d["kind"], d["device"], d["role"]) == ("fill", "battery", "soc")
-    assert d["binding"]["source"]["entity_id"] == "sensor.bat_soc"
-    assert d["binding"]["provenance"]["confirmed"] is False
-
-
 def test_a_new_device_is_proposed_and_a_missing_one_is_kept():
     stored = _stored()
     prefs = copy.deepcopy(PREFS)

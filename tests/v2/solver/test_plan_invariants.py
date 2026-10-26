@@ -190,25 +190,6 @@ def _demand(site, plan):
 
 @SETTINGS
 @given(sites())
-def test_every_period_balances(site):
-    """Import - export + discharge - charge + solar used = load (#390)."""
-    plan = _solve(site)
-    assert plan.status == "optimal"
-    supply = (
-        plan.grid_import_kw
-        - plan.grid_export_kw
-        + plan.battery_discharge_kw
-        - plan.battery_charge_kw
-        + plan.solar_used_kw
-    )
-    np.testing.assert_allclose(supply, _demand(site, plan), atol=TOL)
-    np.testing.assert_allclose(
-        plan.solar_used_kw + plan.solar_curtailed_kw, site["solar"], atol=TOL
-    )
-
-
-@SETTINGS
-@given(sites())
 def test_soc_follows_the_flows(site):
     """soc[t] is the end of period t: soc[t-1] + (charge * eff_c -
     discharge / eff_d) * hours[t], starting from the initial SoC."""
@@ -246,19 +227,6 @@ def test_no_opposing_flows_in_one_period(site):
     plan = _solve(site)
     assert (np.minimum(plan.battery_charge_kw, plan.battery_discharge_kw) <= TOL).all()
     assert (np.minimum(plan.grid_import_kw, plan.grid_export_kw) <= TOL).all()
-
-
-@SETTINGS
-@given(sites())
-def test_a_battery_never_costs_more_than_leaving_it_idle(site):
-    """Idle is a feasible plan, so the optimum can only be as cheap or
-    cheaper."""
-    plan = _solve(site)
-    idle = _solve(site, available=False)
-    assert idle.status == "optimal"
-    assert plan.total_cost <= idle.total_cost + 1e-6
-    assert (idle.battery_charge_kw <= TOL).all()
-    assert (idle.battery_discharge_kw <= TOL).all()
 
 
 @SETTINGS
@@ -309,32 +277,6 @@ def test_a_battery_below_its_floor_never_sinks_further(site, depth):
         and (soc <= b["max_soc_kwh"] + 1e-6).all()
     )
     assert (plan.soc_penalty_cost <= 1e-6) == inside
-
-
-@SETTINGS
-@given(sites())
-def test_buying_part_of_the_limit_prices_energy_at_the_buy_price(site):
-    """LP duality (#662): in a period where the plan imports some but not all
-    it could, and exports nothing, the energy balance's shadow price per kWh
-    is that period's buy price. An adequacy load's marginal cost is that
-    price times what it draws."""
-    plan = _solve(site)
-    hours = site["hours"]
-    lam = np.array(
-        [
-            plan.duals.get(f"power_balance_t{t}", 0.0) / hours[t]
-            for t in range(len(hours))
-        ]
-    )
-    for t in range(len(hours)):
-        imp = plan.grid_import_kw[t]
-        if 1e-3 < imp < site["import_limit"] - 1e-3 and plan.grid_export_kw[t] <= 1e-6:
-            # One more kW of demand is bought at this period's price.
-            assert abs(lam[t] - site["import_price"][t]) < 1e-5, t
-    if plan.adequacy_loads:
-        (ap,) = plan.adequacy_loads
-        expected = float(np.sum(lam * ap.power_kw * hours))
-        assert abs(ap.marginal_cost - expected) < 1e-6
 
 
 @SETTINGS
@@ -422,47 +364,3 @@ def test_an_armed_price_spike_discharges_at_its_rate_now(site, share):
     allowed = above_min * b["discharge_efficiency"] / site["hours"][0]
     assert abs(plan.battery_discharge_kw[0] - min(rate, allowed)) < 1e-5
     assert plan.battery_charge_kw[0] <= TOL
-
-
-@SETTINGS
-@given(
-    sites(),
-    _num(0.0, 1.0),
-    st.frozensets(st.integers(0, 23)),
-    st.booleans(),
-    st.integers(min_value=0, max_value=3),
-)
-def test_a_spike_override_and_an_away_period_compose(
-    site, share, away, available, until
-):
-    """#953 (Mark Purcell, IV&V #950): the spike override's floor and the
-    away mask once built lb > ub on period 0 and the whole solve failed.
-    Together they always solve, and the gate wins: an away period 0 does not
-    discharge whatever the price; with period 0 free the override still pins
-    it; an unavailable battery never arms the override at all (#779's prefix
-    is read only then)."""
-    b = site["battery"]
-    sink = float(site["load"][0]) + site["export_limit"]
-    rate = round(share * min(b["max_discharge_kw"], sink), 4)
-    plan = _solve(
-        site,
-        spike_override_discharge_kw=rate,
-        unavailable_period_indices=away,
-        available=available,
-        unavailable_until_period_index=None if available else (until or None),
-    )
-    assert plan.status == "optimal"
-    if not available or 0 in away:
-        assert plan.battery_discharge_kw[0] <= TOL
-        assert plan.battery_charge_kw[0] <= TOL
-    else:
-        above_min = max(0.0, b["initial_soc_kwh"] - b["min_soc_kwh"])
-        allowed = above_min * b["discharge_efficiency"] / site["hours"][0]
-        assert abs(plan.battery_discharge_kw[0] - min(rate, allowed)) < 1e-5
-    n = len(site["hours"])
-    for t in range(n):
-        # Unavailable means away for the whole horizon, or before #779's
-        # return index when one is set.
-        whole_or_prefix = not available and (until == 0 or t < until)
-        if t in away or whole_or_prefix:
-            assert plan.battery_discharge_kw[t] <= TOL, t

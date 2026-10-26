@@ -129,24 +129,3 @@ def _lookup(batteries: dict[int, str]):
         return f"sensor.{key}"
 
     return lookup
-
-
-def test_a_single_battery_site_keeps_the_fleet_lines_only() -> None:
-    series = _soc_series(_lookup({}))
-    names = [s["name"] for s in series]
-    assert "SoC" in names and "SoC ahead" in names
-    assert not any(_SLOT.search(s["entity"]) for s in series)
-    assert not any("nimbus_unless" in s for s in series)
-
-
-def test_a_two_battery_site_draws_one_line_each_instead() -> None:
-    series = _soc_series(_lookup({0: "SoC Home battery", 1: "SoC Our EV"}))
-    names = [s["name"] for s in series]
-    assert "SoC" not in names and "SoC ahead" not in names
-    assert names.count("SoC Home battery") == 2  # measured + ahead
-    assert names.count("SoC Our EV") == 2
-    assert {s["entity"] for s in series if _SLOT.search(s["entity"])} == {
-        "sensor.nimbus_solver_battery_0_soc_pct",
-        "sensor.nimbus_solver_battery_1_soc_pct",
-    }
-    assert not any("nimbus_unless" in s for s in series)

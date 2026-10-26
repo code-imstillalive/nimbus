@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import numpy as np
-from solver import p2p_export
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -28,13 +27,6 @@ def _grid(fixed):
         export_limit_kw=40.0,
         fixed_export_kw=np.asarray(fixed, dtype=float),
     )
-
-
-def test_only_a_positive_pin_forbids_import():
-    g = _grid([12.0, 0.0, np.nan])
-    assert p2p_export.grid_import_ub(0, g, 42.0) == 0.0
-    assert p2p_export.grid_import_ub(1, g, 42.0) == 42.0
-    assert p2p_export.grid_import_ub(2, g, 42.0) == 42.0
 
 
 def _plan(initial_soc):

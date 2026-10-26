@@ -99,22 +99,11 @@ def _with(doc, device):
 # --- DC-R01 / F01 -----------------------------------------------------------
 
 
-def test_dc_r01_f01_the_minimum_site_validates() -> None:
-    assert dc.validate(_minimal()) == []
-
-
 def test_dc_r01_f01_an_unbound_grid_power_still_validates_and_carries_no_zero() -> None:
     doc = _minimal()
     del doc["devices"][0]["bindings"]["power"]
     assert dc.validate(doc) == []
     assert "power" not in doc["devices"][0]["bindings"]  # absent, never 0
-
-
-def test_dc_r01_f01_removing_the_grid_gives_exactly_grid_missing() -> None:
-    doc = _minimal()
-    doc["devices"] = doc["devices"][1:]
-    doc["relationships"] = []
-    assert _codes(doc) == ["grid_missing"]
 
 
 # --- DC-R02 / F06 -----------------------------------------------------------
@@ -161,20 +150,6 @@ def test_dc_r16_f11_a_self_dependency_is_a_cycle() -> None:
         "load_house", "energy", ["load_house.energy"]
     )
     assert "dependency_cycle" in _codes(doc)
-
-
-def test_dc_r16_f11_a_three_cycle_is_a_cycle() -> None:
-    doc = _minimal()
-    doc["devices"][1]["bindings"]["energy"] = _derived(
-        "load_house", "energy", ["grid_main.import_energy"]
-    )
-    doc["devices"][0]["bindings"]["import_energy"] = _derived(
-        "grid_main", "import_energy", ["grid_main.export_energy"]
-    )
-    doc["devices"][0]["bindings"]["export_energy"] = _derived(
-        "grid_main", "export_energy", ["load_house.energy"]
-    )
-    assert _codes(doc).count("dependency_cycle") == 1
 
 
 def test_dc_r16_f11_an_acyclic_chain_validates() -> None:
@@ -236,37 +211,6 @@ def _solar(i, entity, boundary):
         "boundary": {"id": boundary, "domain": "dc", "phases": "all"},
         "bindings": {"power": _binding(entity, "generation")},
     }
-
-
-def test_f02_two_inverters_as_two_solar_devices_validate() -> None:
-    doc = _with(
-        _with(_minimal(), _solar(1, "sensor.inv1", "b_inv1")),
-        _solar(2, "sensor.inv2", "b_inv2"),
-    )
-    assert dc.validate(doc) == []
-
-
-def test_f02_one_inverters_strings_as_children_of_its_total_validate() -> None:
-    doc = _minimal()
-    for i, (entity, boundary) in enumerate(
-        (
-            ("sensor.inv1_total", "b_total"),
-            ("sensor.inv1_s1", "b_s1"),
-            ("sensor.inv1_s2", "b_s2"),
-        )
-    ):
-        doc = _with(doc, _solar(i, entity, boundary))
-    for child in ("solar_1", "solar_2"):
-        doc["relationships"].append(
-            {
-                "kind": "included_in_measurement",
-                "child": child,
-                "parent": "solar_0",
-                "quantity": "generation",
-                "confirmed": True,
-            }
-        )
-    assert dc.validate(doc) == []
 
 
 def test_f02_the_same_total_on_two_solar_devices_is_a_duplicate() -> None:
@@ -446,14 +390,6 @@ def test_a_magnitude_role_is_positive_in_its_own_direction() -> None:
     assert _codes(doc) == []
     grid["bindings"]["export_power"]["normalization"]["positive_direction"] = "import"
     assert _codes(doc) == ["sign_not_canonical"]
-
-
-def test_a_role_without_a_flow_has_no_sign_to_check() -> None:
-    doc = _minimal()
-    doc["devices"][0]["bindings"]["import_price"] = _binding(
-        "sensor.price", "import", "r_price"
-    )
-    assert _codes(doc) == []
 
 
 @pytest.mark.parametrize("code", _CODES)

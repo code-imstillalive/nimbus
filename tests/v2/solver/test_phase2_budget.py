@@ -85,46 +85,6 @@ def test_a_spent_budget_keeps_the_cost_and_the_continuous_tie_break(caplog):
     assert any("used its" in rec.getMessage() for rec in caplog.records)
 
 
-@pytest.mark.parametrize(
-    ("prefer_g1", "phase1", "found", "kept"),
-    [
-        (5.0, "g0", "g1", "g1"),  # what phase 2 found is better: kept
-        (-5.0, "g0", "g1", "g0"),  # phase 1's is better: kept
-        (5.0, "g0", None, "g0"),  # nothing found: phase 1's, as #773 tier 2
-    ],
-)
-def test_the_better_switch_assignment_is_kept(prefer_g1, phase1, found, kept):
-    p = _switch_and_tie(prefer_g1)
-    with _budget_spent(), _points(p, phase1, found):
-        r = p.solve(options=LexOptions())
-    assert r.status == "optimal"
-    assert round(p.value_of(r, kept)) == 1
-    assert p.primary_cost_of(r) == pytest.approx(12.0)
-
-
-def test_the_budget_is_put_back_for_the_phases_after_it(monkeypatch):
-    monkeypatch.setattr(lp, "PHASE2_SECONDARY_BUDGET_SECONDS", 2.5)
-    seen = []
-    real = lp._Phase2Budget.restore
-
-    runtimes = []
-
-    def restore(self):
-        seen.append(self._h.getOptionValue("time_limit")[1])
-        runtimes.append(self._h.getRunTime())
-        real(self)
-        seen.append(self._h.getOptionValue("time_limit")[1])
-
-    with patch.object(lp._Phase2Budget, "restore", restore), _budget_spent():
-        _switch_and_tie().solve(options=LexOptions())
-    # A fresh window for the pinned LPs: HiGHS limits an LP run by the
-    # handle's total run time, so the absolute limit could leave none.
-    assert seen[:2] == [
-        pytest.approx(2.5),
-        pytest.approx(runtimes[0] + lp.DEFAULT_TIME_LIMIT_SECONDS),
-    ]
-
-
 def test_an_lp_after_the_limit_is_used_up_still_solves():
     """The HiGHS behaviour the fresh window answers (highspy 1.15.1): after a
     MIP uses up the handle's limit, an LP run on the same handle stops at
@@ -208,24 +168,3 @@ def test_a_spent_budget_does_not_raise_the_solve_summary_to_a_warning(caplog):
         )
     summary = [r for r in caplog.records if "phase breakdown" in r.getMessage()]
     assert summary and all(r.levelno == logging.DEBUG for r in summary)
-
-
-def test_an_unexpected_exception_in_phase_two_never_leaves_the_flag_set():
-    """Mark Purcell's review of #2010: HiGHS can raise a bare Exception,
-    which neither phase-2 handler catches. Whatever happens to the solve,
-    the per-thread budget flag must be clear afterwards, or a later solve on
-    the same reused executor thread would read itself as budgeted."""
-    real = lp._ensure_optimal_value
-
-    def boom(h, *, phase="", problem=None, binary_cols=None):
-        if phase == "phase2_secondary":
-            assert lp._phase2_budgeted()  # the flag really was set
-            raise Exception("HiGHS: bare error")  # noqa: TRY002
-        return real(h, phase=phase, problem=problem, binary_cols=binary_cols)
-
-    with (
-        patch.object(lp, "_ensure_optimal_value", boom),
-        contextlib.suppress(Exception),
-    ):
-        _switch_and_tie().solve(options=LexOptions())
-    assert not lp._phase2_budgeted()

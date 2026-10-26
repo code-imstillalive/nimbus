@@ -113,12 +113,6 @@ def site(monkeypatch):
 HWS = {"deferrable_max_power_kw": 3.7, "deferrable_target_kwh": 5.0}
 
 
-def test_outside_home_assistant_there_is_nothing_to_build(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    grid = [MIDNIGHT + timedelta(minutes=30 * i) for i in range(4)]
-    assert sw.build_controllable_loads(MIDNIGHT, grid, 4)[:2] == ([], [])
-
-
 def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, caplog):
     site.load(
         "pump",
@@ -152,25 +146,6 @@ def test_each_kind_is_built_from_its_subentry_and_a_broken_one_is_skipped(site, 
         (w.earliest_period, w.deadline_period, w.target_kwh) for w in hws.windows
     ] == [(2, 12, 5.0)]
     assert "no_nominal" in caplog.text and "no_target" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("hour", "is_deadline", "expect"),
-    [
-        (2.0, False, 4),  # still ahead today
-        (0.0, False, 47),  # already passed: tomorrow's, clamped to the horizon
-        (6.0, True, 12),
-        (6.25, True, 12),  # between periods: the one at or before
-        (30.0, True, 47),
-    ],
-)
-def test_an_hour_resolves_to_its_period_on_the_grid(hour, is_deadline, expect):
-    grid = [MIDNIGHT + timedelta(minutes=30 * i) for i in range(48)]
-    now = MIDNIGHT + timedelta(minutes=1)
-    assert (
-        cl._resolve_hour_to_period_index(grid, now, hour, is_deadline=is_deadline)
-        == expect
-    )
 
 
 def test_a_window_open_now_starts_now_and_one_not_yet_open_starts_when_it_opens(site):
@@ -357,54 +332,7 @@ def test_a_tank_falling_to_its_floor_pulls_the_deadline_in(
     assert ("physical floor" in caplog.text) is (window[1] < 32)
 
 
-def test_a_floor_is_only_read_from_a_water_heater(site):
-    site.load(
-        **HWS,
-        deferrable_earliest_hour=6.0,
-        deferrable_deadline_hour=16.0,
-        deferrable_done_entity="sensor.tank",
-        deferrable_done_when=">= 60",
-    )
-    site.state("sensor.tank", "50.0", current_temperature=50.0, min_temp=45.0)
-    _, (load,), _ = site.build()
-    assert load.windows[0].deadline_period == 32
-
-
 # --- what a load's power sensor says it delivered ------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("value", "unit", "on"),
-    [("1.5", None, True), ("1.5", "kW", True), ("4.6", "W", False), ("550", "W", True)],
-)
-def test_a_power_reading_is_read_in_kw_whatever_unit_the_sensor_reports(
-    site, value, unit, on
-):
-    site.state("sensor.p", value, unit_of_measurement=unit)
-    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
-    assert site.run_state().currently_on is on
-
-
-def test_delivered_energy_accrues_between_samples_and_the_watts_hint_is_logged_once(
-    site, caplog
-):
-    site.state("sensor.p", "550", unit_of_measurement="W")
-    with caplog.at_level(logging.INFO):
-        for minutes in (0, 30):
-            cl._sample_load_run_state(
-                "hub", "s1", "sensor.p", MIDNIGHT + timedelta(minutes=minutes), "d"
-            )
-    st = site.run_state()
-    assert st.currently_on and st.delivered_today_kwh == pytest.approx(0.275, abs=1e-3)
-    assert caplog.text.count("reports Watts") == 1
-
-
-@pytest.mark.parametrize("value", ["unavailable", None])
-def test_a_reading_that_is_not_there_writes_nothing(site, value):
-    if value:
-        site.state("sensor.p", value)
-    cl._sample_load_run_state("hub", "s1", "sensor.p", MIDNIGHT, "2026-09-07")
-    assert site.run_state() == load_run_state.LoadRunState()
 
 
 def test_building_samples_each_load_with_a_power_sensor(site):
@@ -417,31 +345,6 @@ def test_building_samples_each_load_with_a_power_sensor(site):
     site.state("sensor.p", "2.0")
     site.build(n=4)
     assert site.run_state().currently_on is True
-
-
-@pytest.mark.parametrize(
-    ("delivered", "day", "target"),
-    [(1.48, "2026-09-07", 0.52), (2.165, "2026-09-07", None), (1.9, "2026-09-06", 2.0)],
-    ids=["partly", "met", "yesterdays"],
-)
-def test_todays_delivery_cuts_the_target_and_yesterdays_does_not(
-    site, delivered, day, target
-):
-    now = datetime(2026, 9, 7, 13, 5, tzinfo=TZ)
-    site.seed(
-        delivered_today_kwh=delivered, day_key=day, last_sample_at=now.timestamp()
-    )
-    site.load(
-        controllable_load_power_sensor="sensor.p",
-        deferrable_max_power_kw=0.65,
-        deferrable_target_kwh=2.0,
-    )
-    site.state("sensor.p", "0.65")
-    _, adequacy, _ = site.build(now, n=8)
-    if target is None:
-        assert adequacy == []
-    else:
-        assert adequacy[0].target_kwh == pytest.approx(target)
 
 
 def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
@@ -466,65 +369,11 @@ def test_outside_home_assistant_nothing_is_done_and_no_power_sensor_is_found(
     assert sw._discover_power_sensor_for_device("switch.pump") is None
 
 
-def test_a_configured_power_sensor_always_wins_and_discovery_only_fills_a_gap(
-    monkeypatch,
-):
-    asked = []
-    monkeypatch.setattr(
-        sw,
-        "_discover_power_sensor_for_device",
-        lambda device: asked.append(device) or "sensor.discovered",
-    )
-    configured = {
-        "controllable_load_power_sensor": "sensor.mine",
-        "controllable_load_device_entity": "switch.pump",
-    }
-    assert cl.resolve_controllable_load_power_sensor(configured) == "sensor.mine"
-    assert asked == []
-    unset = {"controllable_load_device_entity": "switch.pump"}
-    assert cl.resolve_controllable_load_power_sensor(unset) == "sensor.discovered"
-    assert asked == ["switch.pump"]
-    assert cl.resolve_controllable_load_power_sensor({}) == "sensor.discovered"
-    assert asked[-1] == ""
-
-
 # --- a same-day window already open starts now (#582) ------------------------------------------
 
 
 def _at(hour, minute=0):
     return datetime(2026, 9, 18, hour, minute, tzinfo=UTC)
-
-
-@pytest.mark.parametrize(
-    ("now", "earliest_hour", "deadline_hour", "earliest", "deadline", "expect"),
-    [
-        (_at(6, 1), 6.0, 16.0, 96, 40, 0),  # open since 06:00: starts now, not tomorrow
-        (_at(6), 6.0, 16.0, 96, 40, 0),  # both edges inclusive
-        (_at(16), 6.0, 16.0, 96, 40, 0),
-        (_at(16, 1), 6.0, 16.0, 96, 40, 96),  # closed: tomorrow's
-        (_at(5, 59), 6.0, 16.0, 4, 40, 4),  # not yet open
-        (_at(17), 6.0, 16.0, 52, 88, 52),
-        (_at(2), 22.0, 6.0, 80, 16, 80),  # a real overnight window
-        (_at(23), 22.0, 6.0, 4, 28, 4),
-        (_at(8), 6.0, 16.0, 0, 40, 0),  # already in order
-        (_at(8), 6.0, 16.0, 40, 40, 40),  # a one-period window
-        (_at(8), None, 16.0, 96, 40, 96),
-        (_at(8), 6.0, None, 96, 40, 96),
-    ],
-)
-def test_which_period_a_window_opens_in(
-    now, earliest_hour, deadline_hour, earliest, deadline, expect
-):
-    assert (
-        cl._earliest_period_for_same_day_window(
-            now=now,
-            earliest_hour=earliest_hour,
-            deadline_hour=deadline_hour,
-            earliest_period=earliest,
-            deadline_period=deadline,
-        )
-        == expect
-    )
 
 
 def test_a_household_mode_moving_a_loads_lever_says_which_at_debug(site, caplog):

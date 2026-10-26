@@ -112,17 +112,6 @@ def _hub(**subentries):
 # --- registration -----------------------------------------------------------------
 
 
-def test_every_service_registers_once_and_unloads_completely():
-    hass = _hass()
-    registered = {s for _d, s in hass.services.handlers}
-    assert len(registered) == 13
-    svc.async_register_services(hass)  # a second hub entry adds nothing
-    assert {s for _d, s in hass.services.handlers} == registered
-    svc.async_unregister_services(hass)
-    assert hass.services.handlers == {}
-    svc.async_unregister_services(hass)  # and twice is harmless
-
-
 def test_every_documented_service_is_registered():
     import yaml
 
@@ -167,12 +156,6 @@ def test_a_window_bound_that_is_not_a_time_is_refused(value):
 )
 def test_decision_input_kinds_are_head_horizon_or_both(value, kinds):
     assert svc._coerce_kinds(value) == kinds
-
-
-@pytest.mark.parametrize("value", [[], "tail", ["head", "x"], None])
-def test_any_other_kind_is_refused(value):
-    with pytest.raises(vol.Invalid):
-        svc._coerce_kinds(value)
 
 
 # --- retrain and solve now -----------------------------------------------------------

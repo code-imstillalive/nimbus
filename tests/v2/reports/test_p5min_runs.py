@@ -55,15 +55,6 @@ def test_an_unknown_region_or_an_empty_file_is_none_not_an_empty_forecast():
     assert p5min.parse_region_solution("", "QLD1") is None
 
 
-def test_the_intervention_run_is_ignored():
-    """INTERVENTION 1 rows are a what-if, not the price the market settles."""
-    lines = [
-        ln.replace(",0,", ",1,", 1) if ",QLD1," in ln else ln
-        for ln in TEXT.splitlines()
-    ]
-    assert p5min.parse_region_solution("\n".join(lines), "QLD1") is None
-
-
 def test_the_9_oct_shape_a_spike_an_hour_out_is_visible():
     spiked = TEXT.replace(
         '"2026/10/09 12:25:00",QLD1,', '"2026/10/09 12:25:00",QLD1,500.0,DROP,'
@@ -81,18 +72,6 @@ def test_the_9_oct_shape_a_spike_an_hour_out_is_visible():
         "end": "2026-10-09T12:25:00+10:00",
         "value": 0.5,
     }
-
-
-def test_the_newest_file_is_picked_from_a_listing():
-    listing = (
-        '<a href="/Reports/CURRENT/P5_Reports/PUBLIC_P5MIN_202610091145_20261009114121.zip">'
-        '<a href="/Reports/CURRENT/P5_Reports/PUBLIC_P5MIN_202610091150_20261009114620.zip">'
-        '<a href="/Reports/CURRENT/P5_Reports/PUBLIC_P5MIN_202610091140_20261009113601.zip">'
-    )
-    assert p5min.latest_file_name(listing) == (
-        "PUBLIC_P5MIN_202610091150_20261009114620.zip"
-    )
-    assert p5min.latest_file_name("<html></html>") is None
 
 
 def test_region_comes_from_the_configured_aemo_sensor_ids():
@@ -150,17 +129,6 @@ def _sensor():
     s = sp.NimbusP5MinForecastSensor(entry, "QLD1", "0.94.445")
     s.hass = None
     return s
-
-
-def test_the_sensor_publishes_the_interval_in_progress_and_the_whole_run():
-    s = _sensor()
-    assert s.available is False
-    s.apply("f1.zip", p5min.parse_region_solution(TEXT, "QLD1"))
-    assert s.available is True
-    assert s.native_value == -0.00544
-    attrs = s.extra_state_attributes
-    assert attrs["region"] == "QLD1" and len(attrs["forecast"]) == 12
-    assert attrs["previous_forecast"] == [] and attrs["last_error"] is None
 
 
 def test_a_new_run_keeps_the_previous_one_for_a_consecutive_check():

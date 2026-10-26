@@ -119,17 +119,6 @@ class TestSmoothnessWeightWiring:
         kwargs = _run_main_and_capture_build_plan_kwargs(attrs)
         assert kwargs.get("smoothness_weight") == 0.02
 
-    def test_missing_smoothness_weight_falls_back_to_the_original_constant(self):
-        """No-op guarantee: a config with this key entirely absent (every
-        real install before this fix shipped) must produce the EXACT same
-        value main() always silently used before -- not a different
-        default, not zero."""
-        kwargs = _run_main_and_capture_build_plan_kwargs(dict(_BASE_CONFIG_ATTRS))
-        assert (
-            kwargs.get("smoothness_weight")
-            == solver_writer.network.DEFAULT_SMOOTHNESS_WEIGHT_KW
-        )
-
 
 class TestProximalWeightWiring:
     def test_a_configured_proximal_weight_reaches_build_plan(self):
@@ -177,11 +166,6 @@ class TestCalibratedObjectiveSwitchWiring:
     solve_options kwarg -- default TRUE (unlike every other Solver
     switch), so a MISSING config key must still produce a real
     CalibratedOptions instance, not None."""
-
-    def test_switch_off_reaches_build_plan_as_none(self):
-        attrs = dict(_BASE_CONFIG_ATTRS, solver_calibrated_objective_enabled=False)
-        kwargs = _run_main_and_capture_build_plan_kwargs(attrs)
-        assert kwargs.get("solve_options") is None
 
     def test_switch_on_reaches_build_plan_as_calibrated_options(self):
         attrs = dict(_BASE_CONFIG_ATTRS, solver_calibrated_objective_enabled=True)

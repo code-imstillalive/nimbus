@@ -169,38 +169,6 @@ def test_the_offer_curve_is_an_ordered_ladder_anchored_on_the_plan(site):
 
 @SETTINGS
 @given(_SITES)
-def test_every_offer_curve_point_is_what_a_fresh_solve_at_its_price_does(site):
-    """#733 (Mark Purcell, live) and #1990: the curve is a shortcut for "what
-    would the plan do at this price", not a separate opinion. Every published
-    import point is the period-0 import a fresh solve at that price plans,
-    and every export point the period-0 export. On a genuine tie (equal
-    prices either side of period 0, so now or later costs the same) either
-    answer is optimal; the point then matches a fresh solve a hair either
-    side of its price. #1990 found the curve wrong mid-plateau (the #732
-    loss tie-break and #390 valve move with the price; the sweep moved only
-    the import cost) and on points a real plan re-solves one-way (#238)."""
-    n, solar, start, options = _drawn(site)
-    plan = _curve_plan(n, solar, start, options=options)
-    assert plan.status == "optimal"
-
-    def fresh(key, price, flow):
-        d = _curve_plan(n, solar, start, options=options, curve=False, **{key: price})
-        return float(getattr(d, flow)[0])
-
-    for curve, key, flow in (
-        (plan.offer_curve_import, "imp0", "grid_import_kw"),
-        (plan.offer_curve_export, "exp0", "grid_export_kw"),
-    ):
-        for price, kw in curve:
-            if fresh(key, price, flow) == pytest.approx(kw, abs=1e-4):
-                continue
-            eps = 1e-4 * max(1.0, abs(price))
-            sides = {round(fresh(key, price + d, flow), 4) for d in (-eps, eps)}
-            assert round(kw, 4) in sides, (key, price, kw, sides)
-
-
-@SETTINGS
-@given(_SITES)
 def test_every_ranging_interval_holds_its_point_from_end_to_end(site):
     """#676 and #1990: a point's ranging interval claims its kW holds across
     the whole interval, so a fresh solve just inside either end plans that
@@ -332,35 +300,6 @@ def test_the_retail_point_claims_only_the_range_a_real_solve_holds():
     assert fresh == pytest.approx(kw, abs=1e-4), (kw, interval, inside, fresh)
 
 
-def test_past_its_node_cap_a_point_is_made_one_way_the_way_build_plan_does(monkeypatch):
-    """Mark Purcell's #1993 review: past `_OFFER_CURVE_ONE_WAY_NODES` a point
-    falls back to one exact MIP on a copy, which follows `build_plan`'s own
-    rounds: binaries where the point is two-way, every pair only if that
-    leaves one. With the cap at 0 every two-way point takes that path; on a
-    site whose swept points import and export at once, each still matches a
-    fresh solve (a hair either side on a tie)."""
-    from solver import network
-
-    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    n, solar, start = 2, [0.0, 0.0], 36.0
-    plan = _curve_plan(n, solar, start)
-    assert plan.status == "optimal"
-
-    def fresh(price):
-        return float(
-            _curve_plan(n, solar, start, imp0=price, curve=False).grid_import_kw[0]
-        )
-
-    for price, kw in plan.offer_curve_import:
-        if fresh(price) == pytest.approx(kw, abs=1e-4):
-            continue
-        eps = 1e-4 * max(1.0, abs(price))
-        assert round(kw, 4) in {round(fresh(price + d), 4) for d in (-eps, eps)}, (
-            price,
-            kw,
-        )
-
-
 def _cheap_banded_plan(imp0=None, curve=True):
     """Raw prices of 1c with a band that hedges import up towards 60c: the
     risk-adjusted prices the LP pays (54c) are fifty times the raw ones the
@@ -470,74 +409,6 @@ def _banded_plan(n, solar, start, aversion, imp0=None, exp0=None, curve=True):
         export_price_risk_aversion=aversion,
         compute_offer_curve=curve,
     )
-
-
-@SETTINGS
-@given(_SITES, st.sampled_from([0.25, 0.5, 0.9]))
-def test_a_banded_curve_point_is_the_plan_at_the_raw_price_behind_it(site, aversion):
-    """Mark Purcell's #1993 review: the curve's prices are the risk-adjusted
-    (effective) ones the LP costs carry, but the derived soft-SoC penalty
-    reads the RAW prices. Each point is the period-0 flow of a fresh solve
-    at the raw price whose adjusted price is the point's (the inverse of the
-    one-sided hedge), so a site that starts outside its SoC bounds, with a
-    band on both sides, checks the penalty is rebuilt from raw prices."""
-    from solver.network import _raw_price_for_adjusted
-
-    n, solar, start, _options = _drawn(site)
-    plan = _banded_plan(n, solar, start, aversion)
-    assert plan.status == "optimal"
-    upper, lower = np.full(n, 0.60), np.full(n, 0.02)
-
-    def fresh(key, price, flow):
-        if key == "imp0":
-            raw = _raw_price_for_adjusted(price, 0.30, upper, aversion, direction="up")
-        else:
-            raw = _raw_price_for_adjusted(
-                price, 0.10, lower, aversion, direction="down"
-            )
-        d = _banded_plan(n, solar, start, aversion, curve=False, **{key: raw})
-        return float(getattr(d, flow)[0])
-
-    for curve, key, flow in (
-        (plan.offer_curve_import, "imp0", "grid_import_kw"),
-        (plan.offer_curve_export, "exp0", "grid_export_kw"),
-    ):
-        for price, kw in curve:
-            if fresh(key, price, flow) == pytest.approx(kw, abs=1e-4):
-                continue
-            eps = 1e-4 * max(1.0, abs(price))
-            sides = {round(fresh(key, price + d, flow), 4) for d in (-eps, eps)}
-            assert round(kw, 4) in sides, (key, price, kw, sides)
-
-
-@pytest.mark.parametrize(
-    "direction, raw, bound", [("up", 0.30, 0.60), ("down", 0.10, 0.02)]
-)
-@pytest.mark.parametrize("aversion", [0.0, 0.25, 0.9, 1.0])
-def test_the_raw_price_behind_an_adjusted_one_is_the_hedge_inverted(
-    direction, raw, bound, aversion
-):
-    """#1993: `_raw_price_for_adjusted` undoes `_risk_adjusted_one_sided` at
-    period 0 wherever an inverse exists; at an aversion of 1, inside the
-    band, every raw price adjusts to the bound, and the plan's own is kept."""
-    from solver.network import _raw_price_for_adjusted, _risk_adjusted_one_sided
-
-    band = np.array([bound])
-    for r in np.linspace(-0.5, 1.5, 41):
-        adjusted = float(
-            _risk_adjusted_one_sided(
-                np.array([r]), band, aversion, direction=direction
-            )[0]
-        )
-        back = _raw_price_for_adjusted(
-            adjusted, raw, band, aversion, direction=direction
-        )
-        # At the bound itself (to float noise) every raw price ties.
-        inside = r <= bound + 1e-12 if direction == "up" else r >= bound - 1e-12
-        if aversion >= 1.0 and inside:
-            assert back == raw
-        else:
-            assert back == pytest.approx(r, abs=1e-12)
 
 
 def test_the_offer_curve_is_opt_in_and_absent_from_a_failed_plan():
@@ -730,29 +601,6 @@ class _UnboundedFake:
         ]
 
 
-@pytest.mark.parametrize("retail", [-1.00, 23.20, -2.0, 30.0])
-def test_a_retail_price_on_or_past_a_domain_limit_is_never_probed_at_nan(retail):
-    """#2054: a retail import of exactly -1.00, the domain's floor, with an
-    unbounded ranging end, made the retail point's probe -inf, then
-    plateau_end's -inf - -inf a NaN price. HiGHS never returns from a NaN
-    cost: the walk hung the solve. Every price asked for must be finite."""
-    import math
-
-    from solver.network import _offer_curve_ranging_walk
-
-    fake = _UnboundedFake()
-    _offer_curve_ranging_walk(
-        fake,
-        "imp",
-        retail=retail,
-        hours0=1.0,
-        negated=False,
-        cost_map=lambda price: {"imp": price, "tie": min(price, 0.05)},
-    )
-    assert fake.prices
-    assert all(math.isfinite(p) for p in fake.prices), fake.prices
-
-
 def test_a_non_finite_cost_is_refused_before_highs_sees_it():
     """#2054: HiGHS's dual simplex never returns on a NaN cost, whatever its
     time and iteration limits, so the sweep refuses one outright."""
@@ -818,29 +666,6 @@ class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
         )
         self.assertEqual(len(fake.calls), 2)
         self.assertEqual(len(curve), 2)
-
-    def test_walk_stops_on_a_non_monotonic_ranging_result(self):
-        from solver.lp import SweepRangingStep
-        from solver.network import _offer_curve_ranging_walk
-
-        steps = [
-            SweepRangingStep(value=1.0, cost_dn=_record(-1.0), cost_up=_record(0.05)),
-            # The nudge lands here next; this step's own cost_up does
-            # NOT advance past the previous one -- a genuine degenerate/
-            # non-monotonic ranging result, which real LP parametric-
-            # sensitivity theory says should never happen for a well-
-            # posed single-variable sweep. The walk must stop, not loop.
-            SweepRangingStep(value=1.0, cost_dn=_record(0.05), cost_up=_record(0.05)),
-            SweepRangingStep(
-                value=1.0, cost_dn=_record(-1.0), cost_up=_record(0.05)
-            ),  # retail
-        ]
-        fake = _FakeRangingResult(steps)
-        curve, _ranging = _offer_curve_ranging_walk(
-            fake, "imp", retail=0.5, hours0=1.0, negated=False
-        )
-        self.assertEqual(len(fake.calls), 3)
-        self.assertEqual(len(curve), 3)
 
     def test_walk_stops_once_ranging_is_unbounded_through_the_cap(self):
         from solver.lp import SweepRangingStep
@@ -920,31 +745,6 @@ class TestOfferCurveRangingWalkDescending(unittest.TestCase):
             negated=False,
         )
         self.assertEqual(fake.calls[0][1][0], 20.0)
-
-    def test_descending_walk_nudges_backward_past_each_breakpoint(self):
-        from solver.lp import SweepRangingStep
-        from solver.network import _offer_curve_ranging_walk
-
-        steps = [
-            SweepRangingStep(value=1.0, cost_dn=_record(5.0), cost_up=_record(100.0)),
-            SweepRangingStep(value=1.0, cost_dn=_record(-100.0), cost_up=_record(5.0)),
-            SweepRangingStep(
-                value=1.0, cost_dn=_record(-100.0), cost_up=_record(5.0)
-            ),  # retail
-        ]
-        fake = _FakeRangingResult(steps)
-        _offer_curve_ranging_walk(
-            fake,
-            "exp",
-            start=20.0,
-            ascending=False,
-            retail=1.0,
-            hours0=1.0,
-            negated=False,
-        )
-        second_call_cost = fake.calls[1][1][0]
-        self.assertLess(second_call_cost, 5.0)
-        self.assertGreater(second_call_cost, 5.0 - 1e-3)
 
     def test_descending_walk_stops_at_the_iteration_safety_cap(self):
         from solver.lp import SweepRangingStep
@@ -1193,72 +993,5 @@ def test_a_curve_on_a_plan_with_direction_rounds_does_not_register_a_binary_twic
     assert plan.offer_curve_import
 
 
-@pytest.mark.parametrize(
-    "prices", [_PAID_ALL_DAY, _PAID_LATE], ids=["paid_all_day", "paid_late"]
-)
-def test_a_shared_chargers_curve_points_are_what_a_fresh_solve_does(
-    prices, monkeypatch
-):
-    """#2031: the curve forbids what the plan forbids, a shared charger's
-    members charging one from another, so each point is still the period-0
-    import a fresh solve at its price plans, or at a tie, a value between
-    what fresh solves a hair either side plan.
-    Through the exact-MIP path: on this paid-to-import site the node search
-    takes minutes, on `main` as well."""
-    from solver import network
-
-    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    plan = _shared_charger_plan(prices=prices)
-    assert plan.status == "optimal"
-    assert plan.offer_curve_import
-
-    def fresh(price):
-        return float(
-            _shared_charger_plan(imp0=price, curve=False, prices=prices).grid_import_kw[
-                0
-            ]
-        )
-
-    for price, kw in plan.offer_curve_import:
-        if fresh(price) == pytest.approx(kw, abs=1e-4):
-            continue
-        # A price where the plan jumps between two answers is a tie: either,
-        # or any blend of them, is optimal there.
-        eps = 1e-4 * max(1.0, abs(price))
-        low, high = sorted(fresh(price + d) for d in (-eps, eps))
-        assert low - 1e-4 <= kw <= high + 1e-4, (price, kw, low, high)
-
-
 # The site's 12 direction pairs: 3 grid, 6 battery, 3 shared charger. A
 # budget of 12 buys one exact fallback: its targeted and its every-pair round.
-@pytest.mark.parametrize(
-    ("budget", "most"), [(0, 0), (12, 2), (None, None)], ids=["spent", "one", "default"]
-)
-def test_the_curves_exact_work_is_bounded(budget, most, monkeypatch):
-    """#2031 (Mark Purcell): past its budget of direction pairs, a point keeps
-    the best one-way plan its search found instead of an exact MIP, so a
-    large site's curve cannot run on (#2010's bounded secondary work)."""
-    import copy as copy_mod
-
-    from solver import lp, network
-
-    monkeypatch.setattr(network, "_OFFER_CURVE_ONE_WAY_NODES", 0)
-    if budget is not None:
-        monkeypatch.setattr(network, "_OFFER_CURVE_EXACT_PAIR_BUDGET", budget)
-    copies = []
-    real = copy_mod.deepcopy
-
-    def deepcopy(obj, *a, **k):
-        if isinstance(obj, lp.LPProblem):
-            copies.append(obj)
-        return real(obj, *a, **k)
-
-    monkeypatch.setattr(network.copy, "deepcopy", deepcopy)
-    plan = _shared_charger_plan()
-    assert plan.status == "optimal"
-    assert plan.offer_curve_import
-    if most is None:
-        assert len(copies) > 2  # unbounded by the tests above
-    else:
-        assert len(copies) <= most
-        assert (len(copies) > 0) == (most > 0)

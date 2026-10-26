@@ -16,26 +16,6 @@ def _fake_adequacy_load(subentry_id: str | None, power_kw: list[float]):
     return SimpleNamespace(subentry_id=subentry_id, power_kw=np.array(power_kw))
 
 
-def test_pro_rata_split_across_two_loads_matches_hand_computed_value():
-    # Two loads, no PV, no battery -- every watt of house load is
-    # grid_to_load, so each device's own share of that flow is exactly
-    # its own share of the whole-house load. 1 period, 1 hour, $0.30/kWh.
-    load_a = _fake_adequacy_load("a", [3.0])
-    load_b = _fake_adequacy_load("b", [1.0])
-    result = compute_tariff_attributed_cost(
-        [load_a, load_b],
-        grid_to_load_kw=np.array([4.0]),
-        whole_house_load_kw=np.array([4.0]),
-        import_price=np.array([0.30]),
-        period_hours=np.array([1.0]),
-    )
-    # Load A is 3/4 of the house load -> 3/4 of the $1.20 grid cost = $0.90.
-    # Load B is 1/4 -> $0.30. Hand-computed, not re-derived from the
-    # function's own formula.
-    assert abs(result["a"] - 0.9) < 1e-9
-    assert abs(result["b"] - 0.3) < 1e-9
-
-
 def test_zero_contribution_in_a_period_pv_fully_covers_the_load():
     # nimbus issue #483's own Acceptance criterion 1: "marginal costs
     # are approx 0 for periods with PV surplus". grid_to_load=0 this

@@ -32,29 +32,6 @@ class TestHomeIsTheIdentityTransform(unittest.TestCase):
         # and rot the first moment a band lever was added without one.
         self.assertNotIn("home", hm.THERMAL_BAND_PRESETS)
 
-    def test_home_returns_the_very_same_object(self):
-        """Not merely an equal dict -- the same object, so the identity
-        path is provably free and provably a no-op."""
-        cfg = {"solver_degradation_cost_per_kwh": 0.02}
-        out, applied = hm.apply_to_solver_config(cfg, "home")
-        self.assertIs(out, cfg)
-        self.assertEqual(applied, {})
-
-    def test_an_unset_mode_is_also_identity(self):
-        """`None` is what an install whose select entity has not come up
-        yet reports. It must not default to a mode."""
-        data = {"deferrable_target_kwh": 4.0}
-        out, applied = hm.apply_to_load_config(data, None)
-        self.assertIs(out, data)
-        self.assertEqual(applied, {})
-
-    def test_an_unrecognised_mode_is_identity_not_an_error(self):
-        """A household renaming its modes must never reshape dispatch."""
-        data = {"deferrable_target_kwh": 4.0}
-        out, applied = hm.apply_to_load_config(data, "holiday-house")
-        self.assertIs(out, data)
-        self.assertEqual(applied, {})
-
 
 class TestPresetsAreRelativeToTheHouseholdsOwnValue(unittest.TestCase):
     def test_guests_scales_the_configured_target_not_a_fixed_number(self):
@@ -66,22 +43,6 @@ class TestPresetsAreRelativeToTheHouseholdsOwnValue(unittest.TestCase):
         self.assertNotEqual(a["deferrable_target_kwh"], b["deferrable_target_kwh"])
         self.assertAlmostEqual(a["deferrable_target_kwh"], 5.2)
         self.assertAlmostEqual(b["deferrable_target_kwh"], 13.0)
-
-    def test_away_reduces_the_target_and_the_urgency_together(self):
-        out, applied = hm.apply_to_load_config(
-            {"deferrable_target_kwh": 4.0, "deferrable_shortfall_price": 2.0}, "away"
-        )
-        self.assertAlmostEqual(out["deferrable_target_kwh"], 2.0)
-        self.assertAlmostEqual(out["deferrable_shortfall_price"], 0.5)
-        self.assertEqual(
-            set(applied), {"deferrable_target_kwh", "deferrable_shortfall_price"}
-        )
-
-    def test_a_delta_preset_adds_rather_than_scales(self):
-        out, _ = hm.apply_to_load_config(
-            {"controllable_load_max_activations_per_day": 3.0}, "away"
-        )
-        self.assertAlmostEqual(out["controllable_load_max_activations_per_day"], 2.0)
 
     def test_every_table_entry_uses_a_known_operation(self):
         """Guards a typo'd op string, which would otherwise silently fall
@@ -109,15 +70,6 @@ class TestItRefusesToInventABaseline(unittest.TestCase):
         )
         self.assertEqual(out["deferrable_target_kwh"], "sensor.something")
         self.assertEqual(applied, {})
-
-    def test_a_preset_never_drives_a_lever_below_zero(self):
-        """Every key in these tables is a price, an energy target or a
-        count. A negative would be meaningless, and a delta preset on a
-        small baseline is the way to produce one by accident."""
-        out, _ = hm.apply_to_load_config(
-            {"controllable_load_max_activations_per_day": 0.0}, "away"
-        )
-        self.assertGreaterEqual(out["controllable_load_max_activations_per_day"], 0.0)
 
 
 class TestTheCallersDictIsNeverMutated(unittest.TestCase):

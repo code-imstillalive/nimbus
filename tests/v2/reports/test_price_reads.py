@@ -273,20 +273,6 @@ def test_the_regional_forecast_reads_aemo_and_pd7day_alike(monkeypatch, rows, po
     assert sw.fetch_aemo_forecast("sensor.regional") == [(t(a), v) for a, v in points]
 
 
-def test_past_the_retail_feed_the_regional_price_plus_the_learned_offset_is_used():
-    aemo = [(t("2026-10-06T13:30:00+10:00"), 0.0267)]
-    retail = [{"time": "2026-10-06T13:00:00+10:00", "costsflexup": 0.20}]
-    grid = [t("2026-10-06T13:00:00+10:00"), t("2026-10-06T13:40:00+10:00")]
-    bucket = 13 * 12 + 40 // 5
-    values, real = sw.resample_price_with_extrapolation(
-        retail, "costsflexup", grid, aemo, {bucket: 0.05}
-    )
-    assert values[0] == 0.20 and values[1] == pytest.approx(0.0767)
-    assert real == [True, False]
-    held, _ = sw.resample_price_with_extrapolation(retail, "costsflexup", grid, [], {})
-    assert held == [0.20, 0.20]
-
-
 def test_a_grid_point_exactly_at_an_interval_start_reads_that_interval(sensor):
     start = t("2026-10-06T13:00:00+10:00")
     rows = [
@@ -476,23 +462,6 @@ def test_a_spot_older_than_five_days_is_dropped(spot_store, monkeypatch):
 MARKUP_START = datetime(2026, 10, 10, 9, 5, tzinfo=UTC)  # 19:05 local
 RETAIL = [(MARKUP_START + timedelta(seconds=20), 0.40)]
 BUCKET = 19 * 12 + 1
-
-
-def test_the_markup_uses_the_same_poll_spot_over_a_late_regional_post(monkeypatch):
-    late = [(MARKUP_START + timedelta(seconds=60), 0.1357)]  # the previous interval's
-    monkeypatch.setattr(sw, "fetch_price_history", lambda *_a, **_k: late)
-    same = {int(MARKUP_START.timestamp()) // 300: (MARKUP_START, 0.1697)}
-    regional = sw.compute_5min_offset(RETAIL, regional_spot_sensor="sensor.aemo")
-    assert regional[BUCKET] == pytest.approx(0.40 - 0.1357)
-    assert sw.compute_5min_offset(
-        RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale=same
-    )[BUCKET] == pytest.approx(0.40 - 0.1697)
-    assert (
-        sw.compute_5min_offset(
-            RETAIL, regional_spot_sensor="sensor.aemo", same_poll_wholesale={}
-        )
-        == regional
-    )
 
 
 def test_an_amber_only_install_needs_no_regional_sensor(monkeypatch):

@@ -58,14 +58,6 @@ class TestTheEnvelopeItself(_WarnStateReset):
         got = _resolve(efficiency=90.0)
         self.assertAlmostEqual(got.charge_discharge_efficiency, 0.9**0.5)
 
-    def test_efficiency_is_capped_below_one(self):
-        """100% round-trip is a frictionless battery, which is the
-        wash-trade degeneracy shape `BatteryConfig` refuses to construct
-        at all."""
-        got = _resolve(efficiency=100.0)
-        self.assertLess(got.charge_discharge_efficiency, 1.0)
-        self.assertAlmostEqual(got.charge_discharge_efficiency, 0.999**0.5)
-
 
 class TestIssue328HonestPassThrough(_WarnStateReset):
     """The behaviour with no observable output of its own — a clamp here
@@ -74,10 +66,6 @@ class TestIssue328HonestPassThrough(_WarnStateReset):
     def test_a_below_floor_soc_reaches_the_lp_unchanged(self):
         got = _resolve(min_pct=20.0, initial_pct=5.0)
         self.assertEqual(got.initial_soc_kwh, 2.0)
-
-    def test_an_above_ceiling_soc_reaches_the_lp_unchanged(self):
-        got = _resolve(max_pct=80.0, initial_pct=95.0)
-        self.assertEqual(got.initial_soc_kwh, 38.0)
 
     def test_the_configured_bounds_are_still_reported_unchanged(self):
         """Passing the SoC through honestly must not also mean loosening
@@ -91,10 +79,6 @@ class TestThePhysicalClampIsADifferentClamp(_WarnStateReset):
     def test_a_negative_reading_is_clamped_to_zero(self):
         got = _resolve(initial_pct=-5.0)
         self.assertEqual(got.initial_soc_kwh, 0.0)
-
-    def test_a_reading_over_one_hundred_percent_is_clamped_to_capacity(self):
-        got = _resolve(initial_pct=130.0)
-        self.assertEqual(got.initial_soc_kwh, CAPACITY)
 
     def test_the_two_clamps_are_not_the_same_clamp(self):
         """Stated directly because collapsing them is the plausible

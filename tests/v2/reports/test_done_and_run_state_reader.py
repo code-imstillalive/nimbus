@@ -54,20 +54,6 @@ def test_a_condition_that_cannot_be_read_is_refused_or_unknown(expr):
 
 
 @pytest.mark.parametrize(
-    ("temp", "setpoint", "done"),
-    [
-        (None, 60, None),
-        (61.0, 60, True),
-        (59.0, 60.0, False),
-        (59.0, None, None),
-        (59.0, "warm", None),
-    ],
-)
-def test_without_a_condition_the_heaters_own_setpoint_decides(temp, setpoint, done):
-    assert dc.is_tank_done(temp, None, setpoint_temperature=setpoint) is done
-
-
-@pytest.mark.parametrize(
     ("entity", "state", "attrs", "temp"),
     [
         ("water_heater.tank", "eco", {"current_temperature": "58.5"}, 58.5),

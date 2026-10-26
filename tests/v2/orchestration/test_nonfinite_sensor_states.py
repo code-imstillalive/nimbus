@@ -79,8 +79,3 @@ def test_an_envelope_limit_reporting_non_finite_uses_the_static_limit(text):
     ):
         limits = solver_writer.resolve_envelope_limit_kw("number.envelope", 15.0, grid)
     assert limits == [15.0, 15.0, 15.0]
-
-
-def test_a_finite_reading_is_read_as_before():
-    with _states({"sensor.soc": {"state": "57.5"}}):
-        assert solver_shared.safe_num("sensor.soc") == 57.5

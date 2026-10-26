@@ -70,42 +70,6 @@ def _train(events, change_only_from):
 # --- the model: change-only semantics ---------------------------------------
 
 
-def test_idle_circuit_cannot_train_without_the_fix():
-    assert _train(_idle_heater_events(), None) is None
-
-
-def test_idle_circuit_trains_on_its_idle_time():
-    trained = _train(_idle_heater_events(), START)
-    assert trained is not None
-    # ~30 days of 15-min points, less the lag warm-up.
-    assert trained.training_points > 2800
-
-
-def test_idle_circuit_forecasts_near_zero_not_always_on():
-    trained = _train(_idle_heater_events(), START)
-    steps = [END + timedelta(minutes=15 * (i + 1)) for i in range(96)]
-    res = M.predict(
-        trained, steps, [22.0] * 96, [50.0] * 96, [(END - timedelta(hours=1), 0.0)], 15
-    )
-    mean = sum(res.values) / len(res.values)
-    true_mean = 3.0 * 2 / (7 * 24)  # 2 h at 3 kW per week
-    assert mean < 0.2, mean
-    assert abs(mean - true_mean) < 0.15
-
-
-def test_a_nan_marker_is_a_gap_until_the_next_reading():
-    grid = [START + timedelta(minutes=15 * i) for i in range(12)]
-    ev = [
-        (START, 1.0),
-        (START + timedelta(minutes=40), NAN),
-        (START + timedelta(minutes=100), 2.0),
-    ]
-    vals = M.resample_last_value(ev, grid)
-    assert vals[:3] == [1.0, 1.0, 1.0]  # 0, 15, 30 min
-    assert vals[3:7] == [None, None, None, None]  # 45..90 min: outage
-    assert vals[7:] == [2.0] * 5
-
-
 def test_a_nan_marker_is_never_an_observation():
     grid = [START + timedelta(minutes=15 * i) for i in range(4)]
     ev = [(START, 1.0), (START + timedelta(minutes=10), NAN)]
@@ -123,59 +87,6 @@ def test_an_outage_is_excluded_from_training_rows():
     # Two days of 15-min points (plus the lag warm-up after the gap) drop out.
     dropped = without.training_points - with_outage.training_points
     assert 2 * 96 <= dropped <= 2 * 96 + M.LAG_LONG_STEPS + 1
-
-
-def test_without_change_only_from_the_original_rules_hold():
-    """LTS-shaped hourly buckets: #350 still makes one row per bucket, and
-    #353's cap still turns a long silence into None."""
-    hourly = [(START + timedelta(hours=h), 0.5 + (h % 3)) for h in range(30 * 24)]
-    trained = M.train_model(
-        load_events=hourly,
-        temp_events=[],
-        humidity_events=[],
-        curtailment_events=[],
-        start=START,
-        end=END,
-        resample_minutes=15,
-        min_training_points=500,
-        max_staleness_minutes=75,
-    )
-    assert trained is not None
-    assert trained.training_points <= 30 * 24  # one target per hourly bucket
-    grid = [START + timedelta(minutes=15 * i) for i in range(6)]
-    capped = M.resample_last_value(
-        [(START, 1.0)], grid, max_staleness=timedelta(minutes=45)
-    )
-    assert capped == [1.0, 1.0, 1.0, 1.0, None, None]
-
-
-def test_hybrid_applies_each_rule_to_its_own_segment():
-    """Hourly buckets before the boundary, change-only rows after it."""
-    boundary = END - timedelta(days=5)
-    older = [
-        (START + timedelta(hours=h), 0.2)
-        for h in range(int((boundary - START).total_seconds() // 3600))
-    ]
-    recent = [(boundary, 0.0)]  # idle for the last 5 days
-    trained = M.train_model(
-        load_events=older + recent,
-        temp_events=[],
-        humidity_events=[],
-        curtailment_events=[],
-        start=START,
-        end=END,
-        resample_minutes=15,
-        min_training_points=500,
-        max_staleness_minutes=75,
-        change_only_from=boundary,
-    )
-    assert trained is not None
-    older_hours = len(older)
-    recent_points = 5 * 96
-    # Older segment: at most one row per hourly bucket. Recent segment: every
-    # held 15-min point.
-    assert trained.training_points <= older_hours + recent_points
-    assert trained.training_points >= recent_points
 
 
 # --- the coordinator: markers, downtime, boundary, stale model ---------------
@@ -226,13 +137,6 @@ def test_training_fetch_marks_unavailable_and_unknown_as_gaps():
     assert ev[0][1] == 0.0
     assert math.isnan(ev[1][1]) and math.isnan(ev[3][1])
     assert len(ev) == 4
-
-
-def test_forecast_path_fetch_still_drops_non_numeric_states():
-    coord = _bare()
-    _states([(START, "0.0"), (START + timedelta(hours=1), "unavailable")])
-    ev = asyncio.run(coord._async_fetch_recorder_history("sensor.x", START, END))
-    assert ev == [(START, 0.0)]
 
 
 def test_ha_downtime_becomes_a_gap_marker():

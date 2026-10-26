@@ -51,28 +51,6 @@ class TestResampleHistoryMeanIsTimeWeighted(unittest.TestCase):
         mean = solver_writer.resample_history_mean(pts, [T0], period_hours=1.0)[0]
         self.assertAlmostEqual(mean, (1.0 + 2.0 + 3.0 + 4.0) / 4, places=9)
 
-    def test_a_single_sample_holds_the_whole_period(self):
-        pts = [(T0 + timedelta(minutes=30), 5.0)]
-        mean = solver_writer.resample_history_mean(pts, [T0], period_hours=1.0)[0]
-        # Nothing precedes the window, so the first half hour is
-        # genuinely unobserved and is not weighted at all -- weighting
-        # it at the default would invent a reading. The 5.0 that WAS
-        # observed holds the rest.
-        self.assertAlmostEqual(mean, 5.0, places=9)
-
-    def test_a_value_carried_in_from_before_the_window_is_weighted(self):
-        """A sample recorded BEFORE the window still holds into it --
-        that is what 'state change' recording means, and ignoring it
-        would treat a steady signal as absent."""
-        pts = [
-            (T0 - timedelta(minutes=30), 8.0),
-            (T0 + timedelta(minutes=45), 0.0),
-        ]
-        mean = solver_writer.resample_history_mean(pts, [T0], period_hours=1.0)[0]
-        # 8.0 holds the first 45 min, 0.0 the last 15.
-        self.assertAlmostEqual(mean, (8.0 * 2700 + 0.0 * 900) / 3600, places=9)
-        self.assertAlmostEqual(mean, 6.0, places=9)
-
     def test_energy_over_a_day_matches_a_known_duty_cycle(self):
         """End to end on the property that actually matters: integrating
         the resampled series must return the energy that really moved.

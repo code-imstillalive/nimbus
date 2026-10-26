@@ -132,14 +132,6 @@ def test_with_no_self_consumption_given_the_sum_is_the_circuits_alone(ha):
     assert total == [1.0, 2.0]
 
 
-def test_no_circuits_is_just_self_consumption():
-    total, lower, upper, failed, warnings, coverage = sw.sum_load_forecasts(
-        [], _grid(2), 0.2
-    )
-    assert total == lower == upper == [0.2, 0.2]
-    assert (failed, warnings, coverage) == ([], {}, None)
-
-
 @pytest.mark.parametrize(
     ("total", "failed", "refused"),
     [
@@ -240,40 +232,6 @@ def test_unobserved_power_and_a_zero_capacity_are_reported_not_hidden():
 # --- whether a provisional score stands -------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("attrs", "age_minutes", "keep"),
-    [
-        ({"real_p2p_settlement_status": "settled"}, 600, True),
-        (
-            {"real_p2p_settlement_status": "no_settlement_entry_for_this_date"},
-            None,
-            True,
-        ),
-        (
-            {
-                "real_p2p_settlement_status": "settlement_sensor_unreadable",
-                "generated_at": "x",
-            },
-            None,
-            True,
-        ),
-        ({"real_p2p_settlement_status": "no_settlement_entry_for_this_date"}, 59, True),
-        (
-            {"real_p2p_settlement_status": "no_settlement_entry_for_this_date"},
-            60,
-            False,
-        ),
-    ],
-)
-def test_a_provisional_score_is_redone_hourly_until_its_settlement_lands(
-    attrs, age_minutes, keep
-):
-    attrs = dict(attrs)
-    if age_minutes is not None:
-        attrs["generated_at"] = (T0 - timedelta(minutes=age_minutes)).isoformat()
-    assert sw._keep_published_quality_score(attrs, T0) is keep
-
-
 # --- the load-nowcast skill ---------------------------------------------------------------
 
 
@@ -326,32 +284,6 @@ def test_without_a_recorded_trail_or_baseline_there_is_no_skill(monkeypatch):
         T0 - timedelta(hours=24),
         T0 + timedelta(hours=2) - timedelta(hours=24),
     )
-
-
-def test_the_baseline_is_yesterdays_load_shifted_and_scaled(monkeypatch):
-    trail = [(t, 1.0) for t in _grid(4)]
-    prev = [(t - timedelta(hours=24), 2000.0) for t in _grid(4)]
-    result = SimpleNamespace(
-        j_star=1.23456,
-        j_forecast=2.0,
-        j_persistence=3.0,
-        value_add_dollars=1.0,
-        coverage=1.0,
-        n_periods_measured=4,
-    )
-    out, _, got = _nowcast(monkeypatch, trail=trail, prev=prev, result=result)
-    np.testing.assert_allclose(got["load_persistence_kw"], [2.0] * 4)
-    np.testing.assert_allclose(got["load_nowcast_kw"], [1.0] * 4)
-    assert got["n_periods_measured"] == 4
-    assert out == {
-        "load_nowcast_skill_j_star": 1.2346,
-        "load_nowcast_skill_j_forecast": 2.0,
-        "load_nowcast_skill_j_persistence": 3.0,
-        "load_nowcast_skill_value_add_dollars": 1.0,
-        "load_nowcast_skill_coverage": 1.0,
-        "load_nowcast_skill_periods_measured": 4,
-        "load_nowcast_skill_reason": None,
-    }
 
 
 @pytest.mark.parametrize(

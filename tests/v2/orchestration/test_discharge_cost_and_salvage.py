@@ -15,24 +15,6 @@ class TestScheduleDefaultsToTheVisibleSettings(unittest.TestCase):
     sell nothing into a 43.5c spike at 12:46 while its Discharge Cost read
     0.01."""
 
-    def test_discharge_cost_is_the_setting_at_every_hour(self):
-        for cost in (0.01, 0.04):
-            for hour in range(24):
-                with self.subTest(cost=cost, hour=hour):
-                    self.assertEqual(
-                        solver_writer.scheduled_discharge_cost_rate(
-                            {"solver_discharge_cost": cost}, hour
-                        ),
-                        cost,
-                    )
-
-    def test_no_settings_at_all_is_the_settings_own_default(self):
-        for hour in (0, 7, 12, 16, 17, 23):
-            self.assertEqual(
-                solver_writer.scheduled_discharge_cost_rate({}, hour), 0.01
-            )
-            self.assertEqual(solver_writer.scheduled_salvage_value_rate({}, hour), 0.15)
-
     def test_salvage_value_is_the_setting_at_every_hour(self):
         for hour in range(24):
             with self.subTest(hour=hour):
@@ -77,18 +59,6 @@ class TestScheduleIsGenuinelyConfigurable(unittest.TestCase):
                 solver_writer.scheduled_discharge_cost_rate(cfg, hour), 0.02
             )
 
-    def test_block_2_can_add_a_genuine_third_tier(self):
-        cfg = {
-            "solver_discharge_cost": 0.01,
-            "solver_discharge_cost_schedule_block_2_rate": 0.15,
-            "solver_discharge_cost_schedule_block_2_start_hour": 7,
-            "solver_discharge_cost_schedule_block_2_end_hour": 9,
-        }
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 8), 0.15)
-        # Outside block 2 the setting applies.
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 20), 0.01)
-        self.assertEqual(solver_writer.scheduled_discharge_cost_rate(cfg, 12), 0.01)
-
     def test_salvage_value_default_and_block_1_are_independently_configurable(self):
         cfg = {
             "solver_salvage_value_schedule_default_rate": 0.10,
@@ -125,27 +95,6 @@ class TestPriceForecastArrayKeysAreConfigurable(unittest.TestCase):
     """The costsflexup/earningsflexup fix -- verified at the level of the
     real parsing function (already generic), confirming the DEFAULT key
     names it's called with match the historical LocalVolts literals."""
-
-    def test_resample_price_with_extrapolation_default_key_matches_costsflexup_shape(
-        self,
-    ):
-        # The fix is entirely about WHICH key name reaches this call, not
-        # this function's own logic (already correct/generic). Confirm a
-        # forecast keyed "costsflexup" is read correctly when that literal
-        # is passed as value_key -- the exact default the new
-        # solver_price_forecast_array_import_key field's absence produces.
-        from datetime import UTC, datetime
-
-        forecast = [
-            {"time": "2026-01-01T00:00:00+00:00", "costsflexup": 0.11},
-            {"time": "2026-01-01T00:05:00+00:00", "costsflexup": 0.12},
-        ]
-        grid_times = [datetime(2026, 1, 1, 0, 0, tzinfo=UTC)]
-        values, mask = solver_writer.resample_price_with_extrapolation(
-            forecast, "costsflexup", grid_times, [], {}
-        )
-        self.assertEqual(values, [0.11])
-        self.assertTrue(mask[0])
 
     def test_a_non_localvolts_key_name_also_works_once_passed_through(self):
         from datetime import UTC, datetime

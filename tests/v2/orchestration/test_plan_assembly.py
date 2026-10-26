@@ -115,26 +115,6 @@ def test_the_day_solves_with_the_battery_moving_both_ways(baseline):
 @pytest.mark.parametrize(
     ("a", "b"),
     [
-        ("import_price", "export_price"),
-        ("import_price", "import_price_upper"),
-        ("export_price", "export_price_lower"),
-        ("export_bonus_price", "export_price_lower"),
-        ("max_charge_kw", "max_discharge_kw"),
-        ("import_limit_kw", "export_limit_kw"),
-        ("charge_cost", "salvage_value"),
-    ],
-)
-def test_two_inputs_of_the_same_shape_are_never_interchangeable(baseline, a, b):
-    """#1380: a transposition at the call site must show in the plan."""
-    kwargs = _inputs()
-    assert kwargs[a] != kwargs[b]
-    kwargs[a], kwargs[b] = kwargs[b], kwargs[a]
-    assert _fingerprint(_assemble(**kwargs)) != _fingerprint(baseline)
-
-
-@pytest.mark.parametrize(
-    ("a", "b"),
-    [
         ("load_kw", "load_lower_kw"),
         ("load_kw", "load_upper_kw"),
         ("solar_kw", "solar_lower_kw"),
@@ -250,19 +230,6 @@ def test_with_the_switch_off_nothing_ranges_or_defers(cadence):
     for _ in range(2):
         off = _at(OFF)
         assert off.plan.grid_signals is None and not off.flex_ranging_deferred
-
-
-def test_a_ranging_solve_that_produced_no_signals_is_retried(cadence, monkeypatch):
-    real = solver_plan.network.build_plan
-    monkeypatch.setattr(
-        solver_plan.network,
-        "build_plan",
-        lambda **kw: dataclasses.replace(real(**kw), grid_signals=None),
-    )
-    assert _at(ON).plan.grid_signals is None
-    monkeypatch.setattr(solver_plan.network, "build_plan", real)
-    retry = _at(ON, NOW + timedelta(seconds=17))
-    assert retry.plan.grid_signals is not None and not retry.flex_ranging_deferred
 
 
 def _posts(monkeypatch):

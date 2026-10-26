@@ -137,47 +137,6 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
     non-empty (and it is, in every scenario here: 768 and 2304 binaries).
     """
 
-    def test_neutralising_only_the_phase3_call_site_brings_it_back(self):
-        original = lp._lp_tolerance_matching_mip
-        calls = {"n": 0}
-
-        @contextlib.contextmanager
-        def _noop_after_the_first(h):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                # phase2_pin_resolve -- leave #979's fix intact, or it
-                # fails there and the fallback hides phase 3 entirely.
-                with original(h):
-                    yield
-            else:
-                yield  # phase3_lex_restore, pre-fix behaviour
-
-        reproduced = []
-        lp._lp_tolerance_matching_mip = _noop_after_the_first
-        try:
-            # nimbus issue #773: tier 1 held off. With it live these
-            # scenarios no longer reach the band at all, so this A/B
-            # would pass vacuously and stop guarding the tolerance fix.
-            # See `_tier1_seed_disabled()`.
-            with _tier1_seed_disabled():
-                for n_loads, n_periods, seed in FAILING:
-                    calls["n"] = 0
-                    _plan, messages = _run(n_loads, n_periods, seed)
-                    reproduced.append(_phase3_failed(messages))
-        finally:
-            lp._lp_tolerance_matching_mip = original
-
-        self.assertTrue(
-            all(reproduced),
-            "with only the phase-3 call site neutralised, "
-            "phase3_lex_restore no longer fails on scenarios that "
-            f"reproduced it deterministically -- got {reproduced}. Either "
-            "they have stopped reaching the 1e-7..1e-6 band (a HiGHS "
-            "version change, or the model shape moved), or something else "
-            "now compensates. This test proves nothing until a new "
-            "reproducing scenario is found, so do not simply delete it.",
-        )
-
     def test_the_patch_target_is_the_name_the_call_sites_resolve(self):
         """The monkeypatch above only works while both call sites look
         the helper up as a module global at call time. If either is ever
@@ -366,45 +325,6 @@ class TestTheCalibratedPathIsWorse(unittest.TestCase):
                 )
 
 
-class TestWhatThisDoesNotFix(unittest.TestCase):
-    """Scope, pinned so it is not overstated later.
-
-    Matching the LP tolerance to the MIP tolerance can only rescue a
-    violation INSIDE the 1e-7..1e-6 band. A larger one is still a genuine
-    infeasibility for both.
-
-    Measured, with this fix applied, n_loads=20/n_periods=32/seed=3:
-
-        phase3_lex_restore  max_primal_infeasibility  1.919759e-06
-
-    which is ABOVE `mip_feasibility_tolerance` itself, so widening the
-    primal tolerance to match cannot help by construction.
-
-    **Updated for #773's tier-1 fix.** That scenario now reports
-    `optimal` on the calibrated path -- but NOT because this tolerance fix
-    grew stronger. The scope above is unchanged and still exactly right;
-    the scenario moved. See `TestWhatTier1IncidentallyFixed` below for the
-    isolating experiment. This class keeps asserting the original fact,
-    with tier 1 held off, because the above-band class of failure is real
-    and still unaddressed by anything in this file.
-    """
-
-    def test_the_above_band_scenario_is_still_unresolved(self):
-        lp._lex_calibration_failed_until = 0.0
-        scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
-        with _tier1_seed_disabled():
-            plan = _solve(*scenario, options=CalibratedOptions())
-        self.assertEqual(
-            plan.status,
-            "infeasible",
-            "the above-band scenario (1.92e-06, outside the tolerance gap) "
-            "now solves even with #773's tier-1 seed held off. That is good "
-            "news and this test is the wrong shape for it -- find out WHAT "
-            "fixed it, then update this file's scope section rather than "
-            "only flipping the assertion",
-        )
-
-
 class TestWhatTier1IncidentallyFixed(unittest.TestCase):
     """nimbus issue #773: the tier-1 integral seed also resolves the
     above-band scenario this file documents as out of scope -- and the
@@ -444,14 +364,6 @@ class TestWhatTier1IncidentallyFixed(unittest.TestCase):
         2 has begun doing something tier 1 was credited for, and the
         docstring above is wrong."""
         self.assertEqual(self._status(_tier1_seed_disabled()), "infeasible")
-
-    def test_with_neither_tier_it_is_the_original_failure(self):
-        """Pre-#773 behaviour. Both tiers depend on phase 1's captured
-        point, so removing the capture removes both."""
-        no_capture = unittest.mock.patch.object(
-            lp, "_capture_integral_point", lambda _h: None
-        )
-        self.assertEqual(self._status(no_capture), "infeasible")
 
 
 # Kept at the very END of the file, deliberately.

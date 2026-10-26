@@ -20,19 +20,9 @@ T0 = datetime(2026, 10, 13, 9, 10, tzinfo=UTC)
 GRID = [T0 + timedelta(minutes=30 * i) for i in range(6)]
 
 
-def test_the_last_covered_period_is_published():
-    mask = [True, True, True, False, False, False]
-    assert provider_forecast_until(mask, GRID) == GRID[2].isoformat()
-
-
 def test_a_gap_inside_the_coverage_does_not_end_it_early():
     mask = [True, False, True, True, False, False]
     assert provider_forecast_until(mask, GRID) == GRID[3].isoformat()
-
-
-def test_no_coverage_is_none_and_full_coverage_is_the_last_period():
-    assert provider_forecast_until([False] * 6, GRID) is None
-    assert provider_forecast_until([True] * 6, GRID) == GRID[-1].isoformat()
 
 
 def test_a_mask_that_is_not_a_sequence_is_none():

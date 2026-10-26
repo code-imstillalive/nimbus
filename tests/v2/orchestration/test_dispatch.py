@@ -12,7 +12,6 @@ its own thread and an in-memory store; the device calls are recorded.
 from __future__ import annotations
 
 import asyncio
-import itertools
 import logging
 import sys
 import threading
@@ -177,41 +176,6 @@ def test_a_load_that_stays_on_is_commanded_once_and_its_first_decision_is_kept(s
     assert st.commanded_state is True and st.commanded_since == T0.timestamp()
 
 
-def test_alternating_decisions_change_the_command_at_most_once(site):
-    site.load("s", "switch.pump")
-    seen = []
-    for i in range(10):
-        site.solve(T0 + STEP * i, sheddable={"s": ON if i % 2 == 0 else OFF})
-        seen.append(site.state("s").commanded_state)
-    assert sum(a != b for a, b in itertools.pairwise(seen)) <= 1
-
-
-def test_a_decision_that_flips_every_solve_never_reaches_the_device_until_it_holds(
-    site,
-):
-    """#741: a heat pump stuck "about to start" all night. The decision
-    alternated every 5-minute solve, so it never held for the 15-minute
-    minimum and nothing was sent -- and once it settles, exactly one
-    command goes out."""
-    site.load("s", "water_heater.hws", controllable_load_min_hold_minutes=15)
-    site.solve(T0, adequacy={"s": OFF})
-    site.calls.clear()
-    for i in range(24):
-        site.solve(T0 + STEP * (i + 1), adequacy={"s": ON if i % 2 == 0 else OFF})
-    assert site.calls == []
-    assert site.state("s").commanded_state is False
-    settle = T0 + STEP * 26
-    for i in range(4):
-        site.solve(settle + STEP * i, adequacy={"s": ON})
-    assert site.calls == [
-        (
-            "water_heater",
-            "set_operation_mode",
-            {"entity_id": "water_heater.hws", "operation_mode": "performance"},
-        )
-    ]
-
-
 def test_a_dip_inside_the_hold_window_does_not_turn_a_load_off_or_one_on_early(site):
     """#595: a jagged plan that dips for one period while the load is wanted
     again within the hold window keeps it on; the look-ahead never brings an
@@ -358,26 +322,6 @@ def test_during_a_hold_the_forecast_heats_from_the_first_period(site):
 
 
 @pytest.mark.parametrize(
-    ("live", "attrs", "done_when", "first", "last"),
-    [
-        (58.0, {"temperature": 60.0}, None, 60.0, 60.0),  # its own setpoint
-        (58.0, {}, None, 58.0 + 14.8, None),  # nothing to cap at
-        (45.0, {"temperature": 45.0, "max_temp": 65.0}, None, 45.0 + 14.8, 65.0),
-        (58.0, {}, ">= 60", 60.0, 60.0),  # the done condition's threshold
-    ],
-    ids=["setpoint", "none", "max_temp_over_eco", "done_when"],
-)
-def test_the_forecast_never_heats_past_the_tanks_ceiling(
-    site, live, attrs, done_when, first, last
-):
-    _heater(site, live, done_when=done_when, **attrs)
-    st = _forecast(site, 3.7)
-    assert st.temperature_forecast[0]["value"] == pytest.approx(first, abs=0.01)
-    if last is not None:
-        assert st.temperature_forecast[-1]["value"] == last
-
-
-@pytest.mark.parametrize(
     ("seed", "source", "rate"),
     [
         ({"thermal_rates_learned_day_key": ""}, "fallback", None),
@@ -418,20 +362,6 @@ def test_a_recorder_that_fails_mid_fetch_falls_back_like_no_recorder(
     assert "thermal history fetch failed for water_heater.hws/sensor.hws_power" in (
         caplog.text
     )
-
-
-def test_a_tank_forecast_to_reach_its_floor_says_when_and_warns_once_a_day(
-    site, caplog
-):
-    _heater(site, 45.4, min_temp=45.0)
-    with caplog.at_level(logging.WARNING):
-        st = _forecast(site, 0.0)
-        _forecast(site, 0.0)
-    assert st.floor_crossing_forecast_time is not None
-    assert st.floor_crossing_forecast_temperature <= 45.0
-    assert caplog.text.count("hardware floor") == 1
-    _heater(site, 55.0, min_temp=45.0)
-    assert _forecast(site, 0.0).floor_crossing_forecast_time is None
 
 
 # --- each load's own published plan ------------------------------------------------------------

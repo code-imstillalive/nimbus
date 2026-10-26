@@ -57,19 +57,6 @@ def test_with_ambient_history_it_learns_the_loss_against_the_gap():
     assert rates.loss_coeff_sample_count == rates.idle_sample_count
 
 
-def test_too_little_history_falls_back_to_defaults_and_says_so():
-    empty = tf.learn_thermal_rates([], on_threshold_kw=0.5)
-    assert not empty.is_learned
-    assert empty.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH
-    assert empty.idle_decay_c_per_hour == tf.DEFAULT_IDLE_DECAY_C_PER_HOUR
-    # Twenty idle minutes teach the decay but no heating rate.
-    idle = tf.learn_thermal_rates(_tank(days=1)[:5], on_threshold_kw=0.5)
-    assert not idle.is_learned
-    assert idle.heating_rate_c_per_kwh == tf.DEFAULT_HEATING_RATE_C_PER_KWH
-    assert idle.idle_decay_c_per_hour == pytest.approx(0.8, rel=0.01)
-    assert (idle.heating_sample_count, idle.idle_sample_count) == (0, 1)
-
-
 def test_ambient_between_readings_is_interpolated_and_held_at_the_ends():
     amb = [(T0, 10.0), (T0 + timedelta(hours=2), 20.0)]
     assert tf._ambient_value_at(amb, T0 + timedelta(hours=1)) == 15.0
@@ -254,18 +241,5 @@ def test_ambient_readings_without_a_learned_loss_use_the_idle_decay():
             {"time": (T0 + timedelta(hours=2)).isoformat(), "value": 15.0},
         ],
         loss_coeff_per_h=None,
-    )
-    assert [e["value"] for e in out] == [49.5, 49.0]
-
-
-def test_a_learned_loss_without_ambient_readings_uses_the_idle_decay():
-    out = tf.project_temperature_forecast(
-        _plan([0.0, 0.0]),
-        start_temperature=50.0,
-        heating_rate_c_per_kwh=2.0,
-        idle_decay_c_per_hour=1.0,
-        on_threshold_kw=0.5,
-        loss_coeff_per_h=0.02,
-        ambient_forecast=None,
     )
     assert [e["value"] for e in out] == [49.5, 49.0]

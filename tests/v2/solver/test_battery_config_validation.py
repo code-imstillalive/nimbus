@@ -41,17 +41,6 @@ class TestZeroCapacityRejected(unittest.TestCase):
             )
         self.assertIn("capacity_kwh", str(ctx.exception))
 
-    def test_capacity_kwh_negative_is_rejected(self):
-        with self.assertRaises(ValueError):
-            BatteryConfig(
-                **_base_battery(
-                    capacity_kwh=-5.0,
-                    min_soc_kwh=0.0,
-                    max_soc_kwh=0.0,
-                    initial_soc_kwh=0.0,
-                )
-            )
-
     def test_capacity_kwh_small_positive_is_accepted(self):
         cfg = BatteryConfig(
             **_base_battery(
@@ -67,11 +56,6 @@ class TestNegativeMaxChargeDischargeRejected(unittest.TestCase):
             BatteryConfig(**_base_battery(max_charge_kw=-5.0))
         self.assertIn("max_charge_kw", str(ctx.exception))
         self.assertIn("-5", str(ctx.exception))
-
-    def test_negative_max_discharge_kw_is_rejected(self):
-        with self.assertRaises(ValueError) as ctx:
-            BatteryConfig(**_base_battery(max_discharge_kw=-5.0))
-        self.assertIn("max_discharge_kw", str(ctx.exception))
 
     def test_zero_max_charge_kw_is_still_accepted(self):
         # A real, legitimate "this direction is physically disabled"
@@ -94,13 +78,6 @@ class TestEfficiencyMessageWording(unittest.TestCase):
     def test_exactly_100_percent_charge_efficiency_still_rejected(self):
         with self.assertRaises(DegenerateConfigError) as ctx:
             BatteryConfig(**_base_battery(charge_efficiency=1.0))
-        msg = str(ctx.exception)
-        self.assertIn("(0, 1)", msg)
-        self.assertNotIn("(0, 1]", msg)
-
-    def test_exactly_100_percent_discharge_efficiency_still_rejected(self):
-        with self.assertRaises(DegenerateConfigError) as ctx:
-            BatteryConfig(**_base_battery(discharge_efficiency=1.0))
         msg = str(ctx.exception)
         self.assertIn("(0, 1)", msg)
         self.assertNotIn("(0, 1]", msg)

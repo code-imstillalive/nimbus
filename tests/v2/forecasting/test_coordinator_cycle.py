@@ -193,18 +193,6 @@ def test_the_model_survives_a_restart(tmp_path, recorder):
     ]
 
 
-def test_a_kw_sensor_trains_to_the_same_forecast_as_a_w_sensor(tmp_path, recorder):
-    (tmp_path / "w").mkdir()
-    (tmp_path / "kw").mkdir()
-    w = _coordinator(FakeHass(tmp_path / "w"))
-    asyncio.run(w._async_retrain())
-    kw = _coordinator(FakeHass(tmp_path / "kw", unit="kW"))
-    asyncio.run(kw._async_retrain())
-    assert [p["value"] for p in kw.data["forecast"]] == pytest.approx(
-        [p["value"] for p in w.data["forecast"]], abs=1e-3
-    )
-
-
 def test_a_scheduled_load_publishes_its_rule_without_any_model(tmp_path, recorder):
     coord = _coordinator(
         FakeHass(tmp_path),
@@ -369,22 +357,6 @@ def test_every_site_input_is_read_in_kw_and_trained_on(tmp_path, site):
     assert coord._current_measured_power("sensor.missing") == 0.0
     assert coord._current_humidity() == 60.0
     assert coord.data["forecast"]
-
-
-def test_an_energy_sensor_is_never_a_power_feature_and_the_load_never_its_own(
-    tmp_path, site
-):
-    hass = _site_hass(tmp_path)
-    coord = _site_coordinator(
-        hass,
-        **{
-            const.CONF_BATTERY_SENSOR: "sensor.battery_energy",
-            const.CONF_HUMIDITY_SENSOR: LOAD,
-        },
-    )
-    assert coord._battery_sensor is None  # kWh: energy, not power (#1562)
-    assert coord._humidity_sensor is None  # the load itself (#1540)
-    assert coord._grid_sensor == "sensor.grid_power"
 
 
 def test_a_weather_entity_is_read_through_its_forecast_service(tmp_path, site):

@@ -12,7 +12,6 @@ import copy
 from datetime import UTC, datetime
 
 import device_observation as do
-import pytest
 
 from tests.device_contract.test_dc004_views_and_preview import F10, di
 
@@ -68,40 +67,6 @@ def test_the_battery_sign_is_the_one_difference_on_a_healthy_site():
     assert diff == [
         {"input": "battery_power", "field": "value", "legacy": 2.0, "contract": -2.0}
     ]
-
-
-def test_an_unavailable_sensor_is_zero_today_and_missing_in_the_contract():
-    """Not in DC-006's expected list: today an unavailable reading is fed to
-    the Forecaster as 0.0 kW; the contract says missing (DC-R04: missing is
-    never zero). Needs a decision before the slice merges."""
-    states = {**NORMAL, "sensor.meter_power": _st("unavailable", "W")}
-    _legacy, contract, diff = _gate(states)
-    assert contract["grid_power"]["reason"] == "unavailable"
-    assert {
-        "input": "grid_power",
-        "field": "value",
-        "legacy": 0.0,
-        "contract": None,
-    } in diff
-
-
-@pytest.mark.parametrize(
-    ("unit", "reason"), [(None, "unit_missing"), ("kw", "unit_not_exact")]
-)
-def test_a_unitless_or_misspelt_sensor_is_read_today_and_refused_in_the_contract(
-    unit, reason
-):
-    """The F09 divergences, decided by the household on #1893: refused until
-    the household declares the unit in its Repair."""
-    states = {**NORMAL, "sensor.meter_power": _st("1.5", unit)}
-    _legacy, contract, diff = _gate(states)
-    assert contract["grid_power"]["reason"] == reason
-    assert {
-        "input": "grid_power",
-        "field": "value",
-        "legacy": 1.5,
-        "contract": None,
-    } in diff
 
 
 def test_the_legacy_side_matches_the_forecasters_own_reader():

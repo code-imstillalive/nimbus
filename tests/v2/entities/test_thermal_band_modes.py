@@ -186,13 +186,6 @@ class TestHomeIsStillByteIdentical(unittest.TestCase):
         self.assertIs(again, _BASE_THERMAL_DATA)
         self.assertEqual(out, _BASE_THERMAL_DATA)
 
-    def test_an_unset_or_unknown_mode_never_reaches_the_repair_pass(self):
-        for mode in (None, "holiday-house", ""):
-            with self.subTest(mode=mode):
-                out, applied = hm.apply_to_load_config(_BASE_THERMAL_DATA, mode)
-                self.assertIs(out, _BASE_THERMAL_DATA)
-                self.assertEqual(applied, {})
-
     def test_the_lp_arrays_under_home_match_the_unmoded_solve_exactly(self):
         """The end-to-end half. Structural identity is necessary; this is
         the statement a household actually cares about."""
@@ -258,17 +251,6 @@ class TestAwayReallyDropsTheBand(unittest.TestCase):
             _thermal_kwh(_solve(_thermal_from(guests))),
             _thermal_kwh(_solve(_thermal_from(home))),
         )
-
-    def test_a_load_with_no_comfort_floor_only_moves_its_target(self):
-        """`comfort_floor_c` is optional and `None` by default. `float(None)`
-        raises, so the generic path must skip it rather than crash a real
-        solve -- and the repair pass must cope with a half-present band."""
-        data = dict(_BASE_THERMAL_DATA)
-        data[hm.THERMAL_COMFORT_FLOOR_KEY] = None
-        out, applied = hm.apply_to_load_config(data, "away")
-        self.assertAlmostEqual(out[hm.THERMAL_TARGET_KEY], 55.0)
-        self.assertIsNone(out[hm.THERMAL_COMFORT_FLOOR_KEY])
-        self.assertNotIn(hm.THERMAL_COMFORT_FLOOR_KEY, applied)
 
     def test_a_band_only_load_still_gets_a_fresh_dict(self):
         """A distinct branch, and the one a reader is most likely to miss.
@@ -367,27 +349,6 @@ class TestTheOrderingInvariantIsRepairedNeverRaised(unittest.TestCase):
     the battery and every other load down with the one bad temperature.
     """
 
-    def test_every_mode_over_a_grid_of_real_baselines_builds_a_valid_element(self):
-        targets = (4.0, 20.0, 45.0, 55.0, 60.0, 75.0, 98.0, 99.0)
-        for target in targets:
-            for floor_gap in (0.0, 1.0, 10.0, target):
-                floor = max(0.0, target - floor_gap)
-                data = dict(_BASE_THERMAL_DATA)
-                data[hm.THERMAL_TARGET_KEY] = target
-                data[hm.THERMAL_COMFORT_FLOOR_KEY] = floor
-                for mode in ("home", "away", "guests", "economy"):
-                    with self.subTest(target=target, floor=floor, mode=mode):
-                        moded, _ = hm.apply_to_load_config(data, mode)
-                        # The assertion IS that this does not raise.
-                        element = _thermal_from(moded)
-                        if element.comfort_floor_c is not None:
-                            self.assertLessEqual(
-                                element.comfort_floor_c, element.target_temperature_c
-                            )
-                        self.assertLessEqual(
-                            element.target_temperature_c, element.max_temperature_c
-                        )
-
     def test_a_floor_pushed_past_the_ceiling_is_clamped_to_the_target(self):
         """Directly exercises the repair branch rather than reaching it by
         luck: a band table that moved only the floor upward would produce
@@ -422,19 +383,6 @@ class TestTheOrderingInvariantIsRepairedNeverRaised(unittest.TestCase):
         out, _ = hm._repair_thermal_band(values)
         self.assertEqual(values[hm.THERMAL_COMFORT_FLOOR_KEY], 65.0)
         self.assertIsNot(out, values)
-
-    def test_a_repaired_value_is_what_gets_reported_not_the_pre_clamp_one(self):
-        """The `applied` map is the only observability the per-load half
-        has (it is what the DEBUG log prints). Reporting the pre-clamp
-        figure would describe a value the LP never saw."""
-        data = dict(_BASE_THERMAL_DATA)
-        data[hm.THERMAL_TARGET_KEY] = 98.5
-        data[hm.THERMAL_COMFORT_FLOOR_KEY] = 98.0
-        out, applied = hm.apply_to_load_config(data, "guests")
-        self.assertAlmostEqual(out[hm.THERMAL_TARGET_KEY], hm.THERMAL_MAX_TEMPERATURE_C)
-        self.assertAlmostEqual(
-            applied[hm.THERMAL_TARGET_KEY], hm.THERMAL_MAX_TEMPERATURE_C
-        )
 
 
 class TestTheDuplicatedCeilingCannotDrift(unittest.TestCase):

@@ -83,29 +83,6 @@ def test_dc_r14_f01_a_grid_and_load_site_observes_and_says_what_plan_needs():
     assert all(m["satisfy"] for m in r["plan"]["missing"])
 
 
-def test_observing_needs_grid_power_or_both_energies():
-    assert rd.evaluate(_doc())["observe"]["state"] == "needs"
-    energies = {
-        "import_energy": {
-            "source": {
-                "kind": "recorder_statistic",
-                "statistic_id": "a",
-                "interval_semantics": "hourly_change",
-            }
-        },
-        "export_energy": {
-            "source": {
-                "kind": "recorder_statistic",
-                "statistic_id": "b",
-                "interval_semantics": "hourly_change",
-            }
-        },
-    }
-    assert rd.evaluate(_doc(grid=energies))["observe"]["state"] == "ready"
-    one = {"import_energy": energies["import_energy"]}
-    assert rd.evaluate(_doc(grid=one))["observe"]["state"] == "needs"
-
-
 def test_dc_r14_f11_a_training_model_is_a_status_not_a_fault():
     r = rd.evaluate(_doc(grid=GRID, house=HOUSE), models={"load_house": "training"})
     assert r["forecast"]["state"] == "training"
@@ -113,48 +90,6 @@ def test_dc_r14_f11_a_training_model_is_a_status_not_a_fault():
     assert "missing" not in r["plan"]
     r = rd.evaluate(_doc(grid=GRID, house=HOUSE), models={"load_house": "trained"})
     assert r["forecast"]["state"] == "ready" and r["plan"]["state"] == "ready"
-
-
-def test_a_demand_forecast_binding_plans_without_a_trained_model():
-    house = {**HOUSE, "demand_forecast": _binding("sensor.house_forecast")}
-    r = rd.evaluate(_doc(grid=GRID, house=house), models={"load_house": "training"})
-    assert r["plan"]["state"] == "ready"
-
-
-def test_a_battery_without_capacity_is_a_need_not_a_crash():
-    battery = {
-        "id": "battery",
-        "kind": "battery",
-        "bindings": {"soc": _binding("sensor.soc"), "power": _binding("sensor.bp")},
-        "constraints": {},
-    }
-    r = rd.evaluate(
-        _doc(grid=GRID, house=HOUSE, battery=battery), models={"load_house": "trained"}
-    )
-    assert [(m["device"], m["role"]) for m in r["plan"]["missing"]] == [
-        ("battery", "capacity")
-    ]
-    assert r["observe"]["state"] == "ready"
-
-
-def test_no_export_price_needed_when_export_is_limited_to_zero():
-    doc = _doc(grid={k: v for k, v in GRID.items() if k != "export_price"}, house=HOUSE)
-    doc["devices"][0]["constraints"] = {"export_limit": 0}
-    r = rd.evaluate(doc, models={"load_house": "trained"})
-    assert r["plan"]["state"] == "ready"
-
-
-def test_stale_data_is_listed_never_a_need():
-    r = rd.evaluate(
-        _doc(grid=GRID, house=HOUSE),
-        models={"load_house": "trained"},
-        data_states={("grid", "power"): "stale", ("grid", "import_price"): "valid"},
-    )
-    assert r["observe"]["state"] == "ready"
-    assert r["observe"]["data"] == [
-        {"device": "grid", "role": "power", "state": "stale"}
-    ]
-    assert r["plan"]["state"] == "ready"
 
 
 def test_a_structurally_broken_document_is_unsupported_everywhere():

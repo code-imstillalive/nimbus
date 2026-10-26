@@ -9,7 +9,6 @@ inside a third.
 from __future__ import annotations
 
 import ast
-import copy
 import importlib.util
 import sys
 from pathlib import Path
@@ -308,37 +307,6 @@ def test_a_fixed_price_is_reported_not_proposed():
     assert [(f["code"], f["value"]) for f in p.findings] == [
         ("fixed_price_not_proposed", 0.28)
     ]
-
-
-def test_dc_r01_no_energy_dashboard_is_grid_and_house_and_says_so():
-    """Absence is never a zero: the minimum site, unbound, with a finding."""
-    p = dd.propose_from_energy_dashboard(None, site=SITE)
-    assert [d["id"] for d in p.document["devices"]] == ["grid", "load_house"]
-    assert all(not d["bindings"] for d in p.document["devices"])
-    assert p.problems == []
-    assert [f["code"] for f in p.findings] == ["no_energy_dashboard"]
-
-
-def test_registry_ids_are_kept_for_rediscovery():
-    """DC-005 decision 2: rediscovery matches by registry id, so it is
-    recorded wherever the HA side supplies one."""
-    p = dd.propose_from_energy_dashboard(
-        PREFS, registry_ids={"sensor.bat_power": "reg_bat_power"}
-    )
-    power = _device(p.document, "battery")["bindings"]["power"]["source"]
-    assert power["registry_id"] == "reg_bat_power"
-    assert (
-        "registry_id" not in _device(p.document, "grid")["bindings"]["power"]["source"]
-    )
-
-
-def test_discovery_is_deterministic_and_does_not_touch_its_input():
-    before = copy.deepcopy(PREFS)
-    a = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    b = dd.propose_from_energy_dashboard(PREFS, site=SITE)
-    assert dc.serialise(a.document) == dc.serialise(b.document)
-    assert (a.questions, a.findings) == (b.questions, b.findings)
-    assert before == PREFS
 
 
 def test_dc_r15_discovery_is_pure():

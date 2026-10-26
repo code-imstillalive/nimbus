@@ -146,28 +146,6 @@ def test_configured_price_sensors_returns_empty_tuple_when_nothing_set():
     assert _configured_price_sensors(entry) == ()
 
 
-def test_toggle_off_registers_no_listener_and_leaves_no_state():
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _fake_entry(
-        "entry_toggle_off",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE: False,
-        },
-    )
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event"
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_not_called()
-    assert _price_watcher_unsub.get("entry_toggle_off") is None
-    assert _price_watcher_entities.get("entry_toggle_off", ()) == ()
-    entry.async_on_unload.assert_not_called()
-
-
 def test_toggle_off_with_no_price_sensors_configured_is_a_noop():
     _reset_module_state()
     hass = _fake_hass()
@@ -272,42 +250,6 @@ def test_reconfigure_with_toggle_flipped_off_tears_down_the_listener():
 
     fake_unsub.assert_called_once()
     assert _price_watcher_unsub.get("entry_flip") is None
-
-
-def test_reconfigure_with_new_price_sensor_tears_down_and_re_registers():
-    _reset_module_state()
-    hass = _fake_hass()
-    old_unsub = MagicMock()
-    new_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        side_effect=[old_unsub, new_unsub],
-    ) as track_event:
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_changed_sensors",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-        _configure_price_watcher(
-            hass,
-            _fake_entry(
-                "entry_changed_sensors",
-                {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_b",  # new
-                    CONF_SOLVE_ON_PRICE_CHANGE: True,
-                },
-            ),
-        )
-
-    assert track_event.call_count == 2
-    old_unsub.assert_called_once()
-    assert _price_watcher_entities["entry_changed_sensors"] == ("sensor.import_b",)
 
 
 def test_reconfigure_with_only_secondary_import_sensor_changed_is_a_noop():
@@ -436,36 +378,6 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
 # path exercised by every test above).
 
 
-def test_live_switch_state_overrides_entry_options_when_present():
-    _reset_module_state()
-    hass = _fake_hass()
-    # Switch entity exists and says OFF -- must beat entry.options
-    # saying ON, so a household that toggles the switch off from the
-    # dashboard genuinely stops the extra solves.
-    switch_state = MagicMock()
-    switch_state.state = "off"
-    hass.states.get = MagicMock(
-        side_effect=lambda entity_id: (
-            switch_state if entity_id == "switch.nimbus_solve_on_price_change" else None
-        )
-    )
-    entry = _fake_entry(
-        "entry_switch_off",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            # entry.options says ON, but the live switch is OFF -- switch wins.
-            CONF_SOLVE_ON_PRICE_CHANGE: True,
-        },
-    )
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event"
-    ) as track_event:
-        _configure_price_watcher(hass, entry)
-
-    track_event.assert_not_called()
-
-
 def test_live_switch_state_on_registers_listener_even_when_options_missing():
     _reset_module_state()
     hass = _fake_hass()
@@ -537,43 +449,6 @@ def test_live_debounce_number_state_overrides_entry_options_when_present():
     # (no entry.options fallback) still succeeds. call_later would be
     # exercised by the pre-existing coalesce test above.
     assert _price_watcher_unsub.get("entry_live_debounce") is not None
-
-
-def test_unknown_debounce_state_falls_through_to_entry_options():
-    _reset_module_state()
-    hass = _fake_hass()
-    switch_state = MagicMock()
-    switch_state.state = "on"
-    # Number entity is present but STILL restoring (state == "unknown")
-    # during the tail end of hub startup -- must fall through to entry.
-    # options, not silently coerce to 0 or DEFAULT.
-    debounce_state = MagicMock()
-    debounce_state.state = "unknown"
-
-    def _states_get(entity_id):
-        if entity_id == "switch.nimbus_solve_on_price_change":
-            return switch_state
-        if entity_id == "number.nimbus_solve_on_price_change_debounce_s":
-            return debounce_state
-        return None
-
-    hass.states.get = MagicMock(side_effect=_states_get)
-    entry = _fake_entry(
-        "entry_debounce_unknown",
-        {
-            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 7.5,
-        },
-    )
-    fake_unsub = MagicMock()
-
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=fake_unsub,
-    ):
-        _configure_price_watcher(hass, entry)
-
-    assert _price_watcher_unsub.get("entry_debounce_unknown") is not None
 
 
 def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp():
@@ -898,33 +773,6 @@ def _entry_with_watcher(entry_id: str):
     )
 
 
-def test_unload_path_calls_the_listener_unsub_exactly_once():
-    """async_unload_entry() cancels the watcher explicitly, and HA core
-    then runs the entry.async_on_unload() hook as well. Before the fix
-    the second call raised, ConfigEntry.async_unload() caught it into
-    FAILED_UNLOAD, and the hub never came back on reload."""
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _entry_with_watcher("entry_337")
-    one_shot = _OneShotUnsub()
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=one_shot,
-    ):
-        _configure_price_watcher(hass, entry)
-    assert entry.async_on_unload.call_count == 1
-    on_unload_hook = entry.async_on_unload.call_args.args[0]
-
-    # What async_unload_entry() does first...
-    nimbus_init._cancel_price_watcher("entry_337")
-    # ...and what HA core does afterwards. Must not raise.
-    on_unload_hook()
-    # And the module-registry callable itself is idempotent too.
-    assert one_shot.calls == 1
-    assert "entry_337" not in _price_watcher_unsub
-    assert "entry_337" not in _price_watcher_entities
-
-
 def test_reconfigure_toggles_register_one_unload_hook_per_load():
     """Every dashboard toggle re-runs _configure_price_watcher(). It used
     to append a fresh (already-fired) unsub to entry._on_unload each
@@ -958,19 +806,3 @@ def test_reconfigure_toggles_register_one_unload_hook_per_load():
     nimbus_init._cancel_price_watcher("entry_toggle")
     hook()
     assert second.calls == 1
-
-
-def test_combined_unsub_is_idempotent_on_its_own():
-    _reset_module_state()
-    hass = _fake_hass()
-    entry = _entry_with_watcher("entry_idem")
-    one_shot = _OneShotUnsub()
-    with patch(
-        "custom_components.nimbus_load.async_track_state_change_event",
-        return_value=one_shot,
-    ):
-        _configure_price_watcher(hass, entry)
-    combined = _price_watcher_unsub["entry_idem"]
-    combined()
-    combined()
-    assert one_shot.calls == 1

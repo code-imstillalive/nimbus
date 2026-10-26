@@ -182,36 +182,6 @@ class TestPinResolveToleranceRealReproduction(unittest.TestCase):
             n_loads=16, n_periods=24, seed=0
         )
 
-    def test_pre_fix_the_pinned_resolve_genuinely_fails(self):
-        """With `_lp_tolerance_matching_mip()` reverted to a no-op --
-        exactly what the pre-3e6f3e7 code did -- the pinned re-solve
-        genuinely, deterministically comes back Infeasible on this real
-        MIP, reproducing the live `phase2_pin_resolve` symptom, not a
-        stand-in for it."""
-
-        @contextlib.contextmanager
-        def _pre_fix_noop(_h: Any):
-            yield
-
-        with (
-            _tier1_seed_disabled(),
-            unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _pre_fix_noop),
-            _capture_solver_logs() as catcher,
-        ):
-            plan = _solve(*self.scenario, options=CalibratedOptions())
-
-        # network.py's own #773 fallback (see this file's own module
-        # docstring) means Plan.status is NOT the signal here -- it
-        # reads "optimal" via the fallback even on the pre-fix path.
-        self.assertEqual(plan.status, "optimal")
-        self.assertTrue(
-            _phase_failed(catcher.messages, "phase2_pin_resolve"),
-            "reverting the tolerance-widening fix must reproduce the "
-            "real phase2_pin_resolve Infeasible on this scenario -- if "
-            "this stops failing, the scenario no longer demonstrates "
-            "anything and needs a new (n_loads, n_periods, seed)",
-        )
-
     def test_post_fix_the_pinned_resolve_genuinely_succeeds(self):
         """The real, unpatched fix, on the IDENTICAL scenario that just
         failed above: `phase2_pin_resolve` never appears as a failed

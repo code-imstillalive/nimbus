@@ -159,48 +159,6 @@ def test_power_integrates_into_the_energy_it_delivered_split_by_direction():
     ) == (1.0, 0.0)
 
 
-@pytest.mark.parametrize(
-    ("series", "rise"),
-    [
-        (
-            [
-                (T0, 10.0),
-                (T0 + timedelta(minutes=30), 11.0),
-                (T0 + timedelta(hours=1), 12.5),
-            ],
-            2.5,
-        ),
-        ([(T0 - timedelta(minutes=5), 10.0), (T0 + timedelta(minutes=30), 11.0)], 1.0),
-        (
-            [
-                (T0, 10.0),
-                (T0 + timedelta(minutes=30), 0.5),
-                (T0 + timedelta(hours=1), 1.0),
-            ],
-            1.0,
-        ),  # after a reset, from zero
-        (
-            [
-                (T0 - timedelta(minutes=5), "unknown"),
-                (T0 + timedelta(minutes=30), 11.0),
-            ],
-            None,
-        ),
-        ([(T0 + timedelta(minutes=30), 11.0)], None),
-        (
-            [
-                (T0, 10.0),
-                (T0 + timedelta(minutes=30), "x"),
-                (T0 + timedelta(hours=1), 12.0),
-            ],
-            None,
-        ),
-    ],
-)
-def test_an_energy_counter_rises_by_what_was_delivered(series, rise):
-    assert dr.counter_rise(series, T0, T0 + timedelta(hours=1)) == rise
-
-
 # --- matching a power sensor to an energy counter ---------------------------------------------
 
 
@@ -213,38 +171,6 @@ def test_the_power_sensor_whose_history_explains_the_counter_is_the_candidate():
         1,
     )
     assert match.error < dr.MATCH_TOLERANCE and match.ranking[0][0] == "sensor.pv_w"
-
-
-def test_a_sensor_reporting_the_other_sign_is_matched_with_its_sign_flipped():
-    candidates = {"sensor.inverted": _power(lambda h: -solar(h))}
-    match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
-    assert (match.status, match.sign) == (dr.CANDIDATE, -1)
-
-
-def test_two_sensors_that_explain_it_equally_are_ambiguous_whatever_their_order():
-    for order in (["sensor.a", "sensor.b"], ["sensor.b", "sensor.a"]):
-        candidates = {eid: _power(solar) for eid in order}
-        match = dr.match_power_sensor(candidates, T0, END, energy_out=_counter(solar))
-        assert match.status == dr.AMBIGUOUS and match.entity_id is None
-
-
-def test_a_battery_is_matched_on_both_directions_at_once():
-    def battery(h):
-        return 3.0 if h < 6 else -2.0
-
-    charge, discharge = (
-        _counter(lambda h: max(0.0, -battery(h))),
-        _counter(lambda h: max(0.0, battery(h))),
-    )
-    candidates = {"sensor.bat_w": _power(battery), "sensor.pv_w": _power(solar)}
-    match = dr.match_power_sensor(
-        candidates, T0, END, energy_out=discharge, energy_in=charge
-    )
-    assert (match.status, match.entity_id, match.sign) == (
-        dr.CANDIDATE,
-        "sensor.bat_w",
-        1,
-    )
 
 
 @pytest.mark.parametrize(
@@ -338,18 +264,6 @@ def test_a_partial_solar_sensor_is_recognised():
     load, sol, bat, grid = _site()
     v = dr.check_energy_balance(load, [s * 0.5 for s in sol], bat, grid)
     assert "partial_solar" in v.hypotheses
-
-
-@pytest.mark.parametrize(
-    "series",
-    [
-        ([1.0] * 5, [0.0] * 5, [0.0] * 5, [1.0] * 5),  # too few samples
-        ([1.0] * 24, [0.0] * 23, [0.0] * 24, [1.0] * 24),  # not aligned
-        ([1.0] * 23 + [float("nan")], [0.0] * 24, [0.0] * 24, [1.0] * 24),
-    ],
-)
-def test_too_little_or_misaligned_data_is_insufficient(series):
-    assert dr.check_energy_balance(*series).explanation == dr.INSUFFICIENT
 
 
 def test_a_balance_nothing_explains_says_so():

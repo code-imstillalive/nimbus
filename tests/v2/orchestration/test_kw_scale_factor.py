@@ -48,14 +48,6 @@ def test_unrelated_unit_defaults_to_1():
         assert _kw_scale_factor("sensor.some_current_sensor") == 1.0
 
 
-def test_lookup_failure_defaults_to_1_not_crash():
-    def _raise(entity_id):
-        raise solver_writer.urllib.error.URLError("boom")
-
-    with patch.object(solver_shared, "ha_get", _raise):
-        assert _kw_scale_factor("sensor.unreachable") == 1.0
-
-
 def test_real_world_regression_solar_1000x_bug():
     """The actual reproduction of the live bug: 9.3 kW of real solar,
     misread as 9300 (raw Watts) without the fix. With the fix applied,

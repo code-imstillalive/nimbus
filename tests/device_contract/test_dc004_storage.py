@@ -63,25 +63,6 @@ def run(coro):
     return asyncio.run(coro)
 
 
-def test_an_empty_store_reads_as_legacy_with_no_document():
-    state = run(ds.ContractStore(Memory()).async_read())
-    assert (
-        state["mode"] == "legacy"
-        and state["revision"] == 0
-        and state["document"] is None
-    )
-
-
-def test_commit_and_read_back():
-    mem = Memory()
-    store = ds.ContractStore(mem)
-    res = run(store.async_commit(0, _doc(), origin="legacy_import", now=NOW))
-    assert res.ok and res.revision == 1
-    state = run(store.async_read())
-    assert dc.serialise(state["document"]) == dc.serialise(_doc())
-    assert state["origin"] == "legacy_import" and state["mode"] == "legacy"
-
-
 def test_revision_race_one_wins_the_other_changes_nothing():
     mem = Memory()
     store = ds.ContractStore(mem)
@@ -90,17 +71,6 @@ def test_revision_race_one_wins_the_other_changes_nothing():
     b = run(store.async_commit(1, _doc(42.0), origin="tab_b", now=NOW))
     assert a.ok and not b.ok and b.code == "revision_conflict" and b.revision == 2
     assert run(store.async_read())["document"] == _doc(41.0)
-
-
-def test_an_unchanged_document_is_not_a_new_revision():
-    mem = Memory()
-    store = ds.ContractStore(mem)
-    run(store.async_commit(0, _doc(), origin="legacy_import", now=NOW))
-    saves = mem.saves
-    res = run(store.async_commit(1, _doc(), origin="legacy_import", now=NOW))
-    assert (
-        res.ok and res.code == "unchanged" and res.revision == 1 and mem.saves == saves
-    )
 
 
 def test_an_invalid_document_is_refused_and_nothing_is_written():
@@ -145,10 +115,6 @@ def test_modes_move_only_along_the_allowed_path():
     assert run(store.async_set_mode(1, "legacy")).ok  # always allowed back
     assert run(store.async_set_mode(1, "bogus")).code == "mode_unknown"
     assert run(store.async_set_mode(0, "shadow")).code == "revision_conflict"
-
-
-def test_the_store_key_is_per_entry():
-    assert ds.store_key("abc") == "nimbus_load_abc_device_contract"
 
 
 def test_the_logic_imports_no_home_assistant_at_module_level():

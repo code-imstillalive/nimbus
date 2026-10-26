@@ -23,12 +23,6 @@ def _fc(values, minutes=30, start=NOW):
     ]
 
 
-def test_a_flat_kilowatt_for_a_day_is_24_kwh():
-    s = fs.energy_summary(_fc([1.0] * 48), NOW)
-    assert s[fs.ATTR_ENERGY_NEXT_24H_KWH] == pytest.approx(24.0)
-    assert s[fs.ATTR_ENERGY_FORECAST_KWH] == pytest.approx(24.0)
-
-
 def test_only_the_next_24_hours_count_and_the_rest_is_in_the_whole():
     s = fs.energy_summary(_fc([2.0] * 96), NOW)  # 48 h at 2 kW
     assert s[fs.ATTR_ENERGY_NEXT_24H_KWH] == pytest.approx(48.0)

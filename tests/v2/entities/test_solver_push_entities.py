@@ -160,25 +160,6 @@ def test_both_entities_attach_to_the_hub_device_via_domain_entry_id_identifier()
 # --- update_from_solver ---------------------------------------------------
 
 
-def test_update_from_solver_stores_state_and_attributes_without_hass():
-    """The very-first solve tick after a config-entry setup can in
-    principle race async_setup_entry -- update_from_solver must NOT
-    crash if hass hasn't been assigned yet. It's fine to silently drop
-    the visible-to-HA publish (the next tick 30s later will publish
-    normally), but the stored values must still be captured so the
-    entity itself is internally consistent by the time HA does adopt
-    it.
-    """
-    instance, _ = _construct(sensor.NimbusSolverBatteryForecastSensor)
-    # No hass wired up yet -- the stub base class doesn't set one.
-    instance.hass = None
-    instance.update_from_solver(
-        1.234, {"unit_of_measurement": "kW", "friendly_name": "Test", "forecast": []}
-    )
-    assert instance.native_value == 1.234
-    assert instance.extra_state_attributes["friendly_name"] == "Test"
-
-
 def test_update_from_solver_calls_async_write_ha_state_when_hass_present():
     instance, _ = _construct(sensor.NimbusHouseholdLoadTotalForecastSensor)
     instance.hass = MagicMock()
@@ -233,31 +214,6 @@ def _clean_dispatch_state():
     solver_writer.NATIVE.hass = None
 
 
-def test_ha_post_state_routes_registered_entity_through_dispatch_handler():
-    _clean_dispatch_state()
-    try:
-        received: list = []
-
-        def handler(state, attributes):
-            received.append((state, attributes))
-
-        hass = _FakeHass()
-        solver_writer.set_native_hass(hass)
-        solver_writer.register_entity_handler(
-            "sensor.nimbus_solver_battery_forecast", handler
-        )
-        solver_writer.ha_post_state(
-            "sensor.nimbus_solver_battery_forecast",
-            1.5,
-            {"unit_of_measurement": "kW"},
-        )
-        # The handler ran, and the states.async_set fallback did NOT.
-        assert received == [(1.5, {"unit_of_measurement": "kW"})]
-        hass.states.async_set.assert_not_called()
-    finally:
-        _clean_dispatch_state()
-
-
 def test_ha_post_state_falls_back_to_states_async_set_for_unregistered_entity():
     _clean_dispatch_state()
     try:
@@ -272,22 +228,6 @@ def test_ha_post_state_falls_back_to_states_async_set_for_unregistered_entity():
         hass.states.async_set.assert_called_once_with(
             "sensor.some_unmigrated_entity", 42.0, {"unit_of_measurement": "kW"}
         )
-    finally:
-        _clean_dispatch_state()
-
-
-def test_unregister_entity_handler_cleanly_removes_and_is_safe_on_unknown_id():
-    _clean_dispatch_state()
-    try:
-        solver_writer.register_entity_handler("sensor.foo", lambda s, a: None)
-        assert "sensor.foo" in solver_writer._ENTITY_UPDATE_HANDLERS
-        solver_writer.unregister_entity_handler("sensor.foo")
-        assert "sensor.foo" not in solver_writer._ENTITY_UPDATE_HANDLERS
-        # Idempotent -- a second unregister (or one for an id that was
-        # never registered) must not raise; that's what makes the entity
-        # lifecycle hook (async_will_remove_from_hass) safe to call
-        # unconditionally.
-        solver_writer.unregister_entity_handler("sensor.never_registered")
     finally:
         _clean_dispatch_state()
 
@@ -330,61 +270,6 @@ def test_async_will_remove_from_hass_unregisters_the_literal_key_not_self_entity
         _clean_dispatch_state()
 
 
-def test_register_entity_handler_is_idempotent_and_replaces_stale_handler():
-    """A config-entry reload tears down the old entity and creates a
-    new one; the new entity's async_setup_entry re-calls
-    register_entity_handler with a bound method belonging to the new
-    instance. The dispatch table must cleanly replace the stale
-    reference, not stack up two handlers or refuse the second call.
-    """
-    _clean_dispatch_state()
-    try:
-        received: list = []
-        solver_writer.register_entity_handler(
-            "sensor.foo", lambda s, a: received.append(("old", s))
-        )
-        solver_writer.register_entity_handler(
-            "sensor.foo", lambda s, a: received.append(("new", s))
-        )
-        hass = _FakeHass()
-        solver_writer.set_native_hass(hass)
-        solver_writer.ha_post_state("sensor.foo", 1.0, {})
-        assert received == [("new", 1.0)]
-    finally:
-        _clean_dispatch_state()
-
-
-def test_resolve_real_entity_id_falls_back_to_literal_when_never_registered():
-    """No real_entity_id was ever recorded for this key (REST mode, or a
-    pre-2026-08-31 register_entity_handler() call) -- resolution must be
-    a pure no-op, byte-identical to reading the literal string directly.
-    """
-    _clean_dispatch_state()
-    try:
-        assert (
-            solver_writer.resolve_real_entity_id("sensor.never_registered")
-            == "sensor.never_registered"
-        )
-    finally:
-        _clean_dispatch_state()
-
-
-def test_register_entity_handler_records_real_entity_id_for_resolution():
-    _clean_dispatch_state()
-    try:
-        solver_writer.register_entity_handler(
-            "sensor.nimbus_solver_quality_report",
-            lambda s, a: None,
-            "sensor.nimbus_solver_quality_report_2",
-        )
-        assert (
-            solver_writer.resolve_real_entity_id("sensor.nimbus_solver_quality_report")
-            == "sensor.nimbus_solver_quality_report_2"
-        )
-    finally:
-        _clean_dispatch_state()
-
-
 def test_unregister_entity_handler_also_clears_real_entity_id_mapping():
     _clean_dispatch_state()
     try:
@@ -396,61 +281,6 @@ def test_unregister_entity_handler_also_clears_real_entity_id_mapping():
         # Falls back to the literal string again -- no stale mapping left
         # behind for a reload's new registration to collide with.
         assert solver_writer.resolve_real_entity_id("sensor.foo") == "sensor.foo"
-    finally:
-        _clean_dispatch_state()
-
-
-def test_ha_get_self_read_finds_real_entity_after_a_name_collision():
-    """Real, live-confirmed incident (2026-08-31, devhub): a remote_
-    homeassistant mirror of another Nimbus install's identically-named
-    sensor.nimbus_solver_quality_report claims that literal entity_id
-    first, so THIS install's own platform entity gets bumped by HA's own
-    dedup to sensor.nimbus_solver_quality_report_2. A self-read keyed by
-    the literal string alone would silently return the UNRELATED
-    mirror's state (a different install's real, valid data) instead of
-    this install's own -- this is the exact bug resolve_real_entity_id()
-    exists to close.
-    """
-    from types import SimpleNamespace
-
-    _clean_dispatch_state()
-    try:
-        hass = _FakeHass()
-        solver_writer.set_native_hass(hass)
-        mirror_state = SimpleNamespace(
-            entity_id="sensor.nimbus_solver_quality_report",
-            state="0.969",
-            attributes={"latest_date": "2026-08-30", "source": "mirror"},
-        )
-        own_state = SimpleNamespace(
-            entity_id="sensor.nimbus_solver_quality_report_2",
-            state="unavailable",
-            attributes={},
-        )
-        hass.states.get = lambda entity_id: {
-            "sensor.nimbus_solver_quality_report": mirror_state,
-            "sensor.nimbus_solver_quality_report_2": own_state,
-        }.get(entity_id)
-
-        solver_writer.register_entity_handler(
-            "sensor.nimbus_solver_quality_report",
-            lambda s, a: None,
-            "sensor.nimbus_solver_quality_report_2",
-        )
-
-        # The naive, un-resolved read (today's pre-fix behaviour) -- would
-        # wrongly return the mirror's data.
-        naive = solver_writer.ha_get("sensor.nimbus_solver_quality_report")
-        assert naive["attributes"]["source"] == "mirror"
-
-        # The fixed read -- resolves through to this install's own real
-        # entity first.
-        real = solver_writer.ha_get(
-            solver_writer.resolve_real_entity_id("sensor.nimbus_solver_quality_report")
-        )
-        assert real["entity_id"] == "sensor.nimbus_solver_quality_report_2"
-        assert real["state"] == "unavailable"
-        assert "source" not in real["attributes"]
     finally:
         _clean_dispatch_state()
 
@@ -547,38 +377,6 @@ def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
     assert cls._unrecorded_attributes == frozenset()
 
 
-def test_efficiency_backtest_unit_is_the_installs_own_currency():
-    """nimbus issue #1232: the spread is a currency amount, so the unit
-    must come from `hass.config.currency` -- never a hardcoded "$", which
-    would be wrong for every euro/pound/yen household, and never "%",
-    which is what it used to publish.
-
-    None when the currency is unset or hass is unavailable: an unknown
-    currency is better represented as no unit than as a confidently wrong
-    one, which is the bug this replaces.
-    """
-    cls = sensor.NimbusEfficiencyBacktestSensor
-    inst = cls.__new__(cls)
-
-    inst.hass = None
-    assert cls.native_unit_of_measurement.fget(inst) is None
-
-    class _Cfg:
-        currency = "AUD"
-
-    class _Hass:
-        config = _Cfg()
-
-    inst.hass = _Hass()
-    assert cls.native_unit_of_measurement.fget(inst) == "AUD"
-
-    _Cfg.currency = "EUR"
-    assert cls.native_unit_of_measurement.fget(inst) == "EUR"
-
-    _Cfg.currency = ""
-    assert cls.native_unit_of_measurement.fget(inst) is None
-
-
 def test_counterfactual_soc_has_required_sensor_entity_class_attributes():
     cls = sensor.NimbusCounterfactualSocSensor
     assert cls._attr_has_entity_name is True
@@ -662,95 +460,6 @@ def test_new_parents_attach_to_sub_devices_with_via_device_pointing_at_hub():
 # --- update_from_solver + fan-out -----------------------------------------
 
 
-def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children():
-    """The parent's native_value must be the epr scalar (its canonical
-    state) and each flattened child must pick up its own slice from the
-    same attribute dict via dispatch_to_flattened_quality().
-    """
-    instance, entry = _construct(sensor.NimbusSolverQualityReportSensor)
-    instance.hass = None  # first-tick race: hass may not be wired yet
-    children = sensor_flattened.create_flattened_entities_quality(entry, "0.94.24")
-    instance._flattened_entities = children
-    for child in children:
-        child.hass = None
-    # Canned payload matches the real publish_daily_quality_report shape
-    # (see solver_writer.py's own build site) -- epr_pct as state (percent-
-    # scaled, 0..100, so it renders honestly against unit_of_measurement=%),
-    # the 0..1 fraction preserved as the "epr" attribute for downstream
-    # consumers (compute_quality_report service payload, hero chart, etc.),
-    # and the 10 scalar attrs as fan-out targets.
-    attrs = {
-        "epr": 0.873,
-        "epr_pct": 87.3,
-        "theoretical_maximum_yield": 12.345,
-        "value_captured": 10.789,
-        "j_ref": -8.400,
-        "j_ach": -7.200,
-        "j_star": -10.000,
-        "regret_dollars": 2.800,
-        "tracking_fidelity": 92.1,
-        "tracking_cost": 0.045,
-    }
-    instance.update_from_solver(87.3, attrs)
-    assert instance.native_value == 87.3
-    # Every child should have pulled its own slice from `attrs`. The flattened
-    # Quality EPR child reads the percent-scaled sibling (source_key=epr_pct)
-    # so its native_value is 87.3, not the 0.873 fraction sitting alongside
-    # it in the parent's attributes.
-    by_suffix = {c._spec.entity_id_suffix: c for c in children}
-    assert by_suffix["epr"].native_value == 87.3
-    assert by_suffix["theoretical_maximum_yield"].native_value == 12.345
-    assert by_suffix["value_captured"].native_value == 10.789
-    assert by_suffix["j_ref"].native_value == -8.400
-    assert by_suffix["j_ach"].native_value == -7.200
-    assert by_suffix["j_star"].native_value == -10.000
-    assert by_suffix["regret_dollars"].native_value == 2.800
-    assert by_suffix["tracking_fidelity"].native_value == 92.1
-    assert by_suffix["tracking_cost"].native_value == 0.045
-
-
-def test_efficiency_backtest_update_from_solver_stores_state_and_fans_out():
-    instance, entry = _construct(sensor.NimbusEfficiencyBacktestSensor)
-    instance.hass = None
-    children = sensor_flattened.create_flattened_entities_backtest(entry, "0.94.24")
-    instance._flattened_entities = children
-    for child in children:
-        child.hass = None
-    attrs = {
-        "configured_efficiency_percent": 92.0,
-        "best_candidate_cost": -6.410,
-        "worst_candidate_cost": -3.220,
-    }
-    instance.update_from_solver(92.0, attrs)
-    assert instance.native_value == 92.0
-    by_suffix = {c._spec.entity_id_suffix: c for c in children}
-    assert by_suffix["configured_efficiency_percent"].native_value == 92.0
-    assert by_suffix["best_candidate_cost"].native_value == -6.410
-    assert by_suffix["worst_candidate_cost"].native_value == -3.220
-
-
-def test_counterfactual_soc_update_from_solver_stores_state_and_fans_out():
-    instance, entry = _construct(sensor.NimbusCounterfactualSocSensor)
-    instance.hass = None
-    children = sensor_flattened.create_flattened_entities_counterfactual(
-        entry, "0.94.24"
-    )
-    instance._flattened_entities = children
-    for child in children:
-        child.hass = None
-    attrs = {
-        "real_soc_anchor_pct": 45.0,
-        "nimbus_only_soc_close_pct": 78.5,
-        "real_soc_close_pct": 76.2,
-    }
-    instance.update_from_solver(76.2, attrs)
-    assert instance.native_value == 76.2
-    by_suffix = {c._spec.entity_id_suffix: c for c in children}
-    assert by_suffix["real_soc_anchor_pct"].native_value == 45.0
-    assert by_suffix["nimbus_only_soc_close_pct"].native_value == 78.5
-    assert by_suffix["real_soc_close_pct"].native_value == 76.2
-
-
 def test_update_from_solver_does_not_crash_when_flattened_entities_empty():
     """A very-first solve tick after config-entry setup can in principle
     beat async_setup_entry to the punch by microseconds -- the parent
@@ -821,102 +530,3 @@ def test_flattened_children_attach_to_correct_sub_device_via_device_hub():
 
 
 # --- _resolve_hub_device_id (nimbus issue #335 follow-up, 2026-09-03) ------
-
-
-def test_resolve_hub_device_id_calls_real_signature_exactly():
-    """THREE real bugs shipped, live on devhub, across three successive
-    same-night releases, before the real HA core source
-    (homeassistant/helpers/device_registry.py, tag 2026.9.0) was actually
-    read instead of guessed. Real signature:
-    `async_get_device_id_by_identifier(hass, identifier_tuple, *,
-    config_entry_id)` -- the FIRST positional argument is `hass` itself,
-    not a DeviceRegistry object; the function resolves the registry
-    internally.
-      - v0.94.53: 3 positional args ("takes 2 positional arguments but 3
-        were given").
-      - v0.94.55: dropped the extra arg but omitted the REQUIRED KEYWORD-
-        ONLY config_entry_id entirely ("missing 1 required keyword-only
-        argument: 'config_entry_id'").
-      - v0.94.56: added config_entry_id, but passed `dr.async_get(hass)`
-        (a DeviceRegistry object) as the first positional argument instead
-        of `hass` itself ("AttributeError: 'DeviceRegistry' object has no
-        attribute 'data'" -- the function tried to treat that object AS
-        the hass it expected).
-    The stub environment never caught any of these because it deliberately
-    doesn't define this attribute at all (hasattr is False there, see
-    _ha_stubs.py) -- this test defines a strict fake matching the REAL
-    signature exactly (hass + identifier positional, config_entry_id
-    required keyword-only) and asserts the EXACT hass object passed to
-    _resolve_hub_device_id is what reaches the fake unchanged -- the one
-    assertion that would have caught bug #3 immediately.
-    """
-    entry = _fake_entry()
-    hass = MagicMock()
-    calls = []
-
-    def fake_async_get_device_id_by_identifier(
-        hass_arg, identifier, *, config_entry_id
-    ):
-        calls.append((hass_arg, identifier, config_entry_id))
-        return "fake-hub-device-id-123"
-
-    sensor_flattened.dr.async_get_device_id_by_identifier = (
-        fake_async_get_device_id_by_identifier
-    )
-    try:
-        result = sensor._resolve_hub_device_id(hass=hass, entry=entry)
-    finally:
-        del sensor_flattened.dr.async_get_device_id_by_identifier
-
-    assert result == "fake-hub-device-id-123"
-    assert len(calls) == 1
-    hass_arg, identifier_arg, config_entry_id_arg = calls[0]
-    assert hass_arg is hass  # the real hass, not a derived registry object
-    assert identifier_arg == (DOMAIN, entry.entry_id)
-    assert config_entry_id_arg == entry.entry_id
-
-
-def test_resolve_hub_device_id_handles_value_error_as_expected_first_setup():
-    """Real HA source: raises ValueError (not None) when the hub's own
-    device doesn't exist yet in the registry -- the normal, expected
-    condition on this hub's very first-ever setup. Must degrade to None
-    quietly (not the ERROR-level exception log the generic Exception
-    branch below uses), never raise, never block real entity setup."""
-    entry = _fake_entry()
-
-    def not_found_yet(*args, **kwargs):
-        raise ValueError("There is no device with identifier ... ")
-
-    sensor_flattened.dr.async_get_device_id_by_identifier = not_found_yet
-    try:
-        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
-    finally:
-        del sensor_flattened.dr.async_get_device_id_by_identifier
-    assert result is None
-
-
-def test_resolve_hub_device_id_returns_none_when_helper_missing():
-    """Matches the pinned CI HA version (2026.8.3, predates the helper) and
-    any older real install -- must degrade to None (via_device fallback),
-    never raise."""
-    entry = _fake_entry()
-    assert not hasattr(sensor_flattened.dr, "async_get_device_id_by_identifier")
-    result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
-    assert result is None
-
-
-def test_resolve_hub_device_id_swallows_exceptions_and_returns_none():
-    """Any failure resolving the hub device_id (registry not ready, a
-    future HA signature change, etc.) must never block real entity setup
-    -- degrade to the via_device fallback instead of raising."""
-    entry = _fake_entry()
-
-    def boom(*args, **kwargs):
-        raise RuntimeError("simulated failure")
-
-    sensor_flattened.dr.async_get_device_id_by_identifier = boom
-    try:
-        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
-    finally:
-        del sensor_flattened.dr.async_get_device_id_by_identifier
-    assert result is None

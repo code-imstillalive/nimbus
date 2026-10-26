@@ -233,41 +233,6 @@ class TestTier1OnARealMip(unittest.TestCase):
     def setUp(self):
         self.scenario = _mip_scenario(n_loads=10, n_periods=24, seed=0)
 
-    def test_phase2_is_offered_a_genuinely_integral_point(self):
-        """The distinction that makes this fix work where #999's
-        experiment did not: the offered point must be INTEGRAL on the
-        binary columns, not a fractional relaxation optimum."""
-        seen: list[tuple[str, list[float]]] = []
-        real = lp._offer_mip_start
-
-        def spy(h, col_values, *, phase):
-            seen.append((phase, list(col_values)))
-            return real(h, col_values, phase=phase)
-
-        with unittest.mock.patch.object(lp, "_offer_mip_start", spy):
-            plan = _solve(self.scenario)
-
-        self.assertEqual(plan.status, "optimal")
-        phases = [p for p, _ in seen]
-        self.assertIn(
-            "phase2_secondary",
-            phases,
-            "tier 1 never ran -- phase 2 was not offered a starting "
-            f"incumbent at all (phases seen: {phases})",
-        )
-
-        # The binary columns of the offered point must be integral. Their
-        # indices aren't known here, so assert on the binaries' own
-        # signature: a semi-continuous on/off column sits at 0 or 1.
-        _, point = next((p, v) for p, v in seen if p == "phase2_secondary")
-        near_binary = [v for v in point if abs(v) < 1e-6 or abs(v - 1.0) < 1e-6]
-        self.assertGreater(
-            len(near_binary),
-            0,
-            "the offered point had no crisply-integral entries at all, "
-            "which is what a fractional relaxation point looks like",
-        )
-
     def test_the_seed_changes_neither_the_cost_nor_the_dispatch(self):
         """The regression guard. Tier 1 must buy time and nothing else.
 

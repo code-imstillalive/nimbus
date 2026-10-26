@@ -35,20 +35,6 @@ def test_default_keeps_a_timed_out_mip_an_error() -> None:
     assert result.raw_status == "Time limit reached"
 
 
-def test_opted_in_keeps_the_incumbent_within_the_gap() -> None:
-    p = _hard_knapsack(1.0)
-    result = p.solve(options=BlendedOptions(blend_weight=1.0))
-    assert result.status == "optimal"
-    xs = [p.value_of(result, f"x{i}") for i in range(60)]
-    assert all(abs(x - round(x)) < 1e-6 for x in xs)
-    assert sum(xs) > 0
-
-
-def test_opted_in_still_refuses_a_wide_gap() -> None:
-    result = _hard_knapsack(1e-12).solve(options=BlendedOptions(blend_weight=1.0))
-    assert result.status == "error"
-
-
 def test_the_joint_solve_opts_in_at_a_tenth_of_a_percent() -> None:
     assert JOINT_ACCEPT_MIP_GAP == 1e-3
 

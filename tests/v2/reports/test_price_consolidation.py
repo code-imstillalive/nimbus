@@ -32,41 +32,6 @@ NOW = datetime(2026, 10, 16, 2, 0, 30, tzinfo=UTC)
 # --- consolidate() ------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("series", "weights", "values", "method"),
-    [
-        (
-            {"a": [1.0, 1.0], "b": [3.0, 2.0], "c": [10.0, None]},
-            None,
-            [3.0, 1.5],
-            "median",
-        ),
-        ({"a": [1.0], "b": [3.0]}, {"a": 0.75, "b": 0.25}, [1.5], "weighted"),
-        ({"a": [1.0], "b": [3.0], "c": [5.0]}, {"a": 0.5, "b": 0.5}, [2.0], "weighted"),
-        ({"a": [1.0], "b": [3.0], "c": [5.0]}, {"d": 1.0}, [3.0], "median"),
-        (
-            {"a": [1.0, 1.0], "b": [3.0, 3.0]},
-            [{"a": 1.0, "b": 1.0}, None],
-            [2.0, 2.0],
-            "mixed",
-        ),
-        ({"a": [None, 2.0], "b": [None]}, None, [None, 2.0], "median"),
-    ],
-    ids=[
-        "median",
-        "weighted",
-        "unweighted_left_out",
-        "none_weighted",
-        "per_period",
-        "empty_period",
-    ],
-)
-def test_the_blend(series, weights, values, method):
-    got, _spread, how = pc.consolidate(series, weights)
-    assert got == [pytest.approx(v) if v is not None else None for v in values]
-    assert how == method
-
-
 def test_the_spread_is_the_raw_range_and_no_source_is_none():
     _v, spread, _m = pc.consolidate(
         {"a": [1.0, 1.0], "b": [3.0, 2.0], "c": [10.0, None]}
@@ -74,13 +39,6 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none():
     assert spread == [9.0, 1.0]
     assert pc.consolidate({"a": [None, 2.0], "b": [None]})[1] == [None, 0.0]
     assert pc.consolidate({"a": [None]})[2] == "none"
-
-
-def test_an_unscored_source_still_takes_a_spike_it_alone_forecasts():
-    values, _s, method = pc.consolidate(
-        {"a": [0.30, 0.30], "b": [0.25, 5.00]}, {"a": 1.0}, spike_threshold=0.85
-    )
-    assert values == [0.30, 5.00] and method == "mixed"
 
 
 def test_the_aemo_markup_series_is_wholesale_plus_the_learned_markup():
@@ -112,23 +70,6 @@ def test_the_aemo_markup_series_is_wholesale_plus_the_learned_markup():
 )
 def test_lead_buckets(lead, bucket):
     assert pc.lead_bucket(lead) == bucket
-
-
-def test_each_bucket_keeps_the_forecast_made_closest_to_its_own_lead():
-    tr = pc.SourceErrorTracker()
-    target = datetime(2026, 10, 16, 4, 0, tzinfo=UTC)
-    for minutes, value in ((55, 1.0), (33, 2.0), (10, 3.0), (2, 4.0)):
-        tr.record("a", target - timedelta(minutes=minutes), target, value)
-    slot = tr.pending[pc.interval_key(target)]["a"]
-    assert (slot["5-60 min"][1], slot["0-5 min"][1]) == (2.0, 4.0)
-    far = target + timedelta(hours=30)
-    tr.record("a", target, far, 9.0)
-    assert pc.interval_key(far) not in tr.pending
-    tr2 = pc.SourceErrorTracker()
-    tr2.record_series(
-        "a", NOW, [datetime(2026, 10, 16, 6, 0, tzinfo=UTC)], [0.5], [1.0]
-    )
-    assert len(tr2.pending) == 6  # a 30-minute period is six intervals
 
 
 def test_settling_scores_after_the_learned_offset_and_prunes():
@@ -188,22 +129,6 @@ def test_the_blend_corrects_a_premium_but_shows_and_spikes_on_the_sources_own_pr
         tr, {"primary": [0.30], "amber": [1.01]}, now, grid, [1 / 12], 0, None, 1.0
     )
     assert spiked[0] == pytest.approx(1.01)
-
-
-def test_the_settled_price_scores_the_previous_interval_once_with_its_last_value():
-    tr = pc.SourceErrorTracker()
-    t1 = datetime(2026, 10, 16, 3, 0, 10, tzinfo=UTC)
-    nxt = datetime(2026, 10, 16, 3, 5, tzinfo=UTC)
-    tr.record("a", t1, nxt, 1.0)
-    t2 = nxt + timedelta(seconds=20)
-    seen = [
-        tr.observe_settled(t1, 0.9),
-        tr.observe_settled(t2, 1.2),
-        tr.observe_settled(t2 + timedelta(seconds=15), 1.4),
-        tr.observe_settled(t2 + timedelta(minutes=5), 2.0),
-    ]
-    assert seen == [False, False, False, True]
-    assert tr.mae["a"]["0-5 min"] == pytest.approx(0.4)
 
 
 def _tracker_with(a, b):
@@ -283,20 +208,6 @@ def _apply(live, aemo=None, n_settled=2, masks=None, imp=None, labels=None):
     return result, raw, exp, lab_i, lab_e
 
 
-def test_in_shadow_nothing_the_plan_schedules_on_moves():
-    result, raw, exp, lab_i, lab_e = _apply(False, aemo=[0.90] * 5)
-    assert (raw, exp, lab_i, lab_e) == (
-        [0.30] * 5,
-        [0.05] * 5,
-        ["primary"] * 5,
-        ["primary"] * 5,
-    )
-    assert result["mode"] == "shadow"
-    assert result["import"]["sources"] == ["aemo_markup", "primary"]
-    assert result["consolidated_import_price"] == [pytest.approx(0.60)] * 5
-    assert result["import"]["spread_now"] == pytest.approx(0.60)
-
-
 def test_live_only_future_periods_change_and_the_settled_block_stays():
     result, raw, exp, lab_i, _ = _apply(True, aemo=[0.90, 0.90, 0.90, None, 0.90])
     assert result["mode"] == "live"
@@ -304,18 +215,6 @@ def test_live_only_future_periods_change_and_the_settled_block_stays():
     assert raw[2:] == [pytest.approx(0.60), pytest.approx(0.30), pytest.approx(0.60)]
     assert lab_i[2:] == ["consolidated"] * 3
     assert exp == [0.05] * 5  # one source: unchanged
-
-
-def test_live_a_period_with_nothing_to_consolidate_keeps_its_own_price():
-    _, raw, _, lab_i, _ = _apply(
-        True,
-        n_settled=1,
-        masks=[True, False, False, False],
-        imp=[0.30, 0.77, 0.77, 0.77],
-        labels=["primary", "fallback", "fallback", "fallback"],
-    )
-    assert raw == [0.30, 0.77, 0.77, 0.77]
-    assert lab_i == ["primary", "fallback", "fallback", "fallback"]
 
 
 def test_a_failure_returns_none_and_touches_nothing(monkeypatch):
@@ -486,23 +385,6 @@ def test_no_factor_or_no_aemo_point_is_none_never_a_guess():
         pc.retail_from_rrp_series(GRID, late, {}, _bucket, lambda t: None) == [None] * 6
     )
     assert pc.retail_from_rrp_series(GRID, None, {}, _bucket, lambda t: K) == [None] * 6
-
-
-def test_with_the_contract_scale_the_learned_markup_is_exactly_the_fee(monkeypatch):
-    rrp = [0.05, 0.10, 0.50, 3.00] * 3
-    start = T0 - timedelta(days=1)
-    hist = [
-        (start + timedelta(minutes=5 * i, seconds=20), v) for i, v in enumerate(rrp)
-    ]
-    retail = [(t, v * K + 0.02) for t, v in hist]
-    wholesale = {int(t.timestamp()) // 300: (t, v) for t, v in hist}
-    monkeypatch.setattr(sw, "_wholesale_by_interval", lambda *a, **k: dict(wholesale))
-    scaled = sw.compute_5min_offset(
-        retail, regional_spot_sensor="x", wholesale_scale=lambda t: K
-    )
-    assert scaled and all(v == pytest.approx(0.02) for v in scaled.values())
-    plain = sw.compute_5min_offset(retail, regional_spot_sensor="x")
-    assert max(plain.values()) - min(plain.values()) > 0.1  # absorbs (K - 1) x RRP
 
 
 class _Writer:

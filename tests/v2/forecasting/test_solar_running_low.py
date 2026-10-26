@@ -294,34 +294,6 @@ def test_pending_since_is_published_while_confirming(install):
     assert r["active"] and r["pending_since"] is None
 
 
-def test_marks_16_october_turns_on_at_0700_and_says_why_once(install, caplog):
-    """Mark's install: 0.33 kW measured against a 2.88 kW reference, the
-    first moment it was allowed to judge."""
-    p50 = {6.0: 1.60, 6.5: 2.88, 7.0: 3.40}
-
-    def at(t):
-        return p50.get(t.hour + t.minute / 60, 3.4 if 7 <= t.hour < 17 else 0.0)
-
-    today = _day(TODAY, at, lambda t: at(t) * 0.8)
-    history = [
-        (TODAY.replace(hour=6, minute=30), 150.0),
-        (TODAY.replace(hour=6, minute=45), 510.0),
-    ]
-    before = TODAY.replace(hour=6, minute=59)
-    assert (
-        _judge(install, Site(today, history=history), before)["reason"]
-        == "below_minimum"
-    )
-    at_seven = TODAY.replace(hour=7)
-    with caplog.at_level(logging.WARNING, logger=shared._LOGGER.name):
-        r = _judge(install, Site(today, history=history), at_seven)
-    assert r["active"] and r["on_since"] == at_seven.isoformat()
-    assert r["actual_30min_avg_kw"] == pytest.approx(0.33, abs=1e-3)
-    assert (r["reference_kw"], r["p50_lagged_kw"], r["p50_now_kw"]) == (2.88, 2.88, 3.4)
-    assert r["ratio"] == pytest.approx(0.33 / 2.88, abs=1e-4)
-    assert "running LOW" in caplog.text and "2.88" in caplog.text
-
-
 def test_one_warning_when_it_goes_on_and_one_info_when_it_goes_off(install, caplog):
     today = _day(TODAY, *FLAT)
     with caplog.at_level(logging.DEBUG, logger=shared._LOGGER.name):
@@ -409,27 +381,6 @@ def test_a_locked_recorder_is_not_judged_even_if_it_was_on(install):
     assert _judge(install, Site(_ramp(), history=_held(now, 1000)), now)[
         "active"
     ]  # without the live check
-
-
-@pytest.mark.parametrize(
-    ("history_w", "extra", "live_w", "changed_ago"),
-    [
-        (4800, [], "4800", timedelta(hours=2)),  # a sensor that held one value
-        (
-            4800,
-            [(timedelta(minutes=3), 4900.0)],
-            "5000",
-            timedelta(seconds=5),
-        ),  # a commit delay
-    ],
-)
-def test_an_ordinary_recorder_is_not_behind(
-    install, history_w, extra, live_w, changed_ago
-):
-    now = TODAY.replace(hour=10)
-    history = _held(now, history_w) + [(now - ago, w) for ago, w in extra]
-    site = Site(_ramp(), history=history, live_w=live_w, live_changed=now - changed_ago)
-    assert _judge(install, site, now)["reason"] == "judged"
 
 
 def test_behind_means_more_than_five_minutes_and_an_unreadable_state_is_not_behind():

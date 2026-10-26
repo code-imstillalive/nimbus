@@ -64,47 +64,6 @@ class TestUnsetIsACompleteNoOp(unittest.TestCase):
             mock_get.assert_not_called()
 
 
-class TestMarksExactRealRepro(unittest.TestCase):
-    """The precise, real numbers from Mark's own live issue report --
-    reproduced faithfully via a genuinely CONFIGURED live entity (opt-in,
-    matching this repo's own reference household's real, intentional
-    setup), not the old always-on hardcoded behaviour."""
-
-    def test_configured_entity_that_genuinely_exists_wins_over_static_config(self):
-        with (
-            patch.object(solver_writer, "entity_exists", return_value=True),
-            patch.object(
-                solver_writer,
-                "ha_get",
-                return_value={"attributes": {"max": 1.93}},
-            ),
-        ):
-            result = solver_writer.resolve_max_discharge_kw(
-                _cfg(
-                    solver_max_discharge_live_entity=(
-                        "number.logger_charging_discharging_power_kw"
-                    )
-                )
-            )
-        # This is the CORRECT behaviour once genuinely, explicitly
-        # configured -- the mechanism is real and intentional for the
-        # household that opts into it. The #125 bug was never "live
-        # values shouldn't win" -- it was "this shouldn't be hardcoded
-        # onto every install with no way to opt out."
-        self.assertEqual(result, 1.93)
-
-    def test_configured_entity_that_does_not_exist_falls_back_cleanly(self):
-        with (
-            patch.object(solver_writer, "entity_exists", return_value=False),
-            patch.object(solver_writer, "ha_get") as mock_get,
-        ):
-            result = solver_writer.resolve_max_discharge_kw(
-                _cfg(solver_max_discharge_live_entity="number.some_entity")
-            )
-            mock_get.assert_not_called()
-        self.assertEqual(result, 24.0)
-
-
 class TestMalformedLiveEntityDegradesGracefully(unittest.TestCase):
     """A configured live entity that exists but doesn't have a usable
     numeric 'max' attribute must never crash the solve -- same

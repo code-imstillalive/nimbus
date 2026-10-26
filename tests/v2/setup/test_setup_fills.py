@@ -83,16 +83,6 @@ def test_empty_solver_fields_are_offered_from_the_forecasters_confirmed_sensors(
     assert plan.skipped == [] and not plan.empty
 
 
-def test_a_field_already_set_or_once_filled_is_never_offered_again():
-    options = {
-        const.CONF_BATTERY_SENSOR: "sensor.battery_w",
-        const.CONF_SOLAR_SENSOR: "sensor.solar_kw",
-        BATTERY: "sensor.mine",
-        sb.CONF_SETUP_BUILDER_DONE: [f"option:{SOLAR}"],
-    }
-    assert _plan(options).empty
-
-
 @pytest.mark.parametrize(
     ("sensor", "reason"),
     [

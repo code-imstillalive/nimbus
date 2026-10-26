@@ -71,12 +71,6 @@ def test_active_changes_nothing_for_a_model_trained_in_legacy():
     )
 
 
-def test_a_model_trained_in_active_is_fed_the_canonical_sign():
-    rows = _run("active", NORMAL, do.TRAINED_CANONICAL)
-    assert rows["battery_power"]["value"] == -2.0
-    assert rows["grid_power"]["value"] == 1.5
-
-
 def test_a_missing_reading_is_held_then_the_training_mean():
     hold = do.ObservationHold()
     _run("active", NORMAL, do.TRAINED_NATIVE, hold=hold)

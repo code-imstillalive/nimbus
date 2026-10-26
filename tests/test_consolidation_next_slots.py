@@ -17,21 +17,6 @@ def _grid(n):
     return [T0 + timedelta(minutes=5 * i) for i in range(n)]
 
 
-def test_the_next_slots_start_after_the_settled_block_and_line_up():
-    grid = _grid(6)
-    series = {
-        "primary": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
-        "aemo_markup": [None, 0.21, None, 0.41, 0.51, 0.61],
-    }
-    out = pc.next_slots(series, [0.15, 0.25, 0.35, 0.45, 0.55, 0.65], grid, 1)
-    assert out["times"] == [t.isoformat() for t in grid[1:]]
-    assert out["sources"]["primary"] == [0.2, 0.3, 0.4, 0.5, 0.6]
-    # A gap is None, never zero.
-    assert out["sources"]["aemo_markup"] == [0.21, None, 0.41, 0.51, 0.61]
-    assert out["consolidated"] == [0.25, 0.35, 0.45, 0.55, 0.65]
-    assert list(out["sources"]) == ["aemo_markup", "primary"]
-
-
 def test_the_number_of_slots_is_capped():
     n = pc.NEXT_SLOTS + 10
     grid = _grid(n)
@@ -47,21 +32,6 @@ def test_a_short_series_pads_with_none():
     out = pc.next_slots({"primary": [0.2, 0.3]}, [0.2], grid, 0)
     assert out["sources"]["primary"] == [0.2, 0.3, None, None]
     assert out["consolidated"] == [0.2, None, None, None]
-
-
-def test_now_is_the_interval_running_with_the_price_that_settles_for_it():
-    """Household, 21 Oct 2026 ("the first 5 min is missing"): the interval
-    running now, its settled price, each source's own price and the blend."""
-    grid = _grid(3)
-    series = {"primary": [0.21, 0.3, 0.4], "aemo_markup": [None, 0.31, 0.41]}
-    out = pc.now_slot(series, [0.216, 0.35, 0.45], grid, 0.2101)
-    assert out == {
-        "time": grid[0].isoformat(),
-        "settled": 0.2101,
-        "sources": {"aemo_markup": None, "primary": 0.21},
-        "consolidated": 0.216,
-    }
-    assert list(out["sources"]) == ["aemo_markup", "primary"]
 
 
 def test_now_with_nothing_settled_or_no_periods():

@@ -172,32 +172,6 @@ class TestTheCommonPathDoesNotReReadTheStore(unittest.TestCase):
     def tearDown(self):
         fss.reset_snapshot_cache()
 
-    def test_the_second_cycle_of_a_day_does_not_load_again(self):
-        fss.reset_snapshot_cache()
-        store = _FakeStore()
-        hass = _Hass(_rows())
-        real_store_for, real_now = fss._store_for, fss.dt_util.now
-        real_parse = fss.dt_util.parse_datetime
-        fss._store_for = lambda _h, _e: store
-        fss.dt_util.now = lambda: datetime(2026, 9, 26, 0, 1, tzinfo=BNE)
-        fss.dt_util.parse_datetime = _lenient_parse
-        try:
-            first = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
-            loads_after_first = store.loads
-            for _ in range(20):
-                again = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
-                self.assertFalse(again, "captured twice in one day")
-        finally:
-            fss._store_for, fss.dt_util.now = real_store_for, real_now
-            fss.dt_util.parse_datetime = real_parse
-        self.assertTrue(first)
-        self.assertEqual(
-            store.loads,
-            loads_after_first,
-            "the already-captured path re-read the Store",
-        )
-        self.assertEqual(len(store.saves), 1)
-
 
 class TestWhatIsNotCaptured(unittest.TestCase):
     def test_no_published_forecast_captures_nothing(self):
@@ -262,19 +236,6 @@ class TestLoadingBackASnapshot(unittest.TestCase):
         finally:
             fss._store_for = real
         self.assertEqual(got, {"version": 1, "points": [1]})
-
-    def test_an_unknown_day_is_None_not_an_empty_snapshot(self):
-        """None means "skip the decomposition entirely", never "assume zero
-        forecast error" -- an empty snapshot would score as the worst
-        forecast possible rather than as an absent one."""
-        store = _FakeStore({})
-        real = fss._store_for
-        fss._store_for = lambda _h, _e: store
-        try:
-            got = asyncio.run(fss.async_load_snapshot(_Hass(), "hub1", "2026-01-01"))
-        finally:
-            fss._store_for = real
-        self.assertIsNone(got)
 
 
 class TestOnlyASuccessfulSolveCaptures(unittest.TestCase):

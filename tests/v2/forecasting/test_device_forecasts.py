@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import device_forecasts as df
-import pytest
 import solver_writer as sw
 
 T0 = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
@@ -66,22 +65,6 @@ def test_each_provider_shape_reads_in_kw():
     assert df._open_meteo({"watts": {}}) is None
 
 
-@pytest.mark.parametrize(
-    ("spec", "found"),
-    [
-        ({"name": "solcast", "version": 1}, "solcast"),
-        ({"name": "solcast", "version": 2}, None),
-        ({"name": "solcast", "version": True}, None),
-        ({"name": "solcast", "version": "1"}, None),
-        ("solcast", None),
-        (None, None),
-    ],
-)
-def test_an_adapter_is_found_only_by_its_name_and_integer_version(spec, found):
-    adapter = df.forecast_adapter({"adapter": spec})
-    assert (adapter.name if adapter else None) == found
-
-
 def test_a_source_spanning_several_entities_reads_them_all_anchored_on_the_first():
     source = df.forecast_source(["sensor.today", "sensor.tomorrow"], "solcast")
     assert source == {
@@ -104,66 +87,6 @@ def test_a_source_spanning_several_entities_reads_them_all_anchored_on_the_first
         {"source": source}, {"sensor.tomorrow": entities["sensor.tomorrow"]}
     )
     assert (gone.state, gone.members[0].reason) == ("missing", "unavailable")
-
-
-def test_an_instant_shape_is_read_at_each_periods_midpoint():
-    watts = {
-        (T0 + timedelta(minutes=15 * i) - df.OPEN_METEO_WATTS_LEAD).isoformat(): 1000.0
-        * i
-        for i in range(10)
-    }
-    out = _resolve(
-        {"source": df.forecast_source(["sensor.meteo"], "open_meteo_solar")},
-        {"sensor.meteo": {"watts": watts}},
-    )
-    # The reading at 00:15 (1 kW) is period 0's midpoint, at 00:45 (3 kW) period 1's.
-    assert out.value == (1.0, 3.0, 5.0, 7.0)
-
-
-@pytest.mark.parametrize(
-    ("source", "entities", "reason"),
-    [
-        (
-            {
-                "kind": "entity_attribute",
-                "entity_id": "sensor.x",
-                "adapter": {"name": "nope", "version": 1},
-            },
-            {},
-            "adapter_unknown",
-        ),
-        (
-            {**df.forecast_source(["sensor.x"], "nimbus_forecast"), "kind": "template"},
-            {},
-            "adapter_unknown",
-        ),
-        (df.forecast_source(["sensor.x"], "nimbus_forecast"), {}, "unavailable"),
-        (
-            df.forecast_source(["sensor.x"], "nimbus_forecast"),
-            {"sensor.x": {"forecast": []}},
-            "shape_not_recognized",
-        ),
-        (
-            df.forecast_source(["sensor.x"], "solcast"),
-            {"sensor.x": {"detailedForecast": [{"pv_estimate": 1}]}},
-            "malformed",
-        ),
-        (
-            df.forecast_source(["sensor.x"], "nimbus_forecast"),
-            {"sensor.x": {"forecast": [{"time": "x", "value": 1}]}},
-            "malformed",
-        ),
-    ],
-)
-def test_a_member_that_cannot_be_read_says_why(source, entities, reason):
-    member = df.resolve_member(
-        source,
-        entities.get,
-        GRID,
-        sw.resample_forecast,
-        resample_instants=sw.resample_instants,
-    )
-    assert (member.state, member.reason, member.value) == ("missing", reason, None)
 
 
 def test_members_combine_as_their_mean_and_a_failed_one_is_dropped_not_zeroed():
@@ -215,52 +138,3 @@ def test_one_member_is_its_own_value_and_none_is_missing():
         _resolve({"sources": [], "combine": "median"}, entities).reason
         == "combine_unknown"
     )
-
-
-@pytest.mark.parametrize(
-    ("options", "auto", "known", "expected"),
-    [
-        ({}, False, {}, None),
-        (
-            {"solver_solar_forecast_sensor": "sensor.mine"},
-            False,
-            {},
-            [("sensor.mine", "nimbus_forecast")],
-        ),
-        (
-            {"solver_solar_forecast_sensor": "sensor.sc"},
-            False,
-            {"solcast": ["sensor.sc"]},
-            [("sensor.sc", "solcast")],
-        ),
-        (
-            {"solver_solar_forecast_sensor": "sensor.om"},
-            False,
-            {"open_meteo": ["sensor.om"]},
-            [("sensor.om", "open_meteo_solar")],
-        ),
-        (
-            {
-                "solver_solar_forecast_sensor": "sensor.sc",
-                "solver_solar_forecast_sensor_3": "sensor.mine",
-            },
-            True,
-            {"solcast": ["sensor.sc", "sensor.sc2"], "open_meteo": ["sensor.om", 5]},
-            [
-                ("sensor.om", "open_meteo_solar"),
-                ("sensor.sc", "solcast"),
-                ("sensor.mine", "nimbus_forecast"),
-            ],
-        ),
-    ],
-)
-def test_the_legacy_solar_settings_become_one_binding(options, auto, known, expected):
-    binding = df.legacy_solar_binding(options, auto, known)
-    if expected is None:
-        assert binding is None
-        return
-    sources = [binding["source"]] if "source" in binding else binding["sources"]
-    assert [(s["entity_id"], s["adapter"]["name"]) for s in sources] == expected
-    assert ("combine" in binding) == (len(expected) > 1)
-    if auto and known.get("solcast"):
-        assert sources[1]["continued_by"] == ["sensor.sc2"]

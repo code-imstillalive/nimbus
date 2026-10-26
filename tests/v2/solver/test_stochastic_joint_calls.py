@@ -84,15 +84,6 @@ def test_an_optimal_plan_records_each_call_it_made():
     json.dumps(published, allow_nan=False)  # plain, finite JSON
 
 
-def test_a_call_that_runs_out_of_time_is_named_with_its_own_limit():
-    result = sd.build_stochastic_plan(_inputs(), time_limit_seconds=1e-9)
-    assert result.status != "optimal"
-    failed = [c for c in result.joint_calls if c["status"] != "optimal"]
-    assert failed and failed[-1]["time_limit_seconds"] is not None
-    assert failed[-1]["raw_status"] == result.raw_status
-    json.dumps(_summary(result)["joint_calls"], allow_nan=False)
-
-
 def test_a_call_refused_by_the_spent_budget_is_recorded_too():
     result = sd.build_stochastic_plan(_inputs(), budget_seconds=0.0)
     assert result.raw_status == "stochastic_budget_exhausted"

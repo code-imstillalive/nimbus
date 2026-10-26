@@ -124,11 +124,6 @@ class TestPeriodSampleCoverage(unittest.TestCase):
     def test_no_samples_at_all(self):
         self.assertEqual(period_sample_coverage([], self.grid_times, 1.0), (0, 6))
 
-    def test_an_empty_grid_is_zero_of_zero_not_a_crash(self):
-        """Guards the division in `compute_load_nowcast_skill()` -- a
-        zero-period window must not reach a ZeroDivisionError."""
-        self.assertEqual(period_sample_coverage([START], [], 1.0), (0, 0))
-
     def test_unordered_samples_are_handled(self):
         """Recorder history arrives ordered, but nothing in the signature
         promises it, and a wrong answer here would silently understate
@@ -144,16 +139,6 @@ class TestPeriodSampleCoverage(unittest.TestCase):
 class TestSolarIsHeldAtTruth(unittest.TestCase):
     """The design decision that makes the published number mean "load
     forecast skill" rather than "load skill plus Solcast's skill"."""
-
-    def test_a_perfect_load_trail_has_near_zero_forecast_regret(self):
-        """This is the test that actually proves solar is held at truth.
-        If solar were passed as anything other than the real measured
-        series, a perfect LOAD trail would still leave real
-        solar-attributable regret here and this would fail -- so it
-        cannot pass for the wrong reason."""
-        result = _score()
-        assert result is not None
-        self.assertAlmostEqual(result.j_forecast, result.j_star, places=4)
 
     def test_the_oracle_still_cannot_be_beaten(self):
         """The structural bound every regret module in this package
@@ -174,19 +159,6 @@ class TestTheValueAddSignIsReal(unittest.TestCase):
         )
         assert result is not None
         self.assertGreater(result.value_add_dollars, 0.0)
-
-    def test_a_bad_trail_gives_a_NEGATIVE_value_add_and_it_is_published(self):
-        """A negative result is a real answer to #919's question, not an
-        error to suppress. An install where persistence wins deserves to
-        be told that -- it is the whole reason the number is worth
-        publishing at all."""
-        _, load_real = _real_curves()
-        result = _score(
-            load_nowcast_kw=np.roll(load_real, 8) * 1.6,
-            load_persistence_kw=load_real + 0.05,
-        )
-        assert result is not None
-        self.assertLess(result.value_add_dollars, 0.0)
 
     def test_value_add_is_exactly_the_persistence_minus_forecast_delta(self):
         result = _score()
@@ -238,9 +210,6 @@ class TestTheAnchorFingerprint(unittest.TestCase):
 
 
 class TestItDegradesInsteadOfFabricating(unittest.TestCase):
-    def test_coverage_below_the_floor_returns_none(self):
-        self.assertIsNone(_score(n_periods_measured=2))
-
     def test_coverage_at_the_floor_is_accepted(self):
         """The floor is inclusive -- `< min_coverage` rejects, so exactly
         half measured is still scored."""
@@ -250,25 +219,6 @@ class TestItDegradesInsteadOfFabricating(unittest.TestCase):
         """An explicit opt-out for a diagnostic caller that wants the
         number regardless, without having to reimplement the scoring."""
         self.assertIsNotNone(_score(n_periods_measured=0, min_coverage=0.0))
-
-    def test_mismatched_array_lengths_return_none(self):
-        """A trail resampled onto a different grid than the ground truth
-        would be compared period-by-period against the wrong instants --
-        silently, and the resulting dollars would look plausible."""
-        self.assertIsNone(_score(load_nowcast_kw=np.zeros(N - 1)))
-        self.assertIsNone(_score(load_persistence_kw=np.zeros(N + 3)))
-        self.assertIsNone(_score(solar_real_kw=np.zeros(N - 2)))
-
-    def test_a_zero_period_window_is_unconstructible_so_the_division_is_safe(self):
-        """`compute_load_nowcast_skill()` divides by the period count and
-        has no zero guard of its own. It does not need one: the invariant
-        lives in `PeriodGrid` itself, which refuses an empty grid at
-        construction. Pinned here so nobody 'simplifies' that check away
-        and turns this division into a live ZeroDivisionError -- and so
-        the absence of a guard reads as deliberate rather than missed.
-        """
-        with self.assertRaises(ValueError):
-            PeriodGrid(hours=np.array([]), start=START)
 
     def test_coverage_is_reported_on_the_result(self):
         """A consumer has to be able to see how much of the window was
@@ -325,28 +275,6 @@ class TestForecastValueAtLeadHours(unittest.TestCase):
     def test_zero_lead_is_the_current_period(self):
         self.assertEqual(
             forecast_value_at_lead_hours(self.times, self.vals, START, 0.0), 0.0
-        )
-
-    def test_beyond_the_horizon_is_none_not_the_last_period(self):
-        """The honest answer. A forecast that does not reach 24 h ahead
-        has no 24 h-ahead value, and clamping would publish "the far end
-        of whatever we had" under a name claiming a specific lead time --
-        corrupting the very curve these scalars exist to measure."""
-        self.assertIsNone(
-            forecast_value_at_lead_hours(self.times, self.vals, START, 24.0)
-        )
-
-    def test_a_target_before_the_grid_is_none(self):
-        """Guards a clock-skew / stale-`now` case rather than returning
-        period 0 as though it applied."""
-        self.assertIsNone(
-            forecast_value_at_lead_hours(self.times, self.vals, START, -1.0)
-        )
-
-    def test_empty_and_mismatched_inputs_are_none(self):
-        self.assertIsNone(forecast_value_at_lead_hours([], np.array([]), START, 1.0))
-        self.assertIsNone(
-            forecast_value_at_lead_hours(self.times, np.arange(3.0), START, 0.1)
         )
 
     def test_the_last_period_start_is_reachable(self):

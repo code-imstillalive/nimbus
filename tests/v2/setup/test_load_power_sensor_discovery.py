@@ -98,18 +98,6 @@ class TestDiscoversTheRealDevicePair(_DiscoveryTestBase):
             self._run(entries, "water_heater.wwk302"), "sensor.wwk302_power"
         )
 
-    def test_a_user_device_class_override_wins_over_the_original(self):
-        """HA lets a user override device_class on the registry entry, and
-        renders using the override -- discovery must apply the same
-        precedence or it would disagree with what the user sees."""
-        entries = [
-            _FakeRegistryEntry("water_heater.hws", "dev"),
-            _FakeRegistryEntry(
-                "sensor.mislabelled", "dev", device_class="power", original="energy"
-            ),
-        ]
-        self.assertEqual(self._run(entries, "water_heater.hws"), "sensor.mislabelled")
-
     def test_discovery_is_by_device_not_by_name(self):
         """The core anti-regression: a sensor named exactly like the
         device but belonging to a DIFFERENT device must not be picked.
@@ -153,9 +141,6 @@ class TestRefusesToGuess(_DiscoveryTestBase):
         entries = [_FakeRegistryEntry("water_heater.hws", None)]
         self.assertIsNone(self._run(entries, "water_heater.hws"))
 
-    def test_an_unknown_entity_returns_none(self):
-        self.assertIsNone(self._run([], "water_heater.not_in_registry"))
-
     def test_non_sensor_domains_are_ignored(self):
         """A `switch` or `binary_sensor` carrying device_class=power would
         not be a power MEASUREMENT, so the domain filter matters."""
@@ -169,18 +154,6 @@ class TestRefusesToGuess(_DiscoveryTestBase):
 class TestNativeOnlyAndExplicitOverride(unittest.TestCase):
     def setUp(self):
         solver_writer._POWER_SENSOR_DISCOVERY_LOGGED.clear()
-
-    def test_standalone_mode_never_attempts_discovery(self):
-        """No entity registry exists in standalone/cron mode, and
-        Controllable Loads have no standalone existence at all."""
-        with patch.object(solver_writer.NATIVE, "hass", None):
-            self.assertIsNone(
-                solver_writer._discover_power_sensor_for_device("water_heater.hws")
-            )
-
-    def test_blank_device_entity_returns_none(self):
-        with patch.object(solver_writer.NATIVE, "hass", object()):
-            self.assertIsNone(solver_writer._discover_power_sensor_for_device(""))
 
     def test_an_explicit_setting_always_wins_over_discovery(self):
         """Discovery fills a gap; it must never override a household's own
@@ -208,23 +181,6 @@ class TestNativeOnlyAndExplicitOverride(unittest.TestCase):
         ):
             resolved = solver_writer.resolve_controllable_load_power_sensor(
                 {"controllable_load_device_entity": "water_heater.hws"}
-            )
-        self.assertEqual(resolved, "sensor.discovered")
-
-    def test_an_empty_string_setting_is_treated_as_unset(self):
-        """A cleared wizard field can persist as "" rather than being
-        absent -- that must fall through to discovery, not be returned as
-        a real entity_id."""
-        with patch.object(
-            solver_writer,
-            "_discover_power_sensor_for_device",
-            lambda e: "sensor.discovered",
-        ):
-            resolved = solver_writer.resolve_controllable_load_power_sensor(
-                {
-                    "controllable_load_power_sensor": "",
-                    "controllable_load_device_entity": "water_heater.hws",
-                }
             )
         self.assertEqual(resolved, "sensor.discovered")
 

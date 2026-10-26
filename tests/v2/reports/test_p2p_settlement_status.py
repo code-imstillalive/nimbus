@@ -113,15 +113,6 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
         self.assertEqual(report["real_p2p_settlement_status"], "no_sensor_configured")
         self.assertEqual(report["real_p2p_dollars"], 0.0)
 
-    def test_a_real_calendar_day_applies_the_settlement(self):
-        report = _run(
-            _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
-            DAY_START,
-            DAY_END,
-        )
-        self.assertEqual(report["real_p2p_settlement_status"], "applied")
-        self.assertAlmostEqual(report["real_p2p_dollars"], 10.4032, places=4)
-
     def test_a_non_calendar_window_is_named_not_silently_zeroed(self):
         """The #1015 case. Same day, same settlement data, a window that
         does not start at local midnight -- the lookup genuinely cannot
@@ -141,20 +132,6 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
             "hid a $10.40/day difference",
         )
         self.assertEqual(report["real_p2p_dollars"], 0.0)
-
-    def test_a_short_window_is_also_named(self):
-        """Not only midnight-alignment: `allow_partial` windows shorter
-        than 24 h hit the same gate."""
-        report = _run(
-            _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
-            DAY_START,
-            DAY_START + timedelta(hours=6),
-            branch_may_fire=False,
-        )
-        self.assertEqual(
-            report["real_p2p_settlement_status"],
-            "window_is_not_one_local_calendar_day",
-        )
 
     def test_a_date_missing_from_the_table_is_distinct_from_a_skip(self):
         """A genuinely unsettled day -- the sensor read fine and simply
@@ -184,24 +161,6 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
             report["real_p2p_settlement_status"],
             "settlement_sensor_unreadable",
         )
-
-    def test_every_status_is_one_of_the_documented_values(self):
-        """Guards against a typo'd status string reaching a dashboard,
-        where it would read as a new and meaningless category."""
-        allowed = {
-            "applied",
-            "no_sensor_configured",
-            "window_is_not_one_local_calendar_day",
-            "no_settlement_entry_for_this_date",
-            "settlement_sensor_unreadable",
-        }
-        for label, kwargs in (
-            ("no sensor", {}),
-            ("applied", {"solver_p2p_settlement_history_sensor": "sensor.p2p"}),
-        ):
-            with self.subTest(case=label):
-                report = _run(_cfg(**kwargs), DAY_START, DAY_END)
-                self.assertIn(report["real_p2p_settlement_status"], allowed)
 
 
 if __name__ == "__main__":

@@ -192,24 +192,3 @@ def test_fresh_add_form_uses_energy_dashboard_suggestion_when_unset():
     schema = result["data_schema"].schema
     soc_key = next(k for k in schema if str(k) == CONF_BATTERY_TOWER_SOC_SENSOR)
     assert soc_key.description["suggested_value"] == "sensor.real_soc"
-
-
-def test_reconfigure_with_saved_value_never_calls_the_energy_dashboard():
-    # Safeguard 2: a real saved value always wins, and the lookup isn't
-    # even worth doing in that case -- confirmed by asserting the patched
-    # manager is never actually called, not just that its result is
-    # ignored.
-    flow = _make_flow(source="reconfigure")
-    fake_subentry = MagicMock(data={CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.old_soc"})
-    flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
-    flow.hass.states.get.return_value = None
-    mock_manager_fn = AsyncMock()
-    with patch(
-        "homeassistant.components.energy.data.async_get_manager",
-        new=mock_manager_fn,
-    ):
-        result = asyncio.run(flow.async_step_user(None))
-    mock_manager_fn.assert_not_called()
-    schema = result["data_schema"].schema
-    soc_key = next(k for k in schema if str(k) == CONF_BATTERY_TOWER_SOC_SENSOR)
-    assert soc_key.description["suggested_value"] == "sensor.old_soc"

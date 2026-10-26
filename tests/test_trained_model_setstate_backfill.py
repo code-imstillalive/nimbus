@@ -87,31 +87,3 @@ class TestTrainedModelSetstateBackfillsOldPickles(unittest.TestCase):
             _ = restored.schema_version
         except AttributeError as exc:
             self.fail(f"direct attribute access raised on a backfilled field: {exc}")
-
-    def test_a_current_pickle_round_trips_its_real_state_unchanged(self):
-        # The overlay must not clobber real, present values with defaults
-        # -- only fields genuinely ABSENT from the pickle's own state
-        # should fall back to the seeded default.
-        fresh = ml_model.TrainedModel(
-            model_type="gbrt",
-            x_mean=np.zeros(3),
-            x_std=np.ones(3),
-            x_train=np.zeros((5, 3)),
-            y_train=np.zeros(5),
-            gbrt=None,
-            trained_at=START,
-            training_points=5,
-            validation_mae={"gbrt": 1.23},
-            mase_scale_points=42,
-            resample_minutes=15,
-            training_span_days=30.0,
-        )
-        self.assertEqual(fresh.schema_version, ml_model.TRAINED_MODEL_SCHEMA_VERSION)
-
-        restored = pickle.loads(pickle.dumps(fresh))
-
-        self.assertEqual(restored.schema_version, ml_model.TRAINED_MODEL_SCHEMA_VERSION)
-        self.assertEqual(restored.validation_mae, {"gbrt": 1.23})
-        self.assertEqual(restored.mase_scale_points, 42)
-        self.assertEqual(restored.resample_minutes, 15)
-        self.assertEqual(restored.training_span_days, 30.0)

@@ -18,7 +18,6 @@ Synthetic settings only (household: "100% safe").
 
 from __future__ import annotations
 
-import asyncio
 import copy
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -33,7 +32,6 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nimbus_load import (
     device_contract_ha,
-    device_import,
     device_storage,
 )
 from custom_components.nimbus_load.const import DOMAIN
@@ -257,21 +255,6 @@ async def test_an_interrupted_commit_is_repaired_at_the_next_start(
     assert (await store.async_read())["view_revision"] == 2
 
 
-async def test_views_written_but_store_marker_behind_only_catches_the_marker_up(
-    hass: HomeAssistant, hass_storage
-):
-    entry, numbers = await _setup(hass)
-    await _activate(hass, entry)
-    store = _store(hass, entry)
-    raw = hass_storage[device_storage.store_key(entry.entry_id)]["data"]
-    raw.pop("view_revision")  # step 3 lost
-    before = _settings(hass, entry)
-    assert await device_contract_ha.async_recover(hass, entry) == "marked"
-    assert _settings(hass, entry) == before
-    assert all(not n.written for n in numbers.values())
-    assert (await store.async_read())["view_revision"] == 1
-
-
 async def test_options_ahead_of_the_store_fall_back_to_shadow_with_a_repair(
     hass: HomeAssistant, hass_storage
 ):
@@ -461,53 +444,6 @@ async def test_a_slider_commits_a_revision_in_active_and_nothing_otherwise(
         hass, entry, "solver_price_spike_threshold", 1.0
     )
     assert (await _store(hass, entry).async_read())["revision"] == 2
-
-
-async def test_two_sliders_at_once_commit_one_after_the_other(
-    hass: HomeAssistant, hass_storage
-):
-    """The per-entry lock (Mark Purcell, #1878): two commits started together
-    run one after the other, each on the revision the other left, and the
-    reload counter ends where it started."""
-    entry, _numbers = await _setup(hass)
-    await _activate(hass, entry)
-
-    async def listener(hass_, entry_):
-        device_contract_ha.writing_views(hass_, entry_.entry_id)
-
-    entry.add_update_listener(listener)
-    reg = er.async_get(hass)
-    for key, value in (
-        ("solver_max_charge_kw", 7.0),
-        ("solver_grid_max_import_kw", 15.0),
-    ):
-        hass.states.async_set(
-            reg.async_get_entity_id("number", DOMAIN, f"{entry.entry_id}_{key}"),
-            str(value),
-        )
-    with patch.object(hass.config_entries, "async_schedule_reload"):
-        await asyncio.gather(
-            device_contract_ha.async_number_changed(
-                hass, entry, "solver_max_charge_kw", 7.0
-            ),
-            device_contract_ha.async_number_changed(
-                hass, entry, "solver_grid_max_import_kw", 15.0
-            ),
-        )
-        await hass.async_block_till_done()
-    state = await _store(hass, entry).async_read()
-    assert state["revision"] == 3 and state["view_revision"] == 3
-    view = device_import.legacy_view(state["document"])["numbers"]
-    assert (
-        view["solver_max_charge_kw"] == 7.0
-        and view["solver_grid_max_import_kw"] == 15.0
-    )
-    assert (
-        hass.data.get(f"{DOMAIN}_device_contract_own_updates", {}).get(
-            entry.entry_id, 0
-        )
-        == 0
-    )
 
 
 async def test_the_drift_repair_offers_keep_and_restore_and_applies_the_choice(

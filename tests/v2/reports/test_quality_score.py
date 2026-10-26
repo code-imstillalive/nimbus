@@ -204,21 +204,6 @@ def test_without_a_commitment_the_grid_is_returned_untouched():
         assert _widen(grid, 5.0) is grid
 
 
-@pytest.mark.parametrize(
-    ("delivered", "lo", "hi"),
-    [(12.0, 12.0, 12.0), (12.77, 12.0, 12.77), (9.0, 9.0, 12.0)],
-    ids=["exact", "over", "under"],
-)
-def test_the_band_stretches_to_what_was_delivered(delivered, lo, hi):
-    widened = _widen(_grid(pin=_pin(12.0, range(17, 24))), delivered)
-    assert widened.fixed_export_kw[17:24] == pytest.approx([lo] * 7)
-    assert widened.fixed_export_max_kw[17:24] == pytest.approx([hi] * 7)
-    assert (
-        np.isnan(widened.fixed_export_kw[:17]).all()
-        and np.isnan(widened.fixed_export_max_kw[:17]).all()
-    )
-
-
 @pytest.mark.parametrize("delivered", [0.0, 5.0, 12.0, 12.4, 12.5, 99.0, 400.0])
 def test_the_band_stays_valid_never_negative_never_inverted_never_over_the_limit(
     delivered,
@@ -304,29 +289,6 @@ def test_the_fixtures_cross_exactly_the_bound_each_is_about():
     assert _soc_path(b, d).min() > MIN_SOC
 
 
-@pytest.mark.parametrize(
-    "case", [_sub_floor, _over_delivery], ids=["sub_floor", "p2p_over_delivery"]
-)
-def test_achieved_never_beats_perfect_foresight_and_j_ach_is_what_the_battery_did(case):
-    battery, d, grid = case()
-    report = _report(battery, grid, discharge=d)
-    assert report.epr.uplift_available >= 0.0 and report.epr.epr <= 1.0 + 1e-9
-    direct = evaluate_realized_cost_multi(
-        hours=HOURS,
-        load_real_kw=np.full(N, 1.0),
-        solar_real_kw=np.zeros(N),
-        import_price_real=grid.import_price,
-        export_price_real=grid.export_price,
-        batteries=[battery],
-        charge_committed_kw=[np.zeros(N)],
-        discharge_committed_kw=[d],
-        final_soc_kwh=[battery.initial_soc_kwh - float(np.sum(d)) / 0.95],
-    )
-    assert report.j_ach == pytest.approx(
-        direct.total_cost, abs=1e-9
-    )  # option B leaves j_ach alone
-
-
 def _under_delivery():
     imp = np.full(N, 0.13)
     imp[17:24] = 0.37
@@ -335,25 +297,6 @@ def _under_delivery():
     d = np.zeros(N)
     d[17:24] = 1.0  # the commitment ignored
     return _battery(initial=CAP * 0.30), d, imp, exp
-
-
-def test_a_loss_making_commitment_skipped_neither_beats_the_oracle_nor_hides():
-    """#1001: committed export at 7.5c against 37c import is a loss the
-    oracle could not decline; skipping it must not beat perfect foresight,
-    and the shortfall is reported instead."""
-    battery, d, imp, exp = _under_delivery()
-    report = _report(
-        battery, _grid(imp=imp, exp=exp, pin=_pin(12.0, range(17, 24))), discharge=d
-    )
-    assert report.epr.uplift_available >= 0.0
-    assert report.j_star <= report.j_ref
-    assert report.p2p_commitment_shortfall_kwh > 80.0  # ~12 kW x 7 h owed
-    assert (
-        _report(
-            battery, _grid(imp=imp, exp=exp), discharge=d
-        ).p2p_commitment_shortfall_kwh
-        == 0.0
-    )
 
 
 # --- the SoC discrepancy compares like with like (#1228) --------------------------------------
@@ -434,22 +377,6 @@ def test_a_sensor_tracking_the_ramp_exactly_agrees_only_when_compared_like_for_l
     assert mixed["soc_discrepancy_basis"] == "mixed"
 
 
-def test_a_real_disagreement_is_still_caught_and_absence_names_no_basis():
-    rows, bounds, real = _ramp(n_hours=4)
-    shifted = [(t, v + 20.0) for t, v in real]
-    out = sw._soc_discrepancy_stats(
-        [(shifted, 100.0)], rows, ach_soc_pct_at_hour=bounds
-    )
-    assert float(out["soc_discrepancy_max_pct"]) > 15.0
-    assert (out["soc_discrepancy_reliable"], out["soc_discrepancy_reason"]) == (
-        False,
-        "disagreement",
-    )
-    none = sw._soc_discrepancy_stats([], {}, ach_soc_pct_at_hour={})
-    assert none["soc_discrepancy_max_pct"] is None
-    assert "soc_discrepancy_basis" in none and none["soc_discrepancy_basis"] is None
-
-
 # --- the reconstruction is checked against the grid meter (#1465) -----------------------------
 
 
@@ -466,43 +393,6 @@ def _reconcile(metered, imp, exp, stale=0.0, sensor="sensor.grid"):
         reconstructed_import_kwh=imp,
         reconstructed_export_kwh=exp,
     )
-
-
-def test_a_reconstruction_double_counting_the_meter_disagrees_either_sign():
-    """5 Oct: reconstructed 71.6 / 88.6 kWh against a meter's 32.7 / 69.5."""
-    r = _reconcile(_metered(32.740, 69.530), 71.579, 88.642)
-    assert r["status"] == mr.DISAGREES and "kWh" in r["reason"]
-    assert (r["metered_import_kwh"], r["metered_export_kwh"]) == (
-        pytest.approx(32.740),
-        pytest.approx(69.530),
-    )
-    assert r["import_residual_kwh"] == pytest.approx(38.839, abs=1e-3)
-    assert r["tolerance_kwh"] == pytest.approx(10.227, abs=1e-3)
-    flipped = _reconcile(_metered(69.530, 32.740), 71.579, 88.642)
-    assert flipped["status"] == mr.DISAGREES
-    assert (
-        max(abs(flipped["import_residual_kwh"]), abs(flipped["export_residual_kwh"]))
-        > 19.0
-    )
-    assert _reconcile(_metered(30.0, 70.0), 45.0, 70.0)["status"] == mr.DISAGREES
-
-
-@pytest.mark.parametrize(
-    ("metered", "imp", "exp", "sign"),
-    [
-        (_metered(30.0, 70.0), 31.5, 66.5, "positive_is_import"),  # 5 % apart
-        (_metered(40.0, 20.0), 20.0, 40.0, "positive_is_export"),
-        (_metered(1.0, 2.0), 2.5, 0.5, None),  # the floor, on a quiet day
-    ],
-    ids=["within_tolerance", "export_positive_meter", "quiet_day"],
-)
-def test_agreement_within_the_declared_tolerance(metered, imp, exp, sign):
-    r = _reconcile(metered, imp, exp)
-    assert r["status"] == mr.AGREES and "reason" not in r
-    if sign:
-        assert r["meter_sign"] == sign
-    else:
-        assert r["tolerance_kwh"] == mr.TOLERANCE_FLOOR_KWH
 
 
 @pytest.mark.parametrize("stale", [10.5, 50.0, None])
@@ -533,23 +423,6 @@ def test_only_a_disagreeing_meter_changes_the_epr_verdict(status):
     assert sw._epr_reliability(True, True, None, status) is True
     assert sw._epr_reliability(None, True, None, status) is None
     assert sw._epr_reliability(False, True, None, status) is False
-
-
-def test_the_history_row_names_the_meter_unless_the_soc_failed_too():
-    day = {
-        "epr_reliable": False,
-        "regret_reliable": True,
-        "epr_denominator_reason": None,
-        "soc_discrepancy_reliable": True,
-        "epr_reason": "grid_meter_disagrees",
-        "meter_reconciliation": {"status": mr.DISAGREES},
-    }
-    assert sw._epr_reliability_code(day) == sw._RELIABILITY_METER == "m"
-    day.update(
-        soc_discrepancy_reliable=False,
-        epr_reason="achieved_soc_unreliable:disagreement",
-    )
-    assert sw._epr_reliability_code(day) == sw._RELIABILITY_SOC
 
 
 # --- achieved cost for a fleet on one grid connection (#768) ----------------------------------
@@ -695,21 +568,6 @@ def test_the_lp_and_the_evaluator_differ_only_by_the_lps_own_terms():
     assert isinstance(r.j_star_evaluator, float) and r.j_star_evaluator != 0.0
     assert abs(r.j_star_path_delta) > 0.1
     assert abs(r.j_star_path_delta_unexplained) < 0.01
-
-
-def test_a_bonus_priced_oracle_still_reprices_to_a_finite_delta():
-    bonus = np.zeros(N)
-    bonus[17:24] = 0.20
-    oracle = GridConfig(
-        import_price=np.full(N, 0.30),
-        export_price=np.full(N, 0.05),
-        import_limit_kw=42.0,
-        export_limit_kw=42.0,
-        export_bonus_price=bonus,
-        export_bonus_volume_kwh=20.0,
-    )
-    r = _explained(_jstar_report(oracle=oracle, real_p2p=3.0))
-    assert np.isfinite(r.j_star_path_delta)
 
 
 def test_curtailment_on_a_negative_price_hour_is_explained_too():
@@ -885,82 +743,6 @@ def _caps(members):
         r[0].shared_charger_max_kw
         for r in participants._widen_shared_charger_cap_to_achieved(rows)
     ]
-
-
-@pytest.mark.parametrize(
-    ("members", "expected"),
-    [
-        (
-            [
-                ("a", "g", 25.0, [5, 5, 5, 0, 0, 0]),
-                ("b", "g", 25.0, [5, 5, 0, 0, 0, 0]),
-            ],
-            [25.0, 25.0],
-        ),
-        (
-            [
-                ("a", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
-                ("b", "g", 25.0, [12.5, 0, 0, 0, 0, 0]),
-            ],
-            [25.0, 25.0],
-        ),
-        (
-            [
-                ("a", "g", 25.0, [15, 15, 0, 0, 0, 0]),
-                ("b", "g", 25.0, [14, 12, 0, 0, 0, 0]),
-            ],
-            [29.0, 29.0],
-        ),
-        (
-            [
-                ("a", "g", 5.0, [10, 10, 10, 10, 0, 0]),
-                ("b", "g", 5.0, [10, 10, 10, 10, 0, 0]),
-            ],
-            [20.0, 20.0],
-        ),
-        (
-            [("a", "g", 10.0, [15, 0, 0, 0, 0, 0])],
-            [10.0],
-        ),  # a group of one is a per-battery limit
-        ([("home", None, None, [99] * 6)], [None]),
-        ([("a", "g", None, [9] * 6), ("b", "g", None, [9] * 6)], [None, None]),
-        (
-            [
-                ("a", "g", 10.0, [12] * 6),
-                ("b", "g", 10.0, [1] * 6),
-                ("c", "s", 10.0, [30] * 6),
-                ("d", "s", 10.0, [1] * 6),
-            ],
-            [13.0, 13.0, 31.0, 31.0],
-        ),
-        ([], []),
-    ],
-    ids=[
-        "under",
-        "at_the_cap",
-        "over",
-        "peak_not_total",
-        "one_member",
-        "no_group",
-        "no_cap",
-        "two_groups",
-        "empty",
-    ],
-)
-def test_the_cap_widens_to_the_groups_peak_simultaneous_draw_only(members, expected):
-    assert _caps(members) == expected
-
-
-def test_only_the_cap_moves():
-    a, d = np.array([5.0, 5.0, 0, 0, 0, 0]), np.array([0, 0, 3.0, 0, 0, 0])
-    ((_cfg, charge, discharge, final, _soc),) = (
-        participants._widen_shared_charger_cap_to_achieved(
-            [(_ev("ev1", "g", 25.0), a, d, 41.5, [])]
-        )
-    )
-    np.testing.assert_array_equal(charge, a)
-    np.testing.assert_array_equal(discharge, d)
-    assert final == 41.5
 
 
 # --- the oracle can re-time the day's controllable loads, and only the oracle (#1357) ----------

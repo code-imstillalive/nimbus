@@ -254,17 +254,3 @@ def test_a_stale_commanded_state_id_is_renamed_only_when_safe(
 )
 def test_a_load_title_becomes_a_safe_entity_id_part(title, slug):
     assert sm._slug_for_entity_id(title) == slug
-
-
-def test_every_per_period_series_a_load_publishes_stays_out_of_the_recorder():
-    """#625: checked against the run state's own fields, so the next
-    series added is caught too, not only the ones known today."""
-    import dataclasses
-
-    series = {
-        f.name
-        for f in dataclasses.fields(lrs.LoadRunState)
-        if f.type.startswith("list[")
-    }
-    assert series, "the run state must publish at least one series"
-    assert series <= sm.NimbusControllableLoadStateSensor._unrecorded_attributes

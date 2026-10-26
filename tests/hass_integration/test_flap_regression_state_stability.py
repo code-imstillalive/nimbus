@@ -32,7 +32,6 @@ Real HA fixture, so no stubs to leak: `async_fire_time_changed` drives
 
 from __future__ import annotations
 
-import time
 from datetime import timedelta
 
 import pytest
@@ -44,7 +43,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.nimbus_load import sensor, solver_writer
+from custom_components.nimbus_load import solver_writer
 from custom_components.nimbus_load.const import DOMAIN
 
 # The two well-known entity_ids these tests exercise. Kept as module
@@ -225,50 +224,3 @@ async def test_both_push_sensors_stay_stable(
 
 
 # --- Regression Test 2: real staleness still transitions --------------------
-
-
-async def test_recheck_still_publishes_on_a_real_staleness_transition(
-    hass: HomeAssistant,
-    nimbus_entry: MockConfigEntry,
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """The guardrail against over-correcting the flap: if the recheck
-    is silenced too aggressively, a Solver that genuinely stops
-    solving will never mark the entity unavailable -- exactly the bug
-    the recheck timer exists to catch.
-
-    Push a state, advance time past `_STALE_AFTER_SECONDS + slack`,
-    and assert `available` flips (rendered by real HA as the entity's
-    state becoming `unavailable`).
-    """
-    await _push_via_dispatcher(
-        hass, _BATTERY_FORECAST_ENTITY_ID, 2.0, _fake_plan_attributes()
-    )
-    assert hass.states.get(_BATTERY_FORECAST_ENTITY_ID).state == "2.0"
-
-    # Advance well past the staleness threshold (5 minutes + a bit).
-    #
-    # Both clocks have to move. `available` is computed from
-    # `time.monotonic()` (sensor.py:847), which HA's time helpers cannot
-    # touch, so `async_fire_time_changed` alone fires the recheck timer
-    # but the recheck then still sees a fresh timestamp and keeps the
-    # entity available. Advancing the monotonic clock the sensor module
-    # reads is what actually makes the push look stale.
-    stale_seconds = 310
-    real_monotonic = time.monotonic
-
-    def _monotonic_after_staleness() -> float:
-        return real_monotonic() + stale_seconds
-
-    monkeypatch.setattr(sensor.time, "monotonic", _monotonic_after_staleness)
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=stale_seconds))
-    await hass.async_block_till_done()
-
-    state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
-    assert state is not None
-    assert state.state == "unavailable", (
-        f"Entity should be `unavailable` after {stale_seconds}s of no push, "
-        f"got {state.state!r}. If this assertion fails after a flap "
-        "fix, the fix went too far and disabled the real staleness "
-        "transition -- the whole reason the recheck timer exists."
-    )

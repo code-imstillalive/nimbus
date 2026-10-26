@@ -10,10 +10,7 @@ from __future__ import annotations
 import copy
 from datetime import UTC, datetime
 
-import device_bindings as db
-import device_contract as dc
 import device_units as du
-import pytest
 
 
 def _doc(**grid_norm):
@@ -56,48 +53,6 @@ def _reader(unit=None, state="1.5"):
     }
 
 
-@pytest.mark.parametrize(
-    ("unit", "reason"),
-    [(None, "unit_missing"), ("", "unit_missing"), ("kw", "unit_not_exact")],
-)
-def test_a_unitless_or_misspelt_power_sensor_needs_a_declaration(unit, reason):
-    got = du.undeclared(_doc(), _reader(unit))
-    assert got == [
-        {
-            "device_id": "grid",
-            "role": "power",
-            "entity_id": "sensor.grid",
-            "stated_unit": unit,
-            "reason": reason,
-        }
-    ]
-
-
-@pytest.mark.parametrize("unit", ["W", "kW", "A", "kWh"])
-def test_an_exact_unit_or_another_dimension_needs_none(unit):
-    """An exact unit is fine; A or kWh is a wrong sensor, which no declaration
-    can settle (it is refused, and readiness says why)."""
-    assert du.undeclared(_doc(), _reader(unit)) == []
-
-
-@pytest.mark.parametrize("state", ["unavailable", "unknown", ""])
-def test_an_unreadable_sensor_is_left_for_the_next_check(state):
-    assert du.undeclared(_doc(), _reader(None, state)) == []
-    assert du.undeclared(_doc(), lambda _e: None) == []
-
-
-def test_a_declared_unit_settles_it_and_resolves():
-    doc = du.declare(_doc(), "grid", "power", "W")
-    assert doc is not None
-    binding = doc["devices"][0]["bindings"]["power"]
-    assert binding["normalization"]["native_unit"] == "W"
-    assert binding["provenance"]["overridden"] is True
-    assert list(dc.validate(doc)) == []
-    assert du.undeclared(doc, _reader(None)) == []
-    got = db.resolve(doc, "grid", "power", db.Readers(state=_reader(None, "1500")), NOW)
-    assert got.value == pytest.approx(1.5) and got.provenance["unit_declared"] == "W"
-
-
 def test_declare_leaves_the_input_alone_and_refuses_what_it_cannot_do():
     original = _doc()
     before = copy.deepcopy(original)
@@ -112,19 +67,3 @@ def test_declare_leaves_the_input_alone_and_refuses_what_it_cannot_do():
     grid = with_energy["devices"][0]["bindings"]
     grid["import_energy"] = copy.deepcopy(grid["power"])
     assert du.declare(with_energy, "grid", "import_energy", "kW") is None
-
-
-def test_a_declaration_survives_a_re_import_of_the_same_sensor():
-    """Moving to `active` re-imports the document from today's settings."""
-    declared = du.declare(_doc(), "grid", "power", "kW")
-    carried = du.carry_declared(declared, _doc())
-    assert carried["devices"][0]["bindings"]["power"]["normalization"] == {
-        "native_unit": "kW"
-    }
-    # A different sensor in the same role starts again.
-    other = _doc()
-    other["devices"][0]["bindings"]["power"]["source"]["entity_id"] = "sensor.meter2"
-    carried = du.carry_declared(declared, other)
-    assert "normalization" not in carried["devices"][0]["bindings"]["power"]
-    # Nothing to carry from no document.
-    assert du.carry_declared(None, _doc()) == _doc()

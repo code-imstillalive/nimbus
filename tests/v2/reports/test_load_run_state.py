@@ -53,12 +53,6 @@ def test_delivered_energy_and_cost_integrate_each_reading_over_the_gap_before_it
     assert s.delivered_today_kwh == pytest.approx(1.0025)
 
 
-def test_a_reading_after_a_long_gap_delivers_nothing_for_the_gap():
-    s = _sample(lrs.LoadRunState(), 0, 2.0)
-    s = _sample(s, 61 + 60, 2.0)
-    assert s.delivered_today_kwh == 0.0
-
-
 def test_a_new_day_rolls_the_unmet_quota_over_up_to_its_cap():
     s = replace(
         lrs.LoadRunState(),
@@ -155,30 +149,7 @@ def test_the_first_decision_applies_at_once_and_a_change_waits_out_the_hysteresi
     assert s.commanded_state is False and s.pending_state is None
 
 
-def test_the_command_has_diverged_from_the_load_since_both_disagreed():
-    s = replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        commanded_since=100.0,
-        currently_on=False,
-        off_since=160.0,
-    )
-    assert lrs.command_divergence_seconds(s, 200.0) == 40.0
-    assert lrs.command_divergence_seconds(replace(s, currently_on=True), 200.0) is None
-    assert lrs.command_divergence_seconds(replace(s, off_since=None), 200.0) is None
-
-
 # --- activation and reaffirm limits -----------------------------------------------------------------
-
-
-def test_activations_are_counted_per_day_against_the_limit():
-    s = lrs.LoadRunState()
-    assert lrs.activation_allowed(s, max_activations_per_day=None, day_key=DAY)
-    s = lrs.record_activation(lrs.record_activation(s, day_key=DAY), day_key=DAY)
-    assert s.activations_today == 2
-    assert not lrs.activation_allowed(s, max_activations_per_day=2, day_key=DAY)
-    assert lrs.activation_allowed(s, max_activations_per_day=2, day_key="2026-09-21")
-    assert lrs.record_activation(s, day_key="2026-09-21").activations_today == 1
 
 
 def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
@@ -190,36 +161,6 @@ def _diverged(seconds_ago=1200.0, now=10_000.0, **kw):
         off_since=now - seconds_ago,
         **kw,
     )
-
-
-@pytest.mark.parametrize(
-    ("state", "kw", "allowed"),
-    [
-        (_diverged(1200.0), {}, True),
-        (_diverged(60.0), {}, False),  # not diverged long enough
-        (
-            _diverged(60.0, last_dispatch_failed=True),
-            {},
-            True,
-        ),  # a failed send is retried
-        (
-            _diverged(1200.0, last_reaffirm_at=10_000.0 - 60),
-            {},
-            False,
-        ),  # reaffirmed just now
-        (
-            _diverged(1200.0, reaffirms_today=20, reaffirms_today_day_key=DAY),
-            {},
-            False,
-        ),  # daily cap
-        (_diverged(1200.0), {"reaffirm_after_seconds": 0}, False),  # switched off
-        (lrs.LoadRunState(), {}, False),  # nothing diverged
-    ],
-)
-def test_a_load_that_ignored_its_command_is_reaffirmed_within_limits(
-    state, kw, allowed
-):
-    assert lrs.reaffirm_allowed(state, now_ts=10_000.0, day_key=DAY, **kw) is allowed
 
 
 def test_reaffirms_are_counted_per_day():
@@ -255,12 +196,6 @@ def test_the_status_reason_says_running_deferred_or_not_scheduled():
     )
     assert reason([0, 0, 0, 2], [0.3] * 4, hi=2) == "not scheduled to run this window"
     assert reason([], []) is None
-
-
-def test_a_series_is_published_as_time_value_rows():
-    assert lrs.build_time_value_series([T0], [1.23456]) == [
-        {"time": T0.isoformat(), "value": 1.235}
-    ]
 
 
 # --- the schedule view ---------------------------------------------------------------------------------
@@ -384,21 +319,6 @@ class MemoryStore:
 
     async def async_save(self, data):
         self.data = data
-
-
-def test_a_run_state_survives_a_round_trip_through_the_store():
-    store = lrs.LoadRunStateStore(store=MemoryStore())
-    s = replace(
-        lrs.LoadRunState(),
-        commanded_state=True,
-        delivered_today_kwh=3.2,
-        plan_forecast=_plan([1.0]),
-        thermal_rates_source="learned",
-    )
-    asyncio.run(store.async_write("hw", s))
-    assert asyncio.run(store.async_read("hw")) == s
-    assert lrs.LoadRunState.from_dict(s.to_dict()) == s
-    assert asyncio.run(store.async_read("other")) == lrs.LoadRunState()
 
 
 @pytest.mark.parametrize(

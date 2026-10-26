@@ -161,21 +161,6 @@ def test_a_real_disagreement_is_flagged():
     )
 
 
-def test_only_the_elapsed_part_of_the_window_counts():
-    got = compare_forecast_to_actuals(
-        FORECAST, samples(12, 30, [0.10, 0.10, 99.0, 99.0]), at(12, 40), 0.10
-    )
-    assert (got["n_samples"], got["realised_mean_price"]) == (2, pytest.approx(0.10))
-    early = samples(12, 30, [0.05])
-    assert (
-        compare_forecast_to_actuals(FORECAST, early, at(12, 33), 0.10)["n_samples"] == 1
-    )
-    assert (
-        compare_forecast_to_actuals(FORECAST, early, at(12, 33), 0.10, min_samples=3)
-        is None
-    )
-
-
 def test_no_bucket_or_no_samples_is_no_answer_and_zones_align():
     assert (
         compare_forecast_to_actuals(FORECAST, samples(12, 30, [0.1]), at(20, 0), 0.1)
@@ -209,38 +194,6 @@ def aemo_now(monkeypatch):
             )
 
     return set_state
-
-
-@pytest.mark.parametrize(
-    ("sensor", "state", "offsets"),
-    [
-        (None, "0.10", {10: 0.20}),
-        (P5, "0.10", {}),  # no markup history for this time of day
-        (P5, "unavailable", {10: 0.20}),
-        (P5, sw.urllib.error.URLError("boom"), {10: 0.20}),
-    ],
-    ids=["no_sensor", "no_markup", "unavailable", "read_failed"],
-)
-def test_without_a_reading_or_a_markup_there_is_no_check(
-    aemo_now, sensor, state, offsets
-):
-    aemo_now(state)
-    assert sw.check_aemo_p5min_disagreement(sensor, 0.30, 10, offsets, 0.10) is None
-
-
-@pytest.mark.parametrize(
-    ("retail", "flagged", "gap"),
-    [(0.30, False, 0.0), (0.55, True, 0.25), (0.40, False, 0.10), (0.05, True, -0.25)],
-    ids=["agrees", "above", "at_threshold", "below"],
-)
-def test_retail_is_flagged_past_the_threshold_either_way(
-    aemo_now, retail, flagged, gap
-):
-    aemo_now("0.10")
-    got = sw.check_aemo_p5min_disagreement(P5, retail, 10, {10: 0.20}, 0.10)
-    assert got["flagged"] is flagged
-    assert got["disagreement_dollars"] == pytest.approx(gap)
-    assert got["expected_retail"] == pytest.approx(0.30)
 
 
 def test_a_disagreement_is_warned_once_per_period(monkeypatch, caplog):

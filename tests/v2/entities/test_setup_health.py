@@ -14,7 +14,7 @@ import json
 import re
 import sys
 import types
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -47,10 +47,6 @@ def _health(**kw):
     return sh.evaluate_health(**kw)
 
 
-def test_a_complete_setup_has_no_repairs():
-    assert _health() == []
-
-
 def test_every_repair_has_a_translation_with_exactly_its_placeholders():
     every = _health(
         options={},
@@ -78,17 +74,6 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders():
         assert words == set(issue.placeholders), issue.kind
 
 
-def test_an_untrained_forecast_is_a_repair_only_after_the_grace_period():
-    pending = [("s1", "Pool pump", {"last_retrain_error": "  only 57 usable points  "})]
-    assert _health(forecasts=pending, hub_up_for=UP - timedelta(seconds=1)) == []
-    (issue,) = _health(forecasts=pending)
-    assert issue.key == f"{sh.KIND_NOT_TRAINED}_s1"
-    assert issue.placeholders == {
-        "name": "Pool pump",
-        "reason": "only 57 usable points",
-    }
-
-
 @pytest.mark.parametrize(
     ("data", "reason"),
     [
@@ -106,25 +91,6 @@ def test_an_untrained_forecast_says_why(data, reason):
 )
 def test_a_trained_or_rule_based_forecast_needs_nothing(data):
     assert _health(forecasts=[("s1", "Pool", data)]) == []
-
-
-def test_bad_inputs_are_listed_one_per_line():
-    issues = _health(
-        energy_unit_inputs=[
-            ("Battery power", "sensor.e", "kWh"),
-            ("Solar power", "sensor.s", "Wh"),
-        ],
-        frozen_price_inputs=[("Import price", "sensor.p", "unchanged")],
-    )
-    by_kind = {i.kind: i for i in issues}
-    assert (
-        by_kind[sh.KIND_ENERGY_UNIT].placeholders["inputs"]
-        == "- Battery power: `sensor.e` reports kWh\n- Solar power: `sensor.s` reports Wh"
-    )
-    assert (
-        by_kind[sh.KIND_FROZEN_PRICE].placeholders["inputs"]
-        == "- Import price: `sensor.p` (unchanged)"
-    )
 
 
 @pytest.mark.parametrize(

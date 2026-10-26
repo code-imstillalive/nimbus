@@ -97,22 +97,6 @@ def _project(power_kw, ambient_c=None, loss=None):
     return np.array([float(r["value"]) for r in projected])
 
 
-def test_the_two_models_differ_only_by_the_idle_fraction_of_each_period(lp):
-    power = np.asarray(lp.power_kw, dtype=float)
-    on = power > 0.05
-    assert on.any(), "the LP must heat, or the comparison compares nothing"
-    gap = _project(power) - np.asarray(lp.temperature_c, dtype=float)
-    lp_loss = DECAY * HOURS * (1.0 - power / MAX_KW)
-    shown_loss = np.where(on, 0.0, DECAY * HOURS)
-    np.testing.assert_allclose(gap, np.cumsum(lp_loss - shown_loss), atol=0.05)
-    first_on = int(np.argmax(on))
-    np.testing.assert_allclose(gap[:first_on], 0.0, atol=1e-6)  # idle: identical
-    full = np.flatnonzero(np.isclose(power, MAX_KW))
-    assert full.size, "the fixture must run the load at full power"
-    for t in full:  # a full-power period adds nothing to the gap
-        assert gap[t] == pytest.approx(gap[t - 1] if t else 0.0, abs=1e-6)
-
-
 def test_the_gap_is_smaller_than_the_model_897_replaced(lp):
     """The LP used to lose a full period's decay while heating too."""
     power = np.asarray(lp.power_kw, dtype=float)

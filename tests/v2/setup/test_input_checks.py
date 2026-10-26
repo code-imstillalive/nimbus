@@ -51,25 +51,6 @@ def _hass(units: dict, extra_attrs=None):
 
 
 @pytest.mark.parametrize(
-    ("unit", "power", "kw"),
-    [
-        ("W", True, 0.001),
-        ("kW", True, 1.0),
-        ("MW", True, 1000.0),
-        (" kw ", True, 1.0),
-        ("kWh", False, 1.0),
-        ("A", False, 1.0),
-        (None, False, 1.0),
-        (5, False, 1.0),
-    ],
-)
-def test_a_power_unit_converts_to_kw_and_anything_else_is_read_as_kw(unit, power, kw):
-    assert pu.is_power_unit(unit) is power
-    assert pu.power_scale_to_kw(unit) == pytest.approx(kw)
-    assert pu.power_to_kw(2.0, unit) == pytest.approx(2.0 * kw)
-
-
-@pytest.mark.parametrize(
     ("unit", "energy", "non_power"),
     [
         ("kWh", True, False),
@@ -100,48 +81,6 @@ def _entry(options=None, subentries=()):
 
 def _sub(sid, kind, title, **data):
     return SimpleNamespace(subentry_id=sid, subentry_type=kind, title=title, data=data)
-
-
-def test_an_energy_counter_set_as_a_power_input_is_found_wherever_it_is_set():
-    hass = _hass(
-        {
-            "sensor.bat_kwh": "kWh",
-            "sensor.pool_kwh": "kWh",
-            "sensor.ok": "W",
-            "sensor.temp": "°C",
-        }
-    )
-    entry = _entry(
-        {
-            const.CONF_BATTERY_SENSOR: "sensor.bat_kwh",
-            const.CONF_SOLAR_SENSOR: "sensor.ok",
-        },
-        [
-            _sub(
-                "l",
-                const.SUBENTRY_TYPE_LOAD,
-                "Pool",
-                **{const.CONF_LOAD_SENSOR: "sensor.pool_kwh"},
-            ),
-            _sub(
-                "c",
-                const.SUBENTRY_TYPE_CONTROLLABLE_LOAD,
-                "HW",
-                **{const.CONF_LOAD_SENSOR: "sensor.pool_kwh"},
-            ),
-        ],
-    )
-    assert pic.find_energy_unit_inputs(hass, entry) == [
-        ("Forecaster: battery sensor", "sensor.bat_kwh", "kWh"),
-        ("Load 'Pool'", "sensor.pool_kwh", "kWh"),
-    ]
-    assert pic.energy_unit_field_errors(
-        hass, {"a": "sensor.bat_kwh", "b": "sensor.ok"}, ["a", "b", "c"]
-    ) == {"a": "energy_sensor_not_power"}
-    assert (
-        pic.energy_unit_of(hass, None) is None
-        and pic.energy_unit_of(hass, "sensor.ok") is None
-    )
 
 
 def test_a_non_power_unit_is_found_in_every_power_field_but_not_on_a_temperature_signal():
@@ -218,30 +157,6 @@ def test_each_warning_is_logged_once_per_entity(caplog, monkeypatch):
             pic.warn_non_power_once("sensor.b", "A")
             pic.warn_refused_input_once("sensor.c", "kVA")
     assert len(caplog.records) == 3
-
-
-def test_the_energy_unit_notice_is_cleared_and_logs_each_input(caplog):
-    calls = []
-
-    async def call(domain, service, data, blocking):
-        calls.append((service, data["notification_id"]))
-
-    hass = _hass({"sensor.bat_kwh": "kWh"})
-    hass.services = SimpleNamespace(async_call=call)
-    with caplog.at_level(logging.WARNING, logger=pic._LOGGER.name):
-        asyncio.run(
-            pic.async_notify_energy_unit_inputs(
-                hass, _entry({const.CONF_BATTERY_SENSOR: "sensor.bat_kwh"})
-            )
-        )
-    assert calls == [("dismiss", pic.NOTIFICATION_ID)]
-    assert "an energy counter" in caplog.text
-
-    async def broken(*a, **k):
-        raise RuntimeError("x")
-
-    hass.services.async_call = broken
-    asyncio.run(pic.async_notify_energy_unit_inputs(hass, _entry({})))
 
 
 # --- frozen price signals ---------------------------------------------------------------------

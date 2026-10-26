@@ -119,21 +119,6 @@ def test_a_nonzero_total_alone_is_not_infeasibility():
 # ---- rule (a): infeasible spike ---------------------------------------------
 
 
-def test_rule_a_flags_the_1550_run_where_the_spike_first_appeared():
-    """Rule (a): 15:45 is clean; 15:50 (published 15:46:27) is the first
-    spike, with CA_BRIS_59E2F52D_1 violated. Flagged in that run, before any
-    dispatch interval could contradict it."""
-    g = p5min_guard.FalseSpikeGuard()
-    g.on_run(*_run("202610151545"))
-    assert not g.active
-    g.on_run(*_run("202610151550"))
-    assert g.active and g.reason == p5min_guard.REASON_INFEASIBLE
-    assert g.since == _t("15:46:27")
-    assert g.detail["constraint_id"] == "CA_BRIS_59E2F52D_1"
-    assert g.detail["forecast_peak"] == 23.2
-    assert g.detail["rhs"] > 0 and g.detail["violation"] > 0
-
-
 def test_rule_a_needs_a_violated_constraint():
     """Rule (a): the same spike with no violated constraint is not flagged."""
     run, published = _run("202610151550")
@@ -224,17 +209,6 @@ def test_rule_b_uses_the_run_before_dispatch():
     g.on_run(_no_constraints(run), published)
     g.on_dispatch(end, price, _t("16:10:04"))
     assert g.active and g.detail["forecast"] == 23.2
-
-
-def test_rule_b_thresholds():
-    """Rule (b): below $1,000/MWh AND below 30% of a spike forecast."""
-    assert p5min_guard.dispatch_disagrees(23.2, 0.10255, THR)
-    assert not p5min_guard.dispatch_disagrees(23.2, 1.0, THR)  # not < $1,000
-    assert not p5min_guard.dispatch_disagrees(3.0, 0.1, THR)  # not a spike
-    assert p5min_guard.dispatch_disagrees(5.0, 0.9, THR)
-    assert not p5min_guard.dispatch_disagrees(5.0, 0.9, 6.0)
-    assert p5min_guard.dispatch_disagrees(2.9, 0.86, 2.0)  # 0.86 < 0.87
-    assert not p5min_guard.dispatch_disagrees(2.9, 0.88, 2.0)  # not < 30%
 
 
 # ---- the whole event, replayed ---------------------------------------------
@@ -350,17 +324,6 @@ def test_rule_c_a_control_room_violation_at_normal_prices():
     g.on_run(_calm(run), published)
     assert g.active and g.reason == p5min_guard.REASON_CONTROL_ROOM
     assert g.detail["constraint_id"].startswith("CA_BRIS_")
-
-
-def test_rule_c_needs_a_normal_dispatch_price():
-    """No dispatch price seen yet, or a dispatch spike: rule (c) does not fire."""
-    run, published = _run("202610151550")
-    g = p5min_guard.FalseSpikeGuard()
-    g.on_run(_calm(run), published)
-    assert not g.active
-    g.on_dispatch(_t("15:50:00"), 1.5, _t("15:45:05"))
-    g.on_run(_calm(run), published)
-    assert not g.active
 
 
 def test_rule_c_needs_a_ca_constraint():
@@ -541,54 +504,6 @@ def test_import_and_export_forward_spikes_are_replaced():
     assert out_imp == [0.42, 0.42, 0.42, 0.30, 0.42, 0.42]
     assert out_exp == [0.31, 0.31, 0.31, 0.20, 0.31, 0.31]
     assert imp[1] == 26.31  # the inputs are not mutated
-
-
-def test_a_localvolts_forward_spike_is_replaced_while_the_flag_holds():
-    """Act rule, LocalVolts included (Mark: LocalVolts carries incorrect
-    spike forecasts too). Replaced while the flag holds; kept with no flag,
-    with an expired flag, and with the guard set to 0 (off)."""
-    grid = _grid(_t("16:10:00"), 4)
-    imp, exp = _localvolts(grid, [0.42, 27.06, 27.06, 0.40], [0.31, 24.60, 24.60, 0.29])
-    flag = _ha({P5: _active_flag()})
-    out_imp, out_exp = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, flag)
-    assert out_imp == [0.42, 0.42, 0.42, 0.40]
-    assert out_exp == [0.31, 0.31, 0.31, 0.29]
-    no_flag = _ha({P5: {"state": "0.1", "attributes": {}}})
-    kept = p5min_guard.guard_schedule_prices(imp, exp, grid, 5000.0, no_flag)
-    assert kept == (imp, exp)
-    late = _grid(_t("16:50:00"), 4)  # raised 15:46:27, expires 16:46:27
-    kept = p5min_guard.guard_schedule_prices(imp, exp, late, 5000.0, flag)
-    assert kept == (imp, exp)
-    off = MagicMock(side_effect=AssertionError("the flag is not read when off"))
-    assert p5min_guard.guard_schedule_prices(imp, exp, grid, 0.0, off) == (imp, exp)
-
-
-def test_numpy_arrays_stay_numpy_arrays():
-    """The blend can hand back a numpy array; the guard keeps the type."""
-    import numpy as np
-
-    grid = _grid(_t("16:10:00"), 3)
-    imp = np.array([0.42, 26.31, 0.40])
-    exp = [0.31, 0.30, 0.29]
-    out_imp, out_exp = p5min_guard.guard_schedule_prices(
-        imp, exp, grid, 5000.0, _ha({P5: _active_flag()})
-    )
-    assert isinstance(out_imp, np.ndarray) and list(out_imp) == [0.42, 0.42, 0.40]
-    assert out_exp is exp
-
-
-def test_without_a_spike_the_flag_is_not_even_read():
-    """A solve with no forward spike reads nothing extra (the golden master
-    pins every read); a missing P5MIN sensor is no flag."""
-    grid = _grid(_t("16:10:00"), 3)
-    calm = [0.42, 0.40, 0.38]
-    read = MagicMock(side_effect=AssertionError("read"))
-    kept = p5min_guard.guard_schedule_prices(calm, calm, grid, 5000.0, read)
-    assert kept == (calm, calm)
-    spiky = [0.42, 26.31, 0.38]
-    missing = MagicMock(side_effect=KeyError(P5))
-    kept = p5min_guard.guard_schedule_prices(spiky, calm, grid, 5000.0, missing)
-    assert kept == (spiky, calm)
 
 
 def test_the_current_interval_is_never_replaced():

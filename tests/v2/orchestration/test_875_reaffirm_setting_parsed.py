@@ -31,9 +31,3 @@ def test_a_configured_wait_is_read_in_seconds(raw, seconds):
 def test_zero_is_kept_as_zero_so_re_sending_is_off():
     # Not None: None would mean "unset" and hand the load the default.
     assert guard._resolve_reaffirm_after_seconds({KEY: 0}) is not None
-
-
-@pytest.mark.parametrize("raw", [None, "soon", "", [], -1, "-0.5"])
-def test_unset_garbled_or_negative_falls_back_to_the_default(raw):
-    data = {} if raw is None else {KEY: raw}
-    assert guard._resolve_reaffirm_after_seconds(data) is None

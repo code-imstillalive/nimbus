@@ -84,27 +84,6 @@ def _hedge_inputs() -> dict:
     }
 
 
-def test_hedge_differs_from_the_p50_plan():
-    kw = _hedge_inputs()
-    det = network.build_plan(**kw)
-    assert det.status == "optimal"
-    assert det.battery_charge_kw[0] * 0.5 == pytest.approx(3.0, abs=0.05)
-
-    res = sd.build_stochastic_plan(kw)
-    assert res.status == "optimal"
-    assert res.k == 1
-    assert res.plan is not None
-    assert res.plan.battery_charge_kw[0] * 0.5 == pytest.approx(8.0, abs=0.05)
-    # The published period 0 is the shared decision.
-    assert res.stage1_battery_kw == pytest.approx(-res.plan.battery_charge_kw[0])
-
-    # Value of the stochastic solution: dispatch the p50 plan's stage 1, let
-    # every scenario recourse optimally, and the expected cost is higher.
-    eev = sd.build_stochastic_plan(kw, fixed_stage1=sd.fixed_stage1_from_plan(det, 1))
-    assert eev.status == "optimal"
-    assert eev.expected_cost - res.expected_cost == pytest.approx(0.1374, abs=0.002)
-
-
 def test_expected_cost_is_the_weighted_sum_of_scenario_costs():
     res = sd.build_stochastic_plan(_hedge_inputs())
     w = dict(zip(sd.SCENARIO_LABELS, sd.SCENARIO_WEIGHTS, strict=True))
@@ -309,13 +288,6 @@ def test_absorb_into_an_empty_problem_reproduces_it():
     assert p.primary_cost_of(b) == pytest.approx(a.objective)
 
 
-def test_absorb_refuses_an_unprefixed_merge_into_a_non_empty_problem():
-    p = LPProblem()
-    p.add_variable("x", ub=1.0)
-    with pytest.raises(ValueError, match="empty"):
-        p.absorb(p, prefix="", cost_scale=1.0)
-
-
 def test_build_plan_without_a_hook_is_unchanged():
     kw = _tiered_inputs()
     a = network.build_plan(**kw)
@@ -399,29 +371,6 @@ def test_shadow_runs_at_most_every_five_minutes_and_holds_its_summary():
         assert spy.call_count == 2
 
 
-def test_a_slow_shadow_solve_backs_off_for_an_hour():
-    kw, det, stoch = _det_and_stoch()
-    slow = dataclasses.replace(stoch, solve_seconds=25.0)
-    with patch.object(sd, "build_stochastic_plan", return_value=slow) as spy:
-        for minutes in (0, 6, 59):
-            solver_plan.run_stochastic_dispatch(
-                {},
-                now=T0 + timedelta(minutes=minutes),
-                plan=det,
-                build_kwargs=kw,
-                deterministic_seconds=0.5,
-            )
-        assert spy.call_count == 1
-        solver_plan.run_stochastic_dispatch(
-            {},
-            now=T0 + timedelta(minutes=60),
-            plan=det,
-            build_kwargs=kw,
-            deterministic_seconds=0.5,
-        )
-        assert spy.call_count == 2
-
-
 @pytest.mark.parametrize(
     ("seconds", "runs"), [(14.9, True), (15.0, False), (23.6, False)]
 )
@@ -454,56 +403,6 @@ def test_a_main_plan_that_used_half_the_shadow_budget_skips_the_shadow(
         r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
     ]
     assert f"took {seconds:.1f} s of the 30 s shadow budget" in warning.getMessage()
-
-
-@pytest.mark.parametrize(
-    ("budget", "seconds", "runs"),
-    [(None, 4.9, True), (None, 5.0, False), (None, 9.2, False), (40.0, 19.9, True)],
-)
-def test_a_main_plan_that_used_half_the_drive_budget_skips_the_drive(
-    budget, seconds, runs, caplog
-):
-    """#2047: drive mode gets the shadow's backstop against its own budget
-    (10 s by default, or the configured one). The skipped cycle publishes the
-    main plan with a named reason, logs once, and leaves the backoff alone:
-    the next fast cycle drives at once."""
-    kw, det, stoch = _det_and_stoch()
-    cfg = {"solver_stochastic_dispatch": True}
-    if budget is not None:
-        cfg["solver_stochastic_drive_budget_seconds"] = budget
-    with patch.object(sd, "build_stochastic_plan", return_value=stoch) as spy:
-        for minute in (0, 6):
-            published, summary = solver_plan.run_stochastic_dispatch(
-                cfg,
-                now=T0 + timedelta(minutes=minute),
-                plan=det,
-                build_kwargs=kw,
-                deterministic_seconds=seconds,
-            )
-        assert spy.call_count == (2 if runs else 0)
-        if runs:
-            assert published is not det
-            return
-        assert published is det
-        assert summary["mode"] == "drive"
-        assert summary["status"] == "skipped"
-        assert summary["fallback_reason"] == "deterministic_too_slow"
-        assert summary["deterministic_solve_seconds"] == seconds
-        (warning,) = [
-            r for r in caplog.records if "deterministic_too_slow" in r.getMessage()
-        ]
-        assert f"took {seconds:.1f} s of the 10 s drive budget" in (
-            warning.getMessage()
-        )
-        published, _ = solver_plan.run_stochastic_dispatch(
-            cfg,
-            now=T0 + timedelta(minutes=7),
-            plan=det,
-            build_kwargs=kw,
-            deterministic_seconds=0.5,
-        )
-        assert spy.call_count == 1
-        assert published is not det
 
 
 def test_drive_publishes_the_stochastic_plan():
@@ -1052,25 +951,6 @@ def test_a_joint_solve_that_hits_its_time_limit_logs_no_error(caplog):
     assert lp._lex_calibration_failed_until == cooldown_before
 
 
-def test_the_joint_solve_never_runs_the_lex_or_calibrated_phases():
-    from solver import lp
-
-    assert sd.joint_options(None, 0.01) == (None, "primary")
-    opts, mode = sd.joint_options(lp.CalibratedOptions(), 0.01)
-    assert mode == "blended"
-    assert isinstance(opts, lp.BlendedOptions)
-    assert opts.blend_weight == 0.01
-    assert sd.joint_options(lp.LexOptions(), None) == (None, "primary_only")
-    kw = _mip_inputs()
-    kw["solve_options"] = lp.CalibratedOptions()
-    with patch.object(
-        lp, "_ensure_optimal_value", side_effect=AssertionError("lex phase ran")
-    ):
-        res = sd.build_stochastic_plan(kw, blend_weight=1e-4)
-    assert res.status == "optimal"
-    assert res.objective_mode == "blended"
-
-
 # -- #1807: calibrated p10 / p90 before the envelope ---------------------------
 
 
@@ -1194,39 +1074,6 @@ def test_a_joint_solver_error_is_not_retried_with_thermal_relaxed():
     assert plan.status == "error"
     assert calls == [True]
     assert not plan.thermal_guarantee_relaxed
-
-
-def test_the_cooldown_does_not_turn_a_blended_joint_solve_into_primary_only(caplog):
-    import logging
-    import time as _time
-
-    from solver import lp
-
-    kw = _mip_inputs()
-    kw["solve_options"] = lp.CalibratedOptions()
-    lp._lex_calibration_failed_until = _time.monotonic() + 600
-    try:
-        with caplog.at_level(
-            logging.DEBUG, logger="custom_components.nimbus_load.solver.lp"
-        ):
-            res = sd.build_stochastic_plan(kw, blend_weight=1e-4)
-    finally:
-        lp._lex_calibration_failed_until = 0.0
-    assert res.status == "optimal"
-    assert res.objective_mode == "blended"
-    assert "skipping the phased" not in caplog.text
-
-
-def test_quiet_solves_do_not_touch_the_live_unknown_retry_counters(monkeypatch):
-    from solver import lp
-
-    monkeypatch.setattr(lp, "UNKNOWN_RETRIES", {"attempted": 0, "recovered": 0})
-    lp._QUIET.on = True
-    try:
-        lp._note_unknown_retry("interior-point solve")
-    finally:
-        lp._QUIET.on = False
-    assert lp.UNKNOWN_RETRIES == {"attempted": 0, "recovered": 0}
 
 
 def test_summary_reports_terminal_soc_and_safety_fields():

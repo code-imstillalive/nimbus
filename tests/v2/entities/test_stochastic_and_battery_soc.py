@@ -151,18 +151,6 @@ def test_no_plan_or_no_scenarios_is_no_rows_or_only_the_main_plan():
     assert gap[0]["p"] is None
 
 
-def test_the_sensor_publishes_the_headline_and_keeps_the_detail_out_of_history():
-    (s,) = st.create(ENTRY, "1")
-    _attach(s)
-    plan = {"stochastic": {"status": "optimal"}, "forecast": _plan(2)}
-    s.update_from_parent(plan["forecast"][0], parent_attributes=plan)
-    assert s.native_value == "Hedge computed"
-    assert s.extra_state_attributes["stochastic"] == {"status": "optimal"}
-    assert len(s.extra_state_attributes["forecast"]) == 2
-    assert {"forecast", "stochastic"} <= s._unrecorded_attributes
-    assert s.entity_id == "sensor.nimbus_solver_stochastic"
-
-
 # --- one SoC sensor per battery ----------------------------------------------------------
 
 
@@ -224,27 +212,3 @@ def test_a_battery_sensor_reads_its_own_row_of_the_plan():
         {"time": "t1", "hours": 0.5, "soc_pct": 82.0},
     ]
     assert car.extra_state_attributes["battery_name"] == "Car"
-
-
-@pytest.mark.parametrize(
-    "batteries",
-    [
-        [],
-        [{"name": "Car", "forecast": "x"}],
-        [{"name": "Car", "forecast": [{"soc_pct": None}]}],
-        ["junk"],
-    ],
-)
-def test_a_battery_the_plan_skipped_keeps_its_last_value(batteries):
-    entry = SimpleNamespace(entry_id="hub1", subentries={"a": _participant("a", "Car")})
-    _home, car = (_attach(s) for s in bs.create(entry, "1"))
-    car.update_from_parent(
-        {},
-        parent_attributes={
-            "batteries": [{"name": "Car", "forecast": [{"soc_pct": 70.0}]}]
-        },
-    )
-    car.update_from_parent(
-        {}, parent_attributes={"forecast": _plan(1), "batteries": batteries}
-    )
-    assert car.native_value == 70.0

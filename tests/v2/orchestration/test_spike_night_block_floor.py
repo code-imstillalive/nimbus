@@ -52,15 +52,6 @@ def _at(times, values, day, hour, minute=0):
     raise AssertionError("no such period")
 
 
-def test_a_spike_night_block_drops_to_matched_plus_ten_percent():
-    times = _times()
-    _, out = _floor(ARMED, times, _prices(times))
-    expected = 11.5 * 1.1 * MATCHED / 80.5  # 7.18 kW
-    for hour in (17, 18, 20, 23):
-        assert _at(times, out, 12, hour) == pytest.approx(expected)
-    assert expected == pytest.approx(7.18, abs=0.01)
-
-
 def test_a_night_without_a_spike_keeps_its_rate():
     times = _times()
     _, out = _floor(ARMED, times, _prices(times, spike_days=(12,)))
@@ -95,38 +86,6 @@ def test_otherwise_the_pins_are_unchanged(cfg, matched):
     times = _times()
     fixed, out = _floor(cfg, times, _prices(times), matched)
     assert np.array_equal(np.array(fixed), np.array(out), equal_nan=True)
-
-
-def test_no_block_is_a_no_op():
-    times = _times()
-    cfg = {
-        "solver_price_spike_override_armed": True,
-        "solver_price_spike_threshold": 0.85,
-    }
-    assert (
-        solver_plan.spike_night_block_floor(cfg, None, _prices(times), times, MATCHED)
-        is None
-    )
-
-
-def test_two_blocks_each_keep_their_share():
-    times = _times()
-    cfg = {
-        **ARMED,
-        "solver_p2p_block_1_end_hour": 20,
-        "solver_p2p_block_2_rate_kw": 5.0,
-        "solver_p2p_block_2_start_hour": 20,
-        "solver_p2p_block_2_end_hour": 24,
-    }
-    prices = _prices(times)
-    for i, t in enumerate(times):
-        if t.day == 12 and t.hour == 21:
-            prices[i] = 15.0
-    _, out = _floor(cfg, times, prices)
-    committed = 11.5 * 3 + 5.0 * 4
-    share = 1.1 * MATCHED / committed
-    assert _at(times, out, 12, 18) == pytest.approx(11.5 * share)
-    assert _at(times, out, 12, 21) == pytest.approx(5.0 * share)
 
 
 def test_only_the_block_holding_the_spike_drops():

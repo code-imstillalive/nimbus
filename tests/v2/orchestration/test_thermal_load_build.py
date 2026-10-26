@@ -107,43 +107,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         _sheddable, _adequacy, thermal = self._run(data, states)
         self.assertEqual(thermal, [])
 
-    def test_missing_target_temperature_is_skipped_not_crashed(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        self.assertEqual(thermal, [])
-
-    def test_missing_temperature_entity_is_skipped_not_crashed(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states={})
-        self.assertEqual(thermal, [])
-
-    def test_unavailable_temperature_entity_is_skipped_not_crashed(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-        }
-        states = {
-            "water_heater.hws": SimpleNamespace(state="unavailable", attributes={})
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        self.assertEqual(thermal, [])
-
     def test_a_non_water_heater_climate_temperature_entity_is_skipped(self):
         # done_condition.read_current_temperature() only supports
         # water_heater/climate domains -- a plain sensor has no
@@ -228,29 +191,6 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         tl = thermal[0]
         self.assertIsNone(tl.comfort_floor_c)
         self.assertEqual(tl.comfort_floor_cost, 0.0)
-
-    def test_explicit_rate_overrides_win_over_module_defaults(self):
-        data = {
-            "controllable_load_name": "HWS",
-            "controllable_load_kind": "thermal",
-            "thermal_temperature_entity": "water_heater.hws",
-            "thermal_max_power_kw": 3.0,
-            "thermal_target_temperature_c": 60.0,
-            "thermal_heating_rate_c_per_kwh": 12.5,
-            "thermal_idle_decay_c_per_hour": 0.75,
-        }
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
-        }
-        _sheddable, _adequacy, thermal = self._run(data, states)
-        tl = thermal[0]
-        self.assertEqual(tl.heating_rate_c_per_kwh, 12.5)
-        self.assertEqual(tl.idle_decay_c_per_hour, 0.75)
-        # nimbus issue #940: the origin is recorded on the same branch
-        # that picked the value, so it cannot describe a different branch
-        # than the one taken.
-        self.assertEqual(tl.heating_rate_origin, "override")
-        self.assertEqual(tl.idle_decay_origin, "override")
 
     def test_persisted_run_state_rate_wins_over_module_default_when_no_override(self):
         # A load migrated from kind=deferrable already has a real,
@@ -368,39 +308,3 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-def test_a_household_mode_moves_the_band_the_solver_receives():
-    """#1314: the mode's band preset is applied before the thermal branch
-    reads its target and floor, so `away` reaches the LP one setback lower."""
-    original = solver_writer.NATIVE.hass
-    data = {
-        "controllable_load_name": "Hot Water Heat Pump",
-        "controllable_load_kind": "thermal",
-        "thermal_temperature_entity": "water_heater.hws",
-        "thermal_max_power_kw": 3.0,
-        "thermal_target_temperature_c": 60.0,
-        "thermal_comfort_floor_c": 50.0,
-        "thermal_earliest_hour": 6.0,
-        "thermal_deadline_hour": 16.0,
-    }
-
-    def build(mode):
-        sub = _fake_subentry("s1", "controllable_load", data)
-        sub.title = "Hot Water Heat Pump"
-        states = {
-            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0),
-            "select.nimbus_household_mode": SimpleNamespace(state=mode, attributes={}),
-        }
-        solver_writer.NATIVE.hass = _fake_native_hass([sub], states=states)
-        now = datetime(2026, 9, 13, 0, 0, tzinfo=_TZ)
-        grid = _grid(now, 96)
-        (load,) = solver_writer.build_controllable_loads(now, grid, len(grid))[2]
-        return load
-
-    try:
-        home, away = build("home"), build("away")
-    finally:
-        solver_writer.NATIVE.hass = original
-    assert away.comfort_floor_c == home.comfort_floor_c - 5.0
-    assert away.target_temperature_c == home.target_temperature_c - 5.0

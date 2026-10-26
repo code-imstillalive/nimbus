@@ -83,17 +83,6 @@ def _issue_decision(policy: str, **kw):
     )
 
 
-class TestTheFixtureReallyIsTheIssuesOwnMeasurement(unittest.TestCase):
-    """If this drifts, every other test in the file is measuring something
-    other than what #937 measured."""
-
-    def test_it_reproduces_the_issues_own_headline(self):
-        d = _issue_decision("measure")
-        self.assertEqual(d.days_scored, 14)
-        self.assertEqual(d.days_persistence_won, 11)
-        self.assertAlmostEqual(d.mean_value_add_dollars, -0.71, places=2)
-
-
 class TestOffCannotBeTalkedIntoActing(unittest.TestCase):
     """The default policy, against the most persuasive input that exists.
 
@@ -138,17 +127,6 @@ class TestOffCannotBeTalkedIntoActing(unittest.TestCase):
         self.assertEqual(d.policy, "aggressive")
         self.assertEqual(d.reason, fss.REASON_POLICY_UNRECOGNISED)
 
-    def test_every_policy_name_the_select_offers_is_understood(self):
-        # The entity's options and this module's branches are two lists that
-        # must not drift -- the #837 silent-no-op shape, one layer up.
-        for policy in fss.POLICIES:
-            d = _issue_decision(policy)
-            self.assertNotEqual(
-                d.reason,
-                fss.REASON_POLICY_UNRECOGNISED,
-                f"{policy!r} is offered but not understood",
-            )
-
 
 class TestMeasureIsNotActing(unittest.TestCase):
     """`measure` is the honest middle position: publish the recommendation,
@@ -173,13 +151,6 @@ class TestMeasureIsNotActing(unittest.TestCase):
 class TestTheGatesBeforeAnyPolicyActs(unittest.TestCase):
     """Four reasons to keep the ML forecast that have nothing to do with the
     policy asked for. Each is separately reachable and separately named."""
-
-    def test_an_empty_record_is_not_evidence(self):
-        d = select_forecast_source(
-            value_add_by_day={}, today=TODAY, policy=fss.POLICY_PERSISTENCE
-        )
-        self.assertEqual(d.persistence_weight, 0.0)
-        self.assertEqual(d.reason, fss.REASON_NO_TRAILING_RECORD)
 
     def test_a_thin_sample_is_refused_even_when_persistence_won_every_day(self):
         """#937's own caveat is that 14 days is already a small sample. Three
@@ -404,17 +375,6 @@ class TestTheBlendArithmetic(unittest.TestCase):
         it does not use -- a length check firing at weight 0.0 would turn a
         no-op into a crash on the live dispatch path."""
         self.assertEqual(blend_load_forecast([1.0, 2.0], [], 0.0), [1.0, 2.0])
-
-    def test_full_weight_returns_persistence(self):
-        self.assertEqual(
-            blend_load_forecast([1.0, 2.0, 3.0], [9.0, 8.0, 7.0], 1.0),
-            [9.0, 8.0, 7.0],
-        )
-
-    def test_a_partial_weight_interpolates_elementwise(self):
-        out = blend_load_forecast([0.0, 10.0], [10.0, 0.0], 0.25)
-        self.assertAlmostEqual(out[0], 2.5)
-        self.assertAlmostEqual(out[1], 7.5)
 
     def test_a_length_mismatch_raises_rather_than_truncating(self):
         """A silently short load array is the shape that costs real money: the

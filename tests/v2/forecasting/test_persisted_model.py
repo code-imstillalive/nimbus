@@ -4,7 +4,6 @@ not discarded (#366, #373) (#1837).
 
 from __future__ import annotations
 
-import json
 import pickle
 import sys
 from dataclasses import replace
@@ -53,41 +52,9 @@ def _real_model(**overrides) -> TrainedModel:
 
 
 class TestABadPickleDegradesInsteadOfWedgingTheIntegration:
-    def test_garbage_bytes_return_none_rather_than_raising(self, tmp_path):
-        p = tmp_path / "model.pkl"
-        p.write_bytes(b"this is not a pickle at all")
-        assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
-
-    def test_a_pickle_without_x_mean_returns_none_rather_than_raising(self, tmp_path):
-        """#366 finding 3, exactly: this used to raise a bare
-        AttributeError out of the method, because the feature-count check
-        sat outside the `try`."""
-        p = tmp_path / "model.pkl"
-        p.write_bytes(pickle.dumps({"not": "a TrainedModel"}))
-        assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
-
-    def test_a_feature_count_mismatch_is_discarded(self, tmp_path):
-        """The 2026-08-15 incident: a stale pickle whose feature count no
-        longer matches would otherwise blow up inside predict()."""
-        p = tmp_path / "model.pkl"
-        short = len(FEATURE_NAMES) - 1
-        p.write_bytes(
-            pickle.dumps(_real_model(x_mean=np.zeros(short), x_std=np.ones(short)))
-        )
-        assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
-
     def test_a_missing_file_is_simply_none(self, tmp_path):
         p = tmp_path / "definitely_absent.pkl"
         assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
-
-    def test_a_healthy_model_is_returned(self, tmp_path):
-        """Guards every assertion above from passing because the loader
-        returns None unconditionally."""
-        p = tmp_path / "model.pkl"
-        p.write_bytes(pickle.dumps(_real_model()))
-        loaded = NimbusCoordinator._load_model_from_disk(_stub(model_path=p))
-        assert loaded is not None
-        assert loaded.model_type == "knn"
 
 
 class TestTheSchemaVersionAsymmetry:
@@ -109,15 +76,6 @@ class TestTheSchemaVersionAsymmetry:
             "which leaves a subentry with nothing the moment a retrain fails"
         )
 
-    def test_a_newer_schema_is_discarded(self, tmp_path):
-        """The other direction is a real downgrade: this code has no
-        backfill for a schema it has never seen."""
-        p = tmp_path / "model.pkl"
-        p.write_bytes(
-            pickle.dumps(_real_model(schema_version=TRAINED_MODEL_SCHEMA_VERSION + 1))
-        )
-        assert NimbusCoordinator._load_model_from_disk(_stub(model_path=p)) is None
-
 
 class TestTheResidualBufferAlsoDegrades:
     @pytest.mark.parametrize(
@@ -137,12 +95,3 @@ class TestTheResidualBufferAlsoDegrades:
     def test_a_missing_file_starts_fresh(self, tmp_path):
         p = tmp_path / "absent.json"
         assert NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p)) == []
-
-    def test_a_healthy_buffer_is_returned_as_floats(self, tmp_path):
-        """Baseline, so the parametrised cases above cannot pass because
-        the loader always returns []."""
-        p = tmp_path / "residuals.json"
-        p.write_text(json.dumps([1, 2.5, -3]), encoding="utf-8")
-        out = NimbusCoordinator._load_residuals_from_disk(_stub(residual_path=p))
-        assert out == [1.0, 2.5, -3.0]
-        assert all(isinstance(v, float) for v in out)

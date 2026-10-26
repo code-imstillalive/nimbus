@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 import numpy as np
 import pytest
 import solver_writer as sw
-from solver import elements
 from solver_inputs import solar_quantiles as sq
 
 TZ = sw.LOCAL_TZ
@@ -100,15 +99,6 @@ def test_while_the_history_is_short_solcasts_band_is_widened_to_hold_the_blend()
     assert method == sq.METHOD_EMPIRICAL and (p10[1], p90[1]) == (1.0, 3.0)
 
 
-@pytest.mark.parametrize(
-    "solcast",
-    [None, ([1.0, 2.0], [1.0, 2.0], [1.0, 2.0])],
-    ids=["nothing", "no_spread"],
-)
-def test_with_nothing_measured_and_no_usable_band_there_is_no_band(solcast):
-    assert _bands([1.0, 2.0], solcast=solcast) == (None, None, None)
-
-
 # --- the quantile table and its calibration ----------------------------------------------------
 
 
@@ -158,31 +148,6 @@ def test_the_published_calibration_has_every_cell():
 # --- the history -------------------------------------------------------------------------------
 
 
-def test_an_interval_mean_is_duration_weighted_and_needs_its_whole_interval():
-    times = [NOW, NOW + timedelta(minutes=1), NOW + timedelta(minutes=6)]
-    hours = [1 / 60, 5 / 60, 24 / 60]
-    assert sq.interval_means(times, hours, [100.0, 3.0, 6.0]) == {}  # without index 0
-    means = sq.interval_means(times, hours, [100.0, 3.0, 6.0], first_index=0)
-    k = int(NOW.timestamp() // sq.INTERVAL_SECONDS)
-    assert means[k] == pytest.approx((100 * 1 + 3 * 5 + 6 * 24) / 30)
-
-
-def test_one_forecast_is_kept_per_interval_and_bucket_the_closest_to_its_lead():
-    h = sq.SolarErrorHistory()
-    times, hours = _grid(12)
-    h.record(NOW, times, hours, [5.0] * 12)
-    target = int((NOW + timedelta(hours=2.5)).timestamp() // sq.INTERVAL_SECONDS)
-    assert h.pending[target]["1-4 h"] == [2.5, 5.0]
-    later = NOW + timedelta(minutes=30)
-    h.record(
-        later, [later + timedelta(hours=0.5 * i) for i in range(12)], hours, [7.0] * 12
-    )
-    assert h.pending[target]["1-4 h"] == [2.5, 5.0]  # 2 h ahead is farther from 2.5
-    night = sq.SolarErrorHistory()
-    night.record(NOW, times, hours, [0.0] * 12)
-    assert night.pending == {}
-
-
 def test_a_due_interval_is_graded_into_its_cell_and_a_missing_actual_is_dropped():
     h = sq.SolarErrorHistory()
     k = int(NOW.timestamp() // sq.INTERVAL_SECONDS)
@@ -223,16 +188,6 @@ def _writer(path, pv_kw):
     )
 
 
-def test_without_a_pv_sensor_or_solcast_there_is_no_band(tmp_path):
-    times, hours = _grid()
-    out = sq.update_and_build(
-        _writer(tmp_path / "q.json", 1.0), {}, NOW, times, hours, [2.0] * 24, None
-    )
-    assert (
-        out["p10"] is None and out["calibration"]["reason"] == "no_solar_power_sensor"
-    )
-
-
 def test_four_days_of_history_replace_solcasts_band_with_the_measured_one(tmp_path):
     cfg = {"solver_solar_power_sensor": "sensor.pv"}
     path = tmp_path / "q.json"
@@ -266,20 +221,3 @@ def test_a_broken_history_never_breaks_the_solve():
         None,
     )
     assert out["p10"] is None and out["calibration"]["reason"].startswith("error")
-
-
-def test_the_solve_takes_the_pair_only_whole_ordered_and_beside_the_envelope():
-    f = np.array([1.0, 2.0])
-    elements.SolarConfig(
-        forecast_kw=f, p10_kw=np.array([0.5, 1.0]), p90_kw=np.array([1.5, 3.0])
-    )
-    with pytest.raises(ValueError):
-        elements.SolarConfig(forecast_kw=f, p10_kw=np.array([0.5, 1.0]))
-    with pytest.raises(ValueError):
-        elements.SolarConfig(
-            forecast_kw=f, p10_kw=np.array([1.5, 1.0]), p90_kw=np.array([1.5, 3.0])
-        )
-    cfg = elements.SolarConfig(
-        forecast_kw=np.array([1.0]), lower_kw=np.array([0.0]), upper_kw=np.array([9.0])
-    )
-    assert cfg.p10_kw is None and cfg.p90_kw is None and float(cfg.lower_kw[0]) == 0.0

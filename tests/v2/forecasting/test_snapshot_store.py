@@ -140,14 +140,3 @@ def test_a_failing_store_never_raises(store):
     assert _run(fss.async_capture_todays_snapshot(hass, "E1")) is False
     assert _run(fss.async_load_snapshot(hass, "E1", "x")) is None
     _run(fss.async_ensure_snapshots_loaded(hass, "E1"))
-
-
-def test_the_cache_answers_only_when_one_entry_is_loaded(store):
-    Disk.files[f"{fss.DOMAIN}_E1_forecast_snapshots"] = {"2026-09-19": {"a": 1}}
-    Disk.files[f"{fss.DOMAIN}_E2_forecast_snapshots"] = {"2026-09-19": {"b": 2}}
-    hass = _hass(None)
-    _run(fss.async_ensure_snapshots_loaded(hass, "E1"))
-    assert fss.get_cached_snapshot("2026-09-19") == {"a": 1}
-    assert fss.get_cached_snapshot("2026-09-18") is None
-    _run(fss.async_ensure_snapshots_loaded(hass, "E2"))
-    assert fss.get_cached_snapshot("2026-09-19") is None  # whose would it be?

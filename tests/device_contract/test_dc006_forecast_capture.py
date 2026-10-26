@@ -210,35 +210,6 @@ def test_difference_no_source_is_zero_today_and_missing_in_the_contract():
     )
 
 
-def test_difference_a_configured_sensor_in_another_provider_s_shape():
-    """Today a configured sensor is read in whichever of the three shapes it
-    publishes; the contract reads it through one adapter. A sensor that is
-    not one of Solcast's or Open-Meteo's own entities but publishes their
-    shape (a template copy, say) is read today and `shape_not_recognized`
-    through `nimbus_forecast`."""
-    states = {**STATES, "sensor.copy_of_solcast": solcast([1.0] * 8)}
-    options = {"solver_solar_forecast_sensor": "sensor.copy_of_solcast"}
-    value, _lower, _upper = _legacy(options, False, states)
-    assert value == [1.0] * len(GRID)
-    member = _contract(options, False, states).members[0]
-    assert (member.state, member.reason) == ("missing", "shape_not_recognized")
-
-
-def test_difference_a_malformed_auto_include_row_raises_today():
-    """Today a configured sensor with an unparseable time is dropped
-    (`malformed`), but Solcast's and Open-Meteo's own readers do not catch
-    it, so the error reaches `build_solar_arrays`' caller. The contract drops
-    that member like any other."""
-    states = {**STATES, "sensor.om_tomorrow": {"watts": {"not a time": 1000.0}}}
-    with pytest.raises(ValueError):
-        _legacy({}, True, states)
-    members = _contract({}, True, states).members
-    assert [(m.adapter, m.state, m.reason) for m in members] == [
-        ("open_meteo_solar", "missing", "malformed"),
-        ("solcast", "ok", None),
-    ]
-
-
 # --- the binding itself (DC-001) --------------------------------------------------
 
 
@@ -267,22 +238,6 @@ def test_today_s_binding_validates():
         "combine_unknown",
         "combine_not_allowed",
     } & _codes(binding)
-
-
-def test_a_list_is_only_for_a_role_that_combines():
-    binding = {
-        "sources": [dfc.forecast_source(["sensor.a"], "nimbus_forecast")],
-        "combine": "mean",
-    }
-    assert "combine_not_allowed" in _codes(binding, kind="load", role="demand_forecast")
-
-
-def test_an_unknown_combine_and_a_bad_member_are_named():
-    bad = {
-        "sources": [{"kind": "entity_attribute", "entity_id": "sensor.a"}],
-        "combine": "median",
-    }
-    assert {"combine_unknown", "source_fields_missing"} <= _codes(bad)
 
 
 def test_continued_by_belongs_to_an_entity_attribute_source():

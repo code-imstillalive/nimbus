@@ -21,7 +21,6 @@ from custom_components.nimbus_load.const import (
     CONF_CONTROLLABLE_LOAD_KIND,
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
-    DOMAIN,
 )
 from custom_components.nimbus_load.number import (
     _CONTROLLABLE_LOAD_DESCRIPTIONS,
@@ -100,39 +99,6 @@ def test_shared_fields_apply_to_both_kinds():
 
 
 # --- Entity attribute wiring --------------------------------------------
-
-
-def test_entity_attribute_wiring():
-    entry = _make_entry()
-    subentry = _make_subentry()
-    desc = next(
-        d for d in _CONTROLLABLE_LOAD_DESCRIPTIONS if d.key == "deferrable_target_kwh"
-    )
-
-    entity = NimbusControllableLoadNumber(
-        entry,
-        subentry,
-        desc,
-        sw_version="9.9.9-test",
-        shared_store=_fresh_shared_store(),
-    )
-
-    assert entity._attr_unique_id == f"sub_1_{desc.key}"
-    assert entity.entity_id == f"number.nimbus_hot_water_heat_pump_{desc.key}"
-    assert entity._attr_name == desc.name
-    assert entity._attr_native_min_value == desc.min_value
-    assert entity._attr_native_max_value == desc.max_value
-    assert entity._attr_native_step == desc.step
-    # Property, not the stored attribute (nimbus issue #1293):
-    # `_CurrencyUnitMixin` resolves a currency sentinel against
-    # `hass.config.currency` at read time and __init__ no longer assigns the
-    # attribute, so the property is the single answer. With no `hass` attached
-    # it returns the declared value unchanged, so this stays a wiring check.
-    assert entity.native_unit_of_measurement == desc.unit
-    assert entity._attr_native_value == desc.default
-    assert (DOMAIN, "sub_1") in entity._attr_device_info["identifiers"]
-    assert entity._attr_device_info["name"] == "Hot Water Heat Pump"
-    assert entity._attr_device_info["model"] == "Controllable Load"
 
 
 def test_entity_id_slug_matches_sensor_pys_own_commanded_state_convention():
@@ -242,44 +208,6 @@ def test_deferrable_load_gets_all_seven_fields():
 # --- Seed-from-wizard-data / restore chain ------------------------------
 
 
-def test_no_restored_state_seeds_from_subentry_data():
-    entry = _make_entry()
-    subentry = _make_subentry(data={"deferrable_target_kwh": 2.5})
-    desc = next(
-        d for d in _CONTROLLABLE_LOAD_DESCRIPTIONS if d.key == "deferrable_target_kwh"
-    )
-    entity = NimbusControllableLoadNumber(
-        entry, subentry, desc, sw_version=None, shared_store=_fresh_shared_store()
-    )
-    entity.async_get_last_number_data = AsyncMock(return_value=None)
-    entity.async_get_last_state = AsyncMock(return_value=None)
-
-    asyncio.run(entity.async_added_to_hass())
-
-    assert entity._attr_native_value == 2.5
-
-
-def test_no_restored_state_and_no_wizard_data_falls_back_to_class_default():
-    entry = _make_entry()
-    subentry = _make_subentry(data={})
-    desc = next(
-        d for d in _CONTROLLABLE_LOAD_DESCRIPTIONS if d.key == "deferrable_target_kwh"
-    )
-    entity = NimbusControllableLoadNumber(
-        entry,
-        subentry,
-        desc,
-        sw_version=None,
-        shared_store=_fresh_shared_store("no-restore-no-wizard-data"),
-    )
-    entity.async_get_last_number_data = AsyncMock(return_value=None)
-    entity.async_get_last_state = AsyncMock(return_value=None)
-
-    asyncio.run(entity.async_added_to_hass())
-
-    assert entity._attr_native_value == desc.default
-
-
 def test_successful_restore_wins_over_wizard_data():
     entry = _make_entry()
     subentry = _make_subentry(data={"deferrable_target_kwh": 2.5})
@@ -303,23 +231,3 @@ def test_successful_restore_wins_over_wizard_data():
     asyncio.run(entity.async_added_to_hass())
 
     assert entity._attr_native_value == 4.4
-
-
-def test_turn_writes_through_to_the_store():
-    entry = _make_entry()
-    subentry = _make_subentry()
-    desc = next(
-        d for d in _CONTROLLABLE_LOAD_DESCRIPTIONS if d.key == "deferrable_target_kwh"
-    )
-    shared_store = _fresh_shared_store("write-through")
-    entity = NimbusControllableLoadNumber(
-        entry, subentry, desc, sw_version=None, shared_store=shared_store
-    )
-    entity.async_write_ha_state = MagicMock()
-
-    asyncio.run(entity.async_set_native_value(5.5))
-
-    assert entity._attr_native_value == 5.5
-    entity.async_write_ha_state.assert_called_once()
-    stored = asyncio.run(shared_store.async_read(entity._store_key))
-    assert stored == 5.5

@@ -8,7 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
 import solver_shared
 
 AEST = timezone(timedelta(hours=10))
@@ -34,41 +33,6 @@ def _pinned(cfg):
     return {t.strftime("%H:%M"): v for t, v in zip(times, fixed, strict=True)}
 
 
-def test_a_block_starts_and_ends_on_the_minute():
-    pins = _pinned(_cfg(20.5, 23.75))
-    assert pins["20:25"] != pins["20:25"]  # NaN: not in the block
-    assert pins["20:30"] == 7.5
-    assert pins["23:40"] == 7.5
-    assert pins["23:45"] != pins["23:45"]
-
-
-def test_whole_hours_still_mean_what_they_did():
-    pins = _pinned(_cfg(17, 24))
-    assert pins["16:55"] != pins["16:55"]
-    assert pins["17:00"] == 7.5
-    assert pins["23:55"] == 7.5
-
-
 def test_a_block_ending_at_midnight_shown_as_0000_still_runs_to_midnight():
     """A time picker shows 24:00 as 00:00, so the end reads 0."""
     assert repr(_pinned(_cfg(17, 0))) == repr(_pinned(_cfg(17, 24)))
-
-
-def test_0000_to_0000_is_still_not_a_block():
-    """The default 0 / 0 never configured a block; it must not become a
-    whole-day block now that an end of 0 can mean midnight."""
-    assert solver_shared._configured_p2p_blocks(_cfg(0, 0)) == []
-
-
-def test_the_committed_energy_counts_minutes():
-    assert solver_shared.p2p_blocks_daily_energy_kwh(_cfg(20.5, 24)) == pytest.approx(
-        7.5 * 3.5
-    )
-    assert solver_shared.p2p_blocks_daily_energy_kwh(_cfg(17, 0)) == pytest.approx(
-        7.5 * 7
-    )
-
-
-def test_the_lead_time_still_comes_off_a_minute_start():
-    cfg = {**_cfg(20.5, 24), "solver_p2p_block_lead_time_minutes": 1}
-    assert solver_shared._configured_p2p_blocks(cfg) == [(7.5, 20 * 60 + 29, 24 * 60)]

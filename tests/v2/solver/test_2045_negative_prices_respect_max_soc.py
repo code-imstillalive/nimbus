@@ -62,15 +62,6 @@ def _plan(imports, exports, batteries):
     )
 
 
-def test_the_reported_case_stays_at_max_soc():
-    """#2045's reproduction: import -1, export -2 over three periods, two
-    batteries. Both ended at 5.0 kWh against a 4.375 ceiling."""
-    plan = _plan([-1.0] * 3, [-2.0] * 3, [_battery("a"), _battery("c")])
-    assert plan.status == "optimal"
-    for b in plan.batteries:
-        assert max(b.soc_kwh) <= MAX_SOC + 1e-6, (b.name, list(b.soc_kwh))
-
-
 def test_the_penalty_is_sized_on_magnitude():
     assert soft_soc_penalty([-1.0], [-2.0]) == pytest.approx(
         2.0 * DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER

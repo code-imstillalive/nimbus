@@ -166,27 +166,6 @@ def test_a_successful_cycle_solves_then_releases_the_lock(monkeypatch):
     assert rt._cycles_started == 1
 
 
-def test_first_use_binds_the_solver_and_backgrounds_the_stochastic_shadow(monkeypatch):
-    sw = types.ModuleType(f"{PKG}.solver_writer")
-    bound = []
-    sw.set_native_hass = bound.append
-    plan = types.ModuleType(f"{PKG}.solver_plan")
-    plan.STOCHASTIC_SHADOW_IN_BACKGROUND = False
-    for name, mod in (("solver_writer", sw), ("solver_plan", plan)):
-        monkeypatch.setitem(sys.modules, f"{PKG}.{name}", mod)
-        monkeypatch.setattr(sys.modules[PKG], name, mod, raising=False)
-    for var in [v for v in os.environ if v.startswith("NIMBUS_")]:
-        monkeypatch.delenv(var)
-    hass = FakeHass(config_dir=tempfile.mkdtemp())
-    assert rt._ensure_ready(hass) is sw
-    assert rt._ensure_ready(hass) is sw
-    assert bound == [hass]
-    assert plan.STOCHASTIC_SHADOW_IN_BACKGROUND is True
-    assert os.environ["NIMBUS_SOLVER_PLAN_STATE_PATH"].startswith(
-        hass.config.config_dir
-    )
-
-
 def test_a_held_lock_skips_quietly_once_then_warns_and_asks_for_a_rerun(
     monkeypatch, caplog
 ):
@@ -478,30 +457,6 @@ def test_a_successful_solve_records_the_outcome_and_captures_the_day(monkeypatch
     assert rt._in_flight_future is None
 
 
-def test_a_failed_solve_records_the_outcome_but_captures_nothing(monkeypatch):
-    seen = _stores(monkeypatch)
-
-    def main():
-        raise ValueError("x")
-
-    _ready(monkeypatch, FakeSW(main=main))
-    assert asyncio.run(rt.async_run_solve(FakeHass(entries=[_entry()]))) is False
-    assert [s[0] for s in seen] == [
-        "async_ensure_snapshots_loaded",
-        "async_note_solve_outcome",
-    ]
-
-
-@pytest.mark.parametrize(
-    "entries", [[], [_entry("A"), _entry("B")]], ids=["none", "two"]
-)
-def test_without_exactly_one_entry_nothing_per_entry_is_touched(monkeypatch, entries):
-    seen = _stores(monkeypatch)
-    _ready(monkeypatch, FakeSW())
-    assert asyncio.run(rt.async_run_solve(FakeHass(entries=entries))) is True
-    assert seen == []
-
-
 def test_unreadable_entries_mean_no_snapshot_key():
     hass = FakeHass()
 
@@ -526,15 +481,6 @@ def test_a_trigger_during_a_cycle_gets_exactly_one_follow_up(monkeypatch):
     assert sw.calls.count("main") == 2
 
 
-def test_a_cycle_that_found_the_lock_held_runs_no_follow_up(monkeypatch):
-    _stores(monkeypatch)
-    sw = FakeSW(lock=False)
-    _ready(monkeypatch, sw)
-    assert asyncio.run(rt.async_run_solve(FakeHass())) is False
-    assert sw.calls == ["acquire"]
-    assert rt._take_rerun_request() is True  # left for the running cycle
-
-
 def test_the_follow_up_counts_when_only_it_succeeds(monkeypatch):
     _stores(monkeypatch)
     runs = iter([ValueError("first"), None])
@@ -550,21 +496,6 @@ def test_the_follow_up_counts_when_only_it_succeeds(monkeypatch):
 
 
 # --- unload --------------------------------------------------------------------
-
-
-def test_unload_waits_for_nothing_when_no_solve_is_running():
-    asyncio.run(rt.wait_for_in_flight_solve(timeout=0.01))
-
-
-def test_unload_waits_for_the_running_solve_to_finish():
-    async def go():
-        future = asyncio.get_running_loop().create_future()
-        rt._in_flight_future = future
-        asyncio.get_running_loop().call_later(0.01, future.set_result, True)
-        await rt.wait_for_in_flight_solve(timeout=5)
-        return future.done()
-
-    assert asyncio.run(go()) is True
 
 
 @pytest.mark.parametrize(

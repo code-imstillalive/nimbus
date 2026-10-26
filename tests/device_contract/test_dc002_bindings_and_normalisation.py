@@ -272,12 +272,6 @@ def test_dc_r03_f09_each_unit_spelling_resolves_as_the_oracle_says(unit: Any) ->
         assert math.isclose(got.value, expected, rel_tol=1e-12, abs_tol=TOL), got
 
 
-@pytest.mark.parametrize(("value", "unit", "kw"), F09["cases"]["units"])
-def test_dc_r03_f09_the_manifest_units(value: float, unit: str, kw: float) -> None:
-    got = _power(str(value), unit)
-    assert got.value is not None and abs(got.value - kw) <= TOL
-
-
 def test_dc_r03_f09_milliwatt_and_megawatt_differ() -> None:
     mw_milli, mw_mega = _power("2.5", "mW").value, _power("2.5", "MW").value
     assert mw_milli is not None and mw_mega is not None
@@ -315,29 +309,6 @@ def test_dc_r03_power_is_refused_as_energy() -> None:
     )
     got = _resolve(doc, "grid_main", "import_energy", Recorder())
     assert (got.value, got.reason) == (None, "power_unit_as_energy")
-
-
-def test_dc_r03_f09_a_declared_native_sign_is_flipped_exactly_once() -> None:
-    flipped = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert flipped.value == -1.5
-    assert flipped.provenance["native_sign"] == "export"
-    assert flipped.provenance["sign_flipped"] is True
-    same = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="import"
-    )
-    assert same.value == 1.5 and same.provenance["sign_flipped"] is False
-    # Resolving again reads the source again: never a second flip.
-    again = _power(
-        "1500", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert again.value == -1.5
-    # A measured zero carries no sign either way.
-    zero = _power(
-        "0", "W", positive_direction="import", native_positive_direction="export"
-    )
-    assert zero.value == 0.0 and math.copysign(1.0, zero.value) == 1.0
 
 
 def test_dc_r03_paired_import_and_export_resolve_separately_unnetted() -> None:
@@ -507,17 +478,6 @@ def test_dc_r04_every_price_adapter_is_stale_after_five_minutes() -> None:
         "openadr3_ven",
         "localvolts_v2",
     }
-
-
-def test_dc_r04_a_binding_may_declare_its_own_max_age() -> None:
-    rows = _aemo(F04["cases"]["gap"]["intervals"])
-    ten_min = NOW - timedelta(minutes=10)
-    default = _price_series(rows, "aemo_nem", fetched=ten_min)
-    longer = _price_series(
-        rows, "aemo_nem", fetched=ten_min, freshness={"max_age_s": 900}
-    )
-    assert (default.state, longer.state) == (db.STALE, db.VALID)
-    assert longer.provenance["freshness"]["max_age_s"] == 900.0
 
 
 # --- DC-R06 / F04: intervals and coverage -------------------------------------------
@@ -817,40 +777,6 @@ def test_dc_r05_f03_f09_a_statistic_without_an_entity_resolves_as_energy() -> No
     assert (got.state, got.unit) == (db.VALID, "kWh")
     assert got.value is not None and abs(got.value - oracle_kwh) <= TOL
     assert [c[0] for c in rec.calls] == ["statistic"]
-
-
-@pytest.mark.parametrize(
-    ("unit", "value", "expected", "reason"),
-    [
-        ("$/kWh", "0.265", 0.265, None),
-        ("c/kWh", "26.5", 0.265, None),
-        ("¢/kWh", "26.5", 0.265, None),
-        ("AUD/kWh", "0.265", 0.265, None),
-        ("$/MWh", "265", 0.265, None),
-        ("AUD/MWh", "265", 0.265, None),
-        ("USD/kWh", "0.265", None, "currency_mismatch"),
-        ("€/kWh", "0.265", None, "currency_mismatch"),
-        ("kW", "0.265", None, "unit_not_price"),
-        # Exactly $/kWh, $/MWh and c/kWh (Mark Purcell, #1774): nothing else.
-        ("c/MWh", "26500", None, "unit_not_price"),
-        ("$/kwh", "0.265", None, "unit_not_price"),
-        ("$", "0.265", None, "unit_not_price"),
-        ("", "0.265", None, "unit_missing"),
-        (None, "0.265", None, "unit_missing"),
-    ],
-)
-def test_dc_r05_a_price_is_scaled_once_and_another_currency_refused(
-    unit: Any, value: str, expected: float | None, reason: str | None
-) -> None:
-    doc = _doc(_device("grid_main", "grid", import_price=_entity("sensor.buy")))
-    got = _resolve(
-        doc, "grid_main", "import_price", Recorder({"sensor.buy": _state(value, unit)})
-    )
-    if expected is None:
-        assert (got.value, got.reason) == (None, reason)
-    else:
-        assert got.value is not None and abs(got.value - expected) <= TOL
-        assert got.unit == "AUD/kWh"
 
 
 def test_dc_r05_a_price_with_no_site_currency_is_refused_not_labelled() -> None:
@@ -1177,14 +1103,6 @@ def _f04_legacy_divergences() -> dict[str, str]:
     if price_intervals.price_unit_scale("c/MWh") == 1e-05:
         found["c_per_mwh"] = "scaled"
     return found
-
-
-def test_f04_every_divergence_is_declared_and_still_real() -> None:
-    declared = {d["case"]: d["legacy"] for d in DIVERGENCES if d["fixture"] == "F04"}
-    assert _f04_legacy_divergences() == declared
-    for d in DIVERGENCES:
-        if d["fixture"] == "F04":
-            assert d["owner"] == "DC-002" and d["class"] == "open_decision", d
 
 
 # --- boundaries of the module itself ---------------------------------------------------

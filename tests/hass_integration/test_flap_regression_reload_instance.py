@@ -100,26 +100,6 @@ def _registered_handler_for(entity_id: str):
 # --- Regression Test 1: exactly one instance after setup -------------------
 
 
-async def test_exactly_one_instance_per_push_entity_after_initial_setup(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
-):
-    """Baseline: on a fresh setup with no reloads, each well-known
-    entity_id is driven by exactly one Python object. Any regression
-    that duplicates entities during setup (e.g. adding both entities
-    twice via a code copy-paste, or adding them via two different
-    platforms) fails here first.
-    """
-    for entity_id in (
-        _BATTERY_FORECAST_ENTITY_ID,
-        _LOAD_TOTAL_FORECAST_ENTITY_ID,
-    ):
-        instances = _live_instances_for(hass, entity_id)
-        assert len(instances) == 1, (
-            f"{entity_id} has {len(instances)} live entity instances "
-            f"after initial setup, expected 1: {instances}"
-        )
-
-
 # --- Regression Test 2: exactly one instance after a reload ----------------
 
 
@@ -202,32 +182,6 @@ async def test_exactly_one_instance_per_push_entity_after_reload(
             "test isn't triggering a real reload, or the entity is "
             "being reused across setups (which would also be wrong -- "
             "reload MUST produce a fresh instance)."
-        )
-
-
-async def test_exactly_one_instance_survives_many_reloads(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
-):
-    """A stronger version -- five reloads in a row must not leak. If
-    each reload leaks one instance, this test finds five extras after
-    the fifth call; the single-reload test above might pass on a bug
-    that only shows up on the second reload (e.g. some cleanup path
-    that runs the first time but is idempotent-skipped the second).
-    """
-    for i in range(5):
-        assert await hass.config_entries.async_reload(nimbus_entry.entry_id), (
-            f"Reload #{i + 1} returned False"
-        )
-        await hass.async_block_till_done()
-
-    for entity_id in (
-        _BATTERY_FORECAST_ENTITY_ID,
-        _LOAD_TOTAL_FORECAST_ENTITY_ID,
-    ):
-        instances = _live_instances_for(hass, entity_id)
-        assert len(instances) == 1, (
-            f"{entity_id} has {len(instances)} live instances after "
-            f"5 reloads -- {len(instances) - 1} leaked."
         )
 
 

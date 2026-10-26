@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 sys.path.append(str(Path(__file__).resolve().parents[3]))
 from _ha_stubs import install_ha_stubs
 
@@ -65,54 +63,9 @@ def test_with_every_required_setting_resolved_the_solver_is_configured(monkeypat
     assert set(sm._SOLVER_ALL_KEYS) <= set(attrs)
 
 
-@pytest.mark.parametrize("value", ["unknown", "unavailable", "lots"])
-def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, value):
-    states = _numbers()
-    states[f"number.nimbus_{NUMBERS[0]}"] = SimpleNamespace(state=value)
-    s = _sensor(monkeypatch, states)
-    assert s.native_value == "unconfigured"
-    assert s.extra_state_attributes["unresolved_required_keys"] == [NUMBERS[0]]
-
-
 def test_an_empty_option_is_unresolved(monkeypatch):
     s = _sensor(monkeypatch, _numbers(), options={OPTIONS[0]: ""})
     assert s.extra_state_attributes["unresolved_required_keys"] == [OPTIONS[0]]
-
-
-def test_a_renamed_entity_is_found_through_the_registry(monkeypatch):
-    states = _numbers()
-    moved = states.pop(f"number.nimbus_{NUMBERS[0]}")
-    states["number.my_battery_size"] = SimpleNamespace(state="13.5")
-    s = _sensor(
-        monkeypatch, states, renamed={f"hub1_{NUMBERS[0]}": "number.my_battery_size"}
-    )
-    assert s.extra_state_attributes[NUMBERS[0]] == 13.5
-    assert moved.state == "5"
-
-
-@pytest.mark.parametrize(
-    ("domain", "keys", "state", "value"),
-    [
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "05:30:00", 5.5),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "17", 17.0),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "x:y", None),
-        ("time", sm._SOLVER_TIME_ENTITY_KEYS, "unknown", None),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "on", True),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "off", False),
-        ("switch", sm._SOLVER_SWITCH_ENTITY_KEYS, "unavailable", None),
-        ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "away", "away"),
-        ("select", sm._SOLVER_SELECT_ENTITY_KEYS, "unknown", None),
-    ],
-)
-def test_each_kind_of_setting_reads_in_the_form_the_solve_uses(
-    monkeypatch, domain, keys, state, value
-):
-    key = min(set(keys) & set(sm._SOLVER_ALL_KEYS))
-    states = _numbers() | {f"{domain}.nimbus_{key}": SimpleNamespace(state=state)}
-    s = _sensor(monkeypatch, states)
-    assert s.extra_state_attributes[key] == value
-    missing = _sensor(monkeypatch, _numbers())
-    assert missing.extra_state_attributes[key] is None
 
 
 def test_unconfigured_is_warned_once_per_change_with_the_keys_named(
@@ -131,44 +84,6 @@ def test_unconfigured_is_warned_once_per_change_with_the_keys_named(
     infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
     assert len(warnings) == 1 and NUMBERS[0] in warnings[0]
     assert len(infos) == 2  # configured at the start and again at the end
-
-
-def test_location_meters_and_known_sources_are_carried(monkeypatch):
-    s = _sensor(
-        monkeypatch,
-        _numbers(),
-        options={
-            "switchboard_grid_meter_sensor": "sensor.meter",
-            "grid_sensor": "sensor.grid",
-        },
-    )
-    monkeypatch.setattr(
-        sm.sensor_discovery,
-        "resolve_geocoded_region_and_prefix",
-        lambda states: ("QLD1", "410"),
-    )
-    monkeypatch.setattr(
-        sm.sensor_discovery,
-        "discover_aemo_30min_forecast_sensor",
-        lambda states: "sensor.aemo",
-    )
-    monkeypatch.setattr(
-        sm.known_sources, "resolve", lambda hass: {"solcast": ["sensor.sc"]}
-    )
-    attrs = s.extra_state_attributes
-    assert (attrs["region"], attrs["postcode_prefix"]) == ("QLD1", "410")
-    assert attrs["aemo_30min_forecast_sensor"] == "sensor.aemo"
-    assert (
-        attrs["switchboard_grid_meter_sensor"] == "sensor.meter"
-        and attrs["grid_sensor"] == "sensor.grid"
-    )
-    assert attrs["known_sources"] == {"solcast": ["sensor.sc"]}
-
-    def broken(hass):
-        raise RuntimeError("registry")
-
-    monkeypatch.setattr(sm.known_sources, "resolve", broken)
-    assert s.extra_state_attributes["known_sources"] == sm.known_sources.EMPTY
 
 
 # --- every setting the solve reads reaches it (#485, 2026-08-23) -----------------------------

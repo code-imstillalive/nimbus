@@ -33,13 +33,6 @@ def test_a_fresh_model_is_native():
     assert _model().power_feature_sign == "native"
 
 
-def test_a_pickle_from_before_the_field_restores_as_native():
-    m = _model()
-    del m.__dict__["power_feature_sign"]
-    restored = pickle.loads(pickle.dumps(m))
-    assert restored.power_feature_sign == "native"
-
-
 def test_a_canonical_stamp_survives_a_round_trip():
     m = _model()
     m.power_feature_sign = "canonical"

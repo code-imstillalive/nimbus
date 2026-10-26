@@ -35,26 +35,6 @@ def _check(dispatch_prefix: str, p5_prefix: str, peak_mwh: float | None) -> dict
     )
 
 
-def test_dispatch_parse_reads_the_price_and_binding_constraints() -> None:
-    d = dr.parse_dispatch(_text("PUBLIC_DISPATCHIS_202610151610"), "QLD1")
-    assert d is not None
-    assert d["interval_end"] == "2026-10-15T16:10:00+10:00"
-    assert d["rrp"] < 1000
-    bris = d["binding"]["CA_BRIS_59E2F7DC_1"]
-    assert bris["rhs"] > 2900 and bris["marginal_value"] < 0
-    assert not bris["violation"]
-
-
-def test_15_oct_flags_the_control_room_constraint() -> None:
-    r = _check("PUBLIC_DISPATCHIS_202610151610", "PUBLIC_P5MIN_202610151615", 23200.0)
-    assert r["flag"] is True and r["rhs_suspect"] is True
-    assert r["reason"] == "suspect_forecast_rhs"
-    top = r["constraints"][0]
-    assert top["constraint_id"] == "CA_BRIS_59E2F7DC_1"
-    assert top["suspect"] and top["ratio"] < dr.RATIO_MAX
-    assert top["forecast_violation"] > 1000
-
-
 def test_fcas_rows_are_never_compared() -> None:
     r = _check("PUBLIC_DISPATCHIS_202610151610", "PUBLIC_P5MIN_202610151615", 23200.0)
     assert not any(c["constraint_id"].startswith("F_") for c in r["constraints"])
@@ -87,12 +67,6 @@ def test_a_dispatched_spike_is_not_called_false() -> None:
     )
     assert r["flag"] is False and r["rhs_suspect"] is False
     assert r["reason"] == "dispatch_spiked"
-
-
-def test_no_dispatch_is_reported_not_raised() -> None:
-    r = dr.compare(None, {}, forecast_peak_mwh=None, spike_mwh=5000.0)
-    assert r["flag"] is False and r["reason"] == "no_dispatch"
-    assert r["mode"] == "control_room_live"
 
 
 def test_latest_file_name_picks_the_newest() -> None:

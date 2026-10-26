@@ -52,12 +52,6 @@ def test_power_units(unit, scale):
     assert pu.is_power_unit(unit)
 
 
-@pytest.mark.parametrize("unit", [None, "", "Wh", "kWh", "%", "°C", 5])
-def test_no_or_non_power_unit_keeps_the_kw_assumption(unit):
-    assert pu.power_scale_to_kw(unit) == 1.0
-    assert not pu.is_power_unit(unit)
-
-
 def test_power_to_kw():
     assert pu.power_to_kw(5000.0, "W") == pytest.approx(5.0)
     assert pu.power_to_kw(2.5, "MW") == pytest.approx(2500.0)

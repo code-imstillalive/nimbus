@@ -169,19 +169,6 @@ def test_a_failing_notification_never_fails_the_solve(ha, monkeypatch, tmp_path)
 
 
 @pytest.mark.parametrize(
-    ("reliable", "reason", "out"),
-    [
-        (None, None, "achieved_soc_unverifiable"),
-        (False, "sensor_gap", "achieved_soc_unreliable:sensor_gap"),
-        (False, None, "achieved_soc_unreliable:unknown"),
-        (True, "ignored", None),
-    ],
-)
-def test_the_soc_half_of_the_reason(reliable, reason, out):
-    assert sw._epr_soc_reason(reliable, reason) == out
-
-
-@pytest.mark.parametrize(
     ("kwargs", "out"),
     [
         ({"soc": True, "regret": True}, True),

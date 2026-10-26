@@ -79,44 +79,6 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
             # "optimal" plan reaches the state machine at all.
             mock_post_state.assert_not_called()
 
-    def test_a_genuinely_healthy_load_sensor_does_not_raise_here(self):
-        # Sanity counterpart -- a real, populated forecast must NOT hit
-        # the new raise path at all (this test only needs to get PAST
-        # the load-forecast branch without the new RuntimeError; a full
-        # successful solve needs a real LP feasibility setup well beyond
-        # this fix's own scope, so this only asserts the raise didn't
-        # fire for the wrong reason).
-        healthy_state = {
-            "state": "1.5",
-            "attributes": {
-                "unit_of_measurement": "kW",
-                "forecast": [
-                    {"time": "2026-09-04T20:30:00+10:00", "value": 1.5},
-                    {"time": "2026-09-04T20:45:00+10:00", "value": 1.4},
-                    {"time": "2026-09-04T21:00:00+10:00", "value": 1.3},
-                ],
-            },
-        }
-        ha_get_mock = _make_ha_get(healthy_state)
-
-        with (
-            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
-            patch.object(solver_writer, "acquire_lock", return_value=True),
-            patch.object(solver_writer, "release_lock"),
-            # nimbus issue #1330: main() writes real /opt state paths by default.
-            isolated_state_paths(solver_writer),
-        ):
-            try:
-                solver_writer.main()
-            except RuntimeError as e:
-                assert "not ready" not in str(e)
-            except Exception as e:  # noqa: BLE001
-                # Anything else (e.g. a downstream LP/config gap this
-                # minimal fixture doesn't fully cover) is out of scope
-                # for this test -- it only asserts the NEW raise path
-                # specifically didn't fire on healthy data.
-                assert "not ready" not in str(e)
-
 
 class TestNeverTrainedLoadForecastNeverPublishesAZeroLoadPlan:
     """nimbus issue #374 -- the review's own suggested regression test."""

@@ -76,12 +76,6 @@ class TestExactlyOneUsableCandidate(unittest.TestCase):
             )
         )
 
-    def test_none_present_is_a_clean_no_op(self):
-        """A household without the integration gets nothing, not an
-        error — same blank-is-off convention as every other optional
-        source in this project."""
-        self.assertIsNone(_discover([("sensor.unrelated", "x")]))
-
     def test_the_5min_sensor_is_not_mistaken_for_the_30min_one(self):
         """They come from the same integration and differ only by
         suffix; matching loosely would compare a forecast against

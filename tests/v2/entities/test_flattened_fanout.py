@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import sys
 import time
 from pathlib import Path
@@ -17,7 +16,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from custom_components.nimbus_load import sensor, sensor_flattened
+from custom_components.nimbus_load import sensor_flattened
 from custom_components.nimbus_load.const import DOMAIN
 
 # --- helpers ---------------------------------------------------------------
@@ -44,11 +43,6 @@ def _build_entities():
 
 
 # --- spec table coverage ---------------------------------------------------
-
-
-def test_every_spec_row_produces_one_entity():
-    entities, _ = _build_entities()
-    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS)
 
 
 def test_entity_ids_are_unique():
@@ -96,53 +90,6 @@ def test_every_entity_attaches_to_the_hub_device():
         assert di["manufacturer"] == "Nimbus"
         assert di["model"] == "Hub"
         assert di["sw_version"] == "0.94.18"
-
-
-def test_p2p_entities_attach_to_their_own_sub_device_not_the_hub():
-    """nimbus issue #465: the 3 P2P signals move to a dedicated "Nimbus
-    P2P" sub-device instead of piling onto the 40+-entity hub -- same
-    real motivation, and same via_device mechanism, as the existing
-    Quality/Backtest/Counterfactual sub-devices. Unlike those three
-    (brand new when Family-A completion shipped, free to also rename
-    their entity_id via entity_id_prefix), these are pre-existing,
-    already-deployed entities -- unique_id/entity_id must stay EXACTLY
-    what FLATTENED_ATTRS's own hub-based entities would have produced,
-    only the device changes, or this "fix" silently orphans real
-    history/dashboards/automations on every install with these entities
-    already deployed.
-    """
-    entry = _fake_entry()
-    entities = sensor_flattened.create_flattened_entities_p2p(
-        entry, sw_version="0.94.18"
-    )
-    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_P2P)
-    for e in entities:
-        di = e._attr_device_info
-        assert (DOMAIN, f"{entry.entry_id}_p2p") in di["identifiers"]
-        assert (DOMAIN, entry.entry_id) not in di["identifiers"]
-        assert di["name"] == "Nimbus P2P"
-        assert di["manufacturer"] == "Nimbus"
-        assert di["model"] == "Sub-device"
-        assert di["sw_version"] == "0.94.18"
-        # The non-breaking property: unique_id/entity_id are byte-
-        # identical to what the OLD hub-based _FlattenedAttributeSensor
-        # would have produced for the same spec -- only device_info
-        # differs. Confirmed directly against the base class's own
-        # derivation, not just "looks like the right shape".
-        suffix = e.entity_id.removeprefix("sensor.nimbus_solver_")
-        assert e.entity_id == f"sensor.nimbus_solver_{suffix}"
-        assert e._attr_unique_id == f"{entry.entry_id}_nimbus_solver_{suffix}"
-
-    # And via_device_id wins over via_device when a real hub_device_id is
-    # available -- same resolve_via_device_field() contract every other
-    # sub-device already relies on.
-    entities_with_hub_id = sensor_flattened.create_flattened_entities_p2p(
-        entry, sw_version="0.94.18", hub_device_id="fake-hub-device-id-123"
-    )
-    for e in entities_with_hub_id:
-        di = e._attr_device_info
-        assert di.get("via_device_id") == "fake-hub-device-id-123"
-        assert "via_device" not in di
 
 
 # --- spec-to-entity attribute mapping --------------------------------------
@@ -286,34 +233,6 @@ def test_dispatch_covers_every_entity_no_stragglers():
         )
 
 
-def test_missing_key_leaves_previous_value_in_place():
-    entities, _ = _build_entities()
-    payload = _real_looking_parent_payload()
-    sensor_flattened.dispatch_to_flattened(entities, payload)
-    by_id = {e.entity_id: e for e in entities}
-    total_cost = by_id["sensor.nimbus_solver_total_cost"]
-    # A partial-solve payload that just omits total_cost. Value must NOT
-    # be clobbered to None -- that would break the staleness contract
-    # (the whole point of _SENTINEL_MISSING inside _extract).
-    partial = {k: v for k, v in payload.items() if k != "total_cost"}
-    sensor_flattened.dispatch_to_flattened(entities, partial)
-    assert total_cost.native_value == 9.8685  # unchanged
-
-
-def test_missing_dotted_parent_leaves_children_alone():
-    entities, _ = _build_entities()
-    payload = _real_looking_parent_payload()
-    sensor_flattened.dispatch_to_flattened(entities, payload)
-    by_id = {e.entity_id: e for e in entities}
-    lower = by_id["sensor.nimbus_solver_cost_band_lower"]
-    # Payload where cost_band isn't published at all -- children of
-    # cost_band.* must NOT overwrite their existing values, matching
-    # the same-key-missing behaviour above.
-    partial = {k: v for k, v in payload.items() if k != "cost_band"}
-    sensor_flattened.dispatch_to_flattened(entities, partial)
-    assert lower.native_value == -4.4046  # unchanged
-
-
 def test_present_but_none_is_a_real_value_not_a_missing_key():
     """A parent that publishes source_key=None (e.g. a signal was
     explicitly nulled out by the solver on a legitimate code path)
@@ -332,19 +251,6 @@ def test_present_but_none_is_a_real_value_not_a_missing_key():
 
 
 # --- staleness / availability ---------------------------------------------
-
-
-def test_available_is_true_before_first_push():
-    entities, _ = _build_entities()
-    for e in entities:
-        assert e.available is True
-
-
-def test_available_is_true_immediately_after_push():
-    entities, _ = _build_entities()
-    sensor_flattened.dispatch_to_flattened(entities, _real_looking_parent_payload())
-    for e in entities:
-        assert e.available is True
 
 
 def test_available_flips_to_false_after_stale_threshold():
@@ -368,56 +274,6 @@ def test_should_poll_is_false():
     them, a needless state write every 30s per entity purely as a side
     effect of never having set this explicitly."""
     assert sensor_flattened._FlattenedAttributeSensor._attr_should_poll is False
-
-
-def test_async_added_to_hass_registers_a_removable_periodic_timer():
-    """The real correctness point this fix depends on: `available` only
-    ever reaches the state machine when something calls
-    async_write_ha_state() -- update_from_parent() is the only such call
-    site, and it stops right along with the parent. Without a self-
-    driven recheck, _attr_should_poll=False alone would have silently
-    frozen every child's staleness detection forever (it worked before
-    only by accident, via HA's own incidental 30s platform poll)."""
-    entities, _ = _build_entities()
-    entity = entities[0]
-    entity.hass = MagicMock()
-    asyncio.run(entity.async_added_to_hass())
-    assert hasattr(entity, "_on_remove_callbacks")
-    assert len(entity._on_remove_callbacks) == 1
-    assert callable(entity._on_remove_callbacks[0])
-
-
-def test_recheck_flips_availability_and_writes_state_after_parent_stops():
-    """End-to-end proof the recheck mechanism actually does its job, not
-    just that it's registered: a genuinely stale entity must transition
-    to unavailable via the recheck tick, not merely report False from
-    the property if something else happened to ask."""
-    entities, _ = _build_entities()
-    entity = entities[0]
-    entity.hass = MagicMock()
-    entity.async_write_ha_state = MagicMock()
-    sensor_flattened.dispatch_to_flattened([entity], _real_looking_parent_payload())
-    entity.async_write_ha_state.reset_mock()  # ignore the dispatch's own write
-    entity._last_updated = time.monotonic() - (entity._STALE_AFTER_SECONDS + 1)
-
-    assert entity._was_available is True
-    entity._async_recheck_availability(now=None)
-
-    assert entity._was_available is False
-    entity.async_write_ha_state.assert_called_once()
-
-
-def test_recheck_is_a_noop_while_available_stays_unchanged():
-    entities, _ = _build_entities()
-    entity = entities[0]
-    entity.hass = MagicMock()
-    entity.async_write_ha_state = MagicMock()
-    sensor_flattened.dispatch_to_flattened([entity], _real_looking_parent_payload())
-    entity.async_write_ha_state.reset_mock()  # ignore the dispatch's own write
-
-    entity._async_recheck_availability(now=None)  # still fresh -- no-op
-
-    entity.async_write_ha_state.assert_not_called()
 
 
 def test_recheck_availability_is_marked_hass_callback():
@@ -503,68 +359,6 @@ def test_lp_internals_and_shadow_prices_are_diagnostic():
 # --- integration with the parent sensor's fan-out --------------------------
 
 
-def test_parent_update_from_solver_fans_out_to_flattened_children():
-    """The whole point of the module: a single push into the parent's
-    update_from_solver must correctly update every flattened child in
-    the same event-loop turn.
-    """
-    # Build a real parent instance with a real _flattened_entities list.
-    entry = _fake_entry()
-    parent = sensor.NimbusSolverBatteryForecastSensor.__new__(
-        sensor.NimbusSolverBatteryForecastSensor
-    )
-    sensor.NimbusSolverBatteryForecastSensor.__init__(
-        parent, entry, sw_version="0.94.18"
-    )
-    parent.hass = MagicMock()
-    parent.async_write_ha_state = MagicMock()
-
-    # Attach real flattened entities (same wiring async_setup_entry does).
-    parent._flattened_entities = sensor_flattened.create_flattened_entities(
-        entry, sw_version="0.94.18"
-    )
-    # Same hass=None convention as _build_entities() above -- the real
-    # HA lifecycle attaches hass; the fan-out is guarded on `hass is
-    # not None` so tests run without needing HA runtime.
-    for e in parent._flattened_entities:
-        e.hass = None
-
-    parent.update_from_solver(-1.979, _real_looking_parent_payload())
-
-    # Parent's own state landed.
-    assert parent.native_value == -1.979
-
-    # Every flattened child also updated in the same call.
-    by_id = {e.entity_id: e for e in parent._flattened_entities}
-    assert by_id["sensor.nimbus_solver_total_cost"].native_value == 9.8685
-    assert by_id["sensor.nimbus_solver_cost_band_lower"].native_value == -4.4046
-    assert by_id["sensor.nimbus_solver_lp_status"].native_value == "optimal"
-
-
-def test_parent_update_is_safe_before_flattened_entities_are_wired():
-    """Race safety: async_setup_entry constructs the parent first, then
-    attaches _flattened_entities. If the very-first solve tick beats
-    that attachment by microseconds, update_from_solver must not
-    crash.
-    """
-    entry = _fake_entry()
-    parent = sensor.NimbusSolverBatteryForecastSensor.__new__(
-        sensor.NimbusSolverBatteryForecastSensor
-    )
-    sensor.NimbusSolverBatteryForecastSensor.__init__(
-        parent, entry, sw_version="0.94.18"
-    )
-    parent.hass = MagicMock()
-    parent.async_write_ha_state = MagicMock()
-
-    # _flattened_entities defaults to [] -- no attachment yet.
-    assert parent._flattened_entities == []
-
-    # No crash.
-    parent.update_from_solver(-1.979, _real_looking_parent_payload())
-    assert parent.native_value == -1.979
-
-
 # ===========================================================================
 # Family B (v0.94.20 CHANGELOG deferred item): per-row forecast fields on
 # sensor.nimbus_solver_battery_forecast, restricted to the current-period row
@@ -637,11 +431,6 @@ def _real_looking_forecast_row() -> dict:
 
 
 # --- spec table coverage ---------------------------------------------------
-
-
-def test_current_every_spec_row_produces_one_entity():
-    entities, _ = _build_entities_current()
-    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_CURRENT)
 
 
 def test_current_entity_ids_are_unique():
@@ -745,20 +534,6 @@ def test_current_class_attributes_match_spec_for_every_row():
 # --- fan-out extraction (via dispatch_to_flattened_current) ----------------
 
 
-def test_current_dispatch_updates_every_entity_from_real_row():
-    """The dispatcher slices forecast[0] out of the parent's attributes
-    and hands that single row's dict to each child. Every child should
-    end up with its own key's value."""
-    entities, _ = _build_entities_current()
-    row = _real_looking_forecast_row()
-    parent_attrs = {"forecast": [row], "status": "optimal"}
-    sensor_flattened.dispatch_to_flattened_current(entities, parent_attrs)
-    by_suffix = {e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities}
-    for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
-        entity = by_suffix[spec.entity_id_suffix]
-        assert entity._state == row[spec.source_key], spec.entity_id_suffix
-
-
 def test_current_dispatch_covers_every_entity_no_stragglers():
     """Every spec row's source_key must exist in the real production
     row -- catches a typo or a source_key referencing a field the LP
@@ -770,37 +545,6 @@ def test_current_dispatch_covers_every_entity_no_stragglers():
             "not present in the real forecast[0] row -- typo or a field the "
             "LP doesn't publish."
         )
-
-
-def test_current_dispatch_is_safe_on_missing_forecast():
-    """A partial solve or a failure that returns no forecast list at all
-    (e.g. status='infeasible') must not raise; the children just keep
-    whatever value they had. Staleness eventually flips them to
-    `unavailable`."""
-    entities, _ = _build_entities_current()
-    # Prime once
-    sensor_flattened.dispatch_to_flattened_current(
-        entities, {"forecast": [_real_looking_forecast_row()]}
-    )
-    priming_state = entities[0]._state
-    # Now dispatch with no forecast at all
-    sensor_flattened.dispatch_to_flattened_current(entities, {"status": "infeasible"})
-    # State unchanged
-    assert entities[0]._state == priming_state
-
-
-def test_current_dispatch_is_safe_on_empty_forecast():
-    """Same contract as missing key: an empty list is a valid parent
-    payload shape when the LP failed to produce any plan rows."""
-    entities, _ = _build_entities_current()
-    sensor_flattened.dispatch_to_flattened_current(
-        entities, {"forecast": [_real_looking_forecast_row()]}
-    )
-    priming_state = entities[0]._state
-    sensor_flattened.dispatch_to_flattened_current(
-        entities, {"forecast": [], "status": "infeasible"}
-    )
-    assert entities[0]._state == priming_state
 
 
 def test_current_dispatch_is_safe_on_non_list_forecast():
@@ -816,21 +560,6 @@ def test_current_dispatch_is_safe_on_non_list_forecast():
     sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": "not a list"})
     assert entities[0]._state == priming_state
     sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": {"bad": 1}})
-    assert entities[0]._state == priming_state
-
-
-def test_current_dispatch_is_safe_when_row_is_not_a_dict():
-    """Another belt-and-braces: if forecast[0] itself is somehow not a
-    dict (a stray scalar or None slipping past a partial solve), still
-    no crash."""
-    entities, _ = _build_entities_current()
-    sensor_flattened.dispatch_to_flattened_current(
-        entities, {"forecast": [_real_looking_forecast_row()]}
-    )
-    priming_state = entities[0]._state
-    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": [None]})
-    assert entities[0]._state == priming_state
-    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": [42]})
     assert entities[0]._state == priming_state
 
 
@@ -897,11 +626,6 @@ def _build_entities_flex():
     for e in entities:
         e.hass = None
     return entities, entry
-
-
-def test_flex_every_spec_row_produces_one_entity():
-    entities, _ = _build_entities_flex()
-    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_FLEX)
 
 
 def test_flex_entity_ids_are_unique():

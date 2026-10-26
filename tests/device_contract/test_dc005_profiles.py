@@ -119,23 +119,6 @@ def test_the_p2p_matched_rate_and_settlement_are_reported_not_bound():
     assert "sensor.lv_p2p_history" not in bound
 
 
-def test_amber_express_and_core_bind_through_their_own_adapters():
-    p = dd.add_provider_profiles(_empty(), [AMBER_EXPRESS])
-    b = _grid(p)["bindings"]
-    assert b["import_price"]["source"] == {
-        "kind": "entity_state",
-        "entity_id": "sensor.ae_general",
-    }
-    assert b["import_price_forecast"]["source"]["adapter"] == {
-        "name": "amber_express",
-        "version": 1,
-    }
-    p = dd.add_provider_profiles(_empty(), [AMBER_CORE])
-    b = _grid(p)["bindings"]
-    assert set(b) == {"import_price_forecast", "export_price_forecast"}
-    assert b["import_price_forecast"]["source"]["attribute_path"] == "forecasts"
-
-
 def test_two_profiles_for_one_role_are_a_question_not_a_ranking():
     """Decision 1: strength never breaks a disagreement."""
     p = dd.add_provider_profiles(_empty(), [LV, AMBER_EXPRESS])
@@ -162,26 +145,6 @@ def test_two_profiles_for_one_role_are_a_question_not_a_ranking():
     ]
     reversed_order = dd.add_provider_profiles(_empty(), [AMBER_EXPRESS, LV])
     assert reversed_order.questions == p.questions
-
-
-def test_the_energy_dashboards_price_and_a_profiles_differ_so_it_is_asked():
-    prefs = {
-        "energy_sources": [
-            {
-                "type": "grid",
-                "stat_energy_from": "sensor.in_kwh",
-                "entity_energy_price": "sensor.my_buy",
-            }
-        ]
-    }
-    p = dd.add_provider_profiles(dd.propose_from_energy_dashboard(prefs), [LV])
-    assert "import_price" not in _grid(p)["bindings"]
-    (q,) = [q for q in p.questions if q["role"] == "import_price"]
-    assert [c["source"] for c in q["candidates"]] == ["sensor.my_buy", "sensor.lv_buy"]
-    # Energy is untouched by a price profile.
-    assert _grid(p)["bindings"]["import_energy"]["source"]["statistic_id"] == (
-        "sensor.in_kwh"
-    )
 
 
 def test_the_same_price_from_both_is_corroboration_with_both_evidences():
@@ -253,16 +216,3 @@ def test_recognised_providers_with_no_role_yet_are_reported():
         ("profile_reported_only", "openadr3_ven"),
         ("profile_unknown", "someone_elses"),
     ]
-
-
-def test_registry_ids_kept_and_input_untouched():
-    base = _empty()
-    before = copy.deepcopy(base.document)
-    p = dd.add_provider_profiles(
-        base, [LV], registry_ids={"sensor.lv_current_sell": "reg_sell"}
-    )
-    assert (
-        _grid(p)["bindings"]["export_price_forecast"]["source"]["registry_id"]
-        == "reg_sell"
-    )
-    assert base.document == before

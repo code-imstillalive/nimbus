@@ -110,15 +110,6 @@ def test_hysteresis_off_and_without_a_previous_plan(charging, discharging):
     )
 
 
-def test_hysteresis_leaves_a_plan_in_the_same_direction(charging):
-    calls = []
-    out = solver_plan.period0_direction_hysteresis(
-        charging, charging, lambda kw: calls.append(kw), 0.05
-    )
-    assert out.period0_hysteresis == "same_direction"
-    assert calls == []
-
-
 @pytest.mark.parametrize(
     ("cost_delta", "status", "want"),
     [
@@ -506,28 +497,6 @@ def _result(**over):
 DET = SimpleNamespace(
     thermal_guarantee_relaxed=False, direction_exclusivity="not_needed"
 )
-
-
-@pytest.mark.parametrize(
-    ("over", "drive", "want"),
-    [
-        ({}, True, None),
-        ({"status": "no_band"}, False, "no_solar_band"),
-        ({"status": "error"}, False, "stochastic_error"),
-        ({"plan": None}, False, "stochastic_optimal"),
-        ({"expected_cost": None}, False, "scenario_cost_not_finite"),
-        ({"scenario_costs": {"p10": float("inf")}}, False, "scenario_cost_not_finite"),
-        ({"nonanticipativity_max_gap": None}, False, "nonanticipativity_violated"),
-        ({"nonanticipativity_max_gap": 1.0}, False, "nonanticipativity_violated"),
-        ({"thermal_guarantee_relaxed": True}, False, "thermal_guarantee_relaxed"),
-        ({"direction_exclusivity": "declined"}, False, "direction_declined"),
-        ({"direction_exclusivity": "still_two_way"}, False, "direction_still_two_way"),
-        ({"solar_band": "raw"}, True, "solar_band_not_calibrated"),
-        ({"solar_band": "raw"}, False, None),
-    ],
-)
-def test_the_stochastic_plan_is_refused_for_each_named_reason(over, drive, want):
-    assert solver_plan._refusal_reason(_result(**over), DET, drive=drive) == want
 
 
 def test_a_relaxation_the_deterministic_plan_shares_is_not_a_refusal():

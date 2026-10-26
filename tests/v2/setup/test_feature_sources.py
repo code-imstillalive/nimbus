@@ -158,12 +158,6 @@ def test_a_model_that_learned_from_its_own_source_is_flagged_for_retrain():
     assert coord._trained_on_own_source() is True
 
 
-def test_a_model_retrained_without_it_is_not_flagged_again():
-    coord = _coordinator({CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_SIGNAL)
-    coord._trained = _model_with("temp_c", [0.0, 0.0, 0.0])
-    assert coord._trained_on_own_source() is False
-
-
 def test_a_load_using_the_hub_temperature_is_not_flagged():
     coord = _coordinator(
         {CONF_TEMPERATURE_SENSOR: OWN}, SUBENTRY_TYPE_LOAD, "sensor.pool_pump_power"

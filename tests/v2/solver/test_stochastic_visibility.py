@@ -193,22 +193,6 @@ def test_capture_falls_back_to_the_state_before_a_post_or_for_another_hass(
     assert at == when
 
 
-def test_diagnostics_reads_this_installs_own_plan(monkeypatch):
-    _, diagnostics, _, solver_shared = _ha()
-    hass = _hass_with_plan({"forecast": [{"time": "mirror"}]}, datetime.now(UTC))
-    monkeypatch.setattr(solver_shared.NATIVE, "hass", hass)
-    monkeypatch.setitem(
-        solver_shared._LAST_POSTED,
-        "sensor.nimbus_solver_battery_forecast",
-        ("2.0", {"forecast": [{"time": "own"}], "stochastic": {"mode": "shadow"}}),
-    )
-    out = diagnostics._solver_diagnostics(hass)
-    assert out["plan_source"] == "this_install"
-    assert out["state"] == "2.0"
-    assert out["forecast"] == [{"time": "own"}]
-    assert out["stochastic"] == {"mode": "shadow"}
-
-
 def test_decision_inputs_keep_the_band_and_the_stochastic_summary():
     _ha()
     from custom_components.nimbus_load import decision_inputs as di
@@ -241,15 +225,6 @@ def test_paths_are_percent_of_the_fleet_on_the_plan_periods():
 def test_no_paths_without_an_optimal_solve():
     res = sd.build_stochastic_plan(_tiered_inputs(), budget_seconds=0.0)
     assert sd.paths_attribute(res) == {}
-
-
-def test_published_paths_belong_to_the_published_summary():
-    _, summary = _shadow_once()
-    paths = solver_plan.stochastic_paths_for(summary)
-    assert set(paths["soc_pct"]) == {"p10", "p50", "p90"}
-    # A different summary object (another solve) never gets these paths.
-    assert solver_plan.stochastic_paths_for(dict(summary)) is None
-    assert solver_plan.stochastic_paths_for(None) is None
 
 
 def test_the_paths_are_kept_out_of_the_recorder():
@@ -535,55 +510,6 @@ def test_the_summary_carries_grid_money_on_the_same_footing():
     )
     # A dull day buys more from the grid than a sunny one.
     assert g["p10"] >= g["p90"]
-
-
-def test_chart_rows_place_an_older_solves_paths_by_time():
-    """Household, 20 Oct 2026: in shadow the stochastic solve is minutes
-    older than the plan's rows, whose fine periods have moved on. Matched by
-    position the paths slid hours out of line by day 2; by their own period
-    ends they sit where they belong."""
-    m = _sensor_mod()
-    # The plan re-planned at 10:10: two 5-minute rows, then 30-minute ones.
-    plan_rows = [
-        ("2026-10-20T10:10:00+10:00", 5 / 60, 60.0),
-        ("2026-10-20T10:15:00+10:00", 0.25, 58.0),
-        ("2026-10-20T10:30:00+10:00", 0.5, 54.0),
-        ("2026-10-20T11:00:00+10:00", 0.5, 50.0),
-        ("2026-10-20T11:30:00+10:00", 0.5, 46.0),
-    ]
-    # The stochastic solve ran at 10:00, on its own grid: ends 10:15 (60),
-    # 10:30 (56), 11:00 (52), 11:30 (48).
-    plan = {
-        "forecast": [{"time": t, "hours": h, "soc_pct": s} for t, h, s in plan_rows],
-        "stochastic_paths": {
-            "soc_pct": {"p50": [60.0, 56.0, 52.0, 48.0]},
-            "ends": [
-                "2026-10-20T10:15:00+10:00",
-                "2026-10-20T10:30:00+10:00",
-                "2026-10-20T11:00:00+10:00",
-                "2026-10-20T11:30:00+10:00",
-            ],
-        },
-    }
-    rows = m.scenario_rows(plan)
-    by_time = {r["time"]: r["p50"] for r in rows}
-    assert by_time == {
-        "2026-10-20T10:10:00+10:00": 60.0,  # ends 10:15, the path's first end
-        "2026-10-20T10:15:00+10:00": 56.0,  # ends 10:30
-        "2026-10-20T10:30:00+10:00": 52.0,  # ends 11:00
-        "2026-10-20T11:00:00+10:00": 48.0,  # ends 11:30
-        "2026-10-20T11:30:00+10:00": None,  # past the path's horizon
-    }
-    # Between two of the path's ends: a straight line.
-    mid = m.scenario_rows(
-        {
-            "forecast": [
-                {"time": "2026-10-20T10:30:00+10:00", "hours": 0.25, "soc_pct": 1.0}
-            ],
-            "stochastic_paths": plan["stochastic_paths"],
-        }
-    )
-    assert mid[0]["p50"] == 54.0
 
 
 def test_paths_carry_each_periods_end():

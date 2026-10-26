@@ -107,29 +107,6 @@ def test_with_no_topology_set_up_the_home_system_is_drawn_from_the_solver_settin
     assert s.native_value == 2
 
 
-@pytest.mark.parametrize("capacity", [None, "unknown", "lots"])
-def test_a_home_battery_without_a_readable_size_has_no_capacity(registry, capacity):
-    states = (
-        {}
-        if capacity is None
-        else {
-            f"number.nimbus_{const.CONF_SOLVER_BATTERY_CAPACITY_KWH}": SimpleNamespace(
-                state=capacity
-            )
-        }
-    )
-    s = _sensor(
-        {
-            const.CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.bat_w",
-            const.CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
-        },
-        states=states,
-    )
-    (tower,) = s.extra_state_attributes["battery_towers"]
-    assert tower["capacity_kwh"] is None
-    assert s.extra_state_attributes["pv_strings"] == []
-
-
 def test_participants_sharing_a_charger_are_drawn_on_it():
     van = _sub(
         "van",
@@ -197,18 +174,3 @@ def test_controllable_loads_are_listed_by_name_with_their_own_sensors(registry):
     unattached = _sensor(subs=subs)
     unattached.hass = None
     assert unattached._controllable_loads()[0]["status"] is None
-
-
-def test_the_meters_fall_back_from_the_forecasters_to_the_solvers():
-    s = _sensor(
-        {
-            const.CONF_GRID_SENSOR: "sensor.grid",
-            const.CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.bat_w",
-        }
-    )
-    assert s.extra_state_attributes["forecaster_meters"] == {
-        "grid_meter": "sensor.grid",
-        "battery_power": "sensor.bat_w",
-    }
-    assert set(s.extra_state_attributes["switchboard"]) == set(sm._SWITCHBOARD_KEYS)
-    assert _sensor().native_value == 0

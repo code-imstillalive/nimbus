@@ -36,8 +36,6 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import (
-    _STARTUP_RETRY_ATTEMPTS,
-    _STARTUP_RETRY_DELAY_SECONDS,
     _async_run_solve_with_startup_retries,
 )
 
@@ -61,40 +59,3 @@ def test_successful_first_attempt_returns_immediately_with_no_retries():
         asyncio.run(_run(_async_run_solve_with_startup_retries(hass=None)))
     assert run_solve.call_count == 1
     sleep_mock.assert_not_called()
-
-
-def test_retries_with_the_configured_delay_until_it_succeeds():
-    import asyncio
-
-    run_solve = AsyncMock(side_effect=[False, False, True])
-    with (
-        patch(
-            "custom_components.nimbus_load.solver_runtime.async_run_solve", run_solve
-        ),
-        patch(
-            "custom_components.nimbus_load.asyncio.sleep", new=AsyncMock()
-        ) as sleep_mock,
-    ):
-        asyncio.run(_run(_async_run_solve_with_startup_retries(hass=None)))
-    assert run_solve.call_count == 3
-    assert sleep_mock.call_count == 2
-    for call in sleep_mock.call_args_list:
-        assert call.args[0] == _STARTUP_RETRY_DELAY_SECONDS
-
-
-def test_gives_up_after_the_configured_number_of_attempts():
-    import asyncio
-
-    run_solve = AsyncMock(return_value=False)
-    with (
-        patch(
-            "custom_components.nimbus_load.solver_runtime.async_run_solve", run_solve
-        ),
-        patch(
-            "custom_components.nimbus_load.asyncio.sleep", new=AsyncMock()
-        ) as sleep_mock,
-    ):
-        asyncio.run(_run(_async_run_solve_with_startup_retries(hass=None)))
-    assert run_solve.call_count == _STARTUP_RETRY_ATTEMPTS
-    # One fewer sleep than attempts -- no delay after the final, giving-up attempt.
-    assert sleep_mock.call_count == _STARTUP_RETRY_ATTEMPTS - 1

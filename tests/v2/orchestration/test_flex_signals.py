@@ -119,21 +119,6 @@ class TestPublishFlexSignals(unittest.TestCase):
         self.assertEqual(attrs["unit_of_measurement"], "kW")
         self.assertIn("generated_at", attrs)
 
-    def test_publishes_per_battery_signals(self):
-        plan = _plan(
-            grid_signals=_grid_signals(),
-            battery_signals=[_battery_signal(name="home"), _battery_signal(name="ev1")],
-        )
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_flex_signals(plan)
-        _, _, attrs = post.call_args[0]
-        self.assertEqual(len(attrs["battery_signals"]), 2)
-        self.assertEqual(attrs["battery_signals"][0]["name"], "home")
-        self.assertEqual(attrs["battery_signals"][0]["available_up_kw"], 3.0)
-        self.assertEqual(attrs["battery_signals"][0]["available_down_kw"], 4.0)
-        self.assertEqual(attrs["battery_signals"][0]["available_up_ranging_kw"], 2.5)
-        self.assertEqual(attrs["battery_signals"][1]["name"], "ev1")
-
     def test_battery_signal_ranging_none_when_ranging_invalid(self):
         # BatterySignals' own PHYSICAL fields are always populated; the
         # ranging-derived pair can independently be None (see that

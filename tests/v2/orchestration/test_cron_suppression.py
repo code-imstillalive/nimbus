@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import time
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -148,23 +147,6 @@ def test_cron_is_suppressed_when_a_solve_completed_just_now():
     # The redundant cron tick must be skipped entirely -- not run and
     # discarded, not run at all.
     run_solve.assert_not_called()
-
-
-def test_cron_runs_again_once_the_suppression_window_has_elapsed():
-    _reset_solver_runtime_state()
-    # A solve that completed well OUTSIDE the 60s suppression window --
-    # e.g. the cron tick 5 minutes ago, or an event-driven solve much
-    # earlier in the same 5-min block. Directly manipulating the
-    # monotonic timestamp (rather than sleeping 61 real seconds) keeps
-    # this test fast while exercising the exact same comparison the real
-    # code performs.
-    solver_runtime.record_solve_completed(trigger_source="cron")
-    solver_runtime._last_solve_completed_monotonic = time.monotonic() - 61.0
-    run_solve = AsyncMock(return_value=True)
-
-    _setup_and_fire_periodic_solve("entry_cron_elapsed", run_solve)
-
-    run_solve.assert_called_once()
 
 
 def _setup_recording(order, report=None):

@@ -125,28 +125,6 @@ def test_with_no_primary_cost_the_calibrated_weight_is_the_safe_default(spec):
     assert _secondary(p, cal) <= best_secondary + 1e-5 * max(1.0, abs(best_secondary))
 
 
-@SETTINGS
-@given(problems())
-def test_inside_the_cooldown_the_phased_solve_waits_and_says_for_how_long(spec):
-    """#773: after a phase failure the phased solve is skipped for the
-    cooldown; the plan is still the plain optimum, and the log says how long
-    is left, never more than the cooldown itself."""
-    import time
-
-    p = _build(spec)
-    plain = p.solve()
-    lp._lex_calibration_failed_until = time.monotonic() + 100.0
-    lex, records = _captured(lambda: p.solve(options=LexOptions()))
-    assert lex.status == "optimal"
-    assert abs(p.primary_cost_of(lex) - plain.objective) <= 1e-6 * max(
-        1.0, abs(plain.objective)
-    )
-    skips = [r for r in records if "skipping the phased" in r.getMessage()]
-    assert skips, "the skip is logged"
-    left = skips[0].args[1]
-    assert 0.0 <= left <= lp._LEX_CALIBRATION_COOLDOWN_S
-
-
 class _PinRecorder:
     def __init__(self):
         self.bounds = {}

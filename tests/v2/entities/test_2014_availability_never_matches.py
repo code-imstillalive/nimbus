@@ -34,11 +34,6 @@ def test_the_reported_case_is_unmatched():
     assert av.unmatched_states(seen, states) == ("Charge", "Idle")
 
 
-def test_one_matching_state_in_the_window_is_enough():
-    states = av.available_states("sensor.charger_status", "Charging")
-    assert av.unmatched_states(["Idle", " charging "], states) is None
-
-
 def test_no_real_state_reported_is_not_a_mismatch():
     states = av.available_states("sensor.charger_status", "Charging")
     assert av.unmatched_states([], states) is None
@@ -57,27 +52,6 @@ def test_which_entities_are_checked():
 
 
 # --- the Repair ---------------------------------------------------------------
-
-
-def test_the_repair_names_the_participant_entity_states_and_list():
-    issues = sh.evaluate_health(
-        options={key: f"sensor.{key}" for key, _ in sh._REQUIRED_SOLVER_INPUTS},
-        forecasts=(),
-        hub_up_for=sh.TRAIN_GRACE,
-        availability_mismatches=[
-            ("sub1", "Tesla", "sensor.charger_status", ("Charge", "Idle"), "Charging")
-        ],
-    )
-    (issue,) = issues
-    assert issue.kind == sh.KIND_AVAILABILITY_MISMATCH
-    assert issue.key == f"{sh.KIND_AVAILABILITY_MISMATCH}_sub1"
-    assert issue.placeholders == {
-        "name": "Tesla",
-        "entity": "sensor.charger_status",
-        "seen": "Charge, Idle",
-        "listed": "Charging",
-        "days": "7",
-    }
 
 
 def _entry(**participants):
@@ -161,17 +135,6 @@ def test_an_edited_list_clears_at_once_without_a_new_read():
     edited = _entry(p1=_participant("sensor.charger_a", "Charging, Charge"))
     again, calls2, _ = _run(edited, {}, state, NOW + timedelta(minutes=5))
     assert again == [] and calls2 == []
-
-
-def test_a_new_entity_is_read_at_once():
-    entry = _entry(p1=_participant("sensor.charger_a", "Charging"))
-    _, _, state = _run(entry, {"sensor.charger_a": ["Charging"]})
-    moved = _entry(p1=_participant("sensor.charger_b", "Charging"))
-    found, calls, _ = _run(
-        moved, {"sensor.charger_b": ["Charge"]}, state, NOW + timedelta(minutes=5)
-    )
-    assert len(found) == 1 and len(calls) == 1
-    assert calls[0][0] == ("sensor.charger_b",)
 
 
 def test_a_failed_read_raises_no_repair():

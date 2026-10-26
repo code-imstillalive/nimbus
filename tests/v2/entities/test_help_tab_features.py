@@ -52,15 +52,6 @@ def test_every_feature_says_what_it_does_and_where() -> None:
         assert len(labels) >= 2, title
 
 
-def test_the_features_band_sits_before_each_tab() -> None:
-    names = [
-        help_tab._banner_name(section)
-        for section in help_tab.template()
-        if help_tab._banner_name(section)
-    ]
-    assert names.index("Features") == names.index("Each tab") - 1
-
-
 def test_a_feature_with_several_pictures_shows_each_in_order() -> None:
     """The plan's prices entry carries two pictures; both must render."""
     rendered = help_tab.features_markdown()

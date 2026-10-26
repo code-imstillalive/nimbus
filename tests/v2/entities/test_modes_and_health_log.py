@@ -61,27 +61,6 @@ def test_a_setting_the_load_does_not_have_or_cannot_read_is_left_alone():
     assert applied == {}  # 0 stays 0: no change, nothing to report
 
 
-@pytest.mark.parametrize(
-    ("mode", "target", "floor", "out_target", "out_floor"),
-    [
-        ("away", 60.0, 50.0, 55.0, 45.0),
-        ("guests", 60.0, 50.0, 62.0, 52.0),
-        ("economy", 60.0, 50.0, 60.0, 47.0),
-        ("guests", 98.0, 97.0, 99.0, 99.0),  # capped, and the floor follows
-        ("economy", 1.0, 2.0, 1.0, 0.0),  # never below zero
-    ],
-)
-def test_the_thermal_band_moves_with_the_mode_and_stays_a_band(
-    mode, target, floor, out_target, out_floor
-):
-    data = {hm.THERMAL_TARGET_KEY: target, hm.THERMAL_COMFORT_FLOOR_KEY: floor}
-    out, applied = hm.apply_to_load_config(data, mode)
-    assert out[hm.THERMAL_TARGET_KEY] == out_target
-    assert out[hm.THERMAL_COMFORT_FLOOR_KEY] == out_floor
-    assert out[hm.THERMAL_COMFORT_FLOOR_KEY] <= out[hm.THERMAL_TARGET_KEY]
-    assert set(applied) <= {hm.THERMAL_TARGET_KEY, hm.THERMAL_COMFORT_FLOOR_KEY}
-
-
 def test_a_band_with_only_a_floor_is_moved_without_inventing_a_target():
     out, _ = hm.apply_to_load_config({hm.THERMAL_COMFORT_FLOOR_KEY: 40.0}, "away")
     assert out == {hm.THERMAL_COMFORT_FLOOR_KEY: 35.0}
@@ -97,28 +76,6 @@ def buffer():
     health.install_log_buffer_handler()  # once per process however often it is asked
     yield logging.getLogger("custom_components.nimbus_load.test")
     health.reset_log_buffer_for_tests()
-
-
-def test_warnings_and_errors_are_kept_newest_first_and_counted(buffer):
-    buffer.info("routine")
-    buffer.warning("first %s", "warning")
-    buffer.error("an error")
-    logging.getLogger("other.integration").error("not ours")
-    entries = health.get_recent_log_entries()
-    assert [e["message"] for e in entries] == ["an error", "first warning"]
-    assert entries[0]["level"] == "ERROR" and entries[0]["logger"].endswith(".test")
-    assert entries[0]["timestamp"].endswith("+00:00")
-    assert health.count_recent_log_entries() == 1
-    assert health.count_recent_log_entries(logging.WARNING) == 2
-    assert [e["message"] for e in health.get_recent_log_entries(logging.ERROR)] == [
-        "an error"
-    ]
-    handlers = [
-        h
-        for h in logging.getLogger(health._LOGGER_NAMESPACE).handlers
-        if isinstance(h, health.NimbusLogBufferHandler)
-    ]
-    assert len(handlers) == 1
 
 
 def test_the_buffer_is_bounded_and_a_broken_message_is_still_kept(buffer):

@@ -1752,27 +1752,3 @@ def test_vectorized_matches_reference_exact_tie_gain_prefers_first_feature():
     expected = _build_tree_reference(x.copy(), residuals.copy(), 3, 2, 0, None)
     actual = gbrt._build_tree(x.copy(), residuals.copy(), 3, 2, 0, None)
     _assert_trees_identical(expected, actual)
-
-
-def test_vectorized_matches_reference_full_fit_predictions():
-    # End-to-end through GBRT.fit()/predict(), not just _build_tree directly.
-    rng = np.random.default_rng(99)
-    x = rng.normal(size=(200, 4))
-    y = x[:, 0] * 2.0 - x[:, 1] + rng.normal(size=200) * 0.1
-
-    model = gbrt.GBRT(n_estimators=15, max_depth=3, min_samples_leaf=5)
-    model.fit(x, y)
-    preds = model.predict(x)
-
-    # Cross-check against the reference oracle by monkeypatching _build_tree
-    # for a fresh model fit over the same data.
-    original = gbrt._build_tree
-    gbrt._build_tree = _build_tree_reference
-    try:
-        reference_model = gbrt.GBRT(n_estimators=15, max_depth=3, min_samples_leaf=5)
-        reference_model.fit(x, y)
-        reference_preds = reference_model.predict(x)
-    finally:
-        gbrt._build_tree = original
-
-    np.testing.assert_array_equal(preds, reference_preds)

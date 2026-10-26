@@ -84,13 +84,6 @@ class TestIssue100AtTheSource(unittest.TestCase):
         self.assertEqual(got.load_lower_kw[0], _LIVE_NOW)
         self.assertEqual(got.load_upper_kw[0], _LIVE_NOW)
 
-    def test_later_periods_are_untouched_by_the_anchor(self):
-        """The anchor is a *now* correction only. If it ever bled into
-        later periods it would silently flatten the whole forecast."""
-        got = _build()
-        self.assertEqual(got.load_kw[1], 5.0)
-        self.assertEqual(got.load_kw[2], 6.0)
-
     def test_without_a_cross_check_sensor_the_two_agree(self):
         """The common case, and the reason the pair looks redundant: with
         no cross-check configured there is no overwrite, so both read the

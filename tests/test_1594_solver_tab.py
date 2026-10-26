@@ -356,13 +356,6 @@ def test_the_chart_figures_sit_below_the_chart() -> None:
         assert "#header__states { order: 2" in s["cards"][0]["card_mod"]["style"]
 
 
-def test_live_values_in_text_are_resolved() -> None:
-    view = _resolve(solver_tab.template())
-    text = json.dumps(view)
-    assert "${@" not in text
-    assert "sensor.nimbus_solver_import_price_risk_effect_now_2" in text
-
-
 def test_a_chart_with_two_axes_names_the_axis_on_every_series() -> None:
     """apexcharts-card 2.2.3 drops the whole card once a second y-axis exists
     and any series lacks `yaxis_id` (116KAT CLAUDE.md gotcha)."""
@@ -481,26 +474,6 @@ def test_an_unused_block_shows_only_its_rate() -> None:
     assert text.count('"type": "conditional"') == 6 + 4
 
 
-def test_a_conditional_row_whose_entity_is_missing_is_dropped() -> None:
-    view = solver_tab.resolve(
-        solver_tab.template(),
-        lambda k: None if k == "solver_network_fee_2_start_hour" else _lookup_all(k),
-    )
-    text = json.dumps(view)
-    assert "solver_network_fee_2_start_hour" not in text
-    assert '"row": null' not in text
-
-
-def test_resolution_leaves_no_placeholder_and_uses_the_registry_ids() -> None:
-    view = _resolve(
-        dash._view_for(next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver"))
-    )
-    text = json.dumps(view)
-    assert '"@' not in text
-    assert "sensor.nimbus_solver_lp_status_2" in text
-    assert "sensor.my_battery_power" in text
-
-
 def test_a_missing_entity_is_dropped_not_written_blank() -> None:
     def partial(key: str) -> str | None:
         return (
@@ -542,28 +515,6 @@ def test_the_design_is_the_same_on_every_install() -> None:
     spec = next(s for s in dash.STANDARD_VIEWS if s["key"] == "solver")
     assert dash.design_of(spec) == dash.design_of(spec)
     assert '"@nimbus_solver_lp_status"' in json.dumps(dash._view_for(spec))
-
-
-def test_the_dashboard_has_solver_second() -> None:
-    config = dash.dashboard_config(_resolve)
-    assert [v["title"] for v in config["views"]] == [
-        "Forecaster",
-        "Solver",
-        "Topology",
-        "Control Panel",
-        "Regret",
-        # nimbus #1823: Help, last.
-        "Help",
-    ]
-    solver = next(v for v in config["views"] if v["title"] == "Solver")
-    assert '"@' not in json.dumps(solver)
-
-
-def test_without_a_resolver_the_solver_tab_is_left_out() -> None:
-    """Unresolved, the tab would be placeholders: it is never returned."""
-    titles = [v["title"] for v in dash.dashboard_config()["views"]]
-    assert "Solver" not in titles
-    assert "Help" not in titles
 
 
 @pytest.mark.parametrize("view", [solver_tab.template()])

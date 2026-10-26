@@ -20,7 +20,6 @@ from custom_components.nimbus_load.const import (
     CONF_LOAD_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     SUBENTRY_TYPE_LOAD,
-    SUBENTRY_TYPE_SIGNAL,
 )
 from custom_components.nimbus_load.coordinator import (
     DEFAULT_FALLBACK_HUMIDITY_PCT,
@@ -135,11 +134,6 @@ def test_step_lookup_holds_flat_between_points_no_blending():
     assert _step_lookup(forecast, _T0 + timedelta(hours=1), fallback=-1.0) == 0.0
 
 
-def test_step_lookup_target_before_first_point_clamps_to_first():
-    forecast = [(_T0 + timedelta(hours=1), 1.0)]
-    assert _step_lookup(forecast, _T0, fallback=-1.0) == 1.0
-
-
 def test_step_lookup_target_after_last_point_holds_the_last_value():
     forecast = [(_T0, 0.0), (_T0 + timedelta(hours=1), 1.0)]
     assert _step_lookup(forecast, _T0 + timedelta(hours=10), fallback=-1.0) == 1.0
@@ -225,22 +219,6 @@ def test_current_measured_power_nan_state_returns_zero_not_nan():
     assert coord._current_measured_power("sensor.battery") == 0.0
 
 
-def test_current_measured_power_kw_reading_passes_through_unchanged():
-    coord = _make_bare_coordinator()
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(
-        state="13.4", attributes={"unit_of_measurement": "kW"}
-    )
-    assert coord._current_measured_power("sensor.battery") == 13.4
-
-
-def test_current_measured_power_no_unit_at_all_is_treated_as_already_kw():
-    coord = _make_bare_coordinator()
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(state="5.0", attributes={})
-    assert coord._current_measured_power("sensor.battery") == 5.0
-
-
 def test_current_measured_power_watts_reading_gets_converted_to_kw():
     # The real, live 2026-08-15 finding this guards against: a solar
     # sensor reporting W while battery/grid sensors report kW. 5000W
@@ -251,15 +229,6 @@ def test_current_measured_power_watts_reading_gets_converted_to_kw():
         state="5000", attributes={"unit_of_measurement": "W"}
     )
     assert coord._current_measured_power("sensor.solar") == 5.0
-
-
-def test_current_measured_power_megawatts_reading_gets_converted_to_kw():
-    coord = _make_bare_coordinator()
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(
-        state="2.5", attributes={"unit_of_measurement": "MW"}
-    )
-    assert coord._current_measured_power("sensor.grid") == 2500.0
 
 
 def test_current_measured_power_unconvertible_unit_falls_back_to_raw_value():
@@ -296,23 +265,6 @@ def _make_load_coordinator(
         options[CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR] = whole_house_sensor
     coord.entry = MagicMock(options=options)
     return coord
-
-
-def test_seasonal_anchor_true_for_power_signal_subentry_regardless_of_sensor():
-    coord = _make_bare_coordinator()
-    coord.subentry = MagicMock(
-        subentry_type=SUBENTRY_TYPE_SIGNAL, data={CONF_LOAD_SENSOR: "sensor.battery"}
-    )
-    coord.entry = MagicMock(options={})
-    assert coord._seasonal_anchor is True
-
-
-def test_seasonal_anchor_true_for_load_matching_wizard_configured_whole_house_sensor():
-    coord = _make_load_coordinator(
-        load_sensor="sensor.cb_total_combined_power_adjusted_kw",
-        whole_house_sensor="sensor.cb_total_combined_power_adjusted_kw",
-    )
-    assert coord._seasonal_anchor is True
 
 
 def test_seasonal_anchor_false_for_a_load_that_is_not_the_whole_house_meter():

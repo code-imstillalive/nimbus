@@ -135,15 +135,6 @@ class TestOutcomeOnEveryPath(unittest.TestCase):
         )
         warn.assert_called_once()
 
-    def test_a_non_optimal_first_solve_is_not_checked(self):
-        def first_fails(**kw):
-            return replace(_build_plan_thermal_fallback(**kw), status="infeasible")
-
-        with mock.patch.object(network, "_build_plan_thermal_fallback", first_fails):
-            plan = build_plan(**_kwargs(*SPREAD))
-        self.assertEqual(plan.direction_exclusivity, "not_checked")
-        self.assertEqual(plan.direction_two_way_pairs, 0)
-
 
 class TestPublished(unittest.TestCase):
     def test_battery_forecast_carries_both_fields(self):

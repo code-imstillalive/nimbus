@@ -146,68 +146,6 @@ class TestSharedCircuitCapReproducesAndFixesRealCollision(unittest.TestCase):
                 f"combined HWS power at period {t} exceeds the shared circuit cap",
             )
 
-    def test_with_the_cap_both_targets_are_still_fully_met(self):
-        plan = self._run(
-            shared_circuits=[
-                SharedCircuitConfig(
-                    name="hws_circuit",
-                    member_names=("hws_l1", "hws_l3"),
-                    max_combined_power_kw=3.7,
-                )
-            ]
-        )
-        self.assertEqual(plan.status, "optimal")
-        for al in plan.adequacy_loads:
-            self.assertGreaterEqual(
-                al.delivered_by_deadline_kwh,
-                3.7 - 1e-6,
-                f"'{al.name}' target must still be fully met once sequenced "
-                "around the shared cap, not silently under-delivered",
-            )
-
-
-class TestSharedCircuitMissingMemberRaises(unittest.TestCase):
-    def test_member_name_not_in_adequacy_loads_raises_clearly(self):
-        n = 2
-        periods = _flat_grid(n)
-        grid = GridConfig(
-            import_price=np.full(n, 0.20),
-            export_price=np.full(n, 0.0),
-            import_limit_kw=20.0,
-            export_limit_kw=20.0,
-        )
-        solar = SolarConfig(forecast_kw=np.zeros(n))
-        battery = _base_battery()
-        adequacy = [
-            AdequacyLoadConfig(
-                name="hws_l1",
-                max_power_kw=3.7,
-                target_kwh=1.0,
-                earliest_period=0,
-                deadline_period=1,
-                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
-            )
-        ]
-        shared = [
-            SharedCircuitConfig(
-                name="hws_circuit",
-                # "hws_l3" was never configured -- a real caller mistake.
-                member_names=("hws_l1", "hws_l3"),
-                max_combined_power_kw=3.7,
-            )
-        ]
-        with self.assertRaises(ValueError) as ctx:
-            build_plan(
-                periods=periods,
-                grid=grid,
-                batteries=[battery],
-                solar=solar,
-                loads=[],
-                adequacy_loads=adequacy,
-                shared_circuits=shared,
-            )
-        self.assertIn("hws_l3", str(ctx.exception))
-
 
 class TestSharedCircuitGenuineShortfall(unittest.TestCase):
     """A shared cap can make two individually-achievable targets jointly

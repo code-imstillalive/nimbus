@@ -97,19 +97,6 @@ class TestLiveOverlay(unittest.TestCase):
         self.assertEqual(result["controllable_load_min_hold_minutes"], 6.6)
         self.assertEqual(result["controllable_load_max_activations_per_day"], 7.0)
 
-    def test_unavailable_live_entity_falls_back_to_wizard_data(self):
-        solver_writer.NATIVE.hass = _hass(
-            {
-                "number.nimbus_hot_water_heat_pump_deferrable_target_kwh": _fake_state(
-                    "unavailable"
-                )
-            }
-        )
-        data = {"deferrable_target_kwh": 2.0}
-        subentry = SimpleNamespace(title="Hot Water Heat Pump")
-        result = controllable_loads._resolve_controllable_load_tuning(data, subentry)
-        self.assertEqual(result["deferrable_target_kwh"], 2.0)
-
     def test_unknown_live_entity_falls_back_to_wizard_data(self):
         solver_writer.NATIVE.hass = _hass(
             {

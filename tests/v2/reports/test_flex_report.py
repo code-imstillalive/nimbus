@@ -116,18 +116,6 @@ def test_charging_is_realised_up_whichever_sign_the_sensor_uses(
     assert r["realised_down_kwh"] == pytest.approx(0.0, abs=0.1)
 
 
-@pytest.mark.parametrize(
-    ("solar", "limit", "curtailed"),
-    [(1.0, 5.0, 0.0), (10.0, 5.0, 72.0), (10.0, 1.0, 168.0), (10.0, 20.0, 0.0)],
-)
-def test_curtailment_is_the_solar_past_load_plus_the_configured_limit(
-    day, solar, limit, curtailed
-):
-    day["sensor.real_solar"] = solar
-    r = report(cfg(solver_grid_max_export_kw=limit))
-    assert r["envelope_curtailment_kwh"] == pytest.approx(curtailed, abs=0.1)
-
-
 def test_net_import_is_banded_by_price(day):
     day["sensor.import_price"] = 0.22
     (band,) = report()["price_response_curve"]

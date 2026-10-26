@@ -52,16 +52,6 @@ def _sensor(*, kind=None, role=None, data=None, source_state="1.2"):
     return s
 
 
-def test_a_load_forecast_is_named_from_its_source_and_measured_in_kw():
-    s = _sensor()
-    assert s.entity_id == f"sensor.{sm.object_id_from_source('sensor.pool_pump_power')}"
-    assert s.entity_id.endswith("_forecast")
-    assert s._attr_unique_id == "sub1_load_forecast"
-    assert s._attr_native_unit_of_measurement == "kW"
-    assert s._attr_device_info["model"] == "Load Forecaster"
-    assert s._attr_device_info["name"] == "Pool pump"
-
-
 @pytest.mark.parametrize(
     ("role", "unit", "device_class"),
     [

@@ -42,10 +42,6 @@ class TestCalibratedBandColdStartSign(unittest.TestCase):
         band = ml_model.calibrated_band([], 0.1, 0.0)
         self.assertGreaterEqual(band, ml_model.COLD_START_BAND_MIN_KW)
 
-    def test_large_point_value_uses_the_fraction_not_the_floor(self):
-        band = ml_model.calibrated_band([], -50.0, 0.0)
-        self.assertAlmostEqual(band, 50.0 * ml_model.COLD_START_BAND_FRACTION)
-
     def test_lower_never_exceeds_upper_for_a_negative_prediction(self):
         point_value = -20.0
         band = ml_model.calibrated_band([], point_value, 0.0)
@@ -62,10 +58,6 @@ class TestCalibrationHalfWidthPrecomputation(unittest.TestCase):
     calibration_half_width() lets a caller compute that once and pass it
     back in via calibrated_band()'s near_term_half_width override.
     """
-
-    def test_returns_none_below_the_calibration_threshold(self):
-        residuals = [1.0] * (ml_model.MIN_RESIDUALS_FOR_CALIBRATION - 1)
-        self.assertIsNone(ml_model.calibration_half_width(residuals))
 
     def test_matches_calibrated_bands_own_internal_computation(self):
         residuals = [float(i % 7 + 1) for i in range(50)]

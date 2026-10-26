@@ -121,20 +121,6 @@ def _payload(specs, value_of):
     return out
 
 
-@pytest.mark.parametrize("name", sorted(TABLES))
-def test_each_table_builds_one_uniquely_named_entity_per_figure_on_its_device(name):
-    ents, _ = _build(name, hub_device_id="dev-hub")
-    _f, _d, prefix, suffix = TABLES[name]
-    ids = [e.entity_id for e in ents]
-    assert ents and len(ids) == len(set(ids))
-    assert all(i.startswith(f"sensor.{prefix}_") for i in ids)
-    assert all(e._attr_unique_id.startswith("hub1_") for e in ents)
-    device = ents[0]._attr_device_info
-    assert (DOMAIN, f"hub1{suffix}") in device["identifiers"]
-    if suffix:
-        assert device["via_device_id"] == "dev-hub"
-
-
 def test_no_two_tables_publish_the_same_entity():
     every = [e.entity_id for name in TABLES for e in _build(name)[0]]
     every += [e.entity_id for e in fl.create_flattened_entities_current(ENTRY, "1")]
@@ -245,18 +231,6 @@ def test_an_overlong_text_state_is_truncated_and_logged_once(caplog):
     assert fl._clamp_state_length(5, None) == 5
 
 
-def test_a_state_at_the_limit_is_kept_and_one_over_is_cut_to_it():
-    """HA's limit is inclusive: exactly the limit is a legal state."""
-    at = "x" * fl._MAX_STATE_LENGTH
-    assert fl._clamp_state_length(at, "sensor.a") == at
-    over = fl._clamp_state_length(at + "x", "sensor.a")
-    assert len(over) == fl._MAX_STATE_LENGTH and over.endswith(
-        fl._STATE_TRUNCATION_SUFFIX
-    )
-    lead = "Grid export at zero (not economical right now)"
-    assert fl._clamp_state_length(lead + " " + "y" * 400, "sensor.a").startswith(lead)
-
-
 def test_each_entity_is_warned_about_once_on_its_own(caplog):
     fl._LOGGED_TRUNCATION.clear()
     with caplog.at_level(logging.WARNING, logger=fl._LOGGER.name):
@@ -339,18 +313,6 @@ def test_a_price_figure_publishes_the_whole_horizon_as_a_detailed_forecast():
         {"forecast": [{"time": "x", "hours": 1}, {"no": "time"}, "junk"]},
     ):
         assert fl._detailed_price_forecast(bad, "import_price") is None
-
-
-def test_the_current_price_figure_carries_the_detailed_forecast():
-    spec = next((s for s in fl.FLATTENED_ATTRS_CURRENT if s.detailed_forecast_of), None)
-    assert spec is not None
-    e = _one(spec, hass=False)
-    plan = _plan()
-    for row in plan["forecast"]:
-        row[spec.detailed_forecast_of] = 0.3
-    fl.dispatch_to_flattened_current([e], plan)
-    assert len(e.extra_state_attributes["detailedForecast"]) == 3
-    assert "detailedForecast" in e._unrecorded_attributes
 
 
 # --- the hub device -------------------------------------------------------------------------

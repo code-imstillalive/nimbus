@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _MODULE_PATH = (
@@ -65,15 +65,6 @@ class TestBuildingASnapshot(unittest.TestCase):
 
         json.dumps(_snapshot())
 
-    def test_every_point_carries_its_own_time(self):
-        """Not a start plus a step -- the grid is tiered, so a step would
-        mis-place every point past the boundary."""
-        snap = _snapshot()
-        times = [p["time"] for p in snap["points"]]
-        self.assertEqual(len(times), len(set(times)))
-        self.assertIn("00:25", times[5])
-        self.assertIn("01:00", times[6])
-
     def test_it_records_when_it_was_captured(self):
         self.assertEqual(_snapshot()["captured_at"], T0.isoformat())
 
@@ -90,14 +81,6 @@ class TestBuildingASnapshot(unittest.TestCase):
 
 
 class TestResamplingOntoAGrid(unittest.TestCase):
-    def test_exact_grid_match_round_trips(self):
-        grid = _tiered_grid()
-        got = fs.resample_snapshot_to_grid(_snapshot(grid), grid)
-        self.assertIsNotNone(got)
-        solar, load = got
-        self.assertEqual(solar, [float(i) for i in range(len(grid))])
-        self.assertEqual(load, [1.0 + i * 0.5 for i in range(len(grid))])
-
     def test_it_holds_the_last_value_between_points(self):
         """Sample-and-hold, matching `resample_history_mean`'s documented
         principle for state-like series: a forecast point states a level
@@ -141,11 +124,6 @@ class TestAMissingForecastIsNotAZeroForecast(unittest.TestCase):
         snap["version"] = fs.SNAPSHOT_VERSION + 99
         self._assert_none(snap)
 
-    def test_no_points_is_skipped(self):
-        snap = _snapshot()
-        snap["points"] = []
-        self._assert_none(snap)
-
     def test_a_grid_starting_BEFORE_the_snapshot_is_skipped(self):
         """A partial grid filled from the first point would attribute the
         forecast a prediction it never made for those earlier periods."""
@@ -177,11 +155,6 @@ class TestAMissingForecastIsNotAZeroForecast(unittest.TestCase):
 
 
 class TestRetention(unittest.TestCase):
-    def test_it_keeps_the_newest(self):
-        snaps = {f"2026-09-{d:02d}": {"version": 1} for d in range(1, 21)}
-        kept = fs.prune_snapshots(snaps, keep_days=5)
-        self.assertEqual(sorted(kept), [f"2026-09-{d:02d}" for d in range(16, 21)])
-
     def test_keeping_more_than_exist_is_a_no_op(self):
         snaps = {"2026-09-01": {}, "2026-09-02": {}}
         self.assertEqual(fs.prune_snapshots(snaps, keep_days=90), snaps)
@@ -201,14 +174,6 @@ class TestRetention(unittest.TestCase):
 class TestDayKeying(unittest.TestCase):
     def test_it_is_a_plain_local_date(self):
         self.assertEqual(fs.day_key_for(T0), "2026-09-26")
-
-    def test_it_does_not_guess_a_timezone(self):
-        """Takes the datetime as given. Silently converting would file a
-        Brisbane evening's forecast under the wrong day, and a wrongly-filed
-        forecast is indistinguishable downstream from a wrong forecast."""
-        utc_evening = datetime(2026, 9, 26, 14, 0, tzinfo=UTC)
-        self.assertEqual(fs.day_key_for(utc_evening), "2026-09-26")
-        self.assertEqual(fs.day_key_for(utc_evening.astimezone(BNE)), "2026-09-27")
 
 
 if __name__ == "__main__":

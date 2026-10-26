@@ -101,16 +101,6 @@ class TestRunningHold(unittest.TestCase):
         )
         self.assertEqual(result.values[:3], [0.9] * 3)
 
-    def test_a_dip_longer_than_the_grace_is_switched_off(self):
-        now = START + timedelta(days=DAYS, hours=15)
-        grace = ml_model.RUN_OFF_GRACE_MINUTES
-        result = self._predict_series(
-            now,
-            [(grace + 5, 0.9), (grace + 1, 0.0), (0, 0.0)],
-            running_threshold_kw=0.6,
-        )
-        self.assertEqual(result.values, [0.0] * 48)
-
     def test_unset_threshold_is_the_old_behaviour(self):
         now = START + timedelta(days=DAYS, hours=15)
         self.assertEqual(

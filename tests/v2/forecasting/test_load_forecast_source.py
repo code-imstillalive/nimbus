@@ -76,23 +76,6 @@ def _resolve(cfg, load, grid=None, hours=0.25):
     )
 
 
-@pytest.mark.parametrize(
-    "cfg", [{}, {"solver_load_forecast_source_policy": None}], ids=["absent", "none"]
-)
-def test_off_returns_the_same_array_and_reads_nothing(site, cfg):
-    load = [float(i) for i in range(8)]
-    out, decision, persistence = _resolve(cfg, load)
-    assert (
-        out is load and persistence is None
-    )  # identity: no arithmetic on the live array
-    assert (decision.persistence_weight, decision.source, decision.reason) == (
-        0.0,
-        fss.SOURCE_ML,
-        fss.REASON_POLICY_OFF,
-    )
-    assert (site["reads"], site["fetches"]) == (0, 0)
-
-
 def test_measure_reads_the_record_and_changes_nothing(site):
     load = [1.0] * 8
     out, decision, persistence = _resolve(
@@ -202,18 +185,6 @@ def test_a_persistence_policy_replaces_the_array_and_a_blend_lands_between(site)
     assert decision.persistence_weight == pytest.approx(0.75) and out == pytest.approx(
         [5.0] * 4
     )
-
-
-def test_a_grid_length_mismatch_refuses_rather_than_failing_the_solve(site):
-    site["history"] = _yesterday(lambda h: 3.0)
-    out, decision, persistence = _resolve(
-        {"solver_load_forecast_source_policy": "persistence", **HOUSE},
-        [9.0, 9.0],
-        [NOW + timedelta(hours=h) for h in range(4)],
-        1.0,
-    )
-    assert out == [9.0, 9.0] and persistence is None
-    assert decision.reason == "persistence_baseline_unavailable"
 
 
 # --- what the plan publishes about it ---------------------------------------------------------

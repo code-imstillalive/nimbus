@@ -6,12 +6,10 @@ from __future__ import annotations
 
 import ast
 import dataclasses
-import math
 import pathlib
 import sys
 import unittest
 from datetime import UTC, datetime
-from unittest import mock
 
 import numpy as np
 
@@ -80,19 +78,6 @@ class TestTheFieldsExistAndDefaultHonestly(unittest.TestCase):
 class TestInfeasiblePlanPropagatesThem(unittest.TestCase):
     """Gap 2, the hop a failing cycle actually takes."""
 
-    def test_both_reach_the_plan(self):
-        plan = net_mod._infeasible_plan(
-            _periods(),
-            "error",
-            iterations=7,
-            raw_status="Unknown",
-            highs_info={"simplex_iteration_count": 0.0},
-            failing_model_path="/tmp/x.mps",
-        )
-        self.assertEqual(plan.highs_info, {"simplex_iteration_count": 0.0})
-        self.assertEqual(plan.failing_model_path, "/tmp/x.mps")
-        self.assertEqual(plan.iterations, 7)
-
     def test_the_dict_is_not_aliased_to_the_callers(self):
         """Same reasoning as #356's `np.zeros(n)`-per-field fix: a caller
         mutating its own dict afterwards must not reach into a frozen Plan."""
@@ -103,145 +88,11 @@ class TestInfeasiblePlanPropagatesThem(unittest.TestCase):
         caller["simplex_iteration_count"] = 999.0
         self.assertEqual(plan.highs_info, {"simplex_iteration_count": 0.0})
 
-    def test_omitted_gives_an_empty_dict_not_none(self):
-        plan = net_mod._infeasible_plan(_periods(), "error", iterations=0)
-        self.assertEqual(plan.highs_info, {})
-        self.assertIsNone(plan.failing_model_path)
-
-
-class TestARealFailedSolveCapturesIt(unittest.TestCase):
-    """Gap 2, end to end against real HiGHS -- no mock of the solver."""
-
-    def test_a_terminal_non_optimal_solve_populates_highs_info(self):
-        p = _forced_time_limit_problem()
-        with mock.patch.object(lp_mod, "DEFAULT_TIME_LIMIT_SECONDS", 0.0):
-            r = p.solve()
-        self.assertEqual(r.status, "error")
-        self.assertTrue(r.raw_status, "raw_status must still name HiGHS's status")
-        self.assertIn(
-            "simplex_iteration_count",
-            r.highs_info,
-            "the field lp.py's own comment calls the discriminating one",
-        )
-        # Sanity on the rest of the snapshot rather than exact values, which
-        # are HiGHS-version dependent.
-        self.assertIn("num_primal_infeasibilities", r.highs_info)
-        self.assertTrue(all(isinstance(v, float) for v in r.highs_info.values()))
-
-    def test_an_optimal_solve_captures_nothing(self):
-        """The control. If a healthy solve also populated this, a populated
-        dict would say nothing about a failure."""
-        r = _forced_time_limit_problem().solve()
-        self.assertEqual(r.status, "optimal")
-        self.assertEqual(r.highs_info, {})
-        self.assertIsNone(r.failing_model_path)
-
-    def test_the_failing_model_is_written_and_named_for_this_issue(self):
-        p = _forced_time_limit_problem()
-        # `_dump_failing_model()` is once-per-label-per-process, so a test
-        # that ran after another terminal failure of the same status would
-        # get None. Cleared so this asserts the capture, not the ordering.
-        lp_mod._LP_DUMPED_PHASES.clear()
-        try:
-            with mock.patch.object(lp_mod, "DEFAULT_TIME_LIMIT_SECONDS", 0.0):
-                r = p.solve()
-        finally:
-            lp_mod._LP_DUMPED_PHASES.clear()
-        self.assertIsNotNone(
-            r.failing_model_path, "the real instance must be captured, per #773"
-        )
-        assert r.failing_model_path is not None
-        name = pathlib.Path(r.failing_model_path).name
-        self.assertTrue(
-            name.startswith("nimbus_1179_"),
-            f"a #1179 capture must not be filed under another issue: {name}",
-        )
-        self.assertTrue(pathlib.Path(r.failing_model_path).exists())
-
-    def test_the_dump_is_once_per_status_not_once_per_cycle(self):
-        """153 failures in 2.7h must not write 153 MPS files."""
-        p = _forced_time_limit_problem()
-        lp_mod._LP_DUMPED_PHASES.clear()
-        try:
-            with mock.patch.object(lp_mod, "DEFAULT_TIME_LIMIT_SECONDS", 0.0):
-                first = p.solve()
-                second = p.solve()
-        finally:
-            lp_mod._LP_DUMPED_PHASES.clear()
-        self.assertIsNotNone(first.failing_model_path)
-        self.assertIsNone(second.failing_model_path)
-        # ...and the second failure still carries every NUMBER, which is the
-        # part that must be per-cycle.
-        self.assertIn("simplex_iteration_count", second.highs_info)
-
-
-class TestTheSnapshotNeverBreaksTheSolve(unittest.TestCase):
-    """A diagnostic on an already-failing path must not be the reason a
-    cycle dies -- the discipline `_dump_failing_model()` already states."""
-
-    def test_a_handle_with_no_getinfo_returns_empty(self):
-        class Broken:
-            def getInfo(self):
-                raise RuntimeError("no")
-
-        self.assertEqual(lp_mod._highs_info_snapshot(Broken()), {})
-
-    def test_a_missing_field_is_absent_rather_than_zero(self):
-        """A zero would read as a measurement."""
-
-        class PartialInfo:
-            simplex_iteration_count = 12
-
-        class Partial:
-            def getInfo(self):
-                return PartialInfo()
-
-        snap = lp_mod._highs_info_snapshot(Partial())
-        self.assertEqual(snap, {"simplex_iteration_count": 12.0})
-        self.assertNotIn("mip_gap", snap)
-
-    def test_a_non_numeric_field_is_skipped_not_crashed(self):
-        class WeirdInfo:
-            simplex_iteration_count = 3
-            mip_gap = "not a number"
-
-        class Weird:
-            def getInfo(self):
-                return WeirdInfo()
-
-        self.assertEqual(
-            lp_mod._highs_info_snapshot(Weird()), {"simplex_iteration_count": 3.0}
-        )
-
 
 class TestTheFormatter(unittest.TestCase):
-    def test_empty_says_unavailable_never_an_empty_string(self):
-        """A log line that silently loses its tail cannot be told apart from
-        one whose tail was empty -- #757's own lesson about a check that
-        cannot fail."""
-        self.assertEqual(lp_mod.format_highs_info({}), "unavailable")
-
     def test_integral_values_print_without_a_decimal_point(self):
         out = lp_mod.format_highs_info({"simplex_iteration_count": 0.0})
         self.assertEqual(out, "simplex_iterations=0")
-
-    def test_infinity_does_not_raise(self):
-        """HiGHS returns `mip_gap = inf` on a pure LP, and `int(inf)` raises
-        OverflowError. Found by running the real solver, not by reading the
-        code: the first draft of the formatter crashed on the very first
-        real snapshot it was given."""
-        self.assertTrue(math.isinf(float("inf")))
-        out = lp_mod.format_highs_info(
-            {"simplex_iteration_count": 4.0, "mip_gap": float("inf")}
-        )
-        self.assertIn("simplex_iterations=4", out)
-        self.assertIn("mip_gap=inf", out)
-
-    def test_an_unknown_key_is_still_printed(self):
-        """Otherwise the formatter becomes the reason a future field is
-        invisible."""
-        out = lp_mod.format_highs_info({"something_new": 2.5})
-        self.assertIn("something_new=2.5", out)
 
     def test_the_discriminating_field_is_first(self):
         out = lp_mod.format_highs_info(

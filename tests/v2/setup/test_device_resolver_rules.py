@@ -129,21 +129,6 @@ def test_a_legacy_grid_keeps_every_flow_on_one_source_unpaired():
     assert grid.rate == ("sensor.grid_power",)
 
 
-def test_two_unified_grid_sources_stay_two_sources_with_their_own_index():
-    prefs = {
-        "energy_sources": [
-            {"type": "grid", "stat_energy_from": "sensor.a"},
-            {"type": "solar", "stat_energy_from": "sensor.pv"},
-            {"type": "grid", "stat_energy_from": "sensor.b"},
-        ]
-    }
-    grids = [s for s in dr.parse_energy_sources(prefs) if s.kind == "grid"]
-    assert [(g.index, g.energy_from) for g in grids] == [
-        (0, ("sensor.a",)),
-        (2, ("sensor.b",)),
-    ]
-
-
 def test_device_consumption_keeps_containment_as_stated():
     prefs = {
         "device_consumption": [

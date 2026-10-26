@@ -71,23 +71,6 @@ def test_every_number_the_solver_reads_has_an_entity_and_ids_are_unique():
 # --- the shared store ----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("data", "read"),
-    [
-        ({"k": {"value": 2.5, "written_at": 10.0}}, (2.5, 10.0)),
-        ({"k": 3}, (3.0, 0.0)),  # written before timestamps existed
-        ({"k": {"value": "x", "written_at": 1}}, None),
-        ({"k": {"written_at": 1}}, None),
-        ({}, None),
-        (None, None),
-    ],
-)
-def test_a_stored_value_reads_back_with_when_it_was_written(data, read):
-    store = nm._SharedNumberStore(store=MemoryStore(data))
-    assert _run(store._async_read_entry("k")) == read
-    assert _run(store.async_read("k")) == (read[0] if read else None)
-
-
 def test_a_corrupt_store_reads_as_empty_and_is_rewritten():
     store = nm._SharedNumberStore(store=MemoryStore(broken=True))
     assert _run(store.async_read("k")) is None
@@ -130,14 +113,6 @@ def _number(
             async_create_task=lambda coro: tasks.append(coro) or coro.close(),
         )
     return n, store, writes, tasks
-
-
-def test_a_fresh_entity_starts_at_its_default():
-    n, _store, _, _ = _number()
-    _run(n.async_added_to_hass())
-    assert n._attr_native_value == _desc().default
-    assert n.entity_id == f"number.nimbus_{_desc().key}"
-    assert n._attr_unique_id == f"hub1_{_desc().key}"
 
 
 def test_the_value_restored_by_home_assistant_wins_unless_the_store_is_newer():

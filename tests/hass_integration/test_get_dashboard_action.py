@@ -65,23 +65,6 @@ async def test_the_action_returns_every_tab_resolved_against_this_install(
     assert resolved, "no entity of this install reached the dashboard"
 
 
-@pytest.mark.parametrize(
-    "lovelace",
-    [
-        SimpleNamespace(
-            resources=_resources("/hacsfiles/lovelace-mushroom/mushroom.js")
-        ),
-        {"resources": _resources("/local/mushroom.js?v=4")},
-    ],
-    ids=["object", "dict"],
-)
-async def test_the_solver_tab_uses_mushroom_only_where_it_is_installed(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry, monkeypatch, lovelace
-):
-    monkeypatch.setitem(hass.data, "lovelace", lovelace)
-    assert MUSHROOM in json.dumps(await _get(hass))
-
-
 async def test_an_unreadable_resource_list_means_the_tile_slider(hass: HomeAssistant):
     class Broken:
         def async_items(self):

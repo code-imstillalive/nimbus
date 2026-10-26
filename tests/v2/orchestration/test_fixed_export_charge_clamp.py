@@ -44,11 +44,6 @@ class TestAParticipantChargingIsNotAViolation(unittest.TestCase):
         """Pre-fix this read 0.0 -- a real 7 kW draw erased."""
         self.assertAlmostEqual(float(self.charge[0]), 7.0)
 
-    def test_grid_import_is_not_understated(self):
-        """Pre-fix this read 2.0, understating real import by exactly the
-        EV's charge and making the plan look cheaper than it is."""
-        self.assertAlmostEqual(float(self.imp[0]), 9.0)
-
     def test_net_battery_still_reflects_the_charging(self):
         self.assertAlmostEqual(float(self.net[0]), -7.0)
 

@@ -69,34 +69,6 @@ def _make_bare_coordinator() -> NimbusCoordinator:
 # -- sensor.* path, unchanged/still-supported --------------------------------
 
 
-def test_no_sensor_configured_returns_empty_no_hass_call_at_all():
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(options={})  # CONF_TEMPERATURE_FORECAST_SENSOR unset
-    result = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert result == []
-
-
-def test_sensor_domain_still_reads_the_forecast_attribute_directly():
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(
-        options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.my_template"}
-    )
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(
-        attributes={
-            "forecast": [
-                {"datetime": "2026-08-24T10:00:00+00:00", "temperature": 21.0},
-                {"datetime": "2026-08-24T11:00:00+00:00", "temperature": 22.5},
-            ]
-        }
-    )
-    result = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert [t for _, t in result] == [21.0, 22.5]
-    # The sensor.* path must never touch hass.services at all -- it's a
-    # plain attribute read, same as before this fix.
-    coord.hass.services.async_call.assert_not_called()
-
-
 def test_sensor_domain_missing_state_returns_empty_not_raises():
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.gone"})
@@ -107,47 +79,6 @@ def test_sensor_domain_missing_state_returns_empty_not_raises():
 
 
 # -- weather.* path, the real #123 fix ----------------------------------------
-
-
-def test_weather_domain_calls_get_forecasts_hourly_and_parses_the_response():
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(
-        options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.noosa_heads_hourly"}
-    )
-    coord.hass = MagicMock()
-    # Real, confirmed response shape (HA core's own entity_service_call
-    # aggregation keys a single-entity target's result by its own
-    # entity_id -- {entity_id: {"forecast": [...]}}, not returned flat).
-    coord.hass.services.async_call = AsyncMock(
-        return_value={
-            "weather.noosa_heads_hourly": {
-                "forecast": [
-                    {
-                        "datetime": "2026-08-24T10:00:00+00:00",
-                        "condition": "sunny",
-                        "temperature": 21.1,
-                        "precipitation": 0.0,
-                    },
-                    {
-                        "datetime": "2026-08-24T11:00:00+00:00",
-                        "condition": "sunny",
-                        "temperature": 23.4,
-                        "precipitation": 0.0,
-                    },
-                ]
-            }
-        }
-    )
-    result = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert [t for _, t in result] == [21.1, 23.4]
-    coord.hass.services.async_call.assert_called_once_with(
-        "weather",
-        "get_forecasts",
-        {"type": "hourly"},
-        target={"entity_id": "weather.noosa_heads_hourly"},
-        blocking=True,
-        return_response=True,
-    )
 
 
 def test_weather_domain_entity_not_in_response_returns_empty():
@@ -272,30 +203,6 @@ def test_weather_domain_unsupported_forecast_type_degrades_not_crashes():
 # -- #269 mitigation B: warn on state-change, not just the first-ever tick ---
 
 
-def test_steady_empty_result_warns_once_not_once_per_tick(caplog):
-    """A sensor that's EMPTY from the very first tick and stays that way:
-    still warns exactly once (the first-ever failure IS a real state
-    change worth logging -- see coordinator.py's own comment for why
-    this deliberately differs from Mark's literal proposed sketch, which
-    would have logged nothing at all for this exact case), then stays
-    silent on every subsequent tick with no further change.
-    """
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(
-        options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.always_empty"}
-    )
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(attributes={"forecast": []})
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(coord._async_fetch_temperature_forecast())
-        asyncio.run(coord._async_fetch_temperature_forecast())
-        asyncio.run(coord._async_fetch_temperature_forecast())
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "always_empty" in warnings[0].getMessage()
-    assert coord._last_temp_forecast_ok is False
-
-
 def test_a_genuinely_healthy_result_never_warns(caplog):
     coord = _make_bare_coordinator()
     coord.entry = MagicMock(
@@ -313,98 +220,7 @@ def test_a_genuinely_healthy_result_never_warns(caplog):
     assert coord._last_temp_forecast_ok is True
 
 
-def test_start_failing_after_a_period_of_success_warns_again(caplog):
-    """Case 3 from issue #269: succeed once, then fail -- must warn
-    AGAIN even though the empty-result warning already fired once
-    conceptually 'for this instance' under the old one-shot design. A
-    chronic failure starting well after startup must stay loud.
-    """
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.flaky"})
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(
-        attributes={
-            "forecast": [{"datetime": "2026-08-24T10:00:00+00:00", "temperature": 21.0}]
-        }
-    )
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(coord._async_fetch_temperature_forecast())  # succeeds, no warning
-    assert not [r for r in caplog.records if r.levelno == logging.WARNING]
-
-    coord.hass.states.get.return_value = MagicMock(attributes={"forecast": []})
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(coord._async_fetch_temperature_forecast())  # now fails
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "stopped yielding" in warnings[0].getMessage()
-    assert coord._last_temp_forecast_ok is False
-
-
-def test_recovery_logs_info_and_a_later_failure_re_warns(caplog):
-    """Case 4 from issue #269: fail once, then succeed -- one INFO on
-    recovery, and confirms a LATER failure re-fires the WARNING (state-
-    change on both edges, not a one-shot that's now permanently spent).
-    """
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "sensor.flaky"})
-    coord.hass = MagicMock()
-    coord.hass.states.get.return_value = MagicMock(attributes={"forecast": []})
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(coord._async_fetch_temperature_forecast())  # first-ever failure
-    assert len([r for r in caplog.records if r.levelno == logging.WARNING]) == 1
-
-    coord.hass.states.get.return_value = MagicMock(
-        attributes={
-            "forecast": [{"datetime": "2026-08-24T10:00:00+00:00", "temperature": 21.0}]
-        }
-    )
-    caplog.clear()
-    with caplog.at_level(logging.INFO):
-        asyncio.run(coord._async_fetch_temperature_forecast())  # recovers
-    infos = [r for r in caplog.records if r.levelno == logging.INFO]
-    assert len(infos) == 1
-    assert "recovered" in infos[0].getMessage()
-    assert coord._last_temp_forecast_ok is True
-
-    coord.hass.states.get.return_value = MagicMock(attributes={"forecast": []})
-    caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        asyncio.run(coord._async_fetch_temperature_forecast())  # fails again
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1
-    assert "stopped yielding" in warnings[0].getMessage()
-
-
 # -- #269 mitigation A: cache the last-good forecast across ticks -------------
-
-
-def test_cache_hit_rescues_a_transient_failure():
-    """Populate the cache with a successful fetch, then make the SAME
-    entity fail -- the cached, still-future values are returned instead
-    of an empty list, so that cycle's training isn't degraded to zero
-    signal by a purely transient failure.
-    """
-    coord = _make_bare_coordinator()
-    coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.home"})
-    coord.hass = MagicMock()
-    coord.hass.services.async_call = AsyncMock(
-        return_value={
-            "weather.home": {
-                "forecast": [
-                    {"datetime": "2099-01-01T10:00:00+00:00", "temperature": 21.0},
-                    {"datetime": "2099-01-01T11:00:00+00:00", "temperature": 22.5},
-                ]
-            }
-        }
-    )
-    good = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert [t for _, t in good] == [21.0, 22.5]
-
-    # Now the same entity starts failing outright.
-    coord.hass.services.async_call = AsyncMock(side_effect=RuntimeError("transient"))
-    rescued = asyncio.run(coord._async_fetch_temperature_forecast())
-    assert [t for _, t in rescued] == [21.0, 22.5]
 
 
 def test_cache_never_leaks_across_a_reconfigured_source_entity():

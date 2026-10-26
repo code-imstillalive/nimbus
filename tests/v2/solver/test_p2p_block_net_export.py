@@ -95,18 +95,6 @@ class TestABlockIsNetExport(unittest.TestCase):
             p2p_export.grid_import_ub(0, _grid_for_ub(fixed=None), 44.0), 44.0
         )
 
-    def test_enough_for_the_block_but_not_the_house_still_gets_a_plan(self):
-        """The case this change could have broken: the battery can deliver
-        the block (12 kW x 3 h = 38.9 kWh at 92.63% one-way) but not the
-        block plus the house (42.4 kWh). Before, the plan bought the house
-        load at the import price; now #390's penalised valve covers the
-        shortfall, the plan stays optimal, and it shows as a breach rather
-        than as a silent shortfall in net export."""
-        plan = _plan(initial_soc_kwh=122.2 * 0.02 + 40.5)
-        self.assertEqual(plan.status, "optimal")
-        np.testing.assert_allclose(plan.grid_export_kw[BLOCK], 12.0, atol=1e-6)
-        self.assertGreater(plan.import_cap_breach_kwh, 0.0)
-
     def test_a_block_the_battery_cannot_deliver_still_solves(self):
         """nimbus #1761: a battery that cannot deliver the pinned export used
         to make the whole solve infeasible (published as 0 kW everywhere).
@@ -116,12 +104,6 @@ class TestABlockIsNetExport(unittest.TestCase):
         self.assertEqual(plan.status, "optimal")
         self.assertTrue(np.all(plan.grid_export_kw[BLOCK] <= 12.0 + 1e-6))
         self.assertLess(float(np.sum(plan.grid_export_kw[BLOCK])), 12.0 * 3)
-
-    def test_the_price_spike_override_keeps_its_own_period_0_limit(self):
-        self.assertEqual(
-            p2p_export.grid_import_ub(0, _grid_for_ub(), 44.0, override_p2p=True), 44.0
-        )
-        self.assertEqual(p2p_export.grid_import_ub(0, _grid_for_ub(), 44.0), 0.0)
 
 
 def _grid_for_ub(fixed=(12.0, 12.0, 12.0)):

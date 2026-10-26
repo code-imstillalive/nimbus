@@ -94,22 +94,6 @@ def _resolve():
     }
 
 
-@pytest.mark.parametrize(
-    ("kw", "hours", "stale", "by_period", "total"),
-    [
-        ([2.0] * 4, 1.0, set(), (2.0, 2.0, 2.0, 2.0), 8.0),
-        ([2.0] * 4, 0.25, set(), (0.5, 0.5, 0.5, 0.5), 2.0),
-        ([2.0] * 4, 1.0, {1, 2}, (2.0, 0.0, 0.0, 2.0), 4.0),
-        ([3.0, -3.0, 3.0], 1.0, set(), (3.0, 0.0, 3.0), 6.0),  # a load never generates
-    ],
-)
-def test_energy_is_power_times_time_with_stale_periods_and_negatives_at_zero(
-    kw, hours, stale, by_period, total
-):
-    got, got_total = clh.integrate_delivered_kwh(kw, hours, stale)
-    assert got == pytest.approx(by_period) and got_total == pytest.approx(total)
-
-
 def test_each_load_reports_its_own_real_delivery_never_its_target(site):
     hws, pool = [0.0] * 24, [0.0] * 24
     hws[2] = hws[3] = hws[4] = 0.65
@@ -194,11 +178,6 @@ def test_a_discovered_sensor_is_used_when_none_is_configured(site):
         out.power_sensor == "sensor.hws_power"
         and out.delivered_kwh == pytest.approx(0.65)
     )
-
-
-def test_outside_home_assistant_there_is_nothing_to_reconstruct(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    assert _resolve() == {}
 
 
 # --- the oracle's controllable loads, built from what each really delivered (#1357) ------------

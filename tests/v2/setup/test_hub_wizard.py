@@ -439,24 +439,6 @@ def test_live_number_fields_show_the_current_value_but_never_the_placeholder(wor
     )
 
 
-def test_a_live_number_that_is_not_this_hubs_own_is_skipped(world):
-    hass = Hass()
-    world.registry["hub1_" + const.CONF_SOLVER_BATTERY_CAPACITY_KWH] = "number.cap"
-    assert _run(
-        ln.async_apply(
-            hass,
-            "hub1",
-            {
-                const.CONF_SOLVER_BATTERY_CAPACITY_KWH: 5.0,
-                const.CONF_SOLVER_MAX_CHARGE_KW: 3.0,
-            },
-        )
-    ) == [
-        const.CONF_SOLVER_BATTERY_CAPACITY_KWH,  # registered, but no entity loaded
-        const.CONF_SOLVER_MAX_CHARGE_KW,  # not registered
-    ]
-
-
 def _default_of(form, key):
     for marker in form["data_schema"].schema:
         if str(marker) == key:

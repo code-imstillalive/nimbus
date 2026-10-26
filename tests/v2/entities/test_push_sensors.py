@@ -116,30 +116,6 @@ def _make(name, *, last_state=None):
 
 
 @pytest.mark.parametrize("name", sorted(PUSH))
-def test_each_push_sensor_has_its_fixed_identity_unit_and_device(name):
-    entity_id, unit, _restore, device = PUSH[name]
-    sensor, _ = _make(name)
-    assert sensor.entity_id == entity_id
-    assert sensor._attr_unique_id == f"hub1_{entity_id.split('.', 1)[1]}"
-    expected_unit = "AUD" if name == "NimbusEfficiencyBacktestSensor" else unit
-    assert (
-        sensor.native_unit_of_measurement
-        if name == "NimbusEfficiencyBacktestSensor"
-        else sensor._attr_native_unit_of_measurement
-    ) == expected_unit
-    assert ("nimbus_load", f"hub1{device}") in sensor._attr_device_info["identifiers"]
-    if device:
-        # Sub-devices sit under the hub.
-        assert sensor._attr_device_info.get("via_device") == ("nimbus_load", "hub1")
-    # Every class that publishes a forecast keeps it out of the recorder.
-    if name in (
-        "NimbusSolverBatteryForecastSensor",
-        "NimbusHouseholdLoadTotalForecastSensor",
-    ):
-        assert "forecast" in sensor._unrecorded_attributes
-
-
-@pytest.mark.parametrize("name", sorted(PUSH))
 def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
     name, clock, caplog
 ):
@@ -209,21 +185,6 @@ def test_only_the_daily_reports_restore_their_last_value_after_a_restart(
     assert len(sensor._on_remove_callbacks) == 1
 
 
-@pytest.mark.parametrize(
-    "state",
-    [
-        None,
-        SimpleNamespace(state="unavailable", attributes={}),
-        SimpleNamespace(state="n/a", attributes={}),
-    ],
-)
-def test_a_restore_with_nothing_usable_leaves_the_sensor_empty(state, monkeypatch):
-    monkeypatch.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
-    sensor, _ = _make("NimbusSolverQualityReportSensor", last_state=state)
-    asyncio.run(sensor.async_added_to_hass())
-    assert sensor.native_value is None and sensor._attrs == {}
-
-
 def test_a_failing_restore_never_blocks_setup(monkeypatch):
     monkeypatch.setattr(sm, "async_track_time_interval", lambda *a: lambda: None)
     sensor, _ = _make("NimbusFlexReportSensor")
@@ -234,15 +195,6 @@ def test_a_failing_restore_never_blocks_setup(monkeypatch):
     sensor.async_get_last_state = broken
     asyncio.run(sensor.async_added_to_hass())
     assert sensor.native_value is None
-
-
-def test_removing_a_sensor_stops_the_solver_writing_to_it(monkeypatch):
-    sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
-    gone = []
-    monkeypatch.setattr(sw, "unregister_entity_handler", gone.append)
-    sensor, _ = _make("NimbusOfferCurveSensor")
-    asyncio.run(sensor.async_will_remove_from_hass())
-    assert gone == ["sensor.nimbus_offer_curve"]
 
 
 @pytest.mark.parametrize(

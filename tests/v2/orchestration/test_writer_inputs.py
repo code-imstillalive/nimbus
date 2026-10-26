@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import types
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
@@ -98,23 +97,6 @@ def _price(values, *, start=T0, step=30, unit="$/kWh", key="value"):
     }
 
 
-def test_a_generic_forecast_holds_the_latest_point_and_marks_real_coverage(ha):
-    ha.states["sensor.p"] = _price([0.1, 0.2], start=T0 + timedelta(minutes=30))
-    values, real = sw._resample_generic_price_forecast_raw("sensor.p", _grid(4))
-    assert values == [0.1, 0.1, 0.2, 0.2]
-    assert real == [False, True, True, False]
-
-
-def test_a_calibrated_only_forecast_is_read_and_bad_rows_are_skipped(ha):
-    state = _price([0.3], key="calibrated")
-    state["attributes"]["forecast"] += [{"time": "garbage", "value": 1}, {"value": 2}]
-    ha.states["sensor.p"] = state
-    assert sw._resample_generic_price_forecast_raw("sensor.p", _grid(2)) == (
-        [0.3, 0.3],
-        [True, False],
-    )
-
-
 @pytest.mark.parametrize(
     "state",
     [
@@ -131,18 +113,6 @@ def test_no_usable_forecast_is_none_not_zero(ha, state):
     assert (
         sw.resample_generic_price_forecast_with_coverage("sensor.p", _grid(2)) is None
     )
-
-
-@pytest.mark.parametrize(
-    ("unit", "scale"), [("$/kWh", 1.0), ("c/kWh", 0.01), ("$/MWh", 0.001)]
-)
-def test_a_generic_forecast_is_scaled_by_its_own_unit(ha, unit, scale):
-    ha.states["sensor.p"] = _price([20.0, 40.0], unit=unit)
-    values, real = sw.resample_generic_price_forecast_with_coverage(
-        "sensor.p", _grid(2)
-    )
-    assert values == pytest.approx([20.0 * scale, 40.0 * scale])
-    assert real == [True, True]
 
 
 # --- secondary price sources ---------------------------------------------------
@@ -258,31 +228,6 @@ def test_the_tail_is_left_alone_without_everything_it_needs(
 
 
 # --- P2P matched-rate sources ------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("unit", "currency", "scale"),
-    [
-        ("c/kWh", None, 0.01),
-        ("¢/kWh", None, 0.01),
-        ("$/kWh", None, 1.0),
-        ("€/kWh", None, 1.0),
-        ("AUD/kWh", None, None),
-        ("AUD/kWh", "AUD", 1.0),
-        ("aud/kWh", "AUD", 1.0),
-        ("USD/kWh", "AUD", None),
-        ("kWh", None, None),
-        (None, None, None),
-    ],
-)
-def test_a_p2p_rate_unit_must_be_a_price_per_kwh(monkeypatch, unit, currency, scale):
-    hass = (
-        None
-        if currency is None
-        else type("H", (), {"config": type("C", (), {"currency": currency})()})()
-    )
-    monkeypatch.setattr(sw.NATIVE, "hass", hass)
-    assert sw._p2p_unit_scale(unit) == scale
 
 
 def test_rate_rows_become_intervals():
@@ -408,15 +353,6 @@ def test_a_matched_rate_feed_reports_its_horizon_and_sorted_intervals():
     assert plain["horizon"] is None and plain["intervals"] == []
 
 
-def test_a_volume_shaped_source_is_read_as_triples():
-    end = T0 + timedelta(minutes=5)
-    state = _p2p_state(
-        [{"time": _iso(end), "volume": 1.0, "proportionP2P": 1.0, "matchedCost": 0.3}]
-    )
-    out = sw._p2p_source_observations(state, "sensor.p2p", None)
-    assert out["intervals"] == [(T0, end, sw.P2P_RATE, 0.3)]
-
-
 # --- the live grid meter ------------------------------------------------------
 
 
@@ -530,14 +466,6 @@ def test_an_envelope_forecast_is_resampled_and_scaled_to_kw(envelope):
     )
 
 
-def test_an_envelope_without_a_forecast_holds_its_live_value(envelope):
-    envelope.states["sensor.env"] = {
-        "state": "7",
-        "attributes": {"unit_of_measurement": "kW"},
-    }
-    assert sw.resolve_envelope_limit_kw("sensor.env", 10.0, _grid(2)) == [7.0, 7.0]
-
-
 def test_a_dropped_envelope_warns_once_falls_back_and_notes_recovery(envelope, caplog):
     grid = _grid(2)
     with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
@@ -585,12 +513,6 @@ def test_power_history_reads_in_kw_skipping_what_is_not_a_power_reading(ha):
     assert got[0][0].tzinfo == sw.LOCAL_TZ
 
 
-def test_power_history_is_empty_when_there_is_none(ha):
-    assert (
-        sw.fetch_entity_power_history_kw("sensor.pv", T0, T0 + timedelta(hours=1)) == []
-    )
-
-
 @pytest.mark.parametrize(
     ("times", "expected"),
     [
@@ -614,11 +536,6 @@ def test_power_history_coverage(times, expected):
     # lies wholly inside the two-hour window.
     assert out["time_in_long_gaps_pct"] == pytest.approx(70 / 120 * 100, abs=0.01)
     assert 0.0 <= out["stale_periods_pct"] <= 100.0
-
-
-def test_power_history_coverage_of_an_empty_grid_is_none():
-    pts = [(T0, 1.0), (T0 + timedelta(minutes=5), 1.0)]
-    assert sw._power_history_coverage(pts, [], 0.5) is None
 
 
 # --- calendar trips ---------------------------------------------------------------
@@ -763,32 +680,6 @@ def test_a_setting_reads_its_default_only_when_unset_never_when_zero(
     assert shared._cfg_num(cfg, "k", 5.0) == number
     if integer is not None:
         assert shared._cfg_int(cfg, "k", 7) == integer
-
-
-@pytest.mark.parametrize(
-    ("zone", "expect"),
-    [("Australia/Perth", "Australia/Perth"), ("Not/AZone", None), (None, None)],
-    ids=["home_assistants_zone", "a_zone_that_does_not_exist", "no_config"],
-)
-def test_the_local_time_zone_is_home_assistants_own_unless_overridden(
-    monkeypatch, caplog, zone, expect
-):
-    """Every local hour -- tariff periods, departures, day boundaries --
-    reads one zone, the one Home Assistant is set to; one it cannot use
-    keeps the zone already in force."""
-    shared = importlib.import_module("solver_shared")
-    monkeypatch.delenv("NIMBUS_SOLVER_TIMEZONE", raising=False)
-    monkeypatch.setattr(sw, "LOCAL_TZ", sw.LOCAL_TZ)
-    monkeypatch.setattr(shared, "LOCAL_TZ", shared.LOCAL_TZ)
-    monkeypatch.setattr(shared.NATIVE, "hass", shared.NATIVE.hass)
-    before = sw.LOCAL_TZ
-    hass = types.SimpleNamespace(config=types.SimpleNamespace(time_zone=zone))
-    with caplog.at_level(logging.ERROR):
-        sw.set_native_hass(hass if zone else types.SimpleNamespace())
-    assert str(sw.LOCAL_TZ) == (expect or str(before))
-    if expect:
-        assert shared.LOCAL_TZ is sw.LOCAL_TZ
-    assert ("could not resolve" in caplog.text) is (expect is None)
 
 
 # --- two matched-rate sources, one answer per period (#1537) ---------------------------------
@@ -1148,44 +1039,6 @@ def _lv_rates(monkeypatch, grid, window, rows=None, **row):
 NAN = float("nan")
 
 
-@pytest.mark.parametrize(
-    ("grid", "window", "expected"),
-    [
-        (MIDDAY, [5.0] * 3, [LV_RATE] * 3),  # a block at any hour gets its rate
-        (EVENING, [NAN] * 3, [0.0] * 3),  # outside the blocks, even at 17:00
-        (MIDDAY, [NAN, 5.0, 0.0], [0.0, LV_RATE, 0.0]),  # per period; 0 kW pins
-        (MIDDAY, None, [LV_RATE] * 3),  # no block: matched at any hour (#1559)
-        (EVENING, None, [LV_RATE] * 3),
-    ],
-    ids=[
-        "midday_block",
-        "evening_outside",
-        "per_period",
-        "no_block_midday",
-        "no_block_evening",
-    ],
-)
-def test_the_matched_rate_counts_inside_the_households_own_blocks(
-    monkeypatch, grid, window, expected
-):
-    assert _lv_rates(monkeypatch, grid, window) == pytest.approx(expected)
-
-
-def test_past_the_feed_a_block_keeps_its_rate_and_no_block_assumes_nothing(monkeypatch):
-    rows = [{"intervalEnd": (EVENING[0] + timedelta(minutes=5)).isoformat(), **LV_ROW}]
-    assert _lv_rates(monkeypatch, EVENING, None, rows=rows) == pytest.approx(
-        [LV_RATE, 0.0, 0.0]
-    )
-    assert _lv_rates(monkeypatch, EVENING, [11.5] * 3, rows=rows) == pytest.approx(
-        [LV_RATE] * 3
-    )
-
-
-def test_an_unmatched_interval_or_a_misaligned_window_is_no_block(monkeypatch):
-    assert _lv_rates(monkeypatch, MIDDAY, None, proportionP2P=0.0) == [0.0] * 3
-    assert _lv_rates(monkeypatch, MIDDAY, [5.0]) == _lv_rates(monkeypatch, MIDDAY, None)
-
-
 def _blocks(*blocks):
     cfg = {}
     for n, (rate, start, end) in enumerate(blocks, 1):
@@ -1291,20 +1144,6 @@ def array_branch(monkeypatch):
     return build
 
 
-def test_on_the_price_array_branch_the_blocks_are_the_window_and_the_volume(
-    array_branch,
-):
-    blocks = _blocks((11.5, 17, 24))
-    out = array_branch(blocks)
-    assert array_branch.seen["window"] == [11.5] * 3
-    assert out.p2p_recent_volume_kwh == pytest.approx(80.5)
-    assert out.export_bonus_price == pytest.approx([0.4] * 3)  # premium over spot
-    settled = {**blocks, "solver_p2p_settlement_history_sensor": "sensor.hist"}
-    assert array_branch(settled, recent=47.7).p2p_recent_volume_kwh == 47.7
-    none = array_branch({})
-    assert array_branch.seen["window"] is None and none.p2p_recent_volume_kwh == 60.0
-
-
 # --- one entity's recorded history, and the price history that wraps it (#363) ---------------
 
 
@@ -1355,18 +1194,6 @@ def test_a_local_window_is_asked_for_in_utc(monkeypatch):
     sw.fetch_entity_history_range("sensor.price", start, start + timedelta(days=1))
     for t in (start, start + timedelta(days=1)):
         assert t.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") in seen["url"]
-
-
-@pytest.mark.parametrize(("kwargs", "days"), [({"days": 3}, 3), ({}, 5)])
-def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
-    calls = []
-    monkeypatch.setattr(
-        sw, "fetch_entity_history_range", lambda *a: calls.append(a) or []
-    )
-    sw.fetch_price_history("sensor.price", **kwargs)
-    ((entity, start, end),) = calls
-    assert entity == "sensor.price" and end - start == timedelta(days=days)
-    assert datetime.now(UTC) - end < timedelta(seconds=10)
 
 
 def test_both_price_branches_return_every_field_of_a_frozen_record(

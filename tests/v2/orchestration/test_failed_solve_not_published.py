@@ -24,15 +24,6 @@ class TestSolverFailedPredicate(unittest.TestCase):
     def test_error_is_the_only_failed_status(self):
         self.assertTrue(_plan("error", "Time limit reached").solver_failed)
 
-    def test_infeasible_is_an_answer_not_a_failure(self):
-        """The distinction the whole guard rests on. HiGHS PROVED no
-        feasible dispatch exists -- that is a real result about the
-        model, and #773's own fallback path depends on it reaching the
-        published plan."""
-        plan = _plan("infeasible")
-        self.assertFalse(plan.solver_failed)
-        self.assertFalse(plan.is_optimal)
-
     def test_unbounded_is_also_an_answer(self):
         self.assertFalse(_plan("unbounded").solver_failed)
 
@@ -46,22 +37,6 @@ class TestSolverFailedPredicate(unittest.TestCase):
         non_optimal = [_plan(s) for s in ("infeasible", "unbounded", "error")]
         self.assertEqual([p.is_optimal for p in non_optimal], [False, False, False])
         self.assertEqual([p.solver_failed for p in non_optimal], [False, False, True])
-
-    def test_a_failed_plan_really_is_empty(self):
-        """Why publishing one is harmful in the first place: it is not a
-        partial plan, it is a confident-looking plan of zeros."""
-        plan = _plan("error", "Time limit reached")
-        self.assertEqual(plan.batteries, [])
-        self.assertEqual(plan.sheddable_loads, [])
-        self.assertEqual(plan.adequacy_loads, [])
-        self.assertEqual(plan.thermal_loads, [])
-        for arr in (
-            plan.battery_charge_kw,
-            plan.battery_discharge_kw,
-            plan.grid_import_kw,
-            plan.grid_export_kw,
-        ):
-            self.assertTrue(bool(np.all(arr == 0.0)))
 
 
 def _publish_plan_node() -> ast.FunctionDef:

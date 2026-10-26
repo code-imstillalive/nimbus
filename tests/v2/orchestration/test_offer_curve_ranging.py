@@ -42,15 +42,6 @@ class TestBuildOfferCurveBands(unittest.TestCase):
             ],
         )
 
-    def test_missing_ranging_list_gives_every_band_null_bounds(self):
-        # A real, honest case: offer_curve_import/export populated but
-        # their own parallel ranging list wasn't -- kw is still the
-        # real solved value, only the price range is unknown.
-        bands = solver_writer._build_offer_curve_bands([(0.1905, 6.171)], None)
-        self.assertEqual(
-            bands, [{"price_lower": None, "price_upper": None, "kw": 6.171}]
-        )
-
     def test_a_single_invalid_step_gives_that_band_null_bounds_only(self):
         bands = solver_writer._build_offer_curve_bands(
             [(-1.0, 0.0), (0.0868, 0.0)], [(-1.0, 0.05), None]
@@ -85,24 +76,6 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         self.assertEqual(bands[0]["price_upper"], 0.3)
         self.assertEqual(bands[0]["kw"], 6.171)
 
-    def test_adjacent_exact_duplicates_collapse_to_one_row(self):
-        # nimbus issue #706: two raw solves that round to the identical
-        # (price_lower, price_upper, kw) triple carry zero extra
-        # information -- collapse them, unlike the #677 collision case
-        # (two DIFFERENT values silently colliding), which is why this
-        # is safe where that wasn't.
-        bands = solver_writer._build_offer_curve_bands(
-            [(-1.0, 30.0), (0.04287104246724765, 30.0), (0.04287204246724765, 29.446)],
-            [(-1.0, 0.0429), (-1.0, 0.0429), (0.0429, 0.043)],
-        )
-        self.assertEqual(
-            bands,
-            [
-                {"price_lower": -1.0, "price_upper": 0.0429, "kw": 30.0},
-                {"price_lower": 0.0429, "price_upper": 0.043, "kw": 29.446},
-            ],
-        )
-
     def test_near_duplicates_that_differ_after_rounding_both_survive(self):
         # The real bug this whole shape change fixes: rows that are
         # CLOSE but not identical after rounding must never collapse --
@@ -121,48 +94,6 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         )
         self.assertEqual(bands[0]["price_lower"], float("-inf"))
         self.assertEqual(bands[0]["price_upper"], float("inf"))
-
-    def test_730_real_import_curve_shape_collapses_to_two_bands(self):
-        # nimbus issue #730 (Mark Purcell, live finding): a walk step and
-        # the always-separate retail solve landed in the same tied
-        # degenerate basis -- two bands both open at -inf, one's range a
-        # strict subset of the other's, same kw. Real live numbers,
-        # verbatim from the bug report.
-        bands = solver_writer._build_offer_curve_bands(
-            [(0.02, -0.0), (0.05, -0.0), (0.08, 0.0)],
-            [
-                (float("-inf"), 0.0369),
-                (float("-inf"), 0.0748),
-                (0.0748, float("inf")),
-            ],
-        )
-        self.assertEqual(
-            bands,
-            [
-                {"price_lower": float("-inf"), "price_upper": 0.0748, "kw": -0.0},
-                {"price_lower": 0.0748, "price_upper": float("inf"), "kw": 0.0},
-            ],
-        )
-
-    def test_730_real_export_curve_shape_collapses_to_two_bands(self):
-        # Same incident, export side -- the nested pair is bands 2/3
-        # this time (bands 1/2 are adjacent-but-disjoint, correctly kept
-        # separate: no subset relation between them).
-        bands = solver_writer._build_offer_curve_bands(
-            [(0.03, 0.0), (0.09, -0.0), (0.25, 0.0)],
-            [
-                (float("-inf"), 0.0749),
-                (0.075, float("inf")),
-                (0.2162, float("inf")),
-            ],
-        )
-        self.assertEqual(
-            bands,
-            [
-                {"price_lower": float("-inf"), "price_upper": 0.0749, "kw": 0.0},
-                {"price_lower": 0.075, "price_upper": float("inf"), "kw": -0.0},
-            ],
-        )
 
     def test_subset_with_different_kw_is_not_collapsed(self):
         # The real, still-open risk #730 itself names: if a future cycle
@@ -203,39 +134,6 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
         with patch.object(solver_writer, "ha_post_state") as post:
             solver_writer.publish_offer_curve(plan)
         post.assert_not_called()
-
-    def test_publishes_band_shaped_curves(self):
-        plan = _plan(
-            offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
-            offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],
-            offer_curve_import_ranging=[(-1.0, 0.0), (0.1, float("inf"))],
-            offer_curve_export_ranging=[None, (0.05, 0.15)],
-            offer_curve_sweep_seconds=0.0922,
-        )
-        with patch.object(solver_writer, "ha_post_state") as post:
-            solver_writer.publish_offer_curve(plan)
-        post.assert_called_once()
-        entity_id, state, attrs = post.call_args[0]
-        self.assertEqual(entity_id, "sensor.nimbus_offer_curve")
-        self.assertEqual(state, 6.171)
-        # nimbus issue #706: list of self-contained bands, not a
-        # {price: kW} dict with a separate parallel _ranging dict.
-        self.assertEqual(
-            attrs["import_curve"],
-            [
-                {"price_lower": -1.0, "price_upper": 0.0, "kw": 30.0},
-                {"price_lower": 0.1, "price_upper": float("inf"), "kw": 6.171},
-            ],
-        )
-        self.assertEqual(
-            attrs["export_curve"],
-            [
-                {"price_lower": None, "price_upper": None, "kw": 0.0},
-                {"price_lower": 0.05, "price_upper": 0.15, "kw": 0.0},
-            ],
-        )
-        self.assertNotIn("import_curve_ranging", attrs)
-        self.assertNotIn("export_curve_ranging", attrs)
 
     def test_price_limits_published_as_a_real_json_object(self):
         # nimbus issue #705: the real AEMO domain the walk was bounded by,

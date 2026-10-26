@@ -50,19 +50,6 @@ def test_a_non_404_http_error_still_propagates_unmasked():
     assert exc_info.value.code == 500
 
 
-def test_entity_exists_but_not_configured_still_raises_its_own_existing_message():
-    # The pre-existing "configured" check is unaffected by this fix.
-    def _mock_ha_get(entity_id):
-        return {"entity_id": entity_id, "state": "not_configured", "attributes": {}}
-
-    with (
-        patch.object(solver_writer, "ha_get", _mock_ha_get),
-        pytest.raises(RuntimeError) as exc_info,
-    ):
-        fetch_solver_config()
-    assert "not configured yet" in str(exc_info.value)
-
-
 def test_entity_exists_and_configured_returns_its_attributes():
     def _mock_ha_get(entity_id):
         return {

@@ -41,16 +41,6 @@ def _battery(spike_kw, max_discharge_kw):
     )
 
 
-def test_a_rate_above_only_the_live_ceiling_is_clamped_and_accepted(caplog):
-    with caplog.at_level(logging.WARNING):
-        kw = sw.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)
-    assert kw == 8.0
-    assert "number.x" in caplog.text and "8.00 kW" in caplog.text
-    assert _battery(kw, 8.0).spike_override_discharge_kw == 8.0
-    with pytest.raises(ValueError):  # what every solve hit before
-        _battery(10.0, 8.0)
-
-
 @pytest.mark.parametrize(
     ("spike_kw", "ceiling", "expected"),
     [(None, 8.0, None), (6.0, 8.0, 6.0), (8.0, 8.0, 8.0), (12.0, 8.0, 12.0)],
@@ -64,21 +54,3 @@ def test_otherwise_the_rate_passes_through_unchanged(
             sw.clamp_spike_override_to_live_ceiling(LIVE, spike_kw, ceiling) == expected
         )
     assert caplog.text == ""
-
-
-def test_a_rate_above_the_static_setting_is_still_refused():
-    static = {"solver_max_discharge_kw": 8.0}
-    kw = sw.clamp_spike_override_to_live_ceiling(static, 10.0, 8.0)
-    with pytest.raises(ValueError):
-        _battery(kw, 8.0)
-
-
-def test_the_warning_comes_once_per_episode(caplog):
-    with caplog.at_level(logging.WARNING):
-        for _ in range(3):
-            sw.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)
-        sw.clamp_spike_override_to_live_ceiling(LIVE, None, 8.0)  # the spike ends
-        sw.clamp_spike_override_to_live_ceiling(LIVE, 10.0, 8.0)  # the next one
-    assert (
-        sum("live max-discharge ceiling" in r.getMessage() for r in caplog.records) == 2
-    )

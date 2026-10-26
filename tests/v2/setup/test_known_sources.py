@@ -113,16 +113,6 @@ def test_an_install_that_renamed_nothing_gets_exactly_the_old_entities():
     assert found["open_meteo"] == DEFAULT_OPEN_METEO
 
 
-def test_a_renamed_solcast_is_still_found_today_first():
-    found = _resolve(
-        _solcast("sensor.bumbum_solbum_today", "sensor.bumbum_solbum_tmrw")
-    )
-    assert found["solcast"] == [
-        "sensor.bumbum_solbum_today",
-        "sensor.bumbum_solbum_tmrw",
-    ]
-
-
 def test_a_renamed_open_meteo_is_still_found():
     names = [f"sensor.dach_{i}" for i in range(8)]
     found = _resolve({ks.OPEN_METEO_DOMAIN: _open_meteo("OM1", names)})

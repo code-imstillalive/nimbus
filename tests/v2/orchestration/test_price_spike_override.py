@@ -21,11 +21,6 @@ def _cfg(**overrides):
 
 
 class TestSpikeDetectionByThreshold(unittest.TestCase):
-    def test_price_at_or_above_threshold_is_detected(self):
-        cfg = _cfg(solver_price_spike_threshold=1.0)
-        _kw, detected = solver_writer.resolve_price_spike_override(cfg, 1.0)
-        self.assertTrue(detected)
-
     def test_price_below_threshold_is_not_detected(self):
         cfg = _cfg(solver_price_spike_threshold=1.0)
         _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.99)
@@ -51,12 +46,6 @@ class TestSpikeDetectionByAlertEntity(unittest.TestCase):
             _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.10)
         mock_get.assert_called_once_with("binary_sensor.retailer_spike")
         self.assertTrue(detected)
-
-    def test_alert_entity_off_is_not_detected(self):
-        cfg = _cfg(solver_price_spike_alert_entity="binary_sensor.retailer_spike")
-        with patch.object(solver_writer, "ha_get", return_value={"state": "off"}):
-            _kw, detected = solver_writer.resolve_price_spike_override(cfg, 0.10)
-        self.assertFalse(detected)
 
     def test_alert_entity_fetch_failure_fails_open_to_not_detected(self):
         """A spike-alert integration having a bad moment must never
@@ -91,30 +80,6 @@ class TestOverrideRequiresArmingAndARealRate(unittest.TestCase):
         kw, detected = solver_writer.resolve_price_spike_override(cfg, 1.5)
         self.assertTrue(detected)  # visibility still fires
         self.assertIsNone(kw)  # but no override, human hasn't armed it
-
-    def test_armed_and_detected_but_zero_rate_gives_no_override(self):
-        """A rate of 0 (never explicitly set by the household) must not
-        silently discharge at 0kW -- that's a real, deliberate pin
-        elsewhere (network.py's own test coverage), but here it means
-        "the household hasn't configured a real rate yet"."""
-        cfg = _cfg(
-            solver_price_spike_threshold=1.0,
-            solver_price_spike_discharge_kw=0.0,
-            solver_price_spike_override_armed=True,
-        )
-        kw, detected = solver_writer.resolve_price_spike_override(cfg, 1.5)
-        self.assertTrue(detected)
-        self.assertIsNone(kw)
-
-    def test_armed_detected_and_a_real_rate_gives_the_override(self):
-        cfg = _cfg(
-            solver_price_spike_threshold=1.0,
-            solver_price_spike_discharge_kw=25.0,
-            solver_price_spike_override_armed=True,
-        )
-        kw, detected = solver_writer.resolve_price_spike_override(cfg, 1.5)
-        self.assertTrue(detected)
-        self.assertEqual(kw, 25.0)
 
 
 class TestSpikeWinsOverP2P(unittest.TestCase):

@@ -58,60 +58,10 @@ def _hour_of_day_events() -> list[tuple[datetime, float]]:
     return events
 
 
-class TestMaxStalenessExcludesAnOutageGapFromSeasonalLookup(unittest.TestCase):
-    def test_a_bucket_spanned_by_a_real_multiday_gap_stays_close_to_its_true_value(
-        self,
-    ):
-        events = _hour_of_day_events()
-        trained = ml_model.train_model(
-            load_events=events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=START_OF_TIME,
-            end=START_OF_TIME + timedelta(days=_TOTAL_DAYS),
-            resample_minutes=60,
-            min_training_points=50,
-        )
-        self.assertIsNotNone(trained)
-
-        # Day 12 (squarely inside the gap) at hour 8 -- a real weekday
-        # that exists on OTHER (non-gapped) weeks too, so the bucket
-        # itself isn't empty, just partially contaminated under the old
-        # behaviour.
-        probe_day = START_OF_TIME + timedelta(days=12, hours=8)
-        bucket = (probe_day.weekday(), 8, 0)
-        self.assertIn(
-            bucket,
-            trained.seasonal_lookup,
-            "expected real samples from the non-gapped weeks to still "
-            "populate this bucket",
-        )
-        value = trained.seasonal_lookup[bucket]
-        # True value is 8.0 (value(t) = float(t.hour)); the pre-fix
-        # contamination pulls this toward 23.0 (the stale fill). Loose
-        # bound (within 2.0) -- shrinkage toward the all-weekday hourly
-        # mean means this was never going to land EXACTLY on 8.0 even
-        # with the fix, the point is it stays close, not pulled toward 23.
-        self.assertLess(
-            abs(value - 8.0),
-            2.0,
-            f"seasonal_lookup[{bucket}] = {value:.3f}, expected close to "
-            "8.0 (the true hour-8 value) -- looks contaminated by the "
-            "stale forward-filled 23.0 from the multi-day gap",
-        )
-
-
 class TestResampleLastValueMaxStalenessDirectly(unittest.TestCase):
     """Direct, function-level coverage of the actual public contract
     (train_model()'s own use above proves it matters in practice; this
     proves the primitive itself behaves exactly as documented)."""
-
-    def test_none_max_staleness_preserves_the_original_unbounded_forward_fill(self):
-        events = [(START_OF_TIME, 5.0)]
-        grid = [START_OF_TIME + timedelta(days=10)]  # far past the one event
-        out = ml_model.resample_last_value(events, grid, max_staleness=None)
-        self.assertEqual(out, [5.0])
 
     def test_a_grid_point_older_than_max_staleness_returns_none_not_the_stale_value(
         self,

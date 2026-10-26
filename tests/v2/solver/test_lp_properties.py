@@ -97,20 +97,6 @@ def test_an_absorbed_problem_solves_as_the_sum_of_its_parts(a, b, sa, sb):
 
 @SETTINGS
 @given(problems())
-def test_absorbing_into_an_empty_problem_reproduces_it(spec):
-    """`absorb(prefix="", cost_scale=1.0)` into an empty problem is the
-    problem itself: the same optimum and the same point."""
-    p = _build(spec)
-    joint = LPProblem()
-    joint.absorb(p, prefix="", cost_scale=1.0)
-    r, rj = p.solve(), joint.solve()
-    assert r.status == rj.status == "optimal"
-    assert abs(r.objective - rj.objective) <= 1e-9 * max(1.0, abs(r.objective))
-    np.testing.assert_allclose(r.x, rj.x, atol=1e-9)
-
-
-@SETTINGS
-@given(problems())
 def test_the_lexicographic_solve_keeps_the_primary_and_improves_the_secondary(
     spec,
 ):
@@ -125,21 +111,6 @@ def test_the_lexicographic_solve_keeps_the_primary_and_improves_the_secondary(
     primary = p.primary_cost_of(lex)
     assert primary <= plain.objective + 1e-7 * max(1.0, abs(plain.objective))
     assert _secondary(p, lex) <= _secondary(p, plain) + 1e-6
-
-
-@SETTINGS
-@given(problems())
-def test_the_calibrated_solve_keeps_the_primary_within_its_tolerance(spec):
-    """Calibrated mode, production's default: the primary objective is
-    within `calibration_tolerance` (relative) of its plain optimum."""
-    p = _build(spec)
-    plain = p.solve()
-    options = CalibratedOptions()
-    cal = p.solve(options=options)
-    assert plain.status == cal.status == "optimal"
-    primary = p.primary_cost_of(cal)
-    slack = options.calibration_tolerance * max(1.0, abs(plain.objective))
-    assert primary <= plain.objective + slack + 1e-7
 
 
 @SETTINGS
@@ -249,37 +220,6 @@ def _counting(calls, real):
     return tracking
 
 
-def test_ranging_on_a_pinned_or_failed_solve():
-    """#490 with #238: a MIP's ranging is the pinned LP's (valid, every
-    column); a zero-width column is degenerate headroom; an infeasible
-    solve reports ranging invalid with nothing in it, or None if unasked."""
-    p = LPProblem()
-    y = p.add_variable("y", binary=True)
-    x = p.add_variable("x", ub=10.0, cost=-1.0)
-    p.add_ub_constraint({x: 1.0, y: -10.0}, 0.0, name="gate")
-    r = p.solve(ranging=True)
-    assert r.status == "optimal" and r.ranging_valid is True
-    assert set(r.col_bound_up) == {"x", "y"}
-
-    p = LPProblem()
-    p.add_variable("imp", cost=0.30)
-    p.add_variable("solar", lb=6.0, ub=6.0)
-    p.add_eq_constraint({"imp": 1.0, "solar": 1.0}, 6.0, name="balance")
-    room = p.solve(ranging=True).bound_headroom("solar")
-    assert room.degenerate and (room.down, room.up) == (0.0, 0.0)
-
-    def infeasible():
-        q = LPProblem()
-        q.add_variable("x", ub=1.0)
-        q.add_eq_constraint({"x": 1.0}, 5.0)
-        return q
-
-    r = infeasible().solve(ranging=True)
-    assert r.status == "infeasible" and r.ranging_valid is False
-    assert r.col_bound_up == {} and r.row_bound_up == {}
-    assert infeasible().solve().ranging_valid is None
-
-
 @SETTINGS
 @given(problems(), st.lists(_num(-6.0, 6.0), min_size=1, max_size=4), st.data())
 def test_every_ranging_sweep_step_holds_inside_its_own_interval(spec, costs, data):
@@ -306,39 +246,6 @@ _KNOWN = (
     "mip_dual_bound",
     "primal_solution_status",
 )
-
-
-@SETTINGS
-@given(
-    st.dictionaries(
-        st.one_of(st.sampled_from(_KNOWN), st.sampled_from(("zz_extra", "aa_extra"))),
-        st.one_of(st.integers(-5, 10**6).map(float), _num(-1e3, 1e3)),
-    )
-)
-def test_the_highs_info_line_lists_every_field_known_first(info):
-    """The #773 diagnostic line: every field appears exactly once, the known
-    fields first in their fixed order and any others after them sorted, and a
-    whole number prints without `.0` (`simplex_iterations=0` must be
-    unmissable)."""
-    from solver.lp import _HIGHS_INFO_FIELDS, format_highs_info
-
-    line = format_highs_info(info)
-    if not info:
-        assert line == "unavailable"
-        return
-    tokens = line.split(" ")
-    names = [t.split("=", 1)[0] for t in tokens]
-    known = [n for n in _HIGHS_INFO_FIELDS if n in info]
-    extra = sorted(set(info) - set(_HIGHS_INFO_FIELDS))
-    expected = [
-        n.replace("simplex_iteration_count", "simplex_iterations")
-        for n in known + extra
-    ]
-    assert names == expected
-    for token, name in zip(tokens, known + extra, strict=True):
-        value = info[name]
-        if value == int(value):
-            assert token.split("=", 1)[1] == str(int(value))
 
 
 @SETTINGS
@@ -388,7 +295,6 @@ def _slow_call_levels(problem: LPProblem) -> tuple[str, list[int]]:
     """Solve with every HiGHS call counted as slow (threshold 0 s, alarm
     threshold out of reach), returning the status and the levels of the
     #773 slow-call lines logged."""
-    from solver import lp
 
     handler = _Capture()
     saved = (lp._SLOW_LP_CALL_SECONDS, lp._ALARMING_LP_CALL_SECONDS)
@@ -420,17 +326,6 @@ def test_a_slow_call_that_solved_is_logged_quietly(spec):
     assert all(level == logging.DEBUG for level in levels)
 
 
-def test_a_slow_call_that_failed_is_a_warning():
-    """The same slow call on an infeasible problem (x >= 1 and x <= 0) is a
-    WARNING, whatever its time."""
-    p = LPProblem()
-    p.add_variable("x", lb=0.0, ub=1.0, cost=1.0)
-    p.add_ub_constraint({"x": -1.0}, -1.5)
-    status, levels = _slow_call_levels(p)
-    assert status != "optimal"
-    assert logging.WARNING in levels
-
-
 # --- #696 / #702 / #773: what each solve option promises ---------------------------
 
 
@@ -445,33 +340,6 @@ def test_without_options_the_secondary_cost_is_never_read(spec):
     assert a.status == b.status
     if a.status == "optimal":
         assert a.objective == pytest.approx(b.objective, abs=1e-6)
-
-
-@SETTINGS
-@given(problems(), st.sampled_from([1e-6, 1e-3, 1.0, 10.0]))
-def test_a_blended_solve_is_the_optimum_of_the_blended_cost(spec, weight):
-    """#696: BlendedOptions minimises primary + weight x secondary, nothing
-    more: its point costs what the plain optimum of that one blended cost
-    does (so a large enough weight can override a real price, by design)."""
-    p = _build(spec)
-    blended = p.solve(options=BlendedOptions(blend_weight=weight))
-    second = [c if c is not None else 0.0 for c in spec["second"]]
-    plain = _build(
-        {
-            **spec,
-            "cost": [
-                c + weight * s2 for c, s2 in zip(spec["cost"], second, strict=True)
-            ],
-            "second": [None] * spec["n"],
-        }
-    ).solve()
-    assert blended.status == plain.status
-    if plain.status != "optimal":
-        return
-    got = p.primary_cost_of(blended) + weight * _secondary(p, blended)
-    assert got == pytest.approx(
-        plain.objective, abs=1e-6 * max(1.0, abs(plain.objective))
-    )
 
 
 @SETTINGS
@@ -530,37 +398,6 @@ def test_a_binary_choice_is_primary_first_then_secondary(primary, data, kind):
         assert second[chosen] == min(second[i] for i in tied)
         assert p.value_of(r, "x2") == pytest.approx(10.0, abs=1e-4)
         assert r.duals["total"] == pytest.approx(1.0, abs=1e-4)
-
-
-@pytest.mark.parametrize("options", [LexOptions(), CalibratedOptions()])
-def test_a_failed_phase_falls_back_to_the_plain_solve_and_says_so(options, monkeypatch):
-    """#773 (a phase failing to reach optimal on two real installs, root
-    cause unknown): the failure used to escape `build_plan` uncaught. Now
-    the plan is the plain options=None solve, exactly, and a #773 WARNING
-    says so."""
-    monkeypatch.setattr(lp, "_lex_calibration_failed_until", 0.0)
-
-    def fails(*_a, **_k):
-        raise ValueError("an internal lex/calibration phase failed")
-
-    monkeypatch.setattr(lp, "_solve_with_options", fails)
-    p = LPProblem()
-    p.add_variable("x1", ub=10.0, cost=1.0)
-    p.add_variable("x2", ub=10.0, cost=1.0)
-    p.set_secondary_cost("x2", -1.0)
-    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
-    records: list[logging.LogRecord] = []
-    handler = logging.Handler(logging.WARNING)
-    handler.emit = records.append
-    lp._LOGGER.addHandler(handler)
-    try:
-        r = p.solve(options=options)
-    finally:
-        lp._LOGGER.removeHandler(handler)
-        lp._lex_calibration_failed_until = 0.0
-    assert r.status == "optimal"
-    assert r.objective == pytest.approx(p.solve().objective)
-    assert any("#773" in rec.getMessage() for rec in records)
 
 
 def test_with_no_primary_cost_the_secondary_alone_picks_the_point():

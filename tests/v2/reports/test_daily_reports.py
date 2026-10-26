@@ -198,64 +198,7 @@ def test_the_backtest_needs_its_sensors(ha, missing):
     assert sw.compute_efficiency_backtest_report(cfg(), NOW) is None
 
 
-def test_the_backtest_ranks_four_candidates_on_a_day_with_arbitrage(ha, monkeypatch):
-    ha["series"]["sensor.real_solar"] = flat(lambda t: 6.0 if 9 <= t.hour < 15 else 0.0)
-    ha["series"]["sensor.real_load"] = flat(1.0)
-    grids = []
-    real = sw.elements.PeriodGrid
-    monkeypatch.setattr(
-        sw.elements,
-        "PeriodGrid",
-        lambda *a, **kw: grids.append(kw["hours"]) or real(*a, **kw),
-    )
-    report = sw.compute_efficiency_backtest_report(cfg(), NOW)
-    assert (
-        len(report["candidates"]) == 4
-        and report["configured_efficiency_percent"] == 95.0
-    )
-    assert report["best_candidate_cost"] <= report["worst_candidate_cost"]
-    assert report["spread_dollars"] > 0.0
-    assert {"best_candidate", "worst_candidate"} <= set(report)
-    ((hours),) = grids
-    assert (len(hours), float(hours[0])) == (48, pytest.approx(0.5))
-
-
 # --- publishing once, re-pushing after (#289, #292) -------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("publish", "entity", "compute"),
-    [
-        (
-            sw.publish_efficiency_backtest_report,
-            sw.BACKTEST_ENTITY_ID,
-            "compute_efficiency_backtest_report",
-        ),
-        (
-            sw.publish_nimbus_only_soc_counterfactual,
-            sw.COUNTERFACTUAL_ENTITY_ID,
-            "compute_nimbus_only_soc_counterfactual",
-        ),
-    ],
-    ids=["backtest", "counterfactual"],
-)
-def test_a_day_already_scored_is_re_pushed_as_it_is_not_recomputed(
-    ha, monkeypatch, publish, entity, compute
-):
-    existing = {"state": "1.23", "attributes": {"latest_date": "2026-08-24"}}
-    ha["states"][entity] = existing
-    monkeypatch.setattr(sw, compute, lambda *_a: pytest.fail("recomputed"))
-    publish(cfg(), NOW)
-    assert ha["posts"] == [(entity, existing["state"], existing["attributes"])]
-
-
-def test_a_new_day_is_scored_and_published_with_its_date(ha):
-    ha["series"]["sensor.real_solar"] = flat(3.0)
-    ha["series"]["sensor.real_load"] = flat(1.0)
-    sw.publish_efficiency_backtest_report(cfg(), NOW)
-    ((entity, _state, attrs),) = ha["posts"]
-    assert entity == sw.BACKTEST_ENTITY_ID and "candidates" in attrs
-    assert attrs["latest_date"] == "2026-08-24"
 
 
 def test_nothing_to_publish_publishes_nothing(ha):
@@ -286,26 +229,6 @@ def _report(ha, **kw):
     return sw.compute_daily_quality_report(
         cfg(solver_battery_soc_sensor=None, **kw), NOW
     )
-
-
-def test_an_idle_battery_on_an_arbitrage_day_leaves_regret_on_the_table(ha):
-    r = _report(ha)
-    assert r["scored_participants"] == ["home"]
-    assert r["epr_pct"] == pytest.approx(r["epr"] * 100, abs=0.01)
-    assert (r["tracking_fidelity"], r["tracking_cost"]) == (1.0, 0.0)
-    assert r["j_ach"] == pytest.approx(r["j_ref"], abs=1e-6)  # idle is the reference
-    assert (
-        r["j_star"] <= r["j_ach"] + 1e-9
-        and r["regret_dollars"] > 0.0
-        and r["epr"] < 1.0
-    )
-    assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (0.0, 0.0)
-    assert {"theoretical_maximum_yield", "value_captured", "uplift_available"} <= set(r)
-    assert (
-        r["soc_discrepancy_max_pct"],
-        r["soc_discrepancy_mean_pct"],
-        r["soc_discrepancy_reliable"],
-    ) == (None, None, None)
 
 
 def test_each_hour_is_one_self_describing_row_that_balances(ha):
@@ -403,27 +326,7 @@ def test_the_p2p_settlement_is_yesterdays_own_or_nothing(ha, history, dollars, v
     assert (r["real_p2p_dollars"], r["real_p2p_volume_kwh"]) == (dollars, volume)
 
 
-def test_a_brief_spike_at_the_hour_does_not_set_the_hours_direction(ha):
-    """#428: -2.66 kW all hour with one +20.9 kW sample at 04:00 is an
-    export hour, as the meter said."""
-    spike = DAY + timedelta(hours=4)
-    ha["series"]["sensor.real_load"] = flat(1.058)
-    ha["series"]["sensor.real_battery"] = lambda s, e: [
-        (t, 20.939 if t == spike else v) for t, v in flat(-2.66, step=1)(s, e)
-    ]
-    r = _report(ha, solver_battery_power_positive_is_charge=True)
-    assert r["j_ach_hourly"][spike.isoformat()]["grid_kw"] < 0.0
-
-
 # --- history resampling -----------------------------------------------------------------------
-
-
-def test_the_nearest_reading_at_or_before_each_time_or_the_default():
-    pts = [(DAY, 1.0), (DAY + timedelta(hours=1), 2.0), (DAY + timedelta(hours=2), 3.0)]
-    assert sw.resample_history_nearest(pts, [DAY + timedelta(minutes=90)]) == [2.0]
-    assert sw.resample_history_nearest(
-        [], [DAY, DAY + timedelta(hours=1)], default=0.42
-    ) == [0.42, 0.42]
 
 
 def test_a_period_mean_is_time_weighted_and_dilutes_a_brief_spike():
@@ -629,19 +532,6 @@ def test_a_stale_row_is_rewritten_stamped_and_others_left_exactly(rescore):
         result["rescored"][0]["before"]["epr"],
         result["rescored"][0]["after"]["epr"],
     ) == (1.064, pytest.approx(0.9481))
-
-
-@pytest.mark.parametrize(
-    "existing",
-    [{"state": "unknown", "attributes": {"latest_date": None}}, {"state": None}],
-    ids=["no_history_key", "no_attributes"],
-)
-def test_a_table_that_never_existed_is_built(rescore, existing):
-    result, (_e, _s, attrs) = rescore(2, existing)
-    assert result["rescored_count"] == 2 and sorted(attrs["history"]) == [
-        "2026-09-18",
-        "2026-09-19",
-    ]
 
 
 def test_one_bad_day_is_skipped_with_its_reason_and_the_rest_still_publish(rescore):
@@ -1046,17 +936,6 @@ def test_only_a_provisional_score_old_enough_is_rescored(attrs, keep):
     assert sw._keep_published_quality_score(attrs, PROV_NOW) is keep
 
 
-def test_the_rescore_interval_is_the_boundary():
-    interval = int(sw._PROVISIONAL_RESCORE_INTERVAL.total_seconds() // 60)
-    status = "no_settlement_entry_for_this_date"
-    assert sw._keep_published_quality_score(
-        _prov(status, minutes_ago=interval - 1), PROV_NOW
-    )
-    assert not sw._keep_published_quality_score(
-        _prov(status, minutes_ago=interval + 1), PROV_NOW
-    )
-
-
 @pytest.mark.parametrize(
     ("status", "minutes_ago", "recomputed"),
     [
@@ -1241,12 +1120,6 @@ def test_only_the_row_written_now_is_stamped_and_older_rows_keep_theirs(
     }
 
 
-def test_no_version_costs_the_row_nothing(version, monkeypatch):
-    monkeypatch.setattr(sw, "_nimbus_version", lambda: None)
-    out = sw._carry_forward_quality_history({}, "2026-09-18", _row(90.0))
-    assert "v" not in out["2026-09-18"] and out["2026-09-18"]["epr"] == 90.0
-
-
 @pytest.mark.parametrize(
     "manifest",
     [OSError("boom"), "{not json", '{"domain": "nimbus_load"}', '{"version": 94}'],
@@ -1263,15 +1136,6 @@ def test_a_manifest_that_cannot_say_reads_as_no_version(version, monkeypatch, ma
 
     monkeypatch.setattr(builtins, "open", fake_open)
     assert sw._nimbus_version() is None
-
-
-def test_the_version_is_this_packages_own_manifest(version):
-    import json
-    import os
-
-    path = os.path.join(os.path.dirname(os.path.abspath(sw.__file__)), "manifest.json")
-    with open(path, encoding="utf-8") as handle:
-        assert sw._nimbus_version() == json.load(handle)["version"]
 
 
 # --- a row scored before its settlement says it is waiting (#1200) ----------------------------

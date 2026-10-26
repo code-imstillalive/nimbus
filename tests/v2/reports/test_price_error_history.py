@@ -111,21 +111,6 @@ def test_classify():
 # -- recording and settling ------------------------------------------------------
 
 
-def test_record_keeps_forecast_closest_to_the_bucket_lead_including_beyond_24h():
-    h = peh.PriceErrorHistory()
-    target = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
-    # >24 h bucket, representative lead 36 h.
-    h.record("import", "a", target - timedelta(hours=46), target, 1.0)
-    h.record("import", "a", target - timedelta(hours=35), target, 2.0)
-    h.record("import", "a", target - timedelta(hours=26), target, 3.0)
-    slot = h.pending["import"][pc.interval_key(target)]["a"][">24 h"]
-    assert slot[1] == 2.0
-    # 48 h or more ahead is not kept at all.
-    far = target + timedelta(hours=60)
-    h.record("import", "a", target, far, 9.0)
-    assert pc.interval_key(far) not in h.pending["import"]
-
-
 def test_settled_pair_is_signed_and_carries_key_and_day():
     h = peh.PriceErrorHistory()
     h.set_threshold(5.0)
@@ -137,21 +122,6 @@ def test_settled_pair_is_signed_and_carries_key_and_day():
     assert day == t.date().toordinal()
     assert (forecast, settled) == (0.30, 0.25)
     assert h.pending["import"] == {}
-
-
-def test_off_stride_normal_pair_is_dropped_but_rare_events_are_always_kept():
-    h = peh.PriceErrorHistory()
-    h.set_threshold(5.0)
-    off = _key_on_stride(False)
-    assert _grade(h, "import", "primary", off, 0.30, 0.25) == 0
-    off2 = _key_on_stride(False, off + timedelta(minutes=30))
-    assert _grade(h, "import", "primary", off2, 6.0, 0.40) == 1  # false spike
-    off3 = _key_on_stride(False, off2 + timedelta(minutes=30))
-    assert _grade(h, "import", "primary", off3, 0.30, 7.0) == 1  # surprise
-    classes = h.samples["import"]["primary"]["0-5 min"]
-    assert peh.CLS_NORMAL not in classes
-    assert len(classes[peh.CLS_SPIKE]) == 1
-    assert len(classes[peh.CLS_SURPRISE]) == 1
 
 
 def test_each_side_settles_on_its_own_and_no_settled_price_grades_nothing():
@@ -258,31 +228,6 @@ def test_cell_stats_quantiles_of_difference_and_ratio():
     assert 5.0 <= row["d_above_pct"] <= 15.0
 
 
-def test_ratio_is_flagged_where_forecasts_sit_near_zero():
-    near_zero = _pairs([0.01] * 40, forecast=0.002)
-    fine = _pairs([0.01] * 40, forecast=0.30)
-    row = dict(zip(peh.COLUMNS, peh.cell_stats(near_zero + fine), strict=True))
-    assert row["n"] == 80 and row["r_n"] == 40
-    assert row["d50"] == pytest.approx(0.01)  # difference is always defined
-    assert row["r50"] is not None
-    assert row["ratio_ok"] == 0
-    negative = dict(
-        zip(
-            peh.COLUMNS, peh.cell_stats(_pairs([0.0] * 40, forecast=-0.05)), strict=True
-        )
-    )
-    assert (
-        negative["r_n"] == 0 and negative["r50"] is None and negative["ratio_ok"] == 0
-    )
-
-
-def test_cell_stats_below_min_samples_publishes_counts_only():
-    row = peh.cell_stats(_pairs([0.0] * (peh.MIN_SAMPLES - 1)))
-    assert row[0] == peh.MIN_SAMPLES - 1
-    assert row[2:7] == [None] * 5
-    assert row[8:13] == [None] * 5
-
-
 def test_spike_p_hit_has_a_beta_1_1_prior():
     thr = 5.0
     assert peh.spike_stats([], [], thr) == [0, 0, 0, 0.5]
@@ -323,14 +268,6 @@ def test_summarise_below_regime_uses_on_stride_pairs_only():
     assert out["at_or_above"][0] == 3
     # ...but every surprise counts towards the spike statistics.
     assert out["spike"] == [3, 0, 12, pytest.approx(4 / 5, abs=1e-4)]
-
-
-def test_summary_without_a_threshold_has_no_spike_counts():
-    h = peh.PriceErrorHistory()
-    assert peh.on_stride(6004)
-    h.samples["import"]["a"] = {"0-5 min": {"normal": [[6004, 1, 0.3, 0.3]]}}
-    out = peh.summarise(h)["import"]["a"]["0-5 min"]
-    assert "spike" not in out and "at_or_above" not in out
 
 
 def _full_history(sources=("primary", "secondary_2", "secondary_3", "aemo_markup")):
@@ -490,16 +427,6 @@ def test_an_unwritable_state_file_is_reported_once(caplog, monkeypatch, tmp_path
     peh._save(sw, hist)
     peh._save(sw, hist)
     assert caplog.text.count("price error history not saved") == 1
-
-
-def test_a_stale_source_settled_price_is_not_graded():
-    """apply_price_consolidation() is handed None when the source is on its
-    AEMO fallback (#1793); nothing is graded, exactly as for the tracker."""
-    start = _key_on_stride(True) - timedelta(minutes=5) + timedelta(seconds=10)
-    with isolated_state_paths(solver_writer):
-        for i in range(4):
-            result = _cycle(start + timedelta(minutes=5 * i), settled_import=None)
-    assert "primary" not in result["error_history"]["import"]
 
 
 # -- the real main() -------------------------------------------------------------

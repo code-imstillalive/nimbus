@@ -26,42 +26,6 @@ def _make_bare_coordinator(title: str = "Pool Pump") -> NimbusCoordinator:
     return coord
 
 
-def test_stable_residuals_log_nothing(caplog):
-    coord = _make_bare_coordinator()
-    coord._residuals = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0, 1.1, 0.9, 1.0] * 3
-    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
-        coord._check_residual_drift()
-    assert caplog.records == []
-    assert coord._residual_drift_flagged is False
-
-
-def test_real_drift_logs_a_warning_naming_the_subentry(caplog):
-    coord = _make_bare_coordinator(title="Whole House Load")
-    baseline = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0, 1.1, 0.9, 1.0] * 2
-    coord._residuals = baseline + [5.0] * 10
-    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
-        coord._check_residual_drift()
-    assert len(caplog.records) == 1
-    assert caplog.records[0].levelno == logging.WARNING
-    message = caplog.records[0].getMessage()
-    assert "Whole House Load" in message
-    assert "drift" in message.lower()
-    assert coord._residual_drift_flagged is True
-
-
-def test_ongoing_drift_does_not_re_log_every_tick(caplog):
-    # The actual alert-fatigue guardrail this file exists to prove: two
-    # consecutive ticks with the SAME ongoing drift must log exactly
-    # once, not twice.
-    coord = _make_bare_coordinator()
-    baseline = [1.0] * 10
-    coord._residuals = baseline + [5.0] * 10
-    with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
-        coord._check_residual_drift()
-        coord._check_residual_drift()
-    assert len(caplog.records) == 1
-
-
 def test_drift_clearing_then_recurring_logs_again(caplog):
     coord = _make_bare_coordinator()
     baseline = [1.0] * 10

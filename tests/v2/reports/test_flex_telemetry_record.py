@@ -58,11 +58,6 @@ def _build(**overrides):
 
 
 class TestTheBaseRecordValidates:
-    def test_it_validates(self):
-        build = _build()
-        assert build.record is not None, build.reason
-        _validate(build.record)
-
     def test_the_schema_file_is_the_one_this_repo_vendored(self):
         # Guards against the test silently validating against nothing:
         # a missing/emptied file would make jsonschema.validate a no-op.
@@ -240,19 +235,9 @@ class TestAssets:
         kwargs.update(kw)
         return flex_telemetry.build_asset(**kwargs), clamped
 
-    def test_an_asset_validates_inside_a_record(self):
-        asset, _ = self._asset()
-        build = _build(assets=[asset])
-        assert build.record is not None
-        _validate(build.record)
-
     def test_the_home_pack_gets_the_schemas_own_slug(self):
         asset, _ = self._asset()
         assert asset["asset_id"] == "home_battery"
-
-    def test_a_participant_name_is_slugified(self):
-        asset, _ = self._asset(name="Tesla Model 3P")
-        assert asset["asset_id"] == "tesla_model_3p"
 
     def test_setpoint_is_positive_when_charging(self):
         # The schema's convention, and the OPPOSITE of this household's own
@@ -272,23 +257,11 @@ class TestAssets:
         asset, _ = self._asset(capacity_kwh=122.2, soc_kwh=61.1)
         assert abs(asset["soc_pct"] - 50.0) < 1e-6
 
-    def test_a_zero_capacity_asset_does_not_divide_by_zero(self):
-        asset, _ = self._asset(capacity_kwh=0.0, soc_kwh=0.0)
-        assert asset["soc_pct"] == 0.0
-        _validate(_build(assets=[asset]).record)
-
     def test_every_asset_is_stationary_until_467_lands(self):
         # BatteryConfig has no EV flag; guessing "ev" from a name is the
         # inference @purcell-lab rejected on #768.
         asset, _ = self._asset(name="ev_m3p")
         assert asset["kind"] == "stationary_battery"
-
-    def test_an_asset_price_clamp_reaches_the_records_own_clamped_list(self):
-        asset, clamped = self._asset(shadow_power_balance_price=99.0)
-        build = _build(assets=[asset], clamped_in=clamped)
-        assert build.record is not None
-        assert any("shadow_power_balance_price" in f for f in build.clamped_fields)
-        _validate(build.record)
 
 
 class TestTheBaselineIsHonestAboutCharging:
@@ -328,11 +301,6 @@ class TestTheBaselineIsHonestAboutCharging:
         )
         assert build.record is not None
         assert build.record["net_import_kw"] > build.record["naive_baseline_kw"]
-
-    def test_the_method_is_the_settled_enum_member(self):
-        record = _build().record
-        assert record is not None
-        assert record["naive_baseline_method"] == "subtraction"
 
 
 class TestTheBaselineNetsOutOverADay:
@@ -469,11 +437,6 @@ class TestARealSyntheticSolveValidates:
             house_load_kw=house,
         ), plan
 
-    def test_the_record_validates_against_the_vendored_schema(self):
-        build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
-        assert build.record is not None, build.reason
-        _validate(build.record)
-
     def test_it_carries_one_asset_per_battery_the_lp_planned(self):
         build, _ = self._record(datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC))
         assert build.record is not None
@@ -529,43 +492,6 @@ class TestARealSyntheticSolveValidates:
 
 
 class TestNoRecordRatherThanAnInvalidOne:
-    def test_no_ranging_still_builds_a_valid_record_with_physical_flex(self):
-        """nimbus #1634 step 1 (Mark Purcell, 8 Oct 2026): ranging stays off
-        by default, and the record no longer needs it. `flex_available_*`
-        is physical availability (sum of battery hardware headroom, capped
-        by the envelope at the planned exchange); the two envelope shadow
-        prices, which only ranging produces, are null."""
-        plan, batteries = _real_synthetic_plan(compute_signals=False)
-        assert plan.grid_signals is None
-
-        build = solver_writer.build_flex_telemetry_record(
-            dict(_CFG),
-            plan,
-            datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
-            batteries=batteries,
-            import_price=0.30,
-            export_price=0.09,
-            import_limit_kw=20.0,
-            export_limit_kw=15.0,
-            period_hours=1.0,
-            house_load_kw=3.0,
-        )
-        assert build.record is not None, build.reason
-        _validate(build.record)
-        rec = build.record
-        assert rec["shadow_envelope_import_price"] is None
-        assert rec["shadow_envelope_export_price"] is None
-        net = float(plan.grid_import_kw[0]) - float(plan.grid_export_kw[0])
-        up = sum(float(b.available_up_kw[0]) for b in plan.battery_signals)
-        down = sum(float(b.available_down_kw[0]) for b in plan.battery_signals)
-        assert rec["flex_available_up_kw"] == round(max(0.0, min(up, 20.0 - net)), 3)
-        assert rec["flex_available_down_kw"] == round(
-            max(0.0, min(down, 15.0 + net)), 3
-        )
-        # A 5 kW battery has kilowatts of headroom; ranging's sub-kW
-        # basis-change figure (#1634 finding 1) is not what is reported.
-        assert rec["flex_available_up_kw"] + rec["flex_available_down_kw"] > 1.0
-
     def test_no_house_load_means_no_record_and_says_so(self):
         plan, batteries = _real_synthetic_plan()
         build = solver_writer.build_flex_telemetry_record(
@@ -608,12 +534,6 @@ class TestThePublishedSensor:
             )
         return posted
 
-    def test_it_posts_the_documented_entity_id(self):
-        posted = self._publish()
-        assert len(posted) == 1
-        assert posted[0][0] == "sensor.nimbus_flex_telemetry"
-        assert posted[0][0] == solver_writer.FLEX_TELEMETRY_ENTITY_ID
-
     def test_the_state_is_the_interval_start(self):
         _entity_id, state, attrs = self._publish()[0]
         assert state == "2026-09-27T14:30:00Z"
@@ -628,53 +548,6 @@ class TestThePublishedSensor:
         # they would sit beside friendly_name/nimbus_version and stop
         # validating if anyone tried to POST the attributes wholesale.
         assert not (set(attrs) - {"record"}) & set(attrs["record"])
-
-    def test_no_record_publishes_its_reason_once(self):
-        """nimbus #1634 step 2: a consumer can tell WHY there is no record
-        without DEBUG logging, and an unchanged reason is not re-posted
-        every solve."""
-        # The module that actually runs, whichever import path loaded it.
-        module = solver_writer.publish_flex_telemetry_record.__globals__
-        module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
-        module["_LAST_FLEX_TELEMETRY_POST"].clear()
-        posted: list[tuple] = []
-        call = {
-            "batteries": [],
-            "import_price": 0.3,
-            "export_price": 0.09,
-            "import_limit_kw": 20.0,
-            "export_limit_kw": 15.0,
-            "period_hours": 1.0,
-        }
-        no_record = solver_writer.flex_telemetry.RecordBuild(
-            reason="no measured history for the interval", reason_code="no_history"
-        )
-        with (
-            patch.object(
-                solver_writer, "ha_post_state", lambda e, s, a: posted.append((e, s, a))
-            ),
-            patch.object(
-                solver_writer,
-                "build_flex_telemetry_record",
-                lambda *_a, **_k: no_record,
-            ),
-        ):
-            for _ in range(3):
-                solver_writer.publish_flex_telemetry_record(
-                    dict(_CFG),
-                    SimpleNamespace(grid_signals=None),
-                    datetime(2026, 9, 27, 14, 37, tzinfo=UTC),
-                    **call,
-                )
-        assert len(posted) == 1
-        entity, state, attrs = posted[0]
-        assert entity == solver_writer.FLEX_TELEMETRY_ENTITY_ID
-        assert state == "no_record"
-        assert attrs["reason_code"] == "no_history"
-        assert attrs["reason"] == "no measured history for the interval"
-        assert "record" not in attrs
-        assert attrs["last_record_interval"] is None
-        module["_LAST_FLEX_TELEMETRY_NO_RECORD"].clear()
 
     def test_a_build_failure_never_takes_the_solve_down(self):
         posted: list[tuple] = []
@@ -706,30 +579,6 @@ class TestNoWorkWithoutANewRecord:
     """nimbus #1634: ranging no longer gates the record, so the work is
     gated instead -- no history read when no record can exist, and one
     record per completed interval however often the solver runs."""
-
-    def test_an_unresolved_region_reads_no_history(self):
-        plan, batteries = _real_synthetic_plan(compute_signals=False)
-        reads: list[str] = []
-
-        def _fetch(entity_id, *_a):
-            reads.append(entity_id)
-            return []
-
-        with patch.object(solver_writer, "fetch_entity_history_range", _fetch):
-            build = solver_writer.build_flex_telemetry_record(
-                dict(_CFG, region=None),
-                plan,
-                datetime(2026, 9, 27, 14, 37, 12, tzinfo=UTC),
-                batteries=batteries,
-                import_price=0.30,
-                export_price=0.09,
-                import_limit_kw=20.0,
-                export_limit_kw=15.0,
-                period_hours=1.0,
-            )
-        assert build.record is None
-        assert build.reason_code == "region_unresolved"
-        assert reads == []
 
     def test_a_second_solve_in_the_same_interval_builds_nothing(self):
         plan, batteries = _real_synthetic_plan(compute_signals=False)

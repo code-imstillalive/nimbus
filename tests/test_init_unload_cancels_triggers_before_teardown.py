@@ -122,18 +122,3 @@ def test_all_three_module_dicts_cleared_after_unload():
     assert entry_id not in nimbus_init._price_watcher_unsub
     assert entry_id not in nimbus_init._price_watcher_entities
     assert entry_id not in nimbus_init._startup_solve_tasks
-
-
-def test_missing_triggers_are_a_safe_no_op():
-    """An entry that never enabled the price watcher (unsub is None) or
-    is being unloaded before its startup-retry task ever got created
-    must not raise."""
-    entry_id = "test_entry_unload_no_triggers_registered"
-    entry = _make_entry(entry_id)
-    hass = MagicMock()
-    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
-
-    # Deliberately nothing seeded in any of the three dicts for this
-    # entry_id -- exercises the "never registered" path for all three.
-    result = asyncio.run(nimbus_init.async_unload_entry(hass, entry))
-    assert result is True

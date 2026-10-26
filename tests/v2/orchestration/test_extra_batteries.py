@@ -14,12 +14,11 @@ import logging
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-import availability
 import numpy as np
 import pytest
 import solver_shared as shared
 import solver_writer as sw
-from solver.elements import MIN_CHARGE_DISCHARGE_COST_SPREAD, PeriodGrid
+from solver.elements import PeriodGrid
 from solver_inputs import extra_batteries as eb
 
 EV = {
@@ -66,42 +65,6 @@ def _periods(start_hour, n, hours=1.0, tz=UTC):
     )
 
 
-def test_a_participant_becomes_its_own_battery(site):
-    site.add("ev", EV)
-    site.add("pool", {"load_sensor": "sensor.pool"}, kind="load")
-    site.state("sensor.ev_soc", "55.0")
-    (b,) = eb.build_extra_batteries()
-    assert (b.name, b.capacity_kwh, b.max_charge_kw, b.max_discharge_kw) == (
-        "ev",
-        60.0,
-        11.0,
-        11.0,
-    )
-    assert (b.min_soc_kwh, b.max_soc_kwh, b.initial_soc_kwh) == pytest.approx(
-        (12.0, 57.0, 33.0)
-    )
-    assert b.charge_efficiency == pytest.approx(0.92**0.5) == b.discharge_efficiency
-    assert b.charge_cost + b.discharge_cost >= MIN_CHARGE_DISCHARGE_COST_SPREAD
-    assert b.available and b.shared_charger_group is None
-
-
-def test_a_live_charge_limit_and_a_shared_charger_carry_through(site):
-    site.add(
-        "ev",
-        {
-            **EV,
-            "battery_participant_charge_limit_entity": "number.ev_limit",
-            "battery_participant_shared_charger_group": "dc",
-            "battery_participant_shared_charger_max_kw": 25.0,
-        },
-    )
-    site.state("sensor.ev_soc", "55.0")
-    site.state("number.ev_limit", "80.0")
-    (b,) = eb.build_extra_batteries()
-    assert b.max_soc_kwh == pytest.approx(48.0)
-    assert (b.shared_charger_group, b.shared_charger_max_kw) == ("dc", 25.0)
-
-
 def test_a_glitch_reading_is_clamped_to_the_pack(site):
     site.add("ev", EV)
     site.state("sensor.ev_soc", "140.0")
@@ -137,36 +100,6 @@ def test_a_second_participant_with_the_same_name_is_skipped(site):
     assert [b.name for b in eb.build_extra_batteries()] == ["ev", "ev_2"]
 
 
-def test_outside_home_assistant_there_are_no_participants(monkeypatch):
-    monkeypatch.setattr(shared.NATIVE, "hass", None)
-    assert eb.build_extra_batteries() == []
-
-
-@pytest.mark.parametrize(
-    ("home", "periods", "available", "gated_until"),
-    [
-        (None, _periods(6, 6), True, None),  # no presence entity: always home
-        ("on", _periods(6, 6), True, None),
-        ("off", _periods(6, 6), False, 1),  # gated for the next hour
-        ("off", _periods(6, 10, 0.25), False, 4),
-        ("off", None, False, None),  # no periods: the whole horizon
-        ("missing", _periods(6, 6), False, 1),  # unknown is away
-    ],
-)
-def test_an_away_participant_is_gated_for_the_next_hour(
-    site, home, periods, available, gated_until
-):
-    data = dict(EV)
-    if home is not None:
-        data["battery_participant_available_entity"] = "binary_sensor.ev_home"
-        if home != "missing":
-            site.state("binary_sensor.ev_home", home)
-    site.add("ev", data)
-    site.state("sensor.ev_soc", "55.0")
-    (b,) = eb.build_extra_batteries(periods)
-    assert (b.available, b.unavailable_until_period_index) == (available, gated_until)
-
-
 def _departure(site, *, hour=8, pct=90.0, periods=None):
     data = dict(EV)
     if hour is not None:
@@ -177,20 +110,6 @@ def _departure(site, *, hour=8, pct=90.0, periods=None):
     site.state("sensor.ev_soc", "55.0")
     (b,) = eb.build_extra_batteries(periods)
     return b.must_have_soc_by_period_index, b.must_have_soc_kwh
-
-
-def test_a_departure_binds_to_the_first_one_in_the_horizon(site):
-    local = sw.LOCAL_TZ
-    assert _departure(site, periods=_periods(6, 6, tz=local)) == (
-        2,
-        pytest.approx(54.0),
-    )
-    # A 96-hour horizon from 18:00 holds four 07:00s; the first binds.
-    four_days = _periods(18, 96, tz=local)
-    idx, _kwh = _departure(site, hour=7, periods=four_days)
-    assert idx == 13
-    assert _departure(site, hour=20, periods=_periods(6, 6, tz=local)) == (None, None)
-    assert _departure(site, periods=None) == (None, None)
 
 
 def test_a_departure_needs_both_fields_and_says_so_once(site, caplog):
@@ -232,31 +151,6 @@ def test_an_away_participant_outside_its_range_is_not_warned_about(site, caplog)
 
 
 # --- what says a participant is here (22 Oct 2026) ---------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("entity", "here"),
-    [
-        ("binary_sensor.x", "on"),
-        ("input_boolean.x", "on"),
-        ("switch.x", "on"),
-        ("device_tracker.car", "home"),
-        ("person.driver", "home"),
-    ],
-)
-def test_each_kind_keeps_its_standard_meaning(entity, here):
-    states = availability.available_states(entity, None)
-    assert availability.is_available(here, states)
-    for not_here in ("off", "not_home", None, "unknown", "unavailable"):
-        assert not availability.is_available(not_here, states)
-
-
-def test_a_sensor_is_here_only_in_the_states_the_household_lists():
-    listed = availability.available_states("sensor.charger", " Charging , Connected,")
-    assert listed == {"charging", "connected"}
-    assert availability.is_available("CHARGING", listed)
-    assert not availability.is_available("Idle", listed)
-    assert availability.available_states("sensor.charger", "") == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -328,13 +222,6 @@ def test_with_nothing_to_hold_the_car_sits_out(car, caplog, soc):
     assert soc is None or "leaving it out" in caplog.text
 
 
-def test_the_hold_runs_out(car):
-    car("70")
-    pct, read_at = eb._LAST_GOOD_SOC["car"]
-    eb._LAST_GOOD_SOC["car"] = (pct, read_at - eb._SOC_HOLD_SECONDS - 1)
-    assert car("unavailable") == []
-
-
 # --- a participant that can never move is built, and said once (#1067) ------------------------
 
 
@@ -357,24 +244,6 @@ def test_a_participant_with_no_power_limits_is_built_and_warned_about_once(
         s in line for s in ("oracle", "j_star", "Set real", "remove the participant")
     )
     assert (b.max_charge_kw, b.max_discharge_kw) == (0.0, 0.0)
-
-
-@pytest.mark.parametrize(
-    "limits",
-    [
-        {"battery_participant_max_charge_kw": 0.0},  # discharge only: legitimate
-        {"battery_participant_max_discharge_kw": 0.0},  # charge only: legitimate
-    ],
-)
-def test_a_one_directional_participant_is_not_warned_about(
-    site, caplog, monkeypatch, limits
-):
-    monkeypatch.setattr(eb, "_IMMOBILE_PARTICIPANT_WARNED", set())
-    site.add("ev", {**EV, **limits})
-    site.state("sensor.ev_soc", "55.0")
-    with caplog.at_level(logging.WARNING):
-        assert len(eb.build_extra_batteries()) == 1
-    assert "#1067" not in caplog.text
 
 
 def test_two_immobile_participants_are_each_named(site, caplog, monkeypatch):

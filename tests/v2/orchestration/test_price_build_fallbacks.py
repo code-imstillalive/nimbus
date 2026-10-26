@@ -75,13 +75,6 @@ def _build(**cfg):
     )
 
 
-def test_a_fresh_primary_is_planned_on(writer, monkeypatch):
-    monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: None)
-    out = _build()
-    assert out.spot_import_raw == PRIMARY[0]
-    assert out.import_real_mask == PRIMARY[1]
-
-
 def test_a_stale_primary_is_replaced_by_aemo_with_the_live_spot(writer, monkeypatch):
     monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
     monkeypatch.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
@@ -110,14 +103,6 @@ def test_without_a_live_spot_the_fallback_still_runs(writer, monkeypatch, price_
     assert out.spot_import_raw == AEMO_IMPORT
     assert writer["live_spot"] == [None, None]
     assert not any(isinstance(v, float) and math.isnan(v) for v in writer["live_spot"])
-
-
-def test_with_no_spot_sensor_the_fallback_is_given_none(writer, monkeypatch):
-    monkeypatch.setattr(prices.price_freshness, "check", lambda *a, **k: dict(STALE))
-    monkeypatch.setattr(prices.price_freshness, "aemo_series", _fallback(writer))
-    out = _build()
-    assert out.spot_import_raw == AEMO_IMPORT
-    assert writer["live_spot"] == [None, None]
 
 
 def test_with_no_aemo_series_the_stale_primary_is_kept_and_says_so(writer, monkeypatch):

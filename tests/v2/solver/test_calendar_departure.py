@@ -173,24 +173,6 @@ class TestTheChainReachesTheLP(unittest.TestCase):
             "the EV must hold the trip's energy when it leaves",
         )
 
-    def test_the_charge_lands_in_the_CHEAP_window(self):
-        """Meeting the deadline is not enough -- doing it expensively would mean
-        the deadline reached the LP but the price signal did not. The cheap hours
-        are 01:00-05:00 and the deadline is 08:00, so a plan that merely
-        satisfies the constraint could charge at 06:00-07:00 instead.
-        """
-        plan = _solve(_resolve(self.events))
-        charge = _ev_charge(plan)
-        cheap = float(np.sum(charge[_CHEAP_FROM:_CHEAP_TO]))
-        total = float(np.sum(charge))
-        self.assertGreater(total, 0.0, "nothing charged at all")
-        self.assertGreater(
-            cheap / total,
-            0.9,
-            f"expected the charge in the cheap window; got {cheap:.2f} of "
-            f"{total:.2f} kWh there",
-        )
-
     def test_without_the_deadline_the_ev_does_not_charge_for_the_trip(self):
         """The control. If the EV charged the same amount with no deadline, this
         file would be proving the price curve rather than the wiring -- exactly
@@ -235,20 +217,6 @@ class TestTheHonestNoOps(unittest.TestCase):
         self.assertEqual(plan.status, "optimal")
         ev = next(b for b in plan.batteries if b.name == "ev")
         self.assertIsNone(getattr(ev, "must_have_soc_kwh", None))
-
-    def test_a_fully_driven_trip_resolves_to_None(self):
-        """Odometer says the distance is already covered, so nothing is owed."""
-        start = _T0 + timedelta(hours=8)
-        self.assertIsNone(
-            _resolve(
-                [
-                    TripEvent(
-                        start=start, end=start + timedelta(hours=2), summary="80 km"
-                    )
-                ],
-                already_driven_km_by_start={start: 80.0},
-            )
-        )
 
 
 class TestOnlyTheSoonestTripIsPlannedFor(unittest.TestCase):

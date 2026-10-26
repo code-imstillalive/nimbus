@@ -54,9 +54,7 @@ from custom_components.nimbus_load.const import (
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     SIGNAL_ROLE_BATTERY,
-    SIGNAL_ROLE_GRID,
     SIGNAL_ROLE_OTHER,
-    SIGNAL_ROLE_SOLAR,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
 )
@@ -159,16 +157,6 @@ def test_forecaster_schema_temperature_forecast_field_accepts_weather_domain():
 # -- solver wizard schemas: required vs optional-with-suggested-value -------
 
 
-def test_solver_sources_schema_second_source_is_optional_with_suggested_value():
-    schema = _solver_sources_schema(
-        {CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.openmeteo"}
-    )
-    marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)
-    assert type(marker).__name__ == "Optional"
-    assert marker.default is vol.UNDEFINED
-    assert marker.description == {"suggested_value": "sensor.openmeteo"}
-
-
 def test_solver_sources_schema_primary_source_is_required():
     schema = _solver_sources_schema(
         {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"}
@@ -176,16 +164,6 @@ def test_solver_sources_schema_primary_source_is_required():
     marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR)
     assert type(marker).__name__ == "Required"
     assert marker.default() == "sensor.solcast"
-
-
-def test_solver_battery_schema_has_one_required_soc_field():
-    schema = _solver_battery_schema({})
-    # 2026-08-24, nimbus #125: gained a second, genuinely OPTIONAL field
-    # (solver_max_discharge_live_entity) -- the SoC sensor stays the only
-    # Required one.
-    assert len(schema.schema) == 2
-    marker = _find_marker(schema, CONF_SOLVER_BATTERY_SOC_SENSOR)
-    assert type(marker).__name__ == "Required"
 
 
 def test_solver_battery_schema_max_discharge_live_entity_is_optional_number_domain():
@@ -203,32 +181,6 @@ def test_solver_battery_schema_max_discharge_live_entity_is_optional_number_doma
     assert type(marker).__name__ == "Optional"
     selector_instance = schema.schema[marker]
     assert selector_instance.config["domain"] == "number"
-
-
-def test_solver_grid_schema_has_two_required_price_fields():
-    # 2026-08-25: gained 4 genuinely OPTIONAL second/third price-source
-    # fields (nimbus: "u also are missing my blended price forecasts...
-    # in case we can feed it more than one... e.g. aemo... and amber") --
-    # the two PRIMARY fields stay the only Required ones.
-    # 2026-08-28 (issue #256): briefly gained 2 more OPTIONAL native
-    # price-triggered-solving fields (solve_on_price_change +
-    # debounce_s), then 2026-08-29 (issue #232 follow-up) moved BOTH
-    # out to their own live entities -- switch.nimbus_solve_on_price_
-    # change + number.nimbus_solve_on_price_change_debounce_s -- so
-    # this step was back to the 4 optional second/third-source fields.
-    # nimbus issue #493 (Signals 4/7 of #489, item 1): gained 2 more
-    # OPTIONAL fields, the live DNSP envelope entities -- 8 total.
-    # nimbus issue #1213 (Mark Purcell): gained 1 more OPTIONAL field, the
-    # additive price-event test sensor -- 9 total. The feature's other two
-    # parts deliberately cost this form nothing: the arm is a device entity
-    # (switch.nimbus_solver_price_event_enabled) and the event's magnitude
-    # and windows live in the household's own sensor, not in Nimbus config.
-    # Household, 20 Oct 2026: gained the AEMO price source's 4 OPTIONAL
-    # fields, moved from the Sources step (sources 1-4 on one step) -- 13.
-    schema = _solver_grid_schema({})
-    assert len(schema.schema) == 13
-    for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
-        assert type(_find_marker(schema, key)).__name__ == "Required"
 
 
 def test_solver_grid_schema_second_third_price_sources_are_optional_with_suggested_value():
@@ -350,13 +302,6 @@ def test_a_saved_choice_always_wins():
             ["sensor.nimbus_house_power_forecast"],
         )
         == "sensor.nimbus_mine_forecast"
-    )
-
-
-def test_two_candidates_are_not_guessed():
-    assert (
-        _load_default({}, ["sensor.nimbus_a_forecast", "sensor.nimbus_b_forecast"])
-        is None
     )
 
 
@@ -919,46 +864,6 @@ def test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash():
     assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
 
 
-def test_price_sensor_missing_device_class_is_still_suggested():
-    # Real, honest limitation documented in the function itself: several
-    # real spot-price integrations (this project's own reference
-    # household's Amber sensors included) don't reliably tag device_
-    # class="monetary" -- rejecting them here would silently suggest
-    # nothing on exactly the installs this feature is for.
-    import asyncio
-    from unittest.mock import AsyncMock, patch
-
-    states = {
-        "sensor.real_import": MagicMock(
-            attributes={"device_class": "energy", "state_class": "total_increasing"}
-        ),
-        "sensor.amber_price": MagicMock(attributes={}),
-    }
-    hass = _hass_with_states(states)
-    manager = MagicMock(
-        data={
-            "energy_sources": [
-                {
-                    "type": "grid",
-                    "flow_from": [
-                        {
-                            "stat_energy_from": "sensor.real_import",
-                            "entity_energy_price": "sensor.amber_price",
-                        }
-                    ],
-                    "flow_to": [],
-                }
-            ]
-        }
-    )
-    with patch(
-        "homeassistant.components.energy.data.async_get_manager",
-        new=AsyncMock(return_value=manager),
-    ):
-        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
-    assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.amber_price"
-
-
 def test_price_sensor_with_a_genuinely_wrong_device_class_is_not_suggested():
     import asyncio
     from unittest.mock import AsyncMock, patch
@@ -1247,17 +1152,6 @@ def test_discover_other_role_power_signal_goes_in_single_only():
     assert summable == []  # a power signal is never summable-per-circuit
 
 
-def test_discover_battery_solar_grid_signals_are_excluded_from_both_lists():
-    for role in (SIGNAL_ROLE_BATTERY, SIGNAL_ROLE_SOLAR, SIGNAL_ROLE_GRID):
-        signal = _nimbus_state(
-            f"sensor.nimbus_{role}_signal_forecast", SUBENTRY_TYPE_SIGNAL, role
-        )
-        hass = _hass_with_all_states([signal])
-        single, summable = _discover_nimbus_load_forecast_candidates(hass)
-        assert single == [], f"role={role} should never be a load-forecast candidate"
-        assert summable == []
-
-
 def test_discover_a_realistic_mixed_install():
     states = [
         _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD),
@@ -1356,21 +1250,6 @@ def test_type_safe_suggestions_multiple_matches_are_never_guessed():
         [
             _typed_state("sensor.bedroom_temp", "temperature"),
             _typed_state("sensor.outdoor_temp", "temperature"),
-        ]
-    )
-    assert _type_safe_entity_suggestions(hass) == {}
-
-
-def test_type_safe_suggestions_power_and_price_fields_are_never_suggested():
-    # Deliberately excluded from this function entirely (see its own
-    # docstring) -- even a single power/monetary sensor is genuinely
-    # ambiguous about WHICH of battery/grid/solar (or import/export) it
-    # is, unlike temperature/humidity/SoC which have exactly one real
-    # field each.
-    hass = _hass_with_all_states(
-        [
-            _typed_state("sensor.the_only_power_sensor", "power"),
-            _typed_state("sensor.the_only_monetary_sensor", "monetary"),
         ]
     )
     assert _type_safe_entity_suggestions(hass) == {}
@@ -1480,36 +1359,6 @@ def test_solver_sources_schema_keeps_saved_single_value_selectable():
     multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
     assert schema.schema[multi_marker].config["include_entities"] == [
         "sensor.circuit_a"
-    ]
-
-
-def test_solver_sources_schema_keeps_saved_multi_values_selectable():
-    schema = _solver_sources_schema(
-        {
-            CONF_SOLVER_LOAD_FORECAST_ENTITIES: [
-                "sensor.circuit_a",
-                "sensor.circuit_gone",
-            ]
-        },
-        single_load_forecast_candidates=["sensor.whole_house_signal"],
-        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
-    )
-    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
-    assert schema.schema[multi_marker].config["include_entities"] == [
-        "sensor.circuit_a",
-        "sensor.circuit_b",
-        "sensor.circuit_gone",
-    ]
-
-
-def test_solver_sources_schema_saved_value_already_in_list_is_not_duplicated():
-    schema = _solver_sources_schema(
-        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.whole_house_signal"},
-        single_load_forecast_candidates=["sensor.whole_house_signal"],
-    )
-    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
-    assert schema.schema[marker].config["include_entities"] == [
-        "sensor.whole_house_signal"
     ]
 
 

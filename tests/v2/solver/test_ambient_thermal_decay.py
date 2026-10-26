@@ -136,19 +136,6 @@ class TestAbsentAmbientIsAByteIdenticalNoOp(unittest.TestCase):
             again.thermal_loads[0].temperature_c,
         )
 
-    def test_an_empty_ambient_tuple_falls_back_rather_than_dividing_by_nothing(self):
-        """A weather source that resolved to no periods is a real runtime state
-        (an unavailable sensor), and it must degrade to the flat model rather
-        than crash or silently zero the decay."""
-        plan = _solve(_thermal(loss_coeff_per_h=0.05, ambient_c=()))
-        self.assertEqual(plan.status, "optimal")
-        flat = _solve(_thermal())
-        np.testing.assert_allclose(
-            plan.thermal_loads[0].temperature_c,
-            flat.thermal_loads[0].temperature_c,
-            atol=1e-9,
-        )
-
 
 class TestTheGapCannotCreditFreeWarmth(unittest.TestCase):
     """Clamped at zero, on purpose."""

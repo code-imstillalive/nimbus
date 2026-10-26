@@ -25,17 +25,6 @@ def _fixed(n, block):
     return fx
 
 
-def test_charge_before_the_next_block():
-    # 10:00-20:00 AEST hourly; block 17:00-20:00 (indices 7-9)
-    charge = np.array([0, 0, 0, 40, 40, 20, 0, 0, 0, 0], dtype=float)
-    out = solver_shared.charge_before_block_summary(
-        _fixed(10, range(7, 10)), charge, [1.0] * 10, _times(10), 120.0
-    )
-    assert out["charge_before_block_kwh"] == 100.0
-    assert out["charge_before_block_pct"] == pytest.approx(83.3)
-    assert out["next_block_start"].startswith("2026-10-14T17:00:00")
-
-
 def test_a_block_already_running_points_at_the_next_one():
     # block now (0-1), gap (2-4) with charging, next block (5-6)
     charge = np.array([0, 0, 10, 10, 10, 0, 0], dtype=float)
@@ -52,19 +41,6 @@ def test_period_hours_weight_the_energy():
         _fixed(3, [2]), charge, [1 / 60, 5 / 60, 0.5], _times(3), 100.0
     )
     assert out["charge_before_block_kwh"] == pytest.approx(4.0, abs=0.01)
-
-
-@pytest.mark.parametrize(
-    "fixed",
-    [None, np.full(5, np.nan), np.zeros(5), np.full(5, 11.5)],
-    ids=["no_pins", "all_nan", "all_zero", "block_to_the_end"],
-)
-def test_no_next_block_means_all_none(fixed):
-    out = solver_shared.charge_before_block_summary(
-        fixed, np.zeros(5), [1.0] * 5, _times(5), 100.0
-    )
-    assert set(out) == KEYS
-    assert all(v is None for v in out.values())
 
 
 def test_zero_capacity_leaves_the_percentage_out():

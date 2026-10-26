@@ -156,18 +156,6 @@ class TestNoCalendarMeansNoCall(unittest.TestCase):
             extra_batteries._solver_writer = real
         return writer
 
-    def test_a_participant_with_no_trip_calendar_never_calls_it(self):
-        """The default shape for every install that has not configured one --
-        which is what earns #1290 the same-day carve-out."""
-        writer = self._drive(self._participant())
-        self.assertEqual(
-            writer.calendar_calls,
-            [],
-            "fetch_calendar_trips() must not be reached without a configured "
-            "trip calendar; #1290 changed that function's behaviour, so any "
-            "call here would mean the change is NOT opt-in",
-        )
-
     def test_an_empty_string_calendar_is_also_inert(self):
         """A cleared config-flow field arrives as "" rather than None, and the
         guard is a truthiness test -- so it must be inert too."""

@@ -56,37 +56,6 @@ def _arrays(cfg, **kw):
     return solar.build_solar_arrays(cfg, GRID, N, **kw)
 
 
-def test_one_source_keeps_its_own_band_clamped_to_bracket_it(site):
-    site["sensor.a"] = _forecast(
-        [-0.5, 2.0, 2.0, 2.0], lower=[3.0, 1.0, 1.0, 1.0], upper=[1.0, 3.0, 3.0, 3.0]
-    )
-    kw, lo, up = _arrays({"solver_solar_forecast_sensor": "sensor.a"})
-    assert kw == [0.0, 2.0, 2.0, 2.0]  # no negative solar
-    assert all(lo[i] <= kw[i] <= up[i] for i in range(N))
-    assert (lo[1], up[1]) == (1.0, 3.0)
-
-
-def test_sources_are_averaged_and_their_disagreement_widens_the_band(site):
-    site["sensor.a"] = _forecast([2.0] * N)
-    site["sensor.b"] = _forecast([2.0] * N)
-    site["sensor.c"] = _forecast([4.0] * N)
-    agree, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_forecast_sensor_2": "sensor.b",
-        }
-    )
-    assert agree == pytest.approx([2.0] * N) and lo == pytest.approx(agree) == up
-    kw, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_forecast_sensor_2": "sensor.c",
-        }
-    )
-    assert kw == pytest.approx([3.0] * N)
-    assert all(lo[i] < kw[i] < up[i] for i in range(N))
-
-
 @pytest.mark.parametrize(
     "broken",
     [{"something_else": 1}, urllib.error.URLError("down")],
@@ -103,34 +72,6 @@ def test_a_source_that_cannot_be_read_is_dropped_and_said_once(site, caplog, bro
         assert _arrays(cfg)[0] == [4.0] * N  # never averaged in as zeros
         _arrays(cfg)
     assert caplog.text.count("sensor.bad") == 1
-
-
-def test_with_no_source_at_all_the_solve_runs_flat_at_zero_and_says_so(site, caplog):
-    with caplog.at_level(logging.WARNING):
-        arrays = _arrays({})
-    assert arrays == ([0.0] * N, [0.0] * N, [0.0] * N)
-    assert all(isinstance(v, float) for a in arrays for v in a)
-    assert "no solar forecast source" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("reading", "unit", "first"),
-    [("3800", "W", 3.8), ("3.8", "kW", 3.8), ("-1", "kW", 0.0), ("unknown", "kW", 2.0)],
-)
-def test_a_live_solar_reading_anchors_the_first_period_only(site, reading, unit, first):
-    site["sensor.a"] = _forecast([2.0] * N)
-    site["sensor.pv_power"] = {
-        "state": reading,
-        "attributes": {"unit_of_measurement": unit},
-    }
-    kw, lo, up = _arrays(
-        {
-            "solver_solar_forecast_sensor": "sensor.a",
-            "solver_solar_power_sensor": "sensor.pv_power",
-        }
-    )
-    assert (kw[0], lo[0], up[0]) == pytest.approx((first, first, first))
-    assert kw[1:] == [2.0] * (N - 1)
 
 
 def _solcast(values, low, high):

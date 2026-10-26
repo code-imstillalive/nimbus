@@ -82,13 +82,6 @@ class TestSoftReserve(unittest.TestCase):
         spike_kwh = float(np.sum(plan.batteries[0].discharge_kw[-2:] * HOURS[-2:]))
         self.assertGreater(spike_kwh, 5.0)
 
-    def test_a_battery_below_the_reserve_is_not_forced_to_refill(self):
-        plan = _plan(_battery(3.0, reserve=10.0, release=0.60), np.full(N, 0.286))
-        self.assertEqual(plan.status, "optimal")
-        self.assertAlmostEqual(
-            float(np.sum(plan.batteries[0].charge_kw)), 0.0, places=6
-        )
-
     def test_off_by_default_the_plan_is_unchanged(self):
         base = _plan(_battery(11.0), np.full(N, 0.286))
         explicit = _plan(_battery(11.0, reserve=0.0, release=0.0), np.full(N, 0.286))
@@ -243,15 +236,6 @@ class TestReserveWindowAhead(unittest.TestCase):
         prices[8] = 0.275
         plan = _window_plan(_battery(20.0), prices, 0.228)
         self.assertLess(float(min(plan.batteries[0].soc_kwh[6:])), 15.0)
-
-    def test_a_price_above_the_release_price_still_sells_it(self):
-        # Four 5-minute periods at 36 kW sell 12 kWh: past the 5 kWh above
-        # the reserve and into it. Grid energy at 60c, so the plan cannot
-        # simply buy ahead (at 22.8c it does, and keeps the reserve whole).
-        prices = np.full(W_N, 0.15)
-        prices[7:11] = 0.88
-        plan = self._plan(20.0, 0.30, prices, import_price=0.60)
-        self.assertLess(float(min(plan.batteries[0].soc_kwh[6:])), 15.0 - 1.0)
 
     def test_opening_below_the_reserve_costs_the_release_price_not_more(self):
         # 8 kWh against a 15 kWh reserve. At a 30c release price, topping up

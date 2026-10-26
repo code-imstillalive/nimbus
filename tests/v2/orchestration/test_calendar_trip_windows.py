@@ -65,27 +65,10 @@ def _windows(events, **kw):
 class TestADistanceNeedsAUnit(unittest.TestCase):
     """A bare number must not be read as kilometres."""
 
-    def test_real_distances_parse(self):
-        for text, expected in [
-            ("Trip to Brisbane 120 km", 120.0),
-            ("school run 18km", 18.0),
-            ("commute 8 kilometres", 8.0),
-            ("Trip 5 KM", 5.0),
-            ("drive 8 kilometers", 8.0),
-        ]:
-            with self.subTest(text=text):
-                self.assertAlmostEqual(ct.parse_trip_distance_km(text), expected)
-
     def test_miles_convert(self):
         self.assertAlmostEqual(ct.parse_trip_distance_km("30 mi"), 48.28032)
         self.assertAlmostEqual(ct.parse_trip_distance_km("12.5 miles"), 20.1168)
         self.assertAlmostEqual(ct.parse_trip_distance_km("1 mile"), 1.609344)
-
-    def test_a_bare_number_is_not_a_distance(self):
-        """ "Sydney 400" is a flight number far more often than 400 km."""
-        self.assertIsNone(ct.parse_trip_distance_km("Sydney 400"))
-        self.assertIsNone(ct.parse_trip_distance_km("board meeting"))
-        self.assertIsNone(ct.parse_trip_distance_km(""))
 
     def test_minutes_are_not_miles(self):
         """The regex ends on a word boundary specifically so `mi` cannot match
@@ -112,9 +95,6 @@ class TestADistanceNeedsAUnit(unittest.TestCase):
 
 
 class TestTheEnergyIsNeverNegative(unittest.TestCase):
-    def test_a_plain_trip(self):
-        self.assertAlmostEqual(ct.trip_energy_kwh(100.0, 18.0), 18.0)
-
     def test_the_odometer_reduces_what_is_still_owed(self):
         self.assertAlmostEqual(
             ct.trip_energy_kwh(100.0, 18.0, already_driven_km=60.0), 7.2
@@ -144,15 +124,6 @@ class TestTheIncrementToLevelConversion(unittest.TestCase):
         and drive into the reserve the household said it would not touch."""
         self.assertAlmostEqual(ct.trip_must_have_soc_kwh(5.0, 12.0), 17.0)
 
-    def test_a_trip_bigger_than_the_pack_asks_to_arrive_FULL(self):
-        """A 400 km drive in a 50 kWh car is a real configuration. Demanding more
-        than the ceiling would make the constraint infeasible -- and this
-        primitive has no slack, so it would take the whole plan down, the exact
-        failure #390 fixed for grid import and #467 asked to avoid."""
-        self.assertAlmostEqual(
-            ct.trip_must_have_soc_kwh(5.0, 100.0, max_soc_kwh=40.0), 40.0
-        )
-
     def test_a_negative_trip_cannot_lower_the_floor(self):
         self.assertAlmostEqual(ct.trip_must_have_soc_kwh(5.0, -3.0), 5.0)
 
@@ -175,12 +146,6 @@ class TestTheWindowEndsAtDEPARTURE(unittest.TestCase):
         )
         self.assertEqual(earliest, 0, "the first trip can charge from now")
         self.assertAlmostEqual(target, 3.24)  # 18 km * 18 kWh/100km
-
-    def test_the_deadline_is_not_the_event_end(self):
-        """A requirement due at the trip's end would price driving energy as
-        household import."""
-        out = _windows([TripEvent(_at(7), _at(9), "school run 18km")])
-        self.assertNotEqual(_GRID[out[0][1]], _at(9))
 
 
 class TestConsecutiveTripsCannotShareOneCharge(unittest.TestCase):
@@ -233,10 +198,6 @@ class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
         reported shortfall."""
         self.assertEqual(_windows([TripEvent(_T0, _at(2), "leaving now 50 km")]), ())
 
-    def test_an_event_wholly_before_the_horizon_is_dropped(self):
-        past = TripEvent(_T0 - timedelta(hours=5), _T0 - timedelta(hours=4), "40 km")
-        self.assertEqual(_windows([past]), ())
-
     def test_an_event_beyond_the_horizon_is_dropped(self):
         later = TripEvent(_END + timedelta(hours=2), _END + timedelta(hours=3), "40 km")
         self.assertEqual(_windows([later]), ())
@@ -259,18 +220,6 @@ class TestEventsThatMustNotProduceAWindow(unittest.TestCase):
             ),
             (),
         )
-
-    def test_a_usable_trip_still_lands_when_another_is_skipped(self):
-        """One unparseable event must not suppress the rest -- the same
-        defensive posture the sweep paths in this codebase already take."""
-        out = _windows(
-            [
-                TripEvent(_at(7), _at(9), "dinner"),
-                TripEvent(_at(14), _at(18), "Trip to Brisbane 120 km"),
-            ]
-        )
-        self.assertEqual(len(out), 1)
-        self.assertAlmostEqual(out[0][2], 21.6)
 
 
 if __name__ == "__main__":

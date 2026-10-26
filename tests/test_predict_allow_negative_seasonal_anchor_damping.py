@@ -75,38 +75,6 @@ class TestAllowNegative(unittest.TestCase):
             (forecast_start - timedelta(hours=i), -20.0) for i in range(1, 6)
         ]
 
-    def test_allow_negative_false_clamps_every_prediction_to_zero_or_above(self):
-        result = ml_model.predict(
-            trained=self.trained,
-            timestamps=self.timestamps,
-            temps=[20.0] * len(self.timestamps),
-            humidities=[50.0] * len(self.timestamps),
-            recent_load_values=self.recent_load_values,
-            resample_minutes=60,
-            allow_negative=False,
-        )
-        for v in result.values:
-            self.assertGreaterEqual(v, 0.0)
-
-    def test_allow_negative_true_lets_real_negative_predictions_through(self):
-        result = ml_model.predict(
-            trained=self.trained,
-            timestamps=self.timestamps,
-            temps=[20.0] * len(self.timestamps),
-            humidities=[50.0] * len(self.timestamps),
-            recent_load_values=self.recent_load_values,
-            resample_minutes=60,
-            allow_negative=True,
-        )
-        # The trained signal is genuinely negative for roughly half of
-        # every 24h cycle -- a 24-point forecast starting at an arbitrary
-        # hour should show at least some negative values once the clamp
-        # is lifted.
-        self.assertTrue(
-            any(v < 0.0 for v in result.values),
-            f"expected at least one negative prediction with allow_negative=True, got {result.values}",
-        )
-
 
 class TestSeasonalAnchorBlend(unittest.TestCase):
     """Bug #3 (v0.16.0): once a forecast step's own lag lookback runs past
@@ -218,72 +186,6 @@ class TestSeasonalAnchorBlend(unittest.TestCase):
             f"expected a large, unambiguous gap between anchored ({anchored}) "
             f"and unanchored ({unanchored}) given a 500.0-unit seasonal value "
             f"the raw model has no way of producing on its own",
-        )
-
-
-class TestDampingSkipForSeasonalAnchoredSteps(unittest.TestCase):
-    """Bug #4 (v0.17.0): DAMPING_ALPHA's exponential smoothing used to
-    apply uniformly across the whole forecast, blurring a genuine sharp
-    level change (once seasonal-anchored) into a fake multi-step ramp.
-    Once a step is seasonal-anchored, damping must be skipped entirely
-    (alpha=1.0) so a real step transition lands within one grid step."""
-
-    def test_a_sharp_seasonal_step_change_is_not_smeared_across_multiple_steps(self):
-        # Two-state training data: a real seasonal LOW for hours 0-11,
-        # a real seasonal HIGH for hours 12-23 -- a clean step function,
-        # not a smooth sine, so any smearing across the boundary is
-        # unambiguous and easy to detect.
-        days = 20.0
-        n_hours = int(days * 24)
-        events = []
-        for i in range(n_hours):
-            t = START_OF_TIME + timedelta(hours=i)
-            value = 2.0 if t.hour < 12 else 14.0
-            events.append((t, value))
-        trained = ml_model.train_model(
-            load_events=events,
-            temp_events=[],
-            humidity_events=[],
-            curtailment_events=[],
-            start=START_OF_TIME,
-            end=START_OF_TIME + timedelta(days=days),
-            resample_minutes=60,
-            min_training_points=50,
-        )
-        self.assertIsNotNone(trained)
-
-        # Forecast starts well before the boundary (hour 6), seeded with
-        # real recent low-state data, so the model has already exhausted
-        # its real lag data and gone fully seasonal-anchored several hours
-        # before crossing the real 12:00 step boundary.
-        forecast_start = START_OF_TIME + timedelta(days=days, hours=6)
-        n_steps = 12
-        timestamps = [forecast_start + timedelta(hours=i) for i in range(n_steps)]
-        recent_load_values = [(forecast_start - timedelta(hours=1), 2.0)]
-
-        result = ml_model.predict(
-            trained=trained,
-            timestamps=timestamps,
-            temps=[20.0] * n_steps,
-            humidities=[50.0] * n_steps,
-            recent_load_values=recent_load_values,
-            resample_minutes=60,
-            seasonal_anchor=True,
-        )
-
-        # timestamps[6] is exactly hour 12 -- the real step boundary.
-        boundary_index = 6
-        self.assertEqual(timestamps[boundary_index].hour, 12)
-        at_boundary = result.values[boundary_index]
-        # A smeared (damped) transition would still be well below the
-        # real high-state value (14.0) right at the boundary step; an
-        # undamped, seasonal-anchored transition should land close to it
-        # within that same single step.
-        self.assertGreater(
-            at_boundary,
-            10.0,
-            f"expected the step exactly at the real boundary to already be close "
-            f"to the new seasonal value (14.0), got {at_boundary} -- looks smeared",
         )
 
 

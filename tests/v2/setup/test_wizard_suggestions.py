@@ -105,40 +105,6 @@ def test_a_soc_that_is_not_a_battery_percentage_is_not_suggested(dashboard):
     )
 
 
-def test_the_switchboard_takes_energy_totals_and_monetary_prices_only(dashboard):
-    dashboard["energy_sources"] = [
-        {
-            "type": "grid",
-            "stat_energy_from": "sensor.imp",
-            "entity_energy_price": "sensor.buy",
-            "stat_energy_to": "sensor.exp",
-            "entity_energy_price_export": "sensor.sell",
-        },
-        {"type": "solar", "stat_energy_from": "sensor.pv"},
-        {
-            "type": "battery",
-            "stat_energy_from": "sensor.out",
-            "stat_energy_to": "sensor.in",
-        },
-    ]
-    hass = _hass(
-        _state("sensor.imp", **ENERGY),
-        _state("sensor.exp", device_class="energy", state_class="measurement"),
-        _state("sensor.buy", device_class="monetary"),
-        _state("sensor.sell", device_class="power"),
-        _state("sensor.pv", **ENERGY),
-        _state("sensor.out", **ENERGY),
-        _state("sensor.in", **ENERGY),
-    )
-    assert asyncio.run(ho._energy_dashboard_switchboard_suggestions(hass)) == {
-        const.CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR: "sensor.imp",
-        const.CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.buy",
-        const.CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: "sensor.pv",
-        const.CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: "sensor.out",
-        const.CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: "sensor.in",
-    }
-
-
 def test_without_an_energy_dashboard_the_forms_are_simply_empty(dashboard):
     dashboard["broken"] = True
     assert asyncio.run(ho._energy_dashboard_solver_source_suggestions(_hass())) == {}

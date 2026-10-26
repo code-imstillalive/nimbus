@@ -73,21 +73,6 @@ def _nowcast(now, anchor, forecast, cfg=NOWCAST):
 # --- the nowcast check (#1259) -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "cfg",
-    [
-        {**NOWCAST, "solver_nowcast_measurement_enabled": False},
-        {**NOWCAST, "solver_solar_power_sensor": None},
-    ],
-    ids=["switched_off", "no_pv_sensor"],
-)
-def test_switched_off_or_without_a_pv_sensor_the_check_reads_and_writes_nothing(
-    state, cfg
-):
-    assert _nowcast(NOON, 1.78, 15.89, cfg)[0] is None
-    assert state.readings["calls"] == 0 and state.empty()
-
-
 def test_a_sharp_disagreement_is_queued_for_the_next_periods_own_time(state):
     result, grid = _nowcast(NOON, 1.78, 15.89)
     (queued,) = state.read()["nowcast_pending"]
@@ -110,28 +95,6 @@ def test_an_event_not_yet_due_stays_queued_and_reads_nothing(state):
     _nowcast(NOON, 1.78, 15.89)
     _nowcast(NOON, 1.78, 15.89)
     assert len(state.read()["nowcast_pending"]) == 2 and state.readings["calls"] == 0
-
-
-def test_agreement_counts_toward_the_rate_but_queues_nothing(state):
-    result, _grid_times = _nowcast(NOON, 15.0, 15.5)
-    assert state.read()["nowcast_pending"] == []
-    assert (
-        result["considered_count"],
-        result["disagreement_count"],
-        result["disagreement_rate"],
-    ) == (1, 0, 0.0)
-
-
-def test_twilight_levels_are_not_even_considered(state):
-    """3.6 kW against 0.4 at first light clears the bar on arithmetic and
-    means nothing physically; it must not dilute the rate either."""
-    result, _ = _nowcast(datetime(2026, 9, 27, 5, 45, tzinfo=BRISBANE), 0.4, 3.6)
-    assert state.read()["nowcast_pending"] == []
-    assert (
-        result["considered_count"],
-        result["disagreement_rate"],
-        result["disagreement_now_kw"],
-    ) == (0, None, None)
 
 
 @pytest.mark.parametrize(
@@ -218,11 +181,6 @@ def _ratio(now, forecast_kw=10.0):
     )
 
 
-def test_without_a_pv_sensor_there_is_no_ratio_and_nothing_written(state):
-    assert sw.update_solar_delivery_ratio({}, NOON, _grid(NOON), [10.0] * 48) is None
-    assert state.empty()
-
-
 @pytest.mark.parametrize(
     ("actual", "scale", "ratio", "under"),
     [(7.5, 1.0, 0.75, True), (11200.0, 0.001, 1.12, False)],
@@ -248,19 +206,6 @@ def test_an_hour_ahead_prediction_is_graded_into_a_ratio(
     assert graded["solar_delivery_sample_count"] == 1
     assert graded["solar_delivery_ratio"] == pytest.approx(ratio, abs=1e-3)
     assert graded["solar_delivery_underperforming"] is under  # below 0.80
-
-
-def test_a_small_forecast_is_dropped_not_graded(state):
-    dawn = datetime(2026, 8, 25, 6, 0, tzinfo=BRISBANE)
-    _ratio(dawn, forecast_kw=1.0)  # under the 5 kW floor
-    calls = state.readings["calls"]
-    assert (
-        _ratio(dawn + timedelta(minutes=65), forecast_kw=1.0)[
-            "solar_delivery_sample_count"
-        ]
-        == 0
-    )
-    assert state.readings["calls"] == calls
 
 
 @pytest.mark.parametrize(

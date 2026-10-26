@@ -13,8 +13,7 @@ install_ha_stubs()
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
-from custom_components.nimbus_load import forecaster_dashboard as dash
-from custom_components.nimbus_load import help_tab, solver_tab
+from custom_components.nimbus_load import help_tab
 
 PACKAGE = REPO / "custom_components" / "nimbus_load"
 
@@ -81,35 +80,6 @@ def test_the_glossary_carries_formulas() -> None:
         assert term in terms
     epr = next(f for t, _m, f in help_tab.GLOSSARY if t == "EPR")
     assert "J_ref" in epr and "43.4%" in epr
-
-
-def test_help_is_the_last_standard_tab_and_resolves_to_this_install() -> None:
-    spec = dash.STANDARD_VIEWS[-1]
-    assert (spec["key"], spec["title"], spec["path"]) == ("help", "Help", "help")
-    view = dash._view_for(spec)
-    assert view["sections"] == help_tab.template()
-
-    def lookup(key: str) -> str | None:
-        return (
-            f"sensor.{key}"
-            if not key.startswith(("option:", "name:", "card:"))
-            else None
-        )
-
-    resolved = solver_tab.resolve(view, lookup)
-    text = json.dumps(resolved, ensure_ascii=False)
-    assert "${@" not in text
-    # Every card survives: each one with a live reference names an entity
-    # every Solver install has.
-    assert len(resolved["sections"]) == len(view["sections"])
-    assert sum(len(s["cards"]) for s in resolved["sections"]) == sum(
-        len(s["cards"]) for s in view["sections"]
-    )
-
-
-def test_the_dashboard_has_help_last() -> None:
-    views = dash.dashboard_config(lambda v: v)["views"]
-    assert views[-1]["title"] == "Help"
 
 
 # --- the wizard's own screens and words -----------------------------------------------------

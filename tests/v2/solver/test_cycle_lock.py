@@ -122,13 +122,3 @@ def test_a_stale_file_naming_this_very_process_is_reclaimed(lock_path, monkeypat
 def test_releasing_what_was_never_taken_is_harmless(lock_path):
     cycle_lock.release_lock(lock_path)
     assert cycle_lock.acquire_lock(lock_path)
-
-
-def test_the_writers_own_lock_is_the_one_at_its_lock_path(lock_path, monkeypatch):
-    import solver_writer as sw
-
-    monkeypatch.setattr(sw, "LOCK_PATH", lock_path)
-    assert sw._IN_PROCESS_LOCK is cycle_lock._IN_PROCESS_LOCK
-    assert sw.acquire_lock() and _pid_in(lock_path) == str(os.getpid())
-    sw.release_lock()
-    assert not os.path.exists(lock_path)

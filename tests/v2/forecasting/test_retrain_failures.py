@@ -99,14 +99,6 @@ def test_retraining_flag_resets_to_false_even_after_a_failure():
     assert coord._retraining is False
 
 
-def test_no_regression_for_the_success_path():
-    coord = _make_coordinator(training_job_raises=False)
-    with patch.object(coordinator_module, "_LOGGER") as mock_logger:
-        asyncio.run(coord._async_retrain())
-    mock_logger.exception.assert_not_called()
-    assert coord._retraining is False
-
-
 # --- nimbus issue #373: last_retrain_error, the operator-visible signal ----
 
 

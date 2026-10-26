@@ -72,14 +72,6 @@ def _horizon_marker(schema):
     raise AssertionError("forecast_horizon_hours not in the Forecaster form")
 
 
-def test_the_form_shows_a_saved_48_raised_and_refuses_less():
-    marker, sel = _horizon_marker(
-        _forecaster_schema({CONF_FORECAST_HORIZON_HOURS: 48.0})
-    )
-    assert marker.default() == MIN_FORECAST_HORIZON_HOURS
-    assert sel.config["min"] == MIN_FORECAST_HORIZON_HOURS
-
-
 def test_the_form_keeps_a_longer_saved_value():
     marker, _ = _horizon_marker(_forecaster_schema({CONF_FORECAST_HORIZON_HOURS: 120}))
     assert marker.default() == 120

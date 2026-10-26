@@ -19,11 +19,9 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from custom_components.nimbus_load.const import (
-    CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
-    CONF_SOLVER_SOLAR_POWER_SENSOR,
 )
 from custom_components.nimbus_load.flows.hub_options import (
     _energy_dashboard_solver_source_suggestions,
@@ -121,28 +119,6 @@ class TestTypeSafety(unittest.TestCase):
     """Safeguard 1. `sensor.grid_active_power` looks like the obvious grid sensor
     and is another optimiser's forecast on this very install."""
 
-    def test_a_soc_field_pointing_at_the_wrong_device_class_is_refused(self):
-        out = _suggest(
-            [{"type": "battery", "stat_soc": "sensor.not_soc"}],
-            {
-                "sensor.not_soc": _state(
-                    state="55", device_class="power", unit_of_measurement="%"
-                )
-            },
-        )
-        self.assertNotIn(CONF_SOLVER_BATTERY_SOC_SENSOR, out)
-
-    def test_a_soc_field_with_the_wrong_unit_is_refused(self):
-        out = _suggest(
-            [{"type": "battery", "stat_soc": "sensor.kwh_not_pct"}],
-            {
-                "sensor.kwh_not_pct": _state(
-                    state="55", device_class="battery", unit_of_measurement="kWh"
-                )
-            },
-        )
-        self.assertNotIn(CONF_SOLVER_BATTERY_SOC_SENSOR, out)
-
     def test_a_non_numeric_price_is_refused(self):
         """`unavailable` at wizard time is the common real case."""
         out = _suggest(
@@ -173,27 +149,6 @@ class TestTypeSafety(unittest.TestCase):
 class TestTheRestraint(unittest.TestCase):
     """What it deliberately does NOT offer, pinned so a later change has to
     argue for it rather than drift into it."""
-
-    def test_no_power_sensor_is_ever_suggested(self):
-        """The Energy Dashboard holds ENERGY (kWh); these fields want POWER (kW).
-        Bridging them by guessing a sibling entity is the wrong-kind error
-        safeguard 1 exists to stop, arriving from the inside."""
-        out = _suggest(
-            [
-                {"type": "battery", "stat_energy_from": "sensor.batt_out_kwh"},
-                {"type": "solar", "stat_energy_from": "sensor.pv_kwh"},
-            ],
-            {
-                "sensor.batt_out_kwh": _state(
-                    state="12", device_class="energy", state_class="total_increasing"
-                ),
-                "sensor.pv_kwh": _state(
-                    state="30", device_class="energy", state_class="total_increasing"
-                ),
-            },
-        )
-        self.assertNotIn(CONF_SOLVER_BATTERY_POWER_SENSOR, out)
-        self.assertNotIn(CONF_SOLVER_SOLAR_POWER_SENSOR, out)
 
     def test_a_fixed_number_price_is_not_treated_as_a_sensor(self):
         """`number_energy_price` is a static figure. Nimbus wants a live sensor

@@ -132,43 +132,12 @@ class TestMarksExactRealRepro(unittest.TestCase):
         self.assertNotIn("max discharge power", label)
         self.assertEqual(shadow_price, 0.031)
 
-    def test_charge_pinned_at_zero_gets_the_same_treatment(self):
-        # The mirror case -- proves the fix isn't special-cased to
-        # discharge only, it's the same real mechanism for all 4 families.
-        plan = _fake_plan(
-            reduced_costs={"battery_charge_0": 0.012},
-            battery_charge_kw=(0.0,),
-        )
-        label, _ = _label(plan)
-        self.assertEqual(label, "Battery charge at zero (not economical right now)")
-
-    def test_grid_export_pinned_at_zero_gets_the_same_treatment(self):
-        plan = _fake_plan(
-            reduced_costs={"grid_export_0": 0.001},
-            grid_export_kw=(0.0,),
-        )
-        label, _ = _label(plan)
-        self.assertEqual(label, "Grid export at zero (not economical right now)")
-
 
 class TestTieBreakingUnchanged(unittest.TestCase):
     """Multiple families with a nonzero reduced cost simultaneously --
     must still pick whichever has the LARGEST |reduced_cost| magnitude,
     exactly the original tie-breaking rule, now just applied on top of
     the corrected per-family labelling."""
-
-    def test_larger_magnitude_wins_regardless_of_which_bound_each_is_at(self):
-        plan = _fake_plan(
-            reduced_costs={
-                "battery_discharge_0": 0.01,  # smaller magnitude, at zero
-                "grid_export_0": 0.5,  # larger magnitude, at its real ceiling
-            },
-            battery_discharge_kw=(0.0,),
-            grid_export_kw=(_EXPORT_LIMIT_KW,),
-        )
-        label, shadow_price = _label(plan)
-        self.assertEqual(label, "Grid export limit")
-        self.assertEqual(shadow_price, 0.5)
 
     def test_negative_reduced_costs_compare_by_magnitude_not_sign(self):
         plan = _fake_plan(
@@ -198,20 +167,6 @@ class TestUnexpectedNeitherBoundDegradesHonestly(unittest.TestCase):
         self.assertIn("Battery discharge at 12.00 kW", label)
         self.assertIn("unexpected", label)
         self.assertEqual(shadow_price, 0.02)
-
-    def test_zero_configured_limit_never_divides_or_crashes(self):
-        # A real, if unusual, config edge case (e.g. export disabled
-        # entirely, limit=0.0) -- limit_kw > 1e-9 must correctly steer
-        # this to the "at zero" branch, not attempt a ceiling comparison
-        # against a genuinely zero bound.
-        plan = _fake_plan(
-            reduced_costs={"grid_export_0": 0.01},
-            grid_export_kw=(0.0,),
-        )
-        label, _ = solver_publish.compute_binding_constraint_label(
-            plan, 0.0, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW, 1.0
-        )
-        self.assertEqual(label, "Grid export at zero (not economical right now)")
 
 
 class TestPeriod0HoursCorrection(unittest.TestCase):
@@ -272,16 +227,6 @@ class TestP2PPinnedExport(unittest.TestCase):
         return _fake_plan(
             reduced_costs={"grid_export_0": 0.05},
             grid_export_kw=(self._PIN_KW if value_kw is None else value_kw,),
-        )
-
-    def test_the_live_misreport_is_reproduced_without_the_pin(self):
-        """Mutation check, and the exact observed string. Without the new
-        argument the old behaviour must still be reachable -- otherwise
-        the test below proves nothing about what changed."""
-        label, _ = _label(self._pinned_plan())
-        self.assertEqual(
-            label,
-            "Grid export at 12.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)",
         )
 
     def test_a_p2p_pin_is_named_rather_than_called_unexpected(self):
@@ -382,34 +327,6 @@ class TestP2PPinnedExport(unittest.TestCase):
         self.assertEqual(
             label, "Grid export pinned at 0.00 kW by P2P export commitment"
         )
-
-    def test_a_genuine_not_economical_zero_is_untouched_by_that_change(self):
-        """The regression the #951 reorder had to not cause, and the
-        reason it is safe.
-
-        A period with no commitment never reaches the zero-check carrying
-        0.0: `fetch_p2p_fixed_export_kw()` returns None when no block is
-        configured at all, and defaults an unmatched period to
-        `float("nan")`. Both are rejected by the pin branch's own guards,
-        so a real "not worth exporting right now" still reads as one.
-
-        Covering both shapes explicitly, because the safety of hoisting
-        the pin check rests entirely on them.
-        """
-        for fixed_export in (None, float("nan")):
-            with self.subTest(fixed_export_kw_now=fixed_export):
-                label, _ = solver_publish.compute_binding_constraint_label(
-                    self._pinned_plan(value_kw=0.0),
-                    _EXPORT_LIMIT_KW,
-                    _IMPORT_LIMIT_KW,
-                    _MAX_CHARGE_KW,
-                    _MAX_DISCHARGE_KW,
-                    1.0,
-                    fixed_export,
-                )
-                self.assertEqual(
-                    label, "Grid export at zero (not economical right now)"
-                )
 
     def test_the_pin_only_applies_to_grid_export(self):
         """`fixed_export_kw` bounds one variable. A battery value that

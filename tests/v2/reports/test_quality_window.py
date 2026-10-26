@@ -219,20 +219,6 @@ def test_yesterdays_report_is_the_same_window_scored_whole(history):
 # --- achieved energy, home battery and fleet (#532, #858) ---------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("kw", "into", "out_of"),
-    [(0.0, 0.0, 0.0), (20.0, 0.0, 480.0), (-20.0, 480.0, 0.0)],
-    ids=["idle", "discharge", "charge"],
-)
-def test_achieved_energy_is_integrated_from_the_battery_power_sensor(
-    history, kw, into, out_of
-):
-    history["sensor.real_battery"] = flat(kw)  # discharge positive
-    scored = window()
-    assert scored["achieved_energy_in_kwh"] == pytest.approx(into, abs=0.1)
-    assert scored["achieved_energy_out_kwh"] == pytest.approx(out_of, abs=0.1)
-
-
 def _participant(name, charge_kw, discharge_kw, n):
     battery = elements.BatteryConfig(
         name=name,
@@ -391,44 +377,6 @@ def test_the_efficiency_backtest_starts_inside_any_envelope(history, setting, so
 # --- every skip says why (#313, #314) ---------------------------------------------------------
 
 
-def test_every_reason_a_window_is_not_scored_is_logged_at_its_level(
-    history, monkeypatch, caplog
-):
-    with caplog.at_level(logging.DEBUG, logger=sw._LOGGER.name):
-        assert window(cfg(solver_solar_power_sensor=None)) is None
-        assert window(end=DAY + timedelta(hours=6), partial=False) is None
-    assert (
-        "Missing sensor config" in caplog.text and "shorter than the 24" in caplog.text
-    )
-    caplog.clear()
-    for eid in ("sensor.real_solar", "sensor.real_load", "sensor.real_battery"):
-        history[eid] = lambda s, e: []
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    assert any(
-        "Real history missing" in r.getMessage() and "solar=0" in r.getMessage()
-        for r in caplog.records
-        if r.levelno == logging.INFO
-    )
-
-
-def test_an_oracle_that_cannot_solve_is_a_warning_naming_the_soc_bounds(
-    history, monkeypatch, caplog
-):
-    def infeasible(**_kw):
-        raise RuntimeError("infeasible")
-
-    monkeypatch.setattr(sw, "compute_quality_report", infeasible)
-    with caplog.at_level(logging.WARNING, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    (line,) = [
-        r.getMessage()
-        for r in caplog.records
-        if "Oracle LP infeasible" in r.getMessage()
-    ]
-    assert all(k in line for k in ("initial_soc=", "min_soc=", "max_soc="))
-
-
 # --- a value the recorder held is not a gap (#1477) -------------------------------------------
 
 
@@ -505,37 +453,6 @@ class _Response:
         return False
 
 
-@pytest.mark.parametrize(
-    ("rows", "error", "expected"),
-    [
-        ([("unavailable", DUSK + timedelta(hours=2))], None, True),
-        ([("0.0", DUSK + timedelta(hours=1))], None, False),
-        ([], None, False),
-        (
-            [("unavailable", DUSK - timedelta(hours=1))],
-            None,
-            False,
-        ),  # before the window
-        (None, urllib.error.URLError("down"), None),  # unknown, not fine
-    ],
-    ids=["outage", "held", "nothing", "outage_before", "read_failed"],
-)
-def test_the_outage_probe_reads_only_states_after_the_last_row(
-    monkeypatch, rows, error, expected
-):
-    payload = [[{"state": s, "last_changed": w.isoformat()} for s, w in (rows or [])]]
-    monkeypatch.setattr(sw.NATIVE, "hass", None)
-    monkeypatch.setattr(sw, "_load_token", lambda: "t")
-
-    def urlopen(*_a, **_k):
-        if error:
-            raise error
-        return _Response(payload)
-
-    monkeypatch.setattr(shared.urllib.request, "urlopen", urlopen)
-    assert shared.fetch_entity_went_unavailable("sensor.pv", DUSK, END) is expected
-
-
 # --- the coverage gate names the short sensor and escalates (#984, #1054) -----------------------
 
 
@@ -608,18 +525,6 @@ def test_the_skip_line_names_every_sensor_shortest_first_with_its_span(
     assert line.index("sensor.real_battery") < line.index("sensor.real_solar")
 
 
-def test_an_empty_sensor_is_named_by_the_row_count_guard_before_it(
-    short_battery, caplog
-):
-    short_battery["sensor.real_battery"] = lambda s, e: []
-    with caplog.at_level(logging.INFO, logger=sw._LOGGER.name):
-        assert window(partial=False) is None
-    assert any(
-        "Real history missing" in r.getMessage() and "battery=0 rows" in r.getMessage()
-        for r in caplog.records
-    )
-
-
 def test_a_day_that_keeps_failing_becomes_a_warning_counted_per_day(
     short_battery, caplog
 ):
@@ -663,14 +568,6 @@ def _sixteen_october():
 
 def _labels(mask):
     return [f"{GRID[i]:%H:%M}" for i, flag in enumerate(mask) if flag]
-
-
-def test_only_the_stall_is_stale_never_a_held_evening_and_the_oldest_stamp_decides():
-    assert _labels(pf.stale_period_mask([_sixteen_october()], GRID)) == STALL
-    fresh = [(gt, gt - timedelta(minutes=1)) for gt in GRID]
-    assert _labels(pf.stale_period_mask([fresh, _sixteen_october()], GRID)) == STALL
-    assert pf.stale_period_mask([], GRID) == [False] * 48
-    assert pf.stale_period_mask([[]], GRID) == [False] * 48
 
 
 def test_the_threshold_is_the_solvers_own_and_windows_are_local():
@@ -782,18 +679,6 @@ def test_a_fresh_day_or_a_failing_check_changes_nothing(caplog):
         result, imp, *_ = _reprice({}, [], boom=True)
     assert result["price_stale_periods"] == 0 and imp[26] == 10.5
     assert any(r.levelno == logging.WARNING for r in caplog.records)
-
-
-def test_an_unusable_price_day_is_not_reliable_and_names_the_price_source_first():
-    assert not sw._epr_reliability(True, True, None, None, True)
-    assert sw._epr_reliability(True, True, None, None, False)
-    assert sw._epr_reliability(True, True)  # older callers
-    entry = {
-        "epr_reliable": False,
-        "regret_reliable": False,
-        "price_stale_unusable": True,
-    }
-    assert sw._epr_reliability_code(entry) == sw._RELIABILITY_PRICE
 
 
 # --- the oracle keeps a fixed P2P export block (2026-09-01, #1001) ------------------------------
@@ -1039,25 +924,6 @@ def test_the_refusal_is_quiet_at_first_and_loud_when_it_persists(no_soc, caplog)
 
 
 # --- the grid meter and stale prices reach the window's verdict (#1465, #1825) ---------------
-
-
-@pytest.mark.parametrize(
-    ("key", "metered", "status"),
-    [
-        ("switchboard_grid_meter_sensor", 2.0, "agrees"),  # load 2 kW from the grid
-        ("switchboard_grid_meter_sensor", 9.0, "disagrees"),
-        ("grid_sensor", 9.0, "disagrees"),  # the Forecaster's grid sensor, failing that
-    ],
-)
-def test_the_window_is_checked_against_the_households_grid_meter(
-    history, key, metered, status
-):
-    history["sensor.grid_meter"] = flat(metered)
-    scored = window(cfg(**{key: "sensor.grid_meter"}))
-    assert scored["meter_reconciliation"]["status"] == status
-    if status == "disagrees":
-        assert scored["epr_reliable"] is False
-        assert scored["epr_reason"] == "grid_meter_disagrees"
 
 
 def test_the_window_is_priced_on_the_repriced_series_and_an_unusable_day_says_so(

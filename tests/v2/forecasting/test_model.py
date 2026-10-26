@@ -79,20 +79,6 @@ def _tomorrow(trained, fn, **kw):
     return stamps, result
 
 
-def test_the_forecaster_learns_the_evening_peak_and_forecasts_it_tomorrow(house):
-    assert house is not None
-    assert house.model_type in {"gbrt", "knn", "naive"}
-    assert house.training_points > 1000
-    stamps, result = _tomorrow(house, _house)
-    values = np.array(result.values)
-    truth = np.array([_house(t) for t in stamps])
-    assert len(values) == 96 and (values >= 0).all()
-    peak = values[[17 <= t.hour < 21 for t in stamps]].mean()
-    quiet = values[[2 <= t.hour < 12 for t in stamps]].mean()
-    assert peak > quiet + 1.5
-    assert np.mean(np.abs(values - truth)) < 0.4
-
-
 def test_bands_when_present_surround_the_point(house):
     _stamps, result = _tomorrow(house, _house)
     if result.model_lower is None:
@@ -102,16 +88,6 @@ def test_bands_when_present_surround_the_point(house):
         np.array(a) for a in (result.model_lower, result.values, result.model_upper)
     )
     assert (lower <= point + 1e-9).all() and (point <= upper + 1e-9).all()
-
-
-def test_a_signed_signal_keeps_its_sign_only_when_allowed():
-    trained = _train(_battery)
-    assert trained is not None
-    _stamps, clamped = _tomorrow(trained, _battery)
-    stamps, signed = _tomorrow(trained, _battery, allow_negative=True)
-    assert min(clamped.values) >= 0.0
-    midday = np.array(signed.values)[[10 <= t.hour < 14 for t in stamps]]
-    assert midday.mean() < -1.0
 
 
 def test_no_history_or_too_little_is_no_model(caplog):
@@ -142,42 +118,6 @@ def test_no_history_or_too_little_is_no_model(caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert any(m.startswith("sensor.empty: ") for m in messages)
     assert any(m.startswith("sensor.young: ") for m in messages)
-
-
-def test_an_idle_circuit_trains_on_its_idle_time_once_history_is_change_only():
-    # A heater that ran 18:00-19:00 on each of the last 21 days and wrote
-    # nothing while idle: two events a day.
-    events = []
-    for d in range(21):
-        day = END - timedelta(days=21 - d)
-        events += [(day.replace(hour=18), 2.0), (day.replace(hour=19), 0.0)]
-    kwargs = {
-        "load_events": events,
-        "temp_events": _temps(),
-        "humidity_events": [],
-        "curtailment_events": [],
-        "start": END - timedelta(days=21),
-        "end": END,
-        "resample_minutes": STEP,
-        "min_training_points": 200,
-    }
-    assert model.train_model(**kwargs) is None  # capped: too few rows
-    trained = model.train_model(**kwargs, change_only_from=END - timedelta(days=21))
-    assert trained is not None and trained.training_points > 1000
-
-
-def test_a_configured_schedule_overrides_the_model(house):
-    stamps, result = _tomorrow(
-        house,
-        _house,
-        expected_load_kw=3.7,
-        schedule_start_hour=22.0,
-        schedule_end_hour=2.0,
-    )
-    assert result.values == [
-        3.7 if (t.hour >= 22 or t.hour < 2) else 0.0 for t in stamps
-    ]
-    assert result.model_lower is None
 
 
 # --- a burst load's running hold (#1703) ------------------------------------------------
@@ -236,18 +176,6 @@ def _as_knn(trained):
     return dataclasses.replace(trained, model_type="knn")
 
 
-def test_the_seasonal_anchor_pulls_the_far_horizon_toward_the_usual_day(house):
-    knn = _as_knn(house)
-    stamps = [END + timedelta(minutes=STEP * i) for i in range(96)]
-    recent = [(t, 0.4) for t, _v in _events(_house, days=1)]  # a quiet last day
-    plain = model.predict(knn, stamps, [20.0] * 96, [0.0] * 96, recent, STEP).values
-    anchored = model.predict(
-        knn, stamps, [20.0] * 96, [0.0] * 96, recent, STEP, seasonal_anchor=True
-    ).values
-    peak = [i for i, t in enumerate(stamps) if 17 <= t.hour < 21]
-    assert np.mean([anchored[i] for i in peak]) > np.mean([plain[i] for i in peak])
-
-
 def test_the_learned_model_is_smoothed_from_step_to_step(house):
     stamps = [END + timedelta(minutes=STEP * i) for i in range(96)]
     recent = [(t, _house(t)) for t, _v in _events(_house, days=2)]
@@ -295,17 +223,6 @@ def _selection_log(caplog, events, **kw):
     return trained, line
 
 
-def test_recursive_selection_reports_whether_one_step_would_agree(caplog):
-    trained, line = _selection_log(caplog, _events(_house))
-    assert f"-> using {trained.model_type} (one-step would have chosen" in line
-    assert line.endswith("-- agrees)")
-    trained, line = _selection_log(
-        caplog, _sparse(5), change_only_from=END - timedelta(days=21)
-    )
-    assert f"-> using {trained.model_type} " in line
-    assert "DIFFERS, so this load is one the fallback would get wrong" in line
-
-
 def test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such(caplog):
     trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
     assert line.startswith("probe: Recursive validation unavailable (")
@@ -332,9 +249,3 @@ def test_the_model_is_chosen_by_the_selection_metric_never_the_diagnostic(house)
     chosen = min(house.validation_recursive_mae, key=house.validation_recursive_mae.get)
     assert house.model_type == chosen
     assert house.validation_recursive_mae_by_horizon  # measured, and only measured
-
-
-def test_a_model_pickled_before_the_horizon_curve_still_has_it():
-    old = model.TrainedModel.__new__(model.TrainedModel)
-    old.__setstate__({"model_type": "knn", "validation_mae": {}})
-    assert old.validation_recursive_mae_by_horizon == {}

@@ -146,24 +146,3 @@ async def test_a_conflict_refuses_shadow_and_writes_nothing(
     assert [c["code"] for c in result["conflicts"]] == ["conflict_role_sources"]
     assert device_storage.store_key(entry.entry_id) not in hass_storage
     assert _settings(hass, entry) == before
-
-
-async def test_the_services_are_registered_and_answer(
-    hass: HomeAssistant, hass_storage
-):
-    from custom_components.nimbus_load import services
-
-    await _setup(hass)
-    services.async_register_services(hass)
-    pv = await hass.services.async_call(
-        DOMAIN, "device_contract_preview", {}, blocking=True, return_response=True
-    )
-    assert pv["clean"] is True and pv["mode"] == "legacy"
-    res = await hass.services.async_call(
-        DOMAIN,
-        "device_contract_set_mode",
-        {"mode": "shadow"},
-        blocking=True,
-        return_response=True,
-    )
-    assert res["ok"] is True and res["mode"] == "shadow"

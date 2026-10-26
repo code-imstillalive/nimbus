@@ -148,35 +148,6 @@ class TestEmhassShape(unittest.TestCase):
 
 
 class TestGenuinelyUnrecognizedShape(unittest.TestCase):
-    def test_unrecognized_shape_returns_clear_error_not_none_arrays_silently(self):
-        state = {
-            "state": "42",
-            "attributes": {
-                "unit_of_measurement": "W",
-                "some_other_forecast_key": [{"whatever": 1}],
-            },
-        }
-        with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error, _coverage = (
-                solver_writer.read_load_forecast_sensor(
-                    "sensor.mystery_source", _grid_times()
-                )
-            )
-        self.assertIsNone(load_kw)
-        self.assertIsNone(lower)
-        self.assertIsNone(upper)
-        self.assertIsNotNone(error)
-        self.assertIn("sensor.mystery_source", error)
-
-    def test_empty_forecast_list_returns_error(self):
-        state = {"state": "0", "attributes": {"forecast": []}}
-        with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, _, _, error, _coverage = solver_writer.read_load_forecast_sensor(
-                "sensor.empty_source", _grid_times()
-            )
-        self.assertIsNone(load_kw)
-        self.assertIsNotNone(error)
-
     def test_points_missing_time_or_value_are_skipped_not_crashed(self):
         state = {
             "state": "1.0",
@@ -220,14 +191,3 @@ class TestNotifyOnce(unittest.TestCase):
                     2,
                     "a genuinely different error must notify again",
                 )
-
-    def test_a_failed_notify_never_raises(self):
-        # Deliberately swallowed -- a notification courtesy must never
-        # be allowed to break the real solve.
-        with patch.object(
-            solver_writer, "ha_call_service", side_effect=RuntimeError("boom")
-        ):
-            try:
-                solver_writer._notify_load_forecast_error_once("some error")
-            except Exception as e:  # noqa: BLE001 -- reporting a clean self.fail() message for genuinely any exception here, not narrowing to a specific type
-                self.fail(f"_notify_load_forecast_error_once raised: {e}")

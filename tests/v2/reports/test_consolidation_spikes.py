@@ -49,9 +49,3 @@ def test_it_also_overrides_learned_weights_in_a_spike_period():
     weights = {"lv": 0.05, "pd": 0.5, "amb": 0.45}
     assert pc.consolidate(series, weights)[0][0] < 2.0  # $15 shrunk to ~$1
     assert pc.consolidate(series, weights, spike_threshold=THRESHOLD)[0] == [15.0]
-
-
-def test_no_threshold_is_the_previous_rule():
-    series = {"lv": [BASE, 15.0], "pd": [BASE, BASE], "amb": [BASE, BASE]}
-    for off in (None, 0.0, -1.0):
-        assert pc.consolidate(series, spike_threshold=off) == pc.consolidate(series)

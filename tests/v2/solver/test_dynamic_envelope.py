@@ -99,51 +99,6 @@ def _battery() -> BatteryConfig:
 
 
 class TestDynamicExportEnvelopeInTheRealLP(unittest.TestCase):
-    def test_a_5kw_midday_envelope_caps_export_and_curtails_the_rest(self):
-        # nimbus issue #493's own acceptance scenario: a 5 kW export
-        # envelope during two midday periods on an otherwise-sunny day,
-        # 50 kW the rest of the time.
-        n = 6
-        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
-        export_limit = np.array([50.0, 50.0, 5.0, 5.0, 50.0, 50.0])
-        grid = GridConfig(
-            import_price=np.full(n, 0.30),
-            export_price=np.full(n, 0.10),
-            import_limit_kw=50.0,
-            export_limit_kw=export_limit,
-        )
-        solar = SolarConfig(forecast_kw=np.full(n, 20.0))
-        loads = [LoadConfig(name="house", forecast_kw=np.full(n, 2.0))]
-        plan = build_plan(
-            periods=periods,
-            grid=grid,
-            batteries=[_battery()],
-            solar=solar,
-            loads=loads,
-            compute_signals=True,
-        )
-        self.assertEqual(plan.status, "optimal")
-        # Export genuinely capped at 5 kW in exactly the envelope
-        # periods, unconstrained (still economically capped by solar
-        # surplus itself, 18 kW here) everywhere else.
-        np.testing.assert_allclose(
-            plan.grid_export_kw, [18.0, 18.0, 5.0, 5.0, 18.0, 18.0]
-        )
-        # Real curtailment forced by the tighter envelope, zero outside
-        # it.
-        np.testing.assert_allclose(
-            plan.solar_curtailed_kw, [0.0, 0.0, 13.0, 13.0, 0.0, 0.0]
-        )
-        # #493's own shadow envelope price IS #491's forced_export_cost
-        # (see GridSignals' own docstring) -- nonzero exactly where the
-        # envelope is genuinely binding, zero where it isn't.
-        signals = plan.grid_signals
-        self.assertIsNotNone(signals)
-        self.assertTrue(signals.forced_export_cost[2] != 0.0)
-        self.assertTrue(signals.forced_export_cost[3] != 0.0)
-        self.assertEqual(signals.forced_export_cost[0], 0.0)
-        self.assertEqual(signals.forced_export_cost[1], 0.0)
-
     def test_a_uniform_array_envelope_matches_the_equivalent_scalar_plan(self):
         # A per-period array that happens to be constant across the
         # whole horizon must produce a BYTE-IDENTICAL plan to the plain

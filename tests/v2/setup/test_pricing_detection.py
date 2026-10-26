@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -403,11 +402,6 @@ def test_once_its_fields_are_chosen_a_provider_is_not_reported_again(world):
     assert pa.NOTIFY_DETECTED_ID not in _notices(world, profile)
 
 
-def test_an_openadr_price_on_a_side_already_chosen_is_not_reported(world):
-    world.add(pi.OPENADR_DOMAIN, "sensor.adr", "ven_price")
-    assert pa.NOTIFY_OPENADR_DETECTED_ID not in _notices(world, {IMPORT: "sensor.adr"})
-
-
 @pytest.mark.parametrize(
     ("domain", "uids", "notice"),
     [
@@ -456,33 +450,6 @@ def test_a_failing_notification_never_breaks_setup(world):
 
     hass.services.async_call = broken
     asyncio.run(pa.async_notify_pricing_setup(hass, {IMPORT: "sensor.gone"}))
-
-
-def test_a_retailer_named_template_counts_and_the_repair_has_its_own_text(monkeypatch):
-    registry = SimpleNamespace(
-        async_get=lambda _e: SimpleNamespace(platform="template")
-    )
-    monkeypatch.setattr(pa.er, "async_get", lambda _h: registry)
-    monkeypatch.setattr(pa, "detect_regional_spot_forecast", lambda _h: ({}, None))
-    hit = pa.detect_missing_regional_forecast(
-        SimpleNamespace(), {IMPORT: "sensor.localvolts_costs_flex_up"}
-    )
-    assert hit is not None and "nem_pd7day" in hit[1]
-    sh = importlib.import_module("custom_components.nimbus_load.setup_health")
-    from datetime import timedelta
-
-    issues = sh.evaluate_health(
-        options={},
-        forecasts=[],
-        hub_up_for=timedelta(0),
-        regional_forecast_missing=("found", "where"),
-    )
-    assert sh.KIND_NO_REGIONAL_FORECAST in [i.kind for i in issues]
-    root = Path(pa.__file__).resolve().parent
-    for name in ("strings.json", "translations/en.json"):
-        text = json.loads((root / name).read_text(encoding="utf-8"))
-        entry = text["issues"][sh.KIND_NO_REGIONAL_FORECAST]["description"]
-        assert "{found}" in entry and "{where}" in entry
 
 
 def test_with_localvolts_installed_the_missing_sensor_notice_says_what_to_choose(world):

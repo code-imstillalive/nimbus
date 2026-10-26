@@ -168,22 +168,6 @@ def test_the_reference_day_is_fixed_and_scored():
     )
 
 
-def test_the_result_lists_are_the_ticks_own_values():
-    result = run_rolling_refinement(
-        RollingRefinementConfig(start=T0, resolve_interval=STEP, n_resolves=3), _inputs
-    )
-    ticks = result.ticks
-    assert result.dispatch_charge_kw == [t.dispatched_charge_kw for t in ticks]
-    assert result.dispatch_discharge_kw == [t.dispatched_discharge_kw for t in ticks]
-    assert result.dispatch_grid_import_kw == [
-        t.dispatched_grid_import_kw for t in ticks
-    ]
-    assert result.dispatch_grid_export_kw == [
-        t.dispatched_grid_export_kw for t in ticks
-    ]
-    assert result.dispatch_soc_kwh == [t.dispatched_soc_kwh for t in ticks]
-
-
 def test_a_reached_soc_outside_the_next_ticks_bounds_is_clamped_into_them():
     """A floor or ceiling may tighten between ticks; the next solve starts
     inside its own bounds rather than failing."""

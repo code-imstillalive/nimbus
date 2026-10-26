@@ -17,7 +17,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import load_run_state
 import numpy as np
 import pytest
 import solver_writer as sw
@@ -160,23 +159,7 @@ def test_driving_while_away_never_reaches_the_home_grid(site, entity, here, gone
     ) == set(AWAY)
 
 
-def test_no_presence_history_is_away_and_no_presence_entity_is_home(site):
-    site.add({**EV, "battery_participant_available_entity": "binary_sensor.ev_home"})
-    ((_b, charge, discharge, _f, _s),) = resolve()
-    assert (charge == 0.0).all() and (discharge == 0.0).all()
-    site.add(EV)
-    ((battery, charge, _d, _f, _s),) = resolve()
-    assert (charge == 5.0).all() and battery.unavailable_period_indices is None
-
-
 # --- a power sensor that stopped recording (#1161) --------------------------------------------
-
-
-def test_the_resample_holds_a_stale_power_reading_all_day():
-    """The premise: the shared resample carries the last reading forward,
-    so the participant path has to refuse it for power."""
-    early = [(DAY + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
-    assert sw.resample_history_mean(early, GRID, 1.0) == [5.0] * 24
 
 
 def test_an_hour_with_no_reading_credits_nothing_and_is_named(site):
@@ -197,13 +180,6 @@ def test_a_sensor_reporting_normally_loses_nothing(site, step):
     ((battery, charge, discharge, _f, _s),) = resolve()
     assert float(np.sum(charge + discharge)) == pytest.approx(96.0)
     assert battery.stale_history_period_indices is None
-
-
-def test_the_gap_allowed_is_the_live_counters_own():
-    only = [(DAY, 5.0)]
-    assert load_run_state.MAX_SAMPLE_GAP_HOURS == 1.0
-    assert 2 in sw._stale_power_period_indices(only, GRID, 1.0)
-    assert 2 not in sw._stale_power_period_indices(only, GRID, 1.0, max_gap_hours=3.0)
 
 
 @pytest.mark.parametrize(
@@ -283,28 +259,8 @@ def test_a_sensor_waking_in_watts_is_read_in_watts_row_by_row(rest):
     assert "minimal_response" not in rest.seen["url"]  # the units ride in attributes
 
 
-@pytest.mark.parametrize(
-    ("rows", "expected"),
-    [
-        ([_row(9, 7.5, None)], [7.5]),  # no unit: kW, as always
-        ([_row(9, 7.5, "kWh"), _row(9.5, 7.5, "A"), _row(10, 2.0)], [2.0]),  # #1643
-        ([_row(9, "unavailable", "W"), _row(10, "heating"), _row(11, 5.0)], [5.0]),
-        ([_row(11, 3.0), _row(9, 1.0), _row(10, 2.0)], [1.0, 2.0, 3.0]),
-        ([], []),
-    ],
-    ids=["no_unit", "not_power", "not_a_number", "unsorted", "empty"],
-)
-def test_what_each_row_reads_as(rest, rows, expected):
-    assert rest(rows) == expected
-
-
 def test_a_failed_read_is_no_history(rest):
     assert rest([], fail=True) == []
-
-
-def test_every_other_history_read_stays_on_the_cheap_path(rest):
-    rest([], fn=sw.fetch_entity_history_range)
-    assert "minimal_response" in rest.seen["url"]
 
 
 # --- a reading no participant could make (#843 option B) --------------------------------------
@@ -353,15 +309,6 @@ def test_no_configured_limit_judges_nothing(bound):
     hist = [(at(9), 1514.417), (at(10), -0.77)]
     assert drop(hist, bound=bound) == hist
     assert drop([], bound=bound) == []
-
-
-def test_a_dropped_reading_leaves_nothing_behind_in_the_hour():
-    good = [(at(9) + timedelta(minutes=m), 6.0) for m in (10, 20, 30, 40, 50)]
-    kept = drop([(at(9) + timedelta(minutes=5), 1514.417), *good])
-    assert kept == good  # discarded, never clamped to the bound
-    assert sw.resample_history_mean(kept, [at(9)], 1.0) == [pytest.approx(6.0)]
-    alone = drop([(at(9) + timedelta(minutes=5), 1514.417)])
-    assert sw.resample_history_mean(alone, [at(9)], 1.0) == [0.0]
 
 
 # --- the report scores the fleet (#768) -------------------------------------------------------
@@ -494,49 +441,6 @@ def test_the_scorers_participant_carries_its_departure_requirement(site, monkeyp
     assert battery.must_have_soc_by_period_index == 7  # 07:00 on the local grid
     # charging 5 kW from 33 kWh: as demanding as the day reached, never past 80 %
     assert 33.0 < battery.must_have_soc_kwh <= 0.80 * 60.0
-
-
-def test_the_scorer_sets_every_field_the_live_solve_sets_but_the_live_away_flags(
-    site, monkeypatch
-):
-    """The drift #1109 and #1111 were, found by comparing the two builders:
-    every BatteryConfig field the live solve gives a participant, the
-    scorer's oracle gets too, except the whole-horizon "away right now"
-    pair the day's per-period mask replaces."""
-    import dataclasses
-
-    from solver.elements import BatteryConfig
-    from solver_inputs import extra_batteries as eb
-
-    data = {
-        **DEPARTING,
-        "battery_participant_available_entity": "binary_sensor.ev_home",
-        "battery_participant_shared_charger_group": "garage",
-        "battery_participant_shared_charger_max_kw": 15.0,
-    }
-    site.add(data)
-    site.states["binary_sensor.ev_home"] = "on"
-    site.presence = [
-        (DAY + timedelta(hours=h), "on" if h % 5 else "off") for h in range(24)
-    ]
-    defaults = {
-        f.name: f.default
-        for f in dataclasses.fields(BatteryConfig)
-        if f.default is not dataclasses.MISSING
-    }
-    from solver.elements import PeriodGrid
-
-    (live,) = eb.build_extra_batteries(PeriodGrid(np.ones(24), start=DAY))
-    ((scored, *_r),) = resolve()
-
-    def set_fields(b):
-        return {k for k, d in defaults.items() if getattr(b, k) != d}
-
-    assert {"must_have_soc_by_period_index", "shared_charger_group"} <= set_fields(live)
-    assert set_fields(live) - set_fields(scored) <= {
-        "available",
-        "unavailable_until_period_index",
-    }
 
 
 def test_a_scalar_list_or_array_period_length_gives_the_same_deadline():

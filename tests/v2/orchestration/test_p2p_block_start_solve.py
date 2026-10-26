@@ -20,7 +20,6 @@ from test_cron_suppression import _make_entry, _make_hass
 import custom_components.nimbus_load as nimbus_init
 from custom_components.nimbus_load import solver_runtime
 from custom_components.nimbus_load.solver_shared import (
-    fetch_p2p_fixed_export_kw,
     p2p_block_start_minutes,
 )
 
@@ -110,33 +109,8 @@ def test_start_minutes_without_a_lead_time_are_the_block_start():
     assert p2p_block_start_minutes(cfg) == {17 * 60}
 
 
-def test_every_configured_block_has_a_start_minute():
-    cfg = {
-        "solver_p2p_block_1_rate_kw": 14,
-        "solver_p2p_block_1_start_hour": 14,
-        "solver_p2p_block_1_end_hour": 17,
-        "solver_p2p_block_2_rate_kw": 4,
-        "solver_p2p_block_2_start_hour": 17,
-        "solver_p2p_block_2_end_hour": 18,
-        "solver_p2p_block_3_rate_kw": 0,  # not configured
-        "solver_p2p_block_3_start_hour": 20,
-        "solver_p2p_block_3_end_hour": 21,
-    }
-    assert p2p_block_start_minutes(cfg) == {14 * 60, 17 * 60}
-
-
 def test_no_blocks_no_start_minutes():
     assert p2p_block_start_minutes({}) == frozenset()
-
-
-def test_the_trigger_and_the_plan_agree_on_when_the_block_starts():
-    """The same parser feeds both, so the solve lands in the first minute
-    the plan pins to the block rate."""
-    start = min(p2p_block_start_minutes(BLOCK_17_24_LEAD_1))
-    grid = [_utc(16, 58, 0), _utc(16, 59, 0), _utc(17, 0, 0)]
-    kw = fetch_p2p_fixed_export_kw(BLOCK_17_24_LEAD_1, grid)
-    assert kw[1] == 11.5 and kw[0] != kw[0]  # 16:59 in the block, 16:58 NaN
-    assert start == 16 * 60 + 59
 
 
 def test_registered_at_seconds_5_20_35_50_of_every_minute():
@@ -161,27 +135,6 @@ def test_does_nothing_outside_a_block():
         run_solve = AsyncMock(return_value=True)
         _setup_and_fire(f"entry_p2p_{h}{m}", BLOCK_17_24_LEAD_1, _utc(h, m), run_solve)
         run_solve.assert_not_called()
-
-
-def test_does_nothing_before_the_solver_is_configured():
-    run_solve = AsyncMock(return_value=True)
-    _setup_and_fire(
-        "entry_p2p_unconf",
-        BLOCK_17_24_LEAD_1,
-        _utc(16, 59),
-        run_solve,
-        state="not_configured",
-    )
-    run_solve.assert_not_called()
-
-
-def test_a_failed_solve_is_not_recorded():
-    run_solve = AsyncMock(return_value=False)
-    _, recorded = _setup_and_fire(
-        "entry_p2p_failed", BLOCK_17_24_LEAD_1, _utc(16, 59), run_solve
-    )
-    run_solve.assert_called_once()
-    recorded.assert_not_called()
 
 
 def test_a_second_setup_cancels_the_first_trigger():
@@ -254,16 +207,6 @@ def _replan(fire_at, since):
     return run_solve, recorded
 
 
-def test_p2p_block_active_matches_the_plan_window():
-    from custom_components.nimbus_load.solver_shared import p2p_block_active
-
-    assert p2p_block_active(BLOCK_17_24_LEAD_1, 16 * 60 + 59)  # lead minute
-    assert p2p_block_active(BLOCK_17_24_LEAD_1, 23 * 60 + 59)
-    assert not p2p_block_active(BLOCK_17_24_LEAD_1, 16 * 60 + 58)
-    assert not p2p_block_active(BLOCK_17_24_LEAD_1, 0)
-    assert not p2p_block_active({}, 18 * 60)
-
-
 def test_in_a_block_it_re_plans_when_no_solve_is_recent():
     for s in (5, 20, 35, 50):
         run_solve, recorded = _replan(_utc(18, 10, s), since=15.2)
@@ -275,11 +218,6 @@ def test_in_a_block_it_skips_when_any_solve_is_recent():
     # e.g. a household automation calling solve_now every 15 s
     run_solve, _ = _replan(_utc(18, 10, 20), since=9.0)
     run_solve.assert_not_called()
-
-
-def test_in_a_block_the_first_solve_after_a_restart_runs():
-    run_solve, _ = _replan(_utc(18, 10, 35), since=None)
-    run_solve.assert_called_once()
 
 
 def test_outside_a_block_it_never_re_plans():

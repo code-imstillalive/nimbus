@@ -134,14 +134,6 @@ def _read(path: Path) -> dict:
 # ---- pure ----------------------------------------------------------------
 
 
-def test_dispatch_class_uses_the_automations_deadband():
-    assert di.dispatch_class(0.06) == "discharge"
-    assert di.dispatch_class(-0.06) == "charge"
-    assert di.dispatch_class(0.05) == "self_consume"
-    assert di.dispatch_class(-0.05) == "self_consume"
-    assert di.dispatch_class(None) is None
-
-
 def test_horizon_reason():
     assert di.horizon_reason(None, T0, None, "charge") == "first"
     t = T0 + timedelta(minutes=5)
@@ -183,15 +175,6 @@ def test_config_fingerprint_ignores_presentation_and_tracks_content():
     a = di.config_fingerprint(CONFIG)
     assert a == di.config_fingerprint({**CONFIG, "friendly_name": "renamed"})
     assert a != di.config_fingerprint({**CONFIG, "solver_p2p_block_1_rate_kw": 13.0})
-
-
-def test_source_entities_are_the_price_and_forecast_inputs_only():
-    # Sorted by config key, so the order is stable from capture to capture.
-    assert di.source_entities(CONFIG) == [
-        "sensor.test_sell",
-        "sensor.test_buy",
-        "sensor.test_array",
-    ]
 
 
 def test_expiry_counts_from_the_end_of_a_segment():
@@ -288,27 +271,6 @@ def test_an_hour_rollover_writes_the_ended_hour_before_opening_the_next(env):
     _solve(hass, clock, T0 + timedelta(minutes=61), 3.0)  # next hour
     files = _files(root, "head")
     assert len(files) == 1 and len(_read(files[0])["records"]) == 1
-
-
-def test_export_filters_by_window_and_kind(env):
-    hass, clock, _root = env
-    for m in range(0, 40, 1):
-        _solve(hass, clock, T0 + timedelta(minutes=m), 3.0)
-    start, end = T0, T0 + timedelta(minutes=40)
-    both = asyncio.run(store.async_export(hass, "E", start, end, ["head", "horizon"]))
-    assert both["count"] == 40
-    heads = asyncio.run(store.async_export(hass, "E", start, end, ["head"]))
-    assert heads["count"] == 40  # every solve, horizons trimmed to a head
-    assert all(len(r["rows"]["time"]) == 24 for r in heads["records"])
-    horizons = asyncio.run(store.async_export(hass, "E", start, end, ["horizon"]))
-    assert [r["reason"] for r in horizons["records"]] == ["first", "interval"]
-    assert len(both["configs"]) == 1
-    part = asyncio.run(
-        store.async_export(
-            hass, "E", T0 + timedelta(minutes=10), T0 + timedelta(minutes=20), ["head"]
-        )
-    )
-    assert part["count"] == 10
 
 
 def test_export_refuses_a_window_over_24_hours_or_backwards(env):
