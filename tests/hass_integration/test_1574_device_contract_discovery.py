@@ -118,6 +118,10 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert seen[0] == "device" and seen[-1] == "finish"
     pending = result["result"].data[config_flow.PENDING_DEVICE_DOCUMENT]
+    # HA sets the new hub up with the setup it bound at load, so remove it
+    # once checked: nothing it starts may outlive the test.
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_remove(result["result"].entry_id)
     assert {d["id"] for d in pending["devices"]} >= {"grid", "load_house"}
     assert all(
         b["provenance"]["confirmed"]
@@ -125,7 +129,7 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
         for b in (d.get("bindings") or {}).values()
     )
 
-    # test_a_new_install_adopts_its_site_in_active
+    # test_a_new_install_adopts_its_site_in_shadow
     # The first setup commits that document as revision 1 in `shadow` (DC-008:
     # not `active` by default yet) and writes the settings it implies.
     fresh = MockConfigEntry(domain=DOMAIN, title="Nimbus (new install)", data={})
@@ -143,6 +147,24 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     assert fresh.options.get("grid_sensor") == "sensor.meter_power"
     again = await device_contract_ha.async_adopt_new_install(hass, fresh, pending)
     assert again == {"ok": False, "code": "already_set_up", "mode": "shadow"}
+    # Mark Purcell, #2107: if the settings can't be written after the commit,
+    # the hub goes back to `legacy` rather than stay in `shadow` on a document
+    # its settings don't match.
+    broken = MockConfigEntry(domain=DOMAIN, title="Nimbus (write fails)", data={})
+    broken.add_to_hass(hass)
+    with patch.object(
+        device_contract_ha,
+        "_async_write_views",
+        return_value=("number_not_written", False),
+    ):
+        failed = await device_contract_ha.async_adopt_new_install(hass, broken, pending)
+    assert failed["ok"] is False and failed["mode"] == "legacy", failed
+    assert _stored(hass_storage, broken)["mode"] == "legacy"
+
+    # The settings it wrote reload the entry; unload it at the end.
+    await hass.async_block_till_done()
+    await hass.config_entries.async_unload(fresh.entry_id)
+    await hass.async_block_till_done()
 
 
 async def _shadow(hass, entry):

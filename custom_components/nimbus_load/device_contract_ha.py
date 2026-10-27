@@ -350,7 +350,12 @@ async def async_adopt_new_install(
             return {"ok": False, "code": shadow.code, "mode": "legacy"}
         code, changed = await _async_write_views(hass, entry, document, revision)
         if code:
-            return {"ok": False, "code": code, "mode": "shadow", "revision": revision}
+            # Mark Purcell, #2107: the settings were not written, so the hub
+            # must not be left in `shadow` on a document its settings don't
+            # match. Back to `legacy`: the hub runs on whatever settings it
+            # has, as before the flow, and the Repair says why.
+            await store.async_set_mode(revision, "legacy")
+            return {"ok": False, "code": code, "mode": "legacy", "revision": revision}
         await store.async_set_view_revision(revision)
     if changed:
         hass.config_entries.async_schedule_reload(entry.entry_id)
