@@ -129,7 +129,7 @@ from numpy.typing import NDArray
 
 from . import network
 from .elements import BatteryConfig, SolarConfig
-from .lp import BlendedOptions, LPProblem, LPResult
+from .lp import PIN_REFRESH_SECONDS, BlendedOptions, LPProblem, LPResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -488,6 +488,16 @@ class _JointSolve:
             solve_kwargs.get("options"), self.blend_weight
         )
         solve_started = time.monotonic()
+        # nimbus #2047, part 2 (Mark Purcell): one wall-clock deadline for
+        # every HiGHS run in the call together. Before it, each run had its
+        # own limit: a retry or a calibration probe could add a limit's worth
+        # again. The deadline is the limit plus the one pinned-LP refresh a
+        # timed-out incumbent is given (#1805), so a MIP that uses its whole
+        # limit can still keep its incumbent. Past it the call fails and the
+        # cycle falls back to the main plan.
+        joint.wall_deadline = (
+            solve_started + joint.time_limit_seconds + PIN_REFRESH_SECONDS
+        )
         result = joint.solve(**{**solve_kwargs, "options": options})
         self._record(
             call_started,

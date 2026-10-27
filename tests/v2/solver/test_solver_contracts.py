@@ -697,6 +697,25 @@ def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
     assert attrs == {"run", "minimize"}
     untimed = ast.parse("def f(h):\n    h.run()\n")
     assert _untimed_solves(untimed) == ["h.run() at line 2"]
+    # #2047: `_run(h)` is a solve too, and the bare `h.run()` inside `_run`
+    # itself is the one exemption.
+    assert _untimed_solves(ast.parse("def f(h):\n    _run(h)\n")) == [
+        "_run(h) at line 2"
+    ]
+    assert _untimed_solves(ast.parse("def _run(h):\n    h.run()\n")) == []
+    # Every HiGHS run in lp goes through `_run`, so through the wall deadline.
+    bare = [
+        n.lineno
+        for f in ast.walk(tree)
+        if isinstance(f, ast.FunctionDef) and f.name != "_run"
+        for n in ast.walk(f)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "run"
+        and isinstance(n.func.value, ast.Name)
+        and n.func.value.id == "h"
+    ]
+    assert bare == []
     timed = ast.parse(
         "def f(h):\n    with _timed_lp_call(h, 'x'):\n        h.minimize()\n"
     )
@@ -731,9 +750,12 @@ def _lp_tree():
 
 
 def _untimed_solves(tree) -> list[str]:
-    """Each `h.run()` / `h.minimize()` outside a `with _timed_lp_call(...)`."""
+    """Each `h.run()` / `h.minimize()` / `_run(h)` outside a
+    `with _timed_lp_call(...)`, except the `h.run()` inside `_run` itself."""
     timed: set[int] = set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_run":
+            timed.update(id(inner) for inner in ast.walk(node))
         if isinstance(node, ast.With) and any(
             isinstance(item.context_expr, ast.Call)
             and isinstance(item.context_expr.func, ast.Name)
@@ -749,6 +771,13 @@ def _untimed_solves(tree) -> list[str]:
         and node.func.attr in ("run", "minimize")
         and isinstance(node.func.value, ast.Name)
         and node.func.value.id == "h"
+        and id(node) not in timed
+    ] + [
+        f"_run(h) at line {node.lineno}"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_run"
         and id(node) not in timed
     ]
 
