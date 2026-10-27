@@ -139,6 +139,24 @@ async def async_active_solar_forecast(hass: Any, entry: Any) -> dict[str, Any] |
     return None
 
 
+async def async_active_load_forecast(hass: Any, entry: Any) -> dict[str, Any] | None:
+    """The committed document's whole-house `demand_forecast` binding while
+    the device setup is `active` (DC-006 slice 3, the load total); None in
+    every other mode, or when the forecast adapters cannot read it, so the
+    Solver reads as today."""
+    state = await _store(hass, entry).async_read()
+    document = state.get("document")
+    if state.get("mode") != "active" or document is None:
+        return None
+    for device in document.get("devices") or ():
+        if device.get("kind") != "load" or device.get("load_class") != "aggregate":
+            continue
+        binding = (device.get("bindings") or {}).get("demand_forecast")
+        if device_forecasts.readable(binding):
+            return binding
+    return None
+
+
 def _known_sources(hass: Any) -> dict[str, Any]:
     try:
         return known_sources.resolve(hass)
