@@ -108,8 +108,7 @@ async def test_away_times_take_the_profile_and_home_times_keep_the_model(
     assert out == preds and not away.any()
     assert c._occupancy_summary(times, away)["status"] == "not_kept"
 
-
-async def test_before_its_profile_exists_the_forecast_is_unchanged(hass: HomeAssistant):
+    # test_before_its_profile_exists_the_forecast_is_unchanged
     c = _coordinator(hass, None)
     c._occupancy = None
     c.hass = MagicMock()

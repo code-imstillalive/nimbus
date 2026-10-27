@@ -22,6 +22,7 @@ def _grid(days):
 
 
 def test_occupancy_reads_away_only_from_a_real_away_event():
+    # test_occupancy_reads_away_only_from_a_real_away_event
     events = [(T0 + timedelta(hours=8), 0.0), (T0 + timedelta(hours=20), 1.0)]
     assert not occ.away_at(events, T0)  # before the first event: home
     assert occ.away_at(events, T0 + timedelta(hours=8))
@@ -35,8 +36,7 @@ def test_occupancy_reads_away_only_from_a_real_away_event():
     end = T0 + timedelta(days=2)
     assert occ.away_periods([(T0, 0.0)], end) == [(T0, end)]
 
-
-def test_away_spans_become_gaps_training_leaves_out():
+    # test_away_spans_become_gaps_training_leaves_out
     load = [(T0 + timedelta(hours=h), float(h)) for h in range(24)]
     spans = [(T0 + timedelta(hours=8), T0 + timedelta(hours=20))]
     out = occ.mask_away(load, spans)
@@ -46,8 +46,7 @@ def test_away_spans_become_gaps_training_leaves_out():
     assert [t for t, v in out if math.isnan(v)] == [T0 + timedelta(hours=8)]
     assert occ.mask_away(load, []) == load
 
-
-def test_the_forward_window_follows_departure_and_return():
+    # test_the_forward_window_follows_departure_and_return
     times = [T0 + timedelta(hours=h) for h in range(48)]
     # Away now, no return: away for the whole horizon.
     assert occ.forward_away(times, away_now=True).all()
@@ -93,6 +92,7 @@ def _history(days, away_days=()):
 
 
 def test_with_little_away_history_the_profile_is_the_base_load():
+    # test_with_little_away_history_the_profile_is_the_base_load
     times, values, events = _history(14, away_days=(13,))
     p = occ.build_profile(
         times,
@@ -109,8 +109,7 @@ def test_with_little_away_history_the_profile_is_the_base_load():
     assert p.at(T0 + timedelta(hours=12)) < float(np.mean(day))
     assert len(p.kw) == 24 * 60 // SLOT
 
-
-def test_with_enough_away_days_the_profile_is_the_learned_away_mean():
+    # test_with_enough_away_days_the_profile_is_the_learned_away_mean
     times, values, events = _history(20, away_days=(15, 16, 17, 18))
     p = occ.build_profile(
         times,
@@ -124,8 +123,7 @@ def test_with_enough_away_days_the_profile_is_the_learned_away_mean():
     assert p.at(T0 + timedelta(hours=12)) == 1.0
     assert p.at(T0 + timedelta(hours=3)) == 1.0
 
-
-def test_applying_the_profile_replaces_only_the_away_times():
+    # test_applying_the_profile_replaces_only_the_away_times
     times = [T0 + timedelta(hours=h) for h in range(4)]
     p = occ.AwayProfile(
         kind="base_load", slot_minutes=60, kw=tuple([0.5] * 24), away_days=0
@@ -136,8 +134,7 @@ def test_applying_the_profile_replaces_only_the_away_times():
     assert list(out) == [3.0, 0.5, 0.5, 3.0]
     assert occ.build_profile([], [], [], now=T0, slot_minutes=SLOT) is None
 
-
-def test_the_profile_is_kept_only_where_it_beats_no_occupancy():
+    # test_the_profile_is_kept_only_where_it_beats_no_occupancy
     # A house that drops to its base load away: the profile wins.
     times, values, events = _history(16, away_days=(15,))
     kept, record = occ.holds_up(times, values, events, slot_minutes=SLOT)
