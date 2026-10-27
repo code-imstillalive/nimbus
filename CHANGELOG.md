@@ -8,10 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.492] - 2026-10-27
+
+**Midday: the battery holds a solar charge instead of flipping between charge and idle every few minutes.**
+
 - **Stochastic dispatch: one wall-clock deadline for the whole joint solve** (#2047, part 2). Each HiGHS run inside a joint solve had its own time limit, so the pinned-LP refresh, a retry or a calibration probe could each add their own on top. Every run is now cut to what is left of one deadline: the call's limit plus the single 5 s refresh a timed-out incumbent gets (#1805). Past it the joint solve fails (`raw_status: wall_deadline_spent`) and the cycle publishes the main plan. Shadow and drive mode both use it; other solves are unchanged.
 - **Midday: the battery no longer flips between charge and idle every few minutes** (#1654, #2066). Two of the period-0 hysteresis's exemptions could undo each other. Holding idle was refused when it sold solar below the export floor, and holding the previous charge was refused when its kW, planned against an earlier solar reading, would import from the grid. So on a sunny day, with the plan close to indifferent about when to charge, period 0 alternated on each solve. A refused charge is now cut to what the solar surplus carries and kept when it is still a charge and within the hysteresis margin, published as `kept_from_surplus`. It buys nothing the free plan would not. When the surplus carries no charge (cloud at dawn, #2066), the pin is released as before.
 - **Device setup: a configured solar forecast is read in any of the three shapes** (DC-006 slice 3, part 1, #1574). Through the device contract, a configured solar forecast sensor is read in whichever shape it publishes: Nimbus's `forecast`, Solcast's `detailedForecast` or Open-Meteo's `watts`, as the Solver already reads it. The member says which shape read it. The Solver's own reading is unchanged.
 - **Device setup in `active`: the Solver reads its solar forecast through the device contract** (DC-006 slice 3, part 2, #1574). While the device setup is `active`, the Solver config sensor publishes the setup's solar forecast binding (`device_contract_solar_forecast`) and the Solver reads each member through it. The members are the same as today: the configured sensors, plus Open-Meteo and Solcast under auto-include. In `legacy` and `shadow`, which is every install unless it was switched, nothing changes. One change in `active`, proposed on #1574 on 25 Oct and reviewed in #2092 and #2093: a malformed row in an auto-included Open-Meteo or Solcast entity drops that member, as for any other source, instead of stopping the solar build. A setup imported before this release binds the forecast sensor in a way the forecast readers can't use, so the Solver keeps today's reading until the setup is imported again.
+- Tests only: #1837's cut is followed up. 18 solver safety tests that cut 1 removed on coverage alone are restored (#2091, #2089). A mutation comparison then found 13 planted bugs that only the old suite caught; the 18 tests behind them are restored (#2097, #2098). The suite is 1,022 tests. How to read a folded test's failure is in `docs/architecture/testing.md` (#2090).
 
 ## [0.94.491] - 2026-10-26
 
@@ -25,6 +30,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Offer curve at the price floor** (#2056). At a retail price exactly on the curve's floor (-1.00 $/kWh) the curve probed an unbounded price and handed the solver a NaN, which never returned. Each end is now probed only inside the price range, and a non-finite cost is refused before the solver sees it. A point where the plan already holds direction choices is also solved exactly, within the same budget.
 - **New Repair: availability states that never match** (#2014). Every 6 hours Nimbus reads each battery participant's availability entity over the last 7 days. If it reported real states and none of them is in the participant's "States that mean available", a Repair names the states it saw and the list. Offline-only history raises nothing; a tracker or person on its standard meaning is not checked. It clears itself as soon as the list is edited or a reported state matches.
 - Tests only: a load's re-send wait (#2063), the price build's fallbacks (#2065) and every config the solver's elements refuse (#2064), for #1837. The coverage-by-risk run now also lists each flagged module's missed lines (#2072).
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 4c22bf2a**
+  (`release/0.94.491`), installed via HACS and restarted at 14:15 AEST. 123 of
+  the 127 Nimbus entities carrying a version read 0.94.491 at 14:16; the other
+  four are the daily report sensors, restored at startup and not yet
+  republished, as in 0.94.487 to 0.94.490.
+  - **The first solve**, at 14:17, was `optimal`, in 43.4 s; `period0_hysteresis` read `same_direction`.
+  - **`sensor.nimbus_solver_current_dispatch_solar_charge`** exists and reads `False` (the plan was not charging from solar alone at 14:17). The per-period `dispatch_solar_charge` is `true` in 27 of 203 periods, the first at 08:30 tomorrow: a 0.45 kW charge with 4.8 kW of forecast sun, no import and no export.
+  - No Nimbus `ERROR` or traceback in the log after the restart. The WARNINGs are the stochastic skip (main plan 43.3 s of the 30 s shadow budget, #2042, unchanged) and the existing temperature-forecast one.
+  - **The availability Repair (#2014)** raised nothing on devhub: Settings → Repairs lists no Nimbus issue after the restart.
+  - Not observable on devhub: the `grid_charge` hysteresis exception (needs a held charge that imports, at dawn on a cloudy morning), the dispatch blueprint's new input (devhub has no inverter to dispatch), the negative-price penalty (no all-negative window), and drive mode (off).
+- Consumer check: no setting changes. One new sensor (`current_dispatch_solar_charge`) and one new per-period field; the dispatch blueprint's new input is optional and, left empty, changes nothing. Plans change only where every price is negative (#2045) or a held period-0 charge would import (#2066).
 
 ## [0.94.490] - 2026-10-26
 
