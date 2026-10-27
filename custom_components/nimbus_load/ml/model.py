@@ -456,6 +456,11 @@ class TrainedModel:
     # for a model trained while the device setup is `active`. Prediction
     # feeds a model the sign it was trained with.
     power_feature_sign: str = "native"
+    # nimbus #2129: for a load that runs in bursts (an AC, a washer), the
+    # level it counts as running at and how long its past runs lasted, in
+    # hours, learned by learn_run_profile(). None / () for any other load.
+    run_threshold_kw: float | None = None
+    run_hours: tuple[float, ...] = ()
 
     def __setstate__(self, state: dict) -> None:
         """A plain @dataclass's default pickling restores an old
@@ -489,6 +494,8 @@ class TrainedModel:
                 "seasonal_lookup": {},
                 "schema_version": 0,
                 "power_feature_sign": "native",
+                "run_threshold_kw": None,
+                "run_hours": (),
             }
         )
         self.__dict__.update(state)
@@ -1579,6 +1586,7 @@ def train_model(
     )
 
     _LOGGER.info("%sTrained %s model on %d points.", _pre, model_type, len(x_rows))
+    run_threshold_kw, run_hours = learn_run_profile(load_vals, resample_minutes)
     return TrainedModel(
         model_type=model_type,
         x_mean=x_mean_final,
@@ -1597,6 +1605,8 @@ def train_model(
         training_span_days=round(training_span_days, 2),
         gbrt_lower=gbrt_lower_final,
         gbrt_upper=gbrt_upper_final,
+        run_threshold_kw=run_threshold_kw,
+        run_hours=run_hours,
         seasonal_lookup=seasonal_lookup,
     )
 
@@ -1712,6 +1722,93 @@ def deterministic_values(
 # before the running hold treats it as switched off.
 RUN_OFF_GRACE_MINUTES: int = 10
 
+# nimbus #2129 (household, 28 Oct 2026: an AC forecast to run from 08:00 to
+# midnight, when its runs last 3 to 8 hours: "not until 11pm... its not run
+# that long in years"). A load that runs in bursts is held at its current draw
+# for as long as its runs usually last, then its usual pattern takes over.
+#: Fewer past runs than this, and a run is expected to last DEFAULT_RUN_HOURS.
+MIN_RUNS_FOR_LENGTH: int = 3
+DEFAULT_RUN_HOURS: float = 2.0
+#: A run that has outlasted every past run is held this much longer, h.
+RUN_OVERTIME_HOURS: float = 0.25
+#: A load is bursty when its peak is at least this far above its usual level,
+#: kW, and it runs no more than RUN_MAX_ON_FRACTION of the time.
+RUN_MIN_SWING_KW: float = 0.2
+RUN_MAX_ON_FRACTION: float = 0.5
+
+
+def learn_run_profile(
+    values: list[float | None], step_minutes: int
+) -> tuple[float | None, tuple[float, ...]]:
+    """(threshold kW, each past run's length in hours) for a load that runs in
+    bursts, from its evenly spaced history; (None, ()) for any other load.
+
+    The threshold is halfway between the load's usual level (its median) and
+    its peak (99.5th percentile). A run is a stretch at or above it; a dip
+    shorter than RUN_OFF_GRACE_MINUTES doesn't end one, and a gap in the
+    history does."""
+    finite = np.array([v for v in values if v is not None and math.isfinite(v)])
+    if len(finite) < 96:
+        return None, ()
+    usual = float(np.median(finite))
+    peak = float(np.percentile(finite, 99.5))
+    if peak - usual < RUN_MIN_SWING_KW:
+        return None, ()
+    threshold = usual + (peak - usual) / 2
+    if float(np.mean(finite >= threshold)) > RUN_MAX_ON_FRACTION:
+        return None, ()
+    grace = max(1, RUN_OFF_GRACE_MINUTES // step_minutes)
+    runs: list[float] = []
+    length = below = 0
+    for v in [*values, None]:
+        on = v is not None and math.isfinite(v) and v >= threshold
+        if on:
+            length += 1 + below
+            below = 0
+        elif length and v is not None and math.isfinite(v) and below + 1 < grace:
+            below += 1
+        else:
+            if length:
+                runs.append(length * step_minutes / 60.0)
+            length = below = 0
+    return round(threshold, 4), tuple(sorted(runs))
+
+
+def expected_run_hours(run_hours: tuple[float, ...], age_hours: float) -> float:
+    """How long a run already `age_hours` old lasts in all: the median of the
+    past runs that lasted longer, else RUN_OVERTIME_HOURS past its age. With
+    fewer than MIN_RUNS_FOR_LENGTH past runs, DEFAULT_RUN_HOURS."""
+    if len(run_hours) < MIN_RUNS_FOR_LENGTH:
+        return max(DEFAULT_RUN_HOURS, age_hours + RUN_OVERTIME_HOURS)
+    longer = [h for h in run_hours if h > age_hours]
+    if not longer:
+        return age_hours + RUN_OVERTIME_HOURS
+    return float(np.median(longer))
+
+
+def run_started_at(
+    readings: list[tuple[datetime, float]], threshold_kw: float
+) -> datetime | None:
+    """When the run going on now started, from raw readings: the first
+    reading of the trailing stretch at or above `threshold_kw` (a dip shorter
+    than RUN_OFF_GRACE_MINUTES doesn't break it). None when not running."""
+    ordered = sorted(readings, key=lambda p: _dst_safe_key(p[0]))
+    above = [p for p in ordered if p[1] >= threshold_kw]
+    if not above:
+        return None
+    grace = timedelta(minutes=RUN_OFF_GRACE_MINUTES)
+    off_for = _dst_safe_key(ordered[-1][0]) - _dst_safe_key(above[-1][0])
+    if ordered[-1][1] < threshold_kw and off_for >= grace:
+        return None
+    start = above[-1][0]
+    for t, v in reversed(ordered):
+        if v >= threshold_kw:
+            if _dst_safe_key(t) <= _dst_safe_key(start):
+                start = t
+        elif _dst_safe_key(start) - _dst_safe_key(t) >= grace:
+            break
+    return start
+
 
 def predict(
     trained: TrainedModel,
@@ -1732,6 +1829,7 @@ def predict(
     running_threshold_kw: float | None = None,
     run_hold_hours: float = 1.0,
     learned_when_off: bool = False,
+    run_started: datetime | None = None,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -1872,6 +1970,33 @@ def predict(
         if not learned_when_off:
             return PredictionResult(values=[0.0] * len(timestamps))
         return _learned_usual_runs(0)
+
+    # nimbus #2129: with no threshold set, a load that runs in bursts and is
+    # running now (`run_started`, found by the caller from its raw readings)
+    # is held at its draw for as long as its runs usually last
+    # (expected_run_hours), then its usual pattern takes over. Chained step
+    # by step instead, "it was just running" fed itself until midnight.
+    threshold = trained.run_threshold_kw
+    if (
+        threshold is not None
+        and run_started is not None
+        and not allow_negative
+        and timestamps
+        and recent_load_values
+    ):
+        ordered = sorted(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
+        above = [p for p in ordered if p[1] >= threshold]
+        if above:
+            age = _dst_safe_key(ordered[-1][0]) - _dst_safe_key(run_started)
+            total = expected_run_hours(
+                trained.run_hours, max(0.0, age.total_seconds() / 3600.0)
+            )
+            hold_end = _dst_safe_key(run_started) + timedelta(hours=total)
+            n_hold = sum(1 for t in timestamps if _dst_safe_key(t) < hold_end)
+            held = [float(above[-1][1])] * n_hold
+            if n_hold == len(timestamps):
+                return PredictionResult(values=held)
+            return PredictionResult(values=held + _learned_usual_runs(n_hold).values)
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that

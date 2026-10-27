@@ -1710,6 +1710,8 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_MASE_SCALE_POINTS: data.get("mase_scale_points", 0),
             ATTR_RESAMPLE_MINUTES: data.get("resample_minutes", 0),
             ATTR_TRAINING_SPAN_DAYS: data.get("training_span_days", 0.0),
+            # nimbus #2129: a bursty load's learned runs (None otherwise).
+            "run_profile": data.get("run_profile"),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
             ATTR_SOURCE_SENSOR: self._source_sensor,
