@@ -14,18 +14,9 @@ jobs:
       max-parallel: 4
       matrix:
         include:
-          - {module: custom_components/nimbus_load/solver_writer.py, mutant: 2}
-          - {module: custom_components/nimbus_load/solver_writer.py, mutant: 16}
-          - {module: custom_components/nimbus_load/solver_writer.py, mutant: 18}
-          - {module: custom_components/nimbus_load/solver_writer.py, mutant: 7}
-          - {module: custom_components/nimbus_load/solver/elements.py, mutant: 13}
-          - {module: custom_components/nimbus_load/solver/lp.py, mutant: 13}
-          - {module: custom_components/nimbus_load/solver/lp.py, mutant: 14}
-          - {module: custom_components/nimbus_load/solver/lp.py, mutant: 5}
-          - {module: custom_components/nimbus_load/solver/network.py, mutant: 9}
-          - {module: custom_components/nimbus_load/solver/network.py, mutant: 10}
-          - {module: custom_components/nimbus_load/solver/stochastic_dispatch.py, mutant: 2}
-          - {module: custom_components/nimbus_load/solver/stochastic_dispatch.py, mutant: 4}
+          - {module: custom_components/nimbus_load/solver/stochastic_dispatch.py, mutant: 8}
+          - {module: custom_components/nimbus_load/solver/stochastic_dispatch.py, mutant: 10}
+          - {module: custom_components/nimbus_load/solver/stochastic_dispatch.py, mutant: 24}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
