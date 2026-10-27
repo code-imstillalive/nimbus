@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Flex telemetry no longer flickers to unavailable** (#2123). Its record is pushed once per 5-minute interval, so pushes are about 5 minutes apart, and the sensor went unavailable after 5 minutes without one: a solve landing a little late after a boundary was enough. It now goes unavailable only when an interval's record never comes (11 minutes).
 - **Price consolidation's own accuracy is recorded** (#1786). The price error history in the plan's `price_consolidation` attribute now scores the consolidated forecast beside each source, by lead time, so it shows directly whether consolidation beats the primary price source alone before anyone turns it on. Recording only: nothing reads it, and the plan is unchanged.
 ## [0.94.493] - 2026-10-27
 
