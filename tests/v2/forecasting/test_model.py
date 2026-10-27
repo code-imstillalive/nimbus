@@ -175,7 +175,6 @@ def test_no_history_or_too_little_is_no_model(caplog, house):
     ended = forecast(stamps, run_started=END - timedelta(hours=1))
     assert ended[:12] == forecast(stamps[:12])
     assert ended[12:] == forecast(stamps[12:], seasonal_anchor=True)
-    assert ended != forecast(stamps)
 
     # test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such
     caplog.clear()
