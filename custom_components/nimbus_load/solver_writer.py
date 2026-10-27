@@ -10040,7 +10040,9 @@ def main() -> None:
     )
     # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
     # enabled was true above (plan.offer_curve_import stays None
-    # otherwise) -- see publish_offer_curve()'s own docstring.
+    # otherwise) -- see publish_offer_curve()'s own docstring. #2121: the
+    # curve is swept here, after the plan and its dispatch are published.
+    plan = network.complete_offer_curve(plan)
     publish_offer_curve(plan)
     # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
     # enabled was true above (plan.grid_signals stays None otherwise) --
