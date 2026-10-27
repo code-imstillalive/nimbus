@@ -363,6 +363,8 @@ def test_dc_r04_every_price_adapter_is_stale_after_five_minutes() -> None:
         "amberelectric",
         "openadr3_ven",
         "localvolts_v2",
+        # DC-006 slice 4 (#1574): a configured price sensor with no profile.
+        "generic_price_forecast",
     }
 
 
@@ -412,6 +414,41 @@ def test_dc_r06_f04_an_expired_price_is_not_extended() -> None:
     after = (last_end, window[1])
     assert db.value_over(series, *after) == (None, 0.0)
     assert price_over(_oracle_intervals(case["intervals"]), *after) == (None, 0.0)
+
+    # test_a_generic_price_forecast_is_read_as_the_solver_reads_it
+    # DC-006 slice 4 (#1574): any price sensor's `forecast` points, each
+    # holding until the next, the last for one more step and then a gap; no
+    # unit is refused, never read as $/kWh; two points at one time overlap.
+    points = [
+        {"time": (NOW + timedelta(minutes=30 * i)).isoformat(), "value": v}
+        for i, v in enumerate((0.30, 0.25, 0.40))
+    ]
+    window = (NOW, NOW + timedelta(hours=3))
+    unitless = _price_series(points, "generic_price_forecast", window)
+    assert (unitless.state, unitless.reason) == (db.MISSING, "unit_undeclared")
+    series = _price_series(
+        points, "generic_price_forecast", window, native_unit="AUD/kWh"
+    )
+    assert [(i.start, i.end) for i in series.intervals] == [
+        (NOW + timedelta(minutes=30 * i), NOW + timedelta(minutes=30 * (i + 1)))
+        for i in range(3)
+    ]
+    assert db.value_over(series, NOW, NOW + timedelta(minutes=30))[0] == 0.30
+    assert series.coverage.gaps == ((NOW + timedelta(minutes=90), window[1]),)
+    calibrated = [{"time": NOW.isoformat(), "calibrated": 0.2}]
+    assert (
+        _price_series(
+            calibrated, "generic_price_forecast", window, native_unit="AUD/kWh"
+        )
+        .intervals[0]
+        .start
+        == NOW
+    )
+    twice = [*points, {"time": NOW.isoformat(), "value": 0.99}]
+    overlap = _price_series(
+        twice, "generic_price_forecast", window, native_unit="AUD/kWh"
+    )
+    assert (overlap.state, overlap.reason) == (db.MISSING, "overlapping_intervals")
 
 
 def test_dc_r06_nothing_published_is_missing_not_zero() -> None:
