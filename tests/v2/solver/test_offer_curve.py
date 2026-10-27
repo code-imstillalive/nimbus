@@ -596,4 +596,5 @@ def test_the_curves_exact_work_is_bounded(monkeypatch):
     _, *without = curves(False)
     assert seeded
     for a, b in zip(with_seed, without, strict=True):
-        assert [list(p) for p in a] == pytest.approx([list(p) for p in b], abs=1e-6)
+        flat = [v for p in b for v in p]
+        assert [v for p in a for v in p] == pytest.approx(flat, abs=1e-6)
