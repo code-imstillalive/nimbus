@@ -1973,9 +1973,14 @@ def predict(
 
     # nimbus #2129: with no threshold set, a load that runs in bursts and is
     # running now (`run_started`, found by the caller from its raw readings)
-    # is held at its draw for as long as its runs usually last
+    # keeps its learned forecast for as long as its runs usually last
     # (expected_run_hours), then its usual pattern takes over. Chained step
-    # by step instead, "it was just running" fed itself until midnight.
+    # by step to the end instead, "it was just running" fed itself until
+    # midnight. Only the run's end changes: inside it the learned forecast,
+    # with its time-of-day and temperature features, stands -- so a load on
+    # a fixed daily schedule, which the bursty rule also admits (Mark
+    # Purcell's review), keeps its schedule-aware forecast for the run and
+    # its usual pattern after.
     threshold = trained.run_threshold_kw
     if (
         threshold is not None
@@ -1993,10 +1998,30 @@ def predict(
             )
             hold_end = _dst_safe_key(run_started) + timedelta(hours=total)
             n_hold = sum(1 for t in timestamps if _dst_safe_key(t) < hold_end)
-            held = [float(above[-1][1])] * n_hold
-            if n_hold == len(timestamps):
-                return PredictionResult(values=held)
-            return PredictionResult(values=held + _learned_usual_runs(n_hold).values)
+            if n_hold < len(timestamps):
+                during = (
+                    predict(
+                        trained,
+                        timestamps[:n_hold],
+                        temps[:n_hold],
+                        humidities[:n_hold],
+                        recent_load_values,
+                        resample_minutes,
+                        None if curtailments is None else curtailments[:n_hold],
+                        schedule_start_hour,
+                        schedule_end_hour,
+                        expected_load_kw,
+                        None if batteries_kw is None else batteries_kw[:n_hold],
+                        None if grids_kw is None else grids_kw[:n_hold],
+                        None if solars_kw is None else solars_kw[:n_hold],
+                        allow_negative,
+                        seasonal_anchor,
+                    ).values
+                    if n_hold
+                    else []
+                )
+                after = _learned_usual_runs(n_hold).values
+                return PredictionResult(values=list(during) + list(after))
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that

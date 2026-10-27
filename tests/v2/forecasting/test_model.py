@@ -158,21 +158,24 @@ def test_no_history_or_too_little_is_no_model(caplog, house):
     assert model.run_started_at(readings, threshold) == t0
     off = [(END - timedelta(minutes=30), 1.2), (END - timedelta(minutes=20), 0.02)]
     assert model.run_started_at(off, threshold) is None
-    # Running for an hour: held at its draw to the usual 4 hours (3 more),
-    # then its usual pattern, never chained on to midnight.
+    # Running for an hour: the learned forecast to the usual 4 hours (3 more),
+    # then its usual pattern, never chained on to midnight. Only the end
+    # moves: inside the run the forecast is the model's own, so a fixed
+    # daily schedule the rule also admits keeps it (Mark Purcell's review).
     bursty = dataclasses.replace(house, run_threshold_kw=threshold, run_hours=runs)
     stamps = [END + timedelta(minutes=STEP * i) for i in range(32)]
-    held = model.predict(
-        bursty,
-        stamps,
-        [20.0] * 32,
-        [0.0] * 32,
-        [(END - timedelta(hours=1), 1.2), (END, 1.2)],
-        STEP,
-        run_started=END - timedelta(hours=1),
-    ).values
-    assert held[:12] == [1.2] * 12
-    assert all(v < 1.0 for v in held[12:])
+    recent = [(END - timedelta(hours=1), 1.2), (END, 1.2)]
+
+    def forecast(times, **kw):
+        n = len(times)
+        return model.predict(
+            bursty, times, [20.0] * n, [0.0] * n, recent, STEP, **kw
+        ).values
+
+    ended = forecast(stamps, run_started=END - timedelta(hours=1))
+    assert ended[:12] == forecast(stamps[:12])
+    assert ended[12:] == forecast(stamps[12:], seasonal_anchor=True)
+    assert ended != forecast(stamps)
 
     # test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such
     caplog.clear()
