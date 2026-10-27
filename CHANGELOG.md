@@ -21,6 +21,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
 - Internal: device discovery can run without a Nimbus entry (`device_contract_ha.async_propose`), the first step of the new-install setup (DC-007 slice 1, #1574). No behaviour change.
 - Internal: the device contract can read any price sensor's forecast (`generic_price_forecast`, DC-006 slice 4's first step, #1574), as the Solver reads it today. Nothing reads through it yet, so nothing changes.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 14f82189**
+  (`release/0.94.493`), installed via HACS and restarted at 19:37 AEST, with
+  the device setup in `active` since 17:31. 122 of the 126 Nimbus entities
+  carrying a version read 0.94.493 at 19:45; the other four are the daily
+  report sensors, restored at startup and not yet republished, as before.
+  - **The solve at 19:44** was `optimal`, in 42.7 s.
+  - **Upgrade in `active` (DC-008 scenario 4):** no device-setup log line after the start, no drift Repair and no unit Repair: zero Repairs in all.
+  - **The device setup re-imported** (legacy, shadow, active; revision 3): the Solver config now hands the Solver both the solar forecast binding (`nimbus_forecast` with the `solcast` / `open_meteo_solar` fallbacks) and the load total (`nimbus_forecast` on the whole-house forecast sensor). Before the re-import the load total read as before (`null`), the designed fallback for a setup imported before this release.
+  - No Nimbus `ERROR` in the log after the restart.
+  - Not shown on devhub, with the reason: **the new-install path (DC-008 scenario 1)**, because removing and re-adding Nimbus would delete devhub's configured install (its loads, signals, Solver settings and trained models); the real-HA test walks *Add Nimbus* end to end instead (`test_add_nimbus_shows_the_site_it_found_and_saves_what_was_kept`). **Home / away**, because devhub has no presence entity with history; the forecast is unchanged without the setting, as designed. **Control**, because devhub's controllable loads command test helpers only.
+- Consumer check: no plan or dispatch change on an install that doesn't use the new settings. Home / away is opt-in (three new optional Forecaster fields). The new setup screens change nothing until used; a new install is adopted in `shadow` with its settings filled. In `active` the Solver reads its whole-house load forecast through the setup, the same sensor and reader as before.
 
 ## [0.94.492] - 2026-10-27
 
