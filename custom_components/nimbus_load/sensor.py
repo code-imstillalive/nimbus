@@ -1689,6 +1689,8 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             # yet (and why) -- see coordinator.forecast_provenance().
             ATTR_FORECAST_ORIGIN: data.get("forecast_origin"),
             ATTR_FORECAST_READINESS: data.get("forecast_readiness"),
+            # nimbus #1847: what the forecast did with home / away.
+            "occupancy": data.get("occupancy"),
             ATTR_MODEL_TRAINED_AT: data.get("trained_at"),
             # nimbus issue #1556
             ATTR_MODEL_AGE_DAYS: data.get("model_age_days"),
