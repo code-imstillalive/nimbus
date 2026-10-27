@@ -281,6 +281,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "_relaxations",
         "infeasible_causes",
         "_diagnosed",
+        "_settings_key",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",

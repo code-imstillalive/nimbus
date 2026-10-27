@@ -1030,7 +1030,41 @@ _RELAXED_KW = 1000.0
 INFEASIBLE_DIAGNOSIS_EVERY_S = 600.0
 #: ... and gives up after this long, keeping what it found, s.
 INFEASIBLE_DIAGNOSIS_BUDGET_S = 20.0
-_LAST_DIAGNOSIS: dict[str, Any] = {"at": None, "causes": None}
+_LAST_DIAGNOSIS: dict[str, Any] = {"at": None, "key": None, "causes": None}
+
+
+def _settings_key(batteries: list, grid: Any) -> tuple:
+    """The hard settings _relaxations() relaxes, to 0.1 kW / kWh: a change in
+    any of them means a new diagnosis, not the last one's answer (Mark
+    Purcell's review of #2127)."""
+
+    def r(value: Any) -> Any:
+        if value is None:
+            return None
+        return tuple(np.round(np.ravel(np.asarray(value, dtype=float)), 1))
+
+    return (
+        tuple(
+            (
+                b.name,
+                r(b.min_soc_kwh),
+                r(b.max_soc_kwh),
+                r(b.max_charge_kw),
+                r(b.max_discharge_kw),
+                r(b.shared_charger_max_kw),
+                r(b.must_have_soc_kwh),
+                r(b.reserve_kwh),
+                r(b.charge_by_kwh),
+                r(b.period0_pin_net_kw),
+                r(b.spike_override_discharge_kw),
+            )
+            for b in batteries
+        ),
+        r(grid.import_limit_kw),
+        r(grid.export_limit_kw),
+        grid.fixed_export_kw is not None,
+        r(grid.min_export_kwh),
+    )
 
 
 def _battery_relaxations(batteries: list, i: int, grid: Any):
@@ -1124,15 +1158,23 @@ def infeasible_causes(rebuild, batteries: list, grid: Any) -> tuple[str, ...]:
 
 
 def _diagnosed(plan, rebuild, batteries: list, grid: Any):
-    """`plan` with its infeasible causes: diagnosed again at most every
-    INFEASIBLE_DIAGNOSIS_EVERY_S, the last answer reused in between."""
+    """`plan` with its infeasible causes: diagnosed again when the settings
+    change or INFEASIBLE_DIAGNOSIS_EVERY_S has passed, the last answer reused
+    in between."""
     if plan.status != "infeasible":
-        _LAST_DIAGNOSIS.update(at=None, causes=None)
+        _LAST_DIAGNOSIS.update(at=None, key=None, causes=None)
         return plan
     at = _LAST_DIAGNOSIS["at"]
-    if at is None or time.monotonic() - at >= INFEASIBLE_DIAGNOSIS_EVERY_S:
+    key = _settings_key(batteries, grid)
+    if (
+        at is None
+        or key != _LAST_DIAGNOSIS["key"]
+        or time.monotonic() - at >= INFEASIBLE_DIAGNOSIS_EVERY_S
+    ):
         _LAST_DIAGNOSIS.update(
-            at=time.monotonic(), causes=infeasible_causes(rebuild, batteries, grid)
+            at=time.monotonic(),
+            key=key,
+            causes=infeasible_causes(rebuild, batteries, grid),
         )
     return dataclasses.replace(plan, infeasible_causes=_LAST_DIAGNOSIS["causes"])
 

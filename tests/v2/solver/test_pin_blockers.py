@@ -152,6 +152,25 @@ def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
         "the setpoint held for now (home)",
     )
 
+    # test_the_diagnosis_is_reused_until_the_settings_change
+    # Mark Purcell's review of #2127: an answer is kept for 10 minutes only
+    # while the settings stay as they were; a change is diagnosed afresh.
+    solves = []
+
+    def rebuild(batteries, grid):
+        solves.append(batteries[0].max_discharge_kw)
+        return build_plan(**{**site, "batteries": batteries, "grid": grid})
+
+    infeasible = build_plan(**{**site, "batteries": pinned})
+    solver_plan._LAST_DIAGNOSIS.update(at=None, key=None, causes=None)
+    first = solver_plan._diagnosed(infeasible, rebuild, pinned, site["grid"])
+    n = len(solves)
+    again = solver_plan._diagnosed(infeasible, rebuild, pinned, site["grid"])
+    assert len(solves) == n and again.infeasible_causes == first.infeasible_causes
+    slower = [dataclasses.replace(pinned[0], max_discharge_kw=20.0)]
+    solver_plan._diagnosed(infeasible, rebuild, slower, site["grid"])
+    assert len(solves) > n
+
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):
     home = site["batteries"][0]
