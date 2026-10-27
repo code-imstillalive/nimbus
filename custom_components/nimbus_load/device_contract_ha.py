@@ -34,6 +34,7 @@ entity registry, and writes one `Store`.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import timedelta
 from typing import Any
@@ -328,6 +329,56 @@ async def _async_commit_active(
         "mode": "active",
         "revision": committed.revision,
     }
+
+
+async def async_adopt_new_install(
+    hass: Any, entry: Any, document: dict[str, Any]
+) -> dict[str, Any]:
+    """DC-007 slice 1: commit the document a new install confirmed in the
+    config flow as its first revision, in `shadow`, and write the settings
+    it implies, so the new hub is configured and runs on its settings.
+
+    Not `active`: DC-008 makes `active` the default for new installs only
+    once its four conditions hold (planning slices accepted, walkthroughs
+    recorded, a rollback rehearsal, Mark's approval). Until then the
+    household moves to `active` when it chooses, as any install does.
+
+    Refused, with nothing written, when the entry already has a document or
+    the document doesn't validate."""
+    async with _lock(hass, entry.entry_id):
+        store = _store(hass, entry)
+        state = await store.async_read()
+        if state["document"] is not None:
+            return {"ok": False, "code": "already_set_up", "mode": state["mode"]}
+        # Each hub binding goes back to the setting today's settings use for
+        # its role, so the views fill a new install's settings.
+        document = device_import.with_setting_paths(document)
+        committed = await store.async_commit(
+            state["revision"], document, origin="new_install", now=dt_util.utcnow()
+        )
+        if not committed.ok:
+            return {
+                "ok": False,
+                "code": committed.code,
+                "mode": state["mode"],
+                "problems": _problems(committed.problems),
+            }
+        revision = committed.revision
+        shadow = await store.async_set_mode(revision, "shadow")
+        if not shadow.ok:
+            return {"ok": False, "code": shadow.code, "mode": "legacy"}
+        code, changed = await _async_write_views(hass, entry, document, revision)
+        if code:
+            # Mark Purcell, #2107: the settings were not written, so the hub
+            # must not be left in `shadow` on a document its settings don't
+            # match. Back to `legacy`: the hub runs on whatever settings it
+            # has, as before the flow, and the Repair says why.
+            await store.async_set_mode(revision, "legacy")
+            return {"ok": False, "code": code, "mode": "legacy", "revision": revision}
+        await store.async_set_view_revision(revision)
+    if changed:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+    return {"ok": True, "code": "adopted", "mode": "shadow", "revision": revision}
 
 
 async def async_recover(hass: Any, entry: Any) -> str:
@@ -959,6 +1010,156 @@ async def async_confirm(
             }
     if result.get("ok"):
         result["changed"] = [{"device": d, "role": r} for d, r in changed]
+        result["flags"] = flags
+    return result
+
+
+async def async_state(hass: Any, entry: Any) -> dict[str, Any]:
+    """The stored device setup (mode, revision, document). Writes nothing."""
+    return await _store(hass, entry).async_read()
+
+
+async def async_set_control(
+    hass: Any,
+    entry: Any,
+    revision: int,
+    device_id: str,
+    entity_id: str | None,
+    authorised: bool,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """DC-007 control authorisation: authorise Nimbus to command one device's
+    control entity, or revoke it, recorded in the document with who and
+    when. `shadow` or `active` only; a commit like any other, so in `active`
+    the controllable load's settings follow (a revoke clears its entity).
+
+    Only a controllable load (`controllable`) can be authorised. Nothing here commands the device (DC-R15): it records
+    consent; the controllable load acts on it as it does today."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] == "legacy" or state["document"] is None:
+            return {"ok": False, "code": "choose_shadow_first", "mode": state["mode"]}
+        if state["revision"] != revision:
+            return {
+                "ok": False,
+                "code": "revision_conflict",
+                "revision": state["revision"],
+            }
+        document = copy.deepcopy(state["document"])
+        device = next(
+            (d for d in document.get("devices") or () if d.get("id") == device_id),
+            None,
+        )
+        if device is None or not controllable(device):
+            return {"ok": False, "code": "unknown_device"}
+        control = dict(device.get("control") or {})
+        if authorised:
+            if not entity_id:
+                return {"ok": False, "code": "control_entity_needed"}
+            control["entity_id"] = entity_id
+        control["authorised"] = bool(authorised)
+        control["authorised_by" if authorised else "revoked_by"] = user_id
+        control["authorised_at" if authorised else "revoked_at"] = (
+            dt_util.utcnow().isoformat()
+        )
+        device["control"] = control
+        any_authorised = any(
+            (d.get("control") or {}).get("authorised")
+            for d in document.get("devices") or ()
+        )
+        document.setdefault("site", {})["control_policy"] = (
+            "authorised" if any_authorised else "observation_only"
+        )
+        if state["mode"] == "active":
+            return await _async_commit_active(
+                hass, entry, revision, document, "control_authorisation"
+            )
+        committed = await _store(hass, entry).async_commit(
+            revision, document, origin="control_authorisation", now=dt_util.utcnow()
+        )
+        return {
+            "ok": committed.ok,
+            "code": committed.code,
+            "mode": "shadow",
+            "revision": committed.revision,
+        }
+
+
+def controllable(device: dict[str, Any]) -> bool:
+    """A load control can be authorised for (DC-007, control authorisation):
+    one that already has a control entry (a Controllable Load's device
+    entity, imported), or a flexibility mode."""
+    if device.get("kind") != "load":
+        return False
+    if device.get("control"):
+        return True
+    return ((device.get("flexibility") or {}).get("mode") or "none") not in (
+        "none",
+        "",
+    )
+
+
+async def async_set_source(
+    hass: Any,
+    entry: Any,
+    revision: int,
+    device_id: str,
+    role: str,
+    entity_id: str,
+) -> dict[str, Any]:
+    """DC-007 Advanced, "a binding": choose another source for one role of a
+    device in the stored document. `shadow` or `active` only.
+
+    The binding keeps its provenance's settings key (so in `active` the
+    view writes the new entity to the same setting) and its normalization,
+    and is marked confirmed and manual. It is validated by DC-002 against the
+    live state first, exactly as discovery's switch is; a refused one changes
+    nothing."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] == "legacy" or state["document"] is None:
+            return {"ok": False, "code": "choose_shadow_first", "mode": state["mode"]}
+        if state["revision"] != revision:
+            return {
+                "ok": False,
+                "code": "revision_conflict",
+                "revision": state["revision"],
+            }
+        document = copy.deepcopy(state["document"])
+        device = next(
+            (d for d in document.get("devices") or () if d.get("id") == device_id),
+            None,
+        )
+        if device is None:
+            return {"ok": False, "code": "unknown_device"}
+        old = (device.get("bindings") or {}).get(role) or {}
+        prov = dict(old.get("provenance") or {})
+        prov.update({"origin": "manual", "confirmed": True, "overridden": True})
+        binding: dict[str, Any] = {
+            "source": {"kind": "entity_state", "entity_id": entity_id},
+            "provenance": prov,
+        }
+        if old.get("normalization"):
+            binding["normalization"] = copy.deepcopy(old["normalization"])
+        device.setdefault("bindings", {})[role] = binding
+        invalid, flags = await _async_validate(hass, document, [(device_id, role)])
+        if invalid:
+            return {"ok": False, "code": "binding_refused", "refused": invalid}
+        if state["mode"] == "active":
+            result = await _async_commit_active(
+                hass, entry, revision, document, "advanced_edit"
+            )
+        else:
+            committed = await _store(hass, entry).async_commit(
+                revision, document, origin="advanced_edit", now=dt_util.utcnow()
+            )
+            result = {
+                "ok": committed.ok,
+                "code": committed.code,
+                "mode": "shadow",
+                "revision": committed.revision,
+            }
+    if result.get("ok"):
         result["flags"] = flags
     return result
 

@@ -219,9 +219,23 @@ Services → **Add Integration** search.
 1. Open **Settings → Devices & Services → + Add Integration**.
 2. Search for **Nimbus**.
 3. Select **Nimbus**.
-4. Select **Submit** in the **"Set up Nimbus"** dialog.
+4. **If you use Home Assistant's Energy Dashboard** (or a recognised price
+   provider: LocalVolts v2, Amber Express, Amber Electric), Nimbus shows
+   **what it found**, one device per screen: your grid connection, the house,
+   solar, the battery and any individual devices, each with the sensors it will
+   use. Keep a device ticked to include it; untick anything you don't want.
+5. It then asks **only what it couldn't work out**, one question per screen:
+   which of two sources measures something, or your battery's capacity (the
+   Energy Dashboard doesn't record it). You can leave the capacity empty and
+   set it later.
+6. Select **Submit** on **Ready to set up**. Nimbus saves the site and fills
+   in the settings it implies, so the hub is configured. The device setup is
+   kept beside your settings (shadow) until you choose to put it in charge
+   (Configure → Device setup → Mode). Control of your battery stays off.
 
-This dialog has no fields. It creates the Nimbus hub.
+**With no Energy Dashboard** set up, there is nothing to show: select
+**Submit** in the **"Set up Nimbus"** dialog and it creates an empty hub, as
+in earlier versions. Set it up from §5 on.
 
 ![The Select brand dialog with "nimbu" typed, showing Nimbus and JustNimbus](images/setup/setup-nimbus-dialog.png)
 
@@ -229,7 +243,9 @@ This dialog has no fields. It creates the Nimbus hub.
 > Use the name to identify it. Icons can vary between Home Assistant versions.
 
 **Expected outcome:** you land on the Nimbus device page, and a **persistent
-notification** appears pointing you at Configure → Solver settings. That
+notification** appears. After steps 4 to 6 it points you at the Solver tab's
+**Device setup** card, which shows what works now and what still needs one
+more fact. With an empty hub it points you at Configure → Solver settings. That
 notification is not an error: it exists because of the trap in [§7](#7-set-your-real-battery-and-grid-numbers).
 
 On the Nimbus integration page, two things matter:
@@ -1386,6 +1402,8 @@ Otherwise, its step value continues into later periods.
 ## 19. Services you can call
 
 From Developer Tools → Actions, or any automation:
+
+**Configure → Device setup** does the same from the hub's own settings, with no actions to type: in `legacy`, a **dry run** of what the device setup would build from your settings, and a tick to move to `shadow` when it is clean; in `shadow` or `active`, **Review what Nimbus finds** (new sources, renames and new devices ticked, an alternative to a source you confirmed never), **Edit a source** (choose another sensor for one thing a device measures; Nimbus checks it reads, with its unit, before saving), **Control** (allow Nimbus to run a controllable load, one load at a time, recorded with who and when; untick to stop it at once; finishing setup never allows it) and **Mode**. The actions below remain for automations.
 
 | Service | Does |
 |---|---|

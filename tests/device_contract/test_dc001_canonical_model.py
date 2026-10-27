@@ -402,6 +402,12 @@ _DC_BUILDERS = frozenset(
         # DC-006 slice 3 (#1574): forecast adapters and `combine: mean` read
         # the combine roles from the contract.
         "device_forecasts.py",
+        # DC-007 slice 1 (#1574): Add Nimbus runs discovery and creates the
+        # hub with the confirmed document.
+        "config_flow.py",
+        # DC-007 slice 2 (#1574): Configure -> Device setup, through the
+        # device_contract_ha services only.
+        "device_setup.py",
         # DC-006 slice 3 part 2 (#1574): in `active` the Solver reads its solar
         # forecast through the contract. sensor.py hands the binding over in
         # the Solver config; solver_inputs/solar.py reads it.

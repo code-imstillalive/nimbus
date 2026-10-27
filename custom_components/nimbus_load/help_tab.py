@@ -1703,6 +1703,12 @@ SETTINGS: dict[str, tuple[str, str]] = {
 #: (section title, path into strings.json) in the order a household meets them.
 WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "Add Nimbus → Here is what Nimbus found (one device per screen)",
+        ("config", "step", "device"),
+    ),
+    ("Add Nimbus → One question about a device", ("config", "step", "question")),
+    ("Add Nimbus → The battery's capacity", ("config", "step", "capacity")),
+    (
         "Configure → Solver settings → screen 1 of 3",
         ("options", "step", "solver_battery"),
     ),
@@ -1712,6 +1718,31 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("options", "step", "solver_sources"),
     ),
     ("Configure → Forecaster settings (one screen)", ("options", "step", "forecaster")),
+    (
+        "Configure → Device setup → Dry run",
+        ("options", "step", "device_setup_dry_run"),
+    ),
+    (
+        "Configure → Device setup → Review what Nimbus finds",
+        ("options", "step", "device_setup_review"),
+    ),
+    (
+        "Configure → Device setup → Edit a source (device)",
+        ("options", "step", "device_setup_edit"),
+    ),
+    (
+        "Configure → Device setup → Edit a source (sensor)",
+        ("options", "step", "device_setup_edit_source"),
+    ),
+    (
+        "Configure → Device setup → Control (load)",
+        ("options", "step", "device_setup_control"),
+    ),
+    (
+        "Configure → Device setup → Control (allow or stop)",
+        ("options", "step", "device_setup_control_device"),
+    ),
+    ("Configure → Device setup → Mode", ("options", "step", "device_setup_mode")),
     (
         "Configure → Topology diagram settings (one screen)",
         ("options", "step", "switchboard"),

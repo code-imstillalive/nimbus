@@ -619,3 +619,107 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert load is not None
     assert load["source"]["entity_id"] == "sensor.house_forecast"
     assert load["source"]["adapter"] == {"name": "nimbus_forecast", "version": 1}
+
+    # test_configure_device_setup_changes_the_mode_through_the_same_checks
+    # DC-007 slice 2 (#1574): Configure -> Device setup. In `active` it offers
+    # Review and Mode; Mode goes through async_set_mode's own checks; in
+    # `legacy` it offers only the dry run, whose tick moves to `shadow`.
+    from homeassistant.data_entry_flow import FlowResultType
+
+    async def _open(step):
+        flow = await hass.config_entries.options.async_init(entry.entry_id)
+        assert "device_setup" in flow["menu_options"]
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": "device_setup"}
+        )
+        assert flow["type"] == FlowResultType.MENU
+        menu = flow["menu_options"]
+        if step is None:
+            return flow, menu
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": step}
+        )
+        return flow, menu
+
+    # test_edit_a_source_switches_one_role_and_its_setting_follows
+    # DC-007 slice 3 (#1574), Advanced: a new grid power sensor, validated by
+    # DC-002 first, is committed; in `active` the setting it fills follows.
+    hass.states.async_set("sensor.new_meter", "0.8", {"unit_of_measurement": "kW"})
+    flow, menu = await _open("device_setup_edit")
+    assert menu == [
+        "device_setup_review",
+        "device_setup_edit",
+        "device_setup_control",
+        "device_setup_mode",
+    ]
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"device": "grid"}
+    )
+    assert flow["step_id"] == "device_setup_edit_source"
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"role": "power", "entity_id": "sensor.new_meter"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY, done
+    stored = await _store(hass, entry).async_read()
+    grid = next(d for d in stored["document"]["devices"] if d["id"] == "grid")
+    assert grid["bindings"]["power"]["source"]["entity_id"] == "sensor.new_meter"
+    assert entry.options.get("grid_sensor") == "sensor.new_meter"
+    # A sensor that doesn't exist is refused, and nothing changes.
+    before = await _store(hass, entry).async_read()
+    refused = await device_contract_ha.async_set_source(
+        hass, entry, before["revision"], "grid", "power", "sensor.nowhere"
+    )
+    assert refused["ok"] is False and refused["code"] == "binding_refused"
+    assert await _store(hass, entry).async_read() == before
+
+    # test_control_is_allowed_and_revoked_one_load_at_a_time
+    # DC-007 slice 4 (#1574): revoking Hot water's control clears the entity
+    # its Controllable Load commands, at once, and the site returns to
+    # observation_only; allowing it again records who and when.
+    stored = await _store(hass, entry).async_read()
+    hws = next(d for d in stored["document"]["devices"] if d.get("control"))
+    flow, _menu = await _open("device_setup_control")
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"device": hws["id"]}
+    )
+    assert flow["step_id"] == "device_setup_control_device"
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"entity_id": "switch.hws", "authorise": False}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY, done
+    assert entry.subentries["sub_hws"].data["controllable_load_device_entity"] == ""
+    stored = await _store(hass, entry).async_read()
+    control = next(d for d in stored["document"]["devices"] if d["id"] == hws["id"])[
+        "control"
+    ]
+    assert control["authorised"] is False and control["revoked_at"]
+    assert stored["document"]["site"]["control_policy"] == "observation_only"
+    allowed = await device_contract_ha.async_set_control(
+        hass, entry, stored["revision"], hws["id"], "switch.hws", True, "user-1"
+    )
+    assert allowed["ok"] is True, allowed
+    assert entry.subentries["sub_hws"].data["controllable_load_device_entity"] == (
+        "switch.hws"
+    )
+    stored = await _store(hass, entry).async_read()
+    assert stored["document"]["site"]["control_policy"] == "authorised"
+
+    flow, menu = await _open("device_setup_mode")
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"mode": "legacy"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+
+    flow, menu = await _open("device_setup_dry_run")
+    assert menu == ["device_setup_dry_run"]
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"go_shadow": True}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "shadow"
+    # The edits above reloaded the entry (a view write in `active`); let the
+    # reload finish and unload it, so no timer outlives the test.
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
