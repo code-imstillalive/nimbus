@@ -312,6 +312,59 @@ async def _async_commit_active(
     }
 
 
+async def async_adopt_new_install(
+    hass: Any, entry: Any, document: dict[str, Any]
+) -> dict[str, Any]:
+    """DC-007 slice 1: commit the document a new install confirmed in the
+    config flow as its first revision, then `shadow`, then `active` once
+    every power sensor's unit is known, writing the settings it implies.
+
+    Refused, with nothing written, when the entry already has a document or
+    the document doesn't validate. With a unit still undeclared it stays in
+    `shadow`, where the unit Repair asks for it (#1893)."""
+    async with _lock(hass, entry.entry_id):
+        store = _store(hass, entry)
+        state = await store.async_read()
+        if state["document"] is not None:
+            return {"ok": False, "code": "already_set_up", "mode": state["mode"]}
+        # Each hub binding goes back to the setting today's settings use for
+        # its role, so the views fill a new install's settings.
+        document = device_import.with_setting_paths(document)
+        committed = await store.async_commit(
+            state["revision"], document, origin="new_install", now=dt_util.utcnow()
+        )
+        if not committed.ok:
+            return {
+                "ok": False,
+                "code": committed.code,
+                "mode": state["mode"],
+                "problems": _problems(committed.problems),
+            }
+        revision = committed.revision
+        shadow = await store.async_set_mode(revision, "shadow")
+        if not shadow.ok:
+            return {"ok": False, "code": shadow.code, "mode": "legacy"}
+        pending = device_units.undeclared(document, _state_reader(hass))
+        if pending:
+            return {
+                "ok": True,
+                "code": "units_undeclared",
+                "mode": "shadow",
+                "revision": revision,
+                "sensors": [p["entity_id"] for p in pending],
+            }
+        active = await store.async_set_mode(revision, "active")
+        if not active.ok:
+            return {"ok": False, "code": active.code, "mode": "shadow"}
+        code, changed = await _async_write_views(hass, entry, document, revision)
+        if code:
+            return {"ok": False, "code": code, "mode": "active", "revision": revision}
+        await store.async_set_view_revision(revision)
+    if changed:
+        hass.config_entries.async_schedule_reload(entry.entry_id)
+    return {"ok": True, "code": "adopted", "mode": "active", "revision": revision}
+
+
 async def async_recover(hass: Any, entry: Any) -> str:
     """At every start (DC-004 "On every start"). Only `active` acts:
     - the store ahead of the options' marker: regenerate the views from the

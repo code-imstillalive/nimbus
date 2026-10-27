@@ -882,6 +882,38 @@ async def _async_setup_entry_impl(
     # this reads one store and returns.
     from . import device_contract_ha
 
+    # DC-007 slice 1 (#1574): a hub created by the new-install setup carries
+    # the site the household confirmed; its first setup commits it, then the
+    # entry forgets it. A refusal leaves the hub in `legacy`, as before the
+    # flow, and a Repair says why.
+    pending = entry.data.get("pending_device_document")
+    if pending is not None:
+        try:
+            adopted = await device_contract_ha.async_adopt_new_install(
+                hass, entry, pending
+            )
+        except Exception:  # an install fault must not stop the rest of setup
+            _LOGGER.exception("Nimbus: the confirmed site could not be saved")
+            adopted = {"ok": False, "code": "error"}
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                k: v for k, v in entry.data.items() if k != "pending_device_document"
+            },
+        )
+        if not adopted.get("ok"):
+            from homeassistant.helpers import issue_registry as ir
+
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                f"new_install_setup_failed_{entry.entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="new_install_setup_failed",
+                translation_placeholders={"reason": str(adopted.get("code"))},
+            )
+
     try:
         recovered = await device_contract_ha.async_recover(hass, entry)
     except Exception:  # a recovery fault must not stop the rest of setup

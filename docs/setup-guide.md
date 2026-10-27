@@ -219,9 +219,22 @@ Services → **Add Integration** search.
 1. Open **Settings → Devices & Services → + Add Integration**.
 2. Search for **Nimbus**.
 3. Select **Nimbus**.
-4. Select **Submit** in the **"Set up Nimbus"** dialog.
+4. **If you use Home Assistant's Energy Dashboard** (or a recognised price
+   provider: LocalVolts v2, Amber Express, Amber Electric), Nimbus shows
+   **what it found**, one device per screen: your grid connection, the house,
+   solar, the battery and any individual devices, each with the sensors it will
+   use. Keep a device ticked to include it; untick anything you don't want.
+5. It then asks **only what it couldn't work out**, one question per screen:
+   which of two sources measures something, or your battery's capacity (the
+   Energy Dashboard doesn't record it). You can leave the capacity empty and
+   set it later.
+6. Select **Submit** on **Ready to set up**. Nimbus saves the site, fills in
+   the settings it implies, and puts it in charge. Control of your battery
+   stays off.
 
-This dialog has no fields. It creates the Nimbus hub.
+**With no Energy Dashboard** set up, there is nothing to show: select
+**Submit** in the **"Set up Nimbus"** dialog and it creates an empty hub, as
+in earlier versions. Set it up from §5 on.
 
 ![The Select brand dialog with "nimbu" typed, showing Nimbus and JustNimbus](images/setup/setup-nimbus-dialog.png)
 
@@ -229,7 +242,9 @@ This dialog has no fields. It creates the Nimbus hub.
 > Use the name to identify it. Icons can vary between Home Assistant versions.
 
 **Expected outcome:** you land on the Nimbus device page, and a **persistent
-notification** appears pointing you at Configure → Solver settings. That
+notification** appears. After steps 4 to 6 it points you at the Solver tab's
+**Device setup** card, which shows what works now and what still needs one
+more fact. With an empty hub it points you at Configure → Solver settings. That
 notification is not an error: it exists because of the trap in [§7](#7-set-your-real-battery-and-grid-numbers).
 
 On the Nimbus integration page, two things matter:

@@ -601,6 +601,34 @@ def _write(view: dict[str, Any], path: str, value: Any) -> None:
         view["subentries"].setdefault(sid, {})[key] = value
 
 
+def with_setting_paths(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with each hub binding that has no settings key given the
+    key today's settings use for its role (`_ROLE_SOURCES`), the first as
+    `source_path` and the rest as `also_source_paths` (DC-007 slice 1).
+
+    A discovered site's bindings come from the Energy Dashboard or a
+    provider, not from a setting, so without this `legacy_view` would write
+    nothing and a new install's settings would stay empty. Only entity
+    bindings are given a key: a statistic or an action has no setting."""
+    out = copy.deepcopy(document)
+    keys = {(_IDS[device], role): k for device, role, k in _ROLE_SOURCES}
+    for device in out.get("devices") or ():
+        short = next((k for k, v in _IDS.items() if v == device["id"]), None)
+        if short is None:
+            continue
+        for role, binding in (device.get("bindings") or {}).items():
+            prov = binding.setdefault("provenance", {})
+            settings = keys.get((device["id"], role))
+            if not settings or prov.get("source_path"):
+                continue
+            if not (binding.get("source") or {}).get("entity_id"):
+                continue
+            prov["source_path"] = f"options.{settings[0]}"
+            if len(settings) > 1:
+                prov["also_source_paths"] = [f"options.{k}" for k in settings[1:]]
+    return out
+
+
 def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
     """Today's settings generated from `document`: one way, owned keys only
     (DC-004 "Compatibility views"). Each binding goes back to exactly the

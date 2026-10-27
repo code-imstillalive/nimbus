@@ -84,6 +84,63 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     assert isinstance(regs, dict)
     assert _stored(hass_storage, entry) is None
 
+    # test_add_nimbus_shows_the_site_it_found_and_saves_what_was_kept
+    # DC-007 slice 1: *Add Nimbus* runs discovery, shows each device, asks the
+    # open questions, and creates the hub carrying the confirmed document.
+    # The hub's own setup is patched out here; the part below adopts it.
+    from homeassistant.data_entry_flow import FlowResultType
+
+    from custom_components.nimbus_load import config_flow
+
+    with (
+        _prefs(PREFS),
+        patch("custom_components.nimbus_load.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        seen = []
+        while result["type"] == FlowResultType.FORM:
+            seen.append(result["step_id"])
+            answer = {}
+            if result["step_id"] == "device":
+                answer = {"keep": True}
+            elif result["step_id"] == "question":
+                answer = {"source": "skip"}
+            elif result["step_id"] == "capacity":
+                answer = {"capacity_kwh": 10.0, "basis": "usable"}
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], answer
+            )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert seen[0] == "device" and seen[-1] == "finish"
+    pending = result["result"].data[config_flow.PENDING_DEVICE_DOCUMENT]
+    assert {d["id"] for d in pending["devices"]} >= {"grid", "load_house"}
+    assert all(
+        b["provenance"]["confirmed"]
+        for d in pending["devices"]
+        for b in (d.get("bindings") or {}).values()
+    )
+
+    # test_a_new_install_adopts_its_site_in_active
+    # The first setup commits that document: revision 1, `active` once every
+    # power sensor's unit is known, and the settings it implies written.
+    fresh = MockConfigEntry(domain=DOMAIN, title="Nimbus (new install)", data={})
+    fresh.add_to_hass(hass)
+    hass.states.async_set("sensor.meter_power", "1.2", {"unit_of_measurement": "kW"})
+    adopted = await device_contract_ha.async_adopt_new_install(hass, fresh, pending)
+    assert adopted["ok"] is True and adopted["mode"] == "active", adopted
+    stored = _stored(hass_storage, fresh)
+    assert stored["mode"] == "active"
+    grid = next(d for d in stored["document"]["devices"] if d["id"] == "grid")
+    # Each hub binding now names the setting it fills (with_setting_paths).
+    assert grid["bindings"]["power"]["provenance"]["source_path"] == (
+        "options.grid_sensor"
+    )
+    assert fresh.options.get("grid_sensor") == "sensor.meter_power"
+    again = await device_contract_ha.async_adopt_new_install(hass, fresh, pending)
+    assert again == {"ok": False, "code": "already_set_up", "mode": "active"}
+
 
 async def _shadow(hass, entry):
     result = await device_contract_ha.async_set_mode(hass, entry, "shadow")

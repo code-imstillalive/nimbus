@@ -4,6 +4,32 @@
       "user": {
         "title": "Set up Nimbus",
         "description": "This creates the Nimbus hub. Before adding loads, use the hub's own \"Configure\" to set your temperature sensors and tuning defaults once -- then add each load you want forecast (HWS, EV charger, pool, individual circuit breakers -- as many as you like) from the hub's device page, one at a time, without repeating this setup."
+      },
+      "device": {
+        "title": "Here is what Nimbus found ({number} of {count}): {name}",
+        "description": "Nimbus found this in your Energy Dashboard and your price providers:\n\n{bindings}\n\nKeep it ticked to include it. You can change any of it later in Configure.",
+        "data": {
+          "keep": "Include this device"
+        }
+      },
+      "question": {
+        "title": "One question about {name}",
+        "description": "Nimbus found more than one source for **{role}** on {name}, or one it wants you to confirm. Pick the one that measures it.",
+        "data": {
+          "source": "Source"
+        }
+      },
+      "capacity": {
+        "title": "{name}: how much does it hold?",
+        "description": "The plan needs your battery's capacity. The Energy Dashboard doesn't record it. Leave it empty to set it later on the Solver tab.",
+        "data": {
+          "capacity_kwh": "Capacity",
+          "basis": "This is the battery's"
+        }
+      },
+      "finish": {
+        "title": "Ready to set up",
+        "description": "Nimbus will set up:\n\n{devices}\n\nIt fills in the settings these imply, and the Solver tab's Device setup card then shows what works now and what still needs one more fact. Control of your battery stays off."
       }
     },
     "abort": {
@@ -504,6 +530,12 @@
         "lts": "Long-term statistics (hourly, kept indefinitely)",
         "hybrid": "Hybrid (recent recorder + older LTS)"
       }
+    },
+    "capacity_basis": {
+      "options": {
+        "usable": "usable capacity",
+        "nominal": "nominal (nameplate) capacity"
+      }
     }
   },
   "services": {
@@ -761,6 +793,10 @@
     "availability_states_never_match": {
       "title": "Nimbus: {name} is never available",
       "description": "{name}'s availability entity `{entity}` reported only these states in the last {days} days: **{seen}**. None of them is in its \"States that mean available\" (**{listed}**), so Nimbus reads {name} as away on every cycle and never plans it, even while it is plugged in.\n\nIf one of those states means available, add it in Nimbus → {name} → the cog → **States that mean available** (matched ignoring case). If {name} really has been away all that time, nothing needs changing. This message clears itself once a reported state matches the list."
+    },
+    "new_install_setup_failed": {
+      "title": "Nimbus could not save the site you confirmed",
+      "description": "Nimbus started without the site you confirmed during setup ({reason}). Nothing was changed. Open Configure on the Nimbus hub to set it up there."
     }
   }
 }
