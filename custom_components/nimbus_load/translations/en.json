@@ -194,7 +194,8 @@
         "menu_options": {
           "device_setup_dry_run": "Dry run: what the device setup would build from your settings",
           "device_setup_review": "Review what Nimbus finds",
-          "device_setup_mode": "Mode: legacy, shadow or active"
+          "device_setup_mode": "Mode: legacy, shadow or active",
+          "device_setup_edit": "Edit a source (Advanced)"
         }
       },
       "device_setup_dry_run": {
@@ -222,6 +223,21 @@
       "device_setup_nothing": {
         "title": "Review what Nimbus finds",
         "description": "Nothing new: what Nimbus finds matches your device setup."
+      },
+      "device_setup_edit": {
+        "title": "Edit a source: which device?",
+        "description": "Choose the device whose source you want to change.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "device_setup_edit_source": {
+        "title": "Edit a source: {name}",
+        "description": "Choose what to change and the sensor that measures it. Nimbus checks the new sensor (its unit and that it reads) before saving; if it can't be read, nothing changes.",
+        "data": {
+          "role": "What it measures (now)",
+          "entity_id": "New sensor"
+        }
       }
     },
     "error": {
@@ -232,7 +248,9 @@
       "binding_refused": "One of the ticked sources can't be read with its unit. Untick it and try again.",
       "revision_conflict": "The device setup changed while you were reviewing. Open the review again.",
       "nothing_to_confirm": "Nothing to save.",
-      "confirm_refused": "The changes could not be saved."
+      "confirm_refused": "The changes could not be saved.",
+      "unknown_device": "That device is no longer in the device setup. Open Edit a source again.",
+      "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run)."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."

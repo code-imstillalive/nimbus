@@ -525,8 +525,33 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
         )
         return flow, menu
 
+    # test_edit_a_source_switches_one_role_and_its_setting_follows
+    # DC-007 slice 3 (#1574), Advanced: a new grid power sensor, validated by
+    # DC-002 first, is committed; in `active` the setting it fills follows.
+    hass.states.async_set("sensor.new_meter", "0.8", {"unit_of_measurement": "kW"})
+    flow, menu = await _open("device_setup_edit")
+    assert menu == ["device_setup_review", "device_setup_edit", "device_setup_mode"]
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"device": "grid"}
+    )
+    assert flow["step_id"] == "device_setup_edit_source"
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"role": "power", "entity_id": "sensor.new_meter"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY, done
+    stored = await _store(hass, entry).async_read()
+    grid = next(d for d in stored["document"]["devices"] if d["id"] == "grid")
+    assert grid["bindings"]["power"]["source"]["entity_id"] == "sensor.new_meter"
+    assert entry.options.get("grid_sensor") == "sensor.new_meter"
+    # A sensor that doesn't exist is refused, and nothing changes.
+    before = await _store(hass, entry).async_read()
+    refused = await device_contract_ha.async_set_source(
+        hass, entry, before["revision"], "grid", "power", "sensor.nowhere"
+    )
+    assert refused["ok"] is False and refused["code"] == "binding_refused"
+    assert await _store(hass, entry).async_read() == before
+
     flow, menu = await _open("device_setup_mode")
-    assert menu == ["device_setup_review", "device_setup_mode"]
     done = await hass.config_entries.options.async_configure(
         flow["flow_id"], {"mode": "legacy"}
     )

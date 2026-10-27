@@ -34,6 +34,7 @@ entity registry, and writes one `Store`.
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from datetime import timedelta
 from typing import Any
@@ -928,6 +929,76 @@ async def async_confirm(
             }
     if result.get("ok"):
         result["changed"] = [{"device": d, "role": r} for d, r in changed]
+        result["flags"] = flags
+    return result
+
+
+async def async_state(hass: Any, entry: Any) -> dict[str, Any]:
+    """The stored device setup (mode, revision, document). Writes nothing."""
+    return await _store(hass, entry).async_read()
+
+
+async def async_set_source(
+    hass: Any,
+    entry: Any,
+    revision: int,
+    device_id: str,
+    role: str,
+    entity_id: str,
+) -> dict[str, Any]:
+    """DC-007 Advanced, "a binding": choose another source for one role of a
+    device in the stored document. `shadow` or `active` only.
+
+    The binding keeps its provenance's settings key (so in `active` the
+    view writes the new entity to the same setting) and its normalization,
+    and is marked confirmed and manual. It is validated by DC-002 against the
+    live state first, exactly as discovery's switch is; a refused one changes
+    nothing."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] == "legacy" or state["document"] is None:
+            return {"ok": False, "code": "choose_shadow_first", "mode": state["mode"]}
+        if state["revision"] != revision:
+            return {
+                "ok": False,
+                "code": "revision_conflict",
+                "revision": state["revision"],
+            }
+        document = copy.deepcopy(state["document"])
+        device = next(
+            (d for d in document.get("devices") or () if d.get("id") == device_id),
+            None,
+        )
+        if device is None:
+            return {"ok": False, "code": "unknown_device"}
+        old = (device.get("bindings") or {}).get(role) or {}
+        prov = dict(old.get("provenance") or {})
+        prov.update({"origin": "manual", "confirmed": True, "overridden": True})
+        binding: dict[str, Any] = {
+            "source": {"kind": "entity_state", "entity_id": entity_id},
+            "provenance": prov,
+        }
+        if old.get("normalization"):
+            binding["normalization"] = copy.deepcopy(old["normalization"])
+        device.setdefault("bindings", {})[role] = binding
+        invalid, flags = await _async_validate(hass, document, [(device_id, role)])
+        if invalid:
+            return {"ok": False, "code": "binding_refused", "refused": invalid}
+        if state["mode"] == "active":
+            result = await _async_commit_active(
+                hass, entry, revision, document, "advanced_edit"
+            )
+        else:
+            committed = await _store(hass, entry).async_commit(
+                revision, document, origin="advanced_edit", now=dt_util.utcnow()
+            )
+            result = {
+                "ok": committed.ok,
+                "code": committed.code,
+                "mode": "shadow",
+                "revision": committed.revision,
+            }
+    if result.get("ok"):
         result["flags"] = flags
     return result
 

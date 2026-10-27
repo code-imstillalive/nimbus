@@ -80,6 +80,7 @@ class DeviceSetupSteps:
     hass: Any
     config_entry: Any
     _review: dict[str, Any] | None = None
+    _edit: dict[str, Any] | None = None
 
     def _finish(self) -> Any:
         # The options as they are now, after any commit this step made.
@@ -100,7 +101,7 @@ class DeviceSetupSteps:
         options = (
             ["device_setup_dry_run"]
             if mode == "legacy"
-            else ["device_setup_review", "device_setup_mode"]
+            else ["device_setup_review", "device_setup_edit", "device_setup_mode"]
         )
         return self.async_show_menu(  # type: ignore[attr-defined]
             step_id="device_setup",
@@ -264,3 +265,99 @@ class DeviceSetupSteps:
     ) -> Any:
         """Rediscovery found nothing new."""
         return self._finish()
+
+    async def async_step_device_setup_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """Advanced, a binding: which device (DC-007 slice 3)."""
+        from .. import device_contract_ha
+
+        state = await device_contract_ha.async_state(self.hass, self.config_entry)
+        devices = [
+            d
+            for d in (state.get("document") or {}).get("devices") or ()
+            if _editable_roles(d)
+        ]
+        if user_input is not None:
+            device = next(d for d in devices if d["id"] == user_input["device"])
+            self._edit = {"revision": state["revision"], "device": device}
+            return await self.async_step_device_setup_edit_source()
+        if not devices:
+            return self.async_show_form(  # type: ignore[attr-defined]
+                step_id="device_setup_nothing", data_schema=vol.Schema({})
+            )
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="device_setup_edit",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("device"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=d["id"], label=str(d.get("name") or d["id"])
+                                )
+                                for d in devices
+                            ]
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_device_setup_edit_source(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """Advanced, a binding: which role, and its new source. Validated by
+        DC-002 before it is saved; a refused one changes nothing."""
+        from .. import device_contract_ha
+
+        assert self._edit is not None
+        device = self._edit["device"]
+        errors: dict[str, str] = {}
+        if user_input is not None and "entity_id" in user_input:
+            result = await device_contract_ha.async_set_source(
+                self.hass,
+                self.config_entry,
+                self._edit["revision"],
+                device["id"],
+                user_input["role"],
+                user_input["entity_id"],
+            )
+            if result.get("ok"):
+                return self._finish()
+            errors["base"] = str(result.get("code") or "confirm_refused")
+        roles = _editable_roles(device)
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="device_setup_edit_source",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("role", default=roles[0]): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=r,
+                                    label=f"{r.replace('_', ' ')}: "
+                                    f"{device['bindings'][r]['source'].get('entity_id')}",
+                                )
+                                for r in roles
+                            ]
+                        )
+                    ),
+                    vol.Required("entity_id"): selector.EntitySelector(
+                        selector.EntitySelectorConfig(domain="sensor")
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={"name": str(device.get("name") or device["id"])},
+        )
+
+
+def _editable_roles(device: dict[str, Any]) -> list[str]:
+    """A device's roles bound to an entity's state: the ones Edit a source
+    can switch (a forecast or a statistic needs its own adapter or id)."""
+    return sorted(
+        role
+        for role, b in (device.get("bindings") or {}).items()
+        if (b.get("source") or {}).get("kind") == "entity_state"
+    )
