@@ -943,6 +943,7 @@ For example, a load can behave differently while the battery charges.
 | Temperature sensor | Additional context for weather-sensitive loads |
 | Temperature forecast sensor | Select your weather entity. Nimbus calls `weather.get_forecasts`. |
 | Humidity sensor | Smaller effect, same idea |
+| Home / away, planned departure and return | While you're away, the forecast falls to the house's base load instead of drifting down over hours, and climbs back before you return |
 | Battery / Grid / Solar power sensors | System context |
 | Curtailment switch | Only if you have a load run specifically to soak up curtailed solar |
 
