@@ -13,6 +13,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 import solver_plan
 from solver import network
@@ -99,3 +100,22 @@ def _sensor_mod():
 
 
 # -- grid money: the figure the cards show ------------------------------------
+
+
+# Restored (#1837 follow-up): cut 1 removed this on coverage alone; a
+# mutation of the code it checks survives main's suite without it.
+def test_paths_are_percent_of_the_fleet_on_the_plan_periods():
+    kw = _tiered_inputs()
+    res = sd.build_stochastic_plan(kw)
+    paths = sd.paths_attribute(res)
+    n = len(kw["periods"].hours)
+    cap = sum(b.capacity_kwh for b in kw["batteries"])
+    assert set(paths["soc_pct"]) == {"p10", "p50", "p90"}
+    for label, series in paths["soc_pct"].items():
+        assert len(series) == n
+        assert series[-1] == pytest.approx(
+            100.0 * res.scenario_terminal_soc_kwh[label] / cap, abs=0.06
+        )
+    # p50's path is the published plan's own SoC.
+    plan_pct = 100.0 * np.asarray(res.plan.battery_soc_kwh) / cap
+    assert np.allclose(paths["soc_pct"]["p50"], plan_pct[-n:], atol=0.06)
