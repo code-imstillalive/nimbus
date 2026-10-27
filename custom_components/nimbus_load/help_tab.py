@@ -1720,6 +1720,14 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Configure → Device setup → Review what Nimbus finds",
         ("options", "step", "device_setup_review"),
     ),
+    (
+        "Configure → Device setup → Edit a source (device)",
+        ("options", "step", "device_setup_edit"),
+    ),
+    (
+        "Configure → Device setup → Edit a source (sensor)",
+        ("options", "step", "device_setup_edit_source"),
+    ),
     ("Configure → Device setup → Mode", ("options", "step", "device_setup_mode")),
     (
         "Configure → Topology diagram settings (one screen)",
