@@ -940,3 +940,132 @@ def _export_site(min_export_kwh=None):
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.full(n, 0.5))],
     )
+
+
+# Restored (#1837 follow-up): cut 1 removed these on coverage alone; a
+# mutation of the code each checks survives main's suite without it. The
+# export-bonus one was test_export_bonus_tiebreak.py's.
+@SETTINGS
+@given(
+    plain_sites(),
+    st.lists(_num(0.1, 1.0), min_size=1, max_size=3),
+    st.lists(_num(0.0, 0.5), min_size=3, max_size=3),
+    st.frozensets(st.integers(0, 23), max_size=3),
+)
+def test_a_tiered_terminal_value_is_counted_at_each_of_its_periods(
+    site, shares, rates, extra
+):
+    """Terminal value tiers (v0.28.0, v0.42.0): the SoC above Min SoC at the last period
+    is worth the tiers, dearest first, in place of the flat salvage; each
+    extra period listed counts the same curve, split evenly between them."""
+    b = site["battery"]
+    span = b["max_soc_kwh"] - b["min_soc_kwh"]
+    if span <= 1e-3:
+        return
+    widths = [span * s / sum(shares) for s in shares]
+    widths[-1] = span - sum(widths[:-1])
+    tiers = list(zip(widths, sorted(rates[: len(widths)], reverse=True), strict=True))
+    n = len(site["hours"])
+    extra = sorted(t for t in extra if t < n - 1)
+    plan = _solve(
+        site,
+        terminal_value_breakpoints=tiers,
+        terminal_value_period_indices=extra + [n - 1] if extra else None,
+    )
+    assert plan.status == "optimal"
+    soc = plan.battery_soc_kwh
+    value = _tiered_value(soc[-1] - b["min_soc_kwh"], tiers)
+    for t in extra:
+        value += _tiered_value(soc[t] - b["min_soc_kwh"], tiers) / len(extra)
+    flat = -b["salvage_value"] * soc[-1]
+    assert abs(plan.total_cost - (_parts(site, plan) - flat - value)) < 1e-6
+
+
+@pytest.mark.parametrize("width", [0.25, 0.5, 1.0])
+def test_a_comfort_floor_is_worth_heating_to_when_it_costs_more(width):
+    """A comfort floor (`comfort_floor_c`, never above the target): each
+    degree-period under it costs `comfort_floor_cost`. Heating now instead of
+    at the deadline costs 0.75 of that per degree more, so a tank under the
+    floor is heated to the floor now rather than later."""
+    rate, start, floor, cost = 5.0, 40.0, 45.0, 1.0
+    later = 0.5
+    price = np.array([later + 0.75 * cost * rate, later])
+    power = (floor - start) / (rate * width)
+    plan = _thermal_plan(
+        2,
+        width,
+        {
+            "name": "hws",
+            "max_power_kw": power * 2.0,
+            "initial_temperature_c": start,
+            "target_temperature_c": floor,
+            "earliest_period": 0,
+            "deadline_period": 1,
+            "heating_rate_c_per_kwh": rate,
+            "idle_decay_c_per_hour": 0.0,
+            "comfort_floor_c": floor,
+            "comfort_floor_cost": cost,
+        },
+        price=price,
+    )
+    assert plan.status == "optimal"
+    assert abs(plan.thermal_loads[0].temperature_c[0] - floor) < 1e-5
+
+
+@SETTINGS
+@given(
+    st.integers(3, 8),
+    _num(5.0, 13.0),
+    _num(0.1, 0.9),
+    _num(0.05, 0.5),
+    st.sampled_from(["calibrated", "lex"]),
+)
+def test_a_flat_export_bonus_is_claimed_in_one_block_at_the_end(
+    n, rate, share, premium, mode
+):
+    cap = round(rate * n * share, 4)
+    plan = build_plan(
+        periods=PeriodGrid(
+            hours=np.ones(n), start=datetime(2026, 8, 20, 10, 0, tzinfo=UTC)
+        ),
+        grid=GridConfig(
+            import_price=np.full(n, 0.15),
+            export_price=np.full(n, 0.09),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+            export_bonus_price=np.full(n, premium),
+            export_bonus_volume_kwh=cap,
+        ),
+        batteries=[
+            BatteryConfig(
+                name="home",
+                capacity_kwh=200.0,
+                initial_soc_kwh=200.0,
+                min_soc_kwh=10.0,
+                max_soc_kwh=200.0,
+                max_charge_kw=rate,
+                max_discharge_kw=rate,
+                charge_efficiency=0.95,
+                discharge_efficiency=0.95,
+                charge_cost=0.01,
+                discharge_cost=0.01,
+                salvage_value=0.02,
+            )
+        ],
+        solar=SolarConfig(forecast_kw=np.zeros(n)),
+        loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
+        solve_options=lp.CalibratedOptions()
+        if mode == "calibrated"
+        else lp.LexOptions(),
+    )
+    assert plan.status == "optimal"
+    np.testing.assert_allclose(plan.grid_export_kw, rate, atol=1e-4)
+    bonus = plan.export_bonus_kw
+    # The lexicographic phases hold the claim to their own tolerance (a few
+    # watts); the calibrated solve production runs is exact.
+    tol = 1e-4 if mode == "calibrated" else 2e-2
+    assert abs(float(np.sum(bonus)) - cap) < 1e-4
+    on = bonus > tol
+    first = int(np.argmax(on))
+    assert on[first:].all(), bonus  # one block, running to the end
+    np.testing.assert_allclose(bonus[first + 1 :], rate, atol=tol)
