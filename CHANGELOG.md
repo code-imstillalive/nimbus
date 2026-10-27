@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **Configure → Device setup** (DC-007 slice 2, #1574): the device setup from the hub's own settings, with no actions to type. In `legacy` a dry run of what it would build, and a tick to move to `shadow` when clean; in `shadow` or `active`, *Review what Nimbus finds* (one tick per difference: new sources, renames and new devices pre-ticked, an alternative to a confirmed source never) and *Mode*. Each goes through the same checks as the actions and the mode select.
+- **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
 ## [0.94.492] - 2026-10-27
 
 **Midday: the battery holds a solar charge instead of flipping between charge and idle every few minutes.**
