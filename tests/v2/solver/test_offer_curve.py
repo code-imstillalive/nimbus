@@ -26,7 +26,11 @@ from solver.elements import (
     PeriodGrid,
     SolarConfig,
 )
-from solver.network import _OFFER_CURVE_DOMAIN_MIN, build_plan
+from solver.network import (
+    _OFFER_CURVE_DOMAIN_MIN,
+    build_plan,
+    complete_offer_curve,
+)
 from test_plan_invariants import SETTINGS, _num
 
 
@@ -569,3 +573,19 @@ def test_the_curves_exact_work_is_bounded(monkeypatch):
             else:
                 assert len(copies) <= most
                 assert (len(copies) > 0) == (most > 0)
+
+    # test_a_deferred_curve_is_the_curve_swept_in_the_build
+    # #2121: deferred, the plan comes back without its curve and with the
+    # sweep pending; run after publishing, it is the curve the build sweeps.
+    _solver_lp._lex_calibration_failed_until = 0.0
+    now = _shared_charger_plan(prices=_PAID_ONCE)
+    _solver_lp._lex_calibration_failed_until = 0.0
+    later = _shared_charger_plan(prices=_PAID_ONCE, curve="deferred")
+    assert later.offer_curve_import is None and later.offer_curve_deferred
+    assert now.offer_curve_deferred is None
+    later = complete_offer_curve(later)
+    assert later.offer_curve_deferred is None
+    for field in ("import", "export", "import_ranging", "export_ranging"):
+        name = f"offer_curve_{field}"
+        assert getattr(later, name) == getattr(now, name), name
+    assert complete_offer_curve(now) is now
