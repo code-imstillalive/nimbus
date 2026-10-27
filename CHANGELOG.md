@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Device readiness marks a score whose site exchange doesn't reconcile** (DC-006 slice 5, DC-R10, #1574). `sensor.nimbus_device_readiness` now reads the latest scored day's meter reconciliation (the quality report's `meter_reconciliation`): when the grid meter disagrees with what the plan's flows add up to, or covers too little of the day, *score* says so with `site_exchange_disagrees` or `site_exchange_coverage_too_sparse`; when it agrees, the score is reliable instead of "not checked". The score itself is never corrected (DC-006 decision 7).
 ## [0.94.493] - 2026-10-27
 
 **Home / away for the load forecast, and a setup that shows what it found.**

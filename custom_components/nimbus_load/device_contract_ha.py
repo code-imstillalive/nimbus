@@ -1341,12 +1341,27 @@ def _model_states(entry: Any, document: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def _scored_days(hass: Any, entry: Any) -> int:
+def _quality_report(hass: Any, entry: Any) -> Any:
     registry = er.async_get(hass)
     eid = registry.async_get_entity_id(
         "sensor", DOMAIN, f"{entry.entry_id}_nimbus_solver_quality_report"
     )
-    state = hass.states.get(eid) if eid else None
+    return hass.states.get(eid) if eid else None
+
+
+def _reconciliation(hass: Any, entry: Any) -> str | None:
+    """DC-006 slice 5 (DC-R10): the latest scored day's site-exchange verdict
+    (`solver/meter_reconciliation.py`, published by the quality report), so
+    readiness marks a score whose site exchange doesn't reconcile. None
+    before any day is scored."""
+    state = _quality_report(hass, entry)
+    verdict = (state.attributes.get("meter_reconciliation") or {}) if state else {}
+    status = verdict.get("status") if isinstance(verdict, dict) else None
+    return status if isinstance(status, str) else None
+
+
+def _scored_days(hass: Any, entry: Any) -> int:
+    state = _quality_report(hass, entry)
     if state is None:
         return 0
     history = state.attributes.get("history")
@@ -1389,6 +1404,7 @@ async def async_readiness(hass: Any, entry: Any) -> dict[str, Any]:
         data_states=data_states,
         models=_model_states(entry, document),
         scored_days=_scored_days(hass, entry),
+        reconciliation=_reconciliation(hass, entry),
     )
     return {
         "mode": stored["mode"],
