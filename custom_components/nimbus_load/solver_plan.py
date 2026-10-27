@@ -789,6 +789,7 @@ def _with_deterministic_signals(
         offer_curve_import_ranging=deterministic.offer_curve_import_ranging,
         offer_curve_export_ranging=deterministic.offer_curve_export_ranging,
         offer_curve_sweep_seconds=deterministic.offer_curve_sweep_seconds,
+        offer_curve_deferred=deterministic.offer_curve_deferred,
         grid_signals=deterministic.grid_signals,
         battery_signals=deterministic.battery_signals,
         load_signals=deterministic.load_signals,
@@ -1783,10 +1784,14 @@ def assemble_and_solve_plan(
             )
         )
 
+    # #2121: the offer curve is swept after the plan is published
+    # (`network.complete_offer_curve()`), so neither dispatch nor
+    # `deterministic_seconds` (#2058's drive budget) waits on it.
+    offer_curve = "deferred" if offer_curve_enabled else False
     deterministic_started = time.monotonic()
     plan = _build(
         all_batteries,
-        compute_offer_curve=offer_curve_enabled,
+        compute_offer_curve=offer_curve,
         compute_signals=flex_signals_enabled,
     )
     deterministic_seconds = time.monotonic() - deterministic_started
@@ -1836,7 +1841,7 @@ def assemble_and_solve_plan(
                     dataclasses.replace(all_batteries[0], period0_pin_net_kw=pin_kw),
                     *all_batteries[1:],
                 ],
-                compute_offer_curve=offer_curve_enabled,
+                compute_offer_curve=offer_curve,
                 compute_signals=flex_signals_enabled,
             ),
             _cfg_num(
