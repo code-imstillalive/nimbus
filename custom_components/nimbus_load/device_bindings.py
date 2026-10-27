@@ -808,6 +808,19 @@ def _aud(_spec: Mapping[str, Any]) -> str:
 DEFAULT_MAX_AGE_S = 300.0
 
 ADAPTERS: dict[tuple[str, int], Adapter] = {
+    # DC-006 slice 4 (#1574): a configured price sensor with no provider
+    # profile, read as the Solver reads it. Its unit is the binding's own
+    # (`unit` in the adapter spec): with none, the price is refused, not read
+    # as $/kWh. Fees are not stated.
+    ("generic_price_forecast", 1): Adapter(
+        "generic_price_forecast",
+        1,
+        lambda spec: spec.get("unit"),
+        lambda _rows, _extra: None,
+        DEFAULT_MAX_AGE_S,
+        _rows(price_intervals.generic_forecast_intervals),
+        _rows(price_intervals.generic_forecast_singles),
+    ),
     # AEMO's wholesale price: no network or retail fees.
     ("aemo_nem", 1): Adapter(
         "aemo_nem",

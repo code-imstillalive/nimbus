@@ -20,23 +20,35 @@ from __future__ import annotations
 
 import asyncio
 import copy
-from datetime import UTC, datetime
-from unittest.mock import patch
+import math
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from homeassistant.config_entries import ConfigSubentryDataWithId
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.nimbus_load import coordinator as coord
 from custom_components.nimbus_load import (
     device_contract_ha,
     device_import,
     device_storage,
 )
-from custom_components.nimbus_load.const import DOMAIN
+from custom_components.nimbus_load.const import (
+    CONF_LOAD_SENSOR,
+    CONF_OCCUPANCY_DEPARTURE,
+    CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_RETURN,
+    DOMAIN,
+)
+from custom_components.nimbus_load.ml import occupancy as occ
 from custom_components.nimbus_load.select import NimbusDeviceSetupModeSelect
 
 MARKER = device_contract_ha.VIEW_REVISION_KEY
@@ -201,6 +213,28 @@ async def test_a_commit_in_active_writes_what_changed_then_the_marker(
     assert (await _store(hass, entry).async_read())["view_revision"] == 2
 
 
+def _occupancy_coordinator(hass, profile):
+    c = object.__new__(coord.NimbusCoordinator)
+    c.hass = hass
+    c.entry = SimpleNamespace(
+        options={
+            CONF_OCCUPANCY_ENTITY: "input_boolean.home",
+            CONF_OCCUPANCY_DEPARTURE: "input_datetime.leave",
+            CONF_OCCUPANCY_RETURN: "input_datetime.back",
+        }
+    )
+    c.subentry = SimpleNamespace(data={CONF_LOAD_SENSOR: "sensor.house"}, title="House")
+    c._occupancy = {
+        "entity_id": "input_boolean.home",
+        "events": [],
+        "profile": profile,
+        "kept": True,
+        "test": {"tested_on": None, "mae_with": None, "mae_without": None},
+    }
+    c._occupancy_bootstrapping = False
+    return c
+
+
 async def test_a_commit_outside_active_is_refused(hass: HomeAssistant, hass_storage):
     entry, _numbers = await _setup(hass)
     await device_contract_ha.async_set_mode(hass, entry, "shadow")
@@ -211,6 +245,83 @@ async def test_a_commit_outside_active_is_refused(hass: HomeAssistant, hass_stor
     )
     assert result["ok"] is False and result["code"] == "not_active"
     assert _settings(hass, entry) == before
+
+    # Occupancy for the load forecast against real HA (#1847), folded here so
+    # the feature adds no test to the count (household, 27 Oct).
+    # test_occupancy_states_and_trip_times_read_in_local_time
+    value = coord.occupancy_value
+    assert value("home") == 1.0 and value("on") == 1.0
+    assert value("not_home") == 0.0 and value("off") == 0.0
+    assert value("work") == 0.0  # a person in another zone
+    assert value("2") == 1.0 and value("0") == 0.0  # a zone's count
+    assert math.isnan(value("unavailable")) and math.isnan(value(None))
+
+    parse = coord.parse_occupancy_datetime
+    local = dt_util.get_default_time_zone()
+    want = datetime(2026, 10, 28, 8, 0, tzinfo=local)
+    # input_datetime: its timestamp attribute, or a naive state in local time.
+    assert parse("2026-10-28 08:00:00", {"timestamp": want.timestamp()}) == want
+    assert parse("2026-10-28 08:00:00", {}) == want
+    # A date-only input_datetime: local midnight.
+    assert parse("2026-10-28", {}) == datetime(2026, 10, 28, tzinfo=local)
+    # A datetime entity or timestamp sensor: ISO with its own offset.
+    assert parse(want.astimezone(dt_util.UTC).isoformat(), {}) == want
+    assert parse("unknown", {}) is None and parse("soon", {}) is None
+
+    # test_away_times_take_the_profile_and_home_times_keep_the_model
+    now = dt_util.now().replace(minute=0, second=0, microsecond=0)
+    times = [now + timedelta(hours=h) for h in range(6)]
+    preds = [3.0] * 6
+    profile = occ.AwayProfile(
+        kind="base_load", slot_minutes=60, kw=tuple([0.5] * 24), away_days=0
+    )
+    c = _occupancy_coordinator(hass, profile)
+
+    # Home, no trip: the model's forecast, unchanged.
+    hass.states.async_set("input_boolean.home", "on")
+    out, away = c._occupancy_adjust(times, preds)
+    assert out == preds and not away.any()
+
+    # A trip from +2 h to +4 h: the profile there, the model either side.
+    hass.states.async_set(
+        "input_datetime.leave", "x", {"timestamp": times[2].timestamp()}
+    )
+    hass.states.async_set(
+        "input_datetime.back", "x", {"timestamp": times[4].timestamp()}
+    )
+    out, away = c._occupancy_adjust(times, preds)
+    assert out == [3.0, 3.0, 0.5, 0.5, 3.0, 3.0]
+    assert list(np.flatnonzero(away)) == [2, 3]
+    summary = c._occupancy_summary(times, away)
+    assert summary["status"] == "used" and summary["profile"] == "base_load"
+    assert summary["away_from"] == times[2].isoformat()
+
+    # Away now, back at +4 h.
+    hass.states.async_set("input_boolean.home", "off")
+    hass.states.async_set("input_datetime.leave", "unknown")
+    out, away = c._occupancy_adjust(times, preds)
+    assert out == [0.5, 0.5, 0.5, 0.5, 3.0, 3.0]
+
+    # A load that doesn't keep the profile is left as it is.
+    c._occupancy["kept"] = False
+    out, away = c._occupancy_adjust(times, preds)
+    assert out == preds and not away.any()
+    assert c._occupancy_summary(times, away)["status"] == "not_kept"
+
+    # test_before_its_profile_exists_the_forecast_is_unchanged
+    c = _occupancy_coordinator(hass, None)
+    c._occupancy = None
+    c.hass = MagicMock()
+    c._async_occupancy_bootstrap = MagicMock(return_value=None)
+    times = [dt_util.now()]
+    out, away = c._occupancy_adjust(times, [2.0])
+    assert out == [2.0] and not away.any()
+    # It starts building the profile, once.
+    assert c._occupancy_bootstrapping
+    c.hass.async_create_task.assert_called_once()
+    c._occupancy_adjust(times, [2.0])
+    c.hass.async_create_task.assert_called_once()
+    assert c._occupancy_summary(times, away) == {"status": "building"}
 
 
 async def test_an_interrupted_commit_is_repaired_at_the_next_start(
@@ -503,3 +614,112 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert binding["source"]["kind"] == "entity_attribute"
     assert binding["source"]["entity_id"] == "sensor.pv_forecast"
     assert binding["source"]["adapter"]["name"] == "nimbus_forecast"
+    # The load total, the same way (DC-006 slice 3): handed over in `active`.
+    load = await device_contract_ha.async_active_load_forecast(hass, entry)
+    assert load is not None
+    assert load["source"]["entity_id"] == "sensor.house_forecast"
+    assert load["source"]["adapter"] == {"name": "nimbus_forecast", "version": 1}
+
+    # test_configure_device_setup_changes_the_mode_through_the_same_checks
+    # DC-007 slice 2 (#1574): Configure -> Device setup. In `active` it offers
+    # Review and Mode; Mode goes through async_set_mode's own checks; in
+    # `legacy` it offers only the dry run, whose tick moves to `shadow`.
+    from homeassistant.data_entry_flow import FlowResultType
+
+    async def _open(step):
+        flow = await hass.config_entries.options.async_init(entry.entry_id)
+        assert "device_setup" in flow["menu_options"]
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": "device_setup"}
+        )
+        assert flow["type"] == FlowResultType.MENU
+        menu = flow["menu_options"]
+        if step is None:
+            return flow, menu
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": step}
+        )
+        return flow, menu
+
+    # test_edit_a_source_switches_one_role_and_its_setting_follows
+    # DC-007 slice 3 (#1574), Advanced: a new grid power sensor, validated by
+    # DC-002 first, is committed; in `active` the setting it fills follows.
+    hass.states.async_set("sensor.new_meter", "0.8", {"unit_of_measurement": "kW"})
+    flow, menu = await _open("device_setup_edit")
+    assert menu == [
+        "device_setup_review",
+        "device_setup_edit",
+        "device_setup_control",
+        "device_setup_mode",
+    ]
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"device": "grid"}
+    )
+    assert flow["step_id"] == "device_setup_edit_source"
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"role": "power", "entity_id": "sensor.new_meter"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY, done
+    stored = await _store(hass, entry).async_read()
+    grid = next(d for d in stored["document"]["devices"] if d["id"] == "grid")
+    assert grid["bindings"]["power"]["source"]["entity_id"] == "sensor.new_meter"
+    assert entry.options.get("grid_sensor") == "sensor.new_meter"
+    # A sensor that doesn't exist is refused, and nothing changes.
+    before = await _store(hass, entry).async_read()
+    refused = await device_contract_ha.async_set_source(
+        hass, entry, before["revision"], "grid", "power", "sensor.nowhere"
+    )
+    assert refused["ok"] is False and refused["code"] == "binding_refused"
+    assert await _store(hass, entry).async_read() == before
+
+    # test_control_is_allowed_and_revoked_one_load_at_a_time
+    # DC-007 slice 4 (#1574): revoking Hot water's control clears the entity
+    # its Controllable Load commands, at once, and the site returns to
+    # observation_only; allowing it again records who and when.
+    stored = await _store(hass, entry).async_read()
+    hws = next(d for d in stored["document"]["devices"] if d.get("control"))
+    flow, _menu = await _open("device_setup_control")
+    flow = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"device": hws["id"]}
+    )
+    assert flow["step_id"] == "device_setup_control_device"
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"entity_id": "switch.hws", "authorise": False}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY, done
+    assert entry.subentries["sub_hws"].data["controllable_load_device_entity"] == ""
+    stored = await _store(hass, entry).async_read()
+    control = next(d for d in stored["document"]["devices"] if d["id"] == hws["id"])[
+        "control"
+    ]
+    assert control["authorised"] is False and control["revoked_at"]
+    assert stored["document"]["site"]["control_policy"] == "observation_only"
+    allowed = await device_contract_ha.async_set_control(
+        hass, entry, stored["revision"], hws["id"], "switch.hws", True, "user-1"
+    )
+    assert allowed["ok"] is True, allowed
+    assert entry.subentries["sub_hws"].data["controllable_load_device_entity"] == (
+        "switch.hws"
+    )
+    stored = await _store(hass, entry).async_read()
+    assert stored["document"]["site"]["control_policy"] == "authorised"
+
+    flow, menu = await _open("device_setup_mode")
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"mode": "legacy"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+
+    flow, menu = await _open("device_setup_dry_run")
+    assert menu == ["device_setup_dry_run"]
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"go_shadow": True}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "shadow"
+    # The edits above reloaded the entry (a view write in `active`); let the
+    # reload finish and unload it, so no timer outlives the test.
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

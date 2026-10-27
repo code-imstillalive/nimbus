@@ -158,7 +158,7 @@ class _StubFlowBase:
             "description_placeholders": description_placeholders,
         }
 
-    def async_show_menu(self, *, step_id: str, menu_options: list):
+    def async_show_menu(self, *, step_id: str, menu_options: list, **kwargs):
         return {"type": "menu", "step_id": step_id, "menu_options": menu_options}
 
 

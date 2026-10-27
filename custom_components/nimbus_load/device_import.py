@@ -216,6 +216,14 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
                 binding["provenance"]["also_source_paths"] = [p for p, _v in found[1:]]
             bindings[device][role] = binding
 
+    # DC-006 slice 3: the total load forecast is read by the forecast
+    # adapters, as the Solver reads it (`forecast` attribute), not as a state.
+    demand = bindings["load"].get("demand_forecast")
+    if demand is not None:
+        demand["source"] = device_forecasts.forecast_source(
+            [demand["source"]["entity_id"]], "nimbus_forecast"
+        )
+
     solar_forecast = _solar_forecast_binding(options, snapshot, confirmed_keys)
     if solar_forecast is not None:
         bindings["solar"]["generation_forecast"] = solar_forecast
@@ -692,7 +700,11 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
             sub["expected_load_kw"] = hours.get("expected_kw")
         control = device.get("control")
         if control:
-            sub["controllable_load_device_entity"] = control.get("entity_id")
+            # DC-007: a revoked authority clears the entity, so the
+            # controllable load stops commanding it at once.
+            sub["controllable_load_device_entity"] = (
+                control.get("entity_id") if control.get("authorised", True) else ""
+            )
     view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
     return view
 

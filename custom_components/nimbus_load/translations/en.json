@@ -44,7 +44,8 @@
           "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
           "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)",
           "switchboard": "Topology diagram settings (grid meter to start -- prices/daily kWh optional, next screen)",
-          "pricing_suggestions": "Review pricing suggestions (nothing changes until you confirm)"
+          "pricing_suggestions": "Review pricing suggestions (nothing changes until you confirm)",
+          "device_setup": "Device setup (what Nimbus found, and who is in charge)"
         }
       },
       "forecaster": {
@@ -62,7 +63,10 @@
           "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
           "train_days": "Days of history to train on",
           "training_source": "Training data source",
-          "hybrid_recent_days": "Hybrid mode: recent days from full-resolution history"
+          "hybrid_recent_days": "Hybrid mode: recent days from full-resolution history",
+          "occupancy_entity": "Home / away (optional): who is home",
+          "occupancy_departure": "Planned departure (optional)",
+          "occupancy_return": "Planned return (optional)"
         },
         "data_description": {
           "temperature_sensor": "A real outdoor/ambient temperature sensor. Used as an input feature so the model can learn e.g. \"AC load rises with temperature\" -- purely optional, every load forecasts fine without it, just less precisely for weather-sensitive loads.",
@@ -76,7 +80,10 @@
           "retrain_hour_local": "The local hour (0-23) Nimbus retrains every load's model from scratch against your Recorder history. Pick a quiet hour (e.g. 3am) since a retrain briefly uses real CPU.",
           "train_days": "How many days of Recorder history each retrain looks back over. More days generally means a more stable model, at the cost of a slower retrain and adapting more slowly to a genuine change in your own usage pattern.",
           "training_source": "Recorder history (default) reads full-resolution states but is bounded by your own Recorder purge_keep_days -- fine for most installs, but a low purge setting can leave far less history than train_days requests. Long-term statistics reads hour-bucketed data the Recorder keeps indefinitely, so a 30/90/365-day retrain is always possible, at the cost of hourly-only resolution (blurs a load switching on/off within an hour). Hybrid combines both: recent days at full resolution plus the remainder from long-term statistics, gracefully degrading to whichever source is actually available.",
-          "hybrid_recent_days": "Only used when Training data source is set to Hybrid -- how many of the most recent days come from full-resolution Recorder history; the remainder of train_days is filled from long-term statistics instead."
+          "hybrid_recent_days": "Only used when Training data source is set to Hybrid -- how many of the most recent days come from full-resolution Recorder history; the remainder of train_days is filled from long-term statistics instead.",
+          "occupancy_entity": "An entity that says whether anyone is home: a person, a zone (home when it counts anyone), a group of people, or a presence binary_sensor or input_boolean. While away, each load's forecast falls to the house's own base load at that time of day, and after a few away days to its own away pattern; away periods are left out of training, so the home forecast is not flattened by them. A load keeps it only where it forecasts better.",
+          "occupancy_departure": "When the next trip starts (an input_datetime, a datetime, or a timestamp sensor). From then the forecast is the away one, so it falls when you leave rather than hours later.",
+          "occupancy_return": "When you are back. Away until then, home from then, so the forecast climbs before you walk in. Works with or without a departure: set only this while you are already away."
         }
       },
       "solver_battery": {
@@ -212,11 +219,91 @@
       "pricing_suggestions": {
         "title": "Review pricing suggestions",
         "description": "Nimbus found these price sources for Solver price fields that are currently empty:\n\n{suggestions}\n\n**Submit applies exactly these changes**, and each one is logged and listed in a notification. Close this window to leave your pricing as it is.\n\nA field that already has a value is never changed here, even if its sensor is missing right now. To change one, use Solver settings."
+      },
+      "device_setup": {
+        "title": "Device setup",
+        "description": "The device setup is in **{mode}** mode.",
+        "menu_options": {
+          "device_setup_dry_run": "Dry run: what the device setup would build from your settings",
+          "device_setup_review": "Review what Nimbus finds",
+          "device_setup_mode": "Mode: legacy, shadow or active",
+          "device_setup_edit": "Edit a source (Advanced)",
+          "device_setup_control": "Control: let Nimbus run a controllable load, or stop it"
+        }
+      },
+      "device_setup_dry_run": {
+        "title": "Device setup: dry run",
+        "description": "Built from your current settings, the device setup is **{result}**.\n\n{details}\n\nNothing is changed by reading this. When it is clean, tick below to keep the device setup alongside your settings (shadow): your settings stay in charge.",
+        "data": {
+          "go_shadow": "Move to shadow"
+        }
+      },
+      "device_setup_mode": {
+        "title": "Device setup: mode",
+        "description": "Now **{mode}**; the dry run is **{result}**.\n\n- **legacy**: your settings, as always.\n- **shadow**: the device setup is kept beside your settings and checked; your settings stay in charge.\n- **active**: the device setup is in charge, and your settings are written from it. Needs a clean dry run, and every power sensor's unit known.",
+        "data": {
+          "mode": "Mode"
+        }
+      },
+      "device_setup_review": {
+        "title": "Review what Nimbus finds",
+        "description": "What Nimbus finds now that differs from your device setup. New sources, renames and new devices are ticked; an alternative to a source you confirmed never is. Untick anything you don't want.",
+        "data": {
+          "choices": "Changes to save",
+          "capacity_kwh": "New battery's usable capacity"
+        }
+      },
+      "device_setup_nothing": {
+        "title": "Review what Nimbus finds",
+        "description": "Nothing new: what Nimbus finds matches your device setup."
+      },
+      "device_setup_edit": {
+        "title": "Edit a source: which device?",
+        "description": "Choose the device whose source you want to change.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "device_setup_edit_source": {
+        "title": "Edit a source: {name}",
+        "description": "Choose what to change and the sensor that measures it. Nimbus checks the new sensor (its unit and that it reads) before saving; if it can't be read, nothing changes.",
+        "data": {
+          "role": "What it measures (now)",
+          "entity_id": "New sensor"
+        }
+      },
+      "device_setup_control": {
+        "title": "Control: which load?",
+        "description": "Nimbus never commands anything unless you allow it here, one load at a time. Finishing setup never allows it.",
+        "data": {
+          "device": "Load"
+        }
+      },
+      "device_setup_control_device": {
+        "title": "Control: {name}",
+        "description": "If you tick **Allow**, Nimbus will turn the entity below on and off to run {name} at the times its plan chooses, within the windows, limits and comfort settings you set for it. It is recorded with who allowed it and when. Untick to stop: Nimbus stops commanding it at once.",
+        "data": {
+          "entity_id": "The entity Nimbus switches",
+          "authorise": "Allow Nimbus to control it"
+        }
+      },
+      "device_setup_no_control": {
+        "title": "Control",
+        "description": "There is no controllable load in the device setup. Add one with **+ Add → Controllable Load** on the Nimbus hub."
       }
     },
     "error": {
       "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
-      "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up."
+      "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up.",
+      "mode_refused": "That mode change was refused: run the dry run and check every power sensor's unit, then try again.",
+      "choice_refused": "One of the ticked changes is no longer offered. Open the review again.",
+      "binding_refused": "One of the ticked sources can't be read with its unit. Untick it and try again.",
+      "revision_conflict": "The device setup changed while you were reviewing. Open the review again.",
+      "nothing_to_confirm": "Nothing to save.",
+      "confirm_refused": "The changes could not be saved.",
+      "unknown_device": "That device is no longer in the device setup. Open Edit a source again.",
+      "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run).",
+      "control_entity_needed": "Choose the entity Nimbus switches before allowing control."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."
@@ -535,6 +622,13 @@
       "options": {
         "usable": "usable capacity",
         "nominal": "nominal (nameplate) capacity"
+      }
+    },
+    "device_setup_mode": {
+      "options": {
+        "legacy": "legacy",
+        "shadow": "shadow",
+        "active": "active"
       }
     }
   },

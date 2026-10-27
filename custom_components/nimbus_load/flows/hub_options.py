@@ -73,6 +73,9 @@ from ..const import (
     CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_HYBRID_RECENT_DAYS,
+    CONF_OCCUPANCY_DEPARTURE,
+    CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
@@ -135,6 +138,7 @@ from ..energy_prefs import energy_sources
 from ..power_input_check import energy_unit_field_errors
 from ..price_input_check import PRICE_FIELDS, frozen_price_field_errors
 from . import live_numbers
+from .device_setup import DeviceSetupSteps
 
 # nimbus #1661: the two price fields the Grid step shows outside "Advanced".
 # Household, 20 Oct 2026: every price source stays in view on the Grid
@@ -220,6 +224,33 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_HUMIDITY_SENSOR,
                 description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # nimbus #1847: home / away. Any entity whose state says it:
+            # a person or zone, a group of people, a presence binary_sensor
+            # or input_boolean. The two datetimes are the trip ahead.
+            vol.Optional(
+                CONF_OCCUPANCY_ENTITY,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["person", "zone", "group", "binary_sensor", "input_boolean"]
+                )
+            ),
+            vol.Optional(
+                CONF_OCCUPANCY_DEPARTURE,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_DEPARTURE)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["input_datetime", "datetime", "sensor"]
+                )
+            ),
+            vol.Optional(
+                CONF_OCCUPANCY_RETURN,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_RETURN)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["input_datetime", "datetime", "sensor"]
+                )
+            ),
             # Optional -- HAEO's own solar-curtailment status entity
             # (switch.solar_curtailment on the real system this was built
             # against). Domain is deliberately "switch", not "sensor" --
@@ -1393,7 +1424,7 @@ def _effective_schema_keys(schema: vol.Schema) -> list[str]:
     return keys
 
 
-class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
+class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
     """Edit the settings shared by every load, reached via the hub's own
     "Configure" button (not the per-load "+ Add"/edit).
 
@@ -1485,11 +1516,17 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     "solver_battery",
                     "switchboard",
                     "pricing_suggestions",
+                    "device_setup",
                 ],
             )
         return self.async_show_menu(
             step_id="init",
-            menu_options=["forecaster", "solver_battery", "switchboard"],
+            menu_options=[
+                "forecaster",
+                "solver_battery",
+                "switchboard",
+                "device_setup",
+            ],
         )
 
     async def async_step_pricing_suggestions(
