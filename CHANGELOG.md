@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Each controllable load says what its plan adds up to** (#2128). The load's state sensor gains `plan_summary`: energy (kWh), cost, runtime (hours) and average price, for the next 24 hours and for the whole plan, from the plan's own per-period power and cost. Without a cost plan, the cost and price read unknown, never zero.
 - **Device readiness marks a score whose site exchange doesn't reconcile** (DC-006 slice 5, DC-R10, #1574). `sensor.nimbus_device_readiness` now reads the latest scored day's meter reconciliation (the quality report's `meter_reconciliation`): when the grid meter disagrees with what the plan's flows add up to, or covers too little of the day, *score* says so with `site_exchange_disagrees` or `site_exchange_coverage_too_sparse`; when it agrees, the score is reliable instead of "not checked". The score itself is never corrected (DC-006 decision 7).
 - **Price consolidation's own accuracy is recorded** (#1786). The price error history in the plan's `price_consolidation` attribute now scores the consolidated forecast beside each source, by lead time, so it shows directly whether consolidation beats the primary price source alone before anyone turns it on. Recording only: nothing reads it, and the plan is unchanged.
 ## [0.94.493] - 2026-10-27

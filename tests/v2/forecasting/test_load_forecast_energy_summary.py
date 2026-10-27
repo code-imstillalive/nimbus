@@ -34,3 +34,31 @@ def test_a_missing_value_is_skipped_not_zero():
     # test_no_points_no_summary
     assert fs.energy_summary([], NOW) == {}
     assert fs.energy_summary([{"time": "not a time", "value": 1}], NOW) == {}
+
+    # test_a_load_plan_sums_energy_cost_runtime_and_average_price
+    # #2128: a controllable load's plan over the next 24 h and the whole plan.
+    # 2 kW for two half-hours costing 0.30 and 0.10, then off.
+    s = fs.plan_summary(_fc([2.0, 2.0, 0.0, 0.0]), _fc([0.30, 0.10, 0.0, 0.0]), NOW)
+    for key in ("next_24h", "plan"):
+        assert s[key] == {
+            "energy_kwh": 2.0,
+            "cost": 0.4,
+            "runtime_hours": 1.0,
+            "average_price": 0.2,
+        }
+    # A window edge inside a period takes the part of its cost inside it:
+    # 12-hour periods at 2 kW costing 1.00 each, seen 6 hours in.
+    day = fs.plan_summary(
+        _fc([2.0] * 4, minutes=720),
+        _fc([1.0] * 4, minutes=720),
+        NOW + timedelta(hours=6),
+    )
+    assert day["next_24h"]["cost"] == pytest.approx(2.0)
+    assert day["next_24h"]["energy_kwh"] == pytest.approx(48.0)
+    assert day["plan"]["cost"] == pytest.approx(3.5)
+    assert day["plan"]["runtime_hours"] == pytest.approx(42.0)
+    # Without a cost plan the energy and runtime stand and the prices are
+    # unknown, never zero; without a power plan there is nothing.
+    unpriced = fs.plan_summary(_fc([2.0, 2.0]), [], NOW)["plan"]
+    assert (unpriced["cost"], unpriced["average_price"]) == (None, None)
+    assert fs.plan_summary([], _fc([1.0]), NOW) == {}
