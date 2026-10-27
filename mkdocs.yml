@@ -57,6 +57,7 @@ nav:
       - Amber: providers/amber.md
       - AEMO / NEM regional forecasts: providers/aemo-nem.md
       - Any other price sensor: providers/generic.md
+      - What device setup can find: providers/support-matrix.md
   - Using Nimbus:
       - Dashboard tabs: tabs.md
       - Every setting: configuration-reference.md
