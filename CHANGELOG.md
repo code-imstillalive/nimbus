@@ -21,6 +21,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - Internal: the device contract can read any price sensor's forecast (`generic_price_forecast`, DC-006 slice 4's first step, #1574), as the Solver reads it today. Nothing reads through it yet, so nothing changes.
 - **New: home / away for the load forecast** (#1847, requested by TD944). Three optional settings on the shared Forecaster form: an entity that says whether anyone is home (a person, a zone, a group of people, or a presence binary_sensor or input_boolean), and a planned departure and return. While away, each load's forecast is the house's own base load at that time of day (the 20th percentile of each 15-minute slot over 14 days), then its own away pattern once it has seen 3 away days. Away periods are left out of training, so the home forecast isn't flattened by them. A load keeps this only where it forecasts its latest away day better than without it. Each load's `occupancy` attribute says what was used and whether it was kept. Without the setting nothing changes.
 - **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
+
 ## [0.94.492] - 2026-10-27
 
 **Midday: the battery holds a solar charge instead of flipping between charge and idle every few minutes.**
