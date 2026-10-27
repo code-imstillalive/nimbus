@@ -1703,6 +1703,12 @@ SETTINGS: dict[str, tuple[str, str]] = {
 #: (section title, path into strings.json) in the order a household meets them.
 WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     (
+        "Add Nimbus → Here is what Nimbus found (one device per screen)",
+        ("config", "step", "device"),
+    ),
+    ("Add Nimbus → One question about a device", ("config", "step", "question")),
+    ("Add Nimbus → The battery's capacity", ("config", "step", "capacity")),
+    (
         "Configure → Solver settings → screen 1 of 3",
         ("options", "step", "solver_battery"),
     ),
