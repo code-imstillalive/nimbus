@@ -716,6 +716,16 @@ def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
         and n.func.value.id == "h"
     ]
     assert bare == []
+    # Mark Purcell, #2096 review: `h.minimize` is the one solve not made
+    # through `_run`, so its deadline bound is checked here: the statement
+    # right before it must be `_bound_by_wall_deadline(h)`.
+    assert _unbounded_minimizes(tree) == []
+    unbounded = ast.parse("def f(h, e):\n    h.minimize(e)\n")
+    assert _unbounded_minimizes(unbounded) == ["h.minimize() at line 2"]
+    bounded = ast.parse(
+        "def f(h, e):\n    _bound_by_wall_deadline(h)\n    h.minimize(e)\n"
+    )
+    assert _unbounded_minimizes(bounded) == []
     timed = ast.parse(
         "def f(h):\n    with _timed_lp_call(h, 'x'):\n        h.minimize()\n"
     )
@@ -747,6 +757,37 @@ def test_an_unreadable_info_struct_never_fails_the_call(monkeypatch):
 
 def _lp_tree():
     return ast.parse(pathlib.Path(lp.__file__).read_text(encoding="utf-8"))
+
+
+def _is_call(stmt, *, name=None, attr=None) -> bool:
+    """`stmt` is a bare call to `name(...)`, or to `h.<attr>(...)`."""
+    if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+        return False
+    func = stmt.value.func
+    if name is not None:
+        return isinstance(func, ast.Name) and func.id == name
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == attr
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "h"
+    )
+
+
+def _unbounded_minimizes(tree) -> list[str]:
+    """Each `h.minimize(...)` whose previous statement is not
+    `_bound_by_wall_deadline(h)` (#2096)."""
+    found = []
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list):
+            continue
+        for i, stmt in enumerate(body):
+            if _is_call(stmt, attr="minimize") and not (
+                i > 0 and _is_call(body[i - 1], name="_bound_by_wall_deadline")
+            ):
+                found.append(f"h.minimize() at line {stmt.lineno}")
+    return found
 
 
 def _untimed_solves(tree) -> list[str]:
