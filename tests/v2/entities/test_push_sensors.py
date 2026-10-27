@@ -158,6 +158,19 @@ def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
             == 1
         )
 
+    # test_the_flex_record_goes_stale_only_when_an_interval_is_missed
+    # #2123 (Mark Purcell): the record comes once per 5-minute interval, so a
+    # late solve leaves 6 minutes between pushes; that is not stale, a whole
+    # missed interval is.
+    sensor, _ = _make("NimbusFlexTelemetrySensor")
+    sensor.update_from_solver("2026-10-28T03:00:00Z", {"record": {}})
+    clock.now += 6 * 60
+    sensor._async_recheck_availability(None)
+    assert sensor.available
+    clock.now += 6 * 60
+    sensor._async_recheck_availability(None)
+    assert not sensor.available
+
     # test_only_the_daily_reports_restore_their_last_value_after_a_restart
     with monkeypatch.context() as mp:
         for name in sorted(PUSH):
