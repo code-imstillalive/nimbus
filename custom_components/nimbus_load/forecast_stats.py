@@ -21,6 +21,11 @@ from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+try:
+    from .load_run_state import DEFAULT_ON_THRESHOLD_KW
+except ImportError:  # pragma: no cover - loaded as a top-level module in tests
+    from load_run_state import DEFAULT_ON_THRESHOLD_KW  # type: ignore[no-redef]
+
 ATTR_ENERGY_NEXT_24H_KWH = "energy_next_24h_kwh"
 ATTR_ENERGY_FORECAST_KWH = "energy_forecast_kwh"
 ATTR_PEAK_NEXT_24H_KW = "peak_next_24h_kw"
@@ -89,8 +94,9 @@ def energy_summary(
     }
 
 
-#: A controllable load counts as running above this, kW.
-RUNNING_KW = 0.01
+#: A controllable load counts as running above this, kW: the same level
+#: load_run_state uses for "running now" (Mark Purcell's review of #2128).
+RUNNING_KW = DEFAULT_ON_THRESHOLD_KW
 
 
 def plan_summary(
