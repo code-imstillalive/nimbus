@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The plan is published before the offer curve is swept** (#2121). On an install whose plan holds direction binaries (an EV on a shared charger, semi-continuous loads), #2054's exact check made the sweep about three times longer, and dispatch waited for it. The sweep now runs after the plan and its dispatch are published, from the same solve, so it gives the same curve. The time the stochastic check's drive budget is judged on (#2058) is now the plan's own time, without the curve's.
 - **Price consolidation's own accuracy is recorded** (#1786). The price error history in the plan's `price_consolidation` attribute now scores the consolidated forecast beside each source, by lead time, so it shows directly whether consolidation beats the primary price source alone before anyone turns it on. Recording only: nothing reads it, and the plan is unchanged.
 ## [0.94.493] - 2026-10-27
 
