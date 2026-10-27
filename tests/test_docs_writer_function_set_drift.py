@@ -274,6 +274,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "_sells_below_floor_instead",
         # nimbus #2066: the hysteresis's grid-charge check, same reason.
         "_charges_from_grid_instead",
+        "_surplus_charge_pin",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",

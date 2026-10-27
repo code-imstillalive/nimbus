@@ -982,6 +982,47 @@ def _charges_from_grid_instead(plan, pinned) -> bool:
     return pinned_kw < -DISPATCH_DEADBAND_KW and extra > DISPATCH_DEADBAND_KW
 
 
+def _surplus_charge_pin(plan, pinned, prev_kw, resolve_pinned, margin):
+    """The previous charge, cut to what it can take without importing more
+    in period 0 than the free `plan`, kept when it is still a charge and
+    within `margin`. None otherwise. Never raises.
+
+    The previous charge's kW was planned against an earlier solar reading.
+    Kept whole, it buys the difference from the grid, so `grid_charge`
+    refuses it; released, the free plan goes idle with the surplus exported
+    below the floor, and the next solve's `export_floor` refuses holding
+    idle. At midday the two alternated charge and idle every few minutes,
+    each switch worth under a cent. A charge the surplus can carry stops
+    that without buying anything the free plan would not buy."""
+    try:
+        extra = float(pinned.grid_import_kw[0]) - float(plan.grid_import_kw[0])
+        cut_kw = min(0.0, float(prev_kw) + extra)
+        if _deadband_class(cut_kw) != -1:
+            return None
+        cut = resolve_pinned(cut_kw)
+        if (
+            getattr(cut, "status", None) != "optimal"
+            or cut.total_cost is None
+            or plan.total_cost is None
+            or _charges_from_grid_instead(plan, cut)
+        ):
+            return None
+        delta = float(cut.total_cost) - float(plan.total_cost)
+    except Exception:  # noqa: BLE001 - a stability aid must not fail a solve
+        solver_shared._LOGGER.debug(
+            "Nimbus #1654 period0 hysteresis: surplus charge re-solve failed",
+            exc_info=True,
+        )
+        return None
+    if delta > margin:
+        return None
+    return dataclasses.replace(
+        cut,
+        period0_hysteresis="kept_from_surplus",
+        period0_hysteresis_delta=round(delta, 4),
+    )
+
+
 def period0_direction_hysteresis(
     plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None, export_floor=0.0
 ):
@@ -1021,7 +1062,9 @@ def period0_direction_hysteresis(
     0.2 kW solar charge, kept for $0.0002, became a 0.17 kW charge from the
     grid at 15.1 c while the forecast sun two hours ahead cost 6.5 c. A
     pin exists to stop the inverter chattering, not to buy energy the free
-    plan would not buy. Published as `grid_charge`.
+    plan would not buy. Published as `grid_charge`, unless the charge cut
+    to what the period-0 surplus carries is still a charge within the
+    margin: that is kept, as `kept_from_surplus`.
     """
     if margin <= 0:
         return dataclasses.replace(plan, period0_hysteresis="off")
@@ -1069,6 +1112,9 @@ def period0_direction_hysteresis(
             period0_hysteresis_delta=round(delta, 4),
         )
     if _charges_from_grid_instead(plan, pinned):
+        kept = _surplus_charge_pin(plan, pinned, prev_kw, resolve_pinned, margin)
+        if kept is not None:
+            return kept
         return dataclasses.replace(
             plan,
             period0_hysteresis="grid_charge",

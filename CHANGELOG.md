@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Midday: the battery no longer flips between charge and idle every few minutes** (#1654, #2066). Two of the period-0 hysteresis's exemptions could undo each other. Holding idle was refused when it sold solar below the export floor, and holding the previous charge was refused when its kW, planned against an earlier solar reading, would import from the grid. So on a sunny day, with the plan close to indifferent about when to charge, period 0 alternated on each solve. A refused charge is now cut to what the solar surplus carries and kept when it is still a charge and within the hysteresis margin, published as `kept_from_surplus`. It buys nothing the free plan would not. When the surplus carries no charge (cloud at dawn, #2066), the pin is released as before.
 - **Device setup: a configured solar forecast is read in any of the three shapes** (DC-006 slice 3, part 1, #1574). Through the device contract, a configured solar forecast sensor is read in whichever shape it publishes: Nimbus's `forecast`, Solcast's `detailedForecast` or Open-Meteo's `watts`, as the Solver already reads it. The member says which shape read it. The Solver's own reading is unchanged.
 
 ## [0.94.491] - 2026-10-26
