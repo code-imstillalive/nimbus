@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - Internal: device discovery can run without a Nimbus entry (`device_contract_ha.async_propose`), the first step of the new-install setup (DC-007 slice 1, #1574). No behaviour change.
+- **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
 ## [0.94.492] - 2026-10-27
 
 **Midday: the battery holds a solar charge instead of flipping between charge and idle every few minutes.**

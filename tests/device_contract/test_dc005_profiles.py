@@ -165,3 +165,22 @@ def test_the_proposed_adapters_are_ones_dc002_resolves():
         == "reg_sell"
     )
     assert base.document == before
+
+    # test_every_profile_has_a_support_matrix_row
+    # DC-008 (#1574): the support matrix in the user docs matches the profiles
+    # in code. A profile, or a reported-only provider, without a row fails.
+    import re as _re
+
+    matrix = (
+        Path(__file__).resolve().parents[2] / "docs" / "providers" / "support-matrix.md"
+    ).read_text(encoding="utf-8")
+    rows = dict(
+        _re.findall(
+            r"^\| [^|]+\| `([a-z0-9_]+)` \| ([a-z ]+?) \|", matrix, _re.MULTILINE
+        )
+    )
+    assert set(dd.PROFILES) | set(dd.REPORTED_ONLY) == set(rows)
+    for profile in dd.PROFILES:
+        assert rows[profile] in ("supported", "proposed"), profile
+    for provider in dd.REPORTED_ONLY:
+        assert rows[provider] == "reported only", provider
