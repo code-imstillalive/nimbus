@@ -21,7 +21,7 @@ import logging
 import math
 import pickle
 from bisect import bisect_right
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
@@ -50,6 +50,9 @@ from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_HYBRID_RECENT_DAYS,
     CONF_LOAD_SENSOR,
+    CONF_OCCUPANCY_DEPARTURE,
+    CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_RUN_HOLD_HOURS,
     CONF_RUN_HOLD_LEARNED_WHEN_OFF,
@@ -91,6 +94,7 @@ from .const import (
     TRAINING_SOURCE_RECORDER,
     UPDATE_INTERVAL_MINUTES,
 )
+from .ml import occupancy as occupancy_model
 from .ml.features import FEATURE_NAMES
 from .ml.model import (
     MAX_RESIDUALS_STORED,
@@ -101,6 +105,7 @@ from .ml.model import (
     calibration_half_width,
     deterministic_values,
     predict,
+    resample_last_value,
     train_model,
 )
 from .power_input_check import energy_unit_of, is_energy_unit, warn_ignored_once
@@ -253,6 +258,11 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Home Assistant's own downtime inside the current training
         # window, read once per retrain (_async_fetch_recorder_downtime).
         self._retrain_downtime: list[tuple[datetime, datetime]] = []
+        # nimbus #1847: the away profile and whether this load keeps it,
+        # built at each retrain (and once at start-up) when an occupancy
+        # entity is configured. None until then.
+        self._occupancy: dict[str, Any] | None = None
+        self._occupancy_bootstrapping = False
 
         # Confidence-band calibration state (see ml/model.py's own
         # calibrated_band() for the actual math). Deliberately persisted
@@ -399,6 +409,11 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _curtailment_sensor(self) -> str | None:
         return self._feature_or_none(self.entry.options.get(CONF_CURTAILMENT_SENSOR))
+
+    @property
+    def _occupancy_entity(self) -> str | None:
+        """nimbus #1847: the hub's home / away entity, if configured."""
+        return self._feature_or_none(self.entry.options.get(CONF_OCCUPANCY_ENTITY))
 
     # Real measured power sensors only -- never an optimizer's own plan/
     # forecast entity, see this repo's own CLAUDE.md PRIME DIRECTIVE.
@@ -822,6 +837,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 end,
                 convert_power=self._convert_power_for_target,
             )
+            # nimbus #1847: with occupancy, the away periods are left out of
+            # training (so the home pattern isn't flattened by them) when
+            # this load keeps the away profile.
+            spans = await self._async_refresh_occupancy(load_events, start, end)
+            if spans and self._occupancy is not None and self._occupancy["kept"]:
+                load_events = occupancy_model.mask_away(load_events, spans)
             # Real bug found live (2026-08-31): all six of the calls below used
             # to read `_async_fetch_history`, a name that stopped existing the
             # moment #257/#259 (2026-08-28) renamed it to
@@ -983,6 +1004,151 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._last_retrain_error = f"{type(e).__name__}: {e}"
         finally:
             self._retraining = False
+
+    # -- occupancy (nimbus #1847) --------------------------------------------
+
+    async def _async_fetch_occupancy_history(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> list[tuple[datetime, float]]:
+        """The occupancy entity's history as (local time, 1.0 home / 0.0 away
+        / NaN unknown), from the recorder."""
+
+        def _fetch() -> list[tuple[datetime, float]]:
+            states = get_significant_states(
+                self.hass,
+                start,
+                end,
+                [entity_id],
+                minimal_response=False,
+                significant_changes_only=False,
+            ).get(entity_id, [])
+            return [
+                (dt_util.as_local(s.last_changed), occupancy_value(s.state))
+                for s in states
+            ]
+
+        return await get_instance(self.hass).async_add_executor_job(_fetch)
+
+    async def _async_refresh_occupancy(
+        self,
+        load_events: list[tuple[datetime, float]],
+        start: datetime,
+        end: datetime,
+    ) -> list[tuple[datetime, datetime]]:
+        """Build the away profile and decide whether this load keeps it.
+        Returns the away spans in the history (empty without occupancy)."""
+        entity_id = self._occupancy_entity
+        if entity_id is None:
+            self._occupancy = None
+            return []
+        events = await self._async_fetch_occupancy_history(entity_id, start, end)
+        start_l, end_l = dt_util.as_local(start), dt_util.as_local(end)
+        t = start_l.replace(
+            minute=(start_l.minute // RESAMPLE_MINUTES) * RESAMPLE_MINUTES,
+            second=0,
+            microsecond=0,
+        ) + timedelta(minutes=RESAMPLE_MINUTES)
+        grid: list[datetime] = []
+        while t < end_l:
+            grid.append(t)
+            t += timedelta(minutes=RESAMPLE_MINUTES)
+        values = resample_last_value(
+            load_events, grid, max_staleness=timedelta(minutes=3 * RESAMPLE_MINUTES)
+        )
+        profile = occupancy_model.build_profile(
+            grid, values, events, now=end_l, slot_minutes=RESAMPLE_MINUTES
+        )
+        kept, test = occupancy_model.holds_up(
+            grid, values, events, slot_minutes=RESAMPLE_MINUTES
+        )
+        self._occupancy = {
+            "entity_id": entity_id,
+            "events": events,
+            "profile": profile,
+            "kept": bool(kept and profile is not None),
+            "test": test,
+        }
+        return occupancy_model.away_periods(events, end_l)
+
+    async def _async_occupancy_bootstrap(self) -> None:
+        """A model loaded from disk at start-up has no away profile until the
+        next retrain; build it once from the same history."""
+        try:
+            end = dt_util.utcnow()
+            start = end - timedelta(days=self._train_days)
+            load_events = await self._async_fetch_training_history(
+                self._load_sensor,
+                start,
+                end,
+                convert_power=self._convert_power_for_target,
+            )
+            await self._async_refresh_occupancy(load_events, start, end)
+        except Exception:
+            _LOGGER.warning(
+                "Nimbus: occupancy profile for %s could not be built; the "
+                "forecast runs without it until the next retrain",
+                self.subentry.title,
+                exc_info=True,
+            )
+        finally:
+            self._occupancy_bootstrapping = False
+
+    def _datetime_state(self, key: str) -> datetime | None:
+        """The local datetime an input_datetime / datetime / timestamp sensor
+        holds, or None when unset, unknown or unparseable."""
+        entity_id = self.entry.options.get(key)
+        state = self.hass.states.get(entity_id) if entity_id else None
+        if state is None:
+            return None
+        return parse_occupancy_datetime(state.state, state.attributes)
+
+    def _occupancy_adjust(
+        self, timestamps: list[datetime], preds: list[float]
+    ) -> tuple[list[float], np.ndarray]:
+        """`preds` with away times replaced by the away profile, and the away
+        mask. Unchanged (and an all-home mask) without occupancy, before its
+        profile exists, or for a load that doesn't keep it."""
+        home = np.zeros(len(timestamps), dtype=bool)
+        if self._occupancy_entity is not None and self._occupancy is None:
+            if not self._occupancy_bootstrapping:
+                self._occupancy_bootstrapping = True
+                self.hass.async_create_task(self._async_occupancy_bootstrap())
+            return preds, home
+        occ = self._occupancy
+        if occ is None or not occ["kept"] or occ["profile"] is None or not timestamps:
+            return preds, home
+        state = self.hass.states.get(occ["entity_id"])
+        away_now = state is not None and occupancy_value(state.state) == 0.0
+        away = occupancy_model.forward_away(
+            timestamps,
+            away_now=away_now,
+            departure=self._datetime_state(CONF_OCCUPANCY_DEPARTURE),
+            return_at=self._datetime_state(CONF_OCCUPANCY_RETURN),
+        )
+        if not away.any():
+            return preds, away
+        out = occupancy_model.apply(timestamps, preds, away, occ["profile"])
+        return [float(v) for v in out], away
+
+    def _occupancy_summary(
+        self, timestamps: list[datetime], away: np.ndarray
+    ) -> dict[str, Any] | None:
+        """What the forecast did with occupancy, for the load's attributes."""
+        if self._occupancy_entity is None:
+            return None
+        occ = self._occupancy
+        if occ is None:
+            return {"status": "building"}
+        profile = occ["profile"]
+        idx = np.flatnonzero(away)
+        return {
+            "status": "used" if occ["kept"] else "not_kept",
+            "profile": None if profile is None else profile.kind,
+            "away_days_in_history": None if profile is None else profile.away_days,
+            "test": occ["test"],
+            "away_from": timestamps[idx[0]].isoformat() if idx.size else None,
+            "away_until": timestamps[idx[-1]].isoformat() if idx.size else None,
+        }
 
     # -- data access ----------------------------------------------------------
 
@@ -2166,6 +2332,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _predict_now_then_clock, _predict, len(timestamps)
         )
         preds = result.values
+        # nimbus #1847: away times take the away profile.
+        preds, away = self._occupancy_adjust(timestamps, preds)
         has_model_bounds = (
             result.model_lower is not None and result.model_upper is not None
         )
@@ -2199,12 +2367,16 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # isn't enough residual history yet; calibrated_band() falls back
         # to its own cold-start path in that case regardless.
         half_width = (
-            None if has_model_bounds else calibration_half_width(self._residuals)
+            None
+            if has_model_bounds and not away.any()
+            else calibration_half_width(self._residuals)
         )
 
         points = []
         for i, (ts, v) in enumerate(zip(timestamps, preds, strict=True)):
-            if has_model_bounds:
+            # An away time's value is the profile's, not the model's, so its
+            # band is the residual one around it, not the model's quantiles.
+            if has_model_bounds and not away[i]:
                 # Genuine model-derived quantile bounds (GBRT winner, real
                 # validation set to early-stop against) -- preferred over
                 # the residual-based fallback below whenever available,
@@ -2243,6 +2415,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mode": self._mode,
             "forecast_origin": origin,
             "forecast_readiness": readiness,
+            "occupancy": self._occupancy_summary(timestamps, away),
             "trained_at": self._trained.trained_at.isoformat(),
             "training_points": self._trained.training_points,
             # getattr-defensive, same reasoning as mase_scale_points/resample_minutes/
@@ -2324,6 +2497,46 @@ def forecast_provenance(
     if rule_intended:
         return None, FORECAST_INCOMPLETE_RULE
     return None, FORECAST_NOT_TRAINED
+
+
+def occupancy_value(state: str | None) -> float:
+    """nimbus #1847: 1.0 home, 0.0 away, NaN unknown, from an occupancy
+    entity's state. `home` / `on` is home; `not_home`, `off` or another
+    zone's name is away; a zone's count is home above zero."""
+    if state is None or state in ("unavailable", "unknown", ""):
+        return math.nan
+    if state in ("home", "on"):
+        return 1.0
+    if state in ("not_home", "off"):
+        return 0.0
+    try:
+        return 1.0 if float(state) > 0 else 0.0
+    except ValueError:
+        return 0.0  # a person in another zone
+
+
+def parse_occupancy_datetime(
+    state: str | None, attributes: Mapping[str, Any]
+) -> datetime | None:
+    """A departure or return time from an input_datetime (its `timestamp`
+    attribute, or a date-only state at local midnight), a datetime entity or
+    a timestamp sensor (ISO). None when unset or unparseable."""
+    ts = attributes.get("timestamp")
+    if isinstance(ts, (int, float)) and math.isfinite(ts):
+        return dt_util.as_local(dt_util.utc_from_timestamp(float(ts)))
+    if not state or state in ("unavailable", "unknown"):
+        return None
+    parsed = dt_util.parse_datetime(state)
+    if parsed is None:
+        day = dt_util.parse_date(state)
+        if day is None:
+            return None
+        parsed = datetime(
+            day.year, day.month, day.day, tzinfo=dt_util.get_default_time_zone()
+        )
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt_util.get_default_time_zone())
+    return dt_util.as_local(parsed)
 
 
 def _forecast_grid_utc(start: datetime, end: datetime) -> list[datetime]:

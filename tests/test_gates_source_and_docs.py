@@ -957,7 +957,13 @@ EXPECTED_KEY_COUNTS = {
 # from one call inside a loop. That row is the counting trap, kept visible
 # rather than hidden behind a number that looks right.
 EXPECTED_SPLIT = {
-    "_forecaster_schema": (0, 12),
+    # nimbus #1847: 12 -> 15 optional, home / away and the trip's departure
+    # and return. #449's question: departure and return are the household's
+    # own helpers, so there is nothing to discover. Home / away could default
+    # to zone.home (every install has it), but a pre-filled value is saved
+    # by the next submit of this form and would turn the feature on for an
+    # install that never asked for it, so it stays opt-in.
+    "_forecaster_schema": (0, 15),
     "_solver_battery_schema": (1, 1),
     # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
     # are unchanged, which is the property this row exists to watch.

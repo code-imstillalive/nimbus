@@ -26,6 +26,9 @@ filled in.
 | Temperature sensor | Real outdoor/ambient temperature — a model input feature (e.g. "AC load rises with temperature"). |
 | Temperature forecast sensor | A sensor exposing a forward-looking temperature forecast attribute, so predictions for *future* periods use tomorrow's forecast, not just today's reading. |
 | Humidity sensor | Real outdoor/ambient humidity — same role as temperature, for humidity-correlated loads. |
+| Home / away | An entity that says whether anyone is home: a person, a zone (home while it counts anyone), a group of people, or a presence binary_sensor or input_boolean. While away, each load's forecast is the house's own base load at that time of day, then its own away pattern once it has seen 3 away days; away periods are left out of training. A load keeps this only where it forecasts its latest away day better than without it. Its `occupancy` attribute says what was used. |
+| Planned departure | When the next trip starts (an input_datetime, a datetime or a timestamp sensor). The forecast is the away one from then on. |
+| Planned return | When you are back. Away until then and home from then, so the forecast climbs before you arrive. Set it on its own while already away. |
 | Curtailment switch | A switch/binary_sensor that's ON when your inverter is actively curtailing solar. Only relevant for a load run specifically to soak up otherwise-wasted solar (e.g. a pool heater). |
 | Battery power sensor | A real, measured battery power sensor (shared "Power Signal" role) — never an optimizer's own plan/forecast entity. |
 | Grid power sensor | Real, measured grid import/export power — same caution as above. |
