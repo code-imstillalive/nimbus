@@ -5367,12 +5367,12 @@ def _build_plan_once(
     # `offer_curve_deferred`, which `complete_offer_curve()` runs once the
     # plan is published. Nothing read below is reassigned after this point,
     # so the later run sweeps exactly what this one would.
-    curve: dict[str, Any] = dict.fromkeys(_OFFER_CURVE_FIELDS)
+    offer_curve: dict[str, Any] = dict.fromkeys(_OFFER_CURVE_FIELDS)
     offer_curve_deferred = None
     if compute_offer_curve == "deferred":
         offer_curve_deferred = _offer_curves
     elif compute_offer_curve:
-        curve = _offer_curves()
+        offer_curve = _offer_curves()
 
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
@@ -5453,7 +5453,7 @@ def _build_plan_once(
         grid_signals=grid_signals,
         battery_signals=plan_battery_signals,
         load_signals=plan_load_signals,
-        **curve,
+        **offer_curve,
         offer_curve_deferred=offer_curve_deferred,
         departure_target_shortfall_kwh=departure_target_shortfall_kwh,
     )
