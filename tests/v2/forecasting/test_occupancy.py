@@ -76,7 +76,8 @@ def test_the_forward_window_follows_departure_and_return():
 
 
 def _history(days, away_days=()):
-    """1 kW base, plus 2 kW from 07:00 to 22:00 on home days."""
+    """1 kW base, plus a daytime load (07:00-22:00) on home days that varies
+    from day to day, as a real one does: 0.5, 1, 2 or 3 kW."""
     times = _grid(days)
     events = []
     for d in range(days):
@@ -86,7 +87,8 @@ def _history(days, away_days=()):
     for t in times:
         d = (t - T0).days
         home = d not in away_days
-        values.append(1.0 + (2.0 if home and 7 <= t.hour < 22 else 0.0))
+        extra = (0.5, 1.0, 2.0, 3.0)[d % 4] if home and 7 <= t.hour < 22 else 0.0
+        values.append(1.0 + extra)
     return times, values, events
 
 
@@ -100,10 +102,11 @@ def test_with_little_away_history_the_profile_is_the_base_load():
         slot_minutes=SLOT,
     )
     assert p.kind == "base_load" and p.away_days == 1
-    # The 20th percentile of each slot over the last 14 days: evenings are
-    # mostly home days (3 kW), so the base there is still 3 kW; the low
-    # quantile only reaches the 1 kW floor where it is the floor.
+    # The 20th percentile of each slot over the last 14 days: the night's
+    # 1 kW floor, and by day the low end of the home days, below their mean.
     assert p.at(T0 + timedelta(hours=3)) == 1.0
+    day = [v for t, v in zip(times, values, strict=True) if t.hour == 12]
+    assert p.at(T0 + timedelta(hours=12)) < float(np.mean(day))
     assert len(p.kw) == 24 * 60 // SLOT
 
 
@@ -117,7 +120,7 @@ def test_with_enough_away_days_the_profile_is_the_learned_away_mean():
         slot_minutes=SLOT,
     )
     assert p.kind == "learned_away" and p.away_days == 4
-    # Away days never had the 2 kW daytime load.
+    # Away days never had the daytime load.
     assert p.at(T0 + timedelta(hours=12)) == 1.0
     assert p.at(T0 + timedelta(hours=3)) == 1.0
 
@@ -132,3 +135,26 @@ def test_applying_the_profile_replaces_only_the_away_times():
     )
     assert list(out) == [3.0, 0.5, 0.5, 3.0]
     assert occ.build_profile([], [], [], now=T0, slot_minutes=SLOT) is None
+
+
+def test_the_profile_is_kept_only_where_it_beats_no_occupancy():
+    # A house that drops to its base load away: the profile wins.
+    times, values, events = _history(16, away_days=(15,))
+    kept, record = occ.holds_up(times, values, events, slot_minutes=SLOT)
+    assert kept and record["tested_on"] == (T0 + timedelta(days=15)).date().isoformat()
+    assert record["mae_with"] < record["mae_without"]
+
+    # A load away doesn't change: 1 kW and 3 kW on alternate days, away on a
+    # 3 kW day. The 14-day mean (2 kW) is nearer than the low base (1 kW).
+    times = _grid(16)
+    values = [3.0 if (t - T0).days % 2 else 1.0 for t in times]
+    events = [(T0, 1.0), (T0 + timedelta(days=15), 0.0)]
+    kept, record = occ.holds_up(times, values, events, slot_minutes=SLOT)
+    assert not kept and record["mae_with"] > record["mae_without"]
+
+    # No complete away day yet: nothing to test, so it is kept.
+    times, values, events = _history(5)
+    assert occ.holds_up(times, values, events, slot_minutes=SLOT) == (
+        True,
+        {"tested_on": None, "mae_with": None, "mae_without": None},
+    )

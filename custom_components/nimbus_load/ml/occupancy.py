@@ -143,7 +143,7 @@ def forward_away(
 
 
 def _slot_values(
-    times: Sequence[datetime], values: Sequence[float], slot_minutes: int
+    times: Sequence[datetime], values: Sequence[float | None], slot_minutes: int
 ) -> list[list[float]]:
     n = (24 * 60) // slot_minutes
     by_slot: list[list[float]] = [[] for _ in range(n)]
@@ -199,6 +199,71 @@ def build_profile(
         kw=tuple(fallback if v is None else max(0.0, v) for v in filled),
         away_days=len(away_days),
     )
+
+
+def holds_up(
+    times: Sequence[datetime],
+    values: Sequence[float | None],
+    occupancy_events: Sequence[tuple[datetime, float]],
+    *,
+    slot_minutes: int,
+) -> tuple[bool, dict[str, float | str | None]]:
+    """Whether the away profile beats no occupancy on this load's own history.
+
+    The test #1847 measured with: on the most recent complete away day, the
+    profile built from the days before it, against the mean of each slot
+    over the `BASE_DAYS` before it (no occupancy), both scored by mean
+    absolute error against what the load really did. With no away day yet
+    there is nothing to test, so it is kept: the base-load rule needs no
+    away history and measured better from the first day.
+    """
+    slots_per_day = 24 * 60 // slot_minutes
+    days: dict = {}
+    for t, v in zip(times, values, strict=True):
+        days.setdefault(t.date(), []).append((t, v))
+    away = [
+        d
+        for d, rows in sorted(days.items())
+        if len(rows) == slots_per_day
+        and sum(away_at(occupancy_events, t) for t, _ in rows)
+        >= AWAY_DAY_SHARE * slots_per_day
+    ]
+    if not away:
+        return True, {"tested_on": None, "mae_with": None, "mae_without": None}
+    day = away[-1]
+    rows = days[day]
+    day_start = rows[0][0]
+    before = [(t, v) for t, v in zip(times, values, strict=True) if t < day_start]
+    if not before:
+        return True, {"tested_on": None, "mae_with": None, "mae_without": None}
+    profile = build_profile(
+        [r[0] for r in before],
+        [r[1] for r in before],
+        occupancy_events,
+        now=day_start,
+        slot_minutes=slot_minutes,
+    )
+    since = day_start - timedelta(days=BASE_DAYS)
+    recent = [(t, v) for t, v in before if t >= since]
+    by_slot = _slot_values([r[0] for r in recent], [r[1] for r in recent], slot_minutes)
+    errs_with, errs_without = [], []
+    for t, v in rows:
+        if v is None or not np.isfinite(v) or profile is None:
+            continue
+        slot = (t.hour * 60 + t.minute) // slot_minutes
+        if not by_slot[slot]:
+            continue
+        errs_with.append(abs(profile.at(t) - v))
+        errs_without.append(abs(float(np.mean(by_slot[slot])) - v))
+    if not errs_with:
+        return True, {"tested_on": None, "mae_with": None, "mae_without": None}
+    mae_with = float(np.mean(errs_with))
+    mae_without = float(np.mean(errs_without))
+    return mae_with <= mae_without, {
+        "tested_on": day.isoformat(),
+        "mae_with": round(mae_with, 4),
+        "mae_without": round(mae_without, 4),
+    }
 
 
 def apply(
