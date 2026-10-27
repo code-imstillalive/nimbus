@@ -938,6 +938,86 @@ async def async_state(hass: Any, entry: Any) -> dict[str, Any]:
     return await _store(hass, entry).async_read()
 
 
+async def async_set_control(
+    hass: Any,
+    entry: Any,
+    revision: int,
+    device_id: str,
+    entity_id: str | None,
+    authorised: bool,
+    user_id: str | None = None,
+) -> dict[str, Any]:
+    """DC-007 control authorisation: authorise Nimbus to command one device's
+    control entity, or revoke it, recorded in the document with who and
+    when. `shadow` or `active` only; a commit like any other, so in `active`
+    the controllable load's settings follow (a revoke clears its entity).
+
+    Only a controllable load (`controllable`) can be authorised. Nothing here commands the device (DC-R15): it records
+    consent; the controllable load acts on it as it does today."""
+    async with _lock(hass, entry.entry_id):
+        state = await _store(hass, entry).async_read()
+        if state["mode"] == "legacy" or state["document"] is None:
+            return {"ok": False, "code": "choose_shadow_first", "mode": state["mode"]}
+        if state["revision"] != revision:
+            return {
+                "ok": False,
+                "code": "revision_conflict",
+                "revision": state["revision"],
+            }
+        document = copy.deepcopy(state["document"])
+        device = next(
+            (d for d in document.get("devices") or () if d.get("id") == device_id),
+            None,
+        )
+        if device is None or not controllable(device):
+            return {"ok": False, "code": "unknown_device"}
+        control = dict(device.get("control") or {})
+        if authorised:
+            if not entity_id:
+                return {"ok": False, "code": "control_entity_needed"}
+            control["entity_id"] = entity_id
+        control["authorised"] = bool(authorised)
+        control["authorised_by" if authorised else "revoked_by"] = user_id
+        control["authorised_at" if authorised else "revoked_at"] = (
+            dt_util.utcnow().isoformat()
+        )
+        device["control"] = control
+        any_authorised = any(
+            (d.get("control") or {}).get("authorised")
+            for d in document.get("devices") or ()
+        )
+        document.setdefault("site", {})["control_policy"] = (
+            "authorised" if any_authorised else "observation_only"
+        )
+        if state["mode"] == "active":
+            return await _async_commit_active(
+                hass, entry, revision, document, "control_authorisation"
+            )
+        committed = await _store(hass, entry).async_commit(
+            revision, document, origin="control_authorisation", now=dt_util.utcnow()
+        )
+        return {
+            "ok": committed.ok,
+            "code": committed.code,
+            "mode": "shadow",
+            "revision": committed.revision,
+        }
+
+
+def controllable(device: dict[str, Any]) -> bool:
+    """A load control can be authorised for (DC-007, control authorisation):
+    one that already has a control entry (a Controllable Load's device
+    entity, imported), or a flexibility mode."""
+    if device.get("kind") != "load":
+        return False
+    if device.get("control"):
+        return True
+    return ((device.get("flexibility") or {}).get("mode") or "none") not in (
+        "none",
+        "",
+    )
+
+
 async def async_set_source(
     hass: Any,
     entry: Any,

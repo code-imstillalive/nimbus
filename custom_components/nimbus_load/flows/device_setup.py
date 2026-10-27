@@ -101,7 +101,12 @@ class DeviceSetupSteps:
         options = (
             ["device_setup_dry_run"]
             if mode == "legacy"
-            else ["device_setup_review", "device_setup_edit", "device_setup_mode"]
+            else [
+                "device_setup_review",
+                "device_setup_edit",
+                "device_setup_control",
+                "device_setup_mode",
+            ]
         )
         return self.async_show_menu(  # type: ignore[attr-defined]
             step_id="device_setup",
@@ -351,6 +356,106 @@ class DeviceSetupSteps:
             errors=errors,
             description_placeholders={"name": str(device.get("name") or device["id"])},
         )
+
+    async def async_step_device_setup_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """Control: which controllable load (DC-007 slice 4)."""
+        from .. import device_contract_ha
+
+        state = await device_contract_ha.async_state(self.hass, self.config_entry)
+        devices = [
+            d
+            for d in (state.get("document") or {}).get("devices") or ()
+            if device_contract_ha.controllable(d)
+        ]
+        if user_input is not None:
+            device = next(d for d in devices if d["id"] == user_input["device"])
+            self._edit = {"revision": state["revision"], "device": device}
+            return await self.async_step_device_setup_control_device()
+        if not devices:
+            return self.async_show_form(  # type: ignore[attr-defined]
+                step_id="device_setup_no_control", data_schema=vol.Schema({})
+            )
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="device_setup_control",
+            data_schema=vol.Schema(
+                {
+                    vol.Required("device"): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                selector.SelectOptionDict(
+                                    value=d["id"],
+                                    label=f"{d.get('name') or d['id']}: "
+                                    + (
+                                        "Nimbus may control it"
+                                        if (d.get("control") or {}).get("authorised")
+                                        else "not controlled"
+                                    ),
+                                )
+                                for d in devices
+                            ]
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_device_setup_control_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """Control: name the entity, say what Nimbus will command, and need an
+        explicit tick. Unticking revokes, at once."""
+        from .. import device_contract_ha
+
+        assert self._edit is not None
+        device = self._edit["device"]
+        control = device.get("control") or {}
+        errors: dict[str, str] = {}
+        if user_input is not None and "authorise" in user_input:
+            result = await device_contract_ha.async_set_control(
+                self.hass,
+                self.config_entry,
+                self._edit["revision"],
+                device["id"],
+                user_input.get("entity_id"),
+                bool(user_input["authorise"]),
+                self.context.get("user_id"),  # type: ignore[attr-defined]
+            )
+            if result.get("ok"):
+                return self._finish()
+            errors["base"] = str(result.get("code") or "confirm_refused")
+        entity: dict[Any, Any] = {}
+        if control.get("entity_id"):
+            entity = {"default": control["entity_id"]}
+        return self.async_show_form(  # type: ignore[attr-defined]
+            step_id="device_setup_control_device",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional("entity_id", **entity): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=[
+                                "switch",
+                                "input_boolean",
+                                "climate",
+                                "water_heater",
+                            ]
+                        )
+                    ),
+                    vol.Required(
+                        "authorise", default=bool(control.get("authorised"))
+                    ): selector.BooleanSelector(),
+                }
+            ),
+            errors=errors,
+            description_placeholders={"name": str(device.get("name") or device["id"])},
+        )
+
+    async def async_step_device_setup_no_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        """No controllable load to authorise."""
+        return self._finish()
 
 
 def _editable_roles(device: dict[str, Any]) -> list[str]:

@@ -664,7 +664,11 @@ def legacy_view(document: dict[str, Any]) -> dict[str, Any]:
             sub["expected_load_kw"] = hours.get("expected_kw")
         control = device.get("control")
         if control:
-            sub["controllable_load_device_entity"] = control.get("entity_id")
+            # DC-007: a revoked authority clears the entity, so the
+            # controllable load stops commanding it at once.
+            sub["controllable_load_device_entity"] = (
+                control.get("entity_id") if control.get("authorised", True) else ""
+            )
     view["subentries"] = {k: v for k, v in view["subentries"].items() if v}
     return view
 

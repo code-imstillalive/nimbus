@@ -195,7 +195,8 @@
           "device_setup_dry_run": "Dry run: what the device setup would build from your settings",
           "device_setup_review": "Review what Nimbus finds",
           "device_setup_mode": "Mode: legacy, shadow or active",
-          "device_setup_edit": "Edit a source (Advanced)"
+          "device_setup_edit": "Edit a source (Advanced)",
+          "device_setup_control": "Control: let Nimbus run a controllable load, or stop it"
         }
       },
       "device_setup_dry_run": {
@@ -238,6 +239,25 @@
           "role": "What it measures (now)",
           "entity_id": "New sensor"
         }
+      },
+      "device_setup_control": {
+        "title": "Control: which load?",
+        "description": "Nimbus never commands anything unless you allow it here, one load at a time. Finishing setup never allows it.",
+        "data": {
+          "device": "Load"
+        }
+      },
+      "device_setup_control_device": {
+        "title": "Control: {name}",
+        "description": "If you tick **Allow**, Nimbus will turn the entity below on and off to run {name} at the times its plan chooses, within the windows, limits and comfort settings you set for it. It is recorded with who allowed it and when. Untick to stop: Nimbus stops commanding it at once.",
+        "data": {
+          "entity_id": "The entity Nimbus switches",
+          "authorise": "Allow Nimbus to control it"
+        }
+      },
+      "device_setup_no_control": {
+        "title": "Control",
+        "description": "There is no controllable load in the device setup. Add one with **+ Add → Controllable Load** on the Nimbus hub."
       }
     },
     "error": {
@@ -250,7 +270,8 @@
       "nothing_to_confirm": "Nothing to save.",
       "confirm_refused": "The changes could not be saved.",
       "unknown_device": "That device is no longer in the device setup. Open Edit a source again.",
-      "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run)."
+      "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run).",
+      "control_entity_needed": "Choose the entity Nimbus switches before allowing control."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."
