@@ -121,3 +121,23 @@ class _Handle:
 
     def modelStatusToString(self, status):
         return "Time limit reached"
+
+
+# Restored (#1837 follow-up): cut 1 removed this on coverage alone; a
+# mutation of the code it checks survives main's suite without it.
+@pytest.mark.parametrize(
+    ("prefer_g1", "phase1", "found", "kept"),
+    [
+        (5.0, "g0", "g1", "g1"),  # what phase 2 found is better: kept
+        (-5.0, "g0", "g1", "g0"),  # phase 1's is better: kept
+        (5.0, "g0", None, "g0"),  # nothing found: phase 1's, as #773 tier 2
+    ],
+)
+def test_the_better_switch_assignment_is_kept(prefer_g1, phase1, found, kept):
+    _solver_lp._lex_calibration_failed_until = 0.0
+    p = _switch_and_tie(prefer_g1)
+    with _budget_spent(), _points(p, phase1, found):
+        r = p.solve(options=LexOptions())
+    assert r.status == "optimal"
+    assert round(p.value_of(r, kept)) == 1
+    assert p.primary_cost_of(r) == pytest.approx(12.0)
