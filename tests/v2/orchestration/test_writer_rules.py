@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import urllib.request
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -282,3 +283,56 @@ def _nowcast(monkeypatch, *, trail, prev, result, n=4, solar=None):
 
 
 # --- flex availability, the P2P step lookup, consolidation's spike rule ----------
+
+
+# Restored (#1837 follow-up): cut 1 removed these on coverage alone; a
+# mutation of the code they check survives main's suite without them.
+def test_the_baseline_is_yesterdays_load_shifted_and_scaled(monkeypatch):
+    trail = [(t, 1.0) for t in _grid(4)]
+    prev = [(t - timedelta(hours=24), 2000.0) for t in _grid(4)]
+    result = SimpleNamespace(
+        j_star=1.23456,
+        j_forecast=2.0,
+        j_persistence=3.0,
+        value_add_dollars=1.0,
+        coverage=1.0,
+        n_periods_measured=4,
+    )
+    out, _, got = _nowcast(monkeypatch, trail=trail, prev=prev, result=result)
+    np.testing.assert_allclose(got["load_persistence_kw"], [2.0] * 4)
+    np.testing.assert_allclose(got["load_nowcast_kw"], [1.0] * 4)
+    assert got["n_periods_measured"] == 4
+    assert out == {
+        "load_nowcast_skill_j_star": 1.2346,
+        "load_nowcast_skill_j_forecast": 2.0,
+        "load_nowcast_skill_j_persistence": 3.0,
+        "load_nowcast_skill_value_add_dollars": 1.0,
+        "load_nowcast_skill_coverage": 1.0,
+        "load_nowcast_skill_periods_measured": 4,
+        "load_nowcast_skill_reason": None,
+    }
+
+
+def test_flex_availability_is_period_zeros_headroom_within_the_grid_limits():
+    sig = SimpleNamespace(
+        available_up_kw=np.array([4.0, 9.0]), available_down_kw=np.array([3.0, 9.0])
+    )
+    plan = SimpleNamespace(
+        battery_signals=[sig, sig],
+        grid_import_kw=np.array([2.0, 0.0]),
+        grid_export_kw=np.array([0.0, 5.0]),
+    )
+    assert (
+        sw._flex_available_physical(plan, 7.0, 10.0)
+        == {
+            "flex_available_up_kw": 5.0,  # 8 kW of batteries, 5 kW left under the import limit
+            "flex_available_down_kw": 6.0,  # 6 kW of batteries, within 12 kW of export room
+        }
+    )
+    none = SimpleNamespace(
+        battery_signals=None, grid_import_kw=np.zeros(1), grid_export_kw=np.zeros(1)
+    )
+    assert sw._flex_available_physical(none, 7.0, 10.0) == {
+        "flex_available_up_kw": 0.0,
+        "flex_available_down_kw": 0.0,
+    }
