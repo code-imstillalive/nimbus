@@ -215,6 +215,22 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.493",
+        "27 Oct 2026",
+        (
+            (
+                "**Home / away:** set who is home (and a trip's departure and "
+                "return) on Configure -> Forecaster settings, and each load's "
+                "forecast falls to your base load while you're away."
+            ),
+            (
+                "**Device setup:** Add Nimbus now shows what it found in your "
+                "Energy Dashboard, and Configure -> Device setup reviews it, "
+                "edits a source, allows or stops control of a load, and sets the mode."
+            ),
+        ),
+    ),
+    (
         "0.94.492",
         "27 Oct 2026",
         (
