@@ -167,7 +167,10 @@ Assistant starts, and when the arm switch changes.
 3. **Which mode?**
    - spare solar to soak up (`absorb_surplus`): **Self-Consume**;
    - plan above the deadband (+0.05 kW): **Discharge** at the plan's kW;
-   - plan below it (−0.05 kW): **Charge** at the plan's kW;
+   - plan below it (−0.05 kW) and charging from solar alone (the solar-charge
+     signal, if you gave it): **Self-Consume**, so the battery charges from the
+     sun there really is and never buys a shortfall from the grid;
+   - plan below it otherwise: **Charge** at the plan's kW;
    - idle with the grid supplying the house (hold signal, and a Hold action
      given): **Hold**;
    - otherwise: **Self-Consume**.
@@ -176,6 +179,14 @@ Assistant starts, and when the arm switch changes.
    Never delayed: a price spike, a switch straight between Charge and Discharge
    of *Reversal* kW (5) or more, or the fallback. The power setpoint within
    the current mode still follows the plan every cycle.
+   Nimbus damps flips on its own side too. Its *Direction Change Margin*
+   (`number.nimbus_solver_period0_hysteresis`, 1 cent by default) keeps the
+   plan's first period charging, holding or discharging unless switching
+   saves more than that. A held charge that would buy from the grid is cut to
+   what the solar surplus carries rather than dropped, so a sunny midday
+   holds a steady charge instead of flipping between charge and idle every
+   few minutes (0.94.492). The plan's `period0_hysteresis` attribute says what
+   it did on each solve (`kept`, `kept_from_surplus`, `switched`, ...).
 5. **Act:** run the mode's action if the mode changed, after a Home Assistant
    start, or when its re-send is due; while charging or discharging, set the
    power (capped at your maximum); run the keep-alive.
