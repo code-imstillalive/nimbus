@@ -1164,6 +1164,8 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "update",
         "_warn_once",
         "_record_price_errors",
+        # #1786: the consolidated forecast scored beside its sources.
+        "_with_consolidated",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

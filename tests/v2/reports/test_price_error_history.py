@@ -142,6 +142,11 @@ def test_lead_bucket_extends_the_trackers_four_with_beyond_24h(
         hist = solver_writer._PRICE_ERROR_HISTORY_CACHE
         pairs = hist.samples["import"]["primary"]["0-5 min"]["normal"]
         assert pairs[0][2:] == [0.3, 0.31]
+        # #1786: the consolidated forecast is scored beside its sources, on
+        # the same intervals, so its error can be read against the primary's.
+        consolidated = hist.samples["import"]["consolidated"]["0-5 min"]["normal"]
+        assert [p[:2] for p in consolidated] == [p[:2] for p in pairs]
+        assert "consolidated" in eh["import"]
         # The #1786 tracker scored the very same intervals.
         tracker = solver_writer._PRICE_CONSOLIDATION_CACHE["import"]
         assert tracker.samples["primary"]["0-5 min"] >= len(pairs)

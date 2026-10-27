@@ -5541,7 +5541,7 @@ def apply_price_consolidation(
             result[f"consolidated_{side}_price"] = values
             scored = scored or side_scored
         result["error_history"] = _record_price_errors(
-            cfg, ctx, series_by_side, settled_import, settled_export
+            cfg, ctx, series_by_side, result, settled_import, settled_export
         )
         if live:
             for side, target, labels in (
@@ -5564,10 +5564,30 @@ def apply_price_consolidation(
         return None
 
 
+def _with_consolidated(
+    series_by_side: dict[str, dict[str, list[float | None]]], result: dict
+) -> dict[str, dict[str, list[float | None]]]:
+    """#1786: each side's sources plus the consolidated forecast, so the
+    shadow history scores it beside them and answers "consolidated or the
+    primary alone?" directly, by lead, before anyone turns it on."""
+    return {
+        side: {
+            **series,
+            **(
+                {"consolidated": result[f"consolidated_{side}_price"]}
+                if result.get(f"consolidated_{side}_price") is not None
+                else {}
+            ),
+        }
+        for side, series in series_by_side.items()
+    }
+
+
 def _record_price_errors(
     cfg: dict,
     ctx: tuple,
     series_by_side: dict[str, dict[str, list[float | None]]],
+    result: dict,
     settled_import: float | None,
     settled_export: float | None,
 ) -> dict:
@@ -5578,7 +5598,7 @@ def _record_price_errors(
         sys.modules[__name__],
         cfg,
         *ctx,
-        series_by_side,
+        _with_consolidated(series_by_side, result),
         {"import": settled_import, "export": settled_export},
     )
 
