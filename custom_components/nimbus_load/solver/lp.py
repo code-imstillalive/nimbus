@@ -1070,7 +1070,7 @@ class LPResult:
             for cost in costs:
                 h.changeColCost(col, cost)
                 with _timed_lp_call(h, "sweep_cost"):
-                    h.run()
+                    _run(h)
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                     msg = (
                         f"sweep_cost({var!r}): re-solve at cost={cost} did not "
@@ -1153,7 +1153,7 @@ class LPResult:
             for name in zero:
                 h.changeColBounds(self._var_index[name], 0.0, 0.0)
             with _timed_lp_call(h, "resolve_variant"):
-                h.run()
+                _run(h)
             if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                 return None
             return (
@@ -1228,7 +1228,7 @@ class LPResult:
                         h.changeColCost(self._var_index[name], cost)
                         current[name] = cost
                 with _timed_lp_call(h, "sweep_cost_with_ranging"):
-                    h.run()
+                    _run(h)
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                     msg = (
                         f"sweep_cost_with_ranging({var!r}): re-solve at costs={cost_map} did "
@@ -1383,6 +1383,13 @@ class LPProblem:
     # #2025: the gap of the time-limited incumbent the last solve kept, read
     # before the pin refresh resets HiGHS's info. None when none was kept.
     accepted_mip_gap: float | None = None
+    # nimbus #2047, part 2: a wall-clock deadline (`time.monotonic()`) for
+    # the whole solve, every HiGHS run in it included: the pinned-LP
+    # refresh after a timed-out incumbent, the IPM retry, the blend
+    # calibration. `time_limit_seconds` bounds each run on its own; this
+    # bounds their sum. None (every caller but the stochastic joint solve)
+    # changes nothing.
+    wall_deadline: float | None = None
 
     @property
     def is_mip(self) -> bool:
@@ -1655,18 +1662,20 @@ class LPProblem:
         is read.
         """
         self.accepted_mip_gap = None
-        if not self.quiet_diagnostics:
-            return _solve_highs(
-                self, ranging=ranging, keep_basis=keep_basis, options=options
-            )
+        previous_deadline = getattr(_WALL_DEADLINE, "at", None)
+        _WALL_DEADLINE.at = self.wall_deadline
         previous = _diagnostics_quiet()
-        _QUIET.on = True
+        if self.quiet_diagnostics:
+            _QUIET.on = True
         try:
             return _solve_highs(
                 self, ranging=ranging, keep_basis=keep_basis, options=options
             )
+        except _WallDeadlineSpent:
+            return LPResult(status="error", raw_status="wall_deadline_spent")
         finally:
             _QUIET.on = previous
+            _WALL_DEADLINE.at = previous_deadline
 
     def value_of(self, result: LPResult, name: str) -> float:
         """Read one named variable's value out of a solved LPResult.
@@ -1853,7 +1862,7 @@ def _ensure_optimal_value(
         n_binary=len(binary_cols) if binary_cols is not None else None,
         budgeted=budgeted,
     ):
-        h.run()
+        _run(h)
     status = h.getModelStatus()
     if budgeted and status == highspy.HighsModelStatus.kTimeLimit:
         # Phase 2 on its own budget: expected, so no dump and no error.
@@ -1982,6 +1991,45 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
 # timed-out MIP incumbent. That refresh is a pure LP at a fixed integer
 # point; measured on the joint stochastic problem it takes well under 1 s.
 PIN_REFRESH_SECONDS: float = 5.0
+
+# nimbus #2047, part 2: LPProblem.wall_deadline for the solve running on
+# this thread, read by `_run()` before every HiGHS run.
+_WALL_DEADLINE = threading.local()
+
+
+class _WallDeadlineSpent(RuntimeError):
+    """The solve's wall-clock deadline passed before a HiGHS run started."""
+
+
+def _bound_by_wall_deadline(h: highspy.Highs) -> None:
+    """Cut `h`'s time limit to what is left of the solve's wall-clock
+    deadline (#2047, part 2), before a run. Without a deadline it does
+    nothing.
+
+    HiGHS counts a MIP run's limit from the run's own start and an LP run's
+    from the handle's total run time (`_Phase2Budget`), so a MIP gets the
+    time left and an LP the run time so far plus the time left. Raises
+    `_WallDeadlineSpent` when none is left."""
+    deadline = getattr(_WALL_DEADLINE, "at", None)
+    if deadline is None:
+        return
+    left = deadline - time.monotonic()
+    if left <= 0.0:
+        raise _WallDeadlineSpent
+    try:
+        _status, raw = h.getOptionValue("time_limit")
+        mip = any(int(v) for v in h.getLp().integrality_)
+        cap = left if mip else h.getRunTime() + left
+        h.setOptionValue("time_limit", min(float(raw), cap))
+    except Exception:  # a bound must never break a solve
+        _LOGGER.debug("Nimbus #2047: wall deadline not applied", exc_info=True)
+
+
+def _run(h: highspy.Highs) -> None:
+    """`h.run()` within the solve's wall-clock deadline (#2047, part 2)."""
+    _bound_by_wall_deadline(h)
+    h.run()
+
 
 # Speed (household, 22 Oct 2026): phase 2 only breaks
 # ties among plans phase 1 already proved equally cheap, yet on a site with
@@ -2379,7 +2427,7 @@ def _calibrate_blend_weight(
         blended = primary_vec + weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
         with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_probe"):
-            h.run()
+            _run(h)
         bl_vals = np.asarray(h.getSolution().col_value)
         # nimbus issue #1179: False -- this branch picks a safe DEFAULT
         # weight (1e-3) because there is no primary cost to distort, which
@@ -2405,7 +2453,7 @@ def _calibrate_blend_weight(
             _lp_tolerance_matching_mip(h),
             _timed_lp_call(h, "primary_acceptable_probe"),
         ):
-            h.run()
+            _run(h)
         if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
             # The probe did not solve. Nothing about the WEIGHT is implicated
             # -- the model was already failing at this point.
@@ -2468,7 +2516,7 @@ def _calibrate_blend_weight(
     blended = primary_vec + weight * secondary_vec
     _set_cost_vector(h, col_indices, blended)
     with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_final"):
-        h.run()
+        _run(h)
     bl_vals = np.asarray(h.getSolution().col_value)
     return (
         weight,
@@ -2599,7 +2647,7 @@ def _solve_with_options(
             n_vars=problem.n_variables,
             n_binary=len(binary_cols),
         ):
-            h.run()
+            _run(h)
         accepted_timed_out_incumbent = _accept_timed_out_incumbent(h, problem)
         _pin_binaries_to_current_solution(h, var_array, binary_cols)
         if binary_cols:
@@ -2618,7 +2666,7 @@ def _solve_with_options(
                 n_vars=problem.n_variables,
                 n_binary=len(binary_cols),
             ):
-                h.run()
+                _run(h)
         # nimbus #1179: no calibration ran on this path, so there is no
         # weight to report -- None, matching the two sibling fields.
         return [], None, False, None, None
@@ -2933,7 +2981,7 @@ def _retry_unknown_with_ipm(h: Any) -> Any:
         h.setOptionValue("run_crossover", "on")
         h.clearSolver()
         with _timed_lp_call(h, "unknown_retry_ipm"):
-            h.run()
+            _run(h)
         return h.getModelStatus()
     finally:
         h.setOptionValue("solver", "choose")
@@ -3104,6 +3152,7 @@ def _solve_highs(
             for i, name in enumerate(problem._var_names)
         )
         with _timed_lp_call(h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)):
+            _bound_by_wall_deadline(h)
             h.minimize(cost_expr)
     else:
         col_indices = np.arange(n, dtype=np.int32)
@@ -3371,7 +3420,7 @@ def _solve_highs(
         with _timed_lp_call(
             h, "mip_pin_reoptimise", n_vars=n, n_binary=len(binary_cols)
         ):
-            h.run()
+            _run(h)
         if h.getModelStatus() == highspy.HighsModelStatus.kOptimal:
             # Re-read from the pinned LP: x is unchanged by construction
             # (every binary pinned, every continuous variable re-optimised
