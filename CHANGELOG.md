@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- Internal: the device contract can read any price sensor's forecast (`generic_price_forecast`, DC-006 slice 4's first step, #1574), as the Solver reads it today. Nothing reads through it yet, so nothing changes.
 - **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
 ## [0.94.492] - 2026-10-27
 
