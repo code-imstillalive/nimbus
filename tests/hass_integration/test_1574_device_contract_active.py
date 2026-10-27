@@ -602,3 +602,8 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     )
     assert done["type"] == FlowResultType.CREATE_ENTRY
     assert (await _store(hass, entry).async_read())["mode"] == "shadow"
+    # The edits above reloaded the entry (a view write in `active`); let the
+    # reload finish and unload it, so no timer outlives the test.
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
