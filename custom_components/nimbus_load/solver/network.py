@@ -1138,6 +1138,11 @@ class Plan:
     offer_curve_deferred: Callable[[], dict[str, Any]] | None = field(
         default=None, repr=False, compare=False
     )
+    # nimbus #2127: when the plan is infeasible, the settings that each, on
+    # their own, make a plan possible when relaxed (`solver_plan.
+    # infeasible_causes()`); an empty tuple when none alone does; None when
+    # not diagnosed.
+    infeasible_causes: tuple[str, ...] | None = None
 
     @property
     def is_optimal(self) -> bool:

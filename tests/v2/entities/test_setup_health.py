@@ -77,6 +77,20 @@ def test_every_repair_has_a_translation_with_exactly_its_placeholders(
         words = set(re.findall(r"\{(\w+)\}", json.dumps(ISSUES[issue.kind])))
         assert words == set(issue.placeholders), issue.kind
 
+    # test_an_infeasible_plan_names_the_settings_that_free_it_in_its_repair
+    # #2127: the Repair names the settings the solver's diagnosis found,
+    # says when none alone frees the plan, and keeps the general advice
+    # before a diagnosis has run.
+    named = sh._plan_failing_issue(
+        {"count": 5, "status": "infeasible", "causes": ("Grid Max Import",)}
+    ).placeholders["causes"]
+    assert "**Grid Max Import**" in named
+    alone = sh._plan_failing_issue(
+        {"count": 5, "status": "infeasible", "causes": ()}
+    ).placeholders["causes"]
+    assert "more than one setting conflicts" in alone
+    assert infeasible.placeholders["causes"] == sh._CAUSES_UNKNOWN
+
     # test_a_trained_or_rule_based_forecast_needs_nothing
     for data in [
         {"trained_at": "t"},

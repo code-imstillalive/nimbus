@@ -275,6 +275,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # nimbus #2066: the hysteresis's grid-charge check, same reason.
         "_charges_from_grid_instead",
         "_surplus_charge_pin",
+        # nimbus #2127: the infeasibility diagnosis re-solves with one setting
+        # relaxed at a time, in-process only like the hysteresis above.
+        "_battery_relaxations",
+        "_relaxations",
+        "infeasible_causes",
+        "_diagnosed",
+        "_settings_key",
         # nimbus #1654, option C: the reserve's own dual. The cron copy builds
         # no BatteryConfig reserve (see reserve_window_indices below).
         "_reserve_shadow_now",
