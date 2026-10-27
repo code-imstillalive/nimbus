@@ -1728,6 +1728,14 @@ WIZARD_STEPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Configure → Device setup → Edit a source (sensor)",
         ("options", "step", "device_setup_edit_source"),
     ),
+    (
+        "Configure → Device setup → Control (load)",
+        ("options", "step", "device_setup_control"),
+    ),
+    (
+        "Configure → Device setup → Control (allow or stop)",
+        ("options", "step", "device_setup_control_device"),
+    ),
     ("Configure → Device setup → Mode", ("options", "step", "device_setup_mode")),
     (
         "Configure → Topology diagram settings (one screen)",
