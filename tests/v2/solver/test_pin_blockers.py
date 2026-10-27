@@ -130,6 +130,28 @@ def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
         else:
             assert _blamed(site, pin), pin
 
+    # test_an_infeasible_plan_names_exactly_the_settings_that_free_it
+    # #2127: re-planned with each hard setting relaxed on its own, a plan that
+    # cannot hold a 30 kW discharge against 25 kW names exactly the two
+    # settings that free it, by the names the household sees.
+    import solver_plan
+
+    _solver_lp._lex_calibration_failed_until = 0.0
+    site = _site()
+    assert _status(site, 30.0) == "infeasible"
+    pinned = [dataclasses.replace(site["batteries"][0], period0_pin_net_kw=30.0)]
+    causes = solver_plan.infeasible_causes(
+        lambda batteries, grid: build_plan(
+            **{**site, "batteries": batteries, "grid": grid}
+        ),
+        pinned,
+        site["grid"],
+    )
+    assert causes == (
+        "Max Charge Power / Max Discharge Power (home)",
+        "the setpoint held for now (home)",
+    )
+
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):
     home = site["batteries"][0]

@@ -350,14 +350,44 @@ def _plan_failing_issue(streak: Mapping[str, Any] | None) -> HealthIssue | None:
     except ValueError:
         pass
     infeasible = (streak or {}).get("status") == "infeasible"
+    placeholders = {
+        "cycles": str(count),
+        "since": since or "unknown",
+        "reason": str((streak or {}).get("raw_status") or "not reported"),
+    }
+    if infeasible:
+        placeholders["causes"] = _infeasible_causes_text((streak or {}).get("causes"))
     return HealthIssue(
         key=KIND_PLAN_FAILING,
         kind=KIND_PLAN_FAILING_INFEASIBLE if infeasible else KIND_PLAN_FAILING_ERROR,
-        placeholders={
-            "cycles": str(count),
-            "since": since or "unknown",
-            "reason": str((streak or {}).get("raw_status") or "not reported"),
-        },
+        placeholders=placeholders,
+    )
+
+
+#: The Repair's advice when no diagnosis has run yet.
+_CAUSES_UNKNOWN = (
+    "Check for a recent change that cannot all be met at once: battery Min or "
+    "Max SoC, charge or discharge limits, grid import or export limits, or a "
+    "load that must run within a window."
+)
+
+
+def _infeasible_causes_text(causes: Any) -> str:
+    """nimbus #2127: the settings the solver's diagnosis named, each of which
+    on its own makes a plan possible when relaxed."""
+    if causes is None:
+        return _CAUSES_UNKNOWN
+    if not causes:
+        return (
+            "Nimbus re-planned with each setting relaxed on its own, and none "
+            "alone makes a plan possible: more than one setting conflicts. "
+            + _CAUSES_UNKNOWN
+        )
+    return (
+        "Nimbus re-planned with each setting relaxed on its own. A plan becomes "
+        "possible when any one of these is relaxed: "
+        + "; ".join(f"**{c}**" for c in causes)
+        + ". Check which of them changed recently."
     )
 
 

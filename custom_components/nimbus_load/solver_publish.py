@@ -460,6 +460,7 @@ _FAILED_STREAK: dict[str, object] = {
     "since": None,
     "status": None,
     "raw_status": None,
+    "causes": None,
 }
 
 
@@ -471,7 +472,9 @@ def failed_streak() -> dict[str, object]:
 
 def _note_plan_outcome(plan, now) -> None:
     if plan.status == "optimal":
-        _FAILED_STREAK.update(count=0, since=None, status=None, raw_status=None)
+        _FAILED_STREAK.update(
+            count=0, since=None, status=None, raw_status=None, causes=None
+        )
         return
     count = int(_FAILED_STREAK["count"] or 0) + 1
     _FAILED_STREAK.update(
@@ -479,6 +482,8 @@ def _note_plan_outcome(plan, now) -> None:
         since=_FAILED_STREAK["since"] or now.isoformat(),
         status=plan.status,
         raw_status=plan.raw_status,
+        # nimbus #2127: the settings named by solver_plan's diagnosis.
+        causes=getattr(plan, "infeasible_causes", None),
     )
 
 

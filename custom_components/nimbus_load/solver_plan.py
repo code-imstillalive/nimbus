@@ -1023,6 +1023,119 @@ def _surplus_charge_pin(plan, pinned, prev_kw, resolve_pinned, margin):
     )
 
 
+#: A power limit relaxed out of the way when diagnosing (#2127), kW.
+_RELAXED_KW = 1000.0
+#: The diagnosis runs at most this often while plans stay infeasible, s.
+INFEASIBLE_DIAGNOSIS_EVERY_S = 600.0
+#: ... and gives up after this long, keeping what it found, s.
+INFEASIBLE_DIAGNOSIS_BUDGET_S = 20.0
+_LAST_DIAGNOSIS: dict[str, Any] = {"at": None, "causes": None}
+
+
+def _battery_relaxations(batteries: list, i: int, grid: Any):
+    """`_relaxations()` for battery `i`: each of its hard settings."""
+    b = batteries[i]
+
+    def swap(**changes):
+        relaxed = list(batteries)
+        relaxed[i] = dataclasses.replace(b, **changes)
+        return relaxed, grid
+
+    who = f" ({b.name})"
+    if b.min_soc_kwh > 0 or b.max_soc_kwh < b.capacity_kwh:
+        yield (
+            "Battery Min SoC / Battery Max SoC" + who,
+            *swap(min_soc_kwh=0.0, max_soc_kwh=b.capacity_kwh),
+        )
+    yield (
+        "Max Charge Power / Max Discharge Power" + who,
+        *swap(
+            max_charge_kw=_RELAXED_KW,
+            max_discharge_kw=_RELAXED_KW,
+            charge_power_curve=None,
+            discharge_power_curve=None,
+            shared_charger_group=None,
+            shared_charger_max_kw=None,
+        ),
+    )
+    if b.must_have_soc_kwh is not None:
+        yield (
+            "departure target" + who,
+            *swap(must_have_soc_kwh=None, must_have_soc_by_period_index=None),
+        )
+    if b.reserve_kwh > 0:
+        yield "Battery Reserve" + who, *swap(reserve_kwh=0.0)
+    if b.charge_by_kwh > 0:
+        yield "Charge To / Charge By" + who, *swap(charge_by_kwh=0.0)
+    if b.period0_pin_net_kw is not None:
+        yield "the setpoint held for now" + who, *swap(period0_pin_net_kw=None)
+    if b.spike_override_discharge_kw:
+        yield "price spike discharge" + who, *swap(spike_override_discharge_kw=None)
+
+
+def _relaxations(batteries: list, grid: Any):
+    """(the setting as the household knows it, batteries, grid) with that one
+    setting relaxed out of the way, for each hard setting the plan has."""
+    for i in range(len(batteries)):
+        yield from _battery_relaxations(batteries, i, grid)
+    yield (
+        "Grid Max Import",
+        batteries,
+        dataclasses.replace(grid, import_limit_kw=_RELAXED_KW),
+    )
+    yield (
+        "Grid Max Export",
+        batteries,
+        dataclasses.replace(grid, export_limit_kw=_RELAXED_KW),
+    )
+    if grid.fixed_export_kw is not None or grid.min_export_kwh:
+        yield (
+            "the committed P2P export",
+            batteries,
+            dataclasses.replace(
+                grid,
+                fixed_export_kw=None,
+                fixed_export_max_kw=None,
+                min_export_kwh=None,
+            ),
+        )
+
+
+def infeasible_causes(rebuild, batteries: list, grid: Any) -> tuple[str, ...]:
+    """nimbus #2127: each setting that, relaxed on its own, makes a plan
+    possible. `rebuild(batteries, grid)` re-solves the same problem with
+    those configs. Stops at INFEASIBLE_DIAGNOSIS_BUDGET_S with what it has."""
+    started = time.monotonic()
+    causes = []
+    for name, relaxed_batteries, relaxed_grid in _relaxations(batteries, grid):
+        if time.monotonic() - started > INFEASIBLE_DIAGNOSIS_BUDGET_S:
+            break
+        try:
+            status = rebuild(relaxed_batteries, relaxed_grid).status
+        except Exception:  # noqa: BLE001 -- a diagnosis never fails the cycle
+            solver_shared._LOGGER.debug(
+                "Nimbus #2127: relaxing %s did not solve", name, exc_info=True
+            )
+            continue
+        if status == "optimal":
+            causes.append(name)
+    return tuple(causes)
+
+
+def _diagnosed(plan, rebuild, batteries: list, grid: Any):
+    """`plan` with its infeasible causes: diagnosed again at most every
+    INFEASIBLE_DIAGNOSIS_EVERY_S, the last answer reused in between."""
+    if plan.status != "infeasible":
+        _LAST_DIAGNOSIS.update(at=None, causes=None)
+        return plan
+    at = _LAST_DIAGNOSIS["at"]
+    if at is None or time.monotonic() - at >= INFEASIBLE_DIAGNOSIS_EVERY_S:
+        _LAST_DIAGNOSIS.update(
+            at=time.monotonic(), causes=infeasible_causes(rebuild, batteries, grid)
+        )
+    return dataclasses.replace(plan, infeasible_causes=_LAST_DIAGNOSIS["causes"])
+
+
 def period0_direction_hysteresis(
     plan, previous_plan, resolve_pinned, margin, *, pin_blocked=None, export_floor=0.0
 ):
@@ -1858,6 +1971,20 @@ def assemble_and_solve_plan(
             ),
             export_floor=grid.export_floor_price,
         )
+    # nimbus #2127: name the settings that make no plan possible.
+    plan = _diagnosed(
+        plan,
+        lambda batteries, relaxed_grid: network.build_plan(
+            **{
+                **_build_kwargs(
+                    batteries, compute_offer_curve=False, compute_signals=False
+                ),
+                "grid": relaxed_grid,
+            }
+        ),
+        all_batteries,
+        grid,
+    )
     if flex_signals_enabled and plan.grid_signals is not None:
         _FLEX_RANGING_STATE["slot"] = _flex_ranging_slot(now)
     # nimbus #1797: shadow (default) or drive. After #1417's instrument above,
