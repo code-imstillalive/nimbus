@@ -1390,6 +1390,10 @@ class LPProblem:
     # bounds their sum. None (every caller but the stochastic joint solve)
     # changes nothing.
     wall_deadline: float | None = None
+    # nimbus #2121: an integral, feasible point offered to HiGHS as the MIP's
+    # starting incumbent (`_offer_mip_start()`). The offer curve's exact check
+    # holds one for free: the sweep's own one-way point. None changes nothing.
+    mip_start: list[float] | None = None
 
     @property
     def is_mip(self) -> bool:
@@ -3151,9 +3155,24 @@ def _solve_highs(
             problem._cost.get(name, 0.0) * var_array[i]
             for i, name in enumerate(problem._var_names)
         )
-        with _timed_lp_call(h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)):
-            _bound_by_wall_deadline(h)
-            h.minimize(cost_expr)
+        if binary_cols and problem.mip_start is not None:
+            # #2121: the seed goes in after the costs, which would clear it.
+            h.changeColsCost(
+                n,
+                np.arange(n, dtype=np.int32),
+                np.array([problem._cost.get(v, 0.0) for v in problem._var_names]),
+            )
+            _offer_mip_start(h, problem.mip_start, phase="offer_curve_exact")
+            with _timed_lp_call(
+                h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)
+            ):
+                _run(h)
+        else:
+            with _timed_lp_call(
+                h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)
+            ):
+                _bound_by_wall_deadline(h)
+                h.minimize(cost_expr)
     else:
         col_indices = np.arange(n, dtype=np.int32)
         # nimbus issue #702 (#696's own tracked MIP follow-up):

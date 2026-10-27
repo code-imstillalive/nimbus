@@ -5202,6 +5202,11 @@ def _build_plan_once(
                 q._cost.update(cost)
                 for name, fwd, rev, _excess in rounds:
                     _add_group_direction_binary(q, name, fwd, rev)
+                if not rounds:
+                    # #2121: no binary added, so the sweep's own one-way
+                    # point is integral and feasible here: HiGHS starts
+                    # from it rather than searching for one.
+                    q.mip_start = [float(v) for v in xs]
                 exact = q.solve()
                 if exact.status != "optimal":
                     return None
