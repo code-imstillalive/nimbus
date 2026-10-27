@@ -220,6 +220,66 @@ def test_hysteresis_survives_a_failing_re_solve(
         solver_plan._period0_net_kw(discharging)
     )
 
+    # test_a_pinned_charge_the_surplus_carries_is_kept
+    # Midday on a sunny day: the previous charge, planned on an earlier solar
+    # reading, imports 1 kW kept whole (refused, `grid_charge`), and released
+    # the free plan goes idle with the surplus sold below the export floor,
+    # whose own exemption flips it back on the next solve. The charge cut by
+    # that 1 kW imports nothing extra, so it is kept, and the battery stays
+    # on charge.
+    prev_kw = solver_plan._period0_net_kw(charging)
+    charge = np.asarray(charging.battery_charge_kw, dtype=float).copy()
+    charge[0] -= 1.0
+    cut = dataclasses.replace(
+        charging,
+        battery_charge_kw=charge,
+        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float),
+        total_cost=float(discharging.total_cost) + 0.001,
+    )
+    seen = []
+
+    def resolve(kw):
+        seen.append(kw)
+        return pinned if kw == pytest.approx(prev_kw) else cut
+
+    out = solver_plan.period0_direction_hysteresis(discharging, charging, resolve, 0.05)
+    assert out.period0_hysteresis == "kept_from_surplus"
+    assert seen == [pytest.approx(prev_kw), pytest.approx(prev_kw + 1.0)]
+    assert solver_plan._period0_net_kw(out) == pytest.approx(prev_kw + 1.0)
+    assert out.period0_hysteresis_delta == pytest.approx(0.001, abs=1e-4)
+    # Not when the cut charge costs more than the margin, and not when the
+    # surplus carries no charge at all (#2066's cloud: the pin is released).
+    expensive = dataclasses.replace(
+        cut, total_cost=float(discharging.total_cost) + 0.06
+    )
+    assert (
+        solver_plan.period0_direction_hysteresis(
+            discharging,
+            charging,
+            lambda kw: pinned if kw == pytest.approx(prev_kw) else expensive,
+            0.05,
+        ).period0_hysteresis
+        == "grid_charge"
+    )
+    all_grid = dataclasses.replace(
+        charging,
+        grid_import_kw=np.asarray(discharging.grid_import_kw, dtype=float) - prev_kw,
+        total_cost=float(discharging.total_cost),
+    )
+    seen = []
+
+    def resolve_all_grid(kw):
+        seen.append(kw)
+        return all_grid
+
+    assert (
+        solver_plan.period0_direction_hysteresis(
+            discharging, charging, resolve_all_grid, 0.05
+        ).period0_hysteresis
+        == "grid_charge"
+    )
+    assert seen == [pytest.approx(prev_kw)]
+
     # test_the_crossing_instrument_measures_a_feasible_pin
     pinned = _pinned(discharging, cost_delta=0.25)
     rec = solver_plan.period0_crossing_delta(
