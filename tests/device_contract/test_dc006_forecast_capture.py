@@ -295,7 +295,7 @@ def test_in_active_the_solver_reads_through_the_contract():
     options = {"solver_solar_forecast_sensor": "sensor.gone"}
     assert _active(options, False, STATES)[0] == [0.0] * len(GRID)
 
-    # Adopted on #1574: a malformed Open-Meteo row drops Open-Meteo instead
+    # Proposed on #1574 (25 Oct): a malformed Open-Meteo row drops Open-Meteo instead
     # of raising out of the solar build.
     states = {**STATES, "sensor.om_tomorrow": {"watts": {"not a time": 1000.0}}}
     _same(_active({}, True, states), _contract({}, True, states))
