@@ -165,6 +165,72 @@ def _ordered(parsed: list[PriceInterval]) -> list[PriceInterval]:
     return out
 
 
+# --- A generic price forecast (DC-006 slice 4, #1574) -----------------------
+#
+# Any configured price sensor with no provider profile: a `forecast`
+# attribute of `{time, value}` points (`calibrated` in place of `value` is
+# read too), each price holding until the next point -- the shape the
+# Solver's `_resample_generic_price_forecast_raw` reads today. As intervals:
+# [time_i, time_i+1) at value_i, and the last point for one more step, after
+# which there is no price (a gap, DC-006's "a price held past its end").
+
+
+def _generic_points(rows: Iterable[Any]) -> list[tuple[datetime, float]]:
+    points: list[tuple[datetime, float]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            t = parse_iso(row["time"])
+            value = float(row["value"] if "value" in row else row["calibrated"])
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+        if math.isfinite(value):
+            points.append((t, value))
+    points.sort(key=lambda p: p[0])
+    return points
+
+
+def _generic_intervals(points: list[tuple[datetime, float]]) -> list[PriceInterval]:
+    out: list[PriceInterval] = []
+    for (t, v), (nxt, _v) in pairwise(points):
+        if nxt > t:
+            out.append(PriceInterval(t, nxt, v))
+    if points:
+        steps = [b - a for (a, _x), (b, _y) in pairwise(points) if b > a]
+        step = steps[-1] if steps else timedelta(minutes=30)
+        t, v = points[-1]
+        out.append(PriceInterval(t, t + step, v))
+    return out
+
+
+def generic_forecast_intervals(rows: Iterable[Any]) -> list[PriceInterval]:
+    """A generic `forecast` attribute -> ordered, non-overlapping intervals;
+    of two points at one time, the first stands."""
+    points = _generic_points(rows)
+    unique: list[tuple[datetime, float]] = []
+    for t, v in points:
+        if not unique or t > unique[-1][0]:
+            unique.append((t, v))
+    return _ordered(_generic_intervals(unique))
+
+
+def generic_forecast_singles(rows: Iterable[Any]) -> list[PriceInterval]:
+    """Each point's own interval, duplicates kept, so two points at one time
+    are SEEN as an overlap (DC-002's `singles`)."""
+    points = _generic_points(rows)
+    times = sorted({t for t, _v in points})
+    ends = dict(pairwise(times))
+    out: list[PriceInterval] = []
+    for t, v in points:
+        end = ends.get(t)
+        if end is None:
+            earlier = [b - a for a, b in pairwise(times)]
+            end = t + (earlier[-1] if earlier else timedelta(minutes=30))
+        out.append(PriceInterval(t, end, v))
+    return out
+
+
 # --- Amber Express (nimbus #1580) -------------------------------------------
 #
 # hass-energy/amber-express, domain `amber_express`. Each price sensor

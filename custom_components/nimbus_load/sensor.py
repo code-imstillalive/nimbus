@@ -1689,6 +1689,8 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             # yet (and why) -- see coordinator.forecast_provenance().
             ATTR_FORECAST_ORIGIN: data.get("forecast_origin"),
             ATTR_FORECAST_READINESS: data.get("forecast_readiness"),
+            # nimbus #1847: what the forecast did with home / away.
+            "occupancy": data.get("occupancy"),
             ATTR_MODEL_TRAINED_AT: data.get("trained_at"),
             # nimbus issue #1556
             ATTR_MODEL_AGE_DAYS: data.get("model_age_days"),
@@ -2567,6 +2569,18 @@ class NimbusSolverConfigSensor(SensorEntity):
         except Exception:  # never block the Solver's config on the setup
             _LOGGER.debug("Device setup unreadable; legacy solar", exc_info=True)
             self._solar_forecast_binding = None
+        # The same for the whole-house load forecast (the load total).
+        try:
+            from . import device_contract_ha
+
+            self._load_forecast_binding = (
+                await device_contract_ha.async_active_load_forecast(
+                    self.hass, self._entry
+                )
+            )
+        except Exception:  # never block the Solver's config on the setup
+            _LOGGER.debug("Device setup unreadable; legacy load", exc_info=True)
+            self._load_forecast_binding = None
 
         unresolved = self._unresolved_required_keys()
         new_state = "configured" if not unresolved else "unconfigured"
@@ -2654,6 +2668,10 @@ class NimbusSolverConfigSensor(SensorEntity):
         # the device contract; None (today's reading) unless `active`.
         attrs["device_contract_solar_forecast"] = getattr(
             self, "_solar_forecast_binding", None
+        )
+        # ...and the whole-house load forecast binding, the same way.
+        attrs["device_contract_load_forecast"] = getattr(
+            self, "_load_forecast_binding", None
         )
         return attrs
 
