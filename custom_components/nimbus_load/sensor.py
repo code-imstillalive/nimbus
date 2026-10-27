@@ -4533,6 +4533,13 @@ class NimbusFlexTelemetrySensor(_NimbusSolverPushSensor):
     how a stale number gets relabelled as current.
     """
 
+    # #2123 (Mark Purcell): the record is pushed once per completed 5-minute
+    # interval (#1634 step 3), by the first solve after each boundary, so
+    # pushes are about 5 minutes apart and a late solve stretches the gap
+    # past the parent's 5 minutes. Stale here means an interval's record
+    # never came: two intervals and one solve cycle.
+    _STALE_AFTER_SECONDS = 2 * 5 * 60 + 60
+
     _UNIQUE_ID_SUFFIX = "nimbus_flex_telemetry"
     _attr_name = "Flex Telemetry"
     _attr_device_class = None
