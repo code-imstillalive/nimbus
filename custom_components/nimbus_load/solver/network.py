@@ -965,7 +965,10 @@ class Plan:
     # "kept" (the previous direction, pinned, cost within the margin),
     # "switched" (the switch saved more than the margin, or the pin was
     # infeasible), "blocked" (a period-0 constraint rules the previous
-    # direction out, so no pinned re-solve ran; #773).
+    # direction out, so no pinned re-solve ran; #773), "export_floor" and
+    # "grid_charge" (the pin was refused: it sold more below the export
+    # floor, or bought its charge from the grid; #2066), "kept_from_surplus"
+    # (the previous charge, cut to what the solar surplus carries, kept).
     # `period0_hysteresis_delta` is pinned minus free cost, $.
     period0_hysteresis: str = "off"
     period0_hysteresis_delta: float | None = None
