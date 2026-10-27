@@ -92,6 +92,9 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
 
     from custom_components.nimbus_load import config_flow
 
+    # Nimbus is one hub per Home Assistant (single_config_entry), so the
+    # entry above goes first, as on a fresh install.
+    assert await hass.config_entries.async_remove(entry.entry_id)
     with (
         _prefs(PREFS),
         patch("custom_components.nimbus_load.async_setup_entry", return_value=True),
