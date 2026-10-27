@@ -182,3 +182,22 @@ def _hedge():
     ]
     inputs["loads"] = [LoadConfig(name="house", forecast_kw=np.full(n, 2.0))]
     return inputs
+
+
+# Restored (#1837 follow-up): cut 1 removed this on coverage alone; a
+# mutation of joint_options survives main's suite without it.
+@pytest.mark.parametrize(
+    ("requested", "weight", "mode"),
+    [
+        (None, 0.3, "primary"),
+        (object(), 0.3, "blended"),
+        (object(), None, "primary_only"),
+        (object(), 0.0, "primary_only"),
+    ],
+)
+def test_the_joint_solve_is_one_phase_never_lexicographic(requested, weight, mode):
+    options, label = sd.joint_options(requested, weight)
+    assert label == mode
+    assert (options is None) is (mode != "blended")
+    if options is not None:
+        assert options.blend_weight == weight
