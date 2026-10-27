@@ -535,6 +535,11 @@ SIGNAL_ROLE_TEMPERATURE: Final = "temperature"
 SIGNAL_ROLE_HUMIDITY: Final = "humidity"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
+# nimbus #1847: home / away for the load forecast, optional. The entity
+# says whether anyone is home; the two datetimes give the trip ahead.
+CONF_OCCUPANCY_ENTITY: Final = "occupancy_entity"
+CONF_OCCUPANCY_DEPARTURE: Final = "occupancy_departure"
+CONF_OCCUPANCY_RETURN: Final = "occupancy_return"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
 # Shared, hub-level -- HAEO's own solar-curtailment status entity
 # (switch.solar_curtailment on the real system this was built against),

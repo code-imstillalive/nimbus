@@ -73,6 +73,9 @@ from ..const import (
     CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_HYBRID_RECENT_DAYS,
+    CONF_OCCUPANCY_DEPARTURE,
+    CONF_OCCUPANCY_ENTITY,
+    CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
@@ -221,6 +224,33 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_HUMIDITY_SENSOR,
                 description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # nimbus #1847: home / away. Any entity whose state says it:
+            # a person or zone, a group of people, a presence binary_sensor
+            # or input_boolean. The two datetimes are the trip ahead.
+            vol.Optional(
+                CONF_OCCUPANCY_ENTITY,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["person", "zone", "group", "binary_sensor", "input_boolean"]
+                )
+            ),
+            vol.Optional(
+                CONF_OCCUPANCY_DEPARTURE,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_DEPARTURE)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["input_datetime", "datetime", "sensor"]
+                )
+            ),
+            vol.Optional(
+                CONF_OCCUPANCY_RETURN,
+                description={"suggested_value": defaults.get(CONF_OCCUPANCY_RETURN)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["input_datetime", "datetime", "sensor"]
+                )
+            ),
             # Optional -- HAEO's own solar-curtailment status entity
             # (switch.solar_curtailment on the real system this was built
             # against). Domain is deliberately "switch", not "sensor" --

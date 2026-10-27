@@ -52,6 +52,11 @@ except ImportError:  # pragma: no cover - standalone/cron path
     import solver_shared  # type: ignore[no-redef]
 
 try:
+    from .. import device_forecasts
+except ImportError:  # pragma: no cover - standalone/cron path
+    import device_forecasts  # type: ignore[no-redef]
+
+try:
     from ..solver.forecast_source_selection import (
         POLICY_OFF,
         ForecastSourceDecision,
@@ -277,6 +282,17 @@ def _resolve_load_forecast_source(cfg, grid_times, period_hours, now, load_kw):
     )
 
 
+def _load_total_sensor(cfg):
+    """The whole-house load forecast sensor the Solver reads: in `active`,
+    the device setup's `demand_forecast` binding (DC-006 slice 3, the load
+    total), read by the same reader with the same failure rules; otherwise,
+    or when the binding is not readable, `solver_load_forecast_sensor`."""
+    binding = cfg.get("device_contract_load_forecast")
+    if device_forecasts.readable(binding):
+        return binding["source"]["entity_id"]
+    return cfg["solver_load_forecast_sensor"]
+
+
 def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
     """Fetch, resample and blend the household load forecast.
 
@@ -348,9 +364,7 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             load_upper_kw,
             load_forecast_error,
             load_forecast_coverage_hours,
-        ) = sw.read_load_forecast_sensor(
-            cfg["solver_load_forecast_sensor"], grid_times, now
-        )
+        ) = sw.read_load_forecast_sensor(_load_total_sensor(cfg), grid_times, now)
         if load_forecast_error is not None:
             # nimbus issue #370 (Mark Purcell, codebase review): a
             # transient startup-race error (the entity exists but hasn't

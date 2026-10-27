@@ -111,14 +111,19 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
         "numbers": numbers,
         "subentries": subentries,
         "setup_builder_done": list(entry.options.get("setup_builder_done") or ()),
-        "site": {
-            "name": hass.config.location_name,
-            "timezone": hass.config.time_zone,
-            "currency": hass.config.currency,
-        },
+        "site": _site(hass),
         # Solcast and Open-Meteo as the registry finds them: the solar
         # forecast binding's auto-included members (DC-006 slice 3).
         "known_sources": _known_sources(hass),
+    }
+
+
+def _site(hass: Any) -> dict[str, Any]:
+    """The site's identity from Home Assistant's own settings."""
+    return {
+        "name": hass.config.location_name,
+        "timezone": hass.config.time_zone,
+        "currency": hass.config.currency,
     }
 
 
@@ -135,6 +140,24 @@ async def async_active_solar_forecast(hass: Any, entry: Any) -> dict[str, Any] |
         if device.get("kind") != "solar":
             continue
         binding = (device.get("bindings") or {}).get("generation_forecast")
+        if device_forecasts.readable(binding):
+            return binding
+    return None
+
+
+async def async_active_load_forecast(hass: Any, entry: Any) -> dict[str, Any] | None:
+    """The committed document's whole-house `demand_forecast` binding while
+    the device setup is `active` (DC-006 slice 3, the load total); None in
+    every other mode, or when the forecast adapters cannot read it, so the
+    Solver reads as today."""
+    state = await _store(hass, entry).async_read()
+    document = state.get("document")
+    if state.get("mode") != "active" or document is None:
+        return None
+    for device in document.get("devices") or ():
+        if device.get("kind") != "load" or device.get("load_class") != "aggregate":
+            continue
+        binding = (device.get("bindings") or {}).get("demand_forecast")
         if device_forecasts.readable(binding):
             return binding
     return None
@@ -709,18 +732,26 @@ async def _async_energy_prefs(hass: Any) -> dict[str, Any] | None:
         return None
 
 
-async def _async_discovery(hass: Any, entry: Any):
+async def async_propose(hass: Any) -> tuple[Any, dict[str, str]]:
+    """DC-005's proposal from Home Assistant alone: the Energy Dashboard, the
+    recognised providers and history pairing. It needs no Nimbus entry, so
+    the new-install setup (DC-007) can show it before the hub exists.
+    Returns the proposal and the entity registry's ids. Writes nothing."""
     prefs = await _async_energy_prefs(hass)
     registry = er.async_get(hass)
     regs = {e.entity_id: e.id for e in registry.entities.values()}
-    site = snapshot(hass, entry)["site"]
     proposal = device_discovery.propose_from_energy_dashboard(
-        prefs, site=site, registry_ids=regs
+        prefs, site=_site(hass), registry_ids=regs
     )
     proposal = device_discovery.add_provider_profiles(
         proposal, profile_instances(hass), registry_ids=regs
     )
     proposal = await _async_add_history_pairing(hass, proposal, regs)
+    return proposal, regs
+
+
+async def _async_discovery(hass: Any, entry: Any):
+    proposal, regs = await async_propose(hass)
     state = await _store(hass, entry).async_read()
     rediscovery = (
         device_discovery.rediscover(

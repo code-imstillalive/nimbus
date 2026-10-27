@@ -216,6 +216,14 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
                 binding["provenance"]["also_source_paths"] = [p for p, _v in found[1:]]
             bindings[device][role] = binding
 
+    # DC-006 slice 3: the total load forecast is read by the forecast
+    # adapters, as the Solver reads it (`forecast` attribute), not as a state.
+    demand = bindings["load"].get("demand_forecast")
+    if demand is not None:
+        demand["source"] = device_forecasts.forecast_source(
+            [demand["source"]["entity_id"]], "nimbus_forecast"
+        )
+
     solar_forecast = _solar_forecast_binding(options, snapshot, confirmed_keys)
     if solar_forecast is not None:
         bindings["solar"]["generation_forecast"] = solar_forecast
