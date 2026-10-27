@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **Device setup: a configured solar forecast is read in any of the three shapes** (DC-006 slice 3, part 1, #1574). Through the device contract, a configured solar forecast sensor is read in whichever shape it publishes: Nimbus's `forecast`, Solcast's `detailedForecast` or Open-Meteo's `watts`, as the Solver already reads it. The member says which shape read it. The Solver's own reading is unchanged.
+- **Device setup in `active`: the Solver reads its solar forecast through the device contract** (DC-006 slice 3, part 2, #1574). While the device setup is `active`, the Solver config sensor publishes the setup's solar forecast binding (`device_contract_solar_forecast`) and the Solver reads each member through it. The members are the same as today: the configured sensors, plus Open-Meteo and Solcast under auto-include. In `legacy` and `shadow`, which is every install unless it was switched, nothing changes. One change in `active`, proposed on #1574 on 25 Oct and reviewed in #2092 and #2093: a malformed row in an auto-included Open-Meteo or Solcast entity drops that member, as for any other source, instead of stopping the solar build. A setup imported before this release binds the forecast sensor in a way the forecast readers can't use, so the Solver keeps today's reading until the setup is imported again.
 
 ## [0.94.491] - 2026-10-26
 

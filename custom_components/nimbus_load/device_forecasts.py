@@ -336,6 +336,29 @@ def resolve_forecast(
     return combine_mean(members)
 
 
+def readable(binding: Mapping[str, Any] | None) -> bool:
+    """True when every source of `binding` is one the forecast adapters can
+    read: an `entity_attribute` source with known adapters. A forecast bound
+    another way (a document imported before DC-006 slice 3 bound the Solver's
+    sensor as `entity_state`) is not, and its consumer keeps today's
+    reading."""
+    if not binding:
+        return False
+    sources = binding.get("sources")
+    if sources is None:
+        sources = [binding.get("source") or {}]
+    elif binding.get("combine") != COMBINE_MEAN:
+        return False
+    return bool(sources) and all(
+        isinstance(s, Mapping)
+        and s.get("kind") == "entity_attribute"
+        and s.get("entity_id")
+        and forecast_adapter(s) is not None
+        and also_adapters(s) is not None
+        for s in sources
+    )
+
+
 # --- today's member list, as a binding --------------------------------------
 
 

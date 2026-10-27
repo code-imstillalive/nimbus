@@ -485,3 +485,21 @@ async def test_the_device_setup_mode_select_changes_mode_and_says_why_not(
         await select.async_select_option("legacy")
         assert select.current_option == "legacy"
     assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+
+
+async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
+    hass: HomeAssistant, hass_storage
+):
+    """DC-006 slice 3: the Solver reads its solar forecast through the
+    document's binding only while the device setup is `active`; in every
+    other mode it reads its settings as today."""
+    entry, _numbers = await _setup(hass)
+    assert await device_contract_ha.async_active_solar_forecast(hass, entry) is None
+    assert (await device_contract_ha.async_set_mode(hass, entry, "shadow"))["ok"]
+    assert await device_contract_ha.async_active_solar_forecast(hass, entry) is None
+    assert (await device_contract_ha.async_set_mode(hass, entry, "active"))["ok"]
+    binding = await device_contract_ha.async_active_solar_forecast(hass, entry)
+    assert binding is not None
+    assert binding["source"]["kind"] == "entity_attribute"
+    assert binding["source"]["entity_id"] == "sensor.pv_forecast"
+    assert binding["source"]["adapter"]["name"] == "nimbus_forecast"
