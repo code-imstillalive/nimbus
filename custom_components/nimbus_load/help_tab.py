@@ -215,6 +215,20 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.492",
+        "27 Oct 2026",
+        (
+            (
+                "**Midday:** a solar charge is held instead of flipping "
+                "between charge and idle every few minutes."
+            ),
+            (
+                "**Device setup:** in `active`, the Solver reads its solar "
+                "forecast through the device setup, the same sensors as before."
+            ),
+        ),
+    ),
+    (
         "0.94.491",
         "26 Oct 2026",
         (
