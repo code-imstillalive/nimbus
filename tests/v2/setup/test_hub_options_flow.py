@@ -253,7 +253,13 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
     with patch.object(type(flow), "_pricing_suggestions", AsyncMock(return_value=[])):
         result = asyncio.run(flow.async_step_init(None))
     assert result["type"] == "menu"
-    assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
+    # DC-007 slice 2 (#1574): Device setup is always offered.
+    assert result["menu_options"] == [
+        "forecaster",
+        "solver_battery",
+        "switchboard",
+        "device_setup",
+    ]
     with patch.object(
         type(flow),
         "_pricing_suggestions",
@@ -265,6 +271,7 @@ def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
         "solver_battery",
         "switchboard",
         "pricing_suggestions",
+        "device_setup",
     ]
 
     # test_solver_sources_schema_keeps_saved_multi_values_selectable

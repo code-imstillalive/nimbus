@@ -503,3 +503,40 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert binding["source"]["kind"] == "entity_attribute"
     assert binding["source"]["entity_id"] == "sensor.pv_forecast"
     assert binding["source"]["adapter"]["name"] == "nimbus_forecast"
+
+    # test_configure_device_setup_changes_the_mode_through_the_same_checks
+    # DC-007 slice 2 (#1574): Configure -> Device setup. In `active` it offers
+    # Review and Mode; Mode goes through async_set_mode's own checks; in
+    # `legacy` it offers only the dry run, whose tick moves to `shadow`.
+    from homeassistant.data_entry_flow import FlowResultType
+
+    async def _open(step):
+        flow = await hass.config_entries.options.async_init(entry.entry_id)
+        assert "device_setup" in flow["menu_options"]
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": "device_setup"}
+        )
+        assert flow["type"] == FlowResultType.MENU
+        menu = flow["menu_options"]
+        if step is None:
+            return flow, menu
+        flow = await hass.config_entries.options.async_configure(
+            flow["flow_id"], {"next_step_id": step}
+        )
+        return flow, menu
+
+    flow, menu = await _open("device_setup_mode")
+    assert menu == ["device_setup_review", "device_setup_mode"]
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"mode": "legacy"}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "legacy"
+
+    flow, menu = await _open("device_setup_dry_run")
+    assert menu == ["device_setup_dry_run"]
+    done = await hass.config_entries.options.async_configure(
+        flow["flow_id"], {"go_shadow": True}
+    )
+    assert done["type"] == FlowResultType.CREATE_ENTRY
+    assert (await _store(hass, entry).async_read())["mode"] == "shadow"

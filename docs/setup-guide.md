@@ -1386,6 +1386,8 @@ Otherwise, its step value continues into later periods.
 
 From Developer Tools → Actions, or any automation:
 
+**Configure → Device setup** does the same from the hub's own settings, with no actions to type: in `legacy`, a **dry run** of what the device setup would build from your settings, and a tick to move to `shadow` when it is clean; in `shadow` or `active`, **Review what Nimbus finds** (new sources, renames and new devices ticked, an alternative to a source you confirmed never) and **Mode**. The actions below remain for automations.
+
 | Service | Does |
 |---|---|
 | `nimbus_load.retrain` | Force an immediate retrain. Blank entity = everything |

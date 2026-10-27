@@ -18,7 +18,8 @@
           "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
           "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)",
           "switchboard": "Topology diagram settings (grid meter to start -- prices/daily kWh optional, next screen)",
-          "pricing_suggestions": "Review pricing suggestions (nothing changes until you confirm)"
+          "pricing_suggestions": "Review pricing suggestions (nothing changes until you confirm)",
+          "device_setup": "Device setup (what Nimbus found, and who is in charge)"
         }
       },
       "forecaster": {
@@ -186,11 +187,52 @@
       "pricing_suggestions": {
         "title": "Review pricing suggestions",
         "description": "Nimbus found these price sources for Solver price fields that are currently empty:\n\n{suggestions}\n\n**Submit applies exactly these changes**, and each one is logged and listed in a notification. Close this window to leave your pricing as it is.\n\nA field that already has a value is never changed here, even if its sensor is missing right now. To change one, use Solver settings."
+      },
+      "device_setup": {
+        "title": "Device setup",
+        "description": "The device setup is in **{mode}** mode.",
+        "menu_options": {
+          "device_setup_dry_run": "Dry run: what the device setup would build from your settings",
+          "device_setup_review": "Review what Nimbus finds",
+          "device_setup_mode": "Mode: legacy, shadow or active"
+        }
+      },
+      "device_setup_dry_run": {
+        "title": "Device setup: dry run",
+        "description": "Built from your current settings, the device setup is **{result}**.\n\n{details}\n\nNothing is changed by reading this. When it is clean, tick below to keep the device setup alongside your settings (shadow): your settings stay in charge.",
+        "data": {
+          "go_shadow": "Move to shadow"
+        }
+      },
+      "device_setup_mode": {
+        "title": "Device setup: mode",
+        "description": "Now **{mode}**; the dry run is **{result}**.\n\n- **legacy**: your settings, as always.\n- **shadow**: the device setup is kept beside your settings and checked; your settings stay in charge.\n- **active**: the device setup is in charge, and your settings are written from it. Needs a clean dry run, and every power sensor's unit known.",
+        "data": {
+          "mode": "Mode"
+        }
+      },
+      "device_setup_review": {
+        "title": "Review what Nimbus finds",
+        "description": "What Nimbus finds now that differs from your device setup. New sources, renames and new devices are ticked; an alternative to a source you confirmed never is. Untick anything you don't want.",
+        "data": {
+          "choices": "Changes to save",
+          "capacity_kwh": "New battery's usable capacity"
+        }
+      },
+      "device_setup_nothing": {
+        "title": "Review what Nimbus finds",
+        "description": "Nothing new: what Nimbus finds matches your device setup."
       }
     },
     "error": {
       "energy_sensor_not_power": "This sensor reports an energy unit (Wh or kWh): it is an energy counter, not a power reading. Pick a power sensor (W or kW) instead; most inverters and meters expose both.",
-      "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up."
+      "frozen_price_signal": "This price is fixed when the forecast is built and does not follow the live price (LocalVolts Rate All Var). It would hide a price spike from the plan. Pick the live price instead: for LocalVolts, Buy Flex Up or Sell Flex Up.",
+      "mode_refused": "That mode change was refused: run the dry run and check every power sensor's unit, then try again.",
+      "choice_refused": "One of the ticked changes is no longer offered. Open the review again.",
+      "binding_refused": "One of the ticked sources can't be read with its unit. Untick it and try again.",
+      "revision_conflict": "The device setup changed while you were reviewing. Open the review again.",
+      "nothing_to_confirm": "Nothing to save.",
+      "confirm_refused": "The changes could not be saved."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."
@@ -503,6 +545,13 @@
         "recorder": "Recorder history (default, full resolution, bounded by purge_keep_days)",
         "lts": "Long-term statistics (hourly, kept indefinitely)",
         "hybrid": "Hybrid (recent recorder + older LTS)"
+      }
+    },
+    "device_setup_mode": {
+      "options": {
+        "legacy": "legacy",
+        "shadow": "shadow",
+        "active": "active"
       }
     }
   },
