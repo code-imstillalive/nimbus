@@ -150,6 +150,36 @@ def test_1528_a_full_energy_dashboard_gives_the_whole_site_with_no_typed_entity(
     }
     assert {_source_value(b) for _d, _r, b in _bindings(doc)} == named
 
+    # test_a_new_install_keeps_what_it_ticked_and_its_answers
+    # DC-007 slice 1 (#1574): the household unticks the EV charger and
+    # answers the battery's capacity; the document keeps the rest, drops the
+    # charger's relationships, and every binding it kept is confirmed.
+    capacity_q = next(
+        i
+        for i, q in enumerate(p.questions)
+        if q["code"] == dd.Q_FACT_NEEDED and q.get("fact") == "capacity"
+    )
+    keep = {d["id"] for d in doc["devices"]} - {"load_ev_charger"}
+    answered = dd.answer_proposal(
+        p, keep, {capacity_q: {"value": 13.5, "basis": "usable"}, 999: "ignored"}
+    )
+    assert "load_ev_charger" not in {d["id"] for d in answered["devices"]}
+    assert all(
+        "load_ev_charger" not in (r.get("child"), r.get("parent"))
+        for r in answered["relationships"]
+    )
+    assert _device(answered, "battery")["capacity"] == {
+        "value": 13.5,
+        "unit": "kWh",
+        "basis": "usable",
+    }
+    assert all(b["provenance"]["confirmed"] for _d, _r, b in _bindings(answered))
+    assert dd.dc.validate(answered) == []
+    # The grid and the house stay even if unticked: DC-R01's minimal site.
+    minimal = dd.answer_proposal(p, set(), {})
+    assert {d["id"] for d in minimal["devices"]} == {"grid", "load_house"}
+    assert p.document == doc  # the proposal itself is untouched
+
     # test_two_solar_sources_are_two_solar_devices: Two inverters are two devices (DC-001 / F02).
     prefs = {
         "energy_sources": [

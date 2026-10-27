@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import copy
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -1349,3 +1349,73 @@ def apply_confirmation(
     if refusals:
         return copy.deepcopy(dict(stored)), refusals, []
     return document, [], changed
+
+
+# --- DC-007 slice 1: a new install's answers -----------------------------------
+
+#: The devices a new install always keeps: DC-R01's minimal valid site.
+_ALWAYS_KEPT = frozenset({_GRID_ID, _HOUSE_ID})
+
+
+def answer_proposal(
+    proposal: Proposal,
+    keep: Collection[str],
+    answers: Mapping[int, Any],
+) -> dict[str, Any]:
+    """The document a new install confirms (DC-007 slice 1): `proposal`'s,
+    with only the devices in `keep` (the grid and the house are always kept),
+    and each answered question applied.
+
+    `answers` maps a question's index in `proposal.questions` to:
+    - for `several_sources` and `confirm_history_match`: the chosen
+      candidate's `source`, or None to leave the role as proposed;
+    - for `fact_needed` (capacity): `{"value": kWh, "basis": "usable" |
+      "nominal"}`, or None to leave it unset.
+
+    Every binding that remains is marked confirmed: the household saw it and
+    kept it. Relationships to a device that was not kept are dropped."""
+    document = copy.deepcopy(proposal.document)
+    kept = set(keep) | _ALWAYS_KEPT
+    document["devices"] = [d for d in document.get("devices") or () if d["id"] in kept]
+    by_id = {d["id"]: d for d in document["devices"]}
+
+    def _ends(rel: Mapping[str, Any]) -> list[Any]:
+        return [rel[k] for k in ("from", "to", "parent", "child") if k in rel] + list(
+            rel.get("devices") or ()
+        )
+
+    document["relationships"] = [
+        r
+        for r in document.get("relationships") or ()
+        if all(end in by_id for end in _ends(r))
+    ]
+    for index, answer in answers.items():
+        if answer is None or not 0 <= index < len(proposal.questions):
+            continue
+        question = proposal.questions[index]
+        device = by_id.get(question.get("device"))
+        if device is None:
+            continue
+        if question.get("code") == Q_FACT_NEEDED:
+            if question.get("fact") == "capacity" and isinstance(answer, Mapping):
+                device["capacity"] = {
+                    "value": float(answer["value"]),
+                    "unit": "kWh",
+                    "basis": str(answer.get("basis") or "usable"),
+                }
+            continue
+        candidate = next(
+            (
+                c
+                for c in question.get("candidates") or ()
+                if c.get("source") == answer and c.get("binding_source")
+            ),
+            None,
+        )
+        if candidate is not None:
+            device.setdefault("bindings", {})[question["role"]] = _accepted(candidate)
+    for device in document["devices"]:
+        device["bindings"] = {
+            role: _confirmed(b) for role, b in (device.get("bindings") or {}).items()
+        }
+    return document
