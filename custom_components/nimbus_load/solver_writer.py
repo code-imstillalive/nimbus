@@ -5540,8 +5540,22 @@ def apply_price_consolidation(
             values, result[side], side_scored = out
             result[f"consolidated_{side}_price"] = values
             scored = scored or side_scored
+        # #1786: the consolidated forecast is scored beside its sources, so
+        # the shadow history answers "consolidated or the primary alone?"
+        # directly, by lead, before anyone turns consolidation on.
+        scored_series = {
+            side: {
+                **series,
+                **(
+                    {"consolidated": result[f"consolidated_{side}_price"]}
+                    if result.get(f"consolidated_{side}_price") is not None
+                    else {}
+                ),
+            }
+            for side, series in series_by_side.items()
+        }
         result["error_history"] = _record_price_errors(
-            cfg, ctx, series_by_side, settled_import, settled_export
+            cfg, ctx, scored_series, settled_import, settled_export
         )
         if live:
             for side, target, labels in (
