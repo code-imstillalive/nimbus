@@ -19,6 +19,7 @@ from typing import Any
 import device_bindings as db
 import price_intervals
 import pytest
+import solver_writer
 
 from tests.device_contract.oracles_signals import (
     PriceInterval,
@@ -449,6 +450,34 @@ def test_dc_r06_f04_an_expired_price_is_not_extended() -> None:
         twice, "generic_price_forecast", window, native_unit="AUD/kWh"
     )
     assert (overlap.state, overlap.reason) == (db.MISSING, "overlapping_intervals")
+
+    # test_the_generic_adapter_and_the_solver_reader_differ_only_where_pinned
+    # DC-006 slice 4 (#1574): the equivalence gate before the switchover.
+    # The Solver's own reader holds the value at each period's start and
+    # holds the last point for ever, marking it with real_mask; the
+    # contract averages over the period and leaves a gap after the last
+    # point's one step. On a grid aligned to the points they agree.
+    state = {"attributes": {"forecast": points}}
+    step = timedelta(minutes=30)
+    aligned = [NOW + step * i for i in range(3)]
+    held, real = solver_writer._resample_generic_price_forecast_raw(
+        "sensor.p", aligned, state
+    )
+    assert real == [True] * 3
+    assert held == [db.value_over(series, t, t + step)[0] for t in aligned]
+    straddle = NOW + timedelta(minutes=15)
+    held, _ = solver_writer._resample_generic_price_forecast_raw(
+        "sensor.p", [straddle], state
+    )
+    mean, _ = db.value_over(series, straddle, straddle + step)
+    assert held == [0.30]
+    assert mean is not None and abs(mean - 0.275) <= TOL
+    beyond = NOW + timedelta(minutes=90)
+    held, real = solver_writer._resample_generic_price_forecast_raw(
+        "sensor.p", [beyond], state
+    )
+    assert (held, real) == ([0.40], [False])
+    assert db.value_over(series, beyond, beyond + step) == (None, 0.0)
 
 
 def test_dc_r06_nothing_published_is_missing_not_zero() -> None:
