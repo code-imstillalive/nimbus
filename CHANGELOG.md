@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Device setup in `active`: the Solver reads its whole-house load forecast through the setup** (DC-006 slice 3, the load total, #1574). The setup's `demand_forecast` is now imported as the forecast the Solver reads (the sensor's `forecast` attribute), and in `active` the Solver's single-sensor load reader is handed that sensor: the same reader, with the same failure rules. Summed circuits (`solver_load_forecast_entities`) read as today. In `legacy` and `shadow` nothing changes. A setup imported before this release keeps today's reading until it is imported again.
 ## [0.94.492] - 2026-10-27
 
 **Midday: the battery holds a solar charge instead of flipping between charge and idle every few minutes.**

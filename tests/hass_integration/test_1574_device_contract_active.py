@@ -503,3 +503,8 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert binding["source"]["kind"] == "entity_attribute"
     assert binding["source"]["entity_id"] == "sensor.pv_forecast"
     assert binding["source"]["adapter"]["name"] == "nimbus_forecast"
+    # The load total, the same way (DC-006 slice 3): handed over in `active`.
+    load = await device_contract_ha.async_active_load_forecast(hass, entry)
+    assert load is not None
+    assert load["source"]["entity_id"] == "sensor.house_forecast"
+    assert load["source"]["adapter"] == {"name": "nimbus_forecast", "version": 1}

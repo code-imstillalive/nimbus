@@ -407,5 +407,7 @@ _DC_BUILDERS = frozenset(
         # the Solver config; solver_inputs/solar.py reads it.
         "sensor.py",
         "solar.py",
+        # ...and its whole-house load forecast (the load total).
+        "load.py",
     }
 )

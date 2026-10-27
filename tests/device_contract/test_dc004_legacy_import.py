@@ -222,3 +222,21 @@ def test_the_solar_forecast_imports_as_the_members_the_solver_reads():
     assert [(d["key"], d["current"]) for d in di.drift(res.document, moved)] == [
         ("solver_solar_forecast_sensor_3", "sensor.other")
     ]
+
+    # test_the_load_total_imports_as_the_forecast_the_solver_reads
+    # DC-006 slice 3, the load total (#1574): the whole-house
+    # `demand_forecast` is read by the forecast adapters, as the Solver reads
+    # it (the `forecast` attribute), and still goes back to its own key.
+    res = di.import_legacy(_snapshot())
+    demand = _device(res.document, "load_house")["bindings"]["demand_forecast"]
+    assert demand["source"] == {
+        "kind": "entity_attribute",
+        "entity_id": "sensor.house_forecast",
+        "attribute_path": "forecast",
+        "adapter": {"name": "nimbus_forecast", "version": 1},
+    }
+    assert demand["provenance"]["source_path"] == "options.solver_load_forecast_sensor"
+    assert res.problems == []
+    view = di.legacy_view(res.document)
+    assert view["options"]["solver_load_forecast_sensor"] == "sensor.house_forecast"
+    assert di.drift(res.document, _snapshot()) == []
