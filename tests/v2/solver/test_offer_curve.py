@@ -569,3 +569,31 @@ def test_the_curves_exact_work_is_bounded(monkeypatch):
             else:
                 assert len(copies) <= most
                 assert (len(copies) > 0) == (most > 0)
+
+    # test_the_exact_check_starts_from_the_sweeps_own_point
+    # #2121: where the plan already holds direction binaries, the exact check
+    # is seeded with the sweep's own one-way point, and the curve it draws is
+    # the curve it draws unseeded.
+    def curves(seed):
+        _solver_lp._lex_calibration_failed_until = 0.0
+        seeded = []
+        real = lp._offer_mip_start
+
+        def offer(h, col_values, *, phase):
+            if phase == "offer_curve_exact":
+                seeded.append(seed)
+                if not seed:
+                    return False
+            return real(h, col_values, phase=phase)
+
+        with monkeypatch.context() as mp:
+            mp.setattr(lp, "_offer_mip_start", offer)
+            plan = _shared_charger_plan(prices=_PAID_ONCE)
+        assert plan.status == "optimal"
+        return seeded, plan.offer_curve_import, plan.offer_curve_export
+
+    seeded, *with_seed = curves(True)
+    _, *without = curves(False)
+    assert seeded
+    for a, b in zip(with_seed, without, strict=True):
+        assert [list(p) for p in a] == pytest.approx([list(p) for p in b], abs=1e-6)
