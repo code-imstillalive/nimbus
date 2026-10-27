@@ -435,6 +435,24 @@ DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SP
 DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER: float = 10.0
 
 
+#: The `Plan` fields the offer curve fills (#2121).
+_OFFER_CURVE_FIELDS = (
+    "offer_curve_import",
+    "offer_curve_export",
+    "offer_curve_import_ranging",
+    "offer_curve_export_ranging",
+    "offer_curve_sweep_seconds",
+)
+
+
+def complete_offer_curve(plan: Plan) -> Plan:
+    """`plan` with its deferred offer curve swept (#2121); unchanged when none
+    is pending."""
+    if plan.offer_curve_deferred is None:
+        return plan
+    return replace(plan, **plan.offer_curve_deferred(), offer_curve_deferred=None)
+
+
 def soft_soc_penalty(
     import_price: Any, export_price: Any, other_rates: Any = ()
 ) -> float:
@@ -1115,6 +1133,11 @@ class Plan:
     # criterion) -- same None-when-not-computed convention as the two
     # curve fields above.
     offer_curve_sweep_seconds: float | None = None
+    # #2121: a deferred sweep (`compute_offer_curve="deferred"`) still to run;
+    # `complete_offer_curve()` runs it and fills the five fields above.
+    offer_curve_deferred: Callable[[], dict[str, Any]] | None = field(
+        default=None, repr=False, compare=False
+    )
     # nimbus #2127: when the plan is infeasible, the settings that each, on
     # their own, make a plan possible when relaxed (`solver_plan.
     # infeasible_causes()`); an empty tuple when none alone does; None when
@@ -2035,7 +2058,7 @@ def _build_plan_once(
     export_price_risk_aversion: float = 0.0,
     soft_soc_penalty_per_kwh: float | None = None,
     compute_signals: bool = False,
-    compute_offer_curve: bool = False,
+    compute_offer_curve: bool | str = False,
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
@@ -4485,7 +4508,7 @@ def _build_plan_once(
     # pin-and-relax, so there is no MIP-specific fallback left here.
     solve_kwargs: dict[str, Any] = {
         "ranging": compute_signals,
-        "keep_basis": compute_offer_curve,
+        "keep_basis": bool(compute_offer_curve),
         "options": solve_options if _use_secondary_costs else None,
     }
     # nimbus issue #1797: `lp_solve_hook` is how the two-stage stochastic
@@ -4953,7 +4976,9 @@ def _build_plan_once(
     # `compute_offer_curve` explicitly (not just "does the LPResult
     # happen to have a live basis") so this block reads as a plain,
     # self-contained opt-in the same way the ranging block above does.
-    if compute_offer_curve:
+    def _offer_curves() -> dict[str, Any]:
+        """The period-0 offer curve, the five `Plan` fields it fills. Run
+        here, or later by `complete_offer_curve()` when deferred (#2121)."""
         _offer_curve_start = time.monotonic()
         hours0 = float(hours[0])
         # nimbus issue #733 (Mark Purcell, live finding, real household
@@ -5334,12 +5359,25 @@ def _build_plan_once(
             len(offer_curve_import),
             len(offer_curve_export),
         )
-    else:
-        offer_curve_import = None
-        offer_curve_export = None
-        offer_curve_import_ranging = None
-        offer_curve_export_ranging = None
-        offer_curve_sweep_seconds = None
+        return {
+            "offer_curve_import": offer_curve_import,
+            "offer_curve_export": offer_curve_export,
+            "offer_curve_import_ranging": offer_curve_import_ranging,
+            "offer_curve_export_ranging": offer_curve_export_ranging,
+            "offer_curve_sweep_seconds": offer_curve_sweep_seconds,
+        }
+
+    # #2121 (Mark Purcell: "the dispatch decision has never needed to wait
+    # on it"): "deferred" returns the plan without its curve and with
+    # `offer_curve_deferred`, which `complete_offer_curve()` runs once the
+    # plan is published. Nothing read below is reassigned after this point,
+    # so the later run sweeps exactly what this one would.
+    offer_curve: dict[str, Any] = dict.fromkeys(_OFFER_CURVE_FIELDS)
+    offer_curve_deferred = None
+    if compute_offer_curve == "deferred":
+        offer_curve_deferred = _offer_curves
+    elif compute_offer_curve:
+        offer_curve = _offer_curves()
 
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
@@ -5420,11 +5458,8 @@ def _build_plan_once(
         grid_signals=grid_signals,
         battery_signals=plan_battery_signals,
         load_signals=plan_load_signals,
-        offer_curve_import=offer_curve_import,
-        offer_curve_export=offer_curve_export,
-        offer_curve_import_ranging=offer_curve_import_ranging,
-        offer_curve_export_ranging=offer_curve_export_ranging,
-        offer_curve_sweep_seconds=offer_curve_sweep_seconds,
+        **offer_curve,
+        offer_curve_deferred=offer_curve_deferred,
         departure_target_shortfall_kwh=departure_target_shortfall_kwh,
     )
 
@@ -5449,7 +5484,7 @@ def _build_plan_thermal_fallback(
     export_price_risk_aversion: float = 0.0,
     soft_soc_penalty_per_kwh: float | None = None,
     compute_signals: bool = False,
-    compute_offer_curve: bool = False,
+    compute_offer_curve: bool | str = False,
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
@@ -5776,7 +5811,7 @@ def build_plan(
     export_price_risk_aversion: float = 0.0,
     soft_soc_penalty_per_kwh: float | None = None,
     compute_signals: bool = False,
-    compute_offer_curve: bool = False,
+    compute_offer_curve: bool | str = False,
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
