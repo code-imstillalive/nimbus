@@ -8,7 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **New install: Nimbus shows the site it found** (DC-007 slice 1, #1574). *Add Nimbus* now looks at the Energy Dashboard and recognised price providers first, shows each device it found with the sensors it will use (keep it ticked or untick it), asks only what it couldn't work out (which of two sources, or the battery's capacity), and creates the hub with that site. The hub's first setup saves it, fills in the settings it implies and puts it in `active`, or `shadow` while a power sensor's unit is unknown. With nothing found, *Add Nimbus* creates an empty hub as before. Existing installs are unaffected.
+- **New install: Nimbus shows the site it found** (DC-007 slice 1, #1574). *Add Nimbus* now looks at the Energy Dashboard and recognised price providers first, shows each device it found with the sensors it will use (keep it ticked or untick it), asks only what it couldn't work out (which of two sources, or the battery's capacity), and creates the hub with that site. The hub's first setup saves it in `shadow` and fills in the settings it implies, so the hub is configured; the household moves it to `active` when it chooses (DC-008 keeps `active` from being the default for new installs until its conditions hold). With nothing found, *Add Nimbus* creates an empty hub as before. Existing installs are unaffected.
 - Internal: device discovery can run without a Nimbus entry (`device_contract_ha.async_propose`), the first step of the new-install setup (DC-007 slice 1, #1574). No behaviour change.
 ## [0.94.492] - 2026-10-27
 

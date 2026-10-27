@@ -123,15 +123,15 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     )
 
     # test_a_new_install_adopts_its_site_in_active
-    # The first setup commits that document: revision 1, `active` once every
-    # power sensor's unit is known, and the settings it implies written.
+    # The first setup commits that document as revision 1 in `shadow` (DC-008:
+    # not `active` by default yet) and writes the settings it implies.
     fresh = MockConfigEntry(domain=DOMAIN, title="Nimbus (new install)", data={})
     fresh.add_to_hass(hass)
     hass.states.async_set("sensor.meter_power", "1.2", {"unit_of_measurement": "kW"})
     adopted = await device_contract_ha.async_adopt_new_install(hass, fresh, pending)
-    assert adopted["ok"] is True and adopted["mode"] == "active", adopted
+    assert adopted["ok"] is True and adopted["mode"] == "shadow", adopted
     stored = _stored(hass_storage, fresh)
-    assert stored["mode"] == "active"
+    assert stored["mode"] == "shadow"
     grid = next(d for d in stored["document"]["devices"] if d["id"] == "grid")
     # Each hub binding now names the setting it fills (with_setting_paths).
     assert grid["bindings"]["power"]["provenance"]["source_path"] == (
@@ -139,7 +139,7 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     )
     assert fresh.options.get("grid_sensor") == "sensor.meter_power"
     again = await device_contract_ha.async_adopt_new_install(hass, fresh, pending)
-    assert again == {"ok": False, "code": "already_set_up", "mode": "active"}
+    assert again == {"ok": False, "code": "already_set_up", "mode": "shadow"}
 
 
 async def _shadow(hass, entry):

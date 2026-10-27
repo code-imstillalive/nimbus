@@ -29,7 +29,7 @@
       },
       "finish": {
         "title": "Ready to set up",
-        "description": "Nimbus will set up:\n\n{devices}\n\nIt fills in the settings these imply, and the Solver tab's Device setup card then shows what works now and what still needs one more fact. Control of your battery stays off."
+        "description": "Nimbus will set up:\n\n{devices}\n\nIt fills in the settings these imply, and keeps this device setup beside them (shadow) until you choose to put it in charge. The Solver tab's Device setup card then shows what works now and what still needs one more fact. Control of your battery stays off."
       }
     },
     "abort": {

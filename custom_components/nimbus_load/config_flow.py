@@ -253,10 +253,11 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
         the hub is empty, as before, and the notification says what to set."""
         if document is not None:
             message = (
-                "Nimbus has saved the site you confirmed. Its first setup puts "
-                "it in charge and fills in the settings it implies. **What "
-                "works now, and what still needs one more fact, is on the "
-                "Solver tab's Device setup card.**"
+                "Nimbus has saved the site you confirmed and filled in the "
+                "settings it implies. **What works now, and what still needs "
+                "one more fact, is on the Solver tab's Device setup card.** "
+                "The device setup is kept in shadow beside those settings; "
+                "move it to active in Configure > Device setup when you choose."
             )
         else:
             message = (

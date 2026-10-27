@@ -316,12 +316,16 @@ async def async_adopt_new_install(
     hass: Any, entry: Any, document: dict[str, Any]
 ) -> dict[str, Any]:
     """DC-007 slice 1: commit the document a new install confirmed in the
-    config flow as its first revision, then `shadow`, then `active` once
-    every power sensor's unit is known, writing the settings it implies.
+    config flow as its first revision, in `shadow`, and write the settings
+    it implies, so the new hub is configured and runs on its settings.
+
+    Not `active`: DC-008 makes `active` the default for new installs only
+    once its four conditions hold (planning slices accepted, walkthroughs
+    recorded, a rollback rehearsal, Mark's approval). Until then the
+    household moves to `active` when it chooses, as any install does.
 
     Refused, with nothing written, when the entry already has a document or
-    the document doesn't validate. With a unit still undeclared it stays in
-    `shadow`, where the unit Repair asks for it (#1893)."""
+    the document doesn't validate."""
     async with _lock(hass, entry.entry_id):
         store = _store(hass, entry)
         state = await store.async_read()
@@ -344,25 +348,13 @@ async def async_adopt_new_install(
         shadow = await store.async_set_mode(revision, "shadow")
         if not shadow.ok:
             return {"ok": False, "code": shadow.code, "mode": "legacy"}
-        pending = device_units.undeclared(document, _state_reader(hass))
-        if pending:
-            return {
-                "ok": True,
-                "code": "units_undeclared",
-                "mode": "shadow",
-                "revision": revision,
-                "sensors": [p["entity_id"] for p in pending],
-            }
-        active = await store.async_set_mode(revision, "active")
-        if not active.ok:
-            return {"ok": False, "code": active.code, "mode": "shadow"}
         code, changed = await _async_write_views(hass, entry, document, revision)
         if code:
-            return {"ok": False, "code": code, "mode": "active", "revision": revision}
+            return {"ok": False, "code": code, "mode": "shadow", "revision": revision}
         await store.async_set_view_revision(revision)
     if changed:
         hass.config_entries.async_schedule_reload(entry.entry_id)
-    return {"ok": True, "code": "adopted", "mode": "active", "revision": revision}
+    return {"ok": True, "code": "adopted", "mode": "shadow", "revision": revision}
 
 
 async def async_recover(hass: Any, entry: Any) -> str:

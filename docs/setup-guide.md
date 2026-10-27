@@ -228,9 +228,10 @@ Services → **Add Integration** search.
    which of two sources measures something, or your battery's capacity (the
    Energy Dashboard doesn't record it). You can leave the capacity empty and
    set it later.
-6. Select **Submit** on **Ready to set up**. Nimbus saves the site, fills in
-   the settings it implies, and puts it in charge. Control of your battery
-   stays off.
+6. Select **Submit** on **Ready to set up**. Nimbus saves the site and fills
+   in the settings it implies, so the hub is configured. The device setup is
+   kept beside your settings (shadow) until you choose to put it in charge
+   (Configure → Device setup → Mode). Control of your battery stays off.
 
 **With no Energy Dashboard** set up, there is nothing to show: select
 **Submit** in the **"Set up Nimbus"** dialog and it creates an empty hub, as
