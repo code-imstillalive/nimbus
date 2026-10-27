@@ -1290,6 +1290,9 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         "_add_legacy_members",
         "_add_contract_members",
         "_attributes_reader",
+        # DC-006 slice 3, the load total (#1574): which sensor
+        # build_load_arrays() reads, the document's in `active`.
+        "_load_total_sensor",
         # #735 stage 2 -- solver_inputs/load.py. build_load_arrays() is
         # the extracted block; the docs copy still has the identical
         # logic inline in its own main(), so nothing is missing from

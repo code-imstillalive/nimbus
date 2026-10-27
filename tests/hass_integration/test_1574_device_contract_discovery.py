@@ -71,6 +71,19 @@ async def test_confirming_in_legacy_is_refused(hass: HomeAssistant, hass_storage
     assert out == {"ok": False, "code": "choose_shadow_first", "mode": "legacy"}
     assert _stored(hass_storage, entry) is None
 
+    # test_the_proposal_needs_no_entry
+    # DC-007 slice 1 (#1574): the new-install setup shows the proposal before
+    # the hub exists. Without a stored document, the service's proposal is
+    # exactly the entry-free one, and making it writes nothing.
+    with _prefs(PREFS):
+        proposal, regs = await device_contract_ha.async_propose(hass)
+        out = await device_contract_ha.async_discover(hass, entry)
+    assert out["document"] == proposal.document
+    assert out["questions"] == proposal.questions
+    assert {d["id"] for d in proposal.document["devices"]} >= {"grid"}
+    assert isinstance(regs, dict)
+    assert _stored(hass_storage, entry) is None
+
 
 async def _shadow(hass, entry):
     result = await device_contract_ha.async_set_mode(hass, entry, "shadow")

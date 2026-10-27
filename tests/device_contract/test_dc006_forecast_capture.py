@@ -310,6 +310,48 @@ def test_in_active_the_solver_reads_through_the_contract():
     cfg = {**options, "device_contract_solar_forecast": old}
     assert _legacy(cfg, False, STATES) == _legacy(options, False, STATES)
 
+    # test_in_active_the_solver_reads_its_load_total_through_the_contract
+    # DC-006 slice 3, the load total: in `active` the Solver's single-sensor
+    # load reader is handed the document's sensor, the same reader with the
+    # same failure rules; anything else reads `solver_load_forecast_sensor`.
+    from solver_inputs import load
+
+    base = {"solver_load_forecast_sensor": "sensor.house_forecast"}
+    readable = {
+        "source": dfc.forecast_source(["sensor.doc_forecast"], "nimbus_forecast")
+    }
+    assert load._load_total_sensor(base) == "sensor.house_forecast"
+    assert (
+        load._load_total_sensor({**base, "device_contract_load_forecast": readable})
+        == "sensor.doc_forecast"
+    )
+    stale = {"source": {"kind": "entity_state", "entity_id": "sensor.doc_forecast"}}
+    assert (
+        load._load_total_sensor({**base, "device_contract_load_forecast": stale})
+        == "sensor.house_forecast"
+    )
+    assert (
+        load._load_total_sensor({**base, "device_contract_load_forecast": None})
+        == "sensor.house_forecast"
+    )
+    read = []
+
+    def reader(sensor, grid, now):
+        read.append(sensor)
+        raise RuntimeError("stop after the read")
+
+    with (
+        patch.object(solver_writer, "read_load_forecast_sensor", reader),
+        pytest.raises(RuntimeError, match="stop after the read"),
+    ):
+        load.build_load_arrays(
+            {**base, "device_contract_load_forecast": readable},
+            GRID,
+            len(GRID),
+            GRID[0],
+        )
+    assert read == ["sensor.doc_forecast"]
+
 
 # --- the binding itself (DC-001) --------------------------------------------------
 
