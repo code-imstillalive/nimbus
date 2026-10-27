@@ -376,6 +376,25 @@ def _validate_source(source: dict[str, Any], path: str, add: Any) -> None:
             f"{path}.continued_by",
             "continued_by is a list of entity_ids on an entity_attribute source",
         )
+    also = source.get("also_adapters")
+    if also is not None and (
+        variant != "entity_attribute"
+        or not isinstance(also, list)
+        or not all(
+            isinstance(spec, dict)
+            and isinstance(spec.get("name"), str)
+            and spec.get("name")
+            and isinstance(spec.get("version"), int)
+            and not isinstance(spec.get("version"), bool)
+            for spec in also
+        )
+    ):
+        add(
+            "source_fields_missing",
+            f"{path}.also_adapters",
+            "also_adapters is a list of adapters (name + version) on an "
+            "entity_attribute source",
+        )
 
 
 def _validate_combined(

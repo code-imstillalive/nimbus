@@ -132,8 +132,7 @@ FORECAST_ADAPTERS: dict[tuple[str, int], ForecastAdapter] = {
 }
 
 
-def forecast_adapter(source: Mapping[str, Any]) -> ForecastAdapter | None:
-    spec = source.get("adapter")
+def _adapter_of(spec: Any) -> ForecastAdapter | None:
     if not isinstance(spec, Mapping):
         return None
     version = spec.get("version")
@@ -142,11 +141,30 @@ def forecast_adapter(source: Mapping[str, Any]) -> ForecastAdapter | None:
     return FORECAST_ADAPTERS.get((str(spec.get("name")), version))
 
 
+def forecast_adapter(source: Mapping[str, Any]) -> ForecastAdapter | None:
+    return _adapter_of(source.get("adapter"))
+
+
+def also_adapters(source: Mapping[str, Any]) -> list[ForecastAdapter] | None:
+    """The source's `also_adapters`, in order: [] when it has none, None
+    when one of them is not a known adapter."""
+    found = [_adapter_of(spec) for spec in source.get("also_adapters") or []]
+    if any(a is None for a in found):
+        return None
+    return [a for a in found if a is not None]
+
+
 def forecast_source(
-    entity_ids: Sequence[str], adapter: str, *, version: int = 1
+    entity_ids: Sequence[str],
+    adapter: str,
+    *,
+    version: int = 1,
+    also: Sequence[str] = (),
 ) -> dict[str, Any]:
     """An `entity_attribute` forecast source over `entity_ids`, the first
-    being the anchor."""
+    being the anchor. `also`: adapters tried in order, at version 1, when
+    `adapter` finds no rows (a configured sensor may publish any of the
+    three shapes, #1574)."""
     spec = FORECAST_ADAPTERS[(adapter, version)]
     source: dict[str, Any] = {
         "kind": "entity_attribute",
@@ -156,6 +174,8 @@ def forecast_source(
     }
     if len(entity_ids) > 1:
         source["continued_by"] = list(entity_ids[1:])
+    if also:
+        source["also_adapters"] = [{"name": a, "version": 1} for a in also]
     return source
 
 
@@ -165,7 +185,8 @@ def forecast_source(
 @dataclass(frozen=True)
 class Member:
     """One source of a forecast binding: `ok` with its kW arrays, or
-    `missing` with a reason, never zeros."""
+    `missing` with a reason, never zeros. `adapter` is the one that read
+    the rows, which may be one of the source's `also_adapters`."""
 
     entity_ids: tuple[str, ...]
     adapter: str | None
@@ -205,7 +226,9 @@ def resolve_member(
     0 (a model's excursion below zero); a source with bounds has its lower
     no higher, and its upper no lower, than its value; one without has a
     zero-width band. Reasons: `adapter_unknown`, `unavailable` (no anchor
-    entity), `shape_not_recognized`, `malformed`."""
+    entity), `shape_not_recognized`, `malformed`. A source with
+    `also_adapters` tries each in order when the ones before it find no
+    rows; the member names the adapter that read them."""
     ids = tuple(
         str(e)
         for e in [source.get("entity_id"), *(source.get("continued_by") or [])]
@@ -213,23 +236,32 @@ def resolve_member(
     )
     adapter = forecast_adapter(source)
     name = adapter.name if adapter else None
-    if adapter is None or source.get("kind") != "entity_attribute":
+    also = also_adapters(source)
+    if adapter is None or also is None or source.get("kind") != "entity_attribute":
         return _missing(ids, name, "adapter_unknown")
     if not ids or read_attributes(ids[0]) is None:
         return _missing(ids, name, "unavailable")
     rows: list[dict] = []
-    for entity_id in ids:
-        attrs = read_attributes(entity_id)
-        if attrs is None:
-            continue
-        try:
-            found = adapter.rows(attrs)
-        except (KeyError, TypeError, ValueError):
-            return _missing(ids, name, "malformed")
-        if found:
-            rows.extend(found)
+    for candidate in [adapter, *also]:
+        for entity_id in ids:
+            attrs = read_attributes(entity_id)
+            if attrs is None:
+                continue
+            try:
+                found = candidate.rows(attrs)
+            except (KeyError, TypeError, ValueError):
+                return _missing(ids, candidate.name, "malformed")
+            if found:
+                rows.extend(found)
+        if rows:
+            adapter, name = candidate, candidate.name
+            break
     if not rows:
         return _missing(ids, name, "shape_not_recognized")
+    if len(ids) > 1:
+        # One series over several entities, in time order, as the Solver's
+        # own multi-entity readers sort it.
+        rows.sort(key=lambda p: p["time"])
     n = len(grid_times)
     if adapter.instant:
         resample = resample_instants
@@ -332,7 +364,11 @@ def legacy_solar_binding(
             if auto_include:
                 return None
             return forecast_source([entity_id], "open_meteo_solar")
-        return forecast_source([entity_id], "nimbus_forecast")
+        # A configured sensor may publish any of the three shapes (a
+        # template copy of Solcast's, say): read it in whichever it has.
+        return forecast_source(
+            [entity_id], "nimbus_forecast", also=("solcast", "open_meteo_solar")
+        )
 
     sources: list[dict[str, Any] | None] = [configured("solver_solar_forecast_sensor")]
     if auto_include:

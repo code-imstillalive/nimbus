@@ -1,13 +1,17 @@
-"""DC-006 slice 3's equivalence gate (DC-000 addition 1, #1574): the Solver's
-solar forecast as today's `build_solar_arrays` reads it, against the same
-members resolved through the contract (`device_forecasts`), on identical
-synthetic states.
+"""DC-006 slice 3 (DC-000 addition 1, #1574): the Solver's solar forecast as
+`build_solar_arrays` reads it, against the binding resolved through the
+contract (`device_forecasts`), on identical synthetic states.
 
 Both sides stop at what is read: the running-low gate (#1784) and the live
 anchor transform the forecast afterwards and are the consumer's, so the
-legacy side runs with no live sensor and the gate switched off. Each
-difference listed here must be approved (`approved_changes.json`) or removed
-before the Solver reads its solar forecast through the contract."""
+Solver side runs with no live sensor and the gate switched off.
+
+The three differences Mark Purcell's #2003 review left open, as settled on
+#1574: no source stays the Solver's flat 0.0 kW with a warning while the
+contract says `missing`; a configured sensor is read in whichever of the
+three shapes it publishes, on both sides; a malformed row in an
+auto-included integration raises today and drops that member through the
+contract, which the Solver adopts when it reads through it."""
 
 from __future__ import annotations
 
@@ -179,7 +183,11 @@ def test_the_contract_reads_what_today_reads():
     reasons = [m.reason for m in _contract({}, True, states).members]
     assert reasons == [None, "unavailable"]
 
-    # test_difference_a_malformed_auto_include_row_raises_today: Today a configured sensor with an unparseable time is dropped
+    # test_difference_a_malformed_auto_include_row_raises_today: Solcast's and
+    # Open-Meteo's own readers do not catch an unparseable time, so it raises
+    # out of build_solar_arrays. The contract drops that member like any
+    # other; settled on #1574 as "adopt the contract" when the Solver reads
+    # through it.
     states = {**STATES, "sensor.om_tomorrow": {"watts": {"not a time": 1000.0}}}
     with pytest.raises(ValueError):
         _legacy({}, True, states)
@@ -188,6 +196,30 @@ def test_the_contract_reads_what_today_reads():
         ("open_meteo_solar", "missing", "malformed"),
         ("solcast", "ok", None),
     ]
+
+    # test_no_source_is_the_solver_s_zero_and_the_contract_s_missing: the
+    # Solver solves on a flat 0.0 kW and warns; the contract stays honest
+    # (DC-R04: missing is never zero).
+    options = {"solver_solar_forecast_sensor": "sensor.gone"}
+    value, _lower, _upper = _legacy(options, False, STATES)
+    assert value == [0.0] * len(GRID)
+    forecast = _contract(options, False, STATES)
+    assert (forecast.state, forecast.reason, forecast.value) == (
+        "missing",
+        "no_member_resolved",
+        None,
+    )
+
+    # test_a_configured_sensor_in_another_provider_s_shape_is_read: a
+    # template copy of Solcast's `detailedForecast` is read through the
+    # `solcast` adapter, and the member says so.
+    states = {**STATES, "sensor.copy_of_solcast": solcast([1.0] * 8)}
+    options = {"solver_solar_forecast_sensor": "sensor.copy_of_solcast"}
+    value, _lower, _upper = _legacy(options, False, states)
+    assert value == [1.0] * len(GRID)
+    _same(_legacy(options, False, states), _contract(options, False, states))
+    member = _contract(options, False, states).members[0]
+    assert (member.adapter, member.state) == ("solcast", "ok")
 
     # test_today_s_binding_validates
     binding = dfc.legacy_solar_binding(
@@ -209,6 +241,12 @@ def test_the_contract_reads_what_today_reads():
         }
     }
     assert "source_fields_missing" in _codes(binding)
+    for also in ([{"name": "solcast"}], "solcast", [{"name": "", "version": 1}]):
+        binding = {
+            "source": {**dfc.forecast_source(["sensor.a"], "nimbus_forecast")}
+            | {"also_adapters": also}
+        }
+        assert "source_fields_missing" in _codes(binding), also
 
     # test_one_source_stays_the_ordinary_binding
     binding = dfc.legacy_solar_binding(
@@ -226,9 +264,6 @@ def test_the_contract_reads_what_today_reads():
         ).reason
         == "unbound"
     )
-
-
-# --- differences the gate finds: each needs a decision before the slice merges ---
 
 
 # --- the binding itself (DC-001) --------------------------------------------------
