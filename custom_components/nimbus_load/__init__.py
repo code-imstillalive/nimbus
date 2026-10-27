@@ -886,8 +886,8 @@ async def _async_setup_entry_impl(
     # the site the household confirmed; its first setup commits it, then the
     # entry forgets it. A refusal leaves the hub in `legacy`, as before the
     # flow, and a Repair says why.
-    pending = entry.data.get("pending_device_document")
-    if pending is not None:
+    pending = (entry.data or {}).get("pending_device_document")
+    if isinstance(pending, dict):
         try:
             adopted = await device_contract_ha.async_adopt_new_install(
                 hass, entry, pending
