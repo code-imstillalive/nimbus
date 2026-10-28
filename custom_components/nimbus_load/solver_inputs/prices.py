@@ -145,6 +145,9 @@ def _contract_price_forecast(cfg, role, grid_times, now):
         try:
             return sw.ha_get(entity_id)
         except Exception:  # noqa: BLE001 -- an unreadable sensor is a refusal
+            solver_shared._LOGGER.debug(
+                "Nimbus #1574: %s unreadable for %s", entity_id, role, exc_info=True
+            )
             return None
 
     try:
