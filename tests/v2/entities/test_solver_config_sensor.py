@@ -142,9 +142,10 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
         assert (attrs["region"], attrs["postcode_prefix"]) == (None, None)
 
     # test_a_participant_that_departs_or_takes_trips_is_named_a_vehicle
-    # #2140: flex telemetry marks these `ev`. A departure hour (0 counts) or a
-    # trip calendar makes one; the per-100 km figure, which has a default,
-    # does not, and neither does a participant with neither.
+    # #2140: flex telemetry marks these `ev`. By default a departure hour (0
+    # counts) or a trip calendar makes one; the per-100 km figure, which has a
+    # default, does not, and neither does a participant with neither. An
+    # explicit "Report as" wins either way.
     def participant(name, **data):
         return SimpleNamespace(
             subentry_type=sm.SUBENTRY_TYPE_BATTERY_PARTICIPANT,
@@ -158,10 +159,21 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
         ),
         "s3": participant("Shed battery", battery_participant_kwh_per_100km=18.0),
         "s4": SimpleNamespace(subentry_type=sm.SUBENTRY_TYPE_LOAD, data={}),
+        # Mark's "do both": "Report as" overrides the default either way.
+        "s5": participant(
+            "House battery with a deadline",
+            **{
+                sm.CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR: 17,
+                sm.CONF_BATTERY_PARTICIPANT_ASSET_KIND: "stationary",
+            },
+        ),
+        "s6": participant(
+            "Bike", **{sm.CONF_BATTERY_PARTICIPANT_ASSET_KIND: "vehicle"}
+        ),
     }
     with monkeypatch.context() as mp:
         attrs = _sensor(mp, _numbers(), subentries=subs).extra_state_attributes
-        assert attrs["flex_vehicle_participants"] == ["Car", "Van"]
+        assert attrs["flex_vehicle_participants"] == ["Bike", "Car", "Van"]
 
     # test_every_number_entity_is_read_live_not_from_saved_options
     keys = [d.key for d in _number._DESCRIPTIONS]

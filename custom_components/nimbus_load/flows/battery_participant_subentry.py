@@ -30,6 +30,7 @@ from homeassistant.helpers import selector
 
 from ..availability import DOMAINS as AVAILABILITY_DOMAINS
 from ..const import (
+    CONF_BATTERY_PARTICIPANT_ASSET_KIND,
     CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
     CONF_BATTERY_PARTICIPANT_AVAILABLE_STATES,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
@@ -53,6 +54,9 @@ from ..const import (
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
     CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
     DEFAULT_PARTICIPANT_KWH_PER_100KM,
+    PARTICIPANT_ASSET_KIND_AUTO,
+    PARTICIPANT_ASSET_KIND_STATIONARY,
+    PARTICIPANT_ASSET_KIND_VEHICLE,
 )
 from . import form_action_placeholders
 
@@ -313,6 +317,23 @@ def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema
         CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY,
         defaults.get(CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY),
         selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+    )
+    # #2140: what flex telemetry reports this participant as (const.py).
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_ASSET_KIND,
+        defaults.get(CONF_BATTERY_PARTICIPANT_ASSET_KIND)
+        or PARTICIPANT_ASSET_KIND_AUTO,
+        selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    PARTICIPANT_ASSET_KIND_AUTO,
+                    PARTICIPANT_ASSET_KIND_VEHICLE,
+                    PARTICIPANT_ASSET_KIND_STATIONARY,
+                ],
+                translation_key=CONF_BATTERY_PARTICIPANT_ASSET_KIND,
+            )
+        ),
     )
     # #563 item 3: the shared-charger power constraint -- a free-text
     # group name (two participants with the SAME name share one real

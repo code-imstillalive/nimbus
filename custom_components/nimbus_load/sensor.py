@@ -76,6 +76,7 @@ from .const import (
     ATTR_VALIDATION_MASE,
     ATTR_VALIDATION_RECURSIVE_MAE,
     ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON,
+    CONF_BATTERY_PARTICIPANT_ASSET_KIND,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
     CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
     CONF_BATTERY_PARTICIPANT_NAME,
@@ -233,6 +234,9 @@ from .const import (
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     DOMAIN,
+    PARTICIPANT_ASSET_KIND_AUTO,
+    PARTICIPANT_ASSET_KIND_STATIONARY,
+    PARTICIPANT_ASSET_KIND_VEHICLE,
     SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_TEMPERATURE,
@@ -246,6 +250,21 @@ from .const import (
 )
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .load_run_state_coordinator import NimbusLoadRunStateCoordinator
+
+
+def _is_vehicle(data: dict) -> bool:
+    """#2140 (Mark Purcell: "do both"): a participant's explicit "Report as"
+    wins either way; on `auto` it is a vehicle when a departure hour or a
+    trip calendar is set."""
+    kind = data.get(CONF_BATTERY_PARTICIPANT_ASSET_KIND) or PARTICIPANT_ASSET_KIND_AUTO
+    if kind == PARTICIPANT_ASSET_KIND_VEHICLE:
+        return True
+    if kind == PARTICIPANT_ASSET_KIND_STATIONARY:
+        return False
+    return data.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR) is not None or bool(
+        data.get(CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY)
+    )
+
 
 # All real fields a topology-metadata subentry can carry, keyed by its
 # own subentry_type -- see NimbusTopologyConfigSensor's own docstring
@@ -2677,16 +2696,14 @@ class NimbusSolverConfigSensor(SensorEntity):
         region, prefix = self._resolve_geocoded_region_and_prefix()
         attrs["region"] = region
         attrs["postcode_prefix"] = prefix
-        # #2140: Battery Participants that are vehicles by their own settings
-        # (a departure hour or a trip calendar), for flex telemetry's `kind`.
+        # #2140: Battery Participants reported as vehicles, for flex
+        # telemetry's `kind`: by their "Report as" setting, else by their own
+        # departure settings (a departure hour or a trip calendar).
         attrs["flex_vehicle_participants"] = sorted(
             str(sub.data.get(CONF_BATTERY_PARTICIPANT_NAME) or sid)
             for sid, sub in self._entry.subentries.items()
             if sub.subentry_type == SUBENTRY_TYPE_BATTERY_PARTICIPANT
-            and (
-                sub.data.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR) is not None
-                or sub.data.get(CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY)
-            )
+            and _is_vehicle(sub.data)
         )
         attrs["aemo_30min_forecast_sensor"] = (
             self._discover_aemo_30min_forecast_sensor()

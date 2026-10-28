@@ -8,7 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-- **Flex telemetry tells an EV from a house battery** (#2140). A Battery Participant with a departure hour or a trip calendar set is a vehicle by its own settings, so its flex record asset reads `kind: ev`; every other battery stays `stationary_battery`. Nothing is guessed from a name.
+- **Flex telemetry tells an EV from a house battery** (#2140). A Battery Participant with a departure hour or a trip calendar set is a vehicle by its own settings, so its flex record asset reads `kind: ev`; every other battery stays `stationary_battery`. Nothing is guessed from a name. A new optional **Report as** setting on the participant (Automatic, Vehicle, Stationary battery) overrides that either way. It changes nothing in the plan.
 
 ## [0.94.495] - 2026-10-28
 
