@@ -340,6 +340,12 @@ _MODE_REFUSALS = {
 }
 
 
+#: The first dry run's wait for the hub's numbers: every 15 s, at most 20
+#: times (5 minutes, the regular refresh), then it runs anyway.
+_FIRST_REFRESH_RETRY_S = 15
+_FIRST_REFRESH_TRIES = 20
+
+
 class NimbusDeviceSetupModeSelect(SelectEntity):
     """`select.nimbus_device_setup_mode` (nimbus #1574, DC-004): legacy,
     shadow or active, read from the device store, never stored here.
@@ -370,11 +376,34 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        await self._async_refresh()
-        self.async_write_ha_state()
+        await self._async_first_refresh()
         self.async_on_remove(
             async_track_time_interval(self.hass, self._async_tick, timedelta(minutes=5))
         )
+
+    async def _async_first_refresh(self, *_: Any, tries: int = 0) -> None:
+        """The first dry run waits until the hub's numbers are restored, so it
+        never reports a problem that is only the startup order (a battery
+        whose capacity is not back yet). Every 15 s, at most 20 times, then
+        it runs anyway."""
+        from homeassistant.helpers.event import async_call_later
+
+        from . import device_contract_ha
+
+        if tries < _FIRST_REFRESH_TRIES and not device_contract_ha.numbers_ready(
+            self.hass, self._entry
+        ):
+            self.async_on_remove(
+                async_call_later(
+                    self.hass,
+                    _FIRST_REFRESH_RETRY_S,
+                    lambda _now: self.hass.async_create_task(
+                        self._async_first_refresh(tries=tries + 1)
+                    ),
+                )
+            )
+            return
+        await self._async_tick()
 
     async def _async_tick(self, *_: Any) -> None:
         await self._async_refresh()
