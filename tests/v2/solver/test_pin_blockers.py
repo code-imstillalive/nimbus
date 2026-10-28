@@ -130,6 +130,47 @@ def test_the_solver_rejects_a_pin_exactly_when_something_is_named():
         else:
             assert _blamed(site, pin), pin
 
+    # test_an_infeasible_plan_names_exactly_the_settings_that_free_it
+    # #2127: re-planned with each hard setting relaxed on its own, a plan that
+    # cannot hold a 30 kW discharge against 25 kW names exactly the two
+    # settings that free it, by the names the household sees.
+    import solver_plan
+
+    _solver_lp._lex_calibration_failed_until = 0.0
+    site = _site()
+    assert _status(site, 30.0) == "infeasible"
+    pinned = [dataclasses.replace(site["batteries"][0], period0_pin_net_kw=30.0)]
+    causes = solver_plan.infeasible_causes(
+        lambda batteries, grid: build_plan(
+            **{**site, "batteries": batteries, "grid": grid}
+        ),
+        pinned,
+        site["grid"],
+    )
+    assert causes == (
+        "Max Charge Power / Max Discharge Power (home)",
+        "the setpoint held for now (home)",
+    )
+
+    # test_the_diagnosis_is_reused_until_the_settings_change
+    # Mark Purcell's review of #2127: an answer is kept for 10 minutes only
+    # while the settings stay as they were; a change is diagnosed afresh.
+    solves = []
+
+    def rebuild(batteries, grid):
+        solves.append(batteries[0].max_discharge_kw)
+        return build_plan(**{**site, "batteries": batteries, "grid": grid})
+
+    infeasible = build_plan(**{**site, "batteries": pinned})
+    solver_plan._LAST_DIAGNOSIS.update(at=None, key=None, causes=None)
+    first = solver_plan._diagnosed(infeasible, rebuild, pinned, site["grid"])
+    n = len(solves)
+    again = solver_plan._diagnosed(infeasible, rebuild, pinned, site["grid"])
+    assert len(solves) == n and again.infeasible_causes == first.infeasible_causes
+    slower = [dataclasses.replace(pinned[0], max_discharge_kw=20.0)]
+    solver_plan._diagnosed(infeasible, rebuild, slower, site["grid"])
+    assert len(solves) > n
+
 
 def _with_ev(site, *, group_kw=None, ev_kw=None):
     home = site["batteries"][0]

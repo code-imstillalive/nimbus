@@ -1844,6 +1844,13 @@ class NimbusControllableLoadStateSensor(
         data = self._subentry.data
         return {
             **state.to_dict(),
+            # nimbus #2128: the plan's energy, cost, runtime and average
+            # price over the next 24 hours and the whole plan.
+            "plan_summary": forecast_stats.plan_summary(
+                state.plan_forecast or (),
+                state.plan_cost_forecast or (),
+                datetime.now(UTC),
+            ),
             "device_entity": data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
             "climate_on_hvac_mode": data.get(
                 CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE

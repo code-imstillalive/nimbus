@@ -882,7 +882,7 @@
     },
     "plan_failing_infeasible": {
       "title": "Nimbus: no plan meets your settings",
-      "description": "Since {since}, on each of the last {cycles} cycles, the solver proved that no plan meets your current settings (the solver's reason: {reason}). Until this clears, the plan Nimbus publishes schedules no battery or load activity.\n\nCheck for a recent change that cannot all be met at once: battery Min or Max SoC, charge or discharge limits, grid import or export limits, or a load that must run within a window. While this lasts, the battery forecast's `status` attribute reads `infeasible`. This clears itself on the next good plan."
+      "description": "Since {since}, on each of the last {cycles} cycles, the solver proved that no plan meets your current settings (the solver's reason: {reason}). Until this clears, the plan Nimbus publishes schedules no battery or load activity.\n\n{causes}\n\nWhile this lasts, the battery forecast's `status` attribute reads `infeasible`. This clears itself on the next good plan."
     },
     "availability_states_never_match": {
       "title": "Nimbus: {name} is never available",
