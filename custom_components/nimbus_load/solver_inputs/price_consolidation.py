@@ -58,6 +58,11 @@ EWMA_ALPHA = 0.05
 MIN_SAMPLES = 50
 #: Pending forecasts are never kept further ahead than this.
 MAX_PENDING_AHEAD_HOURS = 48.0
+#: The blend itself, scored beside the sources so the switch to `live` can
+#: rest on its measured error (#1786: "chosen by measured least error"). It
+#: never earns a weight, and it is scored on its raw error: it enters the
+#: plan as it is, while each source enters with its offset removed.
+BLEND_SOURCE = "consolidated"
 #: Floor on MAE when inverting it, so a source with zero error so far does
 #: not take an infinite weight.
 _MAE_FLOOR = 1e-4
@@ -323,7 +328,10 @@ class SourceErrorTracker:
                 b = self.bias.setdefault(source, {}).get(bucket)
                 # Scored after removing the offset learned so far, so a
                 # steady contract premium is not counted as forecast error.
-                err = abs(signed - (b or 0.0))
+                # The blend is scored as it is (BLEND_SOURCE).
+                err = (
+                    abs(signed - (b or 0.0)) if source != BLEND_SOURCE else abs(signed)
+                )
                 n = self.samples.setdefault(source, {}).get(bucket, 0)
                 prev = self.mae.setdefault(source, {}).get(bucket)
                 self.mae[source][bucket] = (
@@ -365,6 +373,7 @@ class SourceErrorTracker:
         settled samples in this bucket; a source with fewer is still being
         scored and has no weight. None when no source has earned one."""
         names = list(sources) if sources is not None else sorted(self.mae)
+        names = [n for n in names if n != BLEND_SOURCE]
         inv: dict[str, float] = {}
         for name in names:
             if self.samples.get(name, {}).get(bucket, 0) < MIN_SAMPLES:
@@ -519,6 +528,9 @@ def consolidate_side(
         tracker.record_series(
             name, now, grid_times, period_hours, s, first_index=n_settled
         )
+    tracker.record_series(
+        BLEND_SOURCE, now, grid_times, period_hours, values, first_index=n_settled
+    )
     head = spread[n_settled] if n_settled < len(spread) else None
     summary = {
         "sources": names,

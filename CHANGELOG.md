@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **The device setup's dry run names its problems** (`select.nimbus_device_setup_mode`'s `dry_run_problem_list`: each problem's code and path), not only how many. A count alone left one on a test install unexplained for hours.
+- **The price blend's own error is measured** (#1786). Each price source has been scored against the price that settles, but the blend itself wasn't, so the documented test for switching *Blend drives plan* on ("the blend closer to the settled price than the provider at every lead") couldn't be checked. The blend is now scored beside the sources as `consolidated`: on its raw error, since it enters the plan as it is, and it never takes a share of the blend itself. The Solver tab's price table is unchanged.
 
 ## [0.94.495] - 2026-10-28
 

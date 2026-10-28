@@ -74,6 +74,22 @@ def test_the_spread_is_the_raw_range_and_no_source_is_none(monkeypatch):
     )
     assert spiked[0] == pytest.approx(1.01)
 
+    # test_the_blend_is_scored_as_it_enters_the_plan_and_never_weighs_itself
+    # #1786: the switch to `live` should rest on the blend's own measured
+    # error. It is scored raw (no offset removed), and earns no weight.
+    tr = pc.SourceErrorTracker()
+    _train(tr, {"primary": 0.14, "amber": 0.16}, 0.14, 200)
+    values, _, _ = pc.consolidate_side(
+        tr, {"primary": [0.15], "amber": [0.17]}, now, grid, [1 / 12], 0, None
+    )
+    tr.settle(pc.interval_key(now + timedelta(minutes=5)), 0.17)
+    assert tr.mae[pc.BLEND_SOURCE]["0-5 min"] == pytest.approx(0.17 - values[0])
+    assert tr.samples[pc.BLEND_SOURCE]["0-5 min"] == 1
+    assert pc.BLEND_SOURCE in tr.summary()["mae_by_source_and_lead"]
+    assert set(tr.summary()["weights"]["0-5 min"]) == {"primary", "amber"}
+    tr.samples[pc.BLEND_SOURCE]["0-5 min"] = 500
+    assert set(tr.weights("0-5 min")) == {"primary", "amber"}
+
     # test_the_tracker_round_trips_and_a_damaged_or_older_state_loads
     tr = _tracker_with(60, 70)
     _train(tr, {"amber": 0.16}, 0.14, 3)
