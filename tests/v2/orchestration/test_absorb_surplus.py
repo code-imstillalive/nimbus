@@ -13,6 +13,9 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+from datetime import UTC, datetime, timedelta
+
+from custom_components.nimbus_load import solver_publish
 from custom_components.nimbus_load.solver_publish import absorb_surplus
 
 # The 09:47 shape: a small solar charge planned, solar well above the load,
@@ -47,3 +50,25 @@ def test_a_hold_with_spare_solar_is_absorbed_too():
 
     # test_a_p2p_block_is_left_to_the_plan
     assert _call(committed_export_kw=11.5) == (False, "p2p_block")
+
+    # test_a_marginal_hold_right_after_solar_charge_stays_solar_charge
+    # Household, 28 Oct 2026 (option 2): solar about equal to the load made
+    # the plan flip between PV-only charge and hold every minute, and the
+    # inverter followed. Inside 5 minutes of a solar charge, a hold short by
+    # at most 2 kW is published as solar charge; outside either, the plan's.
+    t0 = datetime(2026, 10, 28, 1, 0, tzinfo=UTC)
+    solver_publish._LAST_SOLAR_CHARGE["at"] = None
+
+    def hold(shortfall_kw, seconds):
+        row = {"dispatch_hold": True, "dispatch_solar_charge": False}
+        row["grid_import_kw"] = shortfall_kw
+        solver_publish._steady_solar_charge(row, t0 + timedelta(seconds=seconds))
+        return row["dispatch_hold"], row["dispatch_solar_charge"]
+
+    assert hold(1.9, 0) == (True, False)  # no solar charge seen yet
+    solver_publish._steady_solar_charge({"dispatch_solar_charge": True}, t0)
+    assert hold(1.9, 60) == (False, True)
+    assert hold(3.0, 60) == (True, False)
+    assert hold(0.0, 60) == (True, False)
+    assert hold(1.9, 400) == (True, False)
+    solver_publish._LAST_SOLAR_CHARGE["at"] = None
