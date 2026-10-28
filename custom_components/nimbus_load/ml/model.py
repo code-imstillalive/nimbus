@@ -1830,6 +1830,7 @@ def predict(
     run_hold_hours: float = 1.0,
     learned_when_off: bool = False,
     run_started: datetime | None = None,
+    burst_stopped: bool = False,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -1981,6 +1982,12 @@ def predict(
     # a fixed daily schedule, which the bursty rule also admits (Mark
     # Purcell's review), keeps its schedule-aware forecast for the run and
     # its usual pattern after.
+    # nimbus #2137: the same load, off now. Chained from its recent readings,
+    # a run that has just ended still looked like it was going: the
+    # household's AC, off at 13:46, was forecast to run until 17:00. Its
+    # usual pattern takes over at once instead.
+    if burst_stopped and timestamps and not allow_negative:
+        return _learned_usual_runs(0)
     threshold = trained.run_threshold_kw
     if (
         threshold is not None

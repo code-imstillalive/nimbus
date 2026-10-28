@@ -9,6 +9,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **The site postcode is saved** (#2136). 0.94.494's new Configure -> Grid Prices -> Advanced -> Site postcode was shown and accepted, then dropped by the wizard's final save, which keeps only the keys it lists, and the postcode wasn't listed. It is now, and every field a Solver step shows is checked against that list.
+- **A burst load that has just stopped is forecast as stopped** (#2137). #2129 ends a run that is still going at its usual length, but once the load switched off its forecast was chained from the run's recent readings and still looked like it was running: an AC off at 13:46 was forecast to run until 17:00. A load learned as running in bursts that is off now takes its usual pattern straight away.
+
 ## [0.94.494] - 2026-10-28
 
 **The plan no longer waits for the offer curve, an impossible plan names the settings in the way, and an AC's forecast stops when its runs usually stop.**
