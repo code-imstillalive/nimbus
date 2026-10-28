@@ -413,7 +413,10 @@ async def async_get_config_entry_diagnostics(
     that id -- byte-identical output for the two coordinator-backed
     types (`load`/`power_signal`), a real one for every other type
     instead of total silence."""
-    coordinators = entry.runtime_data
+    # An entry that is reloading (or failed to load) has no runtime_data;
+    # its settings and subentries are still worth reporting (29 Oct 2026:
+    # a download during a reload returned a server error).
+    coordinators = getattr(entry, "runtime_data", None) or {}
 
     subentries: list[dict[str, Any]] = []
     for subentry_id, subentry in entry.subentries.items():

@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **Downloading diagnostics while Nimbus reloads works.** A diagnostics download made while the hub was reloading (for example just after saving its settings) returned a server error. It now returns the settings and parts as usual.
 ## [0.94.497] - 2026-10-29
 
 **Home / away settings are saved, a restart no longer shows a false device-setup problem, flex telemetry tells an EV from a house battery, and a changed price source starts fresh in the blend.**
