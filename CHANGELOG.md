@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **A removed price source no longer shows a share.** The Price sources table's Share column was worked out over every source the blend had ever scored, so a source removed from Grid Prices kept a share there (the blend itself had already stopped using it). The shares are now over the sources set now.
+
 ## [0.94.497] - 2026-10-29
 
 **Home / away settings are saved, a restart no longer shows a false device-setup problem, flex telemetry tells an EV from a house battery, and a changed price source starts fresh in the blend.**
