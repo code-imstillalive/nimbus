@@ -109,6 +109,7 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             return SimpleNamespace(offer_curve_deferred=dict, seconds=seconds)
 
         run = solver_writer.sweep_offer_curve
+        self.addCleanup(solver_writer._LAST_OFFER_CURVE.update, at=None, seconds=None)
         with patch.object(solver_writer.network, "complete_offer_curve", complete):
             solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
             run(pending(60.0), 0.0)
@@ -120,7 +121,6 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             done = SimpleNamespace(offer_curve_deferred=None)
             self.assertIs(run(done, 20.0), done)
         self.assertEqual(sweeps, [60.0, 60.0, 1.0, 1.0])
-        solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
 
         plan = _plan(
             offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
