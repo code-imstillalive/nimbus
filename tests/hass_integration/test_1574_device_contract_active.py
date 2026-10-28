@@ -628,6 +628,15 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     hass.states.async_set("sensor.buy", "0.30", {"unit_of_measurement": "$/kWh"})
     snap = device_contract_ha.snapshot(hass, entry)
     assert snap["price_sources"]["sensor.buy"] == {"unit": "$/kWh", "profile": False}
+    # A sensor in a provider's shape (here OpenADR's) is read by that
+    # provider's rows, so it counts as a provider's.
+    hass.states.async_set(
+        "sensor.sell",
+        "0.08",
+        {"unit_of_measurement": "$/kWh", "forecast_rows": 2, "payload_type": "PRICE"},
+    )
+    snap = device_contract_ha.snapshot(hass, entry)
+    assert snap["price_sources"]["sensor.sell"]["profile"] is True
     stored = await _store(hass, entry).async_read()
     grid = _device(stored["document"], "grid")["bindings"]
     assert grid["import_price_forecast"]["provenance"]["derived_from"] == "import_price"

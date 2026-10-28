@@ -52,6 +52,7 @@ from . import (
     device_storage,
     device_units,
     known_sources,
+    price_intervals,
 )
 from .const import DOMAIN
 
@@ -122,8 +123,10 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
 
 def _price_sources(hass: Any, options: Any) -> dict[str, dict[str, Any]]:
     """{entity id: {"unit", "profile"}} for the configured import and export
-    price sensors: the unit they state, and whether a provider profile reads
-    them (`profile`), so only a generic sensor's forecast is imported."""
+    price sensors: the unit they state, and whether a provider reads them
+    (`profile`): a provider profile's platform, or attributes in a provider's
+    shape, which the Solver reads by that provider's rows. Only a generic
+    sensor's forecast is imported."""
     registry = er.async_get(hass)
     out: dict[str, dict[str, Any]] = {}
     for key in ("solver_import_price_sensor", "solver_export_price_sensor"):
@@ -132,9 +135,11 @@ def _price_sources(hass: Any, options: Any) -> dict[str, dict[str, Any]]:
             continue
         entry = registry.async_get(entity_id)
         state = hass.states.get(entity_id)
+        attrs = dict(state.attributes) if state else {}
         out[entity_id] = {
-            "unit": state.attributes.get("unit_of_measurement") if state else None,
-            "profile": bool(entry and entry.platform in _PROFILE_DOMAINS),
+            "unit": attrs.get("unit_of_measurement"),
+            "profile": bool(entry and entry.platform in _PROFILE_DOMAINS)
+            or price_intervals.is_provider_shape(attrs),
         }
     return out
 
