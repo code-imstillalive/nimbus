@@ -289,6 +289,10 @@ jobs:
       # entry-point name is what actually isolates the stub suite, and a
       # second invocation without the flag is what gives the
       # hass_integration tests the real fixtures.
+      - name: The suite stays at 1,010 to 1,020 tests
+        # Household, 28 Oct 2026. Counts both runs' collected tests; see the
+        # script for what to do when it fails.
+        run: python .github/scripts/check_test_count.py
       - name: Run pytest (stub-based, fast)
         run: |
           pytest tests/ --ignore=tests/hass_integration/ \

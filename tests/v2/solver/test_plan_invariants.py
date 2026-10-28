@@ -188,11 +188,8 @@ def _demand(site, plan):
     return out
 
 
-@SETTINGS
-@given(sites())
-def test_every_period_balances(site):
+def _every_period_balances(site, plan):
     """Import - export + discharge - charge + solar used = load (#390)."""
-    plan = _solve(site)
     assert plan.status == "optimal"
     supply = (
         plan.grid_import_kw
@@ -207,12 +204,9 @@ def test_every_period_balances(site):
     )
 
 
-@SETTINGS
-@given(sites())
-def test_soc_follows_the_flows(site):
+def _soc_follows_the_flows(site, plan):
     """soc[t] is the end of period t: soc[t-1] + (charge * eff_c -
     discharge / eff_d) * hours[t], starting from the initial SoC."""
-    plan = _solve(site)
     b = site["battery"]
     step = (
         plan.battery_charge_kw * b["charge_efficiency"]
@@ -222,10 +216,7 @@ def test_soc_follows_the_flows(site):
     np.testing.assert_allclose(plan.battery_soc_kwh, expected, atol=1e-4)
 
 
-@SETTINGS
-@given(sites())
-def test_every_flow_and_soc_within_bounds(site):
-    plan = _solve(site)
+def _every_flow_and_soc_within_bounds(site, plan):
     b = site["battery"]
     for arr, cap in (
         (plan.battery_charge_kw, b["max_charge_kw"]),
@@ -239,21 +230,15 @@ def test_every_flow_and_soc_within_bounds(site):
     assert plan.soc_penalty_cost <= TOL
 
 
-@SETTINGS
-@given(sites())
-def test_no_opposing_flows_in_one_period(site):
+def _no_opposing_flows_in_one_period(site, plan):
     """One grid connection, one current direction (#238, #1535)."""
-    plan = _solve(site)
     assert (np.minimum(plan.battery_charge_kw, plan.battery_discharge_kw) <= TOL).all()
     assert (np.minimum(plan.grid_import_kw, plan.grid_export_kw) <= TOL).all()
 
 
-@SETTINGS
-@given(sites())
-def test_a_battery_never_costs_more_than_leaving_it_idle(site):
+def _a_battery_never_costs_more_than_leaving_it_idle(site, plan):
     """Idle is a feasible plan, so the optimum can only be as cheap or
     cheaper."""
-    plan = _solve(site)
     idle = _solve(site, available=False)
     assert idle.status == "optimal"
     assert plan.total_cost <= idle.total_cost + 1e-6
@@ -261,16 +246,13 @@ def test_a_battery_never_costs_more_than_leaving_it_idle(site):
     assert (idle.battery_discharge_kw <= TOL).all()
 
 
-@SETTINGS
-@given(sites())
-def test_an_adequacy_load_keeps_to_its_power_window_and_target(site):
+def _an_adequacy_load_keeps_to_its_power_window_and_target(site, plan):
     """Hot water and deferrables (#613): power in [0, max] and none before
     the earliest period; delivered + shortfall covers the target; a target
     the load can reach is met when a shortfall costs $20/kWh."""
     a = site["adequacy"]
     if a is None:
         return
-    plan = _solve(site)
     assert plan.status == "optimal"
     (ap,) = plan.adequacy_loads
     hours = site["hours"]
@@ -311,14 +293,11 @@ def test_a_battery_below_its_floor_never_sinks_further(site, depth):
     assert (plan.soc_penalty_cost <= 1e-6) == inside
 
 
-@SETTINGS
-@given(sites())
-def test_buying_part_of_the_limit_prices_energy_at_the_buy_price(site):
+def _buying_part_of_the_limit_prices_energy_at_the_buy_price(site, plan):
     """LP duality (#662): in a period where the plan imports some but not all
     it could, and exports nothing, the energy balance's shadow price per kWh
     is that period's buy price. An adequacy load's marginal cost is that
     price times what it draws."""
-    plan = _solve(site)
     hours = site["hours"]
     lam = np.array(
         [
@@ -337,23 +316,18 @@ def test_buying_part_of_the_limit_prices_energy_at_the_buy_price(site):
         assert abs(ap.marginal_cost - expected) < 1e-6
 
 
-@SETTINGS
-@given(sites())
-def test_a_sheddable_load_serves_at_least_its_floor(site):
+def _a_sheddable_load_serves_at_least_its_floor(site, plan):
     """served + shed = forecast, and served never below min_fraction."""
     sh = site["sheddable"]
     if sh is None:
         return
-    plan = _solve(site)
     (sp,) = plan.sheddable_loads
     np.testing.assert_allclose(sp.served_kw + sp.shed_kw, sh["forecast_kw"], atol=TOL)
     assert (sp.shed_kw >= -TOL).all()
     assert (sp.served_kw >= sh["min_fraction"] * sh["forecast_kw"] - TOL).all()
 
 
-@SETTINGS
-@given(sites())
-def test_a_thermal_load_follows_its_model_and_meets_its_target(site):
+def _a_thermal_load_follows_its_model_and_meets_its_target(site, plan):
     """Hot water (#603): temperature[t] is the end of period t,
     temperature[t-1] + rate x power x hours - decay x hours x idle share, where
     the idle share is 1 - power / max; the target is met by the deadline; power
@@ -361,7 +335,6 @@ def test_a_thermal_load_follows_its_model_and_meets_its_target(site):
     th = site["thermal"]
     if th is None:
         return
-    plan = _solve(site)
     assert plan.status == "optimal"
     (tp,) = plan.thermal_loads
     hours = site["hours"]
@@ -375,6 +348,35 @@ def test_a_thermal_load_follows_its_model_and_meets_its_target(site):
     expected = th["initial_temperature_c"] + np.cumsum(step)
     np.testing.assert_allclose(tp.temperature_c, expected, atol=1e-3)
     assert tp.temperature_c[th["deadline_period"]] >= th["target_temperature_c"] - 1e-3
+
+
+# Nine tests of 40 sites each became one of 200: every invariant now sees 200
+# sites, not 40, for about the same number of solves (two per site).
+@settings(SETTINGS, max_examples=200)
+@given(sites())
+def test_every_plan_keeps_its_invariants(site):
+    """Each drawn site's plan is checked against every invariant below, one
+    solve for all of them. Folded from nine tests on 28 Oct 2026 (household:
+    keep the suite at 1,010 to 1,020); each part's assertions are unchanged."""
+    plan = _solve(site)
+    # test_every_period_balances
+    _every_period_balances(site, plan)
+    # test_soc_follows_the_flows
+    _soc_follows_the_flows(site, plan)
+    # test_every_flow_and_soc_within_bounds
+    _every_flow_and_soc_within_bounds(site, plan)
+    # test_no_opposing_flows_in_one_period
+    _no_opposing_flows_in_one_period(site, plan)
+    # test_a_battery_never_costs_more_than_leaving_it_idle
+    _a_battery_never_costs_more_than_leaving_it_idle(site, plan)
+    # test_an_adequacy_load_keeps_to_its_power_window_and_target
+    _an_adequacy_load_keeps_to_its_power_window_and_target(site, plan)
+    # test_buying_part_of_the_limit_prices_energy_at_the_buy_price
+    _buying_part_of_the_limit_prices_energy_at_the_buy_price(site, plan)
+    # test_a_sheddable_load_serves_at_least_its_floor
+    _a_sheddable_load_serves_at_least_its_floor(site, plan)
+    # test_a_thermal_load_follows_its_model_and_meets_its_target
+    _a_thermal_load_follows_its_model_and_meets_its_target(site, plan)
 
 
 @SETTINGS

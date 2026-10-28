@@ -54,6 +54,33 @@ def test_instant_readings_edge_shapes(ha, monkeypatch):
     one = [{"time": _iso(T0), "w": 7.0}]
     assert sw.resample_instants(one, "w", [T0]) == [7.0]
 
+    # test_instant_readings_take_each_periods_midpoint_and_hold_at_the_ends
+    # Restored (#1837 follow-up): cut 1 removed these on coverage alone; a
+    # mutation of the code they check survives main's suite without them.
+    grid = _grid(4)
+    readings = [
+        {"time": _iso(T0 + timedelta(minutes=30)), "watts": 1000.0},
+        {"time": _iso(T0 + timedelta(minutes=90)), "watts": 3000.0},
+        {"time": _iso(T0 + timedelta(minutes=95)), "watts": None},
+    ]
+    # Midpoints 06:15 (before the first: held), 06:45 (a quarter of the way),
+    # 07:15 (three quarters), 07:45 (after the last: held; the last period is
+    # as long as the one before it).
+    assert sw.resample_instants(readings, "watts", grid) == [
+        1000.0,
+        1500.0,
+        2500.0,
+        3000.0,
+    ]
+
+    # test_instant_readings_on_the_half_hour_are_the_reading_at_each_start
+    grid = _grid(3, start=T0)
+    readings = [
+        {"time": _iso(T0 + timedelta(minutes=15 + 30 * i)), "w": float(i)}
+        for i in range(3)
+    ]
+    assert sw.resample_instants(readings, "w", grid) == [0.0, 1.0, 2.0]
+
     # test_no_usable_forecast_is_none_not_zero
     for state in [
         None,
@@ -1094,32 +1121,3 @@ def test_price_history_is_the_last_days_up_to_now(monkeypatch, kwargs, days):
     ((entity, start, end),) = calls
     assert entity == "sensor.price" and end - start == timedelta(days=days)
     assert datetime.now(UTC) - end < timedelta(seconds=10)
-
-
-# Restored (#1837 follow-up): cut 1 removed these on coverage alone; a
-# mutation of the code they check survives main's suite without them.
-def test_instant_readings_take_each_periods_midpoint_and_hold_at_the_ends():
-    grid = _grid(4)
-    readings = [
-        {"time": _iso(T0 + timedelta(minutes=30)), "watts": 1000.0},
-        {"time": _iso(T0 + timedelta(minutes=90)), "watts": 3000.0},
-        {"time": _iso(T0 + timedelta(minutes=95)), "watts": None},
-    ]
-    # Midpoints 06:15 (before the first: held), 06:45 (a quarter of the way),
-    # 07:15 (three quarters), 07:45 (after the last: held; the last period is
-    # as long as the one before it).
-    assert sw.resample_instants(readings, "watts", grid) == [
-        1000.0,
-        1500.0,
-        2500.0,
-        3000.0,
-    ]
-
-
-def test_instant_readings_on_the_half_hour_are_the_reading_at_each_start():
-    grid = _grid(3, start=T0)
-    readings = [
-        {"time": _iso(T0 + timedelta(minutes=15 + 30 * i)), "w": float(i)}
-        for i in range(3)
-    ]
-    assert sw.resample_instants(readings, "w", grid) == [0.0, 1.0, 2.0]
