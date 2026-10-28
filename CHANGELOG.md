@@ -34,6 +34,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Docs: what device setup can find** (DC-008's support matrix, #1574): each price provider and equipment shape Nimbus can find, as supported, proposed, reported only or manual. A test keeps it in step with the provider profiles in code.
 - Internal: device discovery can run without a Nimbus entry (`device_contract_ha.async_propose`), the first step of the new-install setup (DC-007 slice 1, #1574). No behaviour change.
 - Internal: the device contract can read any price sensor's forecast (`generic_price_forecast`, DC-006 slice 4's first step, #1574), as the Solver reads it today. Nothing reads through it yet, so nothing changes.
+- Devhub validation: **confirmed live on devhub (HA 2026.10.2) at 698e6dc3** (`v0.94.493`). Read at 10:17 AEST on 28 Oct: all 126 Nimbus entities carrying a version read 0.94.493, and the plan reads `optimal`.
+  - **Device setup** ran in `active` (revision 3, re-imported on 0.94.493): `device_contract_solar_forecast` on `sensor.nimbus_solver_config` is published (`legacy_import`), so the Solver reads its solar forecast and load total through the setup.
+  - **DC-004 rehearsed** (27 Oct, 22:11-22:15, #1930): `active` → `legacy` → `shadow` → `active` twice, each step accepted, the Solver's inputs unchanged and a solve `optimal` after each, zero Repairs; `active` → `shadow` refused by design.
+  - **Price consolidation** runs live on devhub as a soak (since 27 Oct 20:04); the plan's row 0 stays `primary` (settled), later rows `consolidated`.
+  - Stochastic shadow skipped with `deterministic_too_slow`: measured as the offer curve's exact check (#2121), moved off the dispatch path in 0.94.494 (#2124).
+  - Not observable on devhub: home / away (#1847) with real presence history; the new-install flow (DC-007) without a clean install.
+  - Reference household: installed 07:07 AEST 28 Oct; first solve `optimal` in 1.83 s; 121 of 125 versioned entities read 0.94.493 (the 4 daily reports republish on their next run).
+- Consumer check: new, opt-in Forecaster settings for who is home and a trip's departure and return (away loads fall to their base load); Add Nimbus shows what it found in the Energy Dashboard, and Configure -> Device setup reviews it, edits a source, allows or stops control of a load and sets the mode. No existing setting, entity or plan changes until those are used.
 
 ## [0.94.492] - 2026-10-27
 
