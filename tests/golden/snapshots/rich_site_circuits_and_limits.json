@@ -34001,6 +34001,17 @@
      },
      "entity_id": "sensor.nimbus_flex_signals",
      "state": 0.0
+    },
+    {
+     "attributes": {
+      "friendly_name": "Nimbus Flex Telemetry",
+      "generated_at": "2026-09-21T13:15:00+10:00",
+      "last_record_interval": null,
+      "reason": "region None is not one of ['NSW1', 'QLD1', 'SA1', 'TAS1', 'VIC1'] -- Nimbus resolves it from the Companion App's own geocoded-location sensor (see sensor_discovery.resolve_geocoded_region_and_prefix for the exact naming rule); exactly one usable such sensor is needed",
+      "reason_code": "region_unresolved"
+     },
+     "entity_id": "sensor.nimbus_flex_telemetry",
+     "state": "no_record"
     }
    ],
    "requests": [
@@ -34302,6 +34313,11 @@
     {
      "method": "POST",
      "path": "/api/states/sensor.nimbus_flex_signals",
+     "query": ""
+    },
+    {
+     "method": "POST",
+     "path": "/api/states/sensor.nimbus_flex_telemetry",
      "query": ""
     }
    ],
