@@ -288,13 +288,20 @@ _LAST_FLEX_TELEMETRY_NO_RECORD: dict = {}
 FLEX_TELEMETRY_NO_RECORD_STATE = "no_record"
 
 
-def _post_no_record_reason(sw, build) -> None:
+def _post_no_record_reason(sw, build, interval: str | None = None) -> None:
     """Publish WHY there is no record, so a consumer can tell "ranging off",
     "no history" and "region not resolved" apart without DEBUG logging.
     `record` is absent from these attributes on purpose: its absence is how
-    a consumer already recognises "nothing to push"."""
+    a consumer already recognises "nothing to push".
+
+    Once per reason and 5-minute interval (nimbus #2133), as a record would
+    be: posted once per reason only, the sensor went stale 5 minutes later
+    and read `unavailable` for as long as the reason lasted, hiding it."""
     code = getattr(build, "reason_code", None) or "unknown"
-    if _LAST_FLEX_TELEMETRY_NO_RECORD.get("reason_code") == code:
+    if (
+        _LAST_FLEX_TELEMETRY_NO_RECORD.get("reason_code") == code
+        and _LAST_FLEX_TELEMETRY_NO_RECORD.get("interval") == interval
+    ):
         return
     last = _LAST_FLEX_TELEMETRY_POST.get("state")
     delivered = sw.ha_post_state(
@@ -315,6 +322,7 @@ def _post_no_record_reason(sw, build) -> None:
         return
     _LAST_FLEX_TELEMETRY_NO_RECORD.clear()
     _LAST_FLEX_TELEMETRY_NO_RECORD["reason_code"] = code
+    _LAST_FLEX_TELEMETRY_NO_RECORD["interval"] = interval
 
 
 def publish_flex_telemetry_record(
@@ -381,7 +389,7 @@ def publish_flex_telemetry_record(
         solver_shared._LOGGER.debug(
             "Nimbus flex telemetry: no record this cycle -- %s", build.reason
         )
-        _post_no_record_reason(sw, build)
+        _post_no_record_reason(sw, build, interval)
         return
     if build.clamped_fields:
         solver_shared._LOGGER.warning(

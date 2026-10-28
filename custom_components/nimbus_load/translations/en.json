@@ -121,7 +121,8 @@
           "solver_price_event_sensor": "Optional: price-event simulation sensor -- a step-point $/kWh delta for testing a price-cap or negative-price event",
           "solver_envelope_import_limit_entity": "Optional: a live DNSP dynamic import limit (e.g. Open Dynamic Export's opModImpLimW) -- bounds the plan per period on top of your static import limit",
           "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit",
-          "live_solver_grid_max_import_kw": "Grid max import (kW)"
+          "live_solver_grid_max_import_kw": "Grid max import (kW)",
+          "site_postcode": "Site postcode, for the flex telemetry record's region"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
@@ -137,7 +138,8 @@
           "solver_price_event_sensor": "Optional, and a TEST tool rather than a pricing input. Point this at your own sensor whose `forecast` attribute is a list of step points, each with a time field and a value field, where the value is a $/kWh DELTA -- e.g. +20 from 18:00 to 20:00 to simulate a NEM Market Price Cap event (the real cap is $23.20/kWh), or -1 from 11:00 to 15:00 for a Minimum System Load negative-price floor. The delta is added to BOTH your import and export prices, because a real wholesale price event moves the whole market. End every window with an explicit value of 0 -- a step value holds forward, so a window that is never closed keeps shifting prices on every future solve (Nimbus logs a warning if it sees that). Nothing happens until you also arm switch.nimbus_solver_price_event_enabled, and leaving this blank is a complete no-op.",
           "solver_envelope_import_limit_entity": "Optional. A dynamic connection agent's own live import-limit entity (e.g. Open Dynamic Export's opModImpLimW, published over MQTT once you point HA at it) -- read as a live value, or as a forecast schedule if the entity has one. Leave blank to use only your static import limit above -- a complete no-op.",
           "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW).",
-          "live_solver_grid_max_import_kw": "Your connection's import limit. Blank keeps the current value."
+          "live_solver_grid_max_import_kw": "Your connection's import limit. Blank keeps the current value.",
+          "site_postcode": "Optional -- your site's 4-digit postcode. The flex telemetry record needs the site's NEM region and the first three digits of its postcode. Nimbus reads them from the Companion App's geocoded location when exactly one phone has it; set this when there is none, or more than one. Leave blank to skip."
         },
         "sections": {
           "advanced": {
@@ -303,7 +305,8 @@
       "confirm_refused": "The changes could not be saved.",
       "unknown_device": "That device is no longer in the device setup. Open Edit a source again.",
       "choose_shadow_first": "Move the device setup to shadow first (Device setup, Dry run).",
-      "control_entity_needed": "Choose the entity Nimbus switches before allowing control."
+      "control_entity_needed": "Choose the entity Nimbus switches before allowing control.",
+      "site_postcode_invalid": "The site postcode is four digits, for example 4000."
     },
     "abort": {
       "no_pricing_suggestions": "There are no pricing suggestions: every price field Nimbus can fill already has a value."

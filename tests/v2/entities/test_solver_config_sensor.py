@@ -115,6 +115,18 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
         if k not in sm._SOLVER_ALL_KEYS
     ] == []
 
+    # test_without_a_geocoded_sensor_the_postcode_setting_gives_the_region
+    # nimbus #2133: the reference household has no Companion App geocoded
+    # location, so the flex telemetry record never had a region; a postcode
+    # set once in Configure gives the region and prefix instead.
+    with monkeypatch.context() as mp:
+        attrs = _sensor(
+            mp, _numbers(), options={sm.CONF_SITE_POSTCODE: "4000"}
+        ).extra_state_attributes
+        assert (attrs["region"], attrs["postcode_prefix"]) == ("QLD1", "400")
+        attrs = _sensor(mp, _numbers()).extra_state_attributes
+        assert (attrs["region"], attrs["postcode_prefix"]) == (None, None)
+
     # test_every_number_entity_is_read_live_not_from_saved_options
     keys = [d.key for d in _number._DESCRIPTIONS]
     assert [k for k in keys if k not in sm._SOLVER_NUMBER_ENTITY_KEYS] == []
