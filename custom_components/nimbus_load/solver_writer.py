@@ -162,6 +162,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 # nimbus issue #590: same dual-mode try/except shape as every other
@@ -1987,6 +1988,39 @@ def publish_weather_forecast_mirrors(cfg: dict) -> None:
                 "generated_at": generated_at,
             },
         )
+
+
+#: nimbus #2132: a sweep slower than this, s, is refreshed only every
+#: OFFER_CURVE_SLOW_REFRESH_S rather than every cycle. Half a solver tick.
+OFFER_CURVE_SLOW_SECONDS = 30.0
+#: Under sensor.nimbus_offer_curve's 300 s staleness, with room for a sweep.
+OFFER_CURVE_SLOW_REFRESH_S = 180.0
+_LAST_OFFER_CURVE: dict[str, float | None] = {"at": None, "seconds": None}
+
+
+def sweep_offer_curve(plan, now: float):
+    """nimbus #2132: `plan` with its deferred offer curve swept (#2121), or
+    left unswept this cycle when the last sweep took longer than
+    OFFER_CURVE_SLOW_SECONDS and the published curve is younger than
+    OFFER_CURVE_SLOW_REFRESH_S -- publish_offer_curve() then leaves the last
+    curve in place. Swept every cycle (`now` is time.monotonic()), a slow
+    sweep -- 58 to 67 s on a two-battery shared-charger site with six
+    adequacy loads -- ran beside Home Assistant taking in the plan just
+    published, and stretched the cycle to about 90 s, so every other solver
+    tick was skipped. The curve informs offers; dispatch never reads it."""
+    if plan.offer_curve_deferred is None:
+        return plan
+    at, seconds = _LAST_OFFER_CURVE["at"], _LAST_OFFER_CURVE["seconds"]
+    if (
+        at is not None
+        and seconds is not None
+        and seconds > OFFER_CURVE_SLOW_SECONDS
+        and now - at < OFFER_CURVE_SLOW_REFRESH_S
+    ):
+        return plan
+    plan = network.complete_offer_curve(plan)
+    _LAST_OFFER_CURVE.update(at=now, seconds=plan.offer_curve_sweep_seconds)
+    return plan
 
 
 def publish_offer_curve(plan) -> None:
@@ -10042,7 +10076,7 @@ def main() -> None:
     # enabled was true above (plan.offer_curve_import stays None
     # otherwise) -- see publish_offer_curve()'s own docstring. #2121: the
     # curve is swept here, after the plan and its dispatch are published.
-    plan = network.complete_offer_curve(plan)
+    plan = sweep_offer_curve(plan, monotonic())
     publish_offer_curve(plan)
     # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
     # enabled was true above (plan.grid_signals stays None otherwise) --

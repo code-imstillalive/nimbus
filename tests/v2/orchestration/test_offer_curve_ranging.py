@@ -94,6 +94,34 @@ class TestBuildOfferCurveBands(unittest.TestCase):
 class TestPublishOfferCurveAttributes(unittest.TestCase):
     def test_publishes_band_shaped_curves(self):
         # test_publishes_band_shaped_curves
+        # test_a_slow_curve_is_swept_every_three_minutes_not_every_cycle
+        # #2132: a sweep over 30 s is refreshed only once the published curve
+        # is 3 minutes old; a fast one is swept every cycle, as before.
+        sweeps = []
+
+        def complete(plan):
+            sweeps.append(plan.seconds)
+            return SimpleNamespace(
+                offer_curve_deferred=None, offer_curve_sweep_seconds=plan.seconds
+            )
+
+        def pending(seconds):
+            return SimpleNamespace(offer_curve_deferred=dict, seconds=seconds)
+
+        run = solver_writer.sweep_offer_curve
+        with patch.object(solver_writer.network, "complete_offer_curve", complete):
+            solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+            run(pending(60.0), 0.0)
+            self.assertIsNotNone(run(pending(60.0), 90.0).offer_curve_deferred)
+            run(pending(60.0), 180.0)
+            solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+            run(pending(1.0), 0.0)
+            run(pending(1.0), 10.0)
+            done = SimpleNamespace(offer_curve_deferred=None)
+            self.assertIs(run(done, 20.0), done)
+        self.assertEqual(sweeps, [60.0, 60.0, 1.0, 1.0])
+        solver_writer._LAST_OFFER_CURVE.update(at=None, seconds=None)
+
         plan = _plan(
             offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
             offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],
