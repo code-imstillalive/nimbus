@@ -240,3 +240,49 @@ def test_the_solar_forecast_imports_as_the_members_the_solver_reads():
     view = di.legacy_view(res.document)
     assert view["options"]["solver_load_forecast_sensor"] == "sensor.house_forecast"
     assert di.drift(res.document, _snapshot()) == []
+
+    # test_a_generic_price_sensor_also_imports_the_forecast_the_solver_reads
+    # DC-006 slice 4 (#1574): a price sensor no provider profile reads also
+    # gives `<role>_forecast`, its `forecast` attribute through the generic
+    # adapter in its own unit. A provider's sensor, or one the snapshot says
+    # nothing about, gets none; with no unit it is imported without one, so
+    # it is refused when read. It has no settings key: the view is unchanged.
+    snap = _snapshot(
+        price_sources={
+            "sensor.buy": {"unit": "c/kWh", "profile": False},
+            "sensor.sell": {"unit": "c/kWh", "profile": True},
+        }
+    )
+    res = di.import_legacy(snap)
+    grid = _device(res.document, "grid")["bindings"]
+    assert grid["import_price_forecast"] == {
+        "source": {
+            "kind": "entity_attribute",
+            "entity_id": "sensor.buy",
+            "attribute_path": "forecast",
+            "adapter": {"name": "generic_price_forecast", "version": 1},
+        },
+        "provenance": {
+            "origin": "legacy_import",
+            "derived_from": "import_price",
+            "confirmed": False,
+        },
+        "normalization": {"quality": "forecast", "native_unit": "c/kWh"},
+    }
+    assert "export_price_forecast" not in grid
+    assert grid["import_price"]["source"] == {
+        "kind": "entity_state",
+        "entity_id": "sensor.buy",
+    }
+    assert res.problems == [] and res.conflicts == []
+    assert di.legacy_view(res.document) == di.legacy_view(
+        di.import_legacy(_snapshot()).document
+    )
+    assert di.drift(res.document, snap) == []
+    unitless = di.import_legacy(
+        _snapshot(price_sources={"sensor.buy": {"unit": None, "profile": False}})
+    )
+    forecast = _device(unitless.document, "grid")["bindings"]["import_price_forecast"]
+    assert forecast["normalization"] == {"quality": "forecast"}
+    unknown = _device(di.import_legacy(_snapshot()).document, "grid")["bindings"]
+    assert "import_price_forecast" not in unknown

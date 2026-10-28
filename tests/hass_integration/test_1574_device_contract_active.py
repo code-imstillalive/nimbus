@@ -620,6 +620,27 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert load["source"]["entity_id"] == "sensor.house_forecast"
     assert load["source"]["adapter"] == {"name": "nimbus_forecast", "version": 1}
 
+    # test_a_generic_price_sensor_imports_its_forecast_and_an_edit_drops_it
+    # DC-006 slice 4 (#1574): the snapshot gives each price sensor's unit and
+    # whether a provider profile reads it; a generic one's forecast is
+    # imported beside it, and choosing another source drops that forecast, so
+    # it never reads the old sensor.
+    hass.states.async_set("sensor.buy", "0.30", {"unit_of_measurement": "$/kWh"})
+    snap = device_contract_ha.snapshot(hass, entry)
+    assert snap["price_sources"]["sensor.buy"] == {"unit": "$/kWh", "profile": False}
+    stored = await _store(hass, entry).async_read()
+    grid = _device(stored["document"], "grid")["bindings"]
+    assert grid["import_price_forecast"]["provenance"]["derived_from"] == "import_price"
+    hass.states.async_set("sensor.buy_2", "0.31", {"unit_of_measurement": "$/kWh"})
+    edited = await device_contract_ha.async_set_source(
+        hass, entry, stored["revision"], "grid", "import_price", "sensor.buy_2"
+    )
+    assert edited["ok"] is True, edited
+    stored = await _store(hass, entry).async_read()
+    grid = _device(stored["document"], "grid")["bindings"]
+    assert "import_price_forecast" not in grid
+    assert entry.options["solver_import_price_sensor"] == "sensor.buy_2"
+
     # test_configure_device_setup_changes_the_mode_through_the_same_checks
     # DC-007 slice 2 (#1574): Configure -> Device setup. In `active` it offers
     # Review and Mode; Mode goes through async_set_mode's own checks; in

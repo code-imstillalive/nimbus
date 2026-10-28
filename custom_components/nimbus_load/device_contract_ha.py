@@ -115,7 +115,28 @@ def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
         # Solcast and Open-Meteo as the registry finds them: the solar
         # forecast binding's auto-included members (DC-006 slice 3).
         "known_sources": _known_sources(hass),
+        # The price sensors' unit and provider (DC-006 slice 4).
+        "price_sources": _price_sources(hass, entry.options),
     }
+
+
+def _price_sources(hass: Any, options: Any) -> dict[str, dict[str, Any]]:
+    """{entity id: {"unit", "profile"}} for the configured import and export
+    price sensors: the unit they state, and whether a provider profile reads
+    them (`profile`), so only a generic sensor's forecast is imported."""
+    registry = er.async_get(hass)
+    out: dict[str, dict[str, Any]] = {}
+    for key in ("solver_import_price_sensor", "solver_export_price_sensor"):
+        entity_id = options.get(key)
+        if not isinstance(entity_id, str) or not entity_id:
+            continue
+        entry = registry.async_get(entity_id)
+        state = hass.states.get(entity_id)
+        out[entity_id] = {
+            "unit": state.attributes.get("unit_of_measurement") if state else None,
+            "profile": bool(entry and entry.platform in _PROFILE_DOMAINS),
+        }
+    return out
 
 
 def _site(hass: Any) -> dict[str, Any]:
@@ -1142,6 +1163,12 @@ async def async_set_source(
         if old.get("normalization"):
             binding["normalization"] = copy.deepcopy(old["normalization"])
         device.setdefault("bindings", {})[role] = binding
+        # A forecast derived from the old source would still read it (DC-006
+        # slice 4): it goes, and its consumer reads the new one as today.
+        derived = f"{role}_forecast"
+        prov_of = (device["bindings"].get(derived) or {}).get("provenance") or {}
+        if prov_of.get("derived_from") == role:
+            del device["bindings"][derived]
         invalid, flags = await _async_validate(hass, document, [(device_id, role)])
         if invalid:
             return {"ok": False, "code": "binding_refused", "refused": invalid}
