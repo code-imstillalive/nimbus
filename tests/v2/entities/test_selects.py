@@ -177,7 +177,7 @@ def test_a_source_with_problems_or_no_longer_detected_changes_nothing(pricing):
 @pytest.fixture
 def setup_mode(monkeypatch):
     dc = importlib.import_module("custom_components.nimbus_load.device_contract_ha")
-    world = {"mode": "legacy", "result": {"ok": True}, "issues": {}}
+    world = {"mode": "legacy", "result": {"ok": True}, "issues": {}, "problems": []}
 
     async def preview(hass, entry):
         return {
@@ -186,7 +186,7 @@ def setup_mode(monkeypatch):
             "clean": False,
             "effective_diff": [1, 2],
             "conflicts": [1],
-            "problems": [],
+            "problems": world["problems"],
             "devices": [1, 2, 3],
         }
 
@@ -217,6 +217,19 @@ def setup_mode(monkeypatch):
 
 def test_choosing_a_mode_switches_it_or_says_why_not(setup_mode):
     s, world, _ = setup_mode
+    _run(s._async_refresh())
+    # test_the_dry_run_names_its_problems_not_only_counts_them
+    assert s._attr_extra_state_attributes["dry_run_problem_list"] == []
+    world["problems"] = [
+        {"code": "unit_undeclared", "path": "devices[2].bindings.power", "message": "m"}
+    ]
+    _run(s._async_refresh())
+    attrs = s._attr_extra_state_attributes
+    assert attrs["dry_run_problems"] == 1
+    assert attrs["dry_run_problem_list"] == [
+        {"code": "unit_undeclared", "path": "devices[2].bindings.power"}
+    ]
+    world["problems"] = []
     _run(s._async_refresh())
     _run(s.async_select_option("legacy"))  # already there: nothing to do
     assert s.writes == []
