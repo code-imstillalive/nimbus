@@ -1262,6 +1262,40 @@ def _dispatch_solar_charge(
     return grid_export_kw <= DISPATCH_SOLAR_CHARGE_GRID_KW
 
 
+# nimbus #2138 (household, 28 Oct 2026, option 2): with solar near the house
+# load, period 0 alternated each minute between a solar-only charge (Self-
+# Consume) and idle with the grid supplying the house (Hold), and a dispatcher
+# switched inverter modes with it -- about ten times from 10:50 to 11:03 on
+# the reference household. A solar charge now stands through a brief, small
+# shortfall: for SOLAR_CHARGE_GRACE_S after the last one, idle with the grid
+# importing up to SOLAR_CHARGE_GRACE_KW is published as solar charge, not
+# hold. A longer or larger shortfall is held as before, and going from hold
+# to solar charge stays immediate, so spare solar is never left unused.
+SOLAR_CHARGE_GRACE_S = 300.0
+SOLAR_CHARGE_GRACE_KW = 2.0
+_LAST_SOLAR_CHARGE: dict[str, datetime | None] = {"at": None}
+
+
+def _steady_solar_charge(row: dict, now: datetime) -> None:
+    """Period 0's `dispatch_hold` / `dispatch_solar_charge`, steadied in place
+    (see SOLAR_CHARGE_GRACE_S)."""
+    if row.get("dispatch_solar_charge"):
+        _LAST_SOLAR_CHARGE["at"] = now
+        return
+    at = _LAST_SOLAR_CHARGE["at"]
+    if not row.get("dispatch_hold") or at is None:
+        return
+    shortfall = float(row.get("grid_import_kw") or 0.0) - float(
+        row.get("grid_export_kw") or 0.0
+    )
+    if (
+        0.0 < shortfall <= SOLAR_CHARGE_GRACE_KW
+        and (now - at).total_seconds() < SOLAR_CHARGE_GRACE_S
+    ):
+        row["dispatch_hold"] = False
+        row["dispatch_solar_charge"] = True
+
+
 # Household, 20 Oct 2026: a kW below which a planned flow counts as none, for
 # absorb_surplus below (the dispatch deadband's own order of magnitude).
 ABSORB_SURPLUS_TOL_KW = 0.05
@@ -2563,6 +2597,8 @@ def publish_plan(
         }
         for i in range(n_periods)
     ]
+    if forecast:
+        _steady_solar_charge(forecast[0], now)
 
     # Named cost-component breakdown (2026-08-25, nimbus issue #149) --
     # see compute_cost_breakdown()'s own docstring for the full reasoning.

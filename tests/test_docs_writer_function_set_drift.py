@@ -303,6 +303,7 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "_dispatch_hold",
         # nimbus #2066: the plan's "charge from solar only" flag, same reason.
         "_dispatch_solar_charge",
+        "_steady_solar_charge",
         # Household, 20 Oct 2026: the "soak up spare solar" dispatch hint,
         # same reason.
         "absorb_surplus",
