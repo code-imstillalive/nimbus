@@ -853,7 +853,6 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # DC-006 slice 4 (#1574): a generic price forecast read through the
         # device contract in `active`. The docs copy has no device setup.
         "_contract_price_forecast",
-        "state",
         "_table",
         "retail_from_rrp_series",
         "financial_year",
