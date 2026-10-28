@@ -9,6 +9,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 - **Device setup `active`: a generic price sensor is read through the device setup** (#1574, DC-006 slice 4). For an import or export price sensor that isn't a recognised provider's, the Solver reads its forecast through the device setup's own adapter. A period that straddles a price change now takes the time-weighted price over the period, not the price at its start. The price is still held past the forecast's end (marked not real), and a forecast the setup refuses (no unit, overlapping points) is read as before. In `legacy` and `shadow`, and for LocalVolts, Amber, AEMO, PD7DAY and OpenADR prices, nothing changes.
+- **The site postcode is saved** (#2136). 0.94.494's new Configure -> Grid Prices -> Advanced -> Site postcode was shown and accepted, then dropped by the wizard's final save, which keeps only the keys it lists, and the postcode wasn't listed. It is now, and every field a Solver step shows is checked against that list.
 
 ## [0.94.494] - 2026-10-28
 
