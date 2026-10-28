@@ -5,7 +5,7 @@ retried, never left `unknown` silently (#1634, #1635) (#1837).
 from __future__ import annotations
 
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -94,3 +94,20 @@ def test_a_reason_dropped_at_startup_is_sent_once_the_entity_registers(native):
     state, attrs = received[0]
     assert state == "no_record"
     assert attrs["reason_code"] == "region_unresolved"
+
+    # test_an_unchanged_reason_is_sent_again_each_interval
+    # nimbus #2133: sent once per reason only, the sensor went stale 5 minutes
+    # later and read `unavailable` for as long as the reason lasted -- four
+    # hours on the reference household -- hiding the reason.
+    with patch.object(
+        solver_writer, "build_flex_telemetry_record", lambda *_a, **_k: NO_RECORD
+    ):
+        for minutes in (0, 3, 5, 10):
+            solver_writer.publish_flex_telemetry_record(
+                {},
+                SimpleNamespace(grid_signals=None),
+                NOW.replace(minute=40) + timedelta(minutes=minutes),
+                **CALL,
+            )
+    # 08:40 and 08:43 share an interval; 08:45 and 08:50 are new ones.
+    assert len(received) == 1 + 3

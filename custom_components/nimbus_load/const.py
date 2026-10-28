@@ -1334,6 +1334,10 @@ CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
 # Blank (the default): no factor is known and the AEMO-based price source
 # stays as it was, wholesale plus the learned offset.
 CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR: Final = "solver_loss_factor_tni_sensor"
+# nimbus #2133: the site's postcode, a one-time setting for the flex
+# telemetry record's `region` and `postcode_prefix` when no single Companion
+# App geocoded-location sensor gives them (sensor_discovery). Optional.
+CONF_SITE_POSTCODE: Final = "site_postcode"
 CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR: Final = "solver_loss_factor_dlf_code_sensor"
 # Same audit, a third and last real gap: resample_real_p2p_rate()
 # hardcoded `sensor.localvolts_p2p_forecast` -- a genuinely different

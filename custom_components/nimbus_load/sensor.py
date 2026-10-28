@@ -51,6 +51,7 @@ from . import (
     health,
     known_sources,
     load_run_state,
+    nem_region,
     sensor_battery_soc,
     sensor_discovery,
     sensor_flattened,
@@ -106,6 +107,7 @@ from .const import (
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_POWER_SOURCE,
     CONF_SIGNAL_ROLE,
+    CONF_SITE_POSTCODE,
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
@@ -358,6 +360,8 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # nimbus #1786: the site's loss-factor codes.
     CONF_SOLVER_LOSS_FACTOR_TNI_SENSOR,
     CONF_SOLVER_LOSS_FACTOR_DLF_CODE_SENSOR,
+    # nimbus #2133: the site's postcode, for the flex telemetry record.
+    CONF_SITE_POSTCODE,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR_2,
     # nimbus #1786: exposed like every wizard key; the solve never reads it.
@@ -2719,9 +2723,17 @@ class NimbusSolverConfigSensor(SensorEntity):
         his instruction said *one time* setup -- a consumer should read
         this once and store it, not re-derive it per record.
         """
-        return sensor_discovery.resolve_geocoded_region_and_prefix(
+        region, prefix = sensor_discovery.resolve_geocoded_region_and_prefix(
             self.hass.states.async_all("sensor")
         )
+        if region is not None and prefix is not None:
+            return region, prefix
+        # nimbus #2133: no single geocoded sensor (none, or one per phone),
+        # so the site's postcode, set once in Configure, when it is set.
+        postcode = self._entry.options.get(CONF_SITE_POSTCODE)
+        if postcode:
+            return nem_region.resolve_from_postcode(str(postcode))
+        return region, prefix
 
     def _discover_aemo_30min_forecast_sensor(self) -> str | None:
         """The `sensor.aemo_nem_<region>_current_30min_forecast` entity,

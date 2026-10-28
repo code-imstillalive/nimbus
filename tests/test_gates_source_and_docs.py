@@ -973,7 +973,11 @@ EXPECTED_SPLIT = {
     # same four. No key changed name, and every key is still in
     # _SOLVER_WIZARD_SCHEMA_KEYS, so the final merge takes it whichever
     # step submits it.
-    "_solver_grid_schema": (2, 11),
+    # nimbus #2133: 11 -> 12 optional, the site postcode for the flex
+    # telemetry record's region and prefix. #449's question: it can't be
+    # discovered (no outbound geocoding, and the Companion App's sensor is
+    # read first); blank skips it, so nothing is pre-filled.
+    "_solver_grid_schema": (2, 12),
     # nimbus #1537: 14 -> 15 optional (the second P2P matched-rate source).
     # nimbus #1786: 15 -> 16 optional (comparison-only price sources).
     # nimbus #1786: 16 -> 18 optional (the site's TNI and DLF code sensors).

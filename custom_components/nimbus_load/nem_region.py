@@ -138,3 +138,32 @@ def resolve_region_and_prefix(address: str | None) -> tuple[str | None, str | No
     """
     state, postcode = parse_state_and_postcode(address)
     return nem_region_for_state(state), postcode_prefix(postcode)
+
+
+def region_for_postcode(postcode: str | None) -> str | None:
+    """nimbus #2133: the NEM region an Australian postcode is in, by
+    Australia Post's ranges -- 02xx (ACT) and 1-2 NSW1, 3 and 8 VIC1, 4 and
+    9 QLD1, 5 SA1, 7 TAS1; NT (08xx, 09xx) and WA (6) are not in the NEM.
+    A handful of NSW border towns carry Victorian postcodes; a household's
+    own geocoded-location sensor, when there is one, wins over this."""
+    if not postcode or not re.fullmatch(r"\d{4}", postcode):
+        return None
+    if postcode[:2] in ("08", "09"):
+        return None
+    return {
+        "0": "NSW1",
+        "1": "NSW1",
+        "2": "NSW1",
+        "3": "VIC1",
+        "8": "VIC1",
+        "4": "QLD1",
+        "9": "QLD1",
+        "5": "SA1",
+        "7": "TAS1",
+    }.get(postcode[0])
+
+
+def resolve_from_postcode(postcode: str | None) -> tuple[str | None, str | None]:
+    """`(region, postcode_prefix)` from a 4-digit postcode setting."""
+    postcode = (postcode or "").strip()
+    return region_for_postcode(postcode), postcode_prefix(postcode)

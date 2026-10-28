@@ -57,6 +57,7 @@ every field they used to hold now lives on a dashboard instead.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -77,6 +78,7 @@ from ..const import (
     CONF_OCCUPANCY_ENTITY,
     CONF_OCCUPANCY_RETURN,
     CONF_RETRAIN_HOUR_LOCAL,
+    CONF_SITE_POSTCODE,
     CONF_SOLAR_SENSOR,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
@@ -472,6 +474,13 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                     )
                 },
             ): _entity(),
+            # nimbus #2133: the site's postcode, for the flex telemetry
+            # record's region and postcode prefix when no single Companion App
+            # geocoded-location sensor gives them. Set once.
+            vol.Optional(
+                CONF_SITE_POSTCODE,
+                description={"suggested_value": defaults.get(CONF_SITE_POSTCODE)},
+            ): str,
             # Sources 3 and 4 (2026-08-25): other forecasts to blend, e.g. a
             # retailer's own -- see CONF_SOLVER_IMPORT_PRICE_SENSOR_2/_3 in
             # const.py. description={"suggested_value": ...}, NOT default=,
@@ -1825,6 +1834,10 @@ class NimbusHubOptionsFlow(DeviceSetupSteps, OptionsFlowWithConfigEntry):
                 (k if k in _GRID_VISIBLE_PRICE_FIELDS else "base"): v
                 for k, v in errors.items()
             }
+            # nimbus #2133: a postcode is four digits, or blank.
+            postcode = str(self._solver_data.get(CONF_SITE_POSTCODE) or "").strip()
+            if postcode and not re.fullmatch(r"\d{4}", postcode):
+                errors["base"] = "site_postcode_invalid"
             if not errors:
                 return await self.async_step_solver_sources()
         else:

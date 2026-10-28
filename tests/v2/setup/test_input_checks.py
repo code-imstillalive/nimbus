@@ -213,6 +213,29 @@ def test_a_broken_registry_never_breaks_the_price_check(monkeypatch, providers):
     ]:
         assert nem.resolve_region_and_prefix(address) == (region, prefix)
 
+    # test_a_postcode_setting_gives_the_region_and_prefix
+    # nimbus #2133: set once in Configure when no single geocoded sensor
+    # gives them; Australia Post's ranges, NT and WA outside the NEM.
+    for postcode, region, prefix in [
+        ("4000", "QLD1", "400"),
+        ("9726", "QLD1", "972"),
+        ("2000", "NSW1", "200"),
+        ("2600", "NSW1", "260"),  # ACT
+        ("0200", "NSW1", "020"),  # ACT
+        ("3152", "VIC1", "315"),
+        ("8001", "VIC1", "800"),
+        ("5000", "SA1", "500"),
+        ("7000", "TAS1", "700"),
+        ("0800", None, "080"),  # NT
+        ("6000", None, "600"),  # WA
+        (" 4000 ", "QLD1", "400"),
+        ("400", None, None),
+        ("40001", None, None),
+        ("QLD", None, None),
+        (None, None, None),
+    ]:
+        assert nem.resolve_from_postcode(postcode) == (region, prefix), postcode
+
     # test_only_complete_profiles_are_offered
     providers["lv"] = {f: f"sensor.lv_{i}" for i, f in enumerate(ps.pa.LV_V2_PROFILE)}
     providers["express"] = {IMPORT: "sensor.ae_buy"}  # no export: not offered
