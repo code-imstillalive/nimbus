@@ -1321,6 +1321,9 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     # every other optional source, so configuring it in one step is not
     # undone by a later step's save.
     CONF_SOLVER_PRICE_EVENT_SENSOR,
+    # nimbus #2136: the site postcode (#2133). Shown on Grid Prices but left
+    # out of this list, so the final merge dropped it and it was never saved.
+    CONF_SITE_POSTCODE,
 )
 
 

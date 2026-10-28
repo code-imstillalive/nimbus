@@ -948,7 +948,8 @@ EXPECTED_KEY_COUNTS = {
     # `metadata_tni` / `metadata_dlf` sensors by unique_id
     # (pricing_autodetect.LV_V2_OPTIONAL_PROFILE), as #1537 did. The factor
     # values themselves are never a field: they come from AEMO's tables.
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 31,
+    # nimbus #2136: 31 -> 32, the site postcode (#2133) it had left out.
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 32,
 }
 
 
