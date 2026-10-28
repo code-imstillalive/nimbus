@@ -286,3 +286,70 @@ def test_the_solar_forecast_imports_as_the_members_the_solver_reads():
     assert forecast["normalization"] == {"quality": "forecast"}
     unknown = _device(di.import_legacy(_snapshot()).document, "grid")["bindings"]
     assert "import_price_forecast" not in unknown
+
+    # test_summed_circuits_import_inside_the_house_and_write_back_in_order
+    # DC-006 slice 3, the load half (#1574): each forecast the Solver sums is
+    # a load's `demand_forecast` inside `load_house`. One a Load subentry
+    # publishes binds on that load's device; any other gets a circuit device
+    # of its own. The view writes the list back in its order, so the dry run
+    # is clean; a document without circuits never writes the setting.
+    pool = _sub("sub_pool", "load", "Pool", load_sensor="sensor.pool_power")
+    circuits = ["sensor.nimbus_pool_forecast", "sensor.nimbus_shed_forecast"]
+    snap = _snapshot(
+        subentries=[pool],
+        forecast_publishers={"sensor.nimbus_pool_forecast": "sub_pool"},
+    )
+    snap["options"]["solver_load_forecast_entities"] = circuits
+    res = di.import_legacy(snap)
+    assert res.problems == [] and res.conflicts == []
+    loads = {
+        d["id"]: d
+        for d in res.document["devices"]
+        if "demand_forecast" in d["bindings"] and d["id"] != "load_house"
+    }
+    pool_dev = next(
+        d for d in loads.values() if d.get("history_subentry_id") == "sub_pool"
+    )
+    assert pool_dev["bindings"]["demand_forecast"]["source"]["entity_id"] == circuits[0]
+    shed = next(d for d in loads.values() if d is not pool_dev)
+    assert (shed["load_class"], shed["name"]) == ("circuit", circuits[1])
+    assert shed["bindings"]["demand_forecast"]["provenance"]["source_path"] == (
+        "options.solver_load_forecast_entities[1]"
+    )
+    inside = [
+        r
+        for r in res.document["relationships"]
+        if r["kind"] == "included_in_measurement"
+    ]
+    assert sorted(r["child"] for r in inside) == sorted(loads)
+    assert {r["parent"] for r in inside} == {"load_house"}
+    assert (
+        di.legacy_view(res.document)["options"]["solver_load_forecast_entities"]
+        == circuits
+    )
+    assert di.preview(snap).effective_diff == []
+    assert di.drift(res.document, snap) == []
+    # Three circuits, the middle one's binding then removed: the rest keep
+    # their order, with no gap (Mark Purcell's review of #2151).
+    three = [*circuits, "sensor.nimbus_spa_forecast"]
+    snap["options"]["solver_load_forecast_entities"] = three
+    doc = di.import_legacy(snap).document
+    middle = next(
+        d
+        for d in doc["devices"]
+        if (d["bindings"].get("demand_forecast") or {})
+        .get("source", {})
+        .get("entity_id")
+        == three[1]
+    )
+    del middle["bindings"]["demand_forecast"]
+    assert di.legacy_view(doc)["options"]["solver_load_forecast_entities"] == [
+        three[0],
+        three[2],
+    ]
+    # A document imported before this (no circuit bindings) owns no list.
+    old = di.import_legacy(_snapshot())
+    assert (
+        "solver_load_forecast_entities" not in di.legacy_view(old.document)["options"]
+    )
+    assert di.drift(old.document, snap) == []
