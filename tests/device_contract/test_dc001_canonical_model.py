@@ -415,5 +415,8 @@ _DC_BUILDERS = frozenset(
         "solar.py",
         # ...and its whole-house load forecast (the load total).
         "load.py",
+        # DC-006 slice 4 (#1574): in `active` the Solver reads a generic price
+        # sensor's forecast through the contract; solver_inputs/prices.py.
+        "prices.py",
     }
 )

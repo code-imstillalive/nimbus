@@ -10,6 +10,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - **The device setup's dry run names its problems** (`select.nimbus_device_setup_mode`'s `dry_run_problem_list`: each problem's code and path), not only how many. A count alone left one on a test install unexplained for hours.
 - **The price blend's own error is measured** (#1786). Each price source has been scored against the price that settles, but the blend itself wasn't, so the documented test for switching *Blend drives plan* on ("the blend closer to the settled price than the provider at every lead") couldn't be checked. The blend is now scored beside the sources as `consolidated`: on its raw error, since it enters the plan as it is, and it never takes a share of the blend itself. The Solver tab's price table is unchanged.
+- **Device setup `active`: a generic price sensor is read through the device setup** (#1574, DC-006 slice 4). For an import or export price sensor that isn't a recognised provider's, the Solver reads its forecast through the device setup's own adapter. A period that straddles a price change now takes the time-weighted price over the period, not the price at its start. The price is still held past the forecast's end (marked not real), and a forecast the setup refuses (no unit, overlapping points) is read as before. In `legacy` and `shadow`, and for LocalVolts, Amber, AEMO, PD7DAY and OpenADR prices, nothing changes.
 
 ## [0.94.495] - 2026-10-28
 

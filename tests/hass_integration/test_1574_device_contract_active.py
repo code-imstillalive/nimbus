@@ -612,6 +612,7 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     assert await device_contract_ha.async_active_solar_forecast(hass, entry) is None
     assert (await device_contract_ha.async_set_mode(hass, entry, "shadow"))["ok"]
     assert await device_contract_ha.async_active_solar_forecast(hass, entry) is None
+    assert await device_contract_ha.async_active_price_forecasts(hass, entry) == {}
     assert (await device_contract_ha.async_set_mode(hass, entry, "active"))["ok"]
     binding = await device_contract_ha.async_active_solar_forecast(hass, entry)
     assert binding is not None
@@ -654,6 +655,9 @@ async def test_only_an_active_setup_hands_the_solver_its_solar_forecast(
     stored = await _store(hass, entry).async_read()
     grid = _device(stored["document"], "grid")["bindings"]
     assert grid["import_price_forecast"]["provenance"]["derived_from"] == "import_price"
+    handed = await device_contract_ha.async_active_price_forecasts(hass, entry)
+    assert handed["import_price_forecast"]["binding"] == grid["import_price_forecast"]
+    assert handed["import_price_forecast"]["site"] == stored["document"]["site"]
     hass.states.async_set("sensor.buy_2", "0.31", {"unit_of_measurement": "$/kWh"})
     edited = await device_contract_ha.async_set_source(
         hass, entry, stored["revision"], "grid", "import_price", "sensor.buy_2"

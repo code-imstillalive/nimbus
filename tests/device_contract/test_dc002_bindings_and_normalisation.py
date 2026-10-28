@@ -987,7 +987,14 @@ def test_no_consumer_reads_the_bindings_resolver_yet() -> None:
     # unit table to find sensors whose unit must be declared, and drives
     # nothing. DC-006 slice 2's equivalence gate (DC-000 addition 1):
     # measures what a consumer would read, and drives nothing.
-    validators = {"device_contract_ha.py", "device_units.py", "device_observation.py"}
+    # DC-006 slice 4 (#1574): the first consumer, `solver_inputs/prices.py`,
+    # reads a generic price forecast through the resolver in `active` only.
+    validators = {
+        "device_contract_ha.py",
+        "device_units.py",
+        "device_observation.py",
+        "prices.py",
+    }
     offenders = [
         str(p.relative_to(PKG))
         for p in PKG.rglob("*.py")
