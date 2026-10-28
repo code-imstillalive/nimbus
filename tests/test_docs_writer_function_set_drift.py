@@ -1173,6 +1173,8 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_record_price_errors",
         # #1786: the consolidated forecast scored beside its sources.
         "_with_consolidated",
+        # #2132: a slow offer-curve sweep is refreshed every 3 minutes.
+        "sweep_offer_curve",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

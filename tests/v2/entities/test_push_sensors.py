@@ -171,6 +171,21 @@ def test_a_pushed_plan_is_published_and_goes_stale_after_five_minutes(
     sensor._async_recheck_availability(None)
     assert not sensor.available
 
+    # test_a_slow_offer_curve_is_refreshed_inside_its_staleness
+    # Mark Purcell's review of #2132: the 3-minute refresh of a slow curve,
+    # plus a slow sweep's own time, must stay inside the curve sensor's
+    # staleness, or the sensor reads unavailable between refreshes. Tied
+    # here so a change to either side is caught.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    import _solver_path  # noqa: F401  -- solver/ on the path for solver_writer
+
+    sw = importlib.import_module("custom_components.nimbus_load.solver_writer")
+    slowest_sweep_s = 90  # the longest whole cycle measured on devhub (#2132)
+    assert (
+        sw.OFFER_CURVE_SLOW_REFRESH_S + slowest_sweep_s
+        < sm.NimbusOfferCurveSensor._STALE_AFTER_SECONDS
+    )
+
     # test_only_the_daily_reports_restore_their_last_value_after_a_restart
     with monkeypatch.context() as mp:
         for name in sorted(PUSH):
