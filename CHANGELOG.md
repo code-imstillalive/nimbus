@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The site postcode is saved** (#2136). 0.94.494's new Configure -> Grid Prices -> Advanced -> Site postcode was shown and accepted, then dropped by the wizard's final save, which keeps only the keys it lists, and the postcode wasn't listed. It is now, and every field a Solver step shows is checked against that list.
 ## [0.94.494] - 2026-10-28
 
 **The plan no longer waits for the offer curve, an impossible plan names the settings in the way, and an AC's forecast stops when its runs usually stop.**
