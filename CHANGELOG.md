@@ -8,8 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-### Changed
-- **A steady solar-charge hint when solar is about equal to the load.** Around midday the plan could flip between charging from solar and holding every minute, and an automation following the hint switched the inverter mode each time. Now, within 5 minutes of a solar-charge hint, a hold that is short by at most 2 kW is still published as solar charge. A bigger shortfall, or a longer gap, publishes the plan's own hint as before. The plan itself is unchanged.
+- **A steady solar-charge hint when solar is about equal to the load** (#2138). Around midday the plan could flip between charging from solar and holding every minute, and an automation following the hint switched the inverter mode each time. Now, within 5 minutes of a solar-charge hint, a hold that is short by at most 2 kW is still published as solar charge. A bigger shortfall, or a longer gap, publishes the plan's own hint as before. The plan itself is unchanged.
 
 ## [0.94.494] - 2026-10-28
 
