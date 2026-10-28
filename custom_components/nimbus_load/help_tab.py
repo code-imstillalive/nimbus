@@ -215,6 +215,26 @@ RELEASES_URL = "https://github.com/code-imstillalive/nimbus/releases"
 #: not listed.
 WHATS_NEW: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
+        "0.94.497",
+        "29 Oct 2026",
+        (
+            (
+                "**Home / away:** Configure -> Forecaster settings now keeps "
+                "Home / away, Planned departure and Planned return; before, "
+                "they reset to blank."
+            ),
+            (
+                "**Device setup:** a restart no longer shows a false "
+                "`capacity_missing` problem for its first five minutes."
+            ),
+            (
+                "**Battery participants:** a new *Report as* setting; flex "
+                "telemetry reports a car (one with a departure time or trip "
+                "calendar) as an EV."
+            ),
+        ),
+    ),
+    (
         "0.94.496",
         "28 Oct 2026",
         (
