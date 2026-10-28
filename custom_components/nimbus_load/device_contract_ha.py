@@ -85,6 +85,22 @@ _NUMBER_KEYS = tuple(
 )
 
 
+def numbers_ready(hass: Any, entry: Any) -> bool:
+    """True once every hub number this install has registered holds a value.
+    At startup the dry run can run before a number is restored, and a battery
+    with no capacity yet reads as `capacity_missing` (28 Oct 2026, the test
+    install). A number never registered (a new install) doesn't hold it up."""
+    registry = er.async_get(hass)
+    for key in _NUMBER_KEYS:
+        eid = registry.async_get_entity_id("number", DOMAIN, f"{entry.entry_id}_{key}")
+        if eid is None:
+            continue
+        state = hass.states.get(eid)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return False
+    return True
+
+
 def snapshot(hass: Any, entry: Any) -> dict[str, Any]:
     """This install's settings as the plain dict `import_legacy` reads."""
     registry = er.async_get(hass)

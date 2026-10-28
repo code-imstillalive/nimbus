@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **No false device-setup problem after a restart.** The dry run's first check ran before the battery's capacity number was restored, so for five minutes after every restart it reported `capacity_missing` (the unexplained problem on the test install on 28 Oct, named once #2145 shipped). The first check now waits until the hub's numbers are back, retrying every 15 s for up to 5 minutes.
+
 ## [0.94.496] - 2026-10-28
 
 **The device setup names what its dry run finds, the price blend's own accuracy is measured, and in `active` the setup now covers summed load circuits and generic price sensors.**
