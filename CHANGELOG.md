@@ -8,6 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+- **The Solver tab's price-source names follow your settings.** The Price sources table named each source from a copy of the setting taken when the tab was made, so a changed source kept its old name until the tab was rebuilt. The names now read the settings live. A Solver tab made before this release still holds the old copy: remove the tab and add it again once to pick this up.
 - **A price source changed to another sensor starts fresh in the blend.** The blend kept each source slot's accuracy score and learned offset, so a sensor moved into a slot (the reference household moved price source 3 from one PD7DAY tariff to the two-way trial) inherited the old sensor's share and had the old offset subtracted from its prices. A slot whose sensor changes now forgets its score and offset and is scored again from scratch.
 
 ## [0.94.497] - 2026-10-29
