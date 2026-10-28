@@ -115,6 +115,19 @@ def test_a_setting_still_restoring_or_unreadable_is_unresolved(monkeypatch, capl
         if k not in sm._SOLVER_ALL_KEYS
     ] == []
 
+    # test_every_field_the_wizard_shows_is_saved
+    # nimbus #2136: the wizard's final merge keeps only
+    # _SOLVER_WIZARD_SCHEMA_KEYS, so a field shown on a step but missing from
+    # it is accepted and silently dropped -- the site postcode (#2133) was.
+    shown = set()
+    for schema in (
+        _hub_options._solver_battery_schema({}),
+        _hub_options._solver_grid_schema({}),
+        _hub_options._solver_sources_schema({}),
+    ):
+        shown |= set(_hub_options._effective_schema_keys(schema))
+    assert sorted(shown - set(_hub_options._SOLVER_WIZARD_SCHEMA_KEYS)) == []
+
     # test_without_a_geocoded_sensor_the_postcode_setting_gives_the_region
     # nimbus #2133: the reference household has no Companion App geocoded
     # location, so the flex telemetry record never had a region; a postcode
