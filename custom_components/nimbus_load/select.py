@@ -393,14 +393,16 @@ class NimbusDeviceSetupModeSelect(SelectEntity):
         if tries < _FIRST_REFRESH_TRIES and not device_contract_ha.numbers_ready(
             self.hass, self._entry
         ):
+            # An async function, so Home Assistant runs the retry on its event
+            # loop. A plain lambda is run in a worker thread, where creating
+            # a task is refused (0.94.497's devhub validation, 29 Oct 2026:
+            # "calls hass.async_create_task from a thread other than the
+            # event loop") and the retry never happened.
+            async def _retry(_now: Any) -> None:
+                await self._async_first_refresh(tries=tries + 1)
+
             self.async_on_remove(
-                async_call_later(
-                    self.hass,
-                    _FIRST_REFRESH_RETRY_S,
-                    lambda _now: self.hass.async_create_task(
-                        self._async_first_refresh(tries=tries + 1)
-                    ),
-                )
+                async_call_later(self.hass, _FIRST_REFRESH_RETRY_S, _retry)
             )
             return
         await self._async_tick()

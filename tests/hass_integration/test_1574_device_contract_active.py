@@ -33,7 +33,10 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from custom_components.nimbus_load import coordinator as coord
 from custom_components.nimbus_load import (
@@ -563,11 +566,27 @@ async def test_the_device_setup_mode_select_changes_mode_and_says_why_not(
     -- `select.nimbus_device_setup_mode`, on the Solver tab. It goes through
     the same checked mode change as the service, so a refusal changes
     nothing and says why."""
-    entry, _numbers = await _setup(hass)
+    entry, numbers = await _setup(hass)
     before = _settings(hass, entry)
     select = NimbusDeviceSetupModeSelect(entry, "test")
     select.hass = hass
-    with patch.object(select, "async_write_ha_state"):
+    with patch.object(select, "async_write_ha_state") as written:
+        # test_the_first_dry_run_retries_on_the_event_loop_until_numbers_are_back
+        # 0.94.497 on devhub, 29 Oct 2026: the retry was a plain lambda, which
+        # Home Assistant ran in a worker thread, so creating its task was
+        # refused and the first report waited for the 5-minute refresh. With
+        # Home Assistant's own scheduler: a number not yet restored holds the
+        # first dry run back; once it's back, the next retry reports.
+        capacity = numbers["solver_battery_capacity_kwh"].entity_id
+        restored = hass.states.get(capacity).state
+        hass.states.async_set(capacity, "unavailable")
+        await select._async_first_refresh()
+        assert written.call_count == 0
+        hass.states.async_set(capacity, restored)
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=16))
+        await hass.async_block_till_done()
+        assert written.call_count == 1 and select.current_option == "legacy"
+
         await select._async_refresh()
         assert select.options == ["legacy", "shadow", "active"]
         assert select.current_option == "legacy"

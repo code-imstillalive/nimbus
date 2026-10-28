@@ -232,8 +232,21 @@ def test_choosing_a_mode_switches_it_or_says_why_not(setup_mode, monkeypatch):
         raising=False,
     )
     s.async_on_remove = lambda remove: None
+    actions: list = []
+    monkeypatch.setattr(
+        sys.modules["homeassistant.helpers.event"],
+        "async_call_later",
+        lambda hass, delay, action: (
+            retries.append(delay) or actions.append(action) or (lambda: None)
+        ),
+        raising=False,
+    )
     _run(s._async_first_refresh())
     assert retries == [sel._FIRST_REFRESH_RETRY_S] and s.writes == []
+    # The retry is an async function, which Home Assistant runs on its event
+    # loop; a plain function runs in a worker thread, where it can't create a
+    # task (found validating 0.94.497 on devhub).
+    assert asyncio.iscoroutinefunction(actions[0])
     _run(s._async_first_refresh(tries=sel._FIRST_REFRESH_TRIES))
     assert s.writes == ["legacy"]  # after 20 tries it reports anyway
     ready["now"] = True
