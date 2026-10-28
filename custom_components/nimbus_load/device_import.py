@@ -127,6 +127,37 @@ def _binding(entity_id: str, path: str, confirmed: bool) -> dict[str, Any]:
     }
 
 
+#: The grid's price roles whose sensor can carry the forecast too (slice 4).
+PRICE_FORECAST_ROLES = ("import_price", "export_price")
+
+
+def _price_forecast_binding(
+    entity_id: str, role: str, unit: str | None
+) -> dict[str, Any]:
+    """The `<role>_forecast` the Solver reads from a generic price sensor:
+    its `forecast` attribute, in the sensor's own unit. With no unit the
+    read is refused, never taken as $/kWh (DC-002). It is derived from the
+    price binding and has no settings key of its own, so the view writes
+    only the price binding's (DC-006 slice 4, #1574)."""
+    binding: dict[str, Any] = {
+        "source": {
+            "kind": "entity_attribute",
+            "entity_id": entity_id,
+            "attribute_path": "forecast",
+            "adapter": {"name": "generic_price_forecast", "version": 1},
+        },
+        "provenance": {
+            "origin": "legacy_import",
+            "derived_from": role,
+            "confirmed": False,
+        },
+        "normalization": {"quality": "forecast"},
+    }
+    if unit:
+        binding["normalization"]["native_unit"] = unit
+    return binding
+
+
 #: The Solver's solar forecast settings, in member order (DC-006 slice 3).
 _SOLAR_FORECAST_KEYS = (
     "solver_solar_forecast_sensor",
@@ -223,6 +254,19 @@ def import_legacy(snapshot: dict[str, Any]) -> ImportResult:
         demand["source"] = device_forecasts.forecast_source(
             [demand["source"]["entity_id"]], "nimbus_forecast"
         )
+
+    # DC-006 slice 4 (#1574): a price sensor no provider profile reads also
+    # gives the forecast the Solver reads from it.
+    sources = snapshot.get("price_sources") or {}
+    for role in PRICE_FORECAST_ROLES:
+        current = bindings["grid"].get(role)
+        if current is None:
+            continue
+        about = sources.get(current["source"]["entity_id"])
+        if about is not None and not about.get("profile"):
+            bindings["grid"][f"{role}_forecast"] = _price_forecast_binding(
+                current["source"]["entity_id"], role, about.get("unit")
+            )
 
     solar_forecast = _solar_forecast_binding(options, snapshot, confirmed_keys)
     if solar_forecast is not None:
