@@ -102,15 +102,18 @@ def test_each_schedule_sensor_publishes_its_own_figure(views):
 
 
 def test_the_schedule_view_is_told_the_kind_the_tank_and_todays_price(views):
+    # The clock as the sensor will read it, not at import: a suite running
+    # across midnight UTC put the two on different days.
+    now = datetime.now(UTC)
     tank = SimpleNamespace(
         state="eco", attributes={"current_temperature": 58.5, "temperature": 60.0}
     )
     plan = SimpleNamespace(
         attributes={
             "forecast": [
-                {"time": NOW.isoformat(), "import_price": 0.2},
-                {"time": NOW.isoformat(), "import_price": 0.4},
-                {"time": (NOW + timedelta(days=2)).isoformat(), "import_price": 9.0},
+                {"time": now.isoformat(), "import_price": 0.2},
+                {"time": now.isoformat(), "import_price": 0.4},
+                {"time": (now + timedelta(days=2)).isoformat(), "import_price": 9.0},
             ]
         }
     )
@@ -152,6 +155,27 @@ def test_todays_mean_import_price_reads_only_todays_plan():
             }
         )
         assert sm._today_mean_import_price(_hass(states), NOW) == mean
+
+    # test_the_days_price_is_the_installs_own_day
+    # At 09:30 in Brisbane (23:30 UTC the day before), today is Brisbane's 28
+    # Oct: its 08:00 and 23:00 periods count, and the 27th's 23:00 doesn't.
+    # Read by UTC date, the 27th's periods were averaged in every morning.
+    hass = _hass(
+        {
+            "sensor.nimbus_solver_battery_forecast": SimpleNamespace(
+                attributes={
+                    "forecast": [
+                        {"time": "2026-10-27T13:00:00+00:00", "import_price": 9.0},
+                        {"time": "2026-10-27T22:00:00+00:00", "import_price": 0.2},
+                        {"time": "2026-10-28T13:00:00+00:00", "import_price": 0.4},
+                    ]
+                }
+            )
+        }
+    )
+    hass.config.time_zone = "Australia/Brisbane"
+    morning = datetime(2026, 10, 27, 23, 30, tzinfo=UTC)
+    assert sm._today_mean_import_price(hass, morning) == pytest.approx(0.3)
 
     # test_the_commanded_state_sensor_says_on_or_off_with_the_run_state_and_settings
     state = lrs.LoadRunState(

@@ -21,6 +21,7 @@ import re
 import time
 from collections import deque
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -1710,6 +1711,8 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_MASE_SCALE_POINTS: data.get("mase_scale_points", 0),
             ATTR_RESAMPLE_MINUTES: data.get("resample_minutes", 0),
             ATTR_TRAINING_SPAN_DAYS: data.get("training_span_days", 0.0),
+            # nimbus #2129: a bursty load's learned runs (None otherwise).
+            "run_profile": data.get("run_profile"),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
             ATTR_SOURCE_SENSOR: self._source_sensor,
@@ -1887,20 +1890,28 @@ def _today_mean_import_price(hass: HomeAssistant, now: datetime) -> float | None
     point (the plan's own FORECAST mean, not a retrospective realized
     mean -- see that comment for the full reasoning). None whenever the
     forecast entity/attribute isn't available yet, or has no periods
-    landing on today's own date -- an honest "unknown", never a
-    fabricated number."""
+    landing on today's own date (the install's time zone) -- an honest
+    "unknown", never a fabricated number."""
     forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
     if forecast_state is None:
         return None
     forecast = forecast_state.attributes.get("forecast")
     if not isinstance(forecast, list) or not forecast:
         return None
-    today = now.date()
+    # The install's own day, not UTC's: in Brisbane a UTC date runs 10:00 to
+    # 10:00, so the "day's price" averaged the wrong periods every morning.
+    try:
+        zone = ZoneInfo(str(getattr(hass.config, "time_zone", None) or "UTC"))
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("UTC")
+    today = now.astimezone(zone).date()
     prices = []
     for entry in forecast:
         try:
             entry_time = datetime.fromisoformat(entry["time"])
-            if entry_time.date() == today:
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=zone)
+            if entry_time.astimezone(zone).date() == today:
                 prices.append(float(entry["import_price"]))
         except (KeyError, TypeError, ValueError):
             continue
