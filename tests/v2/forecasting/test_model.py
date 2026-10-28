@@ -176,6 +176,21 @@ def test_no_history_or_too_little_is_no_model(caplog, house):
     assert ended[:12] == forecast(stamps[:12])
     assert ended[12:] == forecast(stamps[12:], seasonal_anchor=True)
 
+    # test_a_burst_load_that_has_just_stopped_takes_its_usual_pattern_at_once
+    # #2137: off after a long run, the household's AC was still chained on
+    # for three hours; stopped, the forecast is its usual pattern from now.
+    # The learned k-NN model reads recent readings; seasonal-naive would not.
+    learned = _as_knn(bursty)
+    stopped = [(END - timedelta(hours=2), 1.2), (END - timedelta(minutes=20), 0.02)]
+
+    def from_stopped(**kw):
+        return model.predict(
+            learned, stamps, [20.0] * 32, [0.0] * 32, stopped, STEP, **kw
+        ).values
+
+    assert from_stopped(burst_stopped=True) == from_stopped(seasonal_anchor=True)
+    assert from_stopped(burst_stopped=True) != from_stopped()
+
     # test_a_sensor_too_sparse_for_recursive_validation_is_named_as_such
     caplog.clear()
     trained, line = _selection_log(caplog, _sparse(5), max_staleness_minutes=600)
